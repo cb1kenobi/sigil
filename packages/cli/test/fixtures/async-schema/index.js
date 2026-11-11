@@ -3,12 +3,27 @@
 // it is. Its name differs from the package's on purpose: a built app that lost
 // the schema falls back to its file name, and `asyncapp` is then nowhere on the
 // screen.
-export default async () => ({
-  baseDir: import.meta.dirname,
-  commands: './commands',
-  desc: 'An app whose schema is awaited',
-  name: 'asyncapp',
-  options: {
-    '-l, --loud': { desc: 'Say it louder' },
-  },
-});
+//
+// `ASYNC_SCHEMA` steers the failure paths: `reject` rejects, with an exit code
+// of its own, and `rethrow` asks `main()` to rethrow its own errors with
+// `errorHandler: false`, which has to stay a rejection rather than be rendered
+// by the entry. `throwing.js` beside this is the sync function that throws.
+export default async () => {
+  const mode = process.env.ASYNC_SCHEMA;
+
+  await Promise.resolve();
+  if (mode === 'reject') {
+    throw Object.assign(new Error('schema rejected'), { exitCode: 4 });
+  }
+
+  return {
+    baseDir: import.meta.dirname,
+    commands: './commands',
+    desc: 'An app whose schema is awaited',
+    name: 'asyncapp',
+    options: {
+      '-l, --loud': { desc: 'Say it louder' },
+    },
+    ...(mode === 'rethrow' && { settings: { errorHandler: false } }),
+  };
+};

@@ -785,11 +785,33 @@ function key(name: string): string {
  *   editor and a sourcemap count `\n`. So a raw one moves every line number
  *   after it in exactly the place nobody can see it.
  *
+ * The second step is `escapeUnseen()`, which a template literal's text goes
+ * through too.
+ *
  * @param value - The string.
  * @returns The literal.
  */
 export function quote(value: string): string {
-  return JSON.stringify(value).replaceAll(
+  return escapeUnseen(JSON.stringify(value));
+}
+
+/**
+ * Every control character and line separator in a piece of source, as a
+ * `\uXXXX` escape.
+ *
+ * The half of `quote()` that is not JSON's, apart so that `generate.ts`'s
+ * `backtick()` -- a `__` key printed as a template literal, which JSON cannot
+ * quote -- escapes the same set by the same rule rather than a list of its
+ * own. Only for text that is already inside a string or a template literal,
+ * where `\uXXXX` cooks back to the character it replaced; the caller has
+ * already escaped its own backslashes, so none of these is read as anything
+ * but the escape it is.
+ *
+ * @param source - The quoted text.
+ * @returns It with nothing invisible left raw.
+ */
+export function escapeUnseen(source: string): string {
+  return source.replaceAll(
     /[\p{Cc}\p{Zl}\p{Zp}]/gu,
     (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
   );

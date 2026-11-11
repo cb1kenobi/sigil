@@ -93,4 +93,84 @@ describe('an async schema built to the same help as from source', () => {
     expect((await ask('built', '--help')).stdout).toBe(source);
     expect((await ask('cjs', '--help')).stdout).toBe(source);
   });
+
+  describe.each(['built', 'cjs'])('%s, where the schema rejects', (kind) => {
+    it('should render the message through errorHandler, with no stack and no source line', async () => {
+      // SIG-353: there is no `main()` yet to catch it, so it reached Node's own
+      // report -- a stack, and the whole minified line of the bundle it was on,
+      // which is several kB in the cjs form. The error's own exit code is kept,
+      // which is `errorHandler()`'s rule for anything `main()` catches
+      const ran = await spawnNode(targets[kind]!, out, ['--help'], { ASYNC_SCHEMA: 'reject' });
+
+      expect(ran.stderr).toBe('Error: schema rejected\n');
+      expect(ran.stdout).toBe('');
+      expect(ran.code).toBe(4);
+    });
+
+    it('should leave a rejection main() was asked to make as a rejection', async () => {
+      // `errorHandler: false` is the app saying it wants the throw, so the
+      // entry's own handling must cover the schema and nothing after it: an
+      // unknown command still crashes the way it does from a runner of the
+      // app's own
+      const ran = await spawnNode(targets[kind]!, out, ['nope', '--typo'], {
+        ASYNC_SCHEMA: 'rethrow',
+      });
+
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toMatch(STACK);
+    });
+  });
+});
+
+/**
+ * The two other shapes of a schema export the entry now takes: a Promise
+ * exported outright, and a function that throws before it returns anything.
+ * Built from the same fixture with `--entry`, in both forms of the entry.
+ */
+describe('a schema exported as a Promise, and one that throws', () => {
+  /** Bundles the fixture from one of its entries, in one form. */
+  const bundle = async (entry: string, form: 'cjs' | 'esm'): Promise<string> => {
+    const out = tempDir(`sigil-async-schema-${entry}-${form}-`);
+    await bundleApp({
+      app: discoverApp(app, { entry: join(app, `${entry}.js`) }),
+      binName: 'async-schema',
+      form,
+      out,
+      sourcemap: false,
+      tree: resolveCommandTree(join(app, 'commands')),
+    });
+    return join(out, `async-schema.${form === 'cjs' ? 'cjs' : 'mjs'}`);
+  };
+
+  const bins: Record<string, string> = {};
+
+  beforeAll(async () => {
+    for (const entry of ['promised', 'throwing']) {
+      for (const form of ['esm', 'cjs'] as const) {
+        bins[`${entry} ${form}`] = await bundle(entry, form);
+      }
+    }
+  }, 60_000);
+
+  describe.each(['esm', 'cjs'])('%s', (form) => {
+    it('should await a Promise exported in place of a function', async () => {
+      // the shape `await declared()` alone still lost: there is no function to
+      // call, and the Promise was spread into nothing
+      const ran = await spawnNode(bins[`promised ${form}`]!, app, ['hello', '-l']);
+
+      expect(ran.stdout).toBe('HELLO\n');
+      expect(ran.code).toBe(0);
+      expect((await spawnNode(bins[`promised ${form}`]!, app, ['--help'])).stdout).toMatch(
+        /^Usage: asyncapp \[options\] <command>$/m
+      );
+    });
+
+    it('should render a schema that throws synchronously the way it renders a rejection', async () => {
+      const ran = await spawnNode(bins[`throwing ${form}`]!, app, ['--help']);
+
+      expect(ran.stderr).toBe('Error: schema threw\n');
+      expect(ran.stdout).toBe('');
+      expect(ran.code).toBe(1);
+    });
+  });
 });

@@ -125,7 +125,8 @@ export interface BundleOptions {
    * Node single executable runs its embedded main script as CommonJS and cannot
    * `import()` anything at all. It is one file rather than an entry and chunks,
    * since a SEA has nowhere to put a chunk, and its generated entry wraps the
-   * `main()` call because CommonJS cannot hold a top-level `await`.
+   * schema's resolution and the `main()` call in an async function, because
+   * CommonJS cannot hold a top-level `await`.
    *
    * It is not offered as a build output, and that is deliberate: a `.cjs`
    * written into `dist/` is a thing somebody would run directly, where the

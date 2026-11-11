@@ -66,6 +66,7 @@
  * cannot claim is simply left alone with the whole sheet behind it.
  */
 
+import { quote } from '../template/emit.ts';
 import { generateUtilities, utilities } from '../utilities/index.ts';
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
@@ -757,10 +758,14 @@ export function shakeStyles(
   // temporal dead zone, so a module reached through an import cycle before its
   // own body has run would throw a `ReferenceError` where `utilitySheet()`
   // answered. `var` and a function declaration hoist, so neither can
+  //
+  // Both strings go through `quote()`, the one helper for a string printed as
+  // source, rather than a bare `JSON.stringify` that leaves a U+2028 in the CSS
+  // raw -- which V8 counts as a line break, moving every line number after it
   const head =
-    `import { parseStylesheet as ${prefix}p } from ${JSON.stringify(STYLE_MODULE)};\n` +
+    `import { parseStylesheet as ${prefix}p } from ${quote(STYLE_MODULE)};\n` +
     `var ${memo};\n` +
-    `function ${read}() { return ${memo} ??= ${prefix}p(${JSON.stringify(sheet.css)}); }\n`;
+    `function ${read}() { return ${memo} ??= ${prefix}p(${quote(sheet.css)}); }\n`;
 
   // the head is an `import`, and prepending one can only ever reach a module
   // that already has one: the matcher reads oxc's record of the module's

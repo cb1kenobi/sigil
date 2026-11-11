@@ -542,6 +542,28 @@ describe('a translated description', () => {
     expect(desc).toBe(prose);
   });
 
+  it('should escape a control character in a translated key, as the untranslated path does', () => {
+    // SIG-353: `quote()` escaped ESC, DEL and the C1 controls in a plain
+    // description while `backtick()` wrote them raw into the module for a
+    // translated one. Built from code points so that no tool between here and
+    // the file turns an escape into the character
+    const raw = [0x1b, 0x7f, 0x85, 0x2028, 0x2029].map((point) => String.fromCharCode(point));
+    const key = `a ${raw.join(' b ')} \t end`;
+    const source = generateCommands(treeWith(key, true), { from: '/app' });
+
+    for (const char of raw) {
+      expect(source.includes(char), JSON.stringify(char)).toBe(false);
+    }
+    // and the key the tag looks up is the one lifted, which is what the escape
+    // has to keep: `__` reads the cooked quasis, and `\uXXXX` cooks back
+    const body = source.replace(/^import .*\n/, '').replace('export const', 'const');
+    // eslint-disable-next-line no-new-func
+    const cooked = new Function('__', `${body}\nreturn commands.a.desc();`)(
+      (parts: readonly string[]) => parts.join('')
+    ) as string;
+    expect(cooked).toBe(key);
+  });
+
   it('should not leave a raw backtick in the template it printed', () => {
     // the round trip above is the claim; this is the one spelling worth
     // pinning, because an unescaped backtick is a syntax error rather than a
@@ -596,24 +618,41 @@ describe('the generated executable', () => {
       },
     });
 
-    expect(source).to.contain('import { main } from "@scope/runtime";');
+    expect(source).to.contain('import { errorHandler, main } from "@scope/runtime";');
     expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
   });
 
-  it('should await a schema function, which an async one needs', () => {
+  /**
+   * The startup chain both forms share: the export resolved and awaited, then
+   * handed to `main()`, with only the schema's own failure rendered here.
+   */
+  const startup = [
+    'Promise.resolve()',
+    "  .then(() => (typeof declared === 'function' ? declared() : declared))",
+    '  .then(',
+    '    (schema) => main({ schema: {',
+    '  ...schema,',
+    '  commands,',
+    '} }),',
+    '    (err) => errorHandler(err),',
+    '  )',
+  ].join('\n');
+
+  it('should await the schema export, function or Promise, and render its failure', () => {
     // SIG-353: `declared()` was spread unawaited, so an `async` schema was a
-    // Promise and the built app had no name, description or options. Awaiting a
-    // plain object hands it back, so one spelling serves both kinds
+    // Promise and the built app had no name, description or options -- and a
+    // Promise exported outright, or a function that threw, was no better. The
+    // two-argument `.then()` is what keeps a rejection `main()` was asked to
+    // make (`errorHandler: false`) away from the handler meant for the schema
     const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
 
-    expect(source).to.contain(
-      "const exported = { ...app };\nconst declared = exported.default ?? exported.schema;\nconst schema = typeof declared === 'function' ? await declared() : declared;\n\n// `commands` last, because the baked tree is the one property the build knows\n// better than the app does -- everything else is the app's own\nawait main({ schema: {\n  ...schema,\n  commands,\n} });\n"
-    );
+    expect(source).to.contain('import { errorHandler, main } from "@ttylabs/sigil";');
+    expect(source).to.contain(`\nawait ${startup};\n`);
   });
 
   it('should await it inside the function in the CommonJS form, where module scope cannot', () => {
-    // rolldown refuses a top-level `await` in a `cjs` bundle, so the schema's
-    // await goes where the call's already went: inside the async IIFE
+    // rolldown refuses a top-level `await` in a `cjs` bundle, so the whole chain
+    // -- the schema's resolution with it -- goes inside the async IIFE
     const source = generateBin({
       from: '/app/out',
       schemaModule: '/app/src/index.ts',
@@ -621,9 +660,7 @@ describe('the generated executable', () => {
       wrap: true,
     });
 
-    expect(source).to.contain(
-      "void (async () => {\n  const schema = typeof declared === 'function' ? await declared() : declared;\n  await main({ schema: {\n  ...schema,\n  commands,\n} });\n})();\n"
-    );
+    expect(source).to.contain(`\nvoid (async () => {\n  await ${startup};\n})();\n`);
     // every `await` in the module is inside that function
     expect(source.slice(0, source.indexOf('void (async () => {'))).to.not.contain('await ');
   });

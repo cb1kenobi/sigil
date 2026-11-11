@@ -902,16 +902,46 @@ makes it testable with a fixture directory and no bundler at all.
   description and none of the root options, and the build reported success with
   no warning. `sigil reference` already awaited the same export
   (`schemaFrom()` in `src/reference/load.ts`), so two commands of one toolchain
-  disagreed about what a valid schema export is. The entry now awaits it
-  whatever kind of function it is: awaiting a plain object hands it straight
-  back, and a sync function returning a Promise is an async schema too, so
-  asking whether the function is `async` would be the wrong question. The
-  `cjs` form `sigil package --runtime node` bundles cannot hold a top-level
-  `await`, so there the schema is resolved inside the async IIFE the call was
-  already in, which is the same code moved rather than a second rule.
-  `test/async-schema.test.ts` runs the fixture from source, built, and as the
-  `cjs` bundle node would embed, through one `describe.each`, and asserts the
-  three print the same help; `tree.test.ts` pins both shapes of the entry.
+  disagreed about what a valid schema export is. The entry now awaits **what
+  the export resolves to**, a function's result or the export itself: awaiting a
+  plain object hands it straight back, a sync function returning a Promise is
+  an async schema too, and so is a Promise exported outright -- which
+  `await declared()` alone still spread into nothing, and which `sigil
+  reference` took only because an `async` function adopts a Promise it returns,
+  so its check for a schema was asked of the Promise. Both now say
+  `await (typeof declared === 'function' ? declared() : declared)`, and
+  reference's message names all three shapes. The `cjs` form `sigil package
+  --runtime node` bundles cannot hold a top-level `await`, so there the same
+  chain runs inside the async IIFE the call was already in, which is the same
+  code moved rather than a second rule. `test/async-schema.test.ts` runs the
+  fixture from source, built, and as the `cjs` bundle node would embed, through
+  one `describe.each`, and asserts the three print the same help; it builds a
+  Promise export and a throwing one from the same fixture with `--entry`; and
+  `tree.test.ts` pins both shapes of the entry.
+
+  **A schema that throws or rejects is rendered by `errorHandler()`, and only
+  the schema's failure is.** It was not a regression and it was the same line:
+  a schema function that threw reached Node's own uncaught report, with a stack
+  and the whole minified source line it sat on -- about 1.8 kB in the ESM entry
+  and 11 kB from line 1136 of the `cjs` bundle, measured -- where the rule
+  `main()` keeps is the message and never a stack. There is no `main()` yet to
+  catch it, so the entry resolves and dispatches in one chain,
+  `Promise.resolve().then(resolve).then((schema) => main(...), (err) =>
+  errorHandler(err))`, which renders `Error: schema threw` and sets the exit
+  code through `errorExitCode()` as anything `main()` catches is, an `exitCode`
+  on the error included. The built-in handler and no other, because the
+  settings that could name another are on the schema that failed to arrive.
+  The **two-argument** `.then()` rather than a `.catch()` is the decision: with
+  `errorHandler: false` an app asks `main()` to reject, and a `.catch()` after
+  the call would render that rejection instead of leaving it to the app --
+  `should leave a rejection main() was asked to make as a rejection` fails
+  against exactly that sabotage, and the render tests fail against dropping the
+  handler. Nothing an app relies on moved: the path that changed used to crash.
+
+  **Not settled here:** the dev runner `sigil new` scaffolds
+  (`src/scaffold/index.ts`) passes the export to `main()` as it stands, so an app
+  whose schema is a function or a Promise behaves the same from source and built
+  only if its own runner awaits it, as the fixture's `dev.mjs` does.
 
   Every other place the toolchain reads the schema export was checked for the
   same sync-only assumption, and none has it, because none runs the export:
@@ -948,6 +978,14 @@ makes it testable with a fixture directory and no bundler at all.
   meant to show their escapes; it says it in words now.
   It lives in `src/template/emit.ts` and `generate.ts` imports it, because the
   build already depends on the template emitter and not the other way round.
+  Its second step is `escapeUnseen()`, which `generate.ts`'s `backtick()` uses
+  too: a translated description is a `__` key printed as a template literal,
+  which JSON cannot quote, and it wrote `ESC`, `DEL` and C1 into the module raw
+  while the untranslated path escaped them. `\uXXXX` cooks back to the
+  character, so the key the tag looks up is unchanged. The other two places
+  that printed a string as source with a bare `JSON.stringify` use `quote()` as
+  well: the utility sheet `shake.ts` splices into a module, and the `define`
+  value `update-check.ts` hands the bundler.
 - **The build summary's `Loads` column reads rolldown's graph, not "is it the
   entry".** SIG-353. Every chunk but the entry said `lazy`, and on a scaffolded
   app the 0.8 kB entry statically imports about 12 kB more, so what `--help`
