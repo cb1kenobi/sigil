@@ -869,15 +869,27 @@ toolchain's one reader.
   | 2,000 | 298.2 ms  | 25.7 ms |
   | 4,000 | 2442.7 ms | 95.9 ms |
 
-  What is left is one `indexOf()` per element, the same cost `+` and
-  `:nth-child()` pay -- both about 26ms at 8,000 rows -- so there is deliberately
-  **no index cache**: it would buy little at those sizes, and a cache keyed on a
-  children array has to be cleared by every write to that array, which the
-  element tree makes in place. `should find its siblings once per element, not
-  once per step back` counts the entries `indexOf()` reads rather than timing
-  anything: doubling the list is 8x the reads before and 4x after, and the bound
-  is 6x. A chain of `~` steps (`a ~ b ~ c`) still backtracks the way a chain of
-  descendant steps does, which is the matcher's shape rather than this defect.
+  That is quadratic over the list, as `+` and `:nth-child()` are, and it is
+  **not** their cost: what is left is the backward walk itself, which tests the
+  left compound against every earlier sibling until one matches, and when none
+  does that is the whole list. It dominates the one `indexOf()` per element by
+  far -- 135.5ms for `~` at 4,000 rows in a re-run beside 15.8ms for `row + row`
+  and 14.1ms for `row:nth-child(odd)`, and a review measured 55.7ms against
+  1.4ms, so the constant is roughly ten to forty times theirs. It is inherent
+  to `~`, since any of those siblings could be the one that matches, and it is
+  the argument against an **index cache**: a cache would remove only the
+  `indexOf()`, which is the small part, and a cache keyed on a children array
+  has to be cleared by every write to that array, which the element tree makes
+  in place. `should find its siblings once per element, not once per step back`
+  counts the entries `indexOf()` reads rather than timing anything: doubling the
+  list is 8x the reads before and 4x after, and the bound is 6x.
+
+  A **chain** of `~` steps is still cubic. `.a ~ row ~ row` with no `.a`
+  backtracks the inner step from every `row` the outer one finds, the way a
+  chain of descendant steps does, and the review measured 2.3, 20.1 and 155.6ms
+  at 125, 250 and 500 rows, against 5.3, 59.4 and 768.8ms before. That is the
+  matcher's shape rather than this defect, and a memo of which siblings matched
+  the inner step would be the fix if a sheet ever needs one.
 
 - **A cascade can take a sheet out and put another in its place, and a change to
   it restyles on its own (SIG-307).** `remove(sheet)` answers whether it was
