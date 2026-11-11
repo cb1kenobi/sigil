@@ -177,6 +177,40 @@ describe('the --help flag', () => {
   });
 });
 
+// the same two-reader check `--help` and `--quiet` make, pinned for the third
+// flag that `addFreeFlag()` adds
+describe('the --version flag', () => {
+  const base: Schema = { completion: false, help: false, name: 'mycli', quiet: false };
+
+  it('should not replace an option that took the name version', async () => {
+    const schema: Schema = {
+      ...base,
+      options: { '-x': { desc: 'The app own', name: 'version' } },
+      version: '1.2.3',
+    };
+    const state = await parse({ argv: ['-x'], schema });
+    expect(state.version).toBeUndefined();
+    expect(state.argv.version).toBe(true);
+    const { options } = state.contexts[0][Internal];
+    expect(options.find('--version')).toBeFalsy();
+    expect(options.get('version')?.desc).toBe('The app own');
+    expect(options.size).toBe(1);
+  });
+
+  it('should keep -v for the app and still add --version', async () => {
+    const schema: Schema = {
+      ...base,
+      options: { '-v, --verbose': 'Say more' },
+      version: '1.2.3',
+    };
+    const state = await parse({ argv: ['--version'], schema });
+    expect(state.version).toBe('1.2.3');
+    const { options } = state.contexts[0][Internal];
+    expect(options.find('-v')?.name).toBe('verbose');
+    expect(options.find('--version')?.format).toBe('--version');
+  });
+});
+
 // `mycli build --help` is asking what `build` needs, and answering "you did not
 // say" is not an answer
 describe('short-circuiting', () => {

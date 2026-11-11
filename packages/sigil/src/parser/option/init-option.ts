@@ -2,6 +2,7 @@ import { Internal, InternalOption, InternalState, Option } from '../../types.js'
 import { assertSectionTitle } from '../../util/assert-label.js';
 import { camelCase } from '../../util/camel-case.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { envNames } from '../../util/env-names.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { OPTION_DATA_TYPES } from '../../util/transform.js';
@@ -195,22 +196,7 @@ export async function initOption(it: Option | InternalOption): Promise<InternalO
     }
   }
 
-  const envs = new Set<string>();
-  if (opt.env !== undefined) {
-    const env = typeof opt.env === 'string' ? [opt.env] : opt.env;
-
-    if (!Array.isArray(env)) {
-      throw new TypeError(
-        'Expected option environment variable to be a string or array of strings'
-      );
-    }
-
-    for (const e of env) {
-      if (e && typeof e === 'string') {
-        envs.add(e);
-      }
-    }
-  }
+  const envs = envNames(opt.env, 'option');
 
   if (opt.choices !== undefined) {
     if (!Array.isArray(opt.choices)) {
