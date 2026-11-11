@@ -292,37 +292,50 @@ the entry it belongs to.
   finished. So a derivation it passes through is left `DIRTY` with nothing
   committed or swept, and the reader gets `Computed chain too deep`, with the
   engine's error as its `cause`; reading the chain from the bottom up works at
-  any depth. The engine's overflow is taken for the chain's only when another
-  computed is evaluating around the one that caught it: a top-level computed
-  whose own code recursed without end is cached under the engine's message, as
-  it always was. An ordinary `RangeError` is cached as before.
+  any depth. The state is marked only after the commit, so a run that the stack
+  ran out in anywhere -- the catch and the commit are both reached cold at the
+  edge -- stays `DIRTY` rather than `CLEAN` over nothing, which once read back
+  `undefined` for good. Three smaller rules keep that sound:
 
-  Four things keep a link from ending up clean over a value it never committed,
-  and each was a defect found by moving where the stack runs out with
-  `--stack-size` -- which is why it showed on some CI jobs and not others, and
-  reproduces on any platform given the right size. The state is marked only
-  after the commit, so a run the catch or the commit overflowed in -- both are
-  reached cold at the very edge of the stack -- stays `DIRTY`. `get()` raises
-  `unfinished` before it refreshes and lowers it only once the refresh is done,
-  so a body that catches a read that never finished and returns a fallback has
-  that value committed but stays `DIRTY`, and so does every run around it;
-  counted when an overflow is caught instead, it missed every overflow that also
-  took the handler down. A refresh that throws the too-deep error still records
-  the read, so a reader has an edge to what it could not read and a write that
-  reaches it once it is readable reaches the reader. And a run nested more than
-  64 deep uses a fixed sixteen frames before its body, so a body is never called
-  at the very edge of the stack: there the engine raises the overflow at the
-  call into `get()` itself, before any of the graph's code runs, and a body
-  that caught that one cached its fallback with no edge at all -- reliably, once
-  the code was optimized. What is still outside it is a body that reaches a read
-  through more stack of its own than those sixteen frames.
+  - **A run cut short stays `incomplete`, and a write passes through it once.**
+    It is `DIRTY`, which ordinarily says its subgraph has been told, and here
+    nothing has: what read it was handed an error, not a write. Without this an
+    effect that read through such a node never heard of the chain again however
+    readable it became. The read is still recorded on the way out, so the reader
+    has an edge to what it could not read.
+  - **Within one outermost read, a run cut short is not run again.** A retry
+    starts no shallower than the run that failed, so it fails again, and a body
+    that reads the same source twice -- or two sources sharing the chain below --
+    retried a whole subchain per level: work that doubled with every level the
+    edge cut through, millions of runs for a chain `main` read in two thousand.
+    It rethrows instead, and the next outermost read tries afresh.
+  - **The engine's overflow is the chain's only under more than `CHAIN_DEPTH`
+    (64) computeds evaluating one inside the next.** A chain runs out hundreds or
+    thousands deep; fewer is a body's own runaway recursion, whether it is read
+    from the top or from inside another computed, and that is cached under the
+    engine's message as it always was. An ordinary `RangeError` is cached too.
 
-  An effect is exempt from being left dirty, for the reason a failed sweep
+  An effect is never left dirty by any of this, for the reason a failed sweep
   exempts it: a flush treats anything not `CLEAN` as pending, so it would be run
-  and reported on every pass. It caches the error once and is reported once,
-  whether its own body ran out or asking its sources did before the body could
-  run, and it keeps its edges -- so it runs again when a write reaches it once
-  the chain can be read, and not before. See `test/signals/deep-chain.test.ts`.
+  and reported on every pass. It caches the error and is reported once, whether
+  its own body ran out or asking its sources did before the body could run, and
+  it keeps its edges, so it runs again when a write reaches it once the chain can
+  be read.
+
+  **A body that catches the error is not second-guessed, and a chain whose links
+  catch it is not guaranteed.** What a catching body returns is an answer like
+  any other and is cached, with the edge recorded on the way out, so a write that
+  reaches what it failed to read reaches it. At the very edge of the stack the
+  engine can raise the overflow at the call into `get()` itself, before any of
+  the graph's code runs to record that edge, and the fallback is then cached with
+  none -- measured with the reviewer's sweep, a 30,000-link chain whose every link
+  catches is left with wrong links at about two stack sizes in three. `main`
+  crashes on the same sweep. Closing it took a pessimistic counter of unfinished
+  reads and a fixed headroom probe before deep bodies, and a review found each
+  one broken in turn -- fallbacks left dirty re-ran exponentially, the probe
+  shrank once optimized -- so the guarantee was narrowed instead. Read a deep
+  chain from the bottom up rather than catching inside it. See
+  `test/signals/deep-chain.test.ts`.
 
 - **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A
   watcher is only told about a node going from clean to dirty, and propagation

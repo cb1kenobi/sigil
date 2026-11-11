@@ -80,6 +80,16 @@ interface Consumer {
    * clean over a value it computed from what a source held before the write.
    */
   stale: boolean;
+  /**
+   * The outermost read (see `read`) in which this one's last run started and
+   * never finished -- abandoned for a chain too deep, or cut short by the stack
+   * running out in the graph's own code -- and `0` once a run has finished. Such
+   * a node is `DIRTY`, which ordinarily says its subgraph has already been told,
+   * and here nothing has: what read it was handed an error, not a write. So the
+   * next write to reach it passes through it once (see `invalidate()`), and
+   * within the read it failed in it is not run again (see `#run()`).
+   */
+  incomplete: number;
   /** A watcher is notified rather than marked, and is always live. */
   readonly isWatcher: boolean;
   notify(): void;
@@ -355,8 +365,15 @@ function invalidate(sink: Consumer, state: NodeState, errors: unknown[]): boolea
   }
 
   if (sink.state >= state) {
-    // already at least this invalidated, so its subgraph has been told
-    return false;
+    // already at least this invalidated, so its subgraph has been told -- unless
+    // its last run never finished, when what read it was handed an error rather
+    // than a write, and an effect that let it through would otherwise never hear
+    // of the chain again. Passed through once, which is what keeps this linear
+    if (sink.incomplete === 0) {
+      return false;
+    }
+    sink.incomplete = 0;
+    return true;
   }
 
   // only a node that was clean has a subgraph that has not heard yet
@@ -470,70 +487,41 @@ function raise(errors: unknown[], message: string): void {
  */
 const tooDeep = new WeakSet<object>();
 
-/**
- * How many computed reads have started and not finished. `get()` raises it
- * before it refreshes and lowers it once the refresh is done or has thrown an
- * ordinary error, so a read the stack ran out under leaves it raised whatever
- * the stack ran out in -- the chain, or the very code that handles running out,
- * which at the edge of the stack overflows too. A run reads it before its body
- * and after, so a run that a read like that happened inside -- one whose body
- * caught the error and returned a fallback, or read something that did -- knows
- * its value came from a read that never finished, and stays `DIRTY` over it.
- *
- * Raised pessimistically rather than counted when an overflow is caught,
- * because catching one takes stack: counted in the handler, the overflows that
- * also took the handler down were exactly the ones it missed.
- */
-let unfinished = 0;
-
-/**
- * How many computeds are evaluating, one inside the next. An overflow raised
- * while none is evaluating around the run that caught it is that body's own --
- * runaway recursion in its own code -- and is cached like any other throw.
- */
+/** How many computeds are evaluating, one inside the next. */
 let running = 0;
 
 /**
- * How deep in nested evaluation a run starts asking for headroom before it runs
- * its body. Shallower than this nothing pays for it but one comparison.
+ * Which outermost read is under way: bumped by every run that starts with
+ * nothing evaluating around it. A run cut short by the stack is not run again
+ * inside the same read, and this is how a run knows it is the same read.
  */
-const HEADROOM_DEPTH = 64;
+let read = 0;
+
+/** The error the current read rethrows for a run it already saw cut short. */
+let readError: RangeError | undefined;
 
 /**
- * Uses a fixed amount of native stack and gives it back, so that a run nested
- * deep enough to be near the end of the stack runs out *here*, in the graph's
- * own code inside the reader's `get()`, rather than in its body.
- *
- * A body at the very edge of the stack is the one place a read can fail where no
- * code of the graph's runs at all: the engine raises the overflow at the call
- * into `get()` itself, before it can record anything, so a body that catches it
- * returns a fallback that looks exactly like a value -- committed `CLEAN`, with
- * no edge to the source it never read. Measured: in a warmed-up worker, a chain
- * of links that each fall back on a failed read was left with one such link and
- * every link above it reading through it, for good. Running out in here instead
- * abandons the run in a way the reader's `unfinished` sees.
- *
- * @param levels - How many frames to use.
- * @returns Nothing anybody reads; a value keeps the recursion from being
- * reduced away.
+ * How many computeds have to be evaluating one inside the next before the engine
+ * running out of stack under them is taken for a chain's. Fewer, and it ran out
+ * in a body's own code -- runaway recursion of its own, or a caller's deep stack
+ * -- which is an answer about that code and is cached under the engine's own
+ * message, as it always was. A chain runs out hundreds or thousands deep.
  */
-function headroom(levels: number): number {
-  return levels === 0 ? 0 : headroom(levels - 1) + 1;
-}
+const CHAIN_DEPTH = 64;
 
 /**
  * Whether a thrown value is a chain running out of stack: the error a run
- * already made of one, or the engine's own overflow raised while one computed
- * was evaluating inside another.
+ * already made of one, or the engine's own overflow raised under more than
+ * `CHAIN_DEPTH` computeds evaluating one inside the next.
  *
  * @param error - What was thrown.
- * @param nested - Whether another computed is evaluating around the one asking.
  * @returns Whether it is a chain too deep to evaluate.
  */
-function isTooDeep(error: unknown, nested: boolean): error is RangeError {
+function isTooDeep(error: unknown): error is RangeError {
   return (
     error instanceof RangeError &&
-    (tooDeep.has(error) || (nested && error.message.startsWith('Maximum call stack size exceeded')))
+    (tooDeep.has(error) ||
+      (running > CHAIN_DEPTH && error.message.startsWith('Maximum call stack size exceeded')))
   );
 }
 
@@ -551,15 +539,21 @@ function isTooDeep(error: unknown, nested: boolean): error is RangeError {
  * held no edge to the source whose read never finished, so no write could ever
  * reach it again.
  *
- * So a derivation that catches one is left `DIRTY`, with nothing committed and
+ * So a derivation it passes through is left `DIRTY`, with nothing committed and
  * nothing swept -- `sources` is the old set plus whatever the run read before it
  * stopped, which is more than it needs and never less, and the next run sweeps
- * it -- and the error goes on up. Every derivation it passes through does the
- * same, so the whole partial evaluation unwinds and a later read is a fresh
- * attempt. A write in between finds those nodes already dirty and stops there,
- * which is right: they recompute when read whatever it says. A body that catches
- * the error and returns something else has its value committed and stays
- * `DIRTY` all the same, by way of `unfinished`, and so does every run around it.
+ * it -- and marked `incomplete`, and the error goes on up. The whole partial
+ * evaluation unwinds and a later read is a fresh attempt. Whoever read one of
+ * those nodes keeps an edge to it (see `get()`), and a write that reaches it
+ * passes through it once rather than stopping at a node already dirty, since
+ * nothing below it was told by a write the first time (see `invalidate()`).
+ *
+ * A body that catches the error and returns something else is not second-
+ * guessed: what it returns is an answer like any other and is cached, with the
+ * edge `get()` records, so a write that reaches what it failed to read reaches
+ * it. Where the engine runs out at the call into `get()` itself, nothing of the
+ * graph's runs to record that edge, and the fallback is cached with none -- a
+ * chain whose every link catches is not safe at the edge of the stack.
  *
  * An effect body is exempt, for the reason a failed sweep exempts it: it has
  * already run and written whatever it writes, and a flush reads anything not
@@ -580,6 +574,7 @@ function chainTooDeep(error: RangeError): RangeError {
     { cause: error }
   );
   tooDeep.add(clear);
+  readError = clear;
   return clear;
 }
 
@@ -694,6 +689,8 @@ export class Computed<T> implements Producer, Consumer {
   state: NodeState = DIRTY;
   /** @internal */
   stale: boolean = false;
+  /** @internal */
+  incomplete: number = 0;
   /** @internal */
   readonly isWatcher: boolean = false;
 
@@ -887,9 +884,21 @@ export class Computed<T> implements Producer, Consumer {
       throw new Error('A Computed may not read itself');
     }
 
+    if (running === 0) {
+      read++;
+      readError = undefined;
+    } else if (this.incomplete === read) {
+      // cut short by the stack already in this read, and not run again until
+      // the next one. Inside one read a retry starts no shallower than the run
+      // that failed, so it fails again -- and a body that reads the same source
+      // twice, catching each time, retried a whole subchain per level: work that
+      // doubled with every level the stack's edge cut through, millions of runs
+      // for a chain `main` read in a few thousand
+      throw (readError ??= chainTooDeep(new RangeError('Maximum call stack size exceeded')));
+    }
+
     const previousConsumer = currentConsumer;
     const previousComputing = computing;
-    const unfinishedBefore = unfinished;
 
     // marked rather than swapped. `sources` stays whole for the whole run -- the
     // old set plus whatever has been read so far -- and is swept at the end.
@@ -901,6 +910,11 @@ export class Computed<T> implements Producer, Consumer {
     const seen = new Set<Producer>();
     this.seen = seen;
     this.stale = false;
+    // until the end of the run says otherwise: a run that never gets there --
+    // a chain too deep that it was abandoned for, or the stack running out in
+    // this very code -- leaves it set, and `invalidate()` and the check above
+    // read it
+    this.incomplete = read;
 
     // installing `this` as the tracking context is the mechanism, not an alias
     // of convenience: every read during `#fn()` registers against whatever is
@@ -915,9 +929,6 @@ export class Computed<T> implements Producer, Consumer {
     let thrown: Thrown | undefined;
 
     try {
-      if (running > HEADROOM_DEPTH) {
-        headroom(16);
-      }
       next = this.#fn();
     } catch (err) {
       thrown = { error: err };
@@ -953,13 +964,10 @@ export class Computed<T> implements Producer, Consumer {
     // the read that saw it: `sources` holds the version each read recorded, so
     // asking them settles it -- a write to a signal the body went on to read is
     // no reason to run again, and one to a signal it had already read, or to
-    // what a computed it read reads, is. And a derivation that a read inside
-    // never finished stays DIRTY over what it committed, so it is asked again
-    // rather than trusted -- see `unfinished` and `chainTooDeep()`
-    if (this.#writes || unfinished === unfinishedBefore) {
-      this.state = this.stale ? CHECK : CLEAN;
-    }
+    // what a computed it read reads, is
+    this.state = this.stale ? CHECK : CLEAN;
     this.stale = false;
+    this.incomplete = 0;
     this.#sweep(seen);
   }
 
@@ -973,16 +981,17 @@ export class Computed<T> implements Producer, Consumer {
    * run is still DIRTY here, so if the stack is still all but gone and this call
    * is what overflows, the run is left abandoned -- which is the right answer.
    *
-   * The engine's overflow counts as the chain's only when another computed is
-   * evaluating around this one. With none, the stack ran out in this body's own
-   * code -- runaway recursion of its own -- which is an answer about the body and
-   * is cached under the engine's own message, as it always was.
+   * The engine's overflow counts as the chain's only under more than
+   * `CHAIN_DEPTH` computeds evaluating around this one. With fewer, the stack ran
+   * out in this body's own code -- runaway recursion of its own -- which is an
+   * answer about the body and is cached under the engine's own message, as it
+   * always was, rather than re-run on every read.
    *
    * @param thrown - What the body threw.
    * @returns What to commit.
    */
   #caught(thrown: Thrown): Thrown {
-    if (!isTooDeep(thrown.error, running > 0)) {
+    if (!isTooDeep(thrown.error)) {
       return thrown;
     }
     const error = chainTooDeep(thrown.error);
@@ -1120,13 +1129,11 @@ export class Computed<T> implements Producer, Consumer {
     // change it. Recording first means the reader stores a version the
     // producer has already left behind, and so looks stale on every check
     // forever after -- a dependent that can never settle.
-    unfinished++;
     try {
       this.refresh();
     } catch (err) {
       this.#unreadable(err);
     }
-    unfinished--;
     track(this);
     if (this.#thrown) {
       throw this.#thrown.error;
@@ -1141,11 +1148,9 @@ export class Computed<T> implements Producer, Consumer {
    * The reader keeps an edge to what it could not read, recorded at the version
    * it is still at. Without one, a body that caught the error and returned
    * something else held no edge to the source it had failed to read, so no write
-   * could ever reach it again -- a fallback cached for good. With one, a write
-   * that reaches this once it is readable reaches the reader too, and the reader
-   * stays `DIRTY` over its fallback meanwhile, by way of `unfinished`, which a
-   * too-deep read leaves raised. Any other error lowers it again: a body that
-   * catches an ordinary one is cached over its fallback as it always was.
+   * could ever reach it again -- a fallback cached for good -- and an effect that
+   * let it through was deaf to the chain from then on. With one, a write that
+   * reaches this once it can be read reaches the reader too.
    *
    * An effect whose sources ran out of stack while they were being asked -- a
    * `CHECK` effect over a chain of dirty links, before its body could run --
@@ -1156,7 +1161,7 @@ export class Computed<T> implements Producer, Consumer {
    * @param error - What the refresh threw.
    */
   #unreadable(error: unknown): never {
-    if (isTooDeep(error, running > 0)) {
+    if (isTooDeep(error)) {
       const clear = chainTooDeep(error);
       if (this.#writes) {
         this.#commit(undefined, { error: clear });
@@ -1165,7 +1170,6 @@ export class Computed<T> implements Producer, Consumer {
       track(this);
       throw clear;
     }
-    unfinished--;
     throw error;
   }
 }
@@ -1193,6 +1197,8 @@ export class Watcher implements Consumer {
   state: NodeState = CLEAN;
   /** @internal */
   stale: boolean = false;
+  /** @internal */
+  incomplete: number = 0;
   /** @internal */
   readonly isWatcher: boolean = true;
 

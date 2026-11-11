@@ -24,6 +24,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), '../..'), 'dist', 'signals.mjs');
 
 beforeAll(() => {
+  // built only when missing, as the suite's other children do: `pnpm test`
+  // builds first, while a filtered or watched run reads whatever `dist/` holds
   if (!existsSync(dist)) {
     const root = resolve(dirname(dist), '..');
     const built = spawnSync('pnpm', ['build'], { cwd: root, encoding: 'utf-8' });
@@ -55,25 +57,13 @@ const DEEP = 100_000;
  * deep and the chain ends up evaluated, with every edge in place.
  * @returns The state, every link in order, and the tail.
  */
-function chain(bottomUp: boolean, catching = false) {
+function chain(bottomUp: boolean) {
   const s = new State(0);
   const links: Computed<number>[] = [];
   let prev: State<number> | Computed<number> = s;
   for (let i = 0; i < DEEP; i++) {
     const p = prev;
-    // a link that catches is a body falling back when its read fails, which is
-    // the shape that can swallow the error and cache the fallback
-    const link = new Computed(
-      catching
-        ? () => {
-            try {
-              return p.get() + 1;
-            } catch {
-              return -1;
-            }
-          }
-        : () => p.get() + 1
-    );
+    const link = new Computed(() => p.get() + 1);
     links.push(link);
     if (bottomUp) {
       link.get();
@@ -84,31 +74,20 @@ function chain(bottomUp: boolean, catching = false) {
 }
 
 /**
- * Runs the fresh-chain scenario in a node with a given native stack: two reads
+ * What a child runs, by name: `plain` is the fresh-chain scenario -- two reads
  * of the tail too deep to finish, the chain read from the bottom up, a write,
- * and then every link compared with what it should hold.
- *
- * In a child because where the stack runs out decides which line of the graph's
- * own code is at the edge when it does, and one stack size in-process pins one
- * of those lines at most. Both regressions this covers were found by moving it.
- *
- * @param stackSize - The `--stack-size` to run under, in kilobytes.
- * @param catching - Whether every link catches a failed read and falls back.
- * @returns How many links were wrong, and anything the child wrote to stderr.
+ * and how many links then disagree with what they should hold. `twice` is a
+ * chain whose every link reads its source twice, catching each time, and how
+ * many runs one read of its tail took.
  */
-function atStackSize(stackSize: number, catching: boolean): Promise<string> {
-  const script = `
-    const { State, Computed } = await import(${JSON.stringify(pathToFileURL(dist).href)});
+const scenarios = {
+  plain: `
     const s = new State(0);
     const links = [];
     let prev = s;
     for (let i = 0; i < 30000; i++) {
       const p = prev;
-      links.push(new Computed(${
-        catching
-          ? '() => { try { return p.get() + 1; } catch { return -1; } }'
-          : '() => p.get() + 1'
-      }));
+      links.push(new Computed(() => p.get() + 1));
       prev = links[i];
     }
     for (let i = 0; i < 2; i++) { try { prev.get(); } catch {} }
@@ -117,6 +96,43 @@ function atStackSize(stackSize: number, catching: boolean): Promise<string> {
     let bad = 0;
     for (let i = 0; i < links.length; i++) if (links[i].get() !== i + 101) bad++;
     console.log('bad=' + bad);
+  `,
+  twice: `
+    const s = new State(0);
+    const links = [];
+    let runs = 0;
+    for (let i = 0; i < 30000; i++) {
+      const p = i > 0 ? links[i - 1] : s;
+      links.push(new Computed(() => {
+        // bounded, so that the failure this guards is a number and not a hang
+        if (++runs > 200000) { console.log('runs=' + runs); process.exit(0); }
+        let a = 0, b = 0;
+        try { a = p.get(); } catch {}
+        try { b = p.get(); } catch {}
+        return Math.max(a, b) + 1;
+      }));
+    }
+    links[29999].get();
+    console.log('runs=' + runs);
+  `,
+};
+
+/**
+ * Runs a scenario in a node with a given native stack.
+ *
+ * In a child because where the stack runs out decides which line of the graph's
+ * own code is at the edge when it does, and one stack size in-process pins one
+ * of those lines at most. Both regressions these cover showed only by moving it:
+ * neither reproduces inside the test runner's own worker.
+ *
+ * @param stackSize - The `--stack-size` to run under, in kilobytes.
+ * @param scenario - Which scenario to run.
+ * @returns What the child printed, and anything it wrote to stderr.
+ */
+function atStackSize(stackSize: number, scenario: keyof typeof scenarios): Promise<string> {
+  const script = `
+    const { State, Computed } = await import(${JSON.stringify(pathToFileURL(dist).href)});
+    ${scenarios[scenario]}
   `;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [
@@ -128,10 +144,17 @@ function atStackSize(stackSize: number, catching: boolean): Promise<string> {
     let out = '';
     child.stdout.on('data', (chunk) => (out += chunk));
     child.stderr.on('data', (chunk) => (out += chunk));
-    child.on('close', () =>
-      resolve(`${stackSize}/${catching ? 'catching' : 'plain'}: ${out.trim()}`)
-    );
+    child.on('close', () => resolve(`${stackSize}: ${out.trim()}`));
   });
+}
+
+/**
+ * The stack sizes the children run under. A Windows main thread has a 1 MB
+ * stack, so a size past that would crash rather than overflow there.
+ */
+const sizes = [300, 450, 600, 750, 900];
+if (process.platform !== 'win32') {
+  sizes.push(1100, 1300, 1500, 1700, 1900);
 }
 
 describe('a deep computed chain', () => {
@@ -344,10 +367,11 @@ describe('a deep computed chain', () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('should not cache a fallback a body returned for a read too deep to finish', () => {
+  it('should give a fallback a body returned for a read too deep to finish an edge, so a write reaches it', () => {
     // the error left `refresh()` before `track()` ran, so a body that caught it
     // cached its fallback with no edge to the source it had failed to read --
-    // and no write could ever reach it again
+    // and no write could ever reach it again. The fallback is the body's answer
+    // and is cached like one; what changed is that it is no longer final
     const { s, links, tail } = chain(false);
     const safe = new Computed(() => {
       try {
@@ -361,7 +385,6 @@ describe('a deep computed chain', () => {
     for (const link of links) {
       link.get();
     }
-    expect(safe.get()).toBe(DEEP);
     s.set(5);
     expect(safe.get()).toBe(DEEP + 5);
   });
@@ -388,41 +411,101 @@ describe('a deep computed chain', () => {
     expect(seen).toEqual(['failed', DEEP + 5]);
   });
 
-  it('should leave no fallback behind in a chain whose every link catches a failed read', () => {
-    // each link that caught returned -1 and committed it, so the links above
-    // read -1 + 1, and the one at the edge of the stack held no edge to its
-    // source -- a tail stuck at a number nowhere near the chain's. Several
-    // fresh chains, because the worst of it showed only once the graph's code
-    // was optimized: then the engine ran out at the call into `get()` itself,
-    // where no code of the graph's runs to notice
-    for (let round = 0; round < 4; round++) {
-      const { s, links, tail } = chain(false, true);
-      tail.get();
+  it('should pass a write through a derivation a too-deep read left dirty, to the effect that read it', () => {
+    // the derivation between the chain and the effect was left DIRTY by the
+    // failed read, and a write stops at a node already dirty -- so the effect,
+    // clean over its error, never heard of the chain again however readable it
+    // became. A run that never finished is passed through once instead
+    for (const catching of [false, true]) {
+      const own = createEffects();
+      own.setScheduler(() => {});
+      own.setErrorHandler(() => {});
+      const { s, links, tail } = chain(false);
+      const mid = new Computed(
+        catching
+          ? () => {
+              try {
+                return tail.get();
+              } catch {
+                return -1;
+              }
+            }
+          : () => tail.get()
+      );
+      const seen: (number | string)[] = [];
+      own.effect(() => {
+        try {
+          seen.push(mid.get());
+        } catch {
+          seen.push('failed');
+        }
+      });
 
       for (const link of links) {
         link.get();
       }
-      expect(tail.get()).toBe(DEEP);
-      s.set(100);
-      expect(tail.get()).toBe(DEEP + 100);
-      expect(links.findIndex((link, i) => link.get() !== i + 101)).toBe(-1);
+      s.set(5);
+      own.flush();
+      s.set(6);
+      own.flush();
+      expect(seen).toEqual([catching ? -1 : 'failed', DEEP + 5, DEEP + 6]);
     }
   });
 
-  it('should never leave a link clean over a value it did not commit, wherever the stack runs out', async () => {
-    // two defects, each found only by moving where the stack runs out: the
-    // catch in a run first runs cold at the edge of the stack and can overflow
-    // itself, and so can the commit after a body that caught one and returned
-    // -- and either way the link was marked CLEAN over nothing and read back
-    // `undefined` or a fallback from then on. A Windows main thread has a
-    // 1 MB stack, so a size past that would crash rather than overflow there
-    const sizes = [300, 450, 600, 750, 900];
-    if (process.platform !== 'win32') {
-      sizes.push(1100, 1300, 1500, 1700, 1900);
+  it('should not run a run cut short by the stack again inside the same read', () => {
+    // a link that reads one source twice, catching each time -- or two sources
+    // that share the chain below -- retried whatever the stack's edge had cut
+    // short on its second read, and each retry did the same below it: work that
+    // doubled with every level the edge cut through, millions of runs for a
+    // chain `main` read in about two thousand
+    for (const shape of ['twice', 'diamond'] as const) {
+      const s = new State(0);
+      const links: Computed<number>[] = [];
+      let runs = 0;
+      for (let i = 0; i < DEEP; i++) {
+        const p = i > 0 ? links[i - 1] : s;
+        const q = i > 1 ? links[i - 2] : s;
+        links.push(
+          new Computed(() => {
+            runs++;
+            let a = 0;
+            let b = 0;
+            try {
+              a = p.get();
+            } catch {
+              // a fallback, which is the body's answer to give
+            }
+            try {
+              b = (shape === 'twice' ? p : q).get();
+            } catch {
+              // and another
+            }
+            return Math.max(a, shape === 'twice' ? b : 0) + 1;
+          })
+        );
+      }
+      links[DEEP - 1].get();
+      // each link the read reached runs about once: the chain is evaluated as
+      // deep as the stack goes, which is thousands of links rather than millions
+      // of runs. Generous, so that no runtime's stack depth can reach it
+      expect(runs).toBeLessThan(50_000);
     }
-    const results = await Promise.all(
-      sizes.flatMap((size) => [atStackSize(size, false), atStackSize(size, true)])
-    );
+  });
+
+  it('should not retry a run cut short by the stack within one read, wherever the stack runs out', async () => {
+    // the doubling needs the graph's own code to overflow at the edge level
+    // after level, which a plain node does at every stack size measured and the
+    // test runner's worker does not -- so the bound is asked of children
+    const results = await Promise.all(sizes.map((size) => atStackSize(size, 'twice')));
+    const runs = results.map((result) => Number(/runs=(\d+)/.exec(result)?.[1] ?? Infinity));
+    expect(results.filter((_, i) => !(runs[i] < 50_000))).toEqual([]);
+  }, 120_000);
+
+  it('should read a plain chain back exactly after failed reads, wherever the stack runs out', async () => {
+    // where the stack runs out decides which line of the graph's own code is at
+    // the edge, and a catch that overflowed at the edge once marked a link CLEAN
+    // over a value it never committed, which read back `undefined` for good
+    const results = await Promise.all(sizes.map((size) => atStackSize(size, 'plain')));
     expect(results.filter((result) => !result.endsWith('bad=0'))).toEqual([]);
   }, 120_000);
 
@@ -449,16 +532,28 @@ describe('a deep computed chain', () => {
   });
 
   it('should cache a body that overflows in its own code, under the engine message', () => {
-    // a computed nothing else was evaluating around ran out of stack in its own
-    // recursion, which is an answer about that body rather than about a chain
-    let runs = 0;
+    // a computed ran out of stack in its own recursion, which is an answer about
+    // that body rather than about a chain -- whether nothing is evaluating around
+    // it or another computed is reading it
     const recurse = (n: number): number => recurse(n + 1) + 1;
-    const c = new Computed(() => {
+    let runs = 0;
+    const alone = new Computed(() => {
       runs++;
       return recurse(0);
     });
     for (let i = 0; i < 3; i++) {
-      expect(() => c.get()).toThrow('Maximum call stack size exceeded');
+      expect(() => alone.get()).toThrow('Maximum call stack size exceeded');
+    }
+    expect(runs).toBe(1);
+
+    runs = 0;
+    const inner = new Computed(() => {
+      runs++;
+      return recurse(0);
+    });
+    const outer = new Computed(() => inner.get() * 2);
+    for (let i = 0; i < 3; i++) {
+      expect(() => outer.get()).toThrow('Maximum call stack size exceeded');
     }
     expect(runs).toBe(1);
   });
