@@ -583,10 +583,18 @@ the entry it belongs to.
   the body's own error, as itself. Where a cleanup throws too, it is an
   `AggregateError` of the body's error first and then the cleanups',
   `Errors in a failed effect run and its cleanups`, since dropping either would be
-  the silent failure the cleanup entry above was written against. No app could
-  have relied on the old behaviour: what changes is that code which never ran now
-  runs. The `async` refusal goes through the same catch, because by the time it
-  throws the body has registered whatever it registered.
+  the silent failure the cleanup entry above was written against. What an app
+  sees changes only where a cleanup that never used to run now throws: an
+  `onError` that matched on the type of the run's own error is handed an
+  `AggregateError` there instead, with that error first in `errors`. A failure
+  nested inside another -- a cleanup whose own failed run is raised from it --
+  nests the aggregates the same way; `element/index.ts`'s focus write and
+  `app.ts`'s teardown report open one level and no more. The `async` refusal goes
+  through the same catch, because by the time it throws the body has registered
+  whatever it registered, and the cleanups run after the owner is put back, so a
+  cleanup that registers another sends it where the effect was created rather
+  than into the list being walked. Both are pinned: moving the refusal out of the
+  `try`, or running the list with the run still current, each fails its own test.
 - **An owned effect stopped by hand is taken off its owner (SIG-344).** The
   disposer went onto `owner.cleanups` and stayed there after the caller had
   called it -- a closure over the computed, the body and its cleanups -- so an

@@ -2323,6 +2323,95 @@ describe('cleanups inside an effect body', () => {
     expect(aggregate.message).toBe('Errors in a failed effect run and its cleanups');
     expect(aggregate.errors).toEqual([run, cleanup]);
   });
+
+  it('should run once what an async body registered before its first await, on the first run', () => {
+    // the refusal is made after the body has returned, so whatever it registered
+    // before the await is already on the run's list -- and the refusal throws
+    // past the composite that would have carried it
+    let cleanups = 0;
+    let dispose = (): void => {};
+    const body = (async () => {
+      onCleanup(() => cleanups++);
+      await Promise.resolve();
+    }) as unknown as () => void;
+
+    createRoot((d) => {
+      dispose = d;
+      expect(() => createEffect(body)).toThrow(
+        new TypeError(
+          'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
+        )
+      );
+    }, effects.effect);
+    expect(cleanups).toBe(1);
+
+    dispose();
+    expect(cleanups).toBe(1);
+  });
+
+  it('should run once what an async body registered before its first await, on a re-run', () => {
+    const thrown: unknown[] = [];
+    effects.setErrorHandler((error) => void thrown.push(error));
+    const mode = new State(0);
+    let cleanups = 0;
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      createEffect((() => {
+        const m = mode.get();
+        onCleanup(() => cleanups++);
+        // only the second run is async, so the first can hand over a cleanup
+        // the ordinary way and the refusal is the re-run's
+        return m === 1 ? Promise.resolve() : undefined;
+      }) as () => void);
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    // the first run's, before the re-run, and the re-run's own, after its refusal
+    expect(cleanups).toBe(2);
+    expect(thrown).toHaveLength(1);
+    expect(thrown[0]).toBeInstanceOf(TypeError);
+    expect((thrown[0] as Error).message).toBe(
+      'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
+    );
+
+    mode.set(2);
+    effects.flush();
+    dispose();
+    expect(cleanups).toBe(3);
+  });
+
+  it('should put the owner back before a failed run cleans up, so what a cleanup registers is kept', () => {
+    // the failed run's list is being walked when its cleanups run, so a cleanup
+    // that registers another while that run is still current puts it into the
+    // list behind the walk, where nothing ever runs it. With the owner put back
+    // it goes where the effect was created, here the component, and runs when
+    // that goes
+    const order: string[] = [];
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      try {
+        createEffect(() => {
+          onCleanup(() => {
+            order.push('cleanup');
+            onCleanup(() => order.push('registered by the cleanup'));
+          });
+          throw new Error('failed');
+        });
+      } catch {
+        // the component recovers from the effect that failed to start
+      }
+    }, effects.effect);
+
+    expect(order).toEqual(['cleanup']);
+
+    dispose();
+    expect(order).toEqual(['cleanup', 'registered by the cleanup']);
+  });
 });
 
 describe('re-entrancy', () => {
