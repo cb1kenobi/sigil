@@ -1574,8 +1574,14 @@ describe('reading an app', () => {
     const other = join(dir, 'src', 'other.mjs');
     writeFileSync(other, 'export default Promise.resolve(42);\n', 'utf-8');
     await expect(loadAppSchema({ cwd: dir, entry: other })).rejects.toThrow(
-      /exports no schema.*or a Promise of either/u
+      /exports no schema.*or a Promise of one\.$/u
     );
+
+    // a Promise of a function is not called: the message says "a Promise of
+    // one", meaning the schema object, and the built entry refuses it too
+    const fn = join(dir, 'src', 'fn.mjs');
+    writeFileSync(fn, 'export default Promise.resolve(() => ({ name: "x" }));\n', 'utf-8');
+    await expect(loadAppSchema({ cwd: dir, entry: fn })).rejects.toThrow(/exports no schema/u);
   });
 
   it('should say so where the entry exports nothing that can be a schema', async () => {

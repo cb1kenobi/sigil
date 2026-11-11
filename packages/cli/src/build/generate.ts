@@ -285,6 +285,17 @@ function backtick(value: string): string {
 }
 
 /**
+ * What a schema export may be, as the end of the sentence that refuses one.
+ *
+ * One sentence for the two places that refuse: the entry `sigil build`
+ * generates, when the export resolves to something that is not an object, and
+ * `sigil reference`, which reads the same export. Two wordings of one rule is
+ * how the two came to disagree about it (SIG-353).
+ */
+export const SCHEMA_EXPORT: string =
+  'a sigil app\'s entry has a default export (or a "schema" export) that is the schema object, a function returning one, or a Promise of one';
+
+/**
  * Prints the executable a built app runs, which the app does not write.
  *
  * The Next.js answer to "where is the app's entry": there is not one. Routes
@@ -323,7 +334,7 @@ export function generateBin(options: GenerateBinOptions): string {
   // wherever the bundle was written, which is a throw rather than a version.
   // The app keeps its own answer for the unbundled case and this replaces it,
   // the same way the tree replaces `commands`
-  const bakedVersion = version === undefined ? '' : `\n  version: ${quote(version)},`;
+  const bakedVersion = version === undefined ? '' : `\n    version: ${quote(version)},`;
 
   // baked for the reason the version is: the runtime cannot read `sigil.json`,
   // because reading a file at startup is what `locales` being a map rather than
@@ -331,35 +342,52 @@ export function generateBin(options: GenerateBinOptions): string {
   // chain, so this says what the app ships in and every environment variable
   // still beats it
   const bakedLocale =
-    defaultLocale === undefined ? '' : `\n  defaultLocale: ${quote(defaultLocale)},`;
+    defaultLocale === undefined ? '' : `\n    defaultLocale: ${quote(defaultLocale)},`;
 
-  // The schema is resolved and then handed to `main()` in one chain, so that
-  // both halves of what the app can export are one rule:
+  // The schema is resolved, composed with the baked tree and then handed to
+  // `main()` in one chain, so that everything the app's export can do before
+  // `main()` exists is one rule:
   //
   // - whatever was exported is awaited, a function's result or the export
   //   itself, so an `async` function, a sync one returning a Promise and a
   //   Promise exported outright are all a schema (SIG-353). Awaiting a plain
   //   object hands it straight back
-  // - a schema that throws or rejects is rendered by `errorHandler()`, the
-  //   message and no stack, with the exit code set the way `main()` sets it for
-  //   anything it catches -- because there is no `main()` yet to catch it, and
-  //   Node's own report prints a whole minified line of the bundle. The
+  // - what that resolves to has to be an object, as `sigil reference` requires,
+  //   so a Promise of a function or a `null` is refused with the sentence
+  //   reference uses rather than spread into an app with no name or options
+  // - anything that throws on the way -- the function, a rejection, the refusal
+  //   above, or a getter the spread in `compose()` reads -- is rendered by
+  //   `errorHandler()`, the message and no stack, with the exit code
+  //   `errorExitCode()` gives it, because there is no `main()` yet to catch it
+  //   and Node's own report prints a whole minified line of the bundle. The
   //   built-in handler and no other, since the settings that could name another
   //   are on the schema that just failed to arrive
   //
-  // The second argument to `.then()` and not a `.catch()`, so that only the
-  // schema's failure is routed there: `main()` handles its own errors, and
-  // with `errorHandler: false` it rejects on purpose, which has to stay a
-  // rejection the app asked for rather than be rendered here
+  // The second argument to the **last** `.then()` and not a `.catch()`, so that
+  // only what comes before `main()` is routed there: `main()` handles its own
+  // errors, and with `errorHandler: false` it rejects on purpose, which has to
+  // stay a rejection the app asked for. That is also why the spread is a step of
+  // its own rather than inside the call: in the last `.then()`'s fulfilment
+  // handler, a getter that throws would escape the handler beside it
   const run = `Promise.resolve()
   .then(() => (typeof declared === 'function' ? declared() : declared))
+  .then(compose)
   .then(
-    (schema) => main({ schema: {
-  ...schema,
-  commands,${bakedVersion}${bakedLocale}
-} }),
+    (schema) => main({ schema }),
     (err) => errorHandler(err),
   )`;
+
+  // \`commands\` last, because the baked tree is the one property the build
+  // knows better than the app does -- everything else is the app's own
+  const compose = `function compose(schema) {
+  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
+    throw new Error(${quote(`This app's entry exports no schema: ${SCHEMA_EXPORT}.`)});
+  }
+  return {
+    ...schema,
+    commands,${bakedVersion}${bakedLocale}
+  };
+}`;
 
   // `await` at module scope is the ordinary shape and the one thing a CommonJS
   // bundle cannot hold: rolldown refuses it outright with
@@ -385,14 +413,16 @@ ${generateCommands(tree, { declare: 'const', from, name: 'commands', runtime })}
 const exported = { ...app };
 const declared = exported.default ?? exported.schema;
 
-// the schema may be an object, a function (async or not) or a Promise, and is
-// awaited whichever it is. One that throws is rendered the way \`main()\` renders
-// an error, since there is no \`main()\` yet to catch it -- and only that one:
-// what \`main()\` rejects with, which \`errorHandler: false\` asks for, stays a
-// rejection.
-//
 // \`commands\` last, because the baked tree is the one property the build knows
-// better than the app does -- everything else is the app's own
+// better than the app does -- everything else is the app's own. Anything but an
+// object is refused here, as \`sigil reference\` refuses it
+${compose}
+
+// the schema may be an object, a function (async or not) or a Promise of one,
+// and is awaited whichever it is. Anything that throws before \`main()\` is
+// called is rendered by \`errorHandler()\`, since there is no \`main()\` yet to
+// catch it -- and only that: what \`main()\` rejects with, which
+// \`errorHandler: false\` asks for, stays a rejection
 ${dispatch}
 `;
 }

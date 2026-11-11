@@ -979,8 +979,16 @@ makes it testable with a fixture directory and no bundler at all.
   `await declared()` alone still spread into nothing, and which `sigil
   reference` took only because an `async` function adopts a Promise it returns,
   so its check for a schema was asked of the Promise. Both now say
-  `await (typeof declared === 'function' ? declared() : declared)`, and
-  reference's message names all three shapes. The `cjs` form `sigil package
+  `await (typeof declared === 'function' ? declared() : declared)`, and both
+  **refuse what that resolves to unless it is an object**, in one sentence,
+  `SCHEMA_EXPORT` in `generate.ts`: "the schema object, a function returning
+  one, or a Promise of one". A Promise of a _function_ is not called -- the
+  message first said "a Promise of either" while refusing exactly that -- and the
+  entry used to spread `null`, a string or a function into an app with no name
+  or options, which is this ticket's silent loss by another door. The build
+  cannot see that statically, so the generated entry refuses at startup, through
+  the handler below; `undefined`, an entry with neither export, is refused with
+  it, since reference refuses it and agreeing is the point. The `cjs` form `sigil package
   --runtime node` bundles cannot hold a top-level `await`, so there the same
   chain runs inside the async IIFE the call was already in, which is the same
   code moved rather than a second rule. `test/async-schema.test.ts` runs the
@@ -995,18 +1003,31 @@ makes it testable with a fixture directory and no bundler at all.
   and the whole minified source line it sat on -- about 1.8 kB in the ESM entry
   and 11 kB from line 1136 of the `cjs` bundle, measured -- where the rule
   `main()` keeps is the message and never a stack. There is no `main()` yet to
-  catch it, so the entry resolves and dispatches in one chain,
-  `Promise.resolve().then(resolve).then((schema) => main(...), (err) =>
-  errorHandler(err))`, which renders `Error: schema threw` and sets the exit
-  code through `errorExitCode()` as anything `main()` catches is, an `exitCode`
-  on the error included. The built-in handler and no other, because the
-  settings that could name another are on the schema that failed to arrive.
-  The **two-argument** `.then()` rather than a `.catch()` is the decision: with
-  `errorHandler: false` an app asks `main()` to reject, and a `.catch()` after
-  the call would render that rejection instead of leaving it to the app --
-  `should leave a rejection main() was asked to make as a rejection` fails
-  against exactly that sabotage, and the render tests fail against dropping the
-  handler. Nothing an app relies on moved: the path that changed used to crash.
+  catch it, so the entry resolves, composes and dispatches in one chain,
+  `Promise.resolve().then(resolve).then(compose).then((schema) => main({ schema
+  }), (err) => errorHandler(err))`, which renders `Error: schema threw` and sets
+  the exit code through `errorExitCode()` as anything `main()` catches is, an
+  `exitCode` on the error included. The built-in handler and no other, because
+  the settings that could name another are on the schema that failed to arrive.
+  It is the built-in handler's rendering and not quite `main()`'s: no catalog is
+  loaded this early, so the `Error:` prefix is the English one whatever the
+  locale. The **two-argument** `.then()` rather than a `.catch()` is the
+  decision: with `errorHandler: false` an app asks `main()` to reject, and a
+  `.catch()` after the call would render that rejection instead of leaving it to
+  the app -- `should leave a rejection main() was asked to make as a rejection`
+  fails against exactly that sabotage, and the render tests fail against
+  dropping the handler. The spread of `{ ...schema, commands }` is
+  **`compose()`, a step of its own**, for the same reason read the other way:
+  written inside the call it ran in the fulfilment handler whose sibling is
+  `errorHandler`, so a schema with a throwing enumerable getter escaped to
+  Node's report, where from source `main()` reads the getter and renders it
+  (review round 2; `should render a getter that throws when the schema is
+  spread` fails against moving it back). Nothing an app relies on moved: every
+  path that changed used to crash or lose the schema. One case the entry cannot
+  reach: an ESM schema module that exports a **rejected Promise** and then
+  awaits at top level has its rejection reported by Node before the entry has
+  attached a handler to it -- the same report a source runner gets, since the
+  module is still evaluating when it happens.
 
   **Not settled here:** the dev runner `sigil new` scaffolds
   (`src/scaffold/index.ts`) passes the export to `main()` as it stands, so an app
@@ -1055,20 +1076,37 @@ makes it testable with a fixture directory and no bundler at all.
   character, so the key the tag looks up is unchanged. The other two places
   that printed a string as source with a bare `JSON.stringify` use `quote()` as
   well: the utility sheet `shake.ts` splices into a module, and the `define`
-  value `update-check.ts` hands the bundler.
+  value `update-check.ts` hands the bundler -- each pinned by a test that fails
+  with the bare `JSON.stringify` put back.
 - **The build summary's `Loads` column reads rolldown's graph, not "is it the
   entry".** SIG-353. Every chunk but the entry said `lazy`, and on a scaffolded
   app the 0.8 kB entry statically imports about 12 kB more, so what `--help`
   pays for was labelled as though a command had to ask for it -- which is the
   opposite of what the column is there to say. `chunkLoads()` in `bundle.ts`
   walks the static closure of the entry through each chunk's `imports` and calls
-  what it reaches `startup`; everything else is `lazy`. Walked rather than read
-  off `isDynamicEntry`, which answers a different question: a chunk that is an
-  `import()` target and also statically imported by the entry loads at startup,
-  and one only a lazy chunk imports statically is no dynamic entry and still
-  loads lazily. `BuiltChunk.entry` became `BuiltChunk.loads` rather than gaining
-  a second boolean beside it, so there is one answer to "when does this load".
-  The labels are not translated, as nothing else in that table is.
+  what it reaches `startup`; everything else is `dynamic`. Walked rather than
+  read off `isDynamicEntry`, which answers a different question: a chunk that is
+  an `import()` target and also statically imported by the entry loads at
+  startup, and one only a dynamic chunk imports statically is no dynamic entry
+  and is still reached only through an `import()`. `BuiltChunk.entry` became
+  `BuiltChunk.loads` rather than gaining a second boolean beside it, so there is
+  one answer to "when does this load". The labels are not translated, as nothing
+  else in that table is.
+
+  **The third label is `dynamic` and not `lazy`, because `lazy` claimed what
+  the graph cannot prove.** Review round 2 traced the loads of a built app: the
+  parser (31.8 kB) and the topic table load on **every** run, and `--help` adds
+  the theme (127 kB), help, output and label -- all of them labelled `lazy`,
+  because `main()` reaches them through its own `await import()`. That is the
+  mislabelling `startup` was introduced to fix, arriving through the runtime's
+  imports instead of the app's. Making `lazy` true would mean proving which of
+  the runtime's dynamic imports `main()` always reaches, which is a question
+  about its control flow over argv, asked of a minified bundle, and an answer
+  that moves whenever the runtime does. So the label says what the graph does
+  prove -- reached only through a dynamic `import()`, the runtime's own
+  included, which says how a chunk is reached and nothing about how often --
+  and `build-command.test.ts` asserts a `dynamic` row and no `lazy` one.
+
 - **A `sigil.json` error names the file that was read.** SIG-353. Every message
   `config.ts` writes opened with `CONFIG_FILE`, which is `sigil.json`, so a
   mistake in a `sigil.jsonc` sent its author to a file that was not there. The

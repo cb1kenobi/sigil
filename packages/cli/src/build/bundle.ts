@@ -181,11 +181,25 @@ export interface BundleOptions {
  * - `startup` -- the executable imports it statically, directly or through
  *   another such chunk, so it loads every time the executable does: `--help`
  *   pays for it as surely as for the entry.
- * - `lazy` -- nothing on that path imports it, so it loads only when a dynamic
- *   `import()` asks for it, which is a command being matched. An asset, such as
- *   a sourcemap, is never loaded by the executable at all, and is `lazy` too.
+ * - `dynamic` -- nothing on that path imports it, so it is reached only through
+ *   a dynamic `import()`, **the runtime's own included**. That is a claim about
+ *   how it is reached and not about how often: `main()` imports its parser and
+ *   its topic table that way on every run, and help, the theme and the output
+ *   formats on every `--help`, so a `dynamic` chunk may well load every time.
+ *   What it does say is that nothing loads it before something asks. An asset,
+ *   such as a sourcemap, is never loaded by the executable at all, and is
+ *   `dynamic` too, which is the one answer the column has for "not on the
+ *   static path".
+ *
+ * It was `lazy`, and that word claimed the "how often" this cannot know: it
+ * labelled a 31.8 kB parser chunk that loads on every run as one a command had
+ * to ask for -- the same mislabelling `startup` was introduced to fix, arriving
+ * through the runtime's imports instead of the app's. Proving which dynamic
+ * imports `main()` always reaches would mean reading the runtime's control
+ * flow out of a minified bundle, where what it reaches depends on argv, so the
+ * label says what the graph proves instead.
  */
-export type ChunkLoads = 'entry' | 'lazy' | 'startup';
+export type ChunkLoads = 'dynamic' | 'entry' | 'startup';
 
 /** One file the build wrote. */
 export interface BuiltChunk {
@@ -670,7 +684,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     const loads = chunkLoads(written.output);
     const chunks = written.output
       .map((chunk) => ({
-        loads: loads.get(chunk.fileName) ?? 'lazy',
+        loads: loads.get(chunk.fileName) ?? 'dynamic',
         name: chunk.fileName,
         size: Buffer.byteLength(
           chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
@@ -967,7 +981,9 @@ interface LinkedChunk {
  * (SIG-353). So the static closure of the entry is walked through each chunk's
  * `imports` -- rolldown's list of the chunks it imports statically, by file name
  * -- and what it reaches is `startup`. Everything else can only be reached
- * through a `dynamicImports` edge somewhere, which is a command being matched.
+ * through a `dynamicImports` edge somewhere, and is `dynamic`: a command's own
+ * module, or one of the runtime's, which `main()` may import on every run --
+ * see `ChunkLoads` for why that is not narrowed further.
  *
  * Walked rather than read off `isDynamicEntry`, because that flag answers a
  * different question: a chunk can be the target of an `import()` and also be
@@ -982,7 +998,7 @@ interface LinkedChunk {
  */
 export function chunkLoads(output: readonly LinkedChunk[]): Map<string, ChunkLoads> {
   const byName = new Map(output.map((chunk) => [chunk.fileName, chunk]));
-  const loads = new Map<string, ChunkLoads>(output.map((chunk) => [chunk.fileName, 'lazy']));
+  const loads = new Map<string, ChunkLoads>(output.map((chunk) => [chunk.fileName, 'dynamic']));
   const pending = output.filter((chunk) => chunk.type === 'chunk' && chunk.isEntry);
 
   for (const entry of pending) {
@@ -995,7 +1011,7 @@ export function chunkLoads(output: readonly LinkedChunk[]): Map<string, ChunkLoa
   for (let chunk = pending.pop(); chunk; chunk = pending.pop()) {
     for (const name of chunk.imports ?? []) {
       const imported = byName.get(name);
-      if (imported && loads.get(name) === 'lazy') {
+      if (imported && loads.get(name) === 'dynamic') {
         loads.set(name, 'startup');
         pending.push(imported);
       }

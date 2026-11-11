@@ -1,4 +1,9 @@
-import { generateBin, generateCommands, specifier } from '../../src/build/generate.js';
+import {
+  generateBin,
+  generateCommands,
+  SCHEMA_EXPORT,
+  specifier,
+} from '../../src/build/generate.js';
 import { resolveCommandTree, walkTree, type ResolvedCommand } from '../../src/build/tree.js';
 import { tempDir } from '../temp.js';
 import { Internal, main, type AnyCommand, type ParseState } from '@ttylabs/sigil';
@@ -629,11 +634,9 @@ describe('the generated executable', () => {
   const startup = [
     'Promise.resolve()',
     "  .then(() => (typeof declared === 'function' ? declared() : declared))",
+    '  .then(compose)',
     '  .then(',
-    '    (schema) => main({ schema: {',
-    '  ...schema,',
-    '  commands,',
-    '} }),',
+    '    (schema) => main({ schema }),',
     '    (err) => errorHandler(err),',
     '  )',
   ].join('\n');
@@ -648,6 +651,21 @@ describe('the generated executable', () => {
 
     expect(source).to.contain('import { errorHandler, main } from "@ttylabs/sigil";');
     expect(source).to.contain(`\nawait ${startup};\n`);
+    // the spread is its own step, before the last `.then()`: inside that one's
+    // fulfilment handler a getter that throws escapes the handler beside it
+    expect(source).to.contain(
+      [
+        'function compose(schema) {',
+        "  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {",
+        `    throw new Error(${JSON.stringify(`This app's entry exports no schema: ${SCHEMA_EXPORT}.`)});`,
+        '  }',
+        '  return {',
+        '    ...schema,',
+        '    commands,',
+        '  };',
+        '}',
+      ].join('\n')
+    );
   });
 
   it('should await it inside the function in the CommonJS form, where module scope cannot', () => {
@@ -683,7 +701,7 @@ describe('the generated executable', () => {
     });
 
     expect(source).to.match(
-      /\.\.\.schema,\n  commands,\n  version: "1\.2\.3",\n  defaultLocale: "de",/
+      /\.\.\.schema,\n\s+commands,\n\s+version: "1\.2\.3",\n\s+defaultLocale: "de",/
     );
   });
 });

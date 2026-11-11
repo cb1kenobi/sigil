@@ -107,6 +107,28 @@ describe('an async schema built to the same help as from source', () => {
       expect(ran.code).toBe(4);
     });
 
+    it('should render a getter that throws when the schema is spread', async () => {
+      // from source `main()` reads the getter and renders it; built, the entry
+      // spreads the schema before `main()` exists, and a spread inside the
+      // handler whose sibling is `errorHandler` escaped to Node's own report
+      const ran = await spawnNode(targets[kind]!, out, ['--help'], { ASYNC_SCHEMA: 'getter' });
+
+      expect(ran.stderr).toBe('Error: getter threw\n');
+      expect(ran.code).toBe(1);
+    });
+
+    it('should refuse a schema that resolves to something that is not one', async () => {
+      // what `sigil reference` refuses, in its words; spreading `null` would
+      // have made an app with no name or options, which is this ticket's defect
+      const ran = await spawnNode(targets[kind]!, out, ['--help'], { ASYNC_SCHEMA: 'null' });
+
+      expect(ran.stderr).toMatch(
+        /^Error: This app's entry exports no schema: .*a Promise of one\.\n$/
+      );
+      expect(ran.stdout).toBe('');
+      expect(ran.code).toBe(1);
+    });
+
     it('should leave a rejection main() was asked to make as a rejection', async () => {
       // `errorHandler: false` is the app saying it wants the throw, so the
       // entry's own handling must cover the schema and nothing after it: an
@@ -123,9 +145,10 @@ describe('an async schema built to the same help as from source', () => {
 });
 
 /**
- * The two other shapes of a schema export the entry now takes: a Promise
- * exported outright, and a function that throws before it returns anything.
- * Built from the same fixture with `--entry`, in both forms of the entry.
+ * The other shapes of a schema export the entry has an answer for: a Promise
+ * exported outright, which it takes; a Promise of a function, which it refuses
+ * as `sigil reference` does; and a function that throws before it returns
+ * anything. Built from the same fixture with `--entry`, in both forms.
  */
 describe('a schema exported as a Promise, and one that throws', () => {
   /** Bundles the fixture from one of its entries, in one form. */
@@ -145,7 +168,7 @@ describe('a schema exported as a Promise, and one that throws', () => {
   const bins: Record<string, string> = {};
 
   beforeAll(async () => {
-    for (const entry of ['promised', 'throwing']) {
+    for (const entry of ['promised', 'promised-fn', 'throwing']) {
       for (const form of ['esm', 'cjs'] as const) {
         bins[`${entry} ${form}`] = await bundle(entry, form);
       }
@@ -163,6 +186,16 @@ describe('a schema exported as a Promise, and one that throws', () => {
       expect((await spawnNode(bins[`promised ${form}`]!, app, ['--help'])).stdout).toMatch(
         /^Usage: asyncapp \[options\] <command>$/m
       );
+    });
+
+    it('should refuse a Promise of a function, as sigil reference does', async () => {
+      // the shape the message names wrongly said was allowed: the export is
+      // awaited and what it holds is not called, so a function is not a schema
+      const ran = await spawnNode(bins[`promised-fn ${form}`]!, app, ['--help']);
+
+      expect(ran.stderr).toMatch(/^Error: This app's entry exports no schema: /);
+      expect(ran.stdout).toBe('');
+      expect(ran.code).toBe(1);
     });
 
     it('should render a schema that throws synchronously the way it renders a rejection', async () => {

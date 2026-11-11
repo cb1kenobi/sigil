@@ -26,7 +26,7 @@
  * ## The toolchain's runtime initializes the app's schema
  *
  * What crosses the boundary from the app is **plain data**: an entry exports an
- * object (or a function returning one, or a Promise of either), and `command()` is the identity
+ * object (or a function returning one, or a Promise of one), and `command()` is the identity
  * function, so a command module's declaration is plain data too. Nothing with
  * an `Internal` symbol on it is ever handed over, which is what makes this safe
  * -- `Internal` is a module-private `Symbol()`, so two copies of the runtime
@@ -43,6 +43,7 @@
 
 import { displayPath } from '../build/diagnostic.ts';
 import { discoverApp, type DiscoveredApp } from '../build/discover.ts';
+import { SCHEMA_EXPORT } from '../build/generate.ts';
 import type { Schema } from '@ttylabs/sigil';
 import { pathToFileURL } from 'node:url';
 
@@ -91,9 +92,7 @@ async function schemaFrom(entry: string): Promise<Schema> {
   const schema: unknown = await (typeof declared === 'function' ? declared() : declared);
 
   if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
-    throw new Error(
-      `${displayPath(entry)} exports no schema: a sigil app's entry has a default export (or a "schema" export) that is the schema object, a function returning one, or a Promise of either.`
-    );
+    throw new Error(`${displayPath(entry)} exports no schema: ${SCHEMA_EXPORT}.`);
   }
 
   return schema as Schema;

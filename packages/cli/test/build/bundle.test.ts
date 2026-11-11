@@ -413,7 +413,7 @@ describe('bundling an app', () => {
     // a literal specifier inside a dynamic import is the one thing a bundler
     // can see, follow and split on -- so the deferral survives bundling rather
     // than being flattened into the entry
-    const lazy = chunks.filter((chunk) => chunk.loads === 'lazy').map((chunk) => chunk.name);
+    const lazy = chunks.filter((chunk) => chunk.loads === 'dynamic').map((chunk) => chunk.name);
 
     expect(lazy.some((name) => name.includes('greet'))).toBe(true);
     expect(lazy.some((name) => name.includes('migrate'))).toBe(true);
@@ -444,9 +444,9 @@ describe('bundling an app', () => {
     for (const path of imported) {
       expect(chunks.find((chunk) => named(chunk) === path)?.loads, path).toBe('startup');
     }
-    // and a command body is still lazy, which is the label being worth reading
+    // and a command body is still reached only by an `import()`
     expect(chunks.filter((chunk) => chunk.loads === 'entry')).toHaveLength(1);
-    expect(chunks.find((chunk) => chunk.name.includes('greet'))?.loads).toBe('lazy');
+    expect(chunks.find((chunk) => chunk.name.includes('greet'))?.loads).toBe('dynamic');
   });
 
   it('should inline everything by default', async () => {
@@ -1164,7 +1164,7 @@ describe('when each written chunk loads', () => {
   it('should call the static closure of the entry startup, and only that', () => {
     // `shared` is reached through `runtime`, not by the entry directly, and it
     // loads at startup all the same. `cmd` is reached through no static import
-    // from the entry at all, so it is lazy, and so is what only it imports
+    // from the entry at all, so it is dynamic, and so is what only it imports
     const loads = chunkLoads([
       chunk('app.mjs', ['runtime.mjs'], true),
       chunk('runtime.mjs', ['shared.mjs']),
@@ -1176,9 +1176,9 @@ describe('when each written chunk loads', () => {
 
     expect(Object.fromEntries(loads)).toStrictEqual({
       'app.mjs': 'entry',
-      'app.mjs.map': 'lazy',
-      'cmd-dep.mjs': 'lazy',
-      'cmd.mjs': 'lazy',
+      'app.mjs.map': 'dynamic',
+      'cmd-dep.mjs': 'dynamic',
+      'cmd.mjs': 'dynamic',
       'runtime.mjs': 'startup',
       'shared.mjs': 'startup',
     });
@@ -1200,9 +1200,9 @@ describe('when each written chunk loads', () => {
     });
   });
 
-  it('should call a chunk with no static path from the entry lazy, whoever imports it', () => {
-    // a chunk only a lazy chunk imports statically still loads only when that
-    // lazy one does, which is the case `isDynamicEntry` alone would mislabel:
+  it('should call a chunk with no static path from the entry dynamic, whoever imports it', () => {
+    // a chunk only a dynamic chunk imports statically still loads only when that
+    // dynamic one does, which is the case `isDynamicEntry` alone would mislabel:
     // it is not a dynamic entry, and it is not loaded at startup either
     const loads = chunkLoads([
       chunk('app.mjs', [], true),
@@ -1210,7 +1210,7 @@ describe('when each written chunk loads', () => {
       chunk('dep.mjs'),
     ]);
 
-    expect(loads.get('dep.mjs')).toBe('lazy');
+    expect(loads.get('dep.mjs')).toBe('dynamic');
   });
 });
 
