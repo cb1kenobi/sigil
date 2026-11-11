@@ -29,6 +29,7 @@ import {
   displayPath,
   isFatal,
   isInside,
+  realPath,
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
@@ -37,7 +38,6 @@ import {
   type AppCatalogs,
   type Diagnostic,
   type DiscoveredApp,
-  type FoundCatalog,
   type ResolvedCommand,
   type TypeCheckResult,
 } from '../build/index.ts';
@@ -46,7 +46,7 @@ import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
-import { existsSync, lstatSync, realpathSync, rmSync, statSync, type BigIntStats } from 'node:fs';
+import { existsSync, lstatSync, rmSync, statSync, type BigIntStats } from 'node:fs';
 import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /** What reading an app turned up. */
@@ -54,11 +54,12 @@ export interface Inspection {
   /** The app, and the entry the conventions chose. */
   readonly app: DiscoveredApp;
   /**
-   * The catalogs its entry declares and this could read. Kept for the reason
+   * Every file a catalog loader on its entry names by a literal `import()`,
+   * whether or not it read as a catalog. Kept for the reason
    * `commandDir` is: the bundle reads them again, so emptying the directory
    * they are in is emptying the app's source.
    */
-  readonly catalogs: readonly FoundCatalog[];
+  readonly catalogFiles: readonly string[];
   /**
    * The directory its commands were walked from, when they were walked rather
    * than written out. Kept because emptying it is emptying the app's source --
@@ -124,7 +125,7 @@ export function inspect(options: InspectOptions): Inspection {
 
   return {
     app,
-    catalogs: catalogs.catalogs,
+    catalogFiles: catalogs.files,
     commandDir: found.dir,
     commands: found.commands,
     diagnostics,
@@ -591,9 +592,12 @@ export function holdsApp(out: string, root: string, path: typeof nodePath = node
  * imports, a catalog behind a loader that is not a literal `import()`,
  * `node_modules` -- because the module graph does not exist until rolldown
  * builds it, and the clean runs before that so that a stale chunk cannot be
- * read back. An `--out` naming such a directory still fails the build after
- * emptying it. The list is everything `inspect()` has already read, which is
- * what is knowable before the bundle.
+ * read back. Cleaning such a directory still empties it and the build fails
+ * after; under `--no-clean` nothing is removed, and a write that would land on
+ * such a module is refused by the bundle itself (`sigil:own-source` in
+ * `build/bundle.ts`), which is the one place the graph is known before
+ * anything is written. The list is everything `inspect()` has already read,
+ * which is what is knowable before the bundle.
  *
  * @param found - What reading the app turned up.
  * @param bin - An executable of the app's own, when one was named.
@@ -604,7 +608,7 @@ export function buildReads(found: Inspection, bin?: string): readonly string[] {
   const files = [
     found.app.entry,
     ...modulesOf(found.commands),
-    ...found.catalogs.map((catalog) => catalog.file),
+    ...found.catalogFiles,
     join(root, 'package.json'),
     ...CONFIG_FILES.map((name) => join(root, name)),
     // the one `typeCheck()` uses, which is always the root's -- see
@@ -681,7 +685,7 @@ export function heldFile(
   const asked = new Set<string>();
 
   for (const file of reads) {
-    for (const start of new Set([resolve(file), realOf(file)])) {
+    for (const start of new Set([resolve(file), realPath(file)])) {
       for (let dir = start; !asked.has(dir); dir = dirname(dir)) {
         asked.add(dir);
         const stats = statOf(dir, statSync);
@@ -711,20 +715,6 @@ function statOf(path: string, read: typeof lstatSync | typeof statSync): BigIntS
     return read(path, { bigint: true, throwIfNoEntry: false });
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Where a path really is, or the path when that cannot be asked.
- *
- * @param path - The path.
- * @returns Its real path.
- */
-function realOf(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
   }
 }
 
@@ -769,7 +759,13 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
   const target = resolve(out);
   const { clean: wanted, reads, root } = guard;
 
-  if (holdsApp(target, root)) {
+  // a removal stops at the last link and a write goes through it, so a build
+  // that only writes is asked about where its writes land as well as about the
+  // path it was given: `--out outlink --no-clean`, with `outlink` a link to
+  // `src`, wrote the bundle over the source while `lstat` saw only the link
+  const landing = wanted ? target : realPath(target);
+
+  if (holdsApp(target, root) || (!wanted && holdsApp(landing, realPath(root)))) {
     if (wanted) {
       throw new Error(
         `Refusing to empty ${displayPath(target)}, which holds the app itself. ` +
@@ -777,10 +773,11 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
       );
     }
 
-    // not emptied, so only what is written can hurt
+    // not emptied, so only what is written can hurt -- including through a
+    // link, which a `<bin>.mjs` that is a symlink to the entry would be
     for (const name of guard.writes ?? []) {
       const write = join(target, name);
-      const held = heldFile(write, reads);
+      const held = heldFile(write, reads) ?? heldFile(realPath(write), reads);
       if (held) {
         throw new Error(refusal(write, held, root, false));
       }
@@ -788,7 +785,7 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
     return;
   }
 
-  const held = heldFile(target, reads);
+  const held = heldFile(target, reads) ?? (wanted ? undefined : heldFile(landing, reads));
   if (held) {
     throw new Error(refusal(target, held, root, wanted));
   }

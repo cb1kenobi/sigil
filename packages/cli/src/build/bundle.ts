@@ -32,7 +32,8 @@
  */
 
 import { compileTemplates } from './compile-templates.ts';
-import { isInside, RUNTIME, type DiscoveredApp } from './discover.ts';
+import { displayPath } from './diagnostic.ts';
+import { isInside, realPath, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
@@ -44,7 +45,7 @@ import { byCodeUnit } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
 
 /**
@@ -516,6 +517,50 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             // from the report failed no test, because it could not
             return { code: shaken.code, map: shaken.map };
           },
+        },
+      } satisfies Plugin,
+      {
+        name: 'sigil:own-source',
+        /**
+         * Refuses an output that would land on a module the bundle was built
+         * from, before anything is written.
+         *
+         * The clean guard in `commands/_inspect.ts` can only refuse what is
+         * known before the bundle, and under `--no-clean` at the app root the
+         * rest is a write over a module only the graph knows: `src/index.mjs`
+         * importing `../tool.mjs` in a package called `tool`, built
+         * `--out . --no-clean`, replaced `tool.mjs` with the bundle and
+         * reported success. `generateBundle` is the one moment the graph and
+         * the file names both exist and nothing has been written yet. Each
+         * side is asked by real path, because a write follows every link on
+         * the way and a module id is whatever the resolver made of it.
+         */
+        generateBundle(outputOptions, outputBundle) {
+          const dir = outputOptions.dir;
+          if (!dir) {
+            return;
+          }
+
+          const modules = new Set<string>();
+          for (const id of this.getModuleIds()) {
+            if (isAbsolute(id)) {
+              modules.add(realPath(id));
+            }
+          }
+
+          // named relative to the root's real path, since that is what a module
+          // id is under, and `/var` against `/private/var` reads as a climb
+          const root = realPath(app.root);
+
+          for (const fileName of Object.keys(outputBundle)) {
+            const path = resolve(dir, fileName);
+            const real = realPath(path);
+            if (modules.has(real)) {
+              this.error(
+                `Refusing to write ${displayPath(path)}, which is ${displayPath(relative(root, real) || real)}, a module the app is built from. Name a directory that holds none of the app's source.`
+              );
+            }
+          }
         },
       } satisfies Plugin,
     ],

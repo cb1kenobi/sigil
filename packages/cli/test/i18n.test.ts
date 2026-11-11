@@ -149,7 +149,7 @@ describe('finding the keys', () => {
 describe('comparing the catalogs', () => {
   const check = (catalog: Record<string, string>, keys: string[], framework: string[] = []) =>
     checkCatalogs({
-      catalogs: [{ catalog, file: 'de.json', locale: 'de' }],
+      catalogs: [{ catalog, locale: 'de' }],
       file: '/app/src/index.ts',
       framework,
       keys,
@@ -211,7 +211,7 @@ describe('comparing the catalogs', () => {
 
   it('should warn rather than fail, because the app works in English', () => {
     const diagnostics = checkCatalogs({
-      catalogs: [{ catalog: {}, file: 'de.json', locale: 'de' }],
+      catalogs: [{ catalog: {}, locale: 'de' }],
       file: '/app/src/index.ts',
       framework: ['Options:'],
       keys: ['own'],
@@ -224,8 +224,8 @@ describe('comparing the catalogs', () => {
   it('should report each locale separately', () => {
     const messages = checkCatalogs({
       catalogs: [
-        { catalog: {}, file: 'de.json', locale: 'de' },
-        { catalog: { own: 'propre' }, file: 'fr.json', locale: 'fr' },
+        { catalog: {}, locale: 'de' },
+        { catalog: { own: 'propre' }, locale: 'fr' },
       ],
       file: '/app/src/index.ts',
       framework: [],
@@ -274,6 +274,6 @@ describe('reading an app`s catalogs', () => {
     const { discoverApp } = await import('../src/build/discover.ts');
     const read = readAppCatalogs(discoverApp(join(fixture, '..', 'app')));
 
-    expect(read).toEqual({ catalogs: [], declared: false, diagnostics: [] });
+    expect(read).toEqual({ catalogs: [], declared: false, diagnostics: [], files: [] });
   });
 });

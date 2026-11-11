@@ -96,6 +96,7 @@ export {
   isInside,
   readAppCommands,
   readManifest,
+  realPath,
   resolveSpecifier,
   type AppCommands,
   type AppManifest,

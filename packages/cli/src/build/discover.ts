@@ -59,7 +59,7 @@ import {
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { readPackage } from '@ttylabs/sigil/routes';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
@@ -358,6 +358,39 @@ export function isInside(dir: string, target: string, path: typeof nodePath = no
   const rel = path.relative(path.resolve(dir), path.resolve(target));
 
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+/**
+ * Where a write to `path` lands: the real path of its deepest ancestor that
+ * exists, with the rest joined back on.
+ *
+ * A write follows every symlink on the way, the last one included, so this is
+ * the question to ask about a file the build is about to write -- and the path
+ * need not exist yet, which is why it climbs rather than giving up on the
+ * first `ENOENT`. The native `realpath` because it also answers in the case
+ * the file system stores: on a volume that folds case, `APP` comes back as
+ * `app`, which no amount of `resolve()` can learn.
+ *
+ * `isInside()` is lexical on purpose (see `undo()`), and this is the one place
+ * the build asks the file system instead: the clean guard and the bundle's own
+ * write guard, both of which are about what is on disk at the end of a path.
+ *
+ * @param path - The path, which need not exist.
+ * @returns Its real path, as far as the file system can answer.
+ */
+export function realPath(path: string): string {
+  const tail: string[] = [];
+
+  for (let dir = resolve(path); ; dir = dirname(dir)) {
+    try {
+      return join(realpathSync.native(dir), ...tail.reverse());
+    } catch {
+      if (dirname(dir) === dir) {
+        return resolve(path);
+      }
+      tail.push(basename(dir));
+    }
+  }
 }
 
 /**

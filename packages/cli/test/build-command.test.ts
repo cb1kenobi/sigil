@@ -5,11 +5,13 @@ import { tempDir } from './temp.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -801,6 +803,98 @@ describe('sigil build into its own source', () => {
       ],
     };
   }
+
+  /**
+   * A small app of the test's own, with `@ttylabs/sigil` linked in so the
+   * bundle resolves it from a temp directory. A junction, so Windows needs no
+   * privilege to make one; elsewhere the type is ignored.
+   */
+  function smallApp(name: string, files: Record<string, string>): string {
+    const app = join(tempDir('sigil-build-into-src-'), name);
+    mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+    symlinkSync(
+      resolve(fixtures, '..', '..', '..', 'sigil'),
+      join(app, 'node_modules', '@ttylabs', 'sigil'),
+      'junction'
+    );
+    writeFileSync(
+      join(app, 'package.json'),
+      JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
+    );
+    for (const [file, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(app, file)), { recursive: true });
+      writeFileSync(join(app, file), body);
+    }
+    return app;
+  }
+
+  const RUN = "export default { name: 'x', run() { console.log('ran'); } };\n";
+
+  it.each([
+    ['cli', 'is refused, because it would write cli.mjs over the entry'],
+    ['other', 'still builds beside the manifest, which is the escape hatch'],
+  ])(
+    'a package called %s with a root entry cli.mjs, built --out . --no-clean, %s',
+    async (name) => {
+      const app = smallApp(name, { 'cli.mjs': RUN });
+
+      const { err } = await sigil('build', app, '--entry', 'cli.mjs', '--out', '.', '--no-clean');
+
+      if (name === 'cli') {
+        expect(err).toContain(
+          `Refusing to write over ${displayPath(join(app, 'cli.mjs'))}, which is cli.mjs`
+        );
+        expect(process.exitCode).toBeTruthy();
+      } else {
+        expect(err).not.toContain('Refusing');
+        expect(process.exitCode).toBeFalsy();
+        expect(existsSync(join(app, 'other.mjs'))).toBe(true);
+      }
+      expect(readFileSync(join(app, 'cli.mjs'), 'utf-8')).toBe(RUN);
+    },
+    60_000
+  );
+
+  it('--out . --no-clean wrote the bundle over a helper only the bundle reads, and reported success', async () => {
+    // `tool.mjs` is imported by the entry and named nowhere the guard can see
+    // before the bundle, and the package is called `tool` -- so the entry
+    // the build writes is `tool.mjs`. Refused before anything is written
+    const helper = "export const t = 'helper';\n";
+    const app = smallApp('tool', {
+      'src/index.mjs': `import { t } from '../tool.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+      'tool.mjs': helper,
+    });
+
+    const { err } = await sigil('build', app, '--out', '.', '--no-clean');
+
+    expect(err).toContain(
+      `Refusing to write ${displayPath(join(app, 'tool.mjs'))}, which is tool.mjs, a module the app is built from`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'tool.mjs'), 'utf-8')).toBe(helper);
+    expect(existsSync(join(app, 'chunks'))).toBe(false);
+  }, 60_000);
+
+  it('--out outlink --no-clean, outlink a link to src, wrote the bundle over the source', async () => {
+    const app = smallApp('buildable', { 'src/buildable.mjs': RUN });
+    symlinkSync(join(app, 'src'), join(app, 'outlink'), 'junction');
+
+    const { err } = await sigil(
+      'build',
+      app,
+      '--entry',
+      join('src', 'buildable.mjs'),
+      '--out',
+      'outlink',
+      '--no-clean'
+    );
+
+    expect(err).toContain(
+      `Refusing to build into ${displayPath(join(app, 'outlink'))}, which holds ${displayPath(join('src', 'buildable.mjs'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'src', 'buildable.mjs'), 'utf-8')).toBe(RUN);
+  }, 60_000);
 
   it('sigil build --out src deleted the app source and then failed on the missing entry', async () => {
     const { app, sources } = copyApp();

@@ -598,6 +598,36 @@ describe('sigil package', () => {
       expect(process.exitCode).toBeTruthy();
     }, 60_000);
 
+    it('should refuse a --no-clean package into the app root whose binary would write over what the build reads', async () => {
+      // the escape hatch stays open at the root, so what is refused there is a
+      // binary landing on a file the build reads. A binary called
+      // `package.json` is the one that lands on a read on every platform: the
+      // target is pinned to Linux, which adds no `.exe`
+      const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
+      copyFixture(join(fixtures, 'buildable'), app);
+      const manifest = readFileSync(join(app, 'package.json'), 'utf-8');
+
+      const { err } = await sigil(
+        'package',
+        app,
+        '--out',
+        '.',
+        '--no-clean',
+        '--name',
+        'package.json',
+        '--runtime',
+        'bun',
+        '--target',
+        'linux-x64'
+      );
+
+      expect(err).toContain(
+        `Refusing to write over ${displayPath(join(app, 'package.json'))}, which is package.json`
+      );
+      expect(process.exitCode).toBeTruthy();
+      expect(readFileSync(join(app, 'package.json'), 'utf-8')).toBe(manifest);
+    }, 60_000);
+
     // SIG-350: the guard refused only an `--out` at or above the app, so
     // `--out src` passed it and `clean()` removed the source before the bundle
     // failed on the entry. A copy of the fixture, so a regression removes the
@@ -606,16 +636,19 @@ describe('sigil package', () => {
       [
         '--out src',
         'empty',
+        'deleted the app source and then failed, and is refused before anything is removed',
         (app: string) => sigil('package', app, '--out', 'src', '--runtime', 'bun'),
       ],
       [
-        '--out src --no-clean, which would have written the binary into the source',
+        '--out src --no-clean',
         'build into',
+        'wrote the binary into the source directory, and is refused before anything is written',
         (app: string) => sigil('package', app, '--out', 'src', '--no-clean', '--runtime', 'bun'),
       ],
       [
         'a package.out of src in sigil.json',
         'empty',
+        'deleted the app source and then failed, and is refused before anything is removed',
         (app: string) => {
           writeFileSync(
             join(app, CONFIG_FILE),
@@ -624,27 +657,31 @@ describe('sigil package', () => {
           return sigil('package', app);
         },
       ],
-    ])('%s', (_, verb, pack) => {
-      it('deleted the app source and then failed, and is refused before anything is removed', async () => {
-        const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
-        copyFixture(join(fixtures, 'buildable'), app);
-        const sources = [
-          join(app, 'src', 'index.ts'),
-          join(app, 'src', 'commands', 'greet.ts'),
-          join(app, 'src', 'commands', 'db', 'migrate.js'),
-        ];
+    ])('%s', (_, verb, defect, pack) => {
+      it(
+        defect,
+        async () => {
+          const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
+          copyFixture(join(fixtures, 'buildable'), app);
+          const sources = [
+            join(app, 'src', 'index.ts'),
+            join(app, 'src', 'commands', 'greet.ts'),
+            join(app, 'src', 'commands', 'db', 'migrate.js'),
+          ];
 
-        const { err } = await pack(app);
+          const { err } = await pack(app);
 
-        expect(err).toContain(
-          `Refusing to ${verb} ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
-        );
-        expect(err).not.toContain('Module not found');
-        expect(process.exitCode).toBeTruthy();
-        for (const file of sources) {
-          expect(existsSync(file), file).toBe(true);
-        }
-      }, 60_000);
+          expect(err).toContain(
+            `Refusing to ${verb} ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+          );
+          expect(err).not.toContain('Module not found');
+          expect(process.exitCode).toBeTruthy();
+          for (const file of sources) {
+            expect(existsSync(file), file).toBe(true);
+          }
+        },
+        60_000
+      );
     });
   });
 

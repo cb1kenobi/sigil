@@ -2352,15 +2352,22 @@ other is refused with numbers.
   so the build then failed with `Module not found` over a source tree it had
   just deleted. Through `"build": { "out": "src" }` and through `sigil package`
   equally. `buildReads()` is the list, and it is everything `inspect()` has
-  already read: the entry, every module the tree walk found, every catalog the
-  entry's `locales` names by a literal `import()` (`FoundCatalog.file`, kept on
-  `Inspection.catalogs` -- `--out locales` emptied them the same way), the
-  command directory, `package.json`, `sigil.json`/`sigil.jsonc`, the root
+  already read: the entry, every module the tree walk found, every file a
+  catalog loader on the entry names by a literal `import()`, the command
+  directory, `package.json`, `sigil.json`/`sigil.jsonc`, the root
   `tsconfig.json` the type check uses, and a `--bin`. `assertCleanable()`
   refuses an `out` that is or holds any of them and names the file -- `which
   holds` the entry for `--out src`, `which is` the file for `--out sigil.json`.
   Asked in the same pre-flight as the root case, so `package` still refuses
   before a runtime is fetched and nothing is removed first.
+
+  **A catalog is listed whether or not it read as one.** `AppCatalogs.files` is
+  every literal specifier `readAppCatalogs()` resolved to a file that exists,
+  recorded before the parse, because the bundle imports the file whatever it
+  holds. The first version kept the path only once the file parsed as a JSON
+  object, so a `.js` catalog, a JSON file with a byte-order mark, one that does
+  not parse and one that is an array were each emptied by `--out locales`
+  (found by review, all four pinned).
 
   **It is asked whether or not cleaning is.** `--out src --no-clean` removed
   nothing and wrote the bundle over the source instead: an entry at
@@ -2372,7 +2379,9 @@ other is refused with numbers.
   would take the hatch away. There, what is refused is a **write** that lands on
   something the build reads: `OutputGuard.writes`, which is `bundleWrites()` for
   a build (`<bin>.mjs`, `<bin>.cjs`, their maps, `chunks/`) and the binaries'
-  `outputName()`s for a package.
+  `outputName()`s for a package. Both commands are pinned to passing it, a
+  package by a binary named `package.json` built for Linux, which lands on a
+  read on every host.
 
   It is asked two ways in `heldFile()`, and each catches what the other cannot.
   By **spelling**, through `holds()` -- which `holdsApp()` now is, rather than a
@@ -2385,11 +2394,26 @@ other is refused with numbers.
   (`rmSync()` follows every link on the way), a module that is a symlink into
   the directory named, and `--out SRC` on a volume that folds case, which
   macOS's default does and `relative()` cannot know. An `out` that **is** a
-  symlink to the source is allowed, and correctly: `rmSync()` does not follow
-  the last link, so it removes the link and nothing behind it -- measured, and
-  pinned by a test that runs the removal. An `out` that is a link the build
-  reads _through_ is refused by spelling, since removing it loses no data but
-  breaks the read.
+  symlink to the source is allowed when it is to be cleaned, and correctly:
+  `rmSync()` does not follow the last link, so it removes the link and nothing
+  behind it -- measured, and pinned by a test that runs the removal. An `out`
+  that is a link the build reads _through_ is refused by spelling, since
+  removing it loses no data but breaks the read.
+
+  **A write follows the last link where a removal does not, so `--no-clean` is
+  also asked by real path.** `lstat` is right for a removal and wrong for a
+  write: `--out outlink --no-clean`, with `outlink` a link to `src`, wrote the
+  bundle into `src` and replaced the entry, with the guard seeing only a link.
+  So under `--no-clean` the out is asked about as `realPath()` lands it as well
+  -- the native `realpath` of the deepest ancestor that exists, in
+  `build/discover.ts` beside `isInside()` -- and so is each write at the root,
+  which catches a `<bin>.mjs` that is itself a link to the entry. The root test
+  asks it too, so a link to the root, and the root spelled `APP` on a volume
+  that folds case, are the escape hatch rather than a source directory: the
+  native `realpath` answers in the case the volume stores, which is what
+  `resolve()` cannot. With cleaning, `APP` is still refused, as a directory
+  holding the app's files rather than with the root's message, which is the
+  safe direction.
 
   **`out` is resolved once, and that path is what is checked, tested and
   removed.** The first version asked `lstat` and `existsSync` about the raw
@@ -2402,20 +2426,31 @@ other is refused with numbers.
   is right for the same reason the bare spelling is -- `resolve()` drops the
   separator and the removal unlinks the link.
 
-  Sabotages each fail a test in `test/clean-source.test.ts`: no spelling check,
-  no identity walk, no real-path start, and `stat` for `lstat`. The commands are
-  pinned from the flag, from the config file, and under `--no-clean`, in
-  `build-command.test.ts` and `package-command.test.ts`.
+  **What only the bundle knows is guarded by the bundle.** A module the entry
+  imports, a catalog behind a loader that is not a literal `import()`, and
+  `node_modules` are not in `buildReads()`, because the module graph does not
+  exist until rolldown builds it and the clean has to run before that. Under
+  `--no-clean` at the root that was a silent overwrite: `src/index.mjs`
+  importing `../tool.mjs` in a package called `tool`, built `--out .
+  --no-clean`, replaced `tool.mjs` with the bundle and reported success. The
+  `sigil:own-source` plugin in `build/bundle.ts` refuses it in
+  `generateBundle`, which is the one moment the graph and the output names both
+  exist and nothing has been written: any output whose real path is a module
+  id's real path fails the build, naming both. With cleaning, such a directory
+  is still emptied and the build still fails after, since the module is gone
+  before the graph is built.
 
-  What it cannot list is a module only the bundle finds -- a helper the entry
-  imports, a catalog behind a loader that is not a literal `import()`,
-  `node_modules` -- because the module graph does not exist until rolldown
-  builds it, and the clean has to run before that. An `--out` naming such a
-  directory is still emptied and the build still fails after. Every other
-  recursive delete in `src/` was audited with it and removes only a directory
-  this toolchain made for itself: the bundle's and `package`'s scratch
-  directories under `node_modules/.sigil/`, the SEA config's `mkdtempSync()`
-  directory, and a runtime download's `.partial-<pid>`.
+  Sabotages each fail a test in `test/clean-source.test.ts`,
+  `build-command.test.ts` or `package-command.test.ts`: no spelling check, no
+  identity walk, no real-path start, `stat` for `lstat`, no catalog files, the
+  `--no-clean` out not asked by real path, a write not asked through a link,
+  the root not asked by real path, no `sigil:own-source`, and either command
+  passing no `writes`.
+
+  Every other recursive delete in `src/` was audited with it and removes only a
+  directory this toolchain made for itself: the bundle's and `package`'s
+  scratch directories under `node_modules/.sigil/`, the SEA config's
+  `mkdtempSync()` directory, and a runtime download's `.partial-<pid>`.
 
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
@@ -3640,8 +3675,10 @@ about what a valid app is would be the worse half of the feature.
   of a question that was written out twice before this needed it twice more:
   `undo()` and `isAppsOwn()` in `bundle.ts` ask it now instead of spelling the
   separator rule themselves. `assertCleanable()` asks the opposite question --
-  whether the output directory holds the app, not whether a path is under a
-  directory -- and is left as it is.
+  whether the output directory is or holds the app, or anything the build
+  reads, not whether a path is under a directory -- through `holds()`, which is
+  `isInside()` plus the path itself, and by identity on disk; see "...and it
+  refuses an `--out` that holds anything the build reads".
 
   Prereleases were already refused by `latestBun()` and are now refused when
   typed, too: `bun@1.3.14-canary.1` used to pass `parseSpec()` on the strength of

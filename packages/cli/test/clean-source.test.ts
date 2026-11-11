@@ -10,7 +10,7 @@ import {
 } from '../src/commands/_inspect.ts';
 import { copyFixture } from './copy-fixture.ts';
 import { tempDir } from './temp.ts';
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -329,6 +329,113 @@ describe('an --out that holds the source', () => {
       `which holds ${displayPath(join('locales', 'de.json'))}`
     );
     expect(existsSync(catalog)).toBe(true);
+  });
+
+  // the catalog was listed only once it parsed as a JSON object, while the
+  // bundle imports it whatever it holds -- so each of these was emptied by
+  // `--out locales` and the build then failed on `Module not found`
+  it.each([
+    ['a JavaScript catalog', 'de.js', "export default { 'Hello, {0}!': 'Hallo, {0}!' };\n"],
+    [
+      'a JSON catalog with a byte-order mark',
+      'de.json',
+      '\uFEFF{ "Hello, {0}!": "Hallo, {0}!" }\n',
+    ],
+    ['a JSON catalog that does not parse', 'de.json', '{ "Hello, {0}!": \n'],
+    ['a JSON catalog that is not an object', 'de.json', '[]\n'],
+  ])('should list %s among what the build reads', (_, name, contents) => {
+    const app = join(tempDir('sigil-clean-source-'), 'i18n');
+    copyFixture(join(fixtures, 'i18n'), app);
+    const catalog = join(app, 'locales', name);
+    rmSync(join(app, 'locales', 'de.json'));
+    writeFileSync(catalog, contents);
+    const entry = join(app, 'index.ts');
+    writeFileSync(
+      entry,
+      readFileSync(entry, 'utf-8').replace(
+        "import('./locales/de.json', { with: { type: 'json' } })",
+        name.endsWith('.json')
+          ? `import('./locales/${name}', { with: { type: 'json' } })`
+          : `import('./locales/${name}')`
+      )
+    );
+
+    const reads = buildReads(inspect({ cwd: app }));
+
+    expect(reads).toContain(catalog);
+    expect(() => clean(resolveOut(app, 'locales'), { clean: true, reads, root: app })).toThrow(
+      `which holds ${displayPath(join('locales', name))}`
+    );
+    expect(existsSync(catalog)).toBe(true);
+  });
+
+  it('should refuse a --no-clean out that is a link to the source, because a write goes through it', () => {
+    // `lstat` of the link is the link, which is right for a removal and wrong
+    // for a write: the bundle lands in `src`
+    const { app, base, entry, reads } = makeApp();
+    const out = join(base, 'outlink');
+    symlinkSync(join(app, 'src'), out, 'junction');
+
+    expect(() =>
+      clean(out, { clean: false, reads, root: app, writes: bundleWrites('index') })
+    ).toThrow(
+      `Refusing to build into ${displayPath(out)}, which holds ${displayPath(join('src', 'index.js'))}`
+    );
+    expect(existsSync(entry)).toBe(true);
+    // and with cleaning asked for, the link is what is removed, so it is allowed
+    expect(heldFile(out, reads)).toBeUndefined();
+  });
+
+  it('should refuse a --no-clean build into a link to the app root that writes over what it reads', () => {
+    const { app, base, reads } = makeApp();
+    const bin = join(app, 'cli.mjs');
+    writeFileSync(bin, '');
+    const out = join(base, 'rootlink');
+    symlinkSync(app, out, 'junction');
+
+    expect(() =>
+      assertCleanable(out, {
+        clean: false,
+        reads: [...reads, bin],
+        root: app,
+        writes: bundleWrites('cli'),
+      })
+    ).toThrow(`Refusing to write over ${displayPath(join(out, 'cli.mjs'))}, which is cli.mjs`);
+    // and the escape hatch still works through the link when nothing collides
+    expect(() =>
+      assertCleanable(out, { clean: false, reads, root: app, writes: bundleWrites('cli') })
+    ).not.toThrow();
+  });
+
+  // a file symlink needs a privilege on Windows that a junction does not
+  it.skipIf(process.platform === 'win32')(
+    'should refuse a --no-clean write through an output file that is a link to the entry',
+    () => {
+      const { app, entry, reads } = makeApp();
+      symlinkSync(entry, join(app, 'cli.mjs'));
+
+      expect(() =>
+        assertCleanable(app, { clean: false, reads, root: app, writes: bundleWrites('cli') })
+      ).toThrow(
+        `Refusing to write over ${displayPath(join(app, 'cli.mjs'))}, which is ${displayPath(join('src', 'index.js'))}`
+      );
+      expect(readFileSync(entry, 'utf-8')).not.toBe('');
+    }
+  );
+
+  it('should read the app root spelled in another case as the root under --no-clean, where the volume folds case', () => {
+    // the escape hatch, not a source directory: `APP` is `app` to a volume that
+    // folds case, and was refused as holding `package.json`
+    const { app, reads } = makeApp();
+    const out = join(dirname(app), 'APP');
+
+    if (foldsCase(dirname(app))) {
+      expect(() =>
+        assertCleanable(out, { clean: false, reads, root: app, writes: bundleWrites('cli') })
+      ).not.toThrow();
+    } else {
+      expect(existsSync(out)).toBe(false);
+    }
   });
 
   it('should list what the build reads: the entry, every module, the manifest and the command directory', () => {
