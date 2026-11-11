@@ -298,6 +298,30 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should unstage a rename with no content changes whole, from the diff pane',
+      async () => {
+        const repo = repository();
+        repo.git('mv', 'a.txt', 'moved.txt');
+        const client = await mount(App, repo);
+
+        // a pure rename is one file with no hunks, so Space in the diff pane
+        // unstages the whole of it -- its source included, or the deletion of
+        // `a.txt` would stay staged (`D  a.txt`) beside an untracked
+        // `moved.txt`. `git mv` moved the file on disk, so with nothing staged
+        // the rename is left as a deletion and a new file in the working tree,
+        // which is what Space on the file in the files pane leaves too
+        await client.press('4', ' ');
+        expect(repo.git('diff', '--cached', '--name-only')).toBe('');
+        expect(repo.git('status', '--porcelain')).toBe(' D a.txt\n?? moved.txt\n');
+        expect(client.screen()).toMatch(/Unstaged moved\.txt/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should commit what is staged, with a message written in a text area',
       async () => {
         const repo = repository();

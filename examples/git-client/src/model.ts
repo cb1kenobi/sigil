@@ -71,6 +71,12 @@ export interface DiffSection {
   readonly lines: readonly string[];
   /** A path `added` or a binary file stands for, which is what Space stages whole. */
   readonly path?: string;
+  /**
+   * A staged rename's source, which unstaging the whole file has to reset along
+   * with {@link path} -- or the deletion of the source stays staged and the
+   * renamed file is left untracked.
+   */
+  readonly from?: string;
 }
 
 /** What the diff pane shows. */
@@ -439,6 +445,7 @@ export function createModel(): Model {
       sections.push({
         action: 'unstage',
         files: await patch(['--cached', '-M', '--', ...paths]),
+        from: file.from,
         label: 'Staged',
         lines: [],
         path: file.path,
@@ -584,9 +591,16 @@ export function createModel(): Model {
     }
     void act(async () => {
       if (!at.hunk) {
-        // an untracked file, or one binary or too large to show: all of it
+        // an untracked file, one binary or too large to show, or a rename with
+        // no content changes: all of it, and a rename's source with it, the way
+        // `toggleFile()` resets both
         const path = at.file?.path ?? at.section.path ?? '';
-        await run(action === 'stage' ? ['add', '--', path] : ['reset', '-q', '--', path]);
+        const from = at.section.from;
+        await run(
+          action === 'stage'
+            ? ['add', '--', path]
+            : ['reset', '-q', '--', path, ...(from === undefined ? [] : [from])]
+        );
         return `${action === 'stage' ? 'Staged' : 'Unstaged'} ${path}`;
       }
       if (!at.file) {
