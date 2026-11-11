@@ -7,8 +7,8 @@
  * `RangeError: Maximum call stack size exceeded` instead of answering. That is
  * a limit on the *caller's data*: a line chart of a long series, a table of many
  * rows, a box with many children. So anywhere the list is as long as somebody's
- * data, it is measured with this rather than spread. See "No spread of a
- * data-sized array" in `src/components/AGENTS.md`.
+ * data, it is measured with this rather than spread. See "A largest or a
+ * smallest over data is `maxOf()` or `minOf()`" in `src/components/AGENTS.md`.
  *
  * The answer is `Math.max(floor, ...values)` exactly, because it is that same
  * function asked one element at a time, and `Math.max` is associative and

@@ -9,8 +9,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
  * chart's scale, `Math.max(heading, ...cells)` for a column's width, and
  * `box(props, ...rows)` for both -- which puts every row on the call stack as an
  * argument, and past about 125,000 of them a main thread throws `RangeError:
- * Maximum call stack size exceeded`. See "No spread of a data-sized array" in
- * `src/components/AGENTS.md`.
+ * Maximum call stack size exceeded`. See "A largest or a smallest over data is
+ * `maxOf()` or `minOf()`" in `src/components/AGENTS.md`, which also says which
+ * other components' `box()` spreads remain (SIG-417).
  *
  * In a child rather than in this file, because this file is not on a main thread:
  * vitest runs it in a worker, whose stack is four times the size and spreads

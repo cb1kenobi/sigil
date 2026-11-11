@@ -2448,6 +2448,24 @@ graphemes('á日🇯🇵'); // ['á', '日', '🇯🇵']
 unicodeVersion; // '17.0.0'
 ```
 
+`maxOf(values, floor)` and `minOf(values, ceiling)` are the largest and the
+smallest of a list of numbers, for a list of any length. `Math.max(...values)`
+puts every element on the call stack, so past about 125,000 of them it throws
+`RangeError: Maximum call stack size exceeded`; these walk the list instead. The
+answer is exactly `Math.max(floor, ...values)` and `Math.min(ceiling, ...values)`,
+`NaN` and an empty list included, and `floor` and `ceiling` default to
+`-Infinity` and `Infinity`.
+
+```js
+import { maxOf, minOf, stringWidth } from '@ttylabs/sigil/width';
+
+maxOf(
+  lines.map((line) => stringWidth(line)),
+  0
+); // the widest line, or 0 for none
+minOf(values); // Infinity for an empty list, as Math.min() is
+```
+
 ### `sigil/element`
 
 The element tree the components and the help screen are built from -- `box()`,
