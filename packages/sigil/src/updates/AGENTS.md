@@ -74,11 +74,13 @@ the entry it belongs to.
   `ts + checkInterval >= now`. The minute is for a clock NTP nudged back between
   the run that wrote the cache and the one reading it, which is jitter rather than a wrong clock and
   should not cost a fetch per run; it is not more because a stamp further ahead
-  than that is the case this exists for. A `ts` that is not a finite number is
-  stale too, and asked by type rather than left to the comparison: a string of
+  than that is the case this exists for. A `ts` that is not a number is stale
+  too, and asked by type rather than left to the comparison: a string of
   digits holding the current time passes `ts <= now` numerically and then
   `ts + checkInterval` concatenates into something twenty digits long, so only
-  `typeof` catches it. The worker writes `ts` and never reads it, and nothing
+  a type check catches it. A number that is not finite needs no guard of its
+  own: Infinity fails `ts <= now`, -Infinity fails the age check and NaN fails
+  both, which is why there is no `Number.isFinite()` beside the `typeof`. The worker writes `ts` and never reads it, and nothing
   else reads a stamp -- `notifyInterval` is still a `TODO` with no stamp of its
   own -- so `check()` is the one place this is asked. Tested in
   `test/updates.test.ts` against a local listener that counts connections.
@@ -344,8 +346,8 @@ and the pty runs are in
   and `1.0.1+a..b` were all read too. Semver forbids an empty identifier, so
   each part is now dot-separated non-empty identifiers, with the dot outside
   the class, which keeps every repetition unambiguous and the match linear.
-  This pattern is also the gate the security review relied on to keep a
-  hostile registry answer or a poisoned cache off the terminal, so the change
+  This pattern is also the gate that keeps a hostile registry answer or a
+  poisoned cache off the terminal, so the change
   could only narrow it: the tests pin that an escape sequence, a C1 `CSI`, a
   NUL, a `DEL`, a space, a tab, a newline or a carriage return inside a
   version is still unreadable, and write out the fourteen kinds of valid

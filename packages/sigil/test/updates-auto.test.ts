@@ -141,8 +141,8 @@ describe('isNewer', () => {
     }
   });
 
-  // the fourteen kinds of valid version the review checked, written out so
-  // that narrowing the pattern is seen to change none of them
+  // fourteen kinds of valid version, from SIG-376, written out so that
+  // narrowing the pattern is seen to change none of them
   it.each([
     // numeric identifiers compare as numbers
     ['1.0.0-beta.11', '1.0.0-beta.2', true],

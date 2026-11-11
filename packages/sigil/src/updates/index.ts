@@ -182,14 +182,15 @@ export async function check(
   // resumed from a snapshot, a home directory restored from another machine
   // -- stayed fresh until real time caught up with `ts + checkInterval`,
   // which can be a year of no checks with `force` the only way out. A stamp
-  // that is not a finite number is stale for the same reason: the comparison
-  // below means nothing on it, and a string of digits would compare by
-  // concatenation.
+  // that is not a number is stale too, and that takes a type check rather than
+  // the comparisons: a string of digits passes `ts <= now` numerically and is
+  // then added to by concatenation. A number that is not finite needs nothing
+  // more, since Infinity fails the first comparison, -Infinity the second and
+  // NaN both.
   const now = Date.now();
   const ts = cache?.ts;
   const fresh =
     typeof ts === 'number' &&
-    Number.isFinite(ts) &&
     ts <= now + CLOCK_TOLERANCE &&
     ts + checkInterval >= now &&
     versionIn(cache, checker) !== undefined;
