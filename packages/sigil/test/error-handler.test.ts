@@ -134,6 +134,17 @@ describe('errorHandler', () => {
     expect(out.text).toBe('already newlined\n');
   });
 
+  // SIG-342: an error message echoes argv, so one argument holding a long run of
+  // newlines reached an unanchored `/[\r\n]+$/` that is quadratic in it -- 2,989ms
+  // at 80,000. 200,000 is tens of seconds that way and a millisecond now
+  it('should not stall on an argument made of newlines', () => {
+    const out = sink();
+    const run = '\n'.repeat(200_000);
+    errorHandler(new Error(`Unexpected argument "${run}"`), { stderr: out.stream });
+
+    expect(out.text).toBe(`Error: Unexpected argument "${run}"\n`);
+  });
+
   it('should honor an exit code on the error', () => {
     const out = sink();
     errorHandler(Object.assign(new Error('nope'), { exitCode: 7 }), { stderr: out.stream });

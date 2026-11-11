@@ -330,6 +330,23 @@ The sharpest question in the design, and the ticket did not name it.
   the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
   CSV serializer that already ends with one from producing a blank line.
 
+- **That trim is a walk back from the end, and never `replace(/[\r\n]+$/, '')`
+  (SIG-342).** The pattern has no anchor at its start, so the engine tries an
+  interior run of k newlines from each of its k positions and fails each at the
+  first character that is not one: k² steps for a run that is not at the end at
+  all. An error message echoes argv, so one argument made of newlines stalled the
+  error path -- measured, `errorHandler()` took 425ms at 20,000, 2,786ms at 40,000
+  and 8,306ms at 80,000, and is under a millisecond for all three now.
+  `trimTrailingNewlines()` in `src/util/` is the one definition, used by
+  `errorHandler()`, `writeFormatted()` and `runApp()`'s default error report, and
+  its test asserts it holds no regex, because a timeout cannot interrupt
+  synchronous code and so only reports a regression after it has finished. A sweep
+  of `packages/*/src` for the same shape found three more over a file's own bytes,
+  in the XML and YAML stores, and those take a lookbehind (`(?<!\n)\n*$`) instead
+  of an import, since the helper is not on a published subpath and one regex is not
+  worth a new one. What is left unanchored is bounded: canvas and screen rows are
+  at most the width, and a locale variable would need a newline in it.
+
 #### An exit code is not a return value, and `run()` sets it rather than returning it
 
 - **A command hands `main()` an exit code by setting `process.exitCode` and
