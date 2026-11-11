@@ -1,4 +1,5 @@
 export {
+  candidateCache,
   candidatesOf,
   type EntryCache,
   entryCache,

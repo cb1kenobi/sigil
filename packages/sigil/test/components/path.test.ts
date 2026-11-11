@@ -1,5 +1,6 @@
 import {
   answerOf,
+  candidateCache,
   candidatesOf,
   commonPrefix,
   directoryOf,
@@ -11,7 +12,7 @@ import {
 } from '../../src/components/path.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { home } from '../../src/paths.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { countEntrySorts, type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix, resolve, sep, win32 } from 'node:path';
@@ -232,6 +233,68 @@ describe('candidatesOf()', () => {
   });
 });
 
+describe('candidateCache()', () => {
+  const entries: PathEntry[] = [
+    { dir: false, name: 'b.txt' },
+    { dir: true, name: 'zed' },
+    { dir: false, name: '.env' },
+    { dir: false, name: 'c.md' },
+  ];
+  const names = (found: readonly PathEntry[]) => found.map((entry) => entry.name);
+
+  it('should answer as candidatesOf() does', () => {
+    const offer = candidateCache(win32);
+
+    expect(offer(entries, 'B', { extensions: ['txt'] })).toEqual(
+      candidatesOf(entries, 'B', { extensions: ['txt'] }, win32)
+    );
+  });
+
+  it('should hand back the same answer while nothing it depends on has moved', () => {
+    const offer = candidateCache(posix);
+    const extensions = ['txt'];
+    const first = offer(entries, '', { extensions, hidden: false });
+
+    // a filter built afresh for each ask is still the same filter
+    expect(offer(entries, '', { extensions, hidden: false })).toBe(first);
+    // `hidden` is only ever asked whether it is `true`
+    expect(offer(entries, '', { extensions })).toBe(first);
+  });
+
+  it('should filter and sort again once the directory is read again, into a new array', () => {
+    const offer = candidateCache(posix);
+    const first = offer(entries, '');
+
+    const reread = [...entries, { dir: false, name: 'a.txt' }];
+    expect(names(offer(reread, ''))).toEqual(['zed', 'a.txt', 'b.txt', 'c.md']);
+    // the same names read again are a new answer, since nothing says they are the same
+    expect(offer([...entries], '')).not.toBe(first);
+  });
+
+  it('should filter again when the segment, hidden, directory or extensions move', () => {
+    const offer = candidateCache(posix);
+    const extensions = ['md'];
+
+    expect(names(offer(entries, ''))).toEqual(['zed', 'b.txt', 'c.md']);
+    expect(names(offer(entries, 'b'))).toEqual(['b.txt']);
+    expect(names(offer(entries, '', { hidden: true }))).toEqual(['zed', '.env', 'b.txt', 'c.md']);
+    expect(names(offer(entries, '', { directory: true }))).toEqual(['zed']);
+    expect(names(offer(entries, '', { extensions }))).toEqual(['zed', 'c.md']);
+    expect(names(offer(entries, '', { extensions: ['txt'] }))).toEqual(['zed', 'b.txt']);
+  });
+
+  it('should offer nothing from a directory that has not been read', () => {
+    const offer = candidateCache(posix);
+
+    const before = offer(undefined, '');
+    expect(before).toEqual([]);
+    // and the same nothing each time, so a draw before the read lands is not a miss
+    expect(offer(undefined, '')).toBe(before);
+    // what the read lands is a different answer, even when it is empty
+    expect(offer([], '')).not.toBe(before);
+  });
+});
+
 describe('commonPrefix()', () => {
   it('should find what every name shares', () => {
     expect(commonPrefix(['beta.json', 'beta.yaml'], posix)).toBe('beta.');
@@ -319,6 +382,25 @@ describe('path()', () => {
         'notes.TXT',
       ])
     );
+  });
+
+  it('should filter and sort once per key typed, not three times (SIG-364)', async () => {
+    const { ui } = open();
+    await until(() => expect(listed(ui)).toContain('notes.TXT'));
+    const sorts = countEntrySorts();
+    try {
+      // each letter is a new segment, so a new list; a move is the same list
+      await type(ui.stdin, 'a', 'l', 'p');
+      await until(() => expect(listed(ui)).toEqual([`alpha${sep}`, 'alphabet.md']));
+      await settleOutput(ui);
+      expect(sorts.count()).toBe(3);
+
+      await type(ui.stdin, DOWN, DOWN, UP);
+      await settleOutput(ui);
+      expect(sorts.count()).toBe(3);
+    } finally {
+      sorts.restore();
+    }
   });
 
   it('should complete to the longest prefix the candidates share', async () => {
