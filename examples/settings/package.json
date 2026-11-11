@@ -1,0 +1,25 @@
+{
+  "name": "@ttylabs/example-settings",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A settings screen and a login form in a dialog, in JSX: the form controls, validation, and unsaved changes",
+  "bin": {
+    "settings": "./dist/settings.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "sigil build",
+    "start": "node dist/settings.mjs",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  },
+  "devDependencies": {
+    "@ttylabs/cli": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

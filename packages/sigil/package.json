@@ -147,6 +147,10 @@
       "types": "./dist/components/group-multiselect.d.mts",
       "default": "./dist/components/group-multiselect.mjs"
     },
+    "./components/highlight": {
+      "types": "./dist/components/highlight.d.mts",
+      "default": "./dist/components/highlight.mjs"
+    },
     "./components/image": {
       "types": "./dist/components/image.d.mts",
       "default": "./dist/components/image.mjs"
