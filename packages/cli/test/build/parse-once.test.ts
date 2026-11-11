@@ -19,6 +19,7 @@
 import { forgetParsedModules, parseModule } from '../../src/build/parse-module.js';
 import { run } from '../../src/index.js';
 import { tempDir } from '../temp.js';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -111,6 +112,23 @@ describe('a build', () => {
 
     expect(new Set(parses.map(({ file }) => file))).to.include(join(app, 'index.ts'));
     expect(repeats(parses)).to.deep.equal([]);
+  });
+
+  it('should hold the trees of one build at a time, by forgetting them where a build starts', async () => {
+    // the memory bound: `inspect()` empties the cache, so a process that
+    // builds again does not keep the first app's trees. One entry per path
+    // alone would keep them -- nothing about building `i18n` replaces the
+    // entry for `styled`'s schema module
+    const styled = join(fixtures, 'styled');
+    const entry = join(styled, 'src', 'index.ts');
+    const source = readFileSync(entry, 'utf-8');
+
+    await build(styled);
+    const first = parseModule(entry, source);
+    expect(parseModule(entry, source)).to.equal(first);
+
+    await build(join(fixtures, 'i18n'));
+    expect(parseModule(entry, source)).not.to.equal(first);
   });
 });
 

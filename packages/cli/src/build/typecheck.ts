@@ -40,11 +40,12 @@
  * not how anything starts on Windows.
  */
 
-import { type Diagnostic, type Severity } from './diagnostic.ts';
+import { word } from '../shell.ts';
+import { displayPath, type Diagnostic, type Severity } from './diagnostic.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /** The config file an app is checked against, when it does not name one. */
 const TSCONFIG = 'tsconfig.json';
@@ -68,7 +69,8 @@ export interface TypeCheckOptions {
    */
   readonly tsc?: string;
   /**
-   * The most output, in bytes, the build reads from the compiler.
+   * The most output, in bytes, the build reads from each of the compiler's
+   * streams.
    *
    * For a test, which has to reach the limit without printing 128 MiB to do
    * it. Defaults to `TSC_MAX_OUTPUT`.
@@ -100,7 +102,9 @@ const DIAGNOSTIC_RE = /^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+: .*)$/;
 const GLOBAL_RE = /^(error|warning) (TS\d+: .*)$/;
 
 /**
- * How much the compiler may print before the build stops reading, in bytes.
+ * How much the compiler may print before the build stops reading, in bytes,
+ * **per stream**: it is `spawnSync()`'s `maxBuffer`, which counts stdout and
+ * stderr separately, so the two together can reach twice this.
  *
  * `spawnSync()` defaults to 1 MiB and fails past it with `ENOBUFS`, which is
  * about 12,000 diagnostics -- a number a large app mid-migration reaches, and
@@ -171,10 +175,14 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
   // more output than the build will read is a thing to say in words: the raw
   // `spawnSync ... ENOBUFS` names neither the limit nor what to do about it,
   // and the compiler has been killed by then, so what was read is a prefix of
-  // the diagnostics rather than all of them and is not reported as though it were
+  // the diagnostics rather than all of them and is not reported as though it
+  // were. The command it suggests names the config relative to the app's root,
+  // which is where `tsc` ran, and through `word()`, because an absolute path
+  // with a space in it -- a Windows profile directory, often -- is two
+  // arguments to the shell it is pasted into
   if ((run.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
     throw new Error(
-      `The type checker at ${tsc} printed more than ${formatBytes(limit)} of output, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${project}\` to see what it found`
+      `The type checker at ${tsc} printed more than ${formatBytes(limit)} on one stream, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${rerun(cwd, project)}\` in ${displayPath(cwd)} to see what it found`
     );
   }
 
@@ -188,6 +196,27 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
   // carriage return in a message is a cursor movement to the terminal printing it
   const output = `${run.stdout ?? ''}${run.stderr ?? ''}`.replace(/\r\n?/g, '\n');
   const diagnostics = parseDiagnostics(output, cwd);
+
+  // a compiler stopped by a signal did not finish, whatever it printed first:
+  // the diagnostics before the signal are real and are kept, but they are a
+  // prefix rather than the whole -- the reasoning the `ENOBUFS` branch above
+  // follows -- and with nothing saying so the report reads as complete. And
+  // with nothing printed, "exited without a status" named no cause at all
+  if (run.signal) {
+    return {
+      checked: true,
+      diagnostics: [
+        ...diagnostics,
+        {
+          file: project,
+          message: diagnostics.length
+            ? `the type checker was stopped by ${run.signal} before it finished, so the diagnostics it reported may not be all of them`
+            : `the type checker was stopped by ${run.signal} before it finished:\n${output.trim() || '(no output)'}`,
+          severity: 'error',
+        },
+      ],
+    };
+  }
 
   // a non-zero exit with nothing parseable behind it is the compiler refusing
   // to run rather than the app failing to check -- a `composite` project that
@@ -298,4 +327,19 @@ function parseDiagnostics(output: string, cwd: string): Diagnostic[] {
 function formatBytes(bytes: number): string {
   const mib = bytes / (1024 * 1024);
   return Number.isInteger(mib) ? `${mib} MiB` : `${bytes} bytes`;
+}
+
+/**
+ * The config as the `-p` of a command run from the app's root.
+ *
+ * Relative, because that is where `tsc` ran and it is usually just
+ * `tsconfig.json`; forward-slashed, which `tsc` takes on Windows too; and
+ * quoted where a shell would split it.
+ *
+ * @param cwd - The app's root.
+ * @param project - The config's absolute path.
+ * @returns The argument.
+ */
+function rerun(cwd: string, project: string): string {
+  return word(displayPath(relative(cwd, project)));
 }

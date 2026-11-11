@@ -1,7 +1,7 @@
 import { displayPath, formatDiagnostic, isFatal } from '../../src/build/diagnostic.js';
 import { typeCheck } from '../../src/build/typecheck.js';
 import { tempDir } from '../temp.js';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -183,10 +183,67 @@ describe('type-checking an app', () => {
       const { cwd, tsc } = printing(1_000, '\n');
 
       expect(() => typeCheck({ cwd, maxOutput: 1024, tsc })).to.throw(
-        /printed more than 1024 bytes of output, which is more than the build reads/
+        /printed more than 1024 bytes on one stream, which is more than the build reads/
       );
       expect(() => typeCheck({ cwd, maxOutput: 1024, tsc })).not.to.throw(/ENOBUFS/);
     });
+
+    it('should suggest a command a shell reads as one argument, from an app in a spaced directory', () => {
+      // the regression: the suggestion printed `-p` as the config's absolute
+      // path, unquoted, so an app under `app dir` -- a Windows profile
+      // directory, often -- printed a command a shell splits in two
+      const { tsc } = printing(1_000, '\n');
+      const cwd = join(tempDir('sigil-typecheck-'), 'app dir');
+      mkdirSync(cwd);
+      writeFileSync(join(cwd, 'tsconfig.json'), '{}', 'utf-8');
+      writeFileSync(join(cwd, 'my tsconfig.json'), '{}', 'utf-8');
+
+      const suggested = (project?: string) => {
+        try {
+          typeCheck({ cwd, maxOutput: 1024, project, tsc });
+        } catch (err) {
+          return /`(tsc [^`]*)`/.exec((err as Error).message)?.[1];
+        }
+        return undefined;
+      };
+
+      // relative to the app's root, which is where `tsc` ran
+      expect(suggested()).to.equal('tsc --noEmit -p tsconfig.json');
+      // and quoted where a shell would split it
+      expect(suggested('my tsconfig.json')).to.equal("tsc --noEmit -p 'my tsconfig.json'");
+    });
+
+    // a process cannot report a signal it sent itself on Windows, where a kill
+    // is `TerminateProcess` and the parent sees an exit code instead
+    it.skipIf(process.platform === 'win32')(
+      'should say a compiler stopped by a signal may not have reported everything',
+      () => {
+        // the regression: a diagnostic then a SIGKILL came back as that one
+        // diagnostic with nothing saying the checker had died, and a silent
+        // SIGKILL as "exited without a status", which names no cause
+        const cwd = tempDir('sigil-typecheck-');
+        writeFileSync(join(cwd, 'tsconfig.json'), '{}', 'utf-8');
+        const partial = join(cwd, 'partial.mjs');
+        writeFileSync(
+          partial,
+          `process.stdout.write("index.ts(3,5): error TS2322: no.\\n", () => process.kill(process.pid, 'SIGKILL'));`,
+          'utf-8'
+        );
+        const silent = join(cwd, 'silent.mjs');
+        writeFileSync(silent, `process.kill(process.pid, 'SIGKILL');`, 'utf-8');
+
+        const some = typeCheck({ cwd, tsc: partial }).diagnostics;
+        expect(some).to.have.lengthOf(2);
+        expect(some[0]!.line).to.equal(3);
+        expect(some[1]!.message).to.contain('stopped by SIGKILL');
+        expect(some[1]!.message).to.contain('may not be all of them');
+
+        const none = typeCheck({ cwd, tsc: silent }).diagnostics;
+        expect(none).to.have.lengthOf(1);
+        expect(none[0]!.message).to.contain('stopped by SIGKILL before it finished');
+        expect(isFatal(none)).to.equal(true);
+      }
+    );
   });
 
   it('should throw when the compiler cannot be started at all', () => {

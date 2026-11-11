@@ -88,7 +88,8 @@ export interface Position {
  * is read again, and a stale tree cannot come back. The parse options are not
  * part of the key because there are none: `parseSync(file, source)` decides
  * the language from the extension, which is in the path, and that call is the
- * only one made here.
+ * only one whose result is kept. `parses()` and `parseTree()` below call
+ * `parseSync()` too, `parseTree()` with options, and keep nothing.
  *
  * One entry per path, so a source that changed **replaces** the tree it had
  * rather than sitting beside it, and `forgetParsedModules()` empties it at the

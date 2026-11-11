@@ -851,19 +851,39 @@ makes it testable with a fixture directory and no bundler at all.
   exited 2 without reporting a diagnostic:` over the raw text and `1 error`
   where it should have said `src/index.ts:3:5: error: TS2322: ...`. The output
   is normalized to `\n` before it is read, which also keeps a `\r` out of the
-  unlocated dump, where a terminal would read it as a cursor movement. Whether
-  real `tsc` on Windows writes CRLF there was not confirmed; the fix is harmless
-  either way. And `spawnSync()`'s default `maxBuffer` is 1 MiB, so 15,000 lines
+  unlocated dump, where a terminal would read it as a cursor movement. It is
+  load-bearing for an app on TypeScript 5 or 6 on Windows, by reading their
+  source rather than by running one there: `ts.sys.newLine` is `os.EOL`, and the
+  `--pretty false` reporter ends each diagnostic with `host.getNewLine()`, so
+  every such error used to collapse into the fallback -- the build still failed,
+  with no file or line. TypeScript 7.0.2 writes `\n`, which is why
+  `should report a type error, with the file and the position` already passed on
+  Windows CI. And `spawnSync()`'s default `maxBuffer` is 1 MiB, so 15,000 lines
   (about 1.2 MiB) failed the build with `spawnSync .../node ENOBUFS` instead of
   printing them -- an app mid-migration is exactly the one with that many.
-  `TSC_MAX_OUTPUT` is 128 MiB, about a million and a half diagnostics, and
-  finite on purpose: `Infinity` works (checked) but leaves V8's longest string,
+  `TSC_MAX_OUTPUT` is 128 MiB **per stream** -- `maxBuffer` counts stdout and
+  stderr apart, so the two together can reach twice that -- about a million and
+  a half diagnostics, and finite on purpose: `Infinity` works (checked) but leaves V8's longest string,
   536,870,888 code units, as the real bound, which fails as
   `ERR_STRING_TOO_LONG`. Past the limit the error says so in words and names
   `tsc --noEmit -p <project>` rather than passing `ENOBUFS` through, and the
   partial output is not parsed, because the compiler was killed and a prefix
-  of the diagnostics is not all of them. `maxOutput` exists for the test, the
-  way `tsc` does.
+  of the diagnostics is not all of them. The `-p` it prints is relative to the
+  app's root, where `tsc` ran -- usually just `tsconfig.json` -- and goes
+  through `word()`: the first version printed the absolute path bare, so an app
+  under `app dir`, which a Windows profile directory often is, got a command a
+  shell splits in two. `word()` moved out of `commands/reference.ts` into
+  `src/shell.ts` for it rather than being copied. `maxOutput` exists for the
+  test, the way `tsc` does.
+- **A compiler stopped by a signal did not finish, and the report says so.**
+  Found by review of SIG-355, and older than it: a diagnostic followed by a
+  `SIGKILL` came back as that one diagnostic, reading as the whole report, and a
+  silent `SIGKILL` as `the type checker exited without a status`, which names
+  no cause. `run.signal` now adds an error naming the signal -- "may not be all
+  of them" when something was reported, the raw output when nothing was --
+  which is the `ENOBUFS` branch's own reasoning: a prefix is not the whole. The
+  test is skipped on Windows, where a process killing itself is
+  `TerminateProcess` and the parent sees an exit code rather than a signal.
 - **The type-check fixtures are excluded from the package's own tsconfig.**
   `test/fixtures/typecheck/broken/` holds a deliberate type error, and a suite
   that fails on its own fixture is a suite nobody can run. Same exclusion the JSX
@@ -1256,7 +1276,9 @@ makes it testable with a fixture directory and no bundler at all.
   changed source replaces its tree rather than sitting beside it, and
   `forgetParsedModules()` empties the map where `inspect()` starts, so a process
   that builds again -- `check`, `build` and `package` all start there -- holds one
-  build's trees. Measured on the 244-module app, the heap left after a forced GC
+  build's trees. That call is pinned by two in-process builds in a row, the
+  second of a different app: without it the first app's trees are still there
+  after the second, since nothing in the second replaces their paths. Measured on the 244-module app, the heap left after a forced GC
   at exit is 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
   source**, and peak RSS about 40 MB higher (702–710 MB against 660–672 MB). A
   one-shot `sigil build` pays that once; there is no watch loop in the toolchain
