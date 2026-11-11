@@ -6183,6 +6183,21 @@ come out, and the answer is the entry you land on.
   `directory` mode that is a list holding only `.`. It reuses the key `path()`
   already has rather than a new one, because the list can be empty from the
   filter as well as from the directory.
+- **A directory state is filtered and sorted once, not once per ask (SIG-364).**
+  A key asks for the listing, and so does each of `redraw()`'s two draws, and
+  every ask was `candidatesOf()` over the whole directory: three filter-and-sorts
+  an arrow key, measured at 19 sorts for six keys and about 0.25s a key at 200,000
+  entries. `candidateCache()` in `path.ts` keeps the last answer and hands it back
+  while its inputs stand still: the entries array by identity (a new directory, or
+  a directory read again, is a new array), the segment, `directory`, whether
+  `hidden` is `true`, and `extensions` by identity. `path()`'s completer had the
+  same three asks per typed key and uses the same cache, so it is one definition
+  for both. It is published from `components/path` because an ejected picker
+  imports it from there. The second draw in `redraw()` stays: it is the one that
+  shows a directory whose read had not landed at the first, and with the cache it
+  costs the visible rows and no sort. The tests count `toSorted()` on `{ dir,
+  name }` arrays (`countEntrySorts()` in the test helpers), since a spy on the
+  export cannot see calls made inside `path.ts`.
 
 What is deliberately not done: typing to filter (that is `path()` and
 `autocomplete()`); a drive list; a `~` or Home key; showing sizes or types;
