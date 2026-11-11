@@ -127,6 +127,26 @@ the entry it belongs to.
   template from the tag and from a dev build, and not from a release one --
   which is the transform's asymmetry rather than ours, and is why `loc` is not
   required.
+- **The tag counts its position forward, because recounting it made a parse
+  quadratic (SIG-349).** `loc()` joined and split the whole consumed prefix of
+  the template on every call, and it is called once per element and per text
+  run, so a template of k nodes cost O(k²): one string of k `<text>` nodes took
+  2.1 ms at 200, 17.9 ms at 800 and 56.7 ms at 1,600 (the ticket's figures; on a
+  loaded machine the same build measured 252 ms at 1,600 and 365 ms at 3,200).
+  It now keeps a running line and column and advances them from where the last
+  call stopped, which is sound because the cursor only moves forward: 0.17 ms at
+  200, 0.50 ms at 800, 0.99 ms at 1,600 and 2.5 ms at 3,200, measured the same
+  way. What it reports is unchanged, and the rules that look like accidents are
+  kept on purpose: only `\n` ends a line, so a `\r` from CRLF source is a column;
+  a column is UTF-16 code units, so an astral character is two and a wide one is
+  one; and an interpolated value counts for nothing. `sigil build` parses with
+  this same `parse()`, so its printed positions moved with it and there was no
+  second helper to change. `test/template/tag-loc.test.ts` pins the messages and
+  the per-node positions recorded from the quadratic version, and asserts the
+  growth as a **count** of reads of the static strings rather than as a timing
+  -- the old `loc()` grows that count 3.85x when k doubles, the new one under
+  2.5x. Caching the parsed IR per `TemplateStringsArray` is a separate, open
+  decision and is not done here, because it changes what the IR holds.
 - **The host prop types are derived from the property table, not listed beside
   it.** `Style` carries every longhand and its resolved type; the shorthands and
   aliases are literal unions on their own tables. `Kebab<>` and `Camel<>` are
