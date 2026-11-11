@@ -1890,10 +1890,13 @@ decided once, for all of them. The runs and the sabotage passes are in
   -- a `display: none` row has a zero box -- so a wide label off screen moved
   nothing then and moves nothing now. Every drawn row still gets `display: flex`
   written, as it did when an off-screen one got `none`, so that what a row
-  resolves to is what it was. The one thing a theme could see is
-  `:nth-child()` on `.sigil-choice`, which now counts from the top of the
-  window rather than the top of the list; nothing in the framework sheet uses it,
-  and it is what `sort()`'s rows have always done. Pinned as counts of element
+  resolves to is what it was. The one thing a theme could see is a structural
+  selector over the rows: `:first-child`, `:last-child`, `:nth-child()` and the
+  sibling combinators `+` and `~` on `.sigil-choice` now match among the rows of
+  the window rather than among every row of the list -- `.sigil-choice:first-child`
+  was choice 0 even when it had scrolled away as a `display: none` row, and is the
+  top visible row now. Nothing in the framework sheet uses any of them, and it is
+  what `sort()`'s rows have always done. Pinned as counts of element
   writes at fifty choices and at five thousand in `choice-window.test.ts`,
   never as time; the old code fails them by a factor of a hundred.
 

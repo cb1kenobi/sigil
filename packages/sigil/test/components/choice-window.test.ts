@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * SIG-369: `select()` and `multiselect()` built five elements for every choice
  * and wrote props on every one of them on every key, with the rows outside the
  * window kept in the tree as `display: none` -- so a key cost the length of the
- * list. A Down was 28ms at a thousand choices and 486ms at sixteen thousand. The
+ * list. A `select()` Down was 30.9ms at a thousand choices and 458.6ms at sixteen
+ * thousand, the figures `src/components/AGENTS.md` records. The
  * tree holds the window's rows now, and these pin that as counts rather than as
  * time: what is built and what is written is the same at fifty choices as at
  * five thousand.
@@ -206,5 +207,35 @@ describe('a choice list whose rows are built as the window moves', () => {
 
     await type(ui.stdin, ENTER);
     expect(await answer).to.deep.equal(['item 5']);
+  });
+
+  // a drawn row is written `display: flex` as a prop, as it was when a row off
+  // screen was written `none`, and a prop beats a sheet -- so a theme hiding the
+  // rows is overruled on every row the window builds, a heading's included, the
+  // first window's and the ones a scroll brings in alike
+  it('should write display: flex on every row it draws, which a theme cannot hide', async () => {
+    const choices = [separator('top'), ...Array.from({ length: 20 }, (_, i) => `item ${i}`)];
+    for (const ask of [select, multiselect] as const) {
+      const ui = screenSetup({ columns: 40, rows: 6 });
+      const answer = ask({
+        ansi: ui.ansi,
+        choices,
+        message: 'Pick',
+        terminal: ui.terminal,
+        theme: '.sigil-choice { display: none }',
+      }).catch(() => undefined);
+
+      await tick();
+      expect(drawn(ui)).to.contain('top');
+      expect(shown(drawn(ui)).rows).to.include(0);
+
+      await type(ui.stdin, UP);
+      const { active, rows } = shown(drawn(ui));
+      expect(active, drawn(ui)).to.equal(19);
+      expect(rows.length, drawn(ui)).to.be.greaterThan(1);
+
+      await type(ui.stdin, CTRL_C);
+      await answer;
+    }
   });
 });

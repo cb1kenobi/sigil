@@ -2894,8 +2894,11 @@ interface ChoiceList<T> {
   items: readonly Item<T>[];
   /** The box the rows are in. */
   list: Element;
-  /** Whether each row carries a tick box, for a multiselect. */
-  ticked: boolean;
+  /**
+   * Whether each row carries a tick box, for a multiselect. Not which rows are
+   * ticked, which is `paintChoices()`'s `ticked`.
+   */
+  boxes: boolean;
 }
 
 /**
@@ -2903,21 +2906,21 @@ interface ChoiceList<T> {
  * screen.
  *
  * @param items - The choices and the separators between them.
- * @param ticked - Whether each row carries a tick box, for a multiselect.
+ * @param boxes - Whether each row carries a tick box, for a multiselect.
  * @returns The list.
  */
-function choiceRows<T>(items: readonly Item<T>[], ticked: boolean): ChoiceList<T> {
-  return { built: new Map(), items, list: box({ 'flex-direction': 'column' }), ticked };
+function choiceRows<T>(items: readonly Item<T>[], boxes: boolean): ChoiceList<T> {
+  return { boxes, built: new Map(), items, list: box({ 'flex-direction': 'column' }) };
 }
 
 /**
  * Builds the row one item is drawn as.
  *
  * @param item - The choice, or the separator.
- * @param ticked - Whether the row carries a tick box, for a multiselect.
+ * @param boxes - Whether the row carries a tick box, for a multiselect.
  * @returns The row.
  */
-function choiceRow<T>(item: Item<T>, ticked: boolean): ChoiceRow {
+function choiceRow<T>(item: Item<T>, boxes: boolean): ChoiceRow {
   // the cursor on every row, hidden where it is not the active one: a text of
   // nothing but spaces measures zero, since `white-space: normal` collapses a
   // run of them, so a blank standing in for the cursor indented an inactive
@@ -2959,7 +2962,7 @@ function choiceRow<T>(item: Item<T>, ticked: boolean): ChoiceRow {
     'margin-left': 1,
   });
 
-  if (!ticked) {
+  if (!boxes) {
     mark.setProps({ display: 'none' });
   }
 
@@ -3078,7 +3081,7 @@ function paintChoices<T>(
   for (let i = end - 1; i >= start; i--) {
     let row = built.get(i);
     if (!row) {
-      row = choiceRow(items[i] as Item<T>, choices.ticked);
+      row = choiceRow(items[i] as Item<T>, choices.boxes);
       built.set(i, row);
       list.insertBefore(row.row, below);
     }
