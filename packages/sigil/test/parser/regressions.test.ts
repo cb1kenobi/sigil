@@ -2819,6 +2819,51 @@ describe('regressions', () => {
         ['Unknown', '--port', 'eight'],
       ]);
     });
+
+    it("should leave a group's unread entries behind when a walk throws inside it", async () => {
+      // `-vxw` is expanded into three entries and `-x` throws, so `-w` is still
+      // waiting to be read: it has to be in the error state, as it was on main
+      const err = await parse({
+        argv: ['-vxw', 'next'],
+        schema: {
+          args: ['[a]'],
+          options: {
+            '-v': {},
+            '-w': {},
+            '-x': {
+              transform: () => {
+                throw new Error('x refused');
+              },
+            },
+          },
+        },
+      }).catch((e: unknown) => e);
+      expect((err as Error).message).to.equal('x refused');
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '-v'],
+        ['Unknown', '-x'],
+        ['Unknown', '-w'],
+        ['Unknown', 'next'],
+      ]);
+    });
+
+    it('should leave a refused unknown option behind when the walk for them throws', async () => {
+      const err = await parse({
+        argv: ['--n', 'v', '-u', 'x', '--w', 'y'],
+        schema: { options: { '--n [v]': {} } },
+        settings: { allowUnknownOptions: false },
+      }).catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/^Unknown option "-u"/);
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '--n', 'v'],
+        ['Unknown', '-u'],
+        ['Unknown', 'x'],
+        ['Unknown', '--w'],
+        ['Unknown', 'y'],
+      ]);
+    });
   });
 
   describe('an array of options declared an option named 0', () => {

@@ -1661,10 +1661,14 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   `parseUnknownOptions()` does the same, and the variadic gobble in
   `processArgs()` compacts in the loop that collects. `validateOptions()` builds
   a `Set` of the typed options once rather than walking `state.$` per declared
-  option. The visible difference is mid-walk: an option's `transform`, the one
-  piece of app code that runs during a pass and is handed the state, sees
-  `state.$` as it stood when the pass began. Before, it saw the entries before
-  its own resolved and the rest not. Pinned by counting `state.$.splice` calls
+  option. The visible difference is mid-walk. An option's `transform` is the one
+  piece of app code that runs during a pass and is handed the state. It sees the
+  pass's starting entries, not the resolved ones. Each option that has taken a
+  value has already pushed it onto its own entry's `inputs`, and the consumed
+  token is still listed after it, so every value taken so far appears twice. With
+  a `transform` on `--a`, argv `--x 1 --a 2 pos` shows it `Unknown --x 1`,
+  `Unknown 1`, `Unknown --a 2`, `Unknown 2`, `Unknown pos`, where `main` showed
+  `Option --x 1`, `Unknown --a 2`, `Unknown pos`. Pinned by counting `state.$.splice` calls
   in `consuming tokens was quadratic in argv`, which asserts none, because a
   timing would be a flake on a loaded machine.
 

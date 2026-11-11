@@ -751,8 +751,10 @@ async function parseArgv(state: ParseState): Promise<void> {
         const subject = arg.inputs[0];
 
         if (subject === '--') {
+          // the queue is empty here: a group's entries are read before the
+          // token after the group, and none of them is ever `--`
           emit({
-            inputs: [...queue, ...$.slice(k)]
+            inputs: $.slice(k)
               // what follows the terminator is not argv's to read, so each
               // token goes through whole. `inputs` is the split form --
               // `--foo=bar` was taken apart into a name and a value before
@@ -761,7 +763,6 @@ async function parseArgv(state: ParseState): Promise<void> {
               .flatMap(whole),
             type: 'Extra',
           });
-          queue.length = 0;
           k = $.length;
           break;
         }
@@ -854,7 +855,6 @@ async function parseArgv(state: ParseState): Promise<void> {
           if (expanded) {
             // read next, ahead of the rest of argv, in place of the group
             queue.unshift(...expanded);
-            current = undefined;
           } else {
             emit(arg);
           }
