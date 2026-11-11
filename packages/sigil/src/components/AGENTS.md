@@ -1852,15 +1852,29 @@ decided once, for all of them. The runs and the sabotage passes are in
   anything, and asserts the oracle grows with the square so that the count can
   tell.
 
-  Two things in it are not obvious. **A value holding a control character takes
-  the old loop**, because `stringWidth()` strips escape sequences and what it
-  strips from a slice depends on where the slice was cut -- `ESC[31m` measured
-  whole is nothing and with the `ESC` dropped is four columns -- so no running
-  sum reproduces it. Every key and every paste refuses a control character, so
-  only a value an app wrote one into reaches that path. And **a caret inside a
+  Two things in it are not obvious. **A value holding an `ESC` or a C1
+  character takes the old loop**, because `stringWidth()` strips escape
+  sequences and what it strips from a slice depends on where the slice was cut
+  -- `ESC[31m` measured whole is nothing and with the `ESC` dropped is four
+  columns -- so no running sum reproduces it. The gate is `hasIntroducer()`
+  from `src/ansi/strip.ts`, which is the same test `strip()` itself makes
+  before doing anything, so the two cannot come to disagree about what gets
+  stripped. It is published on `@ttylabs/sigil/ansi`, which this file did not
+  choose lightly: `prompt` is a registry entry, an ejected copy may import only
+  what the package exports, and the generator refuses `../ansi/strip.js`. Any
+  other control character -- a tab, a line break, `NUL`, `DEL` -- is one
+  `strip()` leaves alone, so it takes the walk and measures what it always did.
+  The first version gated on `\p{Cc}`, which was correct and needlessly slow: a
+  2,001-character CJK value ending in one tab took 349ms a draw on the old loop
+  against 0.3ms walked. Typing and pasting refuse an `ESC` and a C1 character,
+  so what reaches the old loop is a value the app wrote, or a file name the
+  path prompt completed -- a POSIX name may hold either. And **a caret inside a
   cluster, or past the end, segments its head separately**, since the text
   before it is then not a run of the value's clusters and the old loop measured
-  that slice on its own.
+  that slice on its own. Where the caret is on a boundary the head's clusters
+  are the value's own, and segmenting it again is a second whole value's worth
+  of work: the growth test's ceiling of 1.5 code units measured per code unit of
+  value is what fails if that shortcut goes.
 
   Measured as of SIG-368 on node 26.10, arm64 macOS, at a load average of 50 to
   85 from other work, medians of five keys after a paste, both builds run back
@@ -1869,7 +1883,11 @@ decided once, for all of them. The runs and the sabotage passes are in
   16,000 ASCII from 144ms to 0.04ms. One typed key into `text()` after a CJK paste
   of the same three sizes went from **93 / 370 / 1,452ms to 0.73 / 0.90 /
   1.24ms**; a key and a frame of a `TextField` from **189 / 723 / 2,775ms to 1.39
-  / 2.12 / 3.55ms**, and at 16,000 ASCII from 286ms to 0.98ms. What is left is
+  / 2.12 / 3.55ms**, and at 16,000 ASCII from 286ms to 0.98ms. Read the before
+  column as a floor rather than a figure: the work it measures grows sixteenfold
+  from 1,000 to 4,000 characters and those runs grew less, which is the load
+  talking, and the review measured the 4,000-character `promptWindow()` at
+  **8,777ms** before against **0.42ms** after. What is left is
   linear -- a 64,000-character CJK `TextField` is about 50ms a key -- and none of
   it is here: a profile of that key is whole-value segmentation in the field's
   `draw()`, which runs twice per key and asks `boundary()` and `stringWidth()` of

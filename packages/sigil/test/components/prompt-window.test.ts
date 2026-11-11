@@ -101,16 +101,31 @@ const PIECES = [
   '\ud83d', // a lone surrogate
 ];
 
-/** The control characters the old loop's `strip()` reads, which take its path. */
-const CONTROLS = ['\u001b[31m', '\u001b', '\t', '\u009b', '\u001b]8;;x\u0007'];
+/**
+ * Control characters `strip()` does not act on. They take the walk, and a tab
+ * or a line break is a cluster that measures nothing there as it did in the
+ * old loop.
+ */
+const PLAIN_CONTROLS = ['\t', '\n', '\r', '\r\n', '\u0000', '\u0007', '\u007f'];
 
-function randomValue(next: () => number, length: number, controls: boolean): string {
+/** What `strip()` does act on, which takes the old loop's path. */
+const INTRODUCERS = ['\u001b[31m', '\u001b', '\u009b', '\u009b12', '\u001b]8;;x\u0007', '\u0085'];
+
+function randomValue(next: () => number, length: number, extra: readonly string[]): string {
   let out = '';
   for (let i = 0; i < length; i++) {
-    const pool = controls && next() < 0.15 ? CONTROLS : PIECES;
+    const pool = extra.length > 0 && next() < 0.15 ? extra : PIECES;
     out += pool[Math.floor(next() * pool.length)];
   }
   return out;
+}
+
+/** What one run of the differential mixes into the pieces, by its number. */
+function extraFor(run: number): readonly string[] {
+  if (run % 5 === 0) {
+    return [...INTRODUCERS, ...PLAIN_CONTROLS];
+  }
+  return run % 5 === 1 ? PLAIN_CONTROLS : [];
 }
 
 describe('promptWindow()', () => {
@@ -119,7 +134,7 @@ describe('promptWindow()', () => {
     // 150,000 runs at up to 90 pieces agreed when this was written; the suite
     // keeps a count that stays far inside the timeout on a loaded machine
     for (let run = 0; run < 4000; run++) {
-      const value = randomValue(next, Math.floor(next() * 32), run % 5 === 0);
+      const value = randomValue(next, Math.floor(next() * 32), extraFor(run));
       // any offset, a cluster boundary or not, and one past the end
       const cursor = Math.floor(next() * (value.length + 2));
       const room = run % 7 === 0 ? Math.floor(next() * 3) : Math.floor(next() * 30) - 2;
@@ -162,8 +177,8 @@ describe('promptWindow()', () => {
     // a count of what was handed to the width module, at two sizes: the old
     // loop is quadratic and doubling the value quadruples it, while one walk
     // out from the caret doubles at most
-    const work = (fn: typeof oldWindowOf, size: number): number => {
-      const value = '漢字仮名'.repeat(size / 4);
+    const work = (fn: typeof oldWindowOf, size: number, tail = ''): number => {
+      const value = '漢字仮名'.repeat(size / 4) + tail;
       measured.units = 0;
       fn(value, value.length, 40);
       return measured.units;
@@ -171,7 +186,12 @@ describe('promptWindow()', () => {
 
     const [small, large] = [work(promptWindow, 2000), work(promptWindow, 4000)];
     expect(large / small).toBeLessThan(2.5);
-    expect(large).toBeLessThan(4000 * 8);
+    // one segmentation of the value and the widths of the clusters that fit:
+    // segmenting the head a second time, where the caret is on a boundary of
+    // the value's own clusters, is another whole value's worth and fails this
+    expect(large).toBeLessThan(4000 * 1.5);
+    // a tab is a control character strip() leaves alone, so it walks too
+    expect(work(promptWindow, 4000, '\t')).toBeLessThan(4000 * 1.5);
 
     // and the measure can tell: the oracle does grow with the square
     const [oldSmall, oldLarge] = [work(oldWindowOf, 200), work(oldWindowOf, 400)];

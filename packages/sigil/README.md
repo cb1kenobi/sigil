@@ -2391,7 +2391,14 @@ Each is independently importable and has no dependencies.
 ### `sigil/ansi`
 
 ```js
-import { ansi, createAnsi, strip, hasAnsi, supportsColor } from '@ttylabs/sigil/ansi';
+import {
+  ansi,
+  createAnsi,
+  strip,
+  hasAnsi,
+  hasIntroducer,
+  supportsColor,
+} from '@ttylabs/sigil/ansi';
 
 ansi.bold.red('error'); // chainable, cached
 ansi.hex('#ff8800')('warn');
@@ -2400,6 +2407,7 @@ ansi.blue(`a ${ansi.red('b')} c`); // nesting restores the outer style
 
 strip(ansi.bold.red('error')); // 'error'
 hasAnsi('x'); // false
+hasIntroducer('a\tb'); // false: strip() leaves it, and every slice of it, alone
 
 ansi.level; // 0-3, detected from the terminal
 const forced = createAnsi({ level: 3 });
@@ -2407,7 +2415,10 @@ const forced = createAnsi({ level: 3 });
 
 Color support is detected from `TERM`, `COLORTERM`, `FORCE_COLOR`, `NO_COLOR`,
 CI variables, and whether the stream is a TTY. `strip()` removes SGR, OSC, DCS,
-and CSI sequences, not just colors.
+and CSI sequences, not just colors. `hasIntroducer()` asks whether a string
+holds an `ESC` or a C1 character, which every sequence starts with: unlike
+`hasAnsi()`, a `false` holds for every slice of the string too, which is what
+code measuring a string piece by piece needs.
 
 ### `sigil/wrap`
 

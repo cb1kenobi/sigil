@@ -1,3 +1,4 @@
+import { hasIntroducer } from '../ansi/index.js';
 import { cellWidth } from '../canvas/index.js';
 import {
   box,
@@ -735,13 +736,16 @@ interface Window {
 function windowOf(value: string, cursor: number, width: number): Window {
   const room = Math.max(1, width);
 
-  // a value with no control character in it holds no escape sequence, since
-  // every one opens with one, so `stringWidth()` of any slice of it is the sum
-  // of its clusters' widths and the sum can be kept rather than taken again.
-  // Every key and every paste refuses a control character, so this is the path
-  // a field is on; a value an app wrote one into is measured the old way below,
-  // because what `strip()` takes out of a slice depends on where it was cut
-  if (!/\p{Cc}/u.test(value)) {
+  // `stringWidth()` strips escape sequences before it measures, and a value
+  // with nothing `strip()` acts on is one where it strips nothing from any
+  // slice -- so the width of every slice is the sum of its clusters' widths and
+  // the sum can be kept rather than taken again. A tab or a line break is
+  // measured that way like any other cluster. A value holding an `ESC` or a C1
+  // character is measured the old way below, because what `strip()` takes out
+  // of a slice of it depends on where the slice was cut. Typing and pasting
+  // refuse both, so that path is a value the app wrote, or a file name the path
+  // prompt completed, holding one
+  if (!hasIntroducer(value)) {
     const clusters = graphemes(value);
     // the cluster the caret is on is the first to end past it, which is the
     // answer `boundary()` gives -- found in the one segmentation every other

@@ -12,7 +12,7 @@ import { createStyler, type Styler } from './style.js';
 export { codes, CSI, ESC, type StyleName } from './codes.js';
 export { type ColorLevel, type ColorSupportOptions, supportsColor } from './color-support.js';
 export { supportsHyperlinks } from './hyperlinks.js';
-export { hasAnsi, matcher as ansiMatcher, strip } from './strip.js';
+export { hasAnsi, hasIntroducer, matcher as ansiMatcher, strip } from './strip.js';
 export { type Styler, type Styles } from './style.js';
 
 /**
