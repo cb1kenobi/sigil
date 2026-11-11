@@ -71,13 +71,17 @@ the entry it belongs to.
   a child for `before` to be found among. Every check now comes first: a child
   that would contain its parent, a parent that cannot have children, a `before`
   that is not this element's child. A call that throws leaves the tree exactly as
-  it was, marks included. `insertBefore(a, a)` returns without doing anything,
-  as the DOM's does, since the child is already where it was asked to go, and
-  so does not record a removal and a re-insertion that never happened. The index of `before` is still read
-  _after_ the detach, because taking the child out of the same parent shifts
-  everything behind it. `append()` with several children is one `insertBefore()`
-  per child, so a throw part-way leaves the earlier ones appended; that is
-  per-call atomicity, not a batch. See `test/element/element.test.ts`.
+  it was, marks included, and a `before` that is `null` or not an element at all
+  gets the same message rather than a raw `TypeError`. `insertBefore(a, a)`
+  returns at once: the child is already where it was asked to go, so the call
+  ends where the DOM's does, without recording the removal and re-insertion the
+  DOM would. The index of `before` is still read _after_ the detach, because
+  taking the child out of the same parent shifts everything behind it, and an
+  index of `-1` there still throws -- unreachable while `#parent` and `#children`
+  agree, and kept so a broken invariant is loud rather than a child spliced into
+  the wrong place. `append()` with several children is one `insertBefore()` per
+  child, so a throw part-way leaves the earlier ones appended; that is per-call
+  atomicity, not a batch. See `test/element/element.test.ts`.
 - **A text is wrapped once, and paint reads the lines rather than making them
   again.** The cache used to hold the height a text came to and throw away the
   lines it came to -- which is the one thing paint needs, so paint wrapped the

@@ -139,15 +139,18 @@ describe('a refused insertBefore', () => {
     // SIG-346: the child was detached before `before` was checked, and once
     // detached it was no longer a child for `before` to be found among -- so
     // the call threw and the child was gone from the tree
+    // three children rather than two: with two, a detached `a` spliced at -1
+    // lands back in front of `b` by luck, so the order could not fail
     const parent = box();
     const a = text('a');
     const b = text('b');
-    parent.append(a, b);
+    const c = text('c');
+    parent.append(a, b, c);
     const tree = createTree(parent);
     tree.take();
 
     expect(() => parent.insertBefore(a, a)).not.toThrow();
-    expect(parent.children).toEqual([a, b]);
+    expect(parent.children).toEqual([a, b, c]);
     expect(a.parent).toBe(parent);
     expect(a.tree).toBe(tree);
 
@@ -187,6 +190,23 @@ describe('a refused insertBefore', () => {
     expect(() => one.insertBefore(child, elsewhere)).toThrow(/not a child of this element/);
     expect(one.children).toEqual([child]);
     expect(two.children).toEqual([elsewhere]);
+  });
+
+  it('should refuse a before that is not an element with the same message', () => {
+    // a brand check rather than reading `#parent` off it, which threw a raw
+    // TypeError naming a private member the caller has never heard of
+    const from = box();
+    const to = box();
+    const child = text('x');
+    from.append(child);
+
+    for (const before of [null, {}, 'x']) {
+      expect(() => to.insertBefore(child, before as unknown as Element)).toThrow(
+        'The element to insert before is not a child of this element'
+      );
+    }
+    expect(from.children).toEqual([child]);
+    expect(child.parent).toBe(from);
   });
 
   it('should refuse a containing insert before anything is detached', () => {

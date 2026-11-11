@@ -640,11 +640,21 @@ export class Element implements LayoutNode {
     }
     // every check is made before anything is detached, so a call that throws
     // leaves the tree as it found it -- the child taken out of its old parent
-    // and then refused was a child in neither
-    if (before !== undefined && before.#parent !== this) {
+    // and then refused was a child in neither. The brand check keeps a `null`
+    // or a foreign object on this message rather than a raw `TypeError`
+    if (
+      before !== undefined &&
+      !(
+        typeof before === 'object' &&
+        before !== null &&
+        #parent in before &&
+        before.#parent === this
+      )
+    ) {
       throw new Error('The element to insert before is not a child of this element');
     }
-    // already where it was asked to go, which the DOM treats as a no-op too
+    // already where it was asked to go: this ends where the DOM's does, without
+    // recording the removal and re-insertion the DOM would
     if (before === child) {
       return this;
     }
@@ -655,6 +665,12 @@ export class Element implements LayoutNode {
     child.#parent?.removeChild(child);
 
     const at = before === undefined ? this.#children.length : this.#children.indexOf(before);
+    if (at === -1) {
+      // unreachable while `#parent` and `#children` agree, which the checks
+      // above rely on; kept so a broken invariant throws instead of splicing
+      // at -1 and putting the child in the wrong place without a word
+      throw new Error('The element to insert before is not a child of this element');
+    }
     this.#children.splice(at, 0, child);
     child.#parent = this;
     child.#adopt(this.#tree);
