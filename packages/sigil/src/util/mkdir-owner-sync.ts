@@ -54,8 +54,12 @@ export function mkdirOwnerSync(dest: string, opts: MkdirOwnerOptions = {}): void
     }
   }
 
+  // `0o777` and not `0o7777`, which asked for setuid, setgid and sticky as well:
+  // macOS drops those on a new directory and Linux keeps the sticky bit, so the
+  // same call made a different directory per kernel, and nobody wanted either.
+  // The umask still applies, and a caller's own `mode` replaces this one
   mkdirSync(dest, {
-    mode: 0o7777,
+    mode: 0o777,
     recursive: true,
     ...opts,
   });
