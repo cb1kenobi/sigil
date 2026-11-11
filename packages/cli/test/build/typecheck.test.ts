@@ -113,6 +113,82 @@ describe('type-checking an app', () => {
     expect(result.diagnostics[0]!.message).to.contain('I will not');
   });
 
+  describe("the compiler's output", () => {
+    /**
+     * An app with a config and a stand-in `tsc` that prints `count` copies of
+     * one diagnostic, each ending in `eol`, then exits 2 as `tsc` does on an
+     * error. A `.mjs` the code under test runs with node, so it starts the same
+     * way on Windows -- no shebang is asked to do anything.
+     */
+    function printing(count: number, eol: string): { cwd: string; tsc: string } {
+      const cwd = tempDir('sigil-typecheck-');
+      writeFileSync(join(cwd, 'tsconfig.json'), '{}', 'utf-8');
+      const tsc = join(cwd, 'tsc.mjs');
+      const line = `index.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.${eol}`;
+      writeFileSync(
+        tsc,
+        `process.stdout.write(${JSON.stringify(line)}.repeat(${count}), () => process.exit(2));`,
+        'utf-8'
+      );
+      return { cwd, tsc };
+    }
+
+    it('should locate a diagnostic written with CRLF line endings', () => {
+      // the regression: `DIAGNOSTIC_RE` ends `.*$` and `.` does not match `\r`,
+      // so every CRLF line failed to match and the lot collapsed into one
+      // unlocated "exited 2 without reporting a diagnostic" naming tsconfig.json
+      const { cwd, tsc } = printing(2, '\r\n');
+
+      const { diagnostics } = typeCheck({ cwd, tsc });
+
+      expect(diagnostics).to.have.lengthOf(2);
+      for (const diagnostic of diagnostics) {
+        expect(diagnostic.file).to.equal(join(cwd, 'index.ts'));
+        expect(diagnostic.line).to.equal(3);
+        expect(diagnostic.column).to.equal(5);
+        expect(diagnostic.message).to.equal(
+          "TS2322: Type 'string' is not assignable to type 'number'."
+        );
+      }
+    });
+
+    it('should never put a carriage return in a message', () => {
+      // the unlocated dump is the other place a `\r` could land, and to a
+      // terminal it is a cursor movement rather than a character
+      const cwd = tempDir('sigil-typecheck-');
+      writeFileSync(join(cwd, 'tsconfig.json'), '{}', 'utf-8');
+      const tsc = join(cwd, 'tsc.mjs');
+      writeFileSync(tsc, 'process.stdout.write("first\\r\\nsecond\\r\\n", () => process.exit(3));');
+
+      const [diagnostic] = typeCheck({ cwd, tsc }).diagnostics;
+
+      expect(diagnostic!.message).to.contain('first\nsecond');
+      expect(diagnostic!.message).not.to.contain('\r');
+    });
+
+    it('should print more than 1 MiB of diagnostics', () => {
+      // the regression: `spawnSync()`'s default `maxBuffer` is 1 MiB, so past
+      // about 12,000 diagnostics the build threw `spawnSync ... ENOBUFS` where
+      // the diagnostics should have been. 15,000 lines is about 1.2 MiB
+      const { cwd, tsc } = printing(15_000, '\n');
+
+      const { diagnostics } = typeCheck({ cwd, tsc });
+
+      expect(diagnostics).to.have.lengthOf(15_000);
+      expect(diagnostics.every((diagnostic) => diagnostic.line === 3)).to.equal(true);
+    });
+
+    it('should say in words when the compiler prints more than the build reads', () => {
+      // a limit low enough to reach without printing 128 MiB to reach it
+      const { cwd, tsc } = printing(1_000, '\n');
+
+      expect(() => typeCheck({ cwd, maxOutput: 1024, tsc })).to.throw(
+        /printed more than 1024 bytes of output, which is more than the build reads/
+      );
+      expect(() => typeCheck({ cwd, maxOutput: 1024, tsc })).not.to.throw(/ENOBUFS/);
+    });
+  });
+
   it('should throw when the compiler cannot be started at all', () => {
     expect(() =>
       typeCheck({ cwd: join(fixtures, 'clean'), tsc: join(fixtures, 'no-such-file.js') })

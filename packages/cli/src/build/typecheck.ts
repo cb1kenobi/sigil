@@ -67,6 +67,13 @@ export interface TypeCheckOptions {
    * checks with what the app checks with.
    */
   readonly tsc?: string;
+  /**
+   * The most output, in bytes, the build reads from the compiler.
+   *
+   * For a test, which has to reach the limit without printing 128 MiB to do
+   * it. Defaults to `TSC_MAX_OUTPUT`.
+   */
+  readonly maxOutput?: number;
 }
 
 /** What type-checking found, or why it did not happen. */
@@ -91,6 +98,22 @@ const DIAGNOSTIC_RE = /^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+: .*)$/;
 
 /** A diagnostic with no file in front of it, such as a bad config option. */
 const GLOBAL_RE = /^(error|warning) (TS\d+: .*)$/;
+
+/**
+ * How much the compiler may print before the build stops reading, in bytes.
+ *
+ * `spawnSync()` defaults to 1 MiB and fails past it with `ENOBUFS`, which is
+ * about 12,000 diagnostics -- a number a large app mid-migration reaches, and
+ * the moment the build most needs to print them is the moment it would have
+ * printed a buffer error instead. 128 MiB is about a million and a half, far
+ * past any program anybody reads the errors of, and it is finite on purpose:
+ * `Infinity` is accepted and does turn the limit off -- checked, a 3 MiB write
+ * comes back whole -- but then what bounds the read is V8's longest string,
+ * 536,870,888 code units, and decoding past that fails as
+ * `ERR_STRING_TOO_LONG` rather than as anything this can name. Stopping well
+ * short of it keeps the failure ours and plainly worded.
+ */
+const TSC_MAX_OUTPUT = 128 * 1024 * 1024;
 
 /**
  * Type-checks an app.
@@ -135,18 +158,35 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
     };
   }
 
+  const limit = options.maxOutput ?? TSC_MAX_OUTPUT;
+
   // `node <bin>` rather than the bin itself: it is a Node script behind a
   // shebang, and a shebang is not how anything starts on Windows
   const run = spawnSync(process.execPath, [tsc, '--noEmit', '--pretty', 'false', '-p', project], {
     cwd,
     encoding: 'utf-8',
+    maxBuffer: limit,
   });
+
+  // more output than the build will read is a thing to say in words: the raw
+  // `spawnSync ... ENOBUFS` names neither the limit nor what to do about it,
+  // and the compiler has been killed by then, so what was read is a prefix of
+  // the diagnostics rather than all of them and is not reported as though it were
+  if ((run.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
+    throw new Error(
+      `The type checker at ${tsc} printed more than ${formatBytes(limit)} of output, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${project}\` to see what it found`
+    );
+  }
 
   if (run.error) {
     throw new Error(`Failed to run the type checker at ${tsc}: ${run.error.message}`);
   }
 
-  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  // one line ending from here on. A compiler that writes CRLF left a `\r` on
+  // every line, which `DIAGNOSTIC_RE`'s `.*$` will not match -- so every
+  // diagnostic fell through to the unlocated dump below, `\r`s and all, and a
+  // carriage return in a message is a cursor movement to the terminal printing it
+  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`.replace(/\r\n?/g, '\n');
   const diagnostics = parseDiagnostics(output, cwd);
 
   // a non-zero exit with nothing parseable behind it is the compiler refusing
@@ -247,4 +287,15 @@ function parseDiagnostics(output: string, cwd: string): Diagnostic[] {
   }
 
   return diagnostics;
+}
+
+/**
+ * A byte count the way the limit was chosen, in whole MiB where it is one.
+ *
+ * @param bytes - The count.
+ * @returns The text.
+ */
+function formatBytes(bytes: number): string {
+  const mib = bytes / (1024 * 1024);
+  return Number.isInteger(mib) ? `${mib} MiB` : `${bytes} bytes`;
 }

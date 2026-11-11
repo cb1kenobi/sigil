@@ -177,10 +177,11 @@ export function extractCommand(file: string, source: string, routedBy?: RoutedBy
 /**
  * Reads what an already-parsed command module says about itself.
  *
- * Separate from `extractCommand()` because the build parses each module once
- * and asks it several questions -- this one and `templatesIn()` -- and parsing
- * per question is the cost nobody notices until a tree has sixty commands in
- * it.
+ * Separate from `extractCommand()` because a caller holding a parsed module
+ * asks it several questions -- this one and `templatesIn()` -- and parsing per
+ * question is the cost nobody notices until a tree has sixty commands in it.
+ * Across passes it is `parseModule()` keeping what it read that makes a build
+ * parse each file and source once; this split alone only ever held inside one.
  *
  * @param parsed - The module.
  * @param routedBy - How the module is reached. Given by a caller that knows it

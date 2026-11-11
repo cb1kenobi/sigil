@@ -73,15 +73,64 @@ export interface Position {
 }
 
 /**
- * Reads a module.
+ * Every module read so far, one entry per path.
+ *
+ * A build reads one module from several passes -- discovery, the static lift,
+ * the settings and update-check reads, the tree, the i18n scan, the utility
+ * scan and the template compile each have a question for it -- and parsing per
+ * pass parsed an entry three times and a templated command four. So a read is
+ * kept, and a pass asking about a module another pass already read gets the
+ * same tree back.
+ *
+ * Keyed by the path and checked against the **source**, never by the path
+ * alone: every caller hands the source it read, so a module that changed
+ * between two passes -- or between two builds in one process -- is a miss and
+ * is read again, and a stale tree cannot come back. The parse options are not
+ * part of the key because there are none: `parseSync(file, source)` decides
+ * the language from the extension, which is in the path, and that call is the
+ * only one made here.
+ *
+ * One entry per path, so a source that changed **replaces** the tree it had
+ * rather than sitting beside it, and `forgetParsedModules()` empties it at the
+ * start of each build -- so what a long-lived process holds is one app's
+ * trees, never every version of every app it has built.
+ *
+ * Sharing a tree is sound only because no reader writes to one. That was
+ * checked rather than assumed: every tree was deep-frozen and the toolchain's
+ * whole suite run, and nothing threw. AGENTS.md has the entry.
+ */
+const parsedModules = new Map<string, ParsedModule>();
+
+/**
+ * Forgets every module read so far.
+ *
+ * Called where a build starts, so that a process building more than one app
+ * -- or one app more than once -- holds the trees of one build at a time.
+ */
+export function forgetParsedModules(): void {
+  parsedModules.clear();
+}
+
+/**
+ * Reads a module, or hands back the tree an earlier pass read from the same
+ * path and the same source.
+ *
+ * The tree is **shared**, so a caller must not write to it. See
+ * `parsedModules`.
  *
  * @param file - Where it came from. Its extension is what decides whether the
  *   source is TypeScript, so it has to be the real name rather than a label.
  * @param source - The source.
  * @returns The tree, and what is needed to read spans out of it.
- * @throws If the source does not parse.
+ * @throws If the source does not parse. A failure is not kept, so asking again
+ *   throws again.
  */
 export function parseModule(file: string, source: string): ParsedModule {
+  const cached = parsedModules.get(file);
+  if (cached?.source === source) {
+    return cached;
+  }
+
   const result = parseSync(file, source);
 
   // a module that does not parse is not a module this build can say anything
@@ -94,13 +143,16 @@ export function parseModule(file: string, source: string): ParsedModule {
     throw new Error(`Failed to parse ${where}: ${failure.message}`);
   }
 
-  return {
+  const parsed: ParsedModule = {
     comments: result.comments,
     file,
     module: result.module,
     program: result.program,
     source,
   };
+
+  parsedModules.set(file, parsed);
+  return parsed;
 }
 
 /**

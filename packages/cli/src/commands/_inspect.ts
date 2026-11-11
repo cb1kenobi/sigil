@@ -27,6 +27,7 @@ import {
   checkMainSettings,
   discoverApp,
   displayPath,
+  forgetParsedModules,
   isFatal,
   isInside,
   readAppCatalogs,
@@ -86,6 +87,10 @@ export interface InspectOptions {
  * @throws If there is no app here at all. Everything else is a diagnostic.
  */
 export function inspect(options: InspectOptions): Inspection {
+  // where a build starts, so the passes from here to the bundle share each
+  // module's tree and a process that builds again holds one build's trees
+  forgetParsedModules();
+
   const diagnostics: Diagnostic[] = [];
 
   // the app before anything else: a directory that does not depend on the
