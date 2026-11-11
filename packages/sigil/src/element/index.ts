@@ -639,16 +639,39 @@ export class Element implements LayoutNode {
     if (this.type !== 'box') {
       throw new Error(`A ${this.type} element cannot have children`);
     }
+    // every check is made before anything is detached, so a call that throws
+    // leaves the tree as it found it -- the child taken out of its old parent
+    // and then refused was a child in neither. The brand check keeps a `null`
+    // or a foreign object on this message rather than a raw `TypeError`
+    if (
+      before !== undefined &&
+      !(
+        typeof before === 'object' &&
+        before !== null &&
+        #parent in before &&
+        before.#parent === this
+      )
+    ) {
+      throw new Error('The element to insert before is not a child of this element');
+    }
+    // already where it was asked to go: this ends where the DOM's does, without
+    // recording the removal and re-insertion the DOM would
+    if (before === child) {
+      return this;
+    }
 
     // moved rather than duplicated: a child already somewhere else is taken
-    // from there first, which is what makes `insertBefore` a move
+    // from there first, which is what makes `insertBefore` a move -- and the
+    // index is read after it, because taking it out can shift `before`
     child.#parent?.removeChild(child);
 
     const at = before === undefined ? this.#children.length : this.#children.indexOf(before);
     if (at === -1) {
+      // unreachable while `#parent` and `#children` agree, which the checks
+      // above rely on; kept so a broken invariant throws instead of splicing
+      // at -1 and putting the child in the wrong place without a word
       throw new Error('The element to insert before is not a child of this element');
     }
-
     this.#children.splice(at, 0, child);
     child.#parent = this;
     child.#adopt(this.#tree);

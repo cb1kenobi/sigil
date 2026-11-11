@@ -1,5 +1,5 @@
 import { completionSpec } from '../../src/completion/spec.js';
-import { renderHelp } from '../../src/help/index.js';
+import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
@@ -2581,6 +2581,66 @@ describe('regressions', () => {
       const schema = { commands: { 'list, ls': { load } } };
       expect(await screen(schema, ['ls'])).toContain('Aliases: list, ls');
       expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('show');
+    });
+  });
+
+  describe('an array of options declared an option named 0', () => {
+    // `Object.entries()` yields an array's indices, so `['--foo <x>']` was an
+    // option named `0` described as `--foo <x>`, and the parse went on with
+    // `argv` holding `{ 0: false }` -- where `args` and `commands` refuse a
+    // container of the wrong shape
+    it('should refuse an array of options on a schema', async () => {
+      await expect(
+        parse({ argv: [], schema: { options: ['--foo <x>'] as never } })
+      ).rejects.toThrow(new TypeError('Expected options to be an object'));
+    });
+
+    it('should refuse an array of options on a command', async () => {
+      await expect(
+        parse({ argv: ['b'], schema: { commands: { b: { options: ['--foo'] as never } } } })
+      ).rejects.toThrow(new TypeError('Expected options to be an object'));
+    });
+
+    it('should refuse an array of options in a help section', async () => {
+      const sections = createSections();
+      await expect(sections.add({ options: ['--foo'] as never, title: 'Extra' })).rejects.toThrow(
+        new TypeError('Expected help section "Extra" options to be an object')
+      );
+      expect(sections.list).toEqual([]);
+    });
+  });
+
+  describe('a help section refused a function description', () => {
+    // `HelpSection.options` is the same `OptionDeclarations` a command's is,
+    // which takes a thunk as the description -- and the section's own copy of
+    // the reading took only a string, so it threw `Expected help section
+    // "Extra" option to be an object` over a declaration a schema accepts
+    it('should render a function description in a help section', async () => {
+      const state = await parse({
+        argv: ['build', '--help'],
+        schema: {
+          commands: {
+            build: {
+              hooks: {
+                help: async ({ sections }) => {
+                  await sections.add({ options: { '--foo': () => 'lazy desc' }, title: 'Extra' });
+                },
+              },
+            },
+          },
+          completion: false,
+          name: 'mycli',
+          quiet: false,
+        },
+      });
+      const text = await resolveHelp(state, { width: 80 });
+      expect(text.split('\n')).toContain('  --foo  lazy desc');
+    });
+
+    it('should still refuse a description that is neither a string nor a function', async () => {
+      await expect(
+        createSections().add({ options: { '--foo': 42 as never }, title: 'Extra' })
+      ).rejects.toThrow(new TypeError('Expected help section "Extra" option to be an object'));
     });
   });
 });
