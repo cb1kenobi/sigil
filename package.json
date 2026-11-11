@@ -18,14 +18,14 @@
   "scripts": {
     "build": "turbo run build",
     "check": "pnpm type-check && pnpm lint && pnpm fmt:check",
-    "coverage": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml --filter=@ttylabs/config-yaml --filter=@ttylabs/screenshot --filter=@ttylabs/example-hello && vitest --coverage",
+    "coverage": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml --filter=@ttylabs/config-yaml --filter=@ttylabs/screenshot --filter=@ttylabs/example-git-client --filter=@ttylabs/example-hello --filter=@ttylabs/example-log-browser --filter=@ttylabs/example-settings && vitest --coverage",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "oxlint",
     "ncu": "turbo ncu ncu:root --",
     "ncu:root": "ncu -c 1d",
     "test:leaks": "node scripts/temp-leaks.mjs",
-    "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml --filter=@ttylabs/config-yaml --filter=@ttylabs/screenshot --filter=@ttylabs/example-hello && vitest",
+    "test": "turbo run build --filter=@ttylabs/sigil --filter=@ttylabs/cli --filter=@ttylabs/config-xml --filter=@ttylabs/config-yaml --filter=@ttylabs/screenshot --filter=@ttylabs/example-git-client --filter=@ttylabs/example-hello --filter=@ttylabs/example-log-browser --filter=@ttylabs/example-settings && vitest",
     "type-check": "turbo run type-check"
   },
   "devDependencies": {

@@ -10,7 +10,7 @@ import { graphemes, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
-import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
+import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
 
 /** What one step of an edit script does. */
 export type DiffOp = 'add' | 'equal' | 'remove';
@@ -76,15 +76,24 @@ export interface DiffOptions extends StyledOptions {
    * Called with a whole side of the diff, line endings made `\n`: the old text
    * and the new text when the input is two texts, and the old and the new side of
    * each hunk when it is a patch, since a patch holds nothing between its hunks.
-   * A token is drawn in its role on an added or removed line and left muted on a
-   * context one. There is no grammar in here; this is the seam an app fills.
+   * Its second argument is `lang`, or else the extension of the file's name where
+   * the input gives one -- so `highlightCode()` from
+   * `@ttylabs/sigil/components/highlight` colours each file of a `git diff` in its
+   * own language. A token is drawn in its role on an added or removed line and
+   * left muted on a context one.
    */
-  highlight?: (text: string) => readonly HighlightSpan[];
+  highlight?: Highlighter;
   /**
    * Whether the changed stretch of a line that was edited is set apart from the
    * rest of it. Defaults to true.
    */
   intraline?: boolean;
+  /**
+   * The language the texts are in, handed to `highlight` as its second argument.
+   * Defaults to the extension of each file's name, where the input names one:
+   * `ts` for `src/diff.ts`.
+   */
+  lang?: string;
   /** Which arrangement to draw. Defaults to `unified`. */
   layout?: DiffLayout;
   /** Whether each line is numbered. Defaults to true. */
@@ -718,14 +727,16 @@ function lineRows(line: DiffLine, drawing: Drawing, gutter: string, room: number
  *
  * @param lines - The lines of the side.
  * @param highlight - The app's hook.
+ * @param lang - What the side is written in, where anything says.
  * @returns A token array per line.
  */
 function tokenLines(
   lines: readonly string[],
-  highlight: (text: string) => readonly HighlightSpan[]
+  highlight: Highlighter,
+  lang: string | undefined
 ): (string | undefined)[][] {
   const joined = lines.join('\n');
-  const tokens = tokensOf(joined, highlight(joined));
+  const tokens = tokensOf(joined, highlight(joined, lang));
   const out: (string | undefined)[][] = [];
   let at = 0;
   for (const line of lines) {
@@ -733,6 +744,37 @@ function tokenLines(
     at += line.length + 1;
   }
   return out;
+}
+
+/**
+ * The language a side of a file is in, for the highlighter: `lang` where the app
+ * gave one, and otherwise the extension of the side's name -- or of the other
+ * side's, where this one is absent or `/dev/null`, as a new or deleted file's is.
+ *
+ * An extension and not a guess at a language, for the reason a code block's fence
+ * word is handed over as written: the highlighter knows which names it reads, and
+ * `highlightCode()` takes `ts`, `json` and `yml` as the names they are.
+ *
+ * @param opts - The options, for `lang`.
+ * @param name - This side's name.
+ * @param other - The other side's.
+ * @returns The language, or `undefined` where nothing says.
+ */
+function sideLanguage(
+  opts: DiffOptions,
+  name: string | undefined,
+  other: string | undefined
+): string | undefined {
+  if (opts.lang !== undefined) {
+    return opts.lang;
+  }
+  const named = [name, other].find((it) => it !== undefined && it !== '/dev/null');
+  if (named === undefined) {
+    return undefined;
+  }
+  const base = named.slice(Math.max(named.lastIndexOf('/'), named.lastIndexOf('\\')) + 1);
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1) : undefined;
 }
 
 /**
@@ -747,12 +789,14 @@ function tokenLines(
  * @param whole - The tokens of the whole texts, where the input was two texts: asked
  *   once for the view and not once per hunk, since a span may run across the lines
  *   between two hunks.
+ * @param file - The file the hunk is from, whose names say its language.
  * @returns The edits and tokens, keyed by line.
  */
 function drawingOf(
   hunk: DiffHunk,
   opts: DiffOptions,
-  whole: { new: (string | undefined)[][]; old: (string | undefined)[][] } | undefined
+  whole: { new: (string | undefined)[][]; old: (string | undefined)[][] } | undefined,
+  file: DiffFile
 ): Drawing {
   const drawing: Drawing = { changes: new Map(), tokens: new Map() };
 
@@ -770,11 +814,13 @@ function drawingOf(
     const sides = whole ?? {
       old: tokenLines(
         hunk.lines.filter((line) => line.kind !== 'add').map((line) => line.text),
-        opts.highlight
+        opts.highlight,
+        sideLanguage(opts, file.oldName, file.newName)
       ),
       new: tokenLines(
         hunk.lines.filter((line) => line.kind !== 'remove').map((line) => line.text),
-        opts.highlight
+        opts.highlight,
+        sideLanguage(opts, file.newName, file.oldName)
       ),
     };
     let oldAt = 0;
@@ -940,8 +986,16 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
   const whole =
     twoTexts && opts.highlight && files.some((file) => file.hunks.length > 0)
       ? {
-          old: tokenLines(splitLines(twoTexts.old), opts.highlight),
-          new: tokenLines(splitLines(twoTexts.new), opts.highlight),
+          old: tokenLines(
+            splitLines(twoTexts.old),
+            opts.highlight,
+            sideLanguage(opts, twoTexts.oldName, twoTexts.newName)
+          ),
+          new: tokenLines(
+            splitLines(twoTexts.new),
+            opts.highlight,
+            sideLanguage(opts, twoTexts.newName, twoTexts.oldName)
+          ),
         }
       : undefined;
 
@@ -958,7 +1012,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
 
     for (const hunk of file.hunks) {
       rows.push(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
-      const drawing = drawingOf(hunk, opts, whole);
+      const drawing = drawingOf(hunk, opts, whole, file);
 
       if (layout === 'unified') {
         const gutter = numbered ? digits * 2 + 2 : 0;
