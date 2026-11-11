@@ -291,8 +291,12 @@ the entry it belongs to.
   stayed clean holding the error and no edge to the source whose read never
   finished. So a derivation it passes through is left `DIRTY` with nothing
   committed or swept, and the reader gets `Computed chain too deep`, with the
-  engine's error as its `cause`; reading the chain from the bottom up works at
-  any depth. The state is marked only after the commit, so a run that the stack
+  engine's error as its `cause`. Reading the chain from the bottom up works at
+  any depth -- **outside any computed or effect**, at top level or before the
+  effect is made, which the message says too: inside the body that caught the
+  error, every link on the path that failed was cut short in that same read and
+  is not run again until the next (the second rule below), so the steps are
+  refused. The state is marked only after the commit, so a run that the stack
   ran out in anywhere -- the catch and the commit are both reached cold at the
   edge -- stays `DIRTY` rather than `CLEAN` over nothing, which once read back
   `undefined` for good. Three smaller rules keep that sound:
@@ -301,8 +305,16 @@ the entry it belongs to.
     It is `DIRTY`, which ordinarily says its subgraph has been told, and here
     nothing has: what read it was handed an error, not a write. Without this an
     effect that read through such a node never heard of the chain again however
-    readable it became. The read is still recorded on the way out, so the reader
-    has an edge to what it could not read.
+    readable it became. A derivation whose sources ran out while it was only
+    asking them is `CHECK` and never ran, so the failed read marks it too. The
+    read is still recorded on the way out, so the reader has an edge to what it
+    could not read -- at version `-1`, one nothing is ever at, because the
+    reader's answer came from a read that never finished: recorded at the
+    version the node was still at, a chain that came back to the value it held
+    before the failure looked unchanged, and a catching reader kept its fallback
+    and a plain effect never ran again. Passed through _once_, clearing the mark,
+    because a diamond of such nodes walked every path rather than every node: a
+    write that takes a millisecond never returned.
   - **Within one outermost read, a run cut short is not run again.** A retry
     starts no shallower than the run that failed, so it fails again, and a body
     that reads the same source twice -- or two sources sharing the chain below --
@@ -311,9 +323,16 @@ the entry it belongs to.
     It rethrows instead, and the next outermost read tries afresh.
   - **The engine's overflow is the chain's only under more than `CHAIN_DEPTH`
     (64) computeds evaluating one inside the next.** A chain runs out hundreds or
-    thousands deep; fewer is a body's own runaway recursion, whether it is read
-    from the top or from inside another computed, and that is cached under the
-    engine's message as it always was. An ordinary `RangeError` is cached too.
+    thousands deep. With fewer, the overflow is cached under the engine's
+    message as it always was -- right for a body's own runaway recursion, whether
+    read from the top or from inside another computed. It is a **known limit**
+    for a short chain read by a caller whose own stack is all but spent: the
+    error is cached on the link it reached, and a fresh chain has no edges yet
+    for a write to come back along, so it stays until the link is disposed.
+    Measured on chains of 10 and 40 links read at every frame of an unwinding
+    overflow: most failures stayed failed after a write, with no wrong value,
+    where `main` kept the same failures and handed back a few wrong values
+    besides. An ordinary `RangeError` is cached too.
 
   An effect is never left dirty by any of this, for the reason a failed sweep
   exempts it: a flush treats anything not `CLEAN` as pending, so it would be run
@@ -328,13 +347,16 @@ the entry it belongs to.
   reaches what it failed to read reaches it. At the very edge of the stack the
   engine can raise the overflow at the call into `get()` itself, before any of
   the graph's code runs to record that edge, and the fallback is then cached with
-  none -- measured with the reviewer's sweep, a 30,000-link chain whose every link
-  catches is left with wrong links at about two stack sizes in three. `main`
-  crashes on the same sweep. Closing it took a pessimistic counter of unfinished
-  reads and a fixed headroom probe before deep bodies, and a review found each
-  one broken in turn -- fallbacks left dirty re-ran exponentially, the probe
-  shrank once optimized -- so the guarantee was narrowed instead. Read a deep
-  chain from the bottom up rather than catching inside it. See
+  none. **The wrong result is silent and permanent**: measured with the
+  reviewer's sweep, a 30,000-link chain whose every link catches is left with
+  wrong links at about two stack sizes in three, and an effect on its tail ends
+  at a number like 481 or 977 instead of 30,200, with no error reported and no
+  later write correcting it. `main` crashes on the same sweep. Closing it took a
+  pessimistic counter of unfinished reads and a fixed headroom probe before
+  deep bodies, and a review found each one broken in turn -- fallbacks left
+  dirty re-ran exponentially, the probe shrank once optimized -- so the
+  guarantee was narrowed instead. Read a deep chain from the bottom up, outside
+  any computed or effect, rather than catching inside it. See
   `test/signals/deep-chain.test.ts`.
 
 - **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A

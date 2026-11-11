@@ -502,10 +502,16 @@ let readError: RangeError | undefined;
 
 /**
  * How many computeds have to be evaluating one inside the next before the engine
- * running out of stack under them is taken for a chain's. Fewer, and it ran out
- * in a body's own code -- runaway recursion of its own, or a caller's deep stack
- * -- which is an answer about that code and is cached under the engine's own
- * message, as it always was. A chain runs out hundreds or thousands deep.
+ * running out of stack under them is taken for a chain's. A chain runs out
+ * hundreds or thousands deep; with fewer, the overflow is cached under the
+ * engine's own message, as it always was. That is right for a body's own
+ * runaway recursion, which is an answer about that body. It is a known limit for
+ * a short chain read by a caller whose own stack is all but spent: the overflow
+ * is cached on whichever link it reached, and a fresh chain has no edges yet for
+ * a write to come back along, so that link keeps the error until disposed.
+ * Measured on chains of 10 and 40 read at every frame of an unwinding overflow:
+ * errors kept, but no wrong value, where `main` kept the same errors and handed
+ * back a few wrong values besides.
  */
 const CHAIN_DEPTH = 64;
 
@@ -534,7 +540,8 @@ function isTooDeep(error: unknown): error is RangeError {
  * stack is the one throw that is not an answer: it says how deep the stack
  * already was when the read happened, not anything about what the computed
  * reads, so the same read made from a shallower stack -- or after the chain
- * below it has been read from the bottom up -- succeeds. Cached, it was
+ * below it has been read from the bottom up, outside any computed or effect --
+ * succeeds. Cached, it was
  * permanent: the computed whose body hit the limit kept the error, clean, and
  * held no edge to the source whose read never finished, so no write could ever
  * reach it again.
@@ -570,7 +577,7 @@ function chainTooDeep(error: RangeError): RangeError {
     return error;
   }
   const clear = new RangeError(
-    'Computed chain too deep: the stack ran out evaluating it in one read, and nothing was cached. Read it in steps, from the bottom up',
+    'Computed chain too deep: the stack ran out evaluating it in one read, and nothing was cached. Read it in steps, from the bottom up, outside any computed or effect',
     { cause: error }
   );
   tooDeep.add(clear);
@@ -893,7 +900,10 @@ export class Computed<T> implements Producer, Consumer {
       // that failed, so it fails again -- and a body that reads the same source
       // twice, catching each time, retried a whole subchain per level: work that
       // doubled with every level the stack's edge cut through, millions of runs
-      // for a chain `main` read in a few thousand
+      // for a chain `main` read in a few thousand. It is also why reading the
+      // chain in steps from inside the body that caught the error is refused:
+      // every link on the path that failed was cut short in this read, so the
+      // steps have to be taken outside any computed or effect
       throw (readError ??= chainTooDeep(new RangeError('Maximum call stack size exceeded')));
     }
 
@@ -1166,8 +1176,20 @@ export class Computed<T> implements Producer, Consumer {
       if (this.#writes) {
         this.#commit(undefined, { error: clear });
         this.state = CLEAN;
+      } else {
+        // what read this was handed an error, not a write, which is what
+        // `incomplete` says -- and a derivation that was only asking its sources
+        // never ran to set it, stayed CHECK, and stopped the next write there
+        this.incomplete = read;
       }
       track(this);
+      // at a version this can never be at: the reader's answer came from a read
+      // that never finished, so whatever this settles on is news to it -- even
+      // the value it held before, which recorded as its current version read as
+      // nothing having changed, and a catching reader kept its fallback for good
+      if (currentConsumer) {
+        currentConsumer.sources.set(this, -1);
+      }
       throw clear;
     }
     throw error;

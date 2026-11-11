@@ -115,6 +115,21 @@ const scenarios = {
     links[29999].get();
     console.log('runs=' + runs);
   `,
+  passonce: `
+    const height = new State(1);
+    const links = [];
+    for (let i = 0; i < 30000; i++) {
+      const p = links[i - 1];
+      const q = links[i - 2];
+      links.push(new Computed(() => (p ? p.get() : 0) + (q ? q.get() * 0 : 0) + height.get()));
+      links[i].get();
+    }
+    height.set(2);
+    try { links[29999].get(); } catch {}
+    const started = performance.now();
+    height.set(3);
+    console.log('ms=' + Math.round(performance.now() - started));
+  `,
 };
 
 /**
@@ -122,8 +137,9 @@ const scenarios = {
  *
  * In a child because where the stack runs out decides which line of the graph's
  * own code is at the edge when it does, and one stack size in-process pins one
- * of those lines at most. Both regressions these cover showed only by moving it:
- * neither reproduces inside the test runner's own worker.
+ * of those lines at most -- the doubling `twice` guards does not reproduce
+ * inside the test runner's own worker at all. And because a child can be
+ * killed: `passonce` guards a write that, broken, never returns.
  *
  * @param stackSize - The `--stack-size` to run under, in kilobytes.
  * @param scenario - Which scenario to run.
@@ -135,12 +151,11 @@ function atStackSize(stackSize: number, scenario: keyof typeof scenarios): Promi
     ${scenarios[scenario]}
   `;
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [
-      `--stack-size=${stackSize}`,
-      '--input-type=module',
-      '-e',
-      script,
-    ]);
+    const child = spawn(
+      process.execPath,
+      [`--stack-size=${stackSize}`, '--input-type=module', '-e', script],
+      { timeout: 30_000 }
+    );
     let out = '';
     child.stdout.on('data', (chunk) => (out += chunk));
     child.stderr.on('data', (chunk) => (out += chunk));
@@ -452,45 +467,117 @@ describe('a deep computed chain', () => {
     }
   });
 
-  it('should not run a run cut short by the stack again inside the same read', () => {
-    // a link that reads one source twice, catching each time -- or two sources
-    // that share the chain below -- retried whatever the stack's edge had cut
-    // short on its second read, and each retry did the same below it: work that
-    // doubled with every level the edge cut through, millions of runs for a
-    // chain `main` read in about two thousand
-    for (const shape of ['twice', 'diamond'] as const) {
-      const s = new State(0);
+  it('should hear a chain that comes back to the value it held before a read of it failed', () => {
+    // the failed read was recorded at the version the abandoned node was still
+    // at, so when it recomputed to the value it held before -- no new version --
+    // its reader saw nothing changed: a catching derivation kept its fallback, a
+    // catching effect its "failed", and a plain effect never ran again. A
+    // derivation that was only asking its sources when they ran out stayed
+    // CHECK, and the next write stopped there before the effect behind it
+    const modes = ['derivation', 'CHECK derivation', 'catching effect', 'plain effect'] as const;
+    for (const mode of modes) {
+      const own = createEffects();
+      own.setScheduler(() => {});
+      const errors: unknown[] = [];
+      own.setErrorHandler((err) => errors.push(err));
+      const height = new State(1);
+      const trigger = new State(0);
       const links: Computed<number>[] = [];
-      let runs = 0;
       for (let i = 0; i < DEEP; i++) {
-        const p = i > 0 ? links[i - 1] : s;
-        const q = i > 1 ? links[i - 2] : s;
-        links.push(
-          new Computed(() => {
-            runs++;
-            let a = 0;
-            let b = 0;
-            try {
-              a = p.get();
-            } catch {
-              // a fallback, which is the body's answer to give
-            }
-            try {
-              b = (shape === 'twice' ? p : q).get();
-            } catch {
-              // and another
-            }
-            return Math.max(a, shape === 'twice' ? b : 0) + 1;
-          })
-        );
+        const above = links[i - 1];
+        links.push(new Computed(() => (above ? above.get() : 0) + height.get()));
+        links[i].get();
       }
-      links[DEEP - 1].get();
-      // each link the read reached runs about once: the chain is evaluated as
-      // deep as the stack goes, which is thousands of links rather than millions
-      // of runs. Generous, so that no runtime's stack depth can reach it
-      expect(runs).toBeLessThan(50_000);
+      const tail = links[DEEP - 1];
+      // reading the trigger dirties it directly, so its body runs and catches;
+      // without, it is CHECK and the error comes out of asking its sources
+      const mid = new Computed(() => {
+        if (mode === 'derivation') {
+          trigger.get();
+        }
+        try {
+          return tail.get();
+        } catch {
+          return -1;
+        }
+      });
+      const seen: (number | string)[] = [];
+      own.effect(() => {
+        trigger.get();
+        if (mode === 'plain effect') {
+          seen.push(tail.get());
+          return;
+        }
+        try {
+          seen.push(mode.endsWith('derivation') ? mid.get() : tail.get());
+        } catch {
+          seen.push('failed');
+        }
+      });
+
+      // every link dirty, and the read of the tail runs out
+      height.set(2);
+      trigger.set(1);
+      own.flush();
+      // back to the value the chain held, and readable again
+      height.set(1);
+      for (const link of links) {
+        link.get();
+      }
+      own.flush();
+
+      const failed = mode === 'derivation' ? -1 : 'failed';
+      expect(seen).toEqual(mode === 'plain effect' ? [DEEP, DEEP] : [DEEP, failed, DEEP]);
+      expect(errors).toHaveLength(mode === 'plain effect' ? 1 : 0);
     }
   });
+
+  it('should refuse a read in steps inside the body that caught the error, and take one from outside', () => {
+    // the error says to read the chain in steps from the bottom up, and inside
+    // the body that caught it that is refused: every link on the path that
+    // failed was cut short in this same read, and is not run again until the
+    // next. Taken outside any computed or effect, the steps work, and the
+    // effect's next run reads the chain
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {});
+    const { s, links, tail } = chain(false);
+    const seen: (number | string)[] = [];
+    own.effect(() => {
+      try {
+        seen.push(tail.get());
+      } catch {
+        try {
+          for (let i = 0; i < DEEP; i += 500) {
+            links[i].get();
+          }
+          seen.push(tail.get());
+        } catch (err) {
+          seen.push((err as Error).message);
+        }
+      }
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatch(/^Computed chain too deep.*outside any computed or effect$/);
+
+    for (let i = 0; i < DEEP; i += 500) {
+      links[i].get();
+    }
+    s.set(1);
+    own.flush();
+    expect(seen[1]).toBe(DEEP + 1);
+  });
+
+  it('should pass a write through a node a failed read left incomplete only once', async () => {
+    // each link reads the two above it, so a write passing through every node it
+    // found incomplete -- rather than once, clearing it -- walks every path
+    // through the diamond instead of every node: a second write that takes a
+    // millisecond never returned. In a child, so that broken it fails rather
+    // than hanging the suite
+    const result = await atStackSize(900, 'passonce');
+    const ms = Number(/ms=(\d+)/.exec(result)?.[1] ?? Infinity);
+    expect(ms, result).toBeLessThan(2000);
+  }, 60_000);
 
   it('should not retry a run cut short by the stack within one read, wherever the stack runs out', async () => {
     // the doubling needs the graph's own code to overflow at the edge level
