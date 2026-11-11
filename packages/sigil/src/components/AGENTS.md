@@ -10455,7 +10455,12 @@ spaces and a separator is cubic, and would take hours on the old parser.
   Depth rather than length is bounded, so a long `data:` image is still read
   whole, which is what SIG-197 refused a limit for. Past 33 the link is its text.
   This is the one change a differential check over 130,319 documents found: the 8
-  of them with 33 to 40 levels of parentheses.
+  of them with 33 to 40 levels of parentheses. The cap still lets each `](` scan
+  up to 32 levels of the text, so the per-character test matters: the scan used a
+  Unicode-property pattern to find white space or a control character, and calling
+  it on every character made the test for this shape take 11 seconds on CI's
+  runners, past vitest's 10. Printable ASCII is now ruled out by its code unit and
+  only the rest goes to the pattern. That made the test nine times faster.
 - **A title that runs off the end is remembered.** A later title starting at or
   after one that ran off the end runs off it too, because its start is a token
   boundary of the first scan: the character before it is the opening mark, never

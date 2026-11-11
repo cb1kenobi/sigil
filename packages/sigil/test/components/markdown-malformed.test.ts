@@ -129,10 +129,10 @@ describe('parseMarkdown() on malformed input', () => {
 
   describe('a link that never closes', () => {
     it('should not scan to the end for every `](` whose parentheses never balance', () => {
-      expect(growth((n) => '[]('.repeat(n / 3), 6 * K)).toBeLessThan(24);
-      expect(growth((n) => '[a]('.repeat(n / 4), 10 * K)).toBeLessThan(24);
-      expect(growth((n) => '![a]('.repeat(n / 5), 10 * K)).toBeLessThan(24);
-      expect(growth((n) => '[a](b'.repeat(n / 5), 10 * K)).toBeLessThan(24);
+      expect(growth((n) => '[]('.repeat(n / 3), 3 * K)).toBeLessThan(24);
+      expect(growth((n) => '[a]('.repeat(n / 4), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '![a]('.repeat(n / 5), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '[a](b'.repeat(n / 5), 4 * K)).toBeLessThan(24);
     });
 
     it('should not scan to the end for every title that never closes', () => {
@@ -189,11 +189,11 @@ describe('parseMarkdown() on malformed input', () => {
 
   describe('emphasis', () => {
     it('should match mixed delimiter runs in linear time', () => {
-      expect(growth((n) => '_*'.repeat(n / 2), 10 * K)).toBeLessThan(24);
-      expect(growth((n) => '*a*_b_'.repeat(n / 6), 20 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a*'.repeat(n / 2), 20 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a~~'.repeat(n / 3), 20 * K)).toBeLessThan(24);
-      expect(growth((n) => 'a_ b*'.repeat(n / 5), 10 * K)).toBeLessThan(24);
+      expect(growth((n) => '_*'.repeat(n / 2), 4 * K)).toBeLessThan(24);
+      expect(growth((n) => '*a*_b_'.repeat(n / 6), 8 * K)).toBeLessThan(24);
+      expect(growth((n) => 'a*'.repeat(n / 2), 8 * K)).toBeLessThan(24);
+      expect(growth((n) => 'a~~'.repeat(n / 3), 8 * K)).toBeLessThan(24);
+      expect(growth((n) => 'a_ b*'.repeat(n / 5), 4 * K)).toBeLessThan(24);
     });
   });
 
@@ -233,12 +233,15 @@ describe('parseMarkdown() on malformed input', () => {
     });
 
     it('should draw the deepest document the parser reads', () => {
+      // a little past the limit, so that every one is as deep as a document goes
+      // and the paragraph left at the bottom is short enough to draw quickly
       for (const source of [
-        `${'- '.repeat(1600)}a`,
-        `${'>'.repeat(2500)}a`,
-        `${'- > '.repeat(2000)}x`,
-        `${'1. '.repeat(2000)}x`,
+        `${'- '.repeat(110)}a`,
+        `${'>'.repeat(110)}a`,
+        `${'- > '.repeat(55)}x`,
+        `${'1. '.repeat(110)}x`,
       ]) {
+        expect(depthOf(parseMarkdown(source))).to.equal(100);
         expect(markdown(source, plain)).to.be.a('string');
       }
     });

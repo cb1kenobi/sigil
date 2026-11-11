@@ -157,6 +157,9 @@ const SEPARATOR = /[\u2028\u2029]/;
 /** White space, as `normalizeLabel()` collapses it. */
 const WHITE = /\s/;
 
+/** What ends a link destination that is not in angle brackets. */
+const SPACE_OR_CONTROL = /[\s\p{Cc}]/u;
+
 /**
  * How many quotes, list items and footnotes deep a document is read. The
  * renderer is what sets it: `markdown()` runs out of stack at about 420 nested
@@ -1419,7 +1422,10 @@ function linkTail(
         at += 2;
         continue;
       }
-      if (/[\s\p{Cc}]/u.test(c)) {
+      // printable ASCII is neither, and is nearly every character a destination
+      // holds; the pattern is asked of the rest, and was the most of a scan's cost
+      const code = text.charCodeAt(at);
+      if ((code <= 0x20 || code >= 0x7f) && SPACE_OR_CONTROL.test(c)) {
         break;
       }
       if (c === '(') {
