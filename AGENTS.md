@@ -1156,7 +1156,9 @@ These look like bugs and are not. Each is intentional and covered by tests.
   Its default mode is `0o777` under the umask, and it was `0o7777` from the
   2023 commit that wrote it, with no reason recorded anywhere (SIG-373). That
   asked for setuid, setgid and sticky too, and the kernel decided what to keep:
-  macOS dropped all three, while Linux kept the sticky bit. An explicit `mode` is
+  macOS dropped all three and made `755` at umask 022, while Linux kept the
+  sticky bit and made `1755` -- measured on CI's ubuntu runners on node 22, 24
+  and 26, for every directory of a nested path. An explicit `mode` is
   still passed through as given. `test/mkdir-owner-sync-mode.test.ts` reads back
   what a real `mkdir` made, and the mocked file pins what is asked for, because
   on macOS the kernel hides the old value from a real one.
