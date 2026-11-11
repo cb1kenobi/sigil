@@ -7,6 +7,7 @@ export {
   ESCAPE_TIMEOUT,
   forcedAccessible,
   type HighlightSpan,
+  type Highlighter,
   multiline,
   type MultilineOptions,
   multiselect,

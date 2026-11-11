@@ -74,6 +74,7 @@ export * from './subpaths/pane.js';
 export * from './subpaths/panel.js';
 export * from './subpaths/note.js';
 export * from './subpaths/diff.js';
+export * from './subpaths/highlight.js';
 export * from './subpaths/rule.js';
 export * from './subpaths/markdown-parse.js';
 export * from './subpaths/markdown.js';

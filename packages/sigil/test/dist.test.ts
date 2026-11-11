@@ -595,6 +595,21 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...png].join(', ')}`).toBeLessThan(28 * 1024);
   });
 
+  it('should keep the highlight subpath to the lexers, with nothing they feed behind them', () => {
+    // SIG-289: `highlightCode()` imports the seam's span type and no value, so a
+    // pager, a log viewer or a browser page can colour code without loading the
+    // element tree, the prompts or the theme. A value import from a sibling --
+    // `TOKEN_ROLE` from the prompt module is the obvious slip -- would put the
+    // whole component stack behind it, which this is here to catch
+    const graph = staticGraph('components/highlight.mjs');
+
+    expect([...graph].sort(), 'the facade and the lexers, and nothing else').toEqual([
+      'components/highlight.mjs',
+      expect.stringMatching(/^highlight-[\w-]+\.mjs$/),
+    ]);
+    expect(staticBuiltins(graph)).toEqual([]);
+  });
+
   it('should keep the suggest subpath free of anything a browser cannot load', () => {
     // `@ttylabs/sigil/suggest` exists so that the website's 404 page can ask the
     // parser's own "did you mean" rule in the browser. The parser's module
@@ -964,6 +979,10 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/fuzzy': [11, 5_500],
   'components/group': [468, 240_621],
   'components/group-multiselect': [476, 244_308],
+  // SIG-289, measured when it was added: the lexers and nothing else, since the
+  // module imports only a type -- which is what lets a highlighter be imported
+  // without the component stack it feeds
+  'components/highlight': [28, 14_145],
   'components/image': [344, 176_806],
   'components/key-help': [332, 169_903],
   'components/keys': [6, 2_860],
