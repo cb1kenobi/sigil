@@ -26,7 +26,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
+import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import {
@@ -479,7 +479,10 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
         ? bullets[ctx.depth % bullets.length]
         : glyph(index)
   );
-  const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  const markerWidth = maxOf(
+    markers.map((marker) => stringWidth(marker)),
+    1
+  );
   // a numbered list's boxes are a column of their own, after the numbers
   const boxed = block.ordered && block.checked !== undefined;
   const boxWidth = stringWidth(boxes.off);
@@ -550,7 +553,10 @@ function taskClasses(done: boolean): string {
  */
 function footnotes(block: Extract<MarkdownBlock, { type: 'footnotes' }>, ctx: Context): Element {
   const markers = block.notes.map((note) => `[${note.index}]`);
-  const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  const markerWidth = maxOf(
+    markers.map((marker) => stringWidth(marker)),
+    1
+  );
   const inner: Context = { ...ctx, room: Math.max(1, ctx.room - markerWidth - 1) };
   // spaced as a list is: a blank line between notes once any note is more than
   // one block, or a two-paragraph note would read as two notes

@@ -4,6 +4,11 @@ import { segment } from './segment.js';
 
 export { unicodeVersion, wideRanges } from './east-asian-width.js';
 
+// the widest of a list of measurements without spreading it, which a long enough
+// list cannot survive -- published here so that an ejected component measures
+// with this one rather than a copy
+export { maxOf, minOf } from '../util/extent.js';
+
 /**
  * Characters that print nothing and move the cursor nowhere.
  *

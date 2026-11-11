@@ -49,7 +49,7 @@ import type { KeyHandler, MouseHandler, PasteHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import { announceFocus, checkFocusWrite } from './focus.js';
 
@@ -1250,7 +1250,7 @@ export class Element implements LayoutNode {
         ? content.split('\n')
         : wrap(content, { width: availableWidth }).split('\n');
     const widths = lines.map((line) => stringWidth(line));
-    const widest = Math.max(0, ...widths);
+    const widest = maxOf(widths, 0);
 
     const result: WrappedText = {
       lines,
