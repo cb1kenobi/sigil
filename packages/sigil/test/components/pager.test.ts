@@ -199,6 +199,17 @@ describe('searchLines()', () => {
     ).to.have.length(1);
   });
 
+  // one at a time, beside a line it must not match, so that a character the
+  // escape leaves out is caught by name -- a `/` included, which the pager's
+  // own class once escaped and `escapeRegExp()` does not need to under `u`
+  it.each([...'\\^$.*+?()[]{}|/-'])('should take %j as itself', (char) => {
+    const lines = ['xyz', `x${char}y`, `${char}${char}`];
+    const { error, matches } = searchLines(lines, `x${char}y`);
+    expect(error).to.equal(undefined);
+    expect(matches).to.deep.equal([{ end: 3, line: 1, start: 0 }]);
+    expect(searchLines(lines, char).matches.map((it) => it.line)).to.deep.equal([1, 2, 2]);
+  });
+
   it('should match either case unless the query has a capital in it', () => {
     expect(searchLines(['Alpha', 'alpha'], 'alpha').matches).to.have.length(2);
     expect(searchLines(['Alpha', 'alpha'], 'Alpha').matches).to.deep.equal([

@@ -63,6 +63,7 @@ import {
 import { render } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { escapeRegExp } from '../util/escape-regexp.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -340,7 +341,7 @@ export function searchLines(
   const regex = mode === 'regex';
   const asked = regex ? query.replaceAll(/\\./gu, '') : query;
   const flags = `gu${asked === asked.toLowerCase() ? 'i' : ''}`;
-  const source = regex ? query : query.replaceAll(/[\\^$.*+?()[\]{}|/]/g, '\\$&');
+  const source = regex ? query : escapeRegExp(query);
 
   let pattern: RegExp;
   try {

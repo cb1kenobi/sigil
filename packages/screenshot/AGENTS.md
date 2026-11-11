@@ -60,6 +60,12 @@ reader and the coverage rasterizer.
   everywhere. The built-in palettes keep the two promises sigil's own sheet makes
   of the sixteen: on dark, 0 is background-ish and 8 a grey text can sit in; on
   light, 7 is pale enough to be a pane background and 8 dark enough to read.
+- **A colour option's hex digits are read by `hexChannels()` from
+  `@ttylabs/sigil/ansi` (SIG-358).** This file had a third copy of the reader
+  `ansi.hex()` and a stylesheet's `parseColor()` already shared. What stays here
+  is what was always this caller's: the text is trimmed, the `#` is required,
+  three or six digits only, and a refusal is the same `TypeError` quoting the
+  value as it was given. The table in `test/colors.test.ts` pins all of it.
 - **The input is read structurally, never by `instanceof`.** An app with two
   copies of `@ttylabs/sigil` installed has two `CellBuffer` classes. A grid with
   `charAt`/`styleAt` is a buffer, one with `cellAt` is a testing `Screen`. A

@@ -356,10 +356,15 @@ function entryMap() {
  * whole command surface and importing it put about 29 kB on the components
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
+ *
+ * `src/util/escape-regexp.ts` is the same shape again: `escapeRegExp()` is
+ * published beside `byCodeUnit()` for the toolchain, and the pager's literal
+ * search imports the module itself for the same reason.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
+  ['src/util/escape-regexp.ts', 'reference'],
 ]);
 
 /**

@@ -7872,6 +7872,15 @@ does.
   It runs on Enter, not per keystroke: an incremental search would run every
   prefix of a pattern, half of which do not compile, and would pay the hazard
   once per key rather than once.
+- **A literal query is escaped by `escapeRegExp()`, which does not escape `/`,
+  and that changes nothing (SIG-358).** The pager had its own class with a `/` in
+  it, beside three copies without one in `sigil build`. The pattern is
+  built with `new RegExp(source, 'gu')`, where `/` is no delimiter and needs no
+  escape, and `\/` and `/` are both legal under `u` -- so the two compile to the
+  same matcher. `should take %j as itself` runs every syntax character, `/` and
+  `-` through the search one at a time, before and after. The import is
+  `../util/escape-regexp.js`, which the registry rewrites to
+  `@ttylabs/sigil/reference` through `BARRELLED`, the `byCodeUnit()` precedent.
 - **A zero-length match counts once per line, and only on a line with no other
   match.** So `^$` steps through the blank lines, as it does in `less`, and `a*`
   -- which matches empty at every column -- steps line by line rather than column

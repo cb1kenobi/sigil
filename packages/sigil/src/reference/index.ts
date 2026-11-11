@@ -26,3 +26,9 @@ export { byCodeUnit } from '../util/by-code-unit.js';
 // a description as one line, which the completion spec and the toolchain's
 // reference both print a surface's descriptions with
 export { descriptionLine } from '../util/description-line.js';
+
+// a string as a pattern matching exactly it, which `sigil build`'s rolldown
+// filters and the pager's literal search both need and which `RegExp.escape()`
+// cannot answer yet at the Node floor -- published here for `byCodeUnit()`'s
+// reason, so the toolchain imports it rather than keeping a copy
+export { escapeRegExp } from '../util/escape-regexp.js';

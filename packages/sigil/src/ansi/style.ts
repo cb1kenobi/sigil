@@ -1,5 +1,6 @@
 import { codes, CSI, ESC, sgr, type StyleName } from './codes.js';
 import { type ColorLevel } from './color-support.js';
+import { hexChannels } from './hex.js';
 
 /**
  * One style in a chain: the sequence that turns it on, and the SGR parameter
@@ -393,17 +394,16 @@ function reopen(
  * @returns The channel values.
  */
 function hexToRgb(hex: string): [number, number, number] {
-  const match = /^#?(?:([\da-f]{3})|([\da-f]{6}))$/i.exec(String(hex));
+  // the `#` is optional here and nothing is trimmed, which is this caller's own
+  // rule -- `hexChannels()` reads the digits and nothing else
+  const text = String(hex);
+  const channels = hexChannels(text.startsWith('#') ? text.slice(1) : text);
 
-  if (!match) {
+  if (!channels) {
     throw new Error(`Invalid hex color "${hex}"`);
   }
 
-  // `#abc` is `#aabbcc`, not `#0a0b0c`
-  const value = match[1] ? match[1].replace(/./g, '$&$&') : match[2]!;
-  const int = Number.parseInt(value, 16);
-
-  return [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff];
+  return channels;
 }
 
 /**

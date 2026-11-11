@@ -2409,6 +2409,23 @@ Color support is detected from `TERM`, `COLORTERM`, `FORCE_COLOR`, `NO_COLOR`,
 CI variables, and whether the stream is a TTY. `strip()` removes SGR, OSC, DCS,
 and CSI sequences, not just colors.
 
+`hexChannels(digits)` is the hex reader `ansi.hex()` is built on, without the
+`#` and without the throw: three or six hex digits in either case become
+`[r, g, b]` on 0-255, with `abc` read as `aabbcc`, and anything else is
+`undefined`. Four and eight digits are not hex here, since nothing in the
+package has an alpha channel to put the fourth in. Whether a `#` is required,
+whether the text is trimmed, and what to say when it is wrong are the caller's:
+`ansi.hex()` takes the `#` or not, while a stylesheet colour requires it.
+
+```js
+import { hexChannels } from '@ttylabs/sigil/ansi';
+
+hexChannels('5f87af'); // [95, 135, 175]
+hexChannels('#5f87af'.slice(1)); // the same
+hexChannels('f00'); // [255, 0, 0]
+hexChannels('ff00'); // undefined
+```
+
 ### `sigil/wrap`
 
 ```js
@@ -7473,6 +7490,14 @@ one space, then every control character gone, then trimmed. It is what the
 completion script and the markdown reference both print a `desc` with, since a
 description is one line wherever it is printed and a raw escape in a file is a
 sequence waiting for something to print it.
+
+`escapeRegExp(text)` is a string as a pattern that matches exactly it: every
+character the pattern grammar reads as syntax gets a backslash, so
+`new RegExp(escapeRegExp('a.b'))` matches `a.b` and not `axb`. It is the stand-in
+for `RegExp.escape()`, which the Node floor this package supports does not have,
+and it is what `sigil build` and the pager's literal search both escape with. The
+result is pattern source for `new RegExp()`, so a `/` is left alone -- it only
+delimits the literal syntax.
 
 ### `sigil/which`
 
