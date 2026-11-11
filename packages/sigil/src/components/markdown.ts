@@ -736,53 +736,75 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
     }
   };
 
-  const walk = (items: readonly MarkdownInline[], classes: string, href: string): void => {
-    for (const run of items) {
-      switch (run.type) {
-        case 'text': {
-          emit(run.text, classes, href);
-          break;
-        }
-        case 'code': {
-          emit(run.text, join(classes, 'sigil-markdown-code sigil-accent'), href);
-          break;
-        }
-        case 'emphasis': {
-          walk(run.children, join(classes, 'sigil-markdown-em'), href);
-          break;
-        }
-        case 'strong': {
-          walk(run.children, join(classes, 'sigil-markdown-strong'), href);
-          break;
-        }
-        case 'strikethrough': {
-          // the tildes stay, on every terminal and at every colour level: the
-          // line through the words is an attribute nothing can ask a terminal
-          // whether it drew, and struck-out words with no mark on them say the
-          // opposite of what their author wrote. Muted, so they read as markup:
-          // a struck `--flag` puts the line through its dashes, and in the text's
-          // own colour the tildes beside that read as a third pair. Not inside a
-          // link, for the image's reason: muted and the accent both set a colour
-          const marker = join(
-            classes,
-            classes.includes('sigil-markdown-link')
-              ? 'sigil-markdown-strike-marker'
-              : 'sigil-markdown-strike-marker sigil-muted'
-          );
-          emit(STRIKE_MARKER, marker, href);
-          walk(run.children, join(classes, 'sigil-markdown-strike'), href);
-          emit(STRIKE_MARKER, marker, href);
-          break;
-        }
-        case 'footnote': {
-          // its own classes only: it is not part of a link or an emphasis it
-          // sits inside, and one element carries one role
-          emit(`[${run.index}]`, 'sigil-markdown-footnote-ref sigil-muted', '');
-          break;
-        }
-        case 'link': {
-          const target = linkTarget(run.href, ctx);
-          walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href);
+  // the runs nest as deep as the emphasis in them, which nothing bounds, so they
+  // are walked with a stack of their own rather than the call stack: each frame
+  // is a list of runs part read, and what to emit once it is read to the end
+  const stack: InlineFrame[] = [];
+  const walk = (
+    items: readonly MarkdownInline[],
+    classes: string,
+    href: string,
+    after?: () => void
+  ): void => {
+    stack.push({ after, at: 0, classes, href, items });
+  };
+
+  walk(runs, '', '');
+  while (stack.length > 0) {
+    const frame = stack.at(-1)!;
+    if (frame.at === frame.items.length) {
+      stack.pop();
+      frame.after?.();
+      continue;
+    }
+    const run = frame.items[frame.at++];
+    const { classes, href } = frame;
+    switch (run.type) {
+      case 'text': {
+        emit(run.text, classes, href);
+        break;
+      }
+      case 'code': {
+        emit(run.text, join(classes, 'sigil-markdown-code sigil-accent'), href);
+        break;
+      }
+      case 'emphasis': {
+        walk(run.children, join(classes, 'sigil-markdown-em'), href);
+        break;
+      }
+      case 'strong': {
+        walk(run.children, join(classes, 'sigil-markdown-strong'), href);
+        break;
+      }
+      case 'strikethrough': {
+        // the tildes stay, on every terminal and at every colour level: the
+        // line through the words is an attribute nothing can ask a terminal
+        // whether it drew, and struck-out words with no mark on them say the
+        // opposite of what their author wrote. Muted, so they read as markup:
+        // a struck `--flag` puts the line through its dashes, and in the text's
+        // own colour the tildes beside that read as a third pair. Not inside a
+        // link, for the image's reason: muted and the accent both set a colour
+        const marker = join(
+          classes,
+          classes.includes('sigil-markdown-link')
+            ? 'sigil-markdown-strike-marker'
+            : 'sigil-markdown-strike-marker sigil-muted'
+        );
+        emit(STRIKE_MARKER, marker, href);
+        walk(run.children, join(classes, 'sigil-markdown-strike'), href, () =>
+          emit(STRIKE_MARKER, marker, href)
+        );
+        break;
+      }
+      case 'footnote': {
+        // its own classes only: it is not part of a link or an emphasis it
+        // sits inside, and one element carries one role
+        emit(`[${run.index}]`, 'sigil-markdown-footnote-ref sigil-muted', '');
+        break;
+      }
+      case 'link': {
+        const target = linkTarget(run.href, ctx);
+        walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href, () => {
           const said = markdownText(run.children).trim();
           if (target.shown !== '' && target.shown !== said) {
             // its own word, after a space, so the URL breaks onto a line of its
@@ -790,37 +812,45 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
             end();
             emit(`(${target.shown})`, 'sigil-markdown-url sigil-muted', '');
           }
-          break;
+        });
+        break;
+      }
+      case 'image': {
+        // a terminal cannot show the picture, so its description stands in
+        // for it -- linked to the picture where a link can be drawn, and in the
+        // link's own style where the image is what a link is made of, which is
+        // how a README's row of badges reads
+        const alt = run.alt.trim() === '' ? 'image' : run.alt;
+        if (href !== '' || classes.includes('sigil-markdown-link')) {
+          emit(alt, classes, href);
+        } else {
+          emit(
+            alt,
+            join(classes, 'sigil-markdown-image sigil-muted'),
+            linkTarget(run.src, ctx).href
+          );
         }
-        case 'image': {
-          // a terminal cannot show the picture, so its description stands in
-          // for it -- linked to the picture where a link can be drawn, and in the
-          // link's own style where the image is what a link is made of, which is
-          // how a README's row of badges reads
-          const alt = run.alt.trim() === '' ? 'image' : run.alt;
-          if (href !== '' || classes.includes('sigil-markdown-link')) {
-            emit(alt, classes, href);
-          } else {
-            emit(
-              alt,
-              join(classes, 'sigil-markdown-image sigil-muted'),
-              linkTarget(run.src, ctx).href
-            );
-          }
-          break;
-        }
-        case 'break': {
-          end();
-          lines.push([]);
-          break;
-        }
+        break;
+      }
+      case 'break': {
+        end();
+        lines.push([]);
+        break;
       }
     }
-  };
+  }
 
-  walk(runs, '', '');
   end();
   return lines;
+}
+
+/** A list of runs part walked, the classes and link they are drawn with, and what follows them. */
+interface InlineFrame {
+  readonly after: (() => void) | undefined;
+  at: number;
+  readonly classes: string;
+  readonly href: string;
+  readonly items: readonly MarkdownInline[];
 }
 
 /** Two class lists as one. */
