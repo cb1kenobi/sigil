@@ -1170,10 +1170,11 @@ resolution.
   option that works and the command that does not.
 
 - **One `ParsedCommand` per command rather than one per token, each carrying
-  the segment as it was typed.** Everything downstream reads those entries --
-  `asked()` trims a help chain back to the commands argv _named_ -- so a token
-  that named three has to say all three or `mycli db:migrate --help` would
-  describe the wrong command. The `inputs` is the segment rather than the
+  the segment as it was typed.** Everything downstream reads those entries
+  per command -- `asked()` trims a help chain back to the innermost command
+  argv _named_, and `commandCatalog()` maps each command to the token that
+  reached it -- so a token that named three has to say all three or
+  `mycli db:migrate --help` would describe the wrong command. The `inputs` is the segment rather than the
   command's name, because `state.$` is what argv said and `d:m` reaching `db`
   and `migrate` through their aliases is exactly the case where the two
   differ.
