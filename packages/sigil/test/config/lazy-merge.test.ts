@@ -98,11 +98,32 @@ describe('a lazy merged view', () => {
     config.delete('k1.a', 'base');
     config.set('gone', null);
     config.saveSync();
+    // and `apply()`, which builds the view it diffs against only where somebody
+    // is watching: with nobody, there is no diff, and the merge it used to make
+    // was one per call that nothing read. Found by review
+    for (let i = 0; i < 5; i++) {
+      config.apply('user', { applied: i });
+    }
     expect(merges).toBe(1);
 
-    expect(config.get('list')).to.deep.equal([]);
+    expect(config.get('list')).toBeUndefined();
+    expect(config.get('applied')).toBe(4);
     expect(config.get('k1.a')).toBeUndefined();
     expect(merges).toBe(2);
+  });
+
+  it('should still build the view an apply() diffs against while somebody watches', () => {
+    // the other half of the rule above: a watcher is told what moved from what
+    // `get()` would have answered, so that view is built at the call
+    const config = stack();
+    config.set('k1.c.d', 5);
+    const seen: ConfigChange[] = [];
+    config.watch('k1.c.d', (change) => seen.push(change));
+
+    config.apply('user', { k1: { c: { d: 6 } } });
+
+    expect(seen).to.deep.equal([{ path: 'k1.c.d', previous: 5, value: 6 }]);
+    expect(merges).toBe(3);
   });
 
   it('should hand back the same frozen object between writes, and a new one after', () => {
@@ -124,7 +145,7 @@ describe('a lazy merged view', () => {
     expect(config.get()).toBe(second);
   });
 
-  it('should leave get() on the same object after a write that changed nothing', () => {
+  it('should leave get() on the same object after a refused write or a set() of nothing', () => {
     // a refusal is rolled back and a `null` over nothing is no write at all, so
     // neither has anything for the view to show -- the identity an app memoizing
     // on `get()` relies on, which the eager merge also kept
@@ -134,6 +155,12 @@ describe('a lazy merged view', () => {
     expect(() => config.set('server.port', 'nope')).toThrow(/Invalid integer/);
     config.set('nothing.here', undefined);
     expect(config.get()).toBe(before);
+
+    // and only those: a write of the value already there is still a write, and
+    // the next read is a new object holding the same thing -- also as before
+    config.set('server.port', 80);
+    expect(config.get()).not.toBe(before);
+    expect(config.get()).to.deep.equal(before);
   });
 
   it('should still throw every refusal at the mutating call rather than at a later get()', async () => {
@@ -254,13 +281,18 @@ describe('a lazy merged view over a file', () => {
     rmSync(root, { force: true, recursive: true });
   });
 
-  it('should save the three-way merge of unread writes and what another process wrote', async () => {
+  it('should show the three-way merge a save made, over a view read before it', async () => {
     const file = join(root, 'config.json');
     writeFileSync(file, JSON.stringify({ a: 1, b: 1 }));
     const config = await createConfig({ layers: [{ name: 'user', store: json(file) }] });
 
     config.set('a', 2);
     config.set('c.d', 3);
+    // read here, so the view is fresh going into the save -- which is what
+    // makes the save's own invalidation the only thing that can show `b: 7`
+    // afterwards. Without this read the view was already stale and the test
+    // passed with that invalidation deleted. Found by review
+    expect(config.get()).to.deep.equal({ a: 2, b: 1, c: { d: 3 } });
     // another process writes a key this one never touched
     writeFileSync(file, JSON.stringify({ a: 1, b: 7 }));
     expect(await config.save()).to.deep.equal(['user']);

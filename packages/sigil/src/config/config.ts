@@ -291,7 +291,7 @@ export class Config {
   }
 
   /**
-   * Replaces a layer's content and recomputes the merged view.
+   * Replaces a layer's content, and tells whoever is watching what moved.
    *
    * The same mechanism as construction, after construction -- which is what a
    * reload is. An app that re-reads its own config, or that was handed a blob
@@ -320,15 +320,13 @@ export class Config {
 
     // copied and validated **before** anything is assigned, which is the order
     // `Show` keeps: build first and touch nothing until there is something to
-    // put there. Which is also why there is no rollback around the recompute
-    // below -- a `copyValue()` the coercion already ran cannot find an unsafe
-    // key a second time, so nothing it could roll back for can happen, and a
-    // guard that cannot fire is one this repository deletes
+    // put there. Which is also why there is no rollback after the assignment
+    // below -- every refusal is one of these two, and the merge that a later
+    // read runs over a `copyValue()` output has nothing left to refuse (see
+    // `#settle()`), and a guard that cannot fire is one this repository deletes
     const next = copyValue(value, name) as Record<string, unknown>;
     coerceLayer(next, this.#settings, name);
-    // built now if a `set()` left it stale, because the diff is against what
-    // `get()` would have answered a moment ago -- which is that
-    const before = this.#view();
+    const before = this.#before();
     layer.value = next;
     // the whole layer, which is what `save()` writes wholesale -- `apply()`'s own
     // replace-not-merge rule read from the write side. A reload is the same
@@ -1009,7 +1007,7 @@ export class Config {
         return;
       }
 
-      const before = this.#view();
+      const before = this.#before();
       layer.value = next;
       this.#stale = true;
       this.#publish(before);
@@ -1028,10 +1026,13 @@ export class Config {
    * timer-based suppression, because that also swallows somebody *else's* write
    * that landed in the same window.
    *
-   * @param before - The merged view as it was.
+   * @param before - The merged view as it was, or `undefined` where nobody was
+   * watching when it would have been built -- see `#before()`.
    */
   #publish(before: unknown): void {
-    if (this.#watchers.size === 0) {
+    // `before` is never `undefined` for a built view, which is always an
+    // object, so this is the "nobody was watching" answer as well as the count
+    if (this.#watchers.size === 0 || before === undefined) {
       return;
     }
 
@@ -1321,8 +1322,8 @@ export class Config {
   }
 
   /**
-   * Validates the **whole** layer after a mutation and recomputes, putting the
-   * one path back if either is refused.
+   * Validates the **whole** layer after a mutation and marks the merged view
+   * stale, putting the one path back if the validation is refused.
    *
    * The whole layer rather than the setting at the written path, and that is a
    * hole rather than a cost: a path can be *inside* a declared setting or
@@ -1365,9 +1366,21 @@ export class Config {
    * `coerceSetting()` writes what a coercion produced back through one -- which
    * is the door a `type: 'json'` string becomes an object by. A copy of a copy
    * finds no unsafe key and no cycle, and the defaults and the environment are
-   * merged once at construction, eagerly, where anything they hold would throw. So every refusal a
-   * mutator can make is made here or before here, at the call, and a later
-   * `get()` has nothing left to throw about.
+   * merged once at construction, eagerly, where anything they hold would throw.
+   * So every refusal a mutator can make is made here or before here, at the
+   * call, and a later `get()` has nothing left to throw about.
+   *
+   * That rests on one assumption, stated because nothing enforces it: **a leaf
+   * stays a leaf.** A class instance, a `Map` or a `Date` is carried by
+   * reference and not walked by the copy, and an app that later re-prototypes
+   * such an object to `Object.prototype` -- turning it into a plain object the
+   * merge does walk -- and gives it a key that is unsafe or refers back to
+   * itself has made a value the next merge refuses. Under the eager merge that
+   * throw came from whichever mutator ran next; now it comes from the next read.
+   * Both are equally far from the mutation that caused it, which was the app's
+   * and no call of this class's, so it is recorded rather than guarded.
+   * `apply()` replaces such a layer with nobody watching; with a watcher it
+   * builds the view it diffs against first, and throws there too.
    *
    * @param layer - The layer that was mutated.
    * @param parts - The path that was written.
@@ -1438,6 +1451,21 @@ export class Config {
       this.#recompute();
     }
     return this.#merged;
+  }
+
+  /**
+   * The view a publish diffs against, built only where somebody will be told.
+   *
+   * `apply()` and a reload replace a layer and then publish, so the view they
+   * diff against has to be the one `get()` would have answered a moment ago --
+   * built now if a `set()` left it stale. With nobody watching there is no diff
+   * to make, and building it anyway was a full merge per `apply()` that nothing
+   * read, which is the cost the lazy view exists to stop paying. Nothing runs
+   * between this and `#publish()` that could add a watcher, and `#publish()`
+   * reads an `undefined` here as nobody watching either way.
+   */
+  #before(): unknown {
+    return this.#watchers.size > 0 ? this.#view() : undefined;
   }
 
   /** What is merged, bottom first: the defaults, the layers, the environment. */

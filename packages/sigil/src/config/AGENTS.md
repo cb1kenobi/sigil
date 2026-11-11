@@ -483,8 +483,11 @@ without destroying it is SIG-154's.
 - **The merged view is built when it is read, not when a layer changes**
   (SIG-377). Every mutator used to re-merge and deep-freeze the whole stack, so
   N `set()` calls with no read between them were N full merges. A mutator now
-  marks the view stale and `#view()` -- the one way anything reads it, which is
-  `get()`, `has()` and the watch diff -- rebuilds it on demand. Measured over two
+  only marks the view stale and `#view()` -- the one way anything reads it, which
+  is `get()`, `has()` and the watch diff -- rebuilds it on demand. That includes
+  `apply()`, which builds the view it diffs against only while somebody is
+  watching (`#before()`): with nobody, there is no diff to make, and building it
+  anyway was one merge per call that nothing read. Measured over two
   object layers whose entries are `{ a, b: [1, 2, 3], c: { d } }`, with the two
   builds run alternately on one machine under heavy parallel load, so the
   absolute figures are that machine's and the ratio is the finding:
@@ -503,16 +506,24 @@ without destroying it is SIG-154's.
   already a `copyValue()` output -- a coercion writes back through one too -- so
   a deferred merge has no refusal left to move to a later `get()`. The defaults
   and the environment never change after construction, which still merges
-  eagerly. The one check that read the **built** view was `#assertWritable()`'s
+  eagerly. That rests on one assumption nothing enforces: **a leaf stays a
+  leaf.** A class instance carried by reference that the app later
+  re-prototypes to `Object.prototype` and gives a key referring back to itself
+  is a plain object the merge walks and refuses -- from the next mutator under
+  the eager merge, from the next read now. Both are equally far from the app's
+  own mutation that caused it, so it is recorded in `#settle()` rather than
+  guarded. The one check that read the **built** view was `#assertWritable()`'s
   list test, and it would have forced a merge per dotted `set()` on its own, so
   it reads the stack through `shapesAlong()` instead -- the merge's rule said a
   second time, which is tolerable only because it is asked a kind rather than
   contents, and is held to the merge by a differential fuzz over random stacks.
 
   What did not move: `get()` hands back the same frozen object between writes
-  and a new one after, a write that was refused or did nothing leaves it the same
-  object, and `apply()` and a reload build the view they diff against before
-  replacing the layer, so a handler is handed the same `before` and `after` at
+  and a new one after; a refused write, or a `set()` of `null` or `undefined`
+  where the layer holds nothing, leaves it the same object, while a write of the
+  value already there makes the next read a new, equal one, as it always did;
+  and while anybody watches, `apply()` and a reload build the view they diff
+  against before replacing the layer, so a handler is handed the same `before` and `after` at
   the same moment, synchronously inside the call. `lazy-merge.test.ts` pins each
   of those over both implementations; only its two merge-count tests fail over
   the eager one.
