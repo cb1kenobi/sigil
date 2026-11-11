@@ -77,6 +77,7 @@ import {
   type Element,
   type ElementProps,
   type ElementPropsWithout,
+  noSize,
   raw,
   type RawPaint,
   scrollBy,
@@ -85,7 +86,6 @@ import {
 import type { KeyEvent, MouseEvent, WheelDirection } from '../input/index.js';
 import { createBranch, getOwner, type Owner, runWithOwner } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
-import { noSize } from '../util/no-size.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
@@ -563,10 +563,6 @@ export function rowWindow(count: number, height: number, offset: number, view: n
   // offset` is what asks
   return { first, length: last - first + 1 };
 }
-
-// published from this module's subpath, which is where an ejected pane finds it
-// too: the one definition is a leaf, so neither loads the other
-export { noSize };
 
 /**
  * The height the host declared, which `sync()` uses as a **floor**.

@@ -162,9 +162,13 @@ interface TreeLine {
 /**
  * A run of a line that is drawn at the width it has, never wrapped or squeezed:
  * a guide, a marker, a twisty. `tree()`, `selectTree()` and `TreeListView` all
- * draw their runs with it.
+ * draw their runs with it. Frozen, because it is exported and one object: a
+ * caller that wrote to it would change every tree in the process.
  */
-export const TREE_FIXED = { 'flex-shrink': 0, 'white-space': 'nowrap' } as const;
+export const TREE_FIXED: Readonly<{ 'flex-shrink': 0; 'white-space': 'nowrap' }> = Object.freeze({
+  'flex-shrink': 0,
+  'white-space': 'nowrap',
+});
 
 /** The narrowest a block is squeezed to: a guide and a few columns of text. */
 const MIN_WIDTH = 8;

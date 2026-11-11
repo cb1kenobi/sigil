@@ -37,6 +37,7 @@ import {
   cellStyle,
   type Element,
   type ElementProps,
+  noSize,
   raw,
   type RawPaint,
 } from '../element/index.js';
@@ -45,7 +46,6 @@ import { DOUBLE_CLICK_MS, type KeyEvent, type MouseEvent } from '../input/index.
 import { measureNode } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
-import { noSize } from '../util/no-size.js';
 import { unicodeSupported } from './note.js';
 
 /** Which end of the pane the edge is on. */

@@ -97,10 +97,6 @@ export function formatClock(seconds: number): string {
   return hours > 0 ? `${hours}:${rest}` : rest;
 }
 
-// published from this module's subpath, which is where an ejected toast finds
-// it too: the one definition is a leaf, so neither loads the other
-export { MAX_TIMER_DELAY };
-
 /**
  * A clock's readout, as an element tree.
  *

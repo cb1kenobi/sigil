@@ -6,6 +6,9 @@ import { stringWidth } from '../width/index.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 import {
   clampProgress,
+  progressPercent,
+  progressRatio,
+  progressStep,
   progressTotal,
   type ProgressState,
   type ProgressStatsOptions,
@@ -117,7 +120,7 @@ export function multiProgressView(
 export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgress {
   const filled = opts.filled ?? '█';
   const empty = opts.empty ?? '░';
-  const step = opts.step && opts.step > 0 ? opts.step : 10;
+  const step = progressStep(opts.step);
   const keep = opts.keep !== false;
   const terminal = opts.terminal ?? opts.backend?.terminal ?? defaultTerminal;
   const base = { ...opts, terminal };
@@ -180,13 +183,9 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
 
   /** The plain form of a bar: its label and its percentage, rounded down to `step`. */
   function plain(state: ProgressState): string {
-    const total = state.total.get();
-    const whole = Math.floor(
-      Math.min(1, Math.max(0, total > 0 ? state.current.get() / total : 0)) * 100
-    );
-    // finished is finished whatever `step` divides into, for the reason the
-    // single bar records
-    const shown = whole === 100 ? whole : Math.floor(whole / step) * step;
+    // the single bar's percentage, so finished is finished whatever `step`
+    // divides into and neither can come out as `NaN%`
+    const shown = progressPercent(progressRatio(state), step);
     const label = state.label.get();
     return label === '' ? `${shown}%` : `${label} ${shown}%`;
   }

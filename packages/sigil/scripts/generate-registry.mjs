@@ -357,18 +357,17 @@ function entryMap() {
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
  *
- * The three after it are one helper two components share (SIG-366), each a leaf
- * so that neither component loads the other for it, and each re-exported by the
- * component that publishes it: `decimalPlaces()` is `number()`'s and the
- * slider's, `MAX_TIMER_DELAY` the toast's and the clock's, and `noSize()` the
- * pane's and the scroll box's.
+ * `src/util/timer.ts` is `MAX_TIMER_DELAY`, which the clock, the toast, the input
+ * router, the testing helpers and the config watcher share (SIG-366). It is
+ * re-exported by `@ttylabs/sigil/renderer`, which the clock and the toast both
+ * import already, so an ejected copy of either loads nothing more for it -- and
+ * neither imports its own built-in subpath, which a leaf re-exported by the
+ * component itself would have made it do.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
-  ['src/util/decimals.ts', 'components/slider'],
-  ['src/util/timer.ts', 'components/clock'],
-  ['src/util/no-size.ts', 'components/scroll-box'],
+  ['src/util/timer.ts', 'renderer'],
 ]);
 
 /**

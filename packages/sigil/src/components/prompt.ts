@@ -4373,16 +4373,17 @@ function lineMultiselect<T>(
  * `promptLineList()` the list alone, and `promptLineNumbers()` `multiselect()`'s
  * reading of several numbers and ranges.
  *
- * `promptSeek()` is the cursor's walk to the next row on offer and
- * `promptCountComplaint()` the judgement of `min` and `max`, both published for
- * `groupMultiselect()` and `autocompleteMultiselect()`, which had copied them
- * (SIG-366): a second walk is a second answer to where Down goes, and a second
- * copy of the message is one a reword reaches half of.
- *
  * Nothing here moved. The bodies are where they were, and the only edit to
  * `test/components/prompt.test.ts` is one added assertion about the surface this
  * block creates -- no existing test moved, which is the check an extraction
  * gets: a test that had to move is a behaviour that changed.
+ *
+ * Two were added later, and those are not extractions of the same kind
+ * (SIG-366): `promptSeek()` is the cursor's walk to the next row on offer, which
+ * `groupMultiselect()` had copied, and `promptCountComplaint()` the judgement of
+ * `min` and `max`, which `groupMultiselect()` had copied once and
+ * `autocompleteMultiselect()` twice. A second walk is a second answer to where
+ * Down goes, and a second copy of a message is one a reword reaches half of.
  */
 export {
   answered as promptAnswered,

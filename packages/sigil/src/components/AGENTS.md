@@ -11736,7 +11736,7 @@ The root rule -- one definition per helper -- applied inside this directory,
 where eight had two or four copies. None was on the list of deliberate
 duplicates, and each pair was compared before it was folded.
 
-- **The progress bars' `clamp()` let `NaN` through, and that was the one
+- **The progress bars' `clamp()` let `NaN` through, and that was the first
   defect.** `Math.min(total, Math.max(0, NaN))` is `NaN`, so `current = NaN` was
   stored and the percentage drew `NaN%` -- on a terminal and as a log line,
   single bar and group alike -- while `renderBar()` beside it read the same ratio
@@ -11744,20 +11744,37 @@ duplicates, and each pair was compared before it was folded.
   finite is `0`, which is the bar's own answer, rather than the value before it,
   which would freeze a bar on a stray `done / total` over a zero total. `Infinity`
   is not finite either, so it is `0` too where it used to clamp to the total --
-  a bar does not say it finished because somebody divided by zero. A total of
-  `Infinity` is refused the way zero and below always were (`progressTotal()`,
-  with the same fallbacks of 100 and 1), because `done()` writes the total as the
-  value and `Infinity / Infinity` was the other `NaN%`. Nothing prints `NaN` or
-  `Infinity` now. Not touched: `Math.round` against `Math.floor` near 100%, which
-  is an open decision of its own.
+  a bar does not say it finished because somebody divided by zero. It is public,
+  so it guards its total as well: one that is not positive and finite holds
+  nothing, where `clampProgress(5, NaN)` was `NaN` and `clampProgress(5, -1)` was
+  `-1`. A total of `Infinity` is refused the way zero and below always were
+  (`progressTotal()`, with the same fallbacks of 100 and 1), because `done()`
+  writes the total as the value and `Infinity / Infinity` was the other `NaN%`.
+- **The percentage was a third copy, and its step was the second defect.** Both
+  bars rounded down to `step` with `Math.floor(whole / step) * step` behind a
+  guard of `step && step > 0`, which admits `Infinity` -- and `0 * Infinity` is
+  `NaN%` on both bars, piped and on a terminal -- and admits `0.3`, which wrote
+  `49.8%`. Found by review, after the first version of this entry said nothing
+  printed `NaN` any more. `progressStep()` is the one guard now: a whole number
+  of percent, at least 1, and 10 for anything that is not a positive, finite
+  number. `progressPercent(ratio, step)` is the one percentage, used by
+  `progressView()` and the group's plain line, and it reads a ratio that is not
+  finite as `0` and puts the step through `progressStep()` itself -- so a
+  `ProgressState` somebody built by hand and handed to the public `progressView()`
+  cannot show `NaN%` either. `progressRatio(state)` is the value over the total
+  both of them read. A fractional step above 1 moves: `7.5` was multiples of
+  `7.5`, which could be `47.5%`, and is `8` now. An integer step does not move.
+  Not touched: `Math.round` against `Math.floor` near 100% in the bar, which is
+  an open decision of its own.
 - **`seek()` was the same walk in both places, with one difference in what "on
   offer" read.** `select()` and `multiselect()` asked `kind === 'choice' &&
   offered`; `groupMultiselect()` asked `offered` alone, because a group heading
   is a row that can be on offer. A separator has no `offered`, so `offered` alone
   is both answers, and that is what `promptSeek()` reads.
-- **The count complaint is `promptCountComplaint()`, called from four sites.** The
-  English is byte-identical, so `SIGIL_KEYS` is unchanged -- regenerated to check,
-  and it wrote the same 413 keys.
+- **The count complaint is `promptCountComplaint()`, called from four sites:**
+  `multiselect()`, `groupMultiselect()`, and both forms of
+  `autocompleteMultiselect()`. The English is byte-identical, so `SIGIL_KEYS` is
+  unchanged -- regenerated to check, and it wrote the same 413 keys.
 - **`decimals()` was a regex in `number()` and a split in the slider, and the two
   never disagreed** -- over two million values, random bit patterns among them,
   exponent forms, negatives, integers, `NaN` and both infinities. `decimalPlaces()`
@@ -11765,27 +11782,44 @@ duplicates, and each pair was compared before it was folded.
   the same reason), `DIGITS` (the select row's and the data table's, both the
   nine columns a digit sorts), `noSize()` (the pane's and the scroll box's
   absolute `raw` elements) and the trees' `FIXED` run were each the same value
-  meaning the same thing.
-- **Where each lives is decided by who would otherwise load whom.** A component
-  can be ejected, so a shared helper has to be importable from a published
-  subpath, and a facade may only re-export its own module. So `decimalPlaces()`,
-  `MAX_TIMER_DELAY` and `noSize()` are leaves under `src/util/`, re-exported by
-  the slider, the clock and the scroll box and mapped to those subpaths in
-  `generate-registry.mjs`'s `BARRELLED` -- the slider does not load `number()`'s
-  prompt stack, the toast does not load the clock, and the pane does not load the
-  scroll box. `DIGIT_COLUMNS` is beside `compareCells()` in `table.ts`, which both
-  of its readers already imported; `TREE_FIXED` is `tree.ts`'s, which the tree
-  list view already imported; the two progress helpers are `progress.ts`'s.
-- **Left alone, and why.** The input router and the testing helpers each carry a
-  `MAX_DELAY` of their own and `config/watch.ts` writes `2 ** 31 - 1` inline: the
-  same fact, outside this directory and this ticket. Nine inline
-  `measure: () => ({ height: 0, width: 0 })` closures in the prompts, the text
-  area, the overlay and the decrypt effect answer the same zero size unnamed;
-  whether each means what `noSize()` means was not audited, and three are in
-  `prompt.ts` code another change is rewriting. A progress
-  state built by hand and handed to `progressView()` can still hold a `NaN`,
-  because the percentage and the group's plain line each compute the ratio
-  without `renderBar()`'s guard -- a third duplicate, of the percentage, that the
-  facades no longer reach. `test/components/shared-helpers.test.ts` pins each
-  helper's behaviour and counts the definitions in `src/components/` and
-  `src/util/`, so a copy that comes back fails there.
+  meaning the same thing. `TREE_FIXED` is frozen, as every exported object here is.
+- **The timer limit had three more copies outside this directory**, the input
+  router's sequence timeout, the testing helpers' delay and the config watcher's
+  debounce, and all five read `src/util/timer.ts` now. The config entry gained
+  that 31-byte chunk as its eleventh module.
+- **Where each lives is decided by who would otherwise load whom, and by what an
+  ejected copy imports.** A component can be ejected, so a shared helper has to be
+  importable from a published subpath, and a facade may only re-export its own
+  module. The first version put `decimalPlaces()`, `MAX_TIMER_DELAY` and `noSize()`
+  in `src/util/` leaves re-exported by the slider, the clock and the scroll box,
+  and review found what that did to an ejected copy: `sigil add slider` imported
+  `decimalPlaces` from `@ttylabs/sigil/components/slider`, so the copy loaded the
+  built-in it replaced -- and the clock and the scroll box did the same. The rule
+  is now that a helper lives where its owner's ejected copy has it in hand:
+  - `noSize()` is `@ttylabs/sigil/element`'s, beside `raw()`, which the pane and
+    the scroll box both import already.
+  - `MAX_TIMER_DELAY` is a leaf every reader imports, re-exported by
+    `@ttylabs/sigil/renderer` -- the frame loop is the package's own timer, and
+    the clock and the toast both import it already -- and mapped there in
+    `generate-registry.mjs`'s `BARRELLED`.
+  - `decimalPlaces()` is the slider's own, defined in `slider.ts`, and `number()`
+    imports it from there. No existing subpath both of them load has anything to
+    do with numbers, and a new one for one function is the exception the root
+    file says has to argue for itself. So the larger reader pays: the built-in and
+    an ejected `number()` reach the slider chunk and its two small siblings,
+    7,209 B over three modules on a graph of about 261 kB, while the slider loads
+    nothing for it.
+
+  `DIGIT_COLUMNS` is beside `compareCells()` in `table.ts`, which both of its
+  readers already imported; `TREE_FIXED` is `tree.ts`'s, which the tree list view
+  already imported; the progress helpers are `progress.ts`'s. `should not import
+  its own built-in subpath` in `test/registry.test.ts` holds every entry to it,
+  read off the code rather than the manifest's `imports`, since that list also
+  carries the usage example in a component's doc comment.
+
+- **Left alone, and why.** Nine inline `measure: () => ({ height: 0, width: 0 })`
+  closures in the prompts, the text area, the overlay and the decrypt effect
+  answer the same zero size unnamed; whether each means what `noSize()` means was
+  not audited, and three are in `prompt.ts` code another change is rewriting.
+  `test/components/shared-helpers.test.ts` pins each helper's behaviour and counts
+  the definitions across `src/`, so a copy that comes back fails there.

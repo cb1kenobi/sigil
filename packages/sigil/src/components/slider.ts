@@ -28,14 +28,9 @@ import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
-import { decimalPlaces } from '../util/decimals.js';
 import { stringWidth } from '../width/index.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
-
-// published from this module's subpath, which is where an ejected `number()`
-// finds it too: the one definition is a leaf, so neither loads the other
-export { decimalPlaces };
 
 export interface SliderProps {
   /**
@@ -120,6 +115,30 @@ const MEASURED = 1000;
 
 /** Each slider's host, which is the focusable element the keys are described on. */
 const SLIDERS = new WeakSet<Element>();
+
+/**
+ * How many digits follow the point when a number is written out, so that a sum
+ * of steps can be rounded back to what the steps could add up to.
+ *
+ * Read off `String(value)`, which is how JavaScript writes a number, and the
+ * exponent form counts: `1e-7` is seven places and `1.5e-7` eight, while
+ * `1e+21` is none. A value with no digits to count -- `NaN` and either
+ * infinity -- is none too.
+ *
+ * `number()` and the slider both asked this, one with a regex and one by
+ * splitting, and the two agreed on every input tried (SIG-366), so this is the
+ * one of them. It is the slider's rather than the number prompt's so that the
+ * smaller of the two imports nothing for it: `number()` loads the prompt stack
+ * anyway, and the slider is a few kilobytes beside that.
+ *
+ * @param value - The number.
+ * @returns How many decimal places it is written with.
+ */
+export function decimalPlaces(value: number): number {
+  const [mantissa = '', exponent] = String(value).split('e');
+  const places = mantissa.split('.')[1]?.length ?? 0;
+  return Math.max(0, places - Number(exponent ?? 0));
+}
 
 /** Throws unless a prop is absent or a finite number. */
 function finite(value: unknown, message: string): void {

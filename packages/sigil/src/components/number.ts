@@ -24,7 +24,6 @@ import { box } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { transformValue } from '../util/coerce.js';
-import { decimalPlaces } from '../util/decimals.js';
 import { graphemes } from '../width/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import {
@@ -45,6 +44,7 @@ import {
   runPrompt,
   setPromptNote,
 } from './prompt.js';
+import { decimalPlaces } from './slider.js';
 
 export interface NumberOptions extends PromptOptions, AccessibleOptions {
   /** Returned when the answer is empty. Shown dimmed in the empty field. */

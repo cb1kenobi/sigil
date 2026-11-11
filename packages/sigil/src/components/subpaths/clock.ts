@@ -4,7 +4,6 @@ export {
   type ClockOptions,
   clockView,
   formatClock,
-  MAX_TIMER_DELAY,
   stopwatch,
   type Stopwatch,
   timer,

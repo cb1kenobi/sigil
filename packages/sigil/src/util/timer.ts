@@ -6,7 +6,11 @@
  * a month would vanish immediately, and a countdown longer than about 24.8 days
  * has to be waited for in pieces. `showToast()` refuses a timeout past it and a
  * timer waits in pieces no longer than it, which is one fact about the platform
- * that both had written down (SIG-366). A leaf, so that neither loads the other
- * for it; it is published from `@ttylabs/sigil/components/clock`.
+ * that both had written down, as had the input router's sequence timeout, the
+ * fake clock in `testing` and the config watcher's debounce (SIG-366). A leaf,
+ * so that none of them loads another for it. It is published from
+ * `@ttylabs/sigil/renderer`, whose frame loop is the package's own timer and
+ * which the clock and the toast both import already -- so an ejected copy of
+ * either loads nothing more for it.
  */
 export const MAX_TIMER_DELAY: number = 2 ** 31 - 1;

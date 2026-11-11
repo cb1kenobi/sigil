@@ -946,3 +946,31 @@ describe('a value that is not a finite number, which drew NaN% (SIG-366)', () =>
     expect(ui.frame).to.equal(`${FULL}${FULL}${LIGHT}${LIGHT} 50%`);
   });
 });
+
+describe('a step that is not a whole, finite number, which wrote NaN% and 49.8% (SIG-366)', () => {
+  /** What each bar writes, piped, at 0% and then at 50%. */
+  const STEPS: [string, number, string][] = [
+    ['Infinity', Number.POSITIVE_INFINITY, 'x 0%\nx 50%\n'],
+    ['NaN', Number.NaN, 'x 0%\nx 50%\n'],
+    ['0.3', 0.3, 'x 0%\nx 50%\n'],
+    ['7.5', 7.5, 'x 0%\nx 48%\n'],
+  ];
+
+  it.each(STEPS)('should write whole percents for a step of %s, piped', (_, step, written) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const bar = createProgress({ ansi, step, terminal, text: 'x' });
+
+    bar.current = 50;
+
+    expect(stdout.text).to.equal(written);
+  });
+
+  it.each(STEPS)('should write whole percents for a step of %s, in a group', (_, step, written) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const bar = createMultiProgress({ ansi, step, terminal }).add({ text: 'x' });
+
+    bar.current = 50;
+
+    expect(stdout.text).to.equal(written);
+  });
+});

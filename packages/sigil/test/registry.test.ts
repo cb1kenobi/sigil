@@ -115,6 +115,22 @@ describe('the registry', () => {
     }
   );
 
+  it.each(names)('should not import its own built-in subpath, in %s', (name) => {
+    // an ejected copy that imports `@ttylabs/sigil/components/<itself>` loads the
+    // built-in it replaced as well as itself -- which is what a helper re-exported
+    // by the component that owns it did to the slider, the clock and the scroll
+    // box (SIG-366), and what the README promises an ejected component never does.
+    // Read off the code rather than `imports`, which also lists the specifiers in
+    // a doc comment's usage example -- and a component's example imports itself
+    const code = readFileSync(join(registry, `${name}.ts`), 'utf-8').replaceAll(
+      /\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm,
+      ''
+    );
+    const specs = [...code.matchAll(/\bfrom\s*'([^']+)'/g)].map(([, spec]) => spec);
+    expect(specs.length, name).toBeGreaterThan(0);
+    expect(specs).not.toContain(`${pkg.name}/components/${name}`);
+  });
+
   it('should import some sibling from a subpath, so the absence above means something', () => {
     const siblings = names.flatMap((name) =>
       (manifest.entries[name]?.imports ?? []).filter((spec) =>
