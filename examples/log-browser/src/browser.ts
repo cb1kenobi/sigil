@@ -350,8 +350,11 @@ export function useBrowser(): Browser {
   };
 
   // -- the log ----------------------------------------------------------------
+  // held to the cap from the start: a file that has stopped growing is never
+  // appended to, so a cap applied only on append would never trim it -- and a
+  // backlog set longer than the cap is the same case from the simulated side
   const lines = new State<readonly LogLine[]>(
-    feed === undefined ? cluster.backlog(env.backlog) : feed.read()
+    appendLines([], feed === undefined ? cluster.backlog(env.backlog) : feed.read(), env.maxLines)
   );
   const level = new State<Level>('debug');
   const source = new State<string | undefined>(undefined);

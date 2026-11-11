@@ -451,6 +451,12 @@ describe('a log at its cap', () => {
     await it.press(KEYS.home);
     expect(cursorRow(it)).not.toBe(first);
   });
+
+  it('should open held to its cap when the backlog is longer', async () => {
+    const it = await mount(tag, { backlog: 600, maxLines: 510 });
+    await it.press(':', 'l', 'o', 'g', 's', KEYS.enter);
+    expect(it.screen()).toMatch(/logs · all pods · 510 lines/);
+  });
 });
 
 describe('a log file', () => {
@@ -484,6 +490,24 @@ describe('a log file', () => {
     await it.press('L', 'L', 'L');
     expect(it.screen()).toMatch(/1 of 4 lines/);
     expect(it.screen()).toContain('could not reach db');
+  });
+});
+
+describe('a log file longer than the cap', () => {
+  it('should keep only the newest lines, when it is read and before it grows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'log-browser-'));
+    dirs.push(dir);
+    const file = join(dir, 'big.log');
+    const at = (n: number): string => `2026-11-10T09:00:00Z INFO line ${n}`;
+    writeFileSync(file, `${Array.from({ length: 30 }, (_, n) => at(n + 1)).join('\n')}\n`);
+
+    // a file that has stopped growing is never appended to, so the cap has to
+    // hold on the first read or not at all
+    const it = await mount(tag, { file, maxLines: 10 });
+    expect(it.screen()).toMatch(/big\.log · 10 lines/);
+    await it.press(KEYS.home);
+    expect(cursorRow(it)).toContain('line 21');
+    expect(it.screen()).not.toMatch(/line 20\b/);
   });
 });
 
