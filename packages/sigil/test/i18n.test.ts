@@ -538,6 +538,17 @@ describe('zh-TW is served the Simplified catalog', () => {
     // an exact match on what was asked for still wins
     ['zh-TW', ['zh', 'zh-Hant', 'zh-TW'], 'zh-TW'],
     ['zh-TW', ['zh-Hant', 'zh-Hant-TW'], 'zh-Hant-TW'],
+    // including when what was asked for is a bare language: the likely form
+    // of `zh` is `zh-Hans-CN`, and that must not outrank a registered `zh`
+    ['zh', ['zh-Hans', 'zh'], 'zh'],
+    ['sr', ['sr-Cyrl', 'sr'], 'sr'],
+    ['en', ['en-Latn', 'en'], 'en'],
+    // and with no bare-language catalog, a bare language reaches its likely
+    // script rather than nothing
+    ['zh', ['zh-Hans', 'zh-Hant'], 'zh-Hans'],
+    // the likely form can add a region the tag did not name, which is the more
+    // specific catalog for the script asked for
+    ['zh-Hant', ['zh-Hant-TW', 'zh'], 'zh-Hant-TW'],
     // the bare language is still the floor
     ['zh-TW', ['zh'], 'zh'],
     ['en-GB', ['en'], 'en'],
@@ -545,7 +556,7 @@ describe('zh-TW is served the Simplified catalog', () => {
     ['zh-CN', ['zh-Hans', 'zh-Hant'], 'zh-Hans'],
     ['zh-TW', ['zh-Hans', 'zh-Hant'], 'zh-Hant'],
     ['zh-CN', ['zh-Hans', 'zh'], 'zh-Hans'],
-    // the likely form never changes the language or crosses a region
+    // the likely form never changes the language or swaps one region for another
     ['pt-BR', ['pt', 'pt-PT'], 'pt'],
     // a POSIX script modifier reaches the script catalog, and its absence the
     // script the region implies, which for Serbia is not Latin
@@ -651,8 +662,8 @@ describe('overlapping setLocale() calls let the slower loader win', () => {
 
   it('should resolve a superseded call with nothing put into effect', async () => {
     // the earlier call resolves rather than rejecting, and what is in effect
-    // when it does is what was in effect before either call -- never a locale
-    // whose catalog is not the one rendering
+    // when it does is what was in effect before either call -- `locale()`
+    // never changes before the catalog does
     const fr = deferred<Catalog>();
     const de = deferred<Catalog>();
 
@@ -717,6 +728,22 @@ describe('overlapping setLocale() calls let the slower loader win', () => {
       expect(__`Options`, order).toBe('Options');
       expect(locale(), order).toBe('de');
     }
+  });
+
+  it('should name the tag asked for, not the one found, when the loader throws', async () => {
+    // the catalog the found tag names never arrived, so `locale()` answers
+    // what was asked for -- the same answer as when nothing is keyed for it
+    await loadCatalog(
+      {
+        de: async () => {
+          throw new Error('no such file');
+        },
+      },
+      { LANG: 'de_AT.UTF-8' }
+    );
+
+    expect(locale()).toBe('de-AT');
+    expect(__`Options`).toBe('Options');
   });
 
   it('should resolve a superseded call whose loader throws', async () => {

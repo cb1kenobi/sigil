@@ -740,13 +740,16 @@ function likelyTag(tag: string): string | undefined {
  * nothing to say so.
  *
  * The order is the literal chain down to, and not including, the bare
- * language; then the chain of the tag's likely-subtags form; then the bare
- * language. So what was asked for still wins exactly, a registered `zh-TW` beats
- * a `zh-Hant`, and a `zh-Hant` beats a `zh` for a `zh-TW` that never spelled its
- * script -- which no POSIX locale can, so without the second step a
- * script-specific catalog is unreachable from `LANG`. The likely form never
- * changes the language, so `pt-BR` is `pt-Latn-BR` and reaches `pt` rather than
- * `pt-PT`.
+ * language -- unless the bare language is what was asked for, when it is the
+ * whole of that chain; then the chain of the tag's likely-subtags form; then the
+ * bare language. So what was asked for still wins exactly, `zh` with `zh` and
+ * `zh-Hans` registered included, a registered `zh-TW` beats a `zh-Hant`, and a
+ * `zh-Hant` beats a `zh` for a `zh-TW` that never spelled its script -- which no
+ * POSIX locale can, so without the second step a script-specific catalog is
+ * unreachable from `LANG`. The likely form never changes the language and never
+ * swaps one region for another, so `pt-BR` is `pt-Latn-BR` and reaches `pt`
+ * rather than `pt-PT`; it can add a region a tag did not name, so `zh-Hant`
+ * reaches a registered `zh-Hant-TW`.
  *
  * The likely form is only asked for when the map holds a script-specific
  * catalog in the requested language, because that is the only kind of key it
@@ -789,7 +792,8 @@ function findLoader(
 
   const literal = localeChain(tag);
   const language = literal.at(-1) as string;
-  const exact = first(literal.slice(0, -1));
+  // a bare language is its own whole literal chain, and is what was asked for
+  const exact = first(literal.length === 1 ? literal : literal.slice(0, -1));
 
   if (exact) {
     return exact;
@@ -840,8 +844,8 @@ function readCatalog(answer: unknown): Catalog | undefined {
  * resolves -- never rejects, even where its loader threw, because a load
  * nobody wants any more has failed nobody. Nothing is cleared while a load is
  * in flight either: the catalog, the tag and the plural selector change
- * together, at the one assignment, so `locale()` never names a locale whose
- * catalog is not the one in effect. `loadCatalog()` comes through here too, so
+ * together, at the one assignment, so `locale()` never changes before the
+ * catalog does. `loadCatalog()` comes through here too, so
  * an older `setLocale()` still loading cannot overwrite what a later `main()`
  * resolved.
  *

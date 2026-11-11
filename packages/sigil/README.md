@@ -1495,12 +1495,15 @@ by `zh-Hans` or `zh`.
 
 A POSIX locale never spells a script, so before the bare language is tried the
 tag's likely script is: `zh_TW.UTF-8` is served by a `zh-TW` catalog if there is
-one, then by `zh-Hant`, and only then by `zh` — never by `zh-Hans`. The likely
-form never changes the language or the region, so `pt-BR` with `pt` and `pt-PT`
+one, then by `zh-Hant`, and only then by `zh` — never by `zh-Hans`. What was
+asked for always wins when it is registered, so `LANG=zh` with `zh` and
+`zh-Hans` registered is served by `zh`. The likely form never changes the
+language or swaps one region for another, so `pt-BR` with `pt` and `pt-PT`
 registered is served by `pt`.
 
 | Asked for     | Registered           | Served by |
 | ------------- | -------------------- | --------- |
+| `zh`          | `zh`, `zh-Hans`      | `zh`      |
 | `zh-TW`       | `zh-Hant`, `zh`      | `zh-Hant` |
 | `zh-TW`       | `zh-TW`, `zh-Hant`   | `zh-TW`   |
 | `zh-TW`       | `zh`                 | `zh`      |

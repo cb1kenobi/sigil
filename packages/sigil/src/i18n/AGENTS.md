@@ -214,16 +214,24 @@ and the check, and `src/i18n/keys.ts` is generated.
   is tried before the bare language (SIG-375).** A POSIX locale never carries a
   script subtag, so `LANG=zh_TW.UTF-8` truncated `zh-TW` straight to `zh` and a
   registered `zh-Hant` was unreachable from any environment a real user has. The
-  order now is the literal chain down to but not including the bare language,
-  then the chain of `new Intl.Locale(tag).maximize()`'s base name, then the bare
+  order now is the literal chain down to but not including the bare language
+  -- or the bare language itself, when that is what was asked for -- then the
+  chain of `new Intl.Locale(tag).maximize()`'s base name, then the bare
   language: `zh-TW` tries `zh-TW`, then `zh-Hant-TW`, `zh-Hant`, then `zh`. So
   what was asked for still wins exactly, a registered `zh-TW` beats `zh-Hant`,
   `zh-Hant` beats `zh`, only `zh` still serves `zh-TW`, and `zh-Hans` alone
-  serves Taiwan **English** rather than the wrong script. The likely form never
-  changes the language or crosses a region, so `pt-BR` with `pt` and `pt-PT` is
-  `pt` and `sr_RS` with `sr-Latn` and `sr` is `sr` -- Serbia's likely script is
-  Cyrillic. `localeChain()` is still the literal chain and is published as
-  such; the merge is `findLoader()`'s.
+  serves Taiwan **English** rather than the wrong script. The bare-language case
+  is the one a first version got wrong: dropping the last link of a one-link
+  chain left nothing to match exactly, so `LANG=zh` with `zh` and `zh-Hans`
+  registered went to `zh-Hans`, `zh`'s likely form, over the exact `zh` --
+  caught in review and pinned for `zh`, `sr` and `en`. The likely form never
+  changes the language and never swaps one region for another, so `pt-BR` with
+  `pt` and `pt-PT` is `pt` and `sr_RS` with `sr-Latn` and `sr` is `sr` --
+  Serbia's likely script is Cyrillic. It can **add** a region a tag did not
+  name, so `zh-Hant` with `zh-Hant-TW` and `zh` registered is `zh-Hant-TW`,
+  which is the more specific catalog in the script asked for and better than the
+  `zh` it got before. `localeChain()` is still the literal chain and is published
+  as such; the merge is `findLoader()`'s.
 
   `maximize()` reads CLDR's likely-subtags data, measured at about **1.3 ms** cold
   against 0.06 for `getCanonicalLocales()`, so it is asked only after the
@@ -258,12 +266,24 @@ and the check, and `src/i18n/keys.ts` is generated.
   it.
 
   Nothing is cleared while a load is in flight any more: the catalog, the tag and
-  the plural selector change together at one assignment, so `locale()` never names
-  a locale whose catalog is not the one rendering, and a `PluralRules` built
-  between two commits is dropped by the second. That is a change in what an
-  un-awaited `setLocale()` shows meanwhile -- the previous catalog rather than
-  English -- and a path that loads nothing (English, no map, no matching key)
-  still commits synchronously, before the call's first `await`.
+  the plural selector change together at one assignment, so `locale()` never
+  changes before the catalog does, and a `PluralRules` built between two commits
+  is dropped by the second. That is a claim about a load in flight and no more:
+  `locale()` naming a tag still does not mean a catalog is in effect, as its own
+  JSDoc says -- `zh-TW` with only `zh-Hans` registered, or a later loader that
+  threw, renders English with the tag asked for in `locale()`. A throwing loader
+  commits the tag **asked for** rather than the one it was found under, so
+  `de-AT` served by a `de` loader that throws is `de-AT`, the same answer as no
+  loader at all. That is a change in what an un-awaited `setLocale()` shows
+  meanwhile -- the previous catalog rather than English -- and a path that loads
+  nothing (English, no map, no matching key) still commits synchronously, before
+  the call's first `await`.
+
+  Two overlapping calls that resolve to the **same** catalog --
+  `setLocale('fr')` then `setLocale('fr-FR')` with only `fr` registered -- still
+  call its loader twice, as before; only the later commits. Not deduplicated,
+  because a JSON `import()` is module-cached, so the second call costs a resolved
+  promise, and a loader that does its own work is the app's to cache.
 
 - **A loader that throws, or that answers something that is not a catalog,
   leaves English in effect and says so through `sigil:i18n`.** What a broken
