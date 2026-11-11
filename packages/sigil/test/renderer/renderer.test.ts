@@ -701,6 +701,89 @@ describe('provideContext() inside an effect body', () => {
     expect(before).toBe(1);
   });
 
+  it('should dispose the scope a run opened when the run then throws', () => {
+    // a run that failed handed the signals layer no cleanup, so the scope's
+    // disposer went out of scope with the run's list: three odd writes left
+    // three scopes live, four runs and four sinks for one write to `tick`,
+    // where a plain nested `createEffect()` gives one and one
+    const errors: unknown[] = [];
+    effects.setErrorHandler((error) => void errors.push(error));
+    const theme = createContext(0);
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        const m = mode.get();
+        provideContext(theme, m, () => {
+          createEffect(() => {
+            tick.get();
+            runs++;
+          });
+          onCleanup(() => cleanups++);
+        });
+        if (m % 2) {
+          throw new Error('odd');
+        }
+      });
+    }, effects.effect);
+
+    for (let i = 1; i <= 6; i++) {
+      mode.set(i);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(6);
+    expect(errors.map((e) => (e as Error).message)).toEqual(['odd', 'odd', 'odd']);
+  });
+
+  it('should dispose the scope with the run when what it built threw and the body caught it', () => {
+    // why the disposer is registered before `fn` runs rather than after: the
+    // throw would skip a registration that came after it, and the body that
+    // caught the throw goes on to finish the run normally
+    const theme = createContext(0);
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        try {
+          provideContext(theme, mode.get(), () => {
+            createEffect(() => {
+              tick.get();
+              runs++;
+            });
+            onCleanup(() => cleanups++);
+            throw new Error('caught');
+          });
+        } catch {
+          // the body recovers, which is the case
+        }
+      });
+    }, effects.effect);
+
+    for (let i = 1; i <= 5; i++) {
+      mode.set(i);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
+  });
+
   it('should leave a scope opened in a component body to the component', () => {
     // the other half of the rule: outside a run there is no run to belong to,
     // and the scope lives until the component goes
@@ -2174,6 +2257,71 @@ describe('cleanups inside an effect body', () => {
     effects.flush();
 
     expect(thrown.map((e) => (e as Error).message)).toContain('unsubscribe failed');
+  });
+
+  it('should run what a run registered before it threw', () => {
+    // the cleanup list of a run that threw was never handed to anybody, so an
+    // unsubscribe written above the throw never ran -- not on the next run and
+    // not at unmount: two of three ran here, one per run that returned
+    effects.setErrorHandler(() => {});
+    const mode = new State(0);
+    let cleanups = 0;
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      createEffect(() => {
+        const m = mode.get();
+        onCleanup(() => cleanups++);
+        if (m === 1) {
+          throw new Error('x');
+        }
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    expect(cleanups).toBe(2);
+    mode.set(2);
+    effects.flush();
+    dispose();
+
+    expect(cleanups).toBe(3);
+  });
+
+  it('should report what the run threw as itself, and with what its cleanups threw', () => {
+    const thrown: unknown[] = [];
+    effects.setErrorHandler((error) => void thrown.push(error));
+    const mode = new State(0);
+    const run = new Error('run failed');
+    const cleanup = new Error('unsubscribe failed');
+
+    createRoot(() => {
+      createEffect(() => {
+        const m = mode.get();
+        if (m === 1) {
+          throw run;
+        }
+        if (m === 2) {
+          onCleanup(() => {
+            throw cleanup;
+          });
+          throw run;
+        }
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    expect(thrown).toEqual([run]);
+
+    mode.set(2);
+    effects.flush();
+    expect(thrown).toHaveLength(2);
+    const aggregate = thrown[1] as AggregateError;
+    expect(aggregate).toBeInstanceOf(AggregateError);
+    expect(aggregate.message).toBe('Errors in a failed effect run and its cleanups');
+    expect(aggregate.errors).toEqual([run, cleanup]);
   });
 });
 

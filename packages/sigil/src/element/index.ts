@@ -47,6 +47,7 @@ import type { ColorLevel } from '../ansi/color-support.js';
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler, MouseHandler, PasteHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
+import { raise } from '../signals/raise.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
@@ -801,12 +802,7 @@ export class Element implements LayoutNode {
       }
       errors.push(...(error instanceof AggregateError ? error.errors : [error]));
     }
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, 'Errors in onFocusChange');
-    }
+    raise(errors, 'Errors in onFocusChange');
     return this;
   }
 

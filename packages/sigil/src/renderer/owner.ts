@@ -347,20 +347,33 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
 
     let returned: void | Cleanup;
     try {
-      returned = fn();
-    } finally {
-      current = previousOwner;
-      runCleanups = previousCleanups;
-      inBody--;
-    }
+      try {
+        returned = fn();
+      } finally {
+        current = previousOwner;
+        runCleanups = previousCleanups;
+        inBody--;
+      }
 
-    if (typeof returned === 'function') {
-      cleanups.push(returned);
-    } else {
-      // the same refusal the signals layer makes, and it has to be made here
-      // too: this wrapper always returns a function, so the check downstream
-      // can no longer see what the body returned
-      refuseAsync(returned);
+      if (typeof returned === 'function') {
+        cleanups.push(returned);
+      } else {
+        // the same refusal the signals layer makes, and it has to be made here
+        // too: this wrapper always returns a function, so the check downstream
+        // can no longer see what the body returned
+        refuseAsync(returned);
+      }
+    } catch (error) {
+      // a run that failed hands the signals layer no cleanup, so what it had
+      // registered before the throw -- an `onCleanup()`, the scope a
+      // `provideContext()` opened and every effect in it -- went out of scope
+      // with this list and never ran, not on the next run and not at unmount.
+      // It runs here, after the owner is put back so that nothing it does
+      // registers into the run it is undoing, and the throw goes on as it was,
+      // joined by what the cleanups threw where they threw anything
+      raise([error, ...runAll(cleanups)], 'Errors in a failed effect run and its cleanups');
+      // not reached: `raise()` throws whenever it is handed anything
+      throw error;
     }
 
     // raised rather than returned, because this is the cleanup the *signals*
@@ -505,13 +518,17 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
 export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R): R {
   const owner = new OwnerNode(current);
   owner.context = new Map([[context.id, value]]);
-  // registered before `fn` runs, so it sits in the run's list in the order it
-  // was built, and thrown rather than returned so that a cleanup inside it that
-  // fails is reported the way the run's own cleanups are: by the signals layer
-  // on a re-run, and out of `dispose()` where somebody asked. Without it the
-  // scope was a child of the component and `runWithOwner()` detached what was
-  // built in it from the run, so every re-run left one more scope behind, its
-  // effects live and its cleanups waiting for the whole tree to go
+  // without this the scope was a child of the component and `runWithOwner()`
+  // detached what was built in it from the run, so every re-run left one more
+  // scope behind, its effects live and its cleanups waiting for the whole tree
+  // to go. Registered *before* `fn` runs, because `fn` may throw and the body
+  // may catch it -- registered after, that throw would skip the registration
+  // and the scope, with whatever `fn` built before throwing, would leak. Not for
+  // ordering: `runWithOwner()` clears `runCleanups`, so nothing `fn` does can
+  // land between this and the run's next entry either way. Thrown rather than
+  // returned, so that a cleanup inside it that fails is reported the way the
+  // run's own cleanups are: by the signals layer on a re-run, and out of
+  // `dispose()` where somebody asked
   runCleanups?.push(() => {
     disposeOwner(owner, true);
   });
