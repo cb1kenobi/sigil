@@ -246,8 +246,14 @@ describe('errorMessage', () => {
   });
 
   it('should answer for a value the inline form threw on', () => {
+    // `x instanceof Error ? x.message : String(x)` threw here, because
     // `String(Object.create(null))` is a TypeError
     expect(errorMessage(Object.create(null))).toBe('Unknown error');
+  });
+
+  it('should fall back to the string form when a message getter throws', () => {
+    // not a value the inline form threw on -- it gave `[object Object]` too --
+    // but `x.message` read directly would have thrown
     expect(
       errorMessage({
         get message(): string {
@@ -261,5 +267,10 @@ describe('errorMessage', () => {
     expect(errorMessage(new Error(''))).toBe('Error');
     expect(errorMessage('')).toBe('Unknown error');
     expect(errorMessage(undefined)).toBe('Unknown error');
+  });
+
+  it('should be the same function on the root entry', async () => {
+    const root = await import('../src/index.js');
+    expect(root.errorMessage).toBe(errorMessage);
   });
 });

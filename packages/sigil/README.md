@@ -85,6 +85,7 @@ import {
   errorHandler, // the built-in error renderer + exit code
   renderError, // an error as the string that would be printed
   errorExitCode, // the exit code an error implies
+  errorMessage, // what a thrown value says, as one line
 } from '@ttylabs/sigil';
 ```
 
@@ -104,7 +105,7 @@ await main({
 Resolves with the command's return value; with the `ParseState` when no command
 ran or the command returned nothing; with `undefined` when an error was handled.
 
-### `errorHandler`, `renderError`, `errorExitCode`
+### `errorHandler`, `renderError`, `errorExitCode`, `errorMessage`
 
 The built-in handler is what `main()` uses unless you replace it. The pieces
 are exported so you can use them from a `settings.errorHandler` of your own:
@@ -140,15 +141,19 @@ try {
 ```
 
 `errorMessage()` is the message on its own, without the `Error: ` prefix, from
-`@ttylabs/sigil/error-handler`. It takes anything that can be thrown and never
-throws itself: a string is that string, an object its `message` (or its `name`),
-and a value with nothing to say — `null`, an object with no prototype, a getter
-that throws — is `Unknown error`. Use it in a `catch` that shows what went wrong,
-in place of `err instanceof Error ? err.message : String(err)`, which throws on
-an object with no prototype.
+`@ttylabs/sigil` or `@ttylabs/sigil/error-handler`. It takes anything that can be
+thrown and never throws itself. A string is that string. For an object it tries,
+in order, a non-empty string `message`, a non-empty string `name`, and then the
+object's string form, so an `Error` whose `message` getter throws is `Error` and
+a plain object is `[object Object]`. Any other value is its string form. Only
+when there is nothing at all to say — `null`, `undefined`, an empty string, or an
+object with no prototype, whose string form throws — is it `Unknown error`. Use
+it in a `catch` that shows what went wrong, in place of
+`err instanceof Error ? err.message : String(err)`, which throws on an object
+with no prototype.
 
 ```js
-import { errorMessage } from '@ttylabs/sigil/error-handler';
+import { errorMessage } from '@ttylabs/sigil';
 
 try {
   await load();
@@ -7437,12 +7442,12 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 39 kB over ten modules — `paths`,
+not use sigil's parser. The subpath is about 40 kB over eleven modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
 the completion installer shares, the array-index rule the output formats share,
-the JSONC reader a routed directory's `commands.json` shares, and the module
-itself — which is a module
+the JSONC reader a routed directory's `commands.json` shares, `errorMessage()`,
+and the module itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`

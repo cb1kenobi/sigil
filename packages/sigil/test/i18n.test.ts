@@ -517,6 +517,21 @@ describe('loading a catalog', () => {
     expect(__`Unknown option "${'--x'}"`).toBe('Unknown option "--x"');
   });
 
+  it.each([
+    ['a null-prototype object', Object.create(null) as object],
+    ['null', null],
+    ['a string', 'missing'],
+  ])('should leave English in effect when a loader rejects with %s', async (_, reason) => {
+    // the debug line read `String(err)`, which is a TypeError for an object with
+    // no prototype -- thrown out of the catch, so `main()` reported `Cannot
+    // convert object to primitive value` and exited 1 over a missing translation
+    await expect(
+      loadCatalog({ de: () => Promise.reject(reason) }, { LANG: 'de_DE' })
+    ).resolves.toBe(undefined);
+
+    expect(__`Unknown option "${'--x'}"`).toBe('Unknown option "--x"');
+  });
+
   it('should leave English in effect when a loader answers no catalog', async () => {
     await loadCatalog({ de: async () => undefined as unknown as Catalog }, { LANG: 'de_DE' });
 

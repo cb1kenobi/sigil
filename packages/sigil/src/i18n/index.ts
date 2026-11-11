@@ -30,6 +30,7 @@
  */
 
 import debug from '../debug/index.js';
+import { errorMessage } from '../util/error-message.js';
 
 const { log } = debug('sigil:i18n');
 
@@ -761,7 +762,7 @@ async function use(tag: string | undefined): Promise<void> {
       log(`loader for ${found.tag} answered no catalog`);
     }
   } catch (err) {
-    log(`loader for ${found.tag} threw: ${String(err)}`);
+    log(`loader for ${found.tag} threw: ${errorMessage(err)}`);
   }
 }
 

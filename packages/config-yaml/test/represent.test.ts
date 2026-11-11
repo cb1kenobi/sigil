@@ -248,6 +248,26 @@ describe('what YAML can hold', () => {
       ).toMatch(/its own toJSON threw: nope/);
     });
 
+    it.each([
+      ['a string', 'not an error', 'not an error'],
+      ['null', null, 'Unknown error'],
+      ['a null-prototype object', Object.create(null) as object, 'Unknown error'],
+    ])('should report a toJSON that throws %s rather than crashing', (_, thrown, said) => {
+      // `(e as Error).message.split()` read a property off whatever was thrown,
+      // which is a TypeError for `null` and `undefined` off a string -- so the
+      // check that exists to refuse a value threw instead of answering
+      expect(
+        yamlCanHold(
+          {
+            toJSON: () => {
+              throw thrown;
+            },
+          },
+          'k'
+        )
+      ).toContain(`its own toJSON threw: ${said}`);
+    });
+
     it('should refuse a hole in a sequence, which YAML writes as null', () => {
       const sparse = [1];
       sparse[2] = 3;

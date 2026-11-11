@@ -1639,25 +1639,49 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   own `catch` for an object with no prototype, since
   `String(Object.create(null))` is a `TypeError`. `errorMessage()` was the error
   handler's private answer to the same question and is now the only one.
-- **It is defined in `src/util/error-message.ts` and published from
-  `@ttylabs/sigil/error-handler`.** The signals graph reports an effect that
-  threw and may not import the error handler, so the function sits in a leaf
-  module with no imports and the error handler re-exports it. The components
-  import the leaf for the same reason, and the registry's `BARRELLED` map sends
-  an ejected copy to `@ttylabs/sigil/error-handler`. As of this change the leaf
-  is a 296 B chunk: `signals.mjs` went from 6,777 B over two modules to 7,088 B
-  over three, and the root entry from 13,037 B over eight to 13,126 B over nine,
-  which is the same code split into one more chunk.
-- **Every site that showed a thrown value's message asks it.** The command
-  loader, `readPackage()`, the signals graph's default report, `autocomplete()`
-  (twice), the palette's slot check, `tree()` (twice), `TreeListView()` and the
-  toolchain's `discover.ts`. Three things read differently from before, all at
-  the edges: an `Error` with an empty message shows its `name` rather than
-  nothing, an empty or `null` throw shows `Unknown error`, and a plain object
-  with a `message` shows that message rather than `[object Object]`. Pinned in
-  `a command module that failed to load lost its original error` in
-  `test/parser/regressions.test.ts`, and by a null-prototype rejection in the
-  autocomplete and tree-list-view tests.
+- **It is defined in `src/util/error-message.ts` and published from the root
+  entry and from `@ttylabs/sigil/error-handler`.** The signals graph reports an
+  effect that threw and may not import the error handler, so the function sits
+  in a leaf module with no imports and the error handler re-exports it. The
+  components, the i18n loader and the update check import the leaf for the same
+  reason, and the registry's `BARRELLED` map sends an ejected copy to
+  `@ttylabs/sigil/error-handler`. The size figures are in the measurement below.
+- **Every site that shows or logs whatever an app's own code threw asks it.**
+  The command loader, `readPackage()`, the signals graph's default report,
+  `autocomplete()` (twice), the palette's slot check, `tree()` (twice),
+  `TreeListView()`, the toolchain's `discover.ts`, the i18n catalog loader's debug
+  line, the update check's three debug lines and `main()`'s own, the YAML store's
+  `toJSON` refusal, and two demos. The i18n and update-check sites were the same
+  defect in a sharper form: `String(err)` and `(err as Error).message` throw
+  inside their own `catch` for an object with no prototype, or for `null`, so a
+  locale loader that rejected with one failed `main()` with `Cannot convert
+  object to primitive value`, and an update notice whose `message` callback threw
+  `null` failed a command that had succeeded. Both are things recorded as never
+  able to fail a run.
+- **About twenty `(e as Error).message` casts remain, on purpose.** Each catches
+  something that only ever throws a real `Error`: `transformValue()` in the date,
+  calendar and number prompts and in the config schema, `new RegExp()` in the
+  pager, `parseMask()` in the masked prompt, `fs` and `zlib` reads, `JSON.parse`,
+  the JSONC reader, the `yaml` and `@xmldom/xmldom` parsers, `spawn` in the
+  editor, and the toolchain's own build steps. Folding them would change no
+  answer. A new catch that can see a value an app threw, whether from a loader,
+  a hook, a callback or a `toJSON`, asks `errorMessage()`.
+- **What reads differently, all at the edges.** An `Error` with an empty message
+  shows its `name` rather than nothing; an empty string, `null` or `undefined`
+  shows `Unknown error`; a plain object with a `message` shows that message
+  rather than `[object Object]`, and so does an instance of a class with its own
+  `toString`; and an `Error` from another realm (`vm`, a worker) shows its
+  message rather than `TypeError: <message>`, because `instanceof Error` is false
+  across realms. Pinned in `a command module that failed to load lost its
+  original error` in `test/parser/regressions.test.ts`, by a null-prototype
+  rejection in the autocomplete, tree-list-view, i18n and YAML store tests, and
+  by `null` and `undefined` throws in `test/updates-auto.test.ts`.
+- **What it cost, measured as of this change.** The leaf is a 296 B chunk.
+  `signals.mjs` went from 6,777 B over two modules to 7,088 B over three, and
+  the root entry from 13,037 B over eight to 13,276 B over nine, which is the same code
+  split into one more chunk plus the extra export. `config.mjs` reaches the leaf
+  through `i18n`, so it is 39,911 B over eleven modules; `dist.test.ts` pins the
+  count.
 
 ### Sharing options between commands
 

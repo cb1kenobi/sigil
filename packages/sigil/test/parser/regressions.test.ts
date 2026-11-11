@@ -2642,8 +2642,10 @@ describe('regressions', () => {
     });
 
     it('should report a loader that rejected with a null-prototype object', async () => {
-      // `String(Object.create(null))` is a TypeError, so the inline form threw
-      // from inside the catch that was reporting the first failure
+      // `(<Error>e).message` read `undefined` off it, so the message ended in the
+      // word `undefined`; the other inline form, `String(e)`, would have thrown a
+      // TypeError from inside the catch, since an object with no prototype has
+      // no `toString`
       const reason = Object.create(null) as object;
       const err = await thrown({ commands: { build: { load: () => Promise.reject(reason) } } }, [
         'build',

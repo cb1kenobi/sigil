@@ -1,3 +1,4 @@
+import { errorMessage } from '@ttylabs/sigil';
 import { createConfig, json, object } from '@ttylabs/sigil/config';
 /**
  * Watching a config file: the diff rather than the fact of a change, what a
@@ -41,7 +42,7 @@ const config = await createConfig({
   watch: {
     // an app that watches config should pass this: there is no default that can
     // be right, so the floor is a debug log nobody sees
-    onError: (e) => console.log(`  ! ${e instanceof Error ? e.message : String(e)}`),
+    onError: (e) => console.log(`  ! ${errorMessage(e)}`),
   },
 });
 
