@@ -1,4 +1,10 @@
-import { calendar, calendarView, pickDate } from '../../src/components/calendar.js';
+import {
+  calendar,
+  calendarView,
+  dayOf,
+  localDate,
+  pickDate,
+} from '../../src/components/calendar.js';
 import { date } from '../../src/components/date.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { type ScreenHarness, screenSetup, tick } from './helpers.js';
@@ -44,21 +50,6 @@ function ask(opts: Partial<Parameters<typeof pickDate>[0]> = {}, size = {}) {
     ...opts,
   });
   return { answer, ui };
-}
-
-/**
- * A local day with the year taken whole: `new Date(y, m, d)` reads a year under
- * 100 as 19xx, so the year is set afterwards, as the calendar's own days are.
- */
-function whole(year: number, month: number, day: number): Date {
-  const d = new Date(2000, 0, 1);
-  d.setFullYear(year, month - 1, day);
-  return d;
-}
-
-/** A date as the local year, month and day it falls on. */
-function local(d: Date): [number, number, number] {
-  return [d.getFullYear(), d.getMonth() + 1, d.getDate()];
 }
 
 /** The screen below the question, one line per week. */
@@ -389,14 +380,14 @@ describe('pickDate()', () => {
       ['page down', PAGE_DOWN, 9999, 12, 31],
       ['end', END, 9999, 12, 31],
     ])('should stop at 9999-12-31 on %s rather than reach year 10000', async (_, key, y, m, d) => {
-      const { answer, ui } = ask({ initial: whole(y, m, d) });
+      const { answer, ui } = ask({ initial: localDate(y, m, d) });
 
       await type(ui.stdin, key);
       expect(ui.log[0]).to.equal('? When? 9999-12-31');
       expect(grid(ui)[0].trim()).to.equal('December 9999');
 
       await type(ui.stdin, ENTER);
-      expect(local(await answer)).toEqual([9999, 12, 31]);
+      expect(dayOf(await answer)).toEqual({ day: 31, month: 12, year: 9999 });
     });
 
     it.each([
@@ -406,17 +397,32 @@ describe('pickDate()', () => {
       ['page up', PAGE_UP, 0, 1, 1],
       ['home', HOME, 0, 1, 1],
     ])('should stop at 0000-01-01 on %s rather than reach year -1', async (_, key, y, m, d) => {
-      const { answer, ui } = ask({ initial: whole(y, m, d) });
+      const { answer, ui } = ask({ initial: localDate(y, m, d) });
 
       await type(ui.stdin, key);
       expect(ui.log[0]).to.equal('? When? 0000-01-01');
 
       await type(ui.stdin, ENTER);
-      expect(local(await answer)).toEqual([0, 1, 1]);
+      expect(dayOf(await answer)).toEqual({ day: 1, month: 1, year: 0 });
+    });
+
+    // a page key stops in the first or last month and keeps the day, where a day
+    // or a week stops on the first or last day: two answers, both inside the years
+    it.each([
+      ['page down', PAGE_DOWN, 9999, 12, '9999-12-15'],
+      ['page up', PAGE_UP, 0, 1, '0000-01-15'],
+    ])('should keep the day on %s in the last or first month', async (_, key, y, m, shown) => {
+      const { answer, ui } = ask({ initial: localDate(y, m, 15) });
+
+      await type(ui.stdin, key);
+      expect(ui.log[0]).to.equal(`? When? ${shown}`);
+
+      await type(ui.stdin, ENTER);
+      expect(dayOf(await answer)).toEqual({ day: 15, month: m, year: y });
     });
 
     it('should move back off an end it stopped at', async () => {
-      const { answer, ui } = ask({ initial: whole(9999, 12, 31) });
+      const { answer, ui } = ask({ initial: localDate(9999, 12, 31) });
 
       await type(ui.stdin, RIGHT, RIGHT, LEFT);
       expect(ui.log[0]).to.equal('? When? 9999-12-30');
@@ -424,27 +430,27 @@ describe('pickDate()', () => {
       expect(ui.log[0]).to.equal('? When? 9999-12-23');
 
       await type(ui.stdin, ENTER);
-      expect(local(await answer)).toEqual([9999, 12, 23]);
+      expect(dayOf(await answer)).toEqual({ day: 23, month: 12, year: 9999 });
     });
 
     it('should stop at the end of the years even where max is later', async () => {
-      const { answer, ui } = ask({ initial: whole(9999, 12, 31), max: whole(10001, 1, 1) });
+      const { answer, ui } = ask({ initial: localDate(9999, 12, 31), max: localDate(10001, 1, 1) });
 
       await type(ui.stdin, RIGHT);
       expect(ui.log[0]).to.equal('? When? 9999-12-31');
 
       await type(ui.stdin, ENTER);
-      expect(local(await answer)).toEqual([9999, 12, 31]);
+      expect(dayOf(await answer)).toEqual({ day: 31, month: 12, year: 9999 });
     });
 
     it('should stop at the start of the years even where min is earlier', async () => {
-      const { answer, ui } = ask({ initial: whole(0, 1, 1), min: whole(-5, 1, 1) });
+      const { answer, ui } = ask({ initial: localDate(0, 1, 1), min: localDate(-5, 1, 1) });
 
       await type(ui.stdin, LEFT);
       expect(ui.log[0]).to.equal('? When? 0000-01-01');
 
       await type(ui.stdin, ENTER);
-      expect(local(await answer)).toEqual([0, 1, 1]);
+      expect(dayOf(await answer)).toEqual({ day: 1, month: 1, year: 0 });
     });
   });
 
@@ -565,21 +571,21 @@ describe('date() with a calendar', () => {
   });
 
   it('should keep the page keys inside 0000-9999, at both ends', async () => {
-    const last = askDate({ initial: whole(9999, 12, 31) });
+    const last = askDate({ initial: localDate(9999, 12, 31) });
     await type(last.ui.stdin, PAGE_DOWN);
     expect(last.ui.log[0]).to.equal('? When? 9999-12-31');
     await type(last.ui.stdin, ENTER);
-    expect(local(await last.answer)).toEqual([9999, 12, 31]);
+    expect(dayOf(await last.answer)).toEqual({ day: 31, month: 12, year: 9999 });
 
-    const first = askDate({ initial: whole(0, 1, 1) });
+    const first = askDate({ initial: localDate(0, 1, 1) });
     await type(first.ui.stdin, PAGE_UP);
     expect(first.ui.log[0]).to.equal('? When? 0000-01-01');
     await type(first.ui.stdin, ENTER);
-    expect(local(await first.answer)).toEqual([0, 1, 1]);
+    expect(dayOf(await first.answer)).toEqual({ day: 1, month: 1, year: 0 });
   });
 
   it('should wrap the year segment inside 0000-9999 rather than leave it', async () => {
-    const { answer, ui } = askDate({ initial: whole(9999, 6, 15) });
+    const { answer, ui } = askDate({ initial: localDate(9999, 6, 15) });
 
     // the year is the first segment, and a segment wraps inside itself
     await type(ui.stdin, UP);
@@ -590,7 +596,7 @@ describe('date() with a calendar', () => {
     expect(ui.log[0]).to.equal('? When? 9997-06-15');
 
     await type(ui.stdin, ENTER);
-    expect(local(await answer)).toEqual([9997, 6, 15]);
+    expect(dayOf(await answer)).toEqual({ day: 15, month: 6, year: 9997 });
   });
 
   it('should take the digits typed into a segment before it changes the month', async () => {

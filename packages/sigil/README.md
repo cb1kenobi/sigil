@@ -2969,7 +2969,9 @@ and End to the first and last day of the month, and Enter takes the day under th
 cursor. It returns a `Date` at local midnight. `min` and `max` are inclusive and
 every move lands on the nearest bound rather than past it, `initial` outside them
 is moved to the nearer one, and `highlight`, `locale` and `weekStart` are as above.
-The grid keeps six rows while it is open, so the lines under it do not move as the
+No move leaves the years 0000-9999 that the parser's `date` type reads: a day or a
+week stops on 0000-01-01 or 9999-12-31, and a month in the first or last month of
+that range. The grid keeps six rows while it is open, so the lines under it do not move as the
 month changes.
 
 **`date({ calendar })`** shows the same grid under the date prompt's field, with
