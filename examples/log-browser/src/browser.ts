@@ -453,7 +453,9 @@ export function useBrowser(): Browser {
 
   const go = (v: View, remember = true): void => {
     const from = untrack(() => view.get());
-    if (remember && from !== v) {
+    // a describe is never somewhere to go back to: leaving it disposes its
+    // pager, so going back would show an empty view with nothing to focus
+    if (remember && from !== v && from !== 'describe') {
       history.push(from);
       if (history.length > HISTORY) {
         history.shift();

@@ -244,6 +244,21 @@ describe.each([
     expect(it.screen()).not.toContain(name);
   });
 
+  it('should not go back to a describe, whose pager went with its view', async () => {
+    const it = await mount(root);
+    await it.press(KEYS.enter);
+    expect(it.screen()).toMatch(/describe · pods · /);
+
+    // a command leaves the describe, which disposes its pager, so Escape from
+    // the logs has to go back past it to the table rather than to an empty
+    // describe with nothing in it to focus
+    await it.press(':', 'l', 'o', 'g', 's', KEYS.enter);
+    expect(it.screen()).toMatch(/logs · /);
+    await it.escape();
+    expect(it.screen()).toMatch(/pods · 18/);
+    expect(it.screen()).not.toMatch(/describe/);
+  });
+
   it("should open the current pod's logs on l, and only that pod's", async () => {
     const it = await mount(root);
     const name = /\b(api-\S+)/.exec(cursorRow(it))?.[1] as string;
