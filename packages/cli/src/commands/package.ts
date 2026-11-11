@@ -67,12 +67,16 @@ import {
   appRuns,
   assertCleanable,
   binName,
+  bundleFailure,
   clean,
   commandsFound,
+  DEFAULT_PACKAGE_OUT,
   failure,
   inspect,
+  outputDirs,
   reportDiagnostics,
   resolveOut,
+  utilityRules,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
@@ -83,25 +87,6 @@ import { join, relative } from 'node:path';
 
 /** One binary that was produced, as the summary and the table read it. */
 type Built = CompileResult & { readonly file: string; readonly target: Target };
-
-/**
- * Where the binaries go when nobody says otherwise.
- *
- * **Not** `dist`, which is where a build goes, and the two sharing it was a
- * defect rather than a tidy default: `clean()` empties the directory, so
- * `sigil build` followed by `sigil package` destroyed the build output and
- * `sigil package` followed by `sigil build` destroyed an 89 MB binary --
- * measured, in both orders. `pnpm build && pnpm package` lost something
- * whichever way round it ran.
- *
- * `dist` is also what `files` in a manifest usually publishes, so a binary
- * sitting there is one `npm publish` away from being shipped.
- *
- * `release` rather than `out`, because it says what the contents are -- the
- * artifacts you attach to a release -- and cannot be read as a source or build
- * directory. It also avoids `--out out`.
- */
-const DEFAULT_OUT = 'release';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const pkg: AnyCommand = command({
@@ -128,7 +113,7 @@ const pkg: AnyCommand = command({
       desc: 'Keep every utility rule, rather than only the ones the source can name',
     },
     '--out [dir]': {
-      default: DEFAULT_OUT,
+      default: DEFAULT_PACKAGE_OUT,
       desc: 'Where the binaries go, relative to the app. Not where the build goes',
     },
     '--runtime [runtime]': {
@@ -191,7 +176,7 @@ const pkg: AnyCommand = command({
       // `package.out` only, never `build.out`: falling back to the build's
       // destination is what put the binaries in `dist` beside the bundle they
       // were made from, which is the whole of what this default moved away from
-      String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
+      String(argv.out === DEFAULT_PACKAGE_OUT ? (config.out ?? DEFAULT_PACKAGE_OUT) : argv.out)
     );
 
     // before the bundle, because every one of these is knowable without
@@ -266,6 +251,12 @@ const pkg: AnyCommand = command({
         external,
         form: runtime === 'node' ? 'cjs' : 'esm',
         out: staging,
+        // the staging directory is under `node_modules`, which the style
+        // shake never reads anyway -- so without these an earlier build's
+        // `dist/` was read as source, and its copy of the utility sheet kept
+        // every rule it held. The binaries' own directory is the flag's,
+        // which may not be the one `sigil.json` names
+        outputs: [...outputDirs(found.app.root, sigilConfig), out],
         safelist: build.safelist,
         shake: argv.shake !== false && build.shake !== false,
         // a sourcemap is embedded in nothing and read by nobody once the bundle
@@ -281,6 +272,8 @@ const pkg: AnyCommand = command({
           config: sigilConfig,
           packageName: found.app.manifest.name,
         }),
+      }).catch((e: unknown) => {
+        throw bundleFailure(found, counts, e);
       });
 
       // the first moment there is an answer: whether the update check is in
@@ -316,7 +309,12 @@ const pkg: AnyCommand = command({
           ...appRuns(found.app),
           `${commandsFound(found)} into`,
           `${compiled.length} ${runtime} binar${compiled.length === 1 ? 'y' : 'ies'},`,
-          `${displayPath(relative(found.app.root, out) || out)}${counts.warnings ? ',' : ''}`,
+          `${displayPath(relative(found.app.root, out) || out)}${
+            result.styles || counts.warnings ? ',' : ''
+          }`,
+          // what `build` says, for its reason: the count is what makes a shake
+          // visible, and here is where a sheet kept whole went unseen
+          ...(result.styles ? [`${utilityRules(result.styles)}${counts.warnings ? ',' : ''}`] : []),
           ...(counts.warnings
             ? [
                 {

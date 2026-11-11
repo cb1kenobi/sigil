@@ -2,6 +2,7 @@ import {
   choosePrefix,
   compileTemplates,
   TemplateCompileError,
+  templateDiagnostics,
 } from '../../src/build/compile-templates.js';
 import { MODULE_RE } from '../../src/build/index.js';
 import { renderToString } from '@ttylabs/sigil/element';
@@ -329,6 +330,35 @@ export const broken = () => ui\`<raw measure="nope" paint="nope" />\`;
       expect(thrown).toBeInstanceOf(TemplateCompileError);
       expect((thrown as TemplateCompileError).line).toBe(3);
       expect((thrown as TemplateCompileError).message).toContain('measure');
+    });
+
+    it('should name every template in the module that fails, not the first', () => {
+      // SIG-354: one throw stopped at the first template, so a module with
+      // three broken ones was a build fixed three times over. Two that `parse()`
+      // refuses and one, between them, that only `compile()` refuses -- which
+      // is asked of the parsed ones alone once the module is already failing
+      const source = `import { ui } from '@ttylabs/sigil/template';
+export const one = () => ui\`<text class="a \${'b'} c">x</text>\`;
+export const fine = () => ui\`<text>ok</text>\`;
+export const raw = () => ui\`<raw measure="nope" paint="nope" />\`;
+export const two = () => ui\`<text><box /></text>\`;
+`;
+
+      let thrown: unknown;
+      try {
+        compileTemplates('/app/many.ts', source);
+      } catch (e: unknown) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(TemplateCompileError);
+      const { failures } = thrown as TemplateCompileError;
+      expect(failures.map(({ line }) => line)).toStrictEqual([2, 4, 5]);
+      expect(failures[1]?.message).toContain('measure');
+      // and the first is still what `line` names, for a caller asking about one
+      expect((thrown as TemplateCompileError).line).toBe(2);
+      expect(templateDiagnostics(thrown as TemplateCompileError)).toHaveLength(3);
+      expect(templateDiagnostics(thrown as TemplateCompileError)[0]?.severity).toBe('error');
     });
   });
 

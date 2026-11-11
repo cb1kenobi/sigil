@@ -190,7 +190,7 @@ const SKIPPED = new Set(['node_modules']);
 
 /** What to scan, and what to keep regardless. */
 export interface ScanOptions {
-  /** Absolute directories to leave out -- the output directory, normally. */
+  /** Directories to leave out: every one a build or a package writes. */
   readonly exclude?: readonly string[];
   /** Class names kept whatever the source says. */
   readonly safelist?: readonly string[];
@@ -227,13 +227,14 @@ export interface ScanOptions {
  * optimization that is free: an app that never calls `utilitySheet()` pays
  * none of it.
  *
- * What it must not read is a *previous build's output*, which holds the whole
- * utility sheet as a string and would therefore be evidence for every rule
- * there is. The output directory is excluded for that reason, and a build
- * cleans it first in any case. A **second**, stale output directory somewhere
- * else in the app is the case that gets through, and the failure is the safe
- * one: everything is kept, and the summary says `383 of 383` rather than
- * saying nothing. That is what the count is in the summary for.
+ * What it must not read is a *previous build's output*, which holds the
+ * utility sheet as a string and would therefore be evidence for every rule it
+ * kept. So the caller excludes every directory the app is configured to write
+ * -- `bundleApp()` passes its own `out` and the `outputs` both commands hand it
+ * -- and not only the one being written, which is what let `sigil package`,
+ * bundling under `node_modules`, read the `dist/` a `sigil build` had left
+ * (SIG-354). A stale directory nobody configured still gets through, and its
+ * failure is the safe one: rules are kept, and the summary's count says so.
  *
  * @param root - The app root.
  * @param options - What to leave out, and what to keep regardless.

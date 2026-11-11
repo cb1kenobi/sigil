@@ -1,4 +1,6 @@
+import { displayPath } from '../src/build/diagnostic.ts';
 import { run } from '../src/index.js';
+import { linkedFixture } from './copy-fixture.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
@@ -650,5 +652,212 @@ describe('sigil build', () => {
     expect(built.status).toBe(0);
     expect(built.stdout).toContain('Verwendung:');
     expect(built.stdout).toContain('Die App bauen');
+  }, 60_000);
+});
+
+/** What `sigil build` said the utility sheet came to, or nothing. */
+function ruleCount(err: string): string | undefined {
+  return /(\d+) of 383 utility rules/.exec(err)?.[1];
+}
+
+/**
+ * SIG-354, the shake's half: what a build keeps of the utility sheet depended on
+ * whether an earlier build's `dist/` was lying beside the app.
+ */
+describe('a previous dist/ read as class evidence', () => {
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+  });
+
+  afterEach(() => {
+    process.exitCode = exitCode;
+    vi.restoreAllMocks();
+  });
+
+  it('should count the same utility rules with no dist/, a shaken one and an unshaken one', async () => {
+    // `--out dist2` is the path `sigil package` takes too: the bundle goes
+    // somewhere other than the app's configured output, and only the directory
+    // being written was excluded from the walk -- so the `dist/` an earlier
+    // `sigil build` left was parsed as source, and its copy of the utility
+    // sheet is evidence for every rule it kept. Measured before the fix as 25,
+    // 58 and 383 of 383 for an app whose source names 25
+    const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-stale-dist-');
+    const count = async (): Promise<string | undefined> =>
+      ruleCount((await sigil('build', app, '--out', join(app, 'dist2'))).err);
+
+    const none = await count();
+
+    await sigil('build', app);
+    // the precondition, so that a dist/ the shake never had a chance to read
+    // cannot pass this
+    expect(existsSync(join(app, 'dist', 'styled.mjs'))).toBe(true);
+    const shaken = await count();
+
+    await sigil('build', app, '--no-shake');
+    expect(bundledCode(join(app, 'dist'))).toContain('justify-around');
+    const unshaken = await count();
+
+    expect(none).toBeDefined();
+    expect(Number(none)).toBeLessThan(383);
+    expect([shaken, unshaken]).toStrictEqual([none, none]);
+  }, 120_000);
+
+  it('should leave out the directory sigil.json builds into, not only the default', async () => {
+    // `build.out` is what an app that renamed its output has lying around, and
+    // the rule is every configured output directory rather than one called dist
+    const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-stale-out-');
+    writeFileSync(join(app, 'sigil.json'), JSON.stringify({ build: { out: 'built' } }));
+
+    const before = ruleCount((await sigil('build', app, '--out', join(app, 'dist2'))).err);
+    await sigil('build', app, '--no-shake');
+    expect(existsSync(join(app, 'built', 'styled.mjs'))).toBe(true);
+    const after = ruleCount((await sigil('build', app, '--out', join(app, 'dist2'))).err);
+
+    expect(Number(before)).toBeLessThan(383);
+    expect(after).toBe(before);
+  }, 120_000);
+});
+
+/**
+ * SIG-354, the template half: a template that cannot be compiled reached the
+ * user inside rolldown's aggregated message, with seven of the toolchain's own
+ * stack frames under it.
+ */
+describe('a template that cannot be compiled', () => {
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+  });
+
+  afterEach(() => {
+    process.exitCode = exitCode;
+    vi.restoreAllMocks();
+  });
+
+  /** What every stack frame node prints starts with. */
+  const FRAME = /^\s+at /m;
+
+  /** What the template parser says about the interpolations below. */
+  const QUOTED = 'An interpolation inside a quoted value is not supported';
+
+  /**
+   * A copy of the `templated` fixture whose command imports broken templates
+   * from modules `check` does not read -- so the bundle is what finds them --
+   * in two modules, and twice in one of them.
+   *
+   * @returns The app's root.
+   */
+  function brokenHelpers(): string {
+    const app = linkedFixture(join(fixtures, 'templated'), 'sigil-build-bad-tpl-');
+    writeFileSync(
+      join(app, 'src', 'helper.ts'),
+      [
+        "import { ui } from '@ttylabs/sigil/template';",
+        '',
+        'export const one = () => ui`<text class="a ${\'b\'} c">x</text>`;',
+        '',
+        'export const two = () => ui`<text><box /></text>`;',
+        '',
+      ].join('\n')
+    );
+    writeFileSync(
+      join(app, 'src', 'other.ts'),
+      [
+        "import { ui } from '@ttylabs/sigil/template';",
+        '',
+        'export const three = () => ui`<text class="p ${\'q\'}">y</text>`;',
+        '',
+      ].join('\n')
+    );
+    writeFileSync(
+      join(app, 'src', 'commands', 'greet.ts'),
+      [
+        "import { command, type AnyCommand } from '@ttylabs/sigil';",
+        "import { renderToString } from '@ttylabs/sigil/element';",
+        "import { one, two } from '../helper.ts';",
+        "import { three } from '../other.ts';",
+        '',
+        'const greet: AnyCommand = command({',
+        "  desc: 'Greet with templates that do not compile',",
+        '  run() {',
+        '    process.stdout.write(renderToString(one()) + renderToString(two()) + renderToString(three()));',
+        '  },',
+        '});',
+        '',
+        'export default greet;',
+        '',
+      ].join('\n')
+    );
+    return app;
+  }
+
+  it('should print each failure as one located line, with no stack', async () => {
+    const app = brokenHelpers();
+
+    const { err, out } = await sigil('build', app);
+
+    // one line per template, relative to the app and forward-slashed, which is
+    // what every other diagnostic the build prints looks like -- and every
+    // template, in both modules, rather than the first one rolldown reached
+    const helper = displayPath(join('src', 'helper.ts'));
+    expect(err).toContain(`${helper}:3:26: error: ${QUOTED}`);
+    expect(err).toContain(`${helper}:5:26: error: An element cannot go inside <text>`);
+    expect(err).toContain(`${displayPath(join('src', 'other.ts'))}:3:28: error: ${QUOTED}`);
+    expect(err).toContain('3 errors in templated');
+
+    // and nothing of the toolchain's own: not a frame, not rolldown's wrapper,
+    // not the error's class name
+    expect(err).not.toMatch(FRAME);
+    expect(out).not.toMatch(FRAME);
+    expect(err).not.toContain('Build failed with');
+    expect(err).not.toContain('TemplateCompileError');
+
+    expect(process.exitCode).toBe(1);
+    // what the refused build wrote is unwound, as it is for the other gates
+    expect(existsSync(join(app, 'dist', 'templated.mjs'))).toBe(false);
+  }, 60_000);
+
+  it('should say the same line from check, build and package', async () => {
+    // a command module is one `check` reads, so all three find it before any
+    // bundling, and say it identically
+    const app = linkedFixture(join(fixtures, 'templated'), 'sigil-build-bad-cmd-');
+    writeFileSync(
+      join(app, 'src', 'commands', 'greet.ts'),
+      [
+        "import { command, type AnyCommand } from '@ttylabs/sigil';",
+        "import { renderToString } from '@ttylabs/sigil/element';",
+        "import { ui } from '@ttylabs/sigil/template';",
+        '',
+        'const greet: AnyCommand = command({',
+        "  desc: 'Greet with a template that does not compile',",
+        '  run() {',
+        '    process.stdout.write(renderToString(ui`<text class="a ${\'b\'} c">x</text>`));',
+        '  },',
+        '});',
+        '',
+        'export default greet;',
+        '',
+      ].join('\n')
+    );
+    const line = `${displayPath(join('src', 'commands', 'greet.ts'))}:8:41: error: ${QUOTED}`;
+
+    for (const argv of [
+      ['check', app],
+      ['build', app],
+      // the read refuses before any pre-flight, so this needs no compiler and
+      // fetches nothing
+      ['package', app, '--runtime', 'bun', '--out', join(app, 'release')],
+    ]) {
+      process.exitCode = undefined;
+      const { err, out } = await sigil(...argv);
+
+      expect(err, argv[0]).toContain(line);
+      expect(err, argv[0]).not.toMatch(FRAME);
+      expect(out, argv[0]).not.toMatch(FRAME);
+      expect(process.exitCode, argv[0]).toBe(1);
+    }
   }, 60_000);
 });

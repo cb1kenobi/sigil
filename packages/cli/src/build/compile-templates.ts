@@ -65,6 +65,7 @@
 
 import { analyze } from '../template/analyze.ts';
 import { compile, renderImports } from '../template/emit.ts';
+import type { Diagnostic } from './diagnostic.ts';
 import { parseModule } from './parse-module.ts';
 import { TAG_MODULE, templatesIn, type FoundTemplate, type TemplatesOptions } from './templates.ts';
 import { Expr, parse, type IRNode } from '@ttylabs/sigil/template';
@@ -80,22 +81,63 @@ export interface CompiledModule {
   readonly map: ReturnType<MagicString['generateMap']>;
 }
 
-/** Where a template that could not be compiled was. */
-export class TemplateCompileError extends Error {
-  /** One-based column. */
+/** One template that could not be compiled, and why. */
+export interface TemplateFailure {
+  /** One-based column of the template's tag. */
   readonly column: number;
   /** The module. */
   readonly file: string;
-  /** One-based line. */
+  /** One-based line of the template's tag. */
+  readonly line: number;
+  /** What was wrong with it. */
+  readonly message: string;
+}
+
+/**
+ * Where the templates that could not be compiled were.
+ *
+ * Every failing template in the module rather than the first, because a build
+ * that reports one, is fixed, and then reports the next is a loop the author
+ * pays for once per template. `file`, `line` and `column` are the first
+ * failure's, which is what a caller asking about one location wants.
+ */
+export class TemplateCompileError extends Error {
+  /** One-based column of the first failure. */
+  readonly column: number;
+  /** Every template that failed, in source order. Never empty. */
+  readonly failures: readonly TemplateFailure[];
+  /** The module. */
+  readonly file: string;
+  /** One-based line of the first failure. */
   readonly line: number;
 
-  constructor(file: string, line: number, column: number, message: string) {
-    super(`${file}:${line}:${column}: ${message}`);
+  constructor(failures: readonly [TemplateFailure, ...TemplateFailure[]]) {
+    super(failures.map((f) => `${f.file}:${f.line}:${f.column}: ${f.message}`).join('\n'));
+    const [first] = failures;
     this.name = 'TemplateCompileError';
-    this.column = column;
-    this.file = file;
-    this.line = line;
+    this.column = first.column;
+    this.failures = failures;
+    this.file = first.file;
+    this.line = first.line;
   }
+}
+
+/**
+ * A failed compile as the build's own diagnostics, one per template.
+ *
+ * What makes a template that cannot be compiled print the way every other build
+ * diagnostic does -- located, relative, coloured by `report.ts` -- rather than
+ * as an exception: thrown out of a rolldown hook, the error used to be folded
+ * into rolldown's aggregated message with seven of the toolchain's own stack
+ * frames under it. `sigil check` reads the modules it already reads through
+ * this, and `bundleApp()` reads every module the bundle reaches through it, so
+ * the two say the same line about the same template.
+ *
+ * @param error - What `compileTemplates()` threw.
+ * @returns An error diagnostic per failing template.
+ */
+export function templateDiagnostics(error: TemplateCompileError): Diagnostic[] {
+  return error.failures.map((failure) => ({ ...failure, severity: 'error' }));
 }
 
 /**
@@ -170,8 +212,10 @@ export function compileTemplates(
 
   // every template's IR first, so that a template which cannot be compiled is
   // reported before anything is rewritten -- a half-spliced module is a worse
-  // thing to hand a bundler than an error
-  const nodes: IRNode[] = found.map((template) => {
+  // thing to hand a bundler than an error. Every failure is collected rather
+  // than the first thrown, so a module with three bad templates says so once
+  const failures: TemplateFailure[] = [];
+  const nodes: (IRNode | undefined)[] = found.map((template) => {
     try {
       return analyze(
         parse(
@@ -180,15 +224,42 @@ export function compileTemplates(
         )
       );
     } catch (e: unknown) {
-      throw new TemplateCompileError(file, template.line, template.column, (e as Error).message);
+      failures.push(failureAt(file, template, e as Error));
+      return undefined;
     }
   });
 
+  if (failures.length) {
+    // and the templates that did parse are asked whether they compile, each on
+    // its own, so one that `compile()` refuses is reported in the same run
+    // rather than in the next. Only on this path, which is already failing:
+    // compiling alone says the same thing it says in the module, which is the
+    // property `blame()` rests on
+    found.forEach((template, at) => {
+      const node = nodes[at];
+      if (node) {
+        try {
+          compile([node], { prefix });
+        } catch (e: unknown) {
+          failures.push(failureAt(file, template, e as Error));
+        }
+      }
+    });
+
+    const [first, ...rest] = failures.toSorted(
+      (one, other) => one.line - other.line || one.column - other.column
+    );
+    throw new TemplateCompileError([first!, ...rest]);
+  }
+
+  // every slot is filled once nothing failed, which the type cannot follow
+  const parsed = nodes as IRNode[];
+
   let compiled;
   try {
-    compiled = compile(nodes, { prefix });
+    compiled = compile(parsed, { prefix });
   } catch (e: unknown) {
-    throw blame(file, found, nodes, prefix, e as Error);
+    throw blame(file, found, parsed, prefix, e as Error);
   }
 
   const edited = new MagicString(source);
@@ -222,6 +293,18 @@ export function compileTemplates(
     count: found.length,
     map: edited.generateMap({ hires: true, includeContent: true, source: file }),
   };
+}
+
+/**
+ * One template's failure, located at its tag.
+ *
+ * @param file - The module.
+ * @param template - The template.
+ * @param error - What reading or compiling it threw.
+ * @returns The failure.
+ */
+function failureAt(file: string, template: FoundTemplate, error: Error): TemplateFailure {
+  return { column: template.column, file, line: template.line, message: error.message };
 }
 
 /**
@@ -300,5 +383,5 @@ function blame(
 
   const culprit = exact ?? failing ?? found[0]!;
 
-  return new TemplateCompileError(file, culprit.line, culprit.column, error.message);
+  return new TemplateCompileError([failureAt(file, culprit, error)]);
 }
