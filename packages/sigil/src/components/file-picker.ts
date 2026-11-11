@@ -220,7 +220,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
 
   const offer = candidateCache(flavour);
   /** What `listing()` last answered, and the offer it was built from. */
-  let listed: { found: readonly PathEntry[]; rows: readonly PathEntry[] } | undefined;
+  let lastListing: { found: readonly PathEntry[]; rows: readonly PathEntry[] } | undefined;
 
   /**
    * What a directory offers, from what has been read.
@@ -235,10 +235,10 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
   /** What the directory being looked at offers, with `.` in front in `directory` mode. */
   function listing(): readonly PathEntry[] {
     const found = offered(dir);
-    if (listed?.found !== found) {
-      listed = { found, rows: opts.directory ? [HERE, ...found] : found };
+    if (lastListing?.found !== found) {
+      lastListing = { found, rows: opts.directory ? [HERE, ...found] : found };
     }
-    return listed.rows;
+    return lastListing.rows;
   }
 
   /**

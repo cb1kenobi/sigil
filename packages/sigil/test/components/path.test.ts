@@ -273,13 +273,19 @@ describe('candidateCache()', () => {
 
   it('should filter again when the segment, hidden, directory or extensions move', () => {
     const offer = candidateCache(posix);
-    const extensions = ['md'];
+    const md = ['md'];
+    // the baseline is asked again before each, so every ask moves exactly one key
+    const baseline = () => expect(names(offer(entries, ''))).toEqual(['zed', 'b.txt', 'c.md']);
 
-    expect(names(offer(entries, ''))).toEqual(['zed', 'b.txt', 'c.md']);
+    baseline();
     expect(names(offer(entries, 'b'))).toEqual(['b.txt']);
+    baseline();
     expect(names(offer(entries, '', { hidden: true }))).toEqual(['zed', '.env', 'b.txt', 'c.md']);
+    baseline();
     expect(names(offer(entries, '', { directory: true }))).toEqual(['zed']);
-    expect(names(offer(entries, '', { extensions }))).toEqual(['zed', 'c.md']);
+    baseline();
+    expect(names(offer(entries, '', { extensions: md }))).toEqual(['zed', 'c.md']);
+    // a different extensions array is a different filter, whatever is in it
     expect(names(offer(entries, '', { extensions: ['txt'] }))).toEqual(['zed', 'b.txt']);
   });
 
