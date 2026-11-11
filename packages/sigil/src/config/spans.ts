@@ -37,10 +37,10 @@
  * `lineCounter()` and the **writer** reads `LINE_END`, `lineStarts()`,
  * `lineIndent()` and `ownLineIndent()`, rather than either keeping its own,
  * because two definitions of "a line terminator" is how the two come to
- * disagree about where a comment ended. The two that answer many questions over
- * one text -- `lineCounter()` and `lineStarts()` -- exist because asking the
- * one-shot versions per comment or per container made reading and saving a
- * large file quadratic (SIG-371).
+ * disagree about where a comment ended. `lineCounter()` and `lineStarts()`
+ * answer many questions over one text because the one-shot walks they replaced,
+ * `lineAt()` and `lineStartAt()`, were asked per comment and per container,
+ * which made reading and saving a large file quadratic (SIG-371).
  *
  * Not here: the scanner, the serialization of a *new* value, and the insertion
  * mechanics, which are per format. Same call as the two SGR tables and the two
@@ -162,38 +162,23 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
 }
 
 /**
- * Counts the line a 0-based offset is on.
+ * Counts the 1-based line of each 0-based offset it is asked about.
  *
- * Counted only when a message needs one, which is the rule the stylesheet
- * parser already keeps: counting newlines per token makes reading a file with
- * nothing wrong with it quadratic in its own length.
- *
- * Every line terminator counts, not `\n` alone, which is `LINE_END`'s own rule
- * met by the one function here that was not keeping it: a `\r`-only file
- * reported every diagnostic "on line 1", so a comment the scanner correctly
- * ended at a `\r` was named at a line it is not on. Found by review. A CRLF is
- * one line rather than two, because the `\n` after a `\r` is the same break.
- *
- * @param text - The source.
- * @param offset - The offset.
- * @returns The 1-based line.
- */
-export function lineAt(text: string, offset: number): number {
-  return lineCounter(text)(offset);
-}
-
-/**
- * `lineAt()` for a reader that asks about many offsets in order.
+ * Every line terminator counts, not `\n` alone, which is `LINE_END`'s own rule:
+ * a `\r`-only file once reported every diagnostic "on line 1", so a comment the
+ * scanner correctly ended at a `\r` was named at a line it is not on. Found by
+ * review. A CRLF is one line rather than two, because the `\n` after a `\r` is
+ * the same break. An offset past the end is on the last line.
  *
  * The count resumes from where the last question left it rather than from the
  * start, so a scan that asks once per comment pays for the text once rather
- * than once per comment. That was SIG-371: `scanJsonc()` called `lineAt()` for
- * every comment it found, so N comments cost N walks of the file and a 480 KB
- * config of comment lines took 92 seconds to load. One rule rather than two --
- * `lineAt()` is this with a single question -- so the scanner and every message
- * cannot come to disagree about what a line is. An offset behind the last one
- * asked starts the walk again, which is correct and is only slow for a caller
- * that goes backwards, of which there is none.
+ * than once per comment. That is SIG-371: this was `lineAt()`, a walk from
+ * offset 0 per call, and `scanJsonc()` called it for every comment it found --
+ * so N comments cost N walks of the file and a 480 KB config of comment lines
+ * took 92 seconds to load. With the scanner on this, `lineAt()` had no caller
+ * left and went. An offset behind the last one asked starts the walk again,
+ * which is correct and is only slow for a caller that goes backwards, of which
+ * there is none.
  *
  * @param text - The source.
  * @returns A function from a 0-based offset to its 1-based line.
@@ -226,35 +211,19 @@ export function lineCounter(text: string): (offset: number) => number {
 }
 
 /**
- * Where the line holding an offset starts.
+ * Where the line holding each offset it is asked about starts.
  *
- * @param text - The source.
- * @param offset - The offset.
- * @returns The offset of the first character of that line.
- */
-export function lineStartAt(text: string, offset: number): number {
-  // no clamp on `offset`, because every caller hands over a span of this text
-  // -- a sabotage of one changed no answer, and a bounds guard that cannot fire
-  // is one this repository deletes rather than keeps
-  let i = offset;
-  while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
-    i--;
-  }
-  return i;
-}
-
-/**
- * `lineStartAt()` for a reader that asks about many offsets, in any order.
+ * Just past the last `LINE_END` character before the offset, or 0 -- so the
+ * offset of the `\n` of a CRLF is a line start, which no caller asks about.
  *
- * `lineStartAt()` walks back to the line's start, which is the right cost for
- * one question and the wrong one for many on one long line: a minified config
- * is a single line, so the writer asking it once per container that gains a key
- * walked the whole document each time, and adding a key to each of 10,000
- * one-line objects took 17.5 seconds to save (SIG-371). This finds every line
- * start once, on the first question, and answers each question by a binary
- * search. The same answer as `lineStartAt()` for every offset in the text, CRLF
- * included -- both answer just past any `LINE_END` character, so the offset of
- * the `\n` of a CRLF is a line start to both -- and pinned against it.
+ * This replaced `lineStartAt()`, which walked back from the offset to the
+ * line's start: the right cost for one question and the wrong one for many on
+ * one long line. A minified config is a single line, so the writer asking it
+ * once per container that gains a key walked the whole document each time, and
+ * adding a key to each of 10,000 one-line objects took 17.5 seconds to save
+ * (SIG-371). This finds every line start once, on the first question, and
+ * answers each by a binary search; `lines.test.ts` pins it against that walk at
+ * every offset of a mixed-ending corpus.
  *
  * @param text - The source.
  * @returns A function from an offset to where its line starts.
@@ -288,23 +257,19 @@ export function lineStarts(text: string): (offset: number) => number {
 }
 
 /**
- * The leading whitespace of the line holding an offset.
+ * The leading whitespace of a line.
  *
  * What the line is indented by, whatever sits further along it -- which is the
  * question a *new* nested value asks, since it is indented relative to the line
- * its container opened on.
+ * its container opened on. Handed the line's start rather than an offset on it,
+ * because the caller has an index of them and a walk back to find one is what
+ * made the writer quadratic (SIG-371).
  *
  * @param text - The source.
- * @param offset - The offset.
- * @param start - Where that line starts, for a caller that already knows; found
- * by `lineStartAt()` otherwise.
+ * @param start - Where the line starts.
  * @returns The indentation, which may be empty.
  */
-export function lineIndent(
-  text: string,
-  offset: number,
-  start: number = lineStartAt(text, offset)
-): string {
+export function lineIndent(text: string, start: number): string {
   let i = start;
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) {
     i++;
@@ -321,8 +286,6 @@ export function lineIndent(
  * "b": 2 }` has two members and neither owns a line, so a third one cannot
  * inherit anything and the container's own line decides instead.
  *
- * @param text - The source.
- * @param offset - The offset.
  * Walked back over whitespace only, rather than to the line's start and then
  * asked whether what it passed was blank: the answer is the same, and the walk
  * is the indentation rather than the line. The difference is the whole of a

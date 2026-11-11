@@ -888,7 +888,9 @@ without destroying it is SIG-154's.
   `transformValue()` already follows.** They were, and they have no caller
   outside this package: SIG-154's span editor is in it and imports relatively,
   the tests import the module directly, and nobody has asked for a JSONC scanner.
-  Real surface for no caller is what `which` waited eighteen months over.
+  Real surface for no caller is what `which` waited eighteen months over. Since
+  SIG-371 there is no `lineAt()` at all -- `lineCounter()` replaced it, under "A
+  line is counted once per file" -- and the rule holds for its replacement.
 
   What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
   `isWritableStore`, the three stores, and the eleven types -- and `Config` is
@@ -1482,13 +1484,14 @@ And an edit whose offsets are `NaN` prepends, which is unreachable for the same
 reason the inverted one is and which the guard above does not catch, since every
 comparison against `NaN` is false -- written down rather than guarded, because a
 second tripwire for a value no emitter can produce is a guard the first one
-already stands for.
+already stands for. `lineStartAt()` and `lineAt()` are gone since SIG-371, below;
+`lineCounter()` keeps the past-the-end answer.
 
 > Moved: _What the fourth review round found, and five of the six were the last two commits' own prose_, _What the fifth round found: the insertion arithmetic nobody had read_, _What the first round of PR review found, and the CI it was reading_, _What the second round of PR review found: the dangling half of the symlink fix_, _What the third round of PR review found: lexical `..` against the kernel's_, _What the fourth round of PR review found: the kept entry's own comment_ — see [docs/history/writing-a-config-file-back-without-destroying-it.md](../../../../docs/history/writing-a-config-file-back-without-destroying-it.md).
 
 #### A line is counted once per file, not once per thing on it
 
-`lineAt()` walks from the start of the text, which is the right cost for the one
+`lineAt()` walked from the start of the text, which is the right cost for one
 message that needs a line and was the wrong one for the scanner, which asked it
 for **every comment** (SIG-371). N comments were N walks of the file:
 
@@ -1509,20 +1512,23 @@ second one, because `/*/*/*` is a run of six-byte block comments each closed by
 the next opener's star, and each one asked `lineAt()` before the last opener
 failed to close.
 
-- **`lineCounter()` is `lineAt()` resumed, and `lineAt()` is `lineCounter()`
-  asked once.** One rule rather than two, so the scanner and a message cannot
-  come to disagree about what a line is -- every `LINE_END`, a CRLF once. The
+- **`lineCounter()` is `lineAt()` resumed, and `lineAt()` is gone.** The scanner
+  was its only caller -- its comments and its three refusals -- so once all four
+  asked the counter, the one-shot walk had nothing left to run for, and a fresh
+  counter asked once is the same answer. One rule about what a line is, then --
+  every `LINE_END`, a CRLF once -- with nothing beside it to disagree. The
   counter keeps the loop's own cursor rather than the offset last asked, because
   a CRLF steps the cursor one past the `\n`, and an offset behind the last one
   restarts the walk rather than answering wrong. The scanner's questions only ever
   go forward, the refusals included, so all four ask it.
 
-- **The writer had the same shape three more ways, and on a minified file each was
+- **The writer had the same shape four more ways, and on a minified file each was
   the whole document.** A single-line file puts every entry on line 1, so a walk
   back to a line's start is a walk to offset 0: `detectStep()` asked
   `ownLineIndent()` of every entry on every save, `diffObject()` asked every
-  object's indentation whether or not it gained a key, and each container that
-  did gain one asked again. Measured over the built `dist/`, one `set()` and
+  object's indentation whether or not it gained a key, each container that
+  did gain one asked again, and every member a removal took asked whether it
+  owned its line. Measured over the built `dist/`, one `set()` and
   `save()`, on a machine with a load average near 80 -- so read the after column
   as a magnitude, which is the point of it:
 
@@ -1533,22 +1539,34 @@ failed to close.
   | 3,000 one-key objects, add one    | 4,453 ms  | 39 ms  |
   | 10,000 objects, add a key to each | 17,535 ms | 71 ms  |
   | 40,000 one-key objects, add one   | --        | 191 ms |
+  | 20,000 scalar keys, keep one      | 19,852 ms | 12 ms  |
+
+  The last row is the PR review's, through `editJsonc()` directly. The same
+  `ownLineIndent()` change closed it without anybody aiming at it, which is why
+  the table did not have it until the review measured it -- and why it has a
+  growth test of its own now rather than riding on the others.
 
   So `ownLineIndent()` walks back over whitespace and stops at the first thing
   that is not -- the same answer, since `\s` is what `trim()` takes, and the walk
   is the indentation rather than the line. Every other line start the writer
   needs comes from `lineStarts()`, an index of the text built once per edit and
-  read by binary search, which agrees with `lineStartAt()` at every offset in the
-  text: both answer just past any `LINE_END` character. It does not agree about a
-  **negative** offset, which `lineStartAt()` hands back and the index answers 0
-  for -- no caller passes one, and a guard that cannot fire is the one this
-  directory deletes. `detectStep()` walks its queue by index rather than by
-  `shift()`, which moves every element behind the one it takes.
+  read by binary search, which agrees with the old `lineStartAt()` walk at every
+  offset in the text: both answer just past any `LINE_END` character. That walk
+  had no caller left once the index existed, so it went, and `lineIndent()` now
+  takes a line's start rather than an offset on it; the test keeps the walk as
+  the reference the index is pinned against. A **negative** offset is the one
+  place the two differ -- the walk handed it back and the index answers 0 -- and
+  no caller passes one. `detectStep()` walks its queue by index rather than by
+  `shift()`, which moves every element behind the one it takes, and
+  `diffObject()` asks an object's indentation only when it gains a key. Neither of
+  those two is pinned by a growth test, and neither needs one: once every line
+  start comes from the index they change the constant rather than the shape.
 
 - **Pinned by counting rather than by timing.** `test/config/lines.test.ts`
   counts how often `LINE_END.test` runs at a size and at twice it, which is 2 for
   a linear walk and 4 for a quadratic one, and asserts under 3 -- for the comment
-  file, the `/*` file, a minified save and a key added to every object. Counted by
+  file, the `/*` file, a minified save, a key added to every object and every key
+  but one removed. Counted by
   hand rather than through `vi.spyOn()`, because a spy keeps every call's
   arguments and the quadratic version exhausted the heap before the assertion
   could fail. Every sabotage was run: the comment line back on `lineAt()` fails
@@ -1557,16 +1575,17 @@ failed to close.
   forgets the CRLF step fails the any-order test. Exactness is a seeded corpus of
   300 documents mixing all three line endings, comments flush against strings,
   strings holding U+2028 and comment markers, and block comments running over
-  lines, with every comment's line compared against `lineAt()` and against an
-  oracle that splits on a regex and shares no code with either.
+  lines, with every comment's line compared against a fresh counter asked once
+  -- what `lineAt()` was -- and against an oracle that splits on a regex and
+  shares no code with either.
 
 - **Swept, and nothing else in config reads a line per item.** The YAML store
   takes lines from `yaml`'s own `LineCounter`, which is a binary search, and only
   for a refusal; its `align()` is a longest common subsequence, already capped by
   `LCS_CELLS`. The XML store counts a line once per residual kind, which is a
   fixed table, and its `contentOf()` skips past each region it blanks. The
-  stylesheet parser's `countLines()` is message-only, which is the rule
-  `lineAt()`'s own doc comment cites.
+  stylesheet parser's `countLines()` is message-only, so it counts once per
+  refusal rather than once per token.
 
 #### What the write half costs
 

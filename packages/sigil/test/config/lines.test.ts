@@ -1,14 +1,28 @@
 import { editJsonc } from '../../src/config/jsonc-write.js';
 import { scanJsonc } from '../../src/config/jsonc.js';
-import {
-  LINE_END,
-  lineAt,
-  lineCounter,
-  lineStartAt,
-  lineStarts,
-  ownLineIndent,
-} from '../../src/config/spans.js';
+import { LINE_END, lineCounter, lineStarts, ownLineIndent } from '../../src/config/spans.js';
 import { describe, expect, it } from 'vitest';
+
+/**
+ * The line of one offset, from a counter that has been asked nothing else --
+ * which is what `lineAt()` was, a walk from offset 0, before SIG-371 left it no
+ * caller. What the scanner's resumed count has to agree with.
+ */
+function lineAt(text: string, offset: number): number {
+  return lineCounter(text)(offset);
+}
+
+/**
+ * The walk `lineStarts()` replaced, kept as the reference it is pinned against:
+ * back from the offset to just past the previous line terminator.
+ */
+function lineStartAt(text: string, offset: number): number {
+  let i = offset;
+  while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
+    i--;
+  }
+  return i;
+}
 
 /** xorshift32, the generator the layout fuzzer and the scan fuzzer already use. */
 function seeded(seed: number): () => number {
@@ -278,5 +292,17 @@ describe('SIG-371: what a large file costs', () => {
       return () => editJsonc(source, next, { what: 'f' });
     };
     expect(growth(each, 500)).to.be.lessThan(3);
+  });
+
+  it('should remove from a minified file in time linear in its size', () => {
+    // every removed member asked whether it owned its line, and that was a walk
+    // back to the line's start: emptying 20,000 keys but one took 19.9 seconds
+    const remove = (n: number) => {
+      const source = minified(n, (i) => i);
+      return () => {
+        expect(editJsonc(source, { k0: 0 }, { what: 'f' })).to.equal('{"k0":0}');
+      };
+    };
+    expect(growth(remove, 500)).to.be.lessThan(3);
   });
 });

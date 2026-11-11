@@ -108,9 +108,9 @@ interface Ctx {
   /**
    * Where the line holding an offset starts, from an index built once.
    *
-   * `lineStartAt()` walks back to the start, which on a minified file is the
-   * whole document -- once per container that gains a key, which was quadratic
-   * in the edit (SIG-371). Read through `indentAt()`.
+   * A walk back to the start was the whole document on a minified file -- once
+   * per container that gains a key, which was quadratic in the edit (SIG-371).
+   * Read through `indentAt()`.
    */
   readonly lineStart: (offset: number) => number;
   readonly source: string;
@@ -487,7 +487,7 @@ function insertIndent(ctx: Ctx, node: Node): string {
 
 /** What the line holding an offset is indented by, through the line index. */
 function indentAt(ctx: Pick<Ctx, 'lineStart' | 'source'>, offset: number): string {
-  return lineIndent(ctx.source, offset, ctx.lineStart(offset));
+  return lineIndent(ctx.source, ctx.lineStart(offset));
 }
 
 /**
@@ -851,10 +851,10 @@ function diffObject(
     removeFrom(ctx, node, drop);
   }
 
-  // the indentation only where something is added, because every object in the
-  // document is walked on every save and asking it reads the whole container to
-  // learn whether it spans lines -- which, nested, reads each byte once per
-  // object around it (SIG-371)
+  // the indentation only where something is added: every object in the document
+  // is walked on every save, and there is no reason to ask one that gains
+  // nothing. Not a complexity fix once the line index exists, so no growth test
+  // pins it (SIG-371)
   const keys = Object.keys(next).filter((key) => !live.has(key));
 
   if (keys.length > 0) {
