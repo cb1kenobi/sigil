@@ -69,7 +69,7 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
       throw new Error(`Setting "${path}" merge must be "concat" or "replace"`);
     }
 
-    // `envNames()` spreads it, so a non-iterable reached `envOf()` as a
+    // `settingEnvNames()` spreads it, so a non-iterable reached `envOf()` as a
     // `TypeError: env is not iterable` -- an error about the wrong thing,
     // naming nothing. An empty name is refused with it, because `envValue()`
     // would look one up and a variable has a name
@@ -99,8 +99,15 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
   return out;
 }
 
-/** The environment variables a setting declares, as a list. */
-function envNames(setting: ConfigSetting): string[] {
+/**
+ * The environment variables a setting declares, as a list.
+ *
+ * Not the parser's `envNames()`, on purpose: a setting's `env` has already been
+ * refused at `readSchema()` if any entry is empty or not a string, where an
+ * option's or an argument's skips such an entry -- so the two read one shape
+ * under different contracts, and folding them together would change one.
+ */
+function settingEnvNames(setting: ConfigSetting): string[] {
   const { env } = setting;
   if (env === undefined) {
     return [];
@@ -274,7 +281,7 @@ export function envOf(
   const out: Record<string, unknown> = {};
 
   for (const it of settings) {
-    const names = envNames(it.setting);
+    const names = settingEnvNames(it.setting);
     if (names.length === 0) {
       continue;
     }
