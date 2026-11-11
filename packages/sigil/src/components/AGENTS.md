@@ -4658,7 +4658,9 @@ how the two come to disagree." It is decided, and the answer is no.
   combining mark, so an NFD paste of `café` arrived as `cafe`. What is inserted
   is the sequence rather than the name, so the two can never disagree, and a C1
   control is refused there because `decodeKeys()` already names every C0 one as
-  Enter, Tab, Backspace, or Ctrl with a letter. The cursor is an offset into the
+  Enter, Tab, Backspace, Escape, or Ctrl with the key that sends it -- a letter,
+  or since SIG-361 `\`, `]`, `^` or `_` for 0x1c to 0x1f, and a backtick for
+  NUL. The cursor is an offset into the
   value rather than an index into its clusters -- inserting and slicing stay
   ordinary string work -- and it only ever lands on a boundary `graphemes()`
   agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
@@ -4732,6 +4734,14 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+- **Ctrl-`\` `]` `^` `_`, a lone Alt-`[`, and the Linux console's F1 to F5 are
+  recorded with the binding grammar, not here (SIG-361).** Three readings
+  `decodeKeys()` got wrong, each a key a spec could name and nothing could
+  fire: 0x1c to 0x1f are their keys plus 0x40, a flushed `ESC [` or `ESC O` is
+  the Alt key it was (`DecodeOptions.final`), and `ESC [ [ A` to `E` are
+  `f1` to `f5`. The decisions, and what each one costs, are under "Three keys
+  the decoder misnamed" in `src/input/AGENTS.md`, because the bindings are the
+  reader that made them matter.
 
 ### A number prompt: the parser's reading of a number, in a text field
 

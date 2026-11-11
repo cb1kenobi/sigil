@@ -25,8 +25,8 @@ import type { Key } from './keys.js';
 /**
  * A C0 or C1 control character.
  *
- * `decodeKeys()` names every C0 byte -- as Enter, Tab, Backspace, or Ctrl with a
- * letter -- so the only one that reaches a field as a character is a C1, which a
+ * `decodeKeys()` names every C0 byte -- as Enter, Tab, Backspace, Escape, or Ctrl
+ * with the key that sends it -- so the only one that reaches a field as a character is a C1, which a
  * paste can carry. It draws as nothing or as a command, and neither is something
  * to put in an answer.
  *
