@@ -456,6 +456,45 @@ export function trackProgress(state: ProgressState, opts: ProgressStatsOptions):
 }
 
 /**
+ * Where a bar's value lands: between nothing and the total, and nothing at all
+ * for a value that is not a finite number.
+ *
+ * `Math.min(total, Math.max(0, NaN))` is `NaN`, and a `NaN` stored as the value
+ * is a `NaN%` on screen and in a log -- the bar itself drew empty, because
+ * `renderBar()` reads a ratio that is not finite as `0`, and this is that rule
+ * one step earlier, so the bar and its percentage cannot disagree. `0` rather
+ * than the value before it, because that is the bar's own answer, and because
+ * a value that keeps whatever was last there is one a stray `done / total`
+ * over a zero total would silently freeze. `Infinity` is not finite either, so
+ * it is `0` too rather than the total: a bar does not say it finished because
+ * somebody divided by zero. One definition for both bars, which is what
+ * `createMultiProgress()` imports it for.
+ *
+ * @param next - The value asked for.
+ * @param total - How much work there is.
+ * @returns The value to store.
+ */
+export function clampProgress(next: number, total: number): number {
+  return Number.isFinite(next) ? Math.min(total, Math.max(0, next)) : 0;
+}
+
+/**
+ * The total a bar keeps: what it was given if that is a positive, finite
+ * number, and `fallback` otherwise.
+ *
+ * A total of `Infinity` makes every value `0%` and a `done()` -- which sets the
+ * value to the total -- `Infinity / Infinity`, which is `NaN%`. So it is
+ * refused the way a total of zero or less always was, with the same fallback.
+ *
+ * @param next - The total asked for.
+ * @param fallback - What to keep instead.
+ * @returns The total to store.
+ */
+export function progressTotal(next: number | undefined, fallback: number): number {
+  return next !== undefined && next > 0 && next < Infinity ? next : fallback;
+}
+
+/**
  * A progress bar, for work whose length is known.
  *
  * Where there is no terminal the bar is not drawn at all: a CI log gets a line
@@ -469,7 +508,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
   const filled = opts.filled ?? '█';
   const empty = opts.empty ?? '░';
   const step = opts.step && opts.step > 0 ? opts.step : 10;
-  const state = progressState(opts.text ?? '', opts.total && opts.total > 0 ? opts.total : 100);
+  const state = progressState(opts.text ?? '', progressTotal(opts.total, 100));
   // resolved up front rather than off the backend, because `barWidth()` is read
   // by an effect during the very first render -- which happens inside
   // `mountLive()`, before there is a handle to ask
@@ -486,10 +525,6 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     (level) => progressView(state, { barWidth, empty, filled, live: level === 'live', step }),
     { ...opts, terminal }
   );
-
-  function clamp(next: number): number {
-    return Math.min(state.total.get(), Math.max(0, next));
-  }
 
   /**
    * Settles the graph and paints, which is what every setter here owes.
@@ -526,7 +561,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 
     set current(next: number) {
       untrack(() => {
-        state.current.set(clamp(next));
+        state.current.set(clampProgress(next, state.total.get()));
         track.update();
         draw();
       });
@@ -587,8 +622,8 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 
     set total(next: number) {
       untrack(() => {
-        state.total.set(next > 0 ? next : 1);
-        state.current.set(clamp(state.current.get()));
+        state.total.set(progressTotal(next, 1));
+        state.current.set(clampProgress(state.current.get(), state.total.get()));
         track.update();
         draw();
       });

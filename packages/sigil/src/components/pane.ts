@@ -45,6 +45,7 @@ import { DOUBLE_CLICK_MS, type KeyEvent, type MouseEvent } from '../input/index.
 import { measureNode } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
+import { noSize } from '../util/no-size.js';
 import { unicodeSupported } from './note.js';
 
 /** Which end of the pane the edge is on. */
@@ -162,11 +163,6 @@ const GLYPHS = {
   ascii: { column: { hot: '-', rest: '-' }, row: { hot: '|', rest: '|' } },
   unicode: { column: { hot: '━', rest: '─' }, row: { hot: '┃', rest: '│' } },
 } as const;
-
-/** A raw element's measure when it takes no room of its own. */
-function noSize(): { height: number; width: number } {
-  return { height: 0, width: 0 };
-}
 
 /** Whether a number is a whole count of cells, which is what a size is. */
 function cells(value: unknown): value is number {

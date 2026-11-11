@@ -6515,7 +6515,8 @@ The demo is `demos/components/43-concurrent-tasks.js`.
 
 SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
 `{ group: choices }`. It is its own module built on the exports at the bottom of
-`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers), the way
+`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers, and since SIG-366
+`promptSeek()` and `promptCountComplaint()`, which it had copied), the way
 `autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
 row is a third kind of row beside a choice and a separator, and teaching
 `choiceRows()` and `paintChoices()` about it would put a branch for a feature one
@@ -6559,7 +6560,9 @@ prompt has into the two functions all of them share.
   first, which the README says.
 - **Messages are `multiselect()`'s, so there are no new i18n keys.** The hint,
   `Choose at least ...`, `disabled` and `none` are the same strings through the
-  same tag.
+  same tag -- and `Choose at least ...` and `Choose at most ...` are the same
+  _call_ since SIG-366, `promptCountComplaint()`, where this sentence had been
+  true of the strings while the judgement around them was a copy.
 
 What is deliberately not done: nesting groups in groups; an `initial` row (the
 cursor starts on the first row on offer); descriptions on a group; a group-level
@@ -11726,3 +11729,63 @@ sabotage pass -- is in
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
   validation; and `:disabled` on `TextField`.
+
+### Helpers two components had each written, defined once (SIG-366)
+
+The root rule -- one definition per helper -- applied inside this directory,
+where eight had two or four copies. None was on the list of deliberate
+duplicates, and each pair was compared before it was folded.
+
+- **The progress bars' `clamp()` let `NaN` through, and that was the one
+  defect.** `Math.min(total, Math.max(0, NaN))` is `NaN`, so `current = NaN` was
+  stored and the percentage drew `NaN%` -- on a terminal and as a log line,
+  single bar and group alike -- while `renderBar()` beside it read the same ratio
+  as `0`. `clampProgress()` is that rule one step earlier: a value that is not
+  finite is `0`, which is the bar's own answer, rather than the value before it,
+  which would freeze a bar on a stray `done / total` over a zero total. `Infinity`
+  is not finite either, so it is `0` too where it used to clamp to the total --
+  a bar does not say it finished because somebody divided by zero. A total of
+  `Infinity` is refused the way zero and below always were (`progressTotal()`,
+  with the same fallbacks of 100 and 1), because `done()` writes the total as the
+  value and `Infinity / Infinity` was the other `NaN%`. Nothing prints `NaN` or
+  `Infinity` now. Not touched: `Math.round` against `Math.floor` near 100%, which
+  is an open decision of its own.
+- **`seek()` was the same walk in both places, with one difference in what "on
+  offer" read.** `select()` and `multiselect()` asked `kind === 'choice' &&
+  offered`; `groupMultiselect()` asked `offered` alone, because a group heading
+  is a row that can be on offer. A separator has no `offered`, so `offered` alone
+  is both answers, and that is what `promptSeek()` reads.
+- **The count complaint is `promptCountComplaint()`, called from four sites.** The
+  English is byte-identical, so `SIGIL_KEYS` is unchanged -- regenerated to check,
+  and it wrote the same 413 keys.
+- **`decimals()` was a regex in `number()` and a split in the slider, and the two
+  never disagreed** -- over two million values, random bit patterns among them,
+  exponent forms, negatives, integers, `NaN` and both infinities. `decimalPlaces()`
+  is the split. `MAX_DELAY` (the toast's and the clock's, the same `2^31 - 1` for
+  the same reason), `DIGITS` (the select row's and the data table's, both the
+  nine columns a digit sorts), `noSize()` (the pane's and the scroll box's
+  absolute `raw` elements) and the trees' `FIXED` run were each the same value
+  meaning the same thing.
+- **Where each lives is decided by who would otherwise load whom.** A component
+  can be ejected, so a shared helper has to be importable from a published
+  subpath, and a facade may only re-export its own module. So `decimalPlaces()`,
+  `MAX_TIMER_DELAY` and `noSize()` are leaves under `src/util/`, re-exported by
+  the slider, the clock and the scroll box and mapped to those subpaths in
+  `generate-registry.mjs`'s `BARRELLED` -- the slider does not load `number()`'s
+  prompt stack, the toast does not load the clock, and the pane does not load the
+  scroll box. `DIGIT_COLUMNS` is beside `compareCells()` in `table.ts`, which both
+  of its readers already imported; `TREE_FIXED` is `tree.ts`'s, which the tree
+  list view already imported; the two progress helpers are `progress.ts`'s.
+- **Left alone, and why.** The input router and the testing helpers each carry a
+  `MAX_DELAY` of their own and `config/watch.ts` writes `2 ** 31 - 1` inline: the
+  same fact, outside this directory and this ticket. Nine inline
+  `measure: () => ({ height: 0, width: 0 })` closures in the prompts, the text
+  area, the overlay and the decrypt effect answer the same zero size unnamed;
+  whether each means what `noSize()` means was not audited, and three are in
+  `prompt.ts` code another change is rewriting. A progress
+  state built by hand and handed to `progressView()` can still hold a `NaN`,
+  because the percentage and the group's plain line each compute the ratio
+  without `renderBar()`'s guard -- a third duplicate, of the percentage, that the
+  facades no longer reach. `test/components/shared-helpers.test.ts` pins each
+  helper's behaviour and counts the definitions in `src/components/` and
+  `src/util/`, so a copy that comes back fails there.

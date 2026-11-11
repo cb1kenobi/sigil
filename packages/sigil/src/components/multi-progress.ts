@@ -5,6 +5,8 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { stringWidth } from '../width/index.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
 import {
+  clampProgress,
+  progressTotal,
   type ProgressState,
   type ProgressStatsOptions,
   progressState,
@@ -202,8 +204,7 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
 
   return {
     add(barOpts = {}): MultiProgressBar {
-      const total = barOpts.total && barOpts.total > 0 ? barOpts.total : 100;
-      const state = progressState(barOpts.text ?? '', total);
+      const state = progressState(barOpts.text ?? '', progressTotal(barOpts.total, 100));
       const track = trackProgress(state, { ...opts, unit: barOpts.unit ?? opts.unit });
       const mine = generation;
       let finished = false;
@@ -231,10 +232,6 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
         }
       }
 
-      function clamp(next: number): number {
-        return Math.min(state.total.get(), Math.max(0, next));
-      }
-
       // untracked, like every method here that writes: an effect that adds a bar
       // must not be subscribed to the rows and the label column it read doing it,
       // or the next bar anybody adds runs it again and it adds another
@@ -253,7 +250,7 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
 
         set current(next: number) {
           untrack(() => {
-            state.current.set(clamp(next));
+            state.current.set(clampProgress(next, state.total.get()));
             track.update();
             draw();
           });
@@ -325,8 +322,8 @@ export function createMultiProgress(opts: MultiProgressOptions = {}): MultiProgr
 
         set total(next: number) {
           untrack(() => {
-            state.total.set(next > 0 ? next : 1);
-            state.current.set(clamp(state.current.get()));
+            state.total.set(progressTotal(next, 1));
+            state.current.set(clampProgress(state.current.get(), state.total.get()));
             track.update();
             draw();
           });

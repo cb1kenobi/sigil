@@ -159,8 +159,12 @@ interface TreeLine {
   text: string;
 }
 
-/** A run of a line that is drawn at the width it has, never wrapped or squeezed. */
-const FIXED = { 'flex-shrink': 0, 'white-space': 'nowrap' } as const;
+/**
+ * A run of a line that is drawn at the width it has, never wrapped or squeezed:
+ * a guide, a marker, a twisty. `tree()`, `selectTree()` and `TreeListView` all
+ * draw their runs with it.
+ */
+export const TREE_FIXED = { 'flex-shrink': 0, 'white-space': 'nowrap' } as const;
 
 /** The narrowest a block is squeezed to: a guide and a few columns of text. */
 const MIN_WIDTH = 8;
@@ -263,12 +267,12 @@ export function treeView(
           // `nowrap` rather than `pre`: the line is already wrapped, and a guide
           // that is all spaces must keep its width, which `pre` does not
           ...(line.guide
-            ? [textNode(line.guide, { ...FIXED, class: 'sigil-tree-guide sigil-muted' })]
+            ? [textNode(line.guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
             : []),
           ...(line.marker
-            ? [textNode(line.marker, { ...FIXED, class: 'sigil-tree-marker sigil-muted' })]
+            ? [textNode(line.marker, { ...TREE_FIXED, class: 'sigil-tree-marker sigil-muted' })]
             : []),
-          textNode(line.text, { ...FIXED, class: 'sigil-tree-label' })
+          textNode(line.text, { ...TREE_FIXED, class: 'sigil-tree-label' })
         )
       )
     ),
@@ -925,17 +929,19 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
           visibility: current ? 'visible' : 'hidden',
           'white-space': 'nowrap',
         }),
-        ...(guide ? [textNode(guide, { ...FIXED, class: 'sigil-tree-guide sigil-muted' })] : []),
-        textNode(state, { ...FIXED, class: 'sigil-tree-toggle sigil-muted' }),
+        ...(guide
+          ? [textNode(guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
+          : []),
+        textNode(state, { ...TREE_FIXED, class: 'sigil-tree-toggle sigil-muted' }),
         ...(node.marker
-          ? [textNode(node.marker, { ...FIXED, class: 'sigil-tree-marker sigil-muted' })]
+          ? [textNode(node.marker, { ...TREE_FIXED, class: 'sigil-tree-marker sigil-muted' })]
           : []),
         textNode(node.text, { class: 'sigil-tree-label', 'white-space': 'nowrap' }),
         // only on an open branch: a closed one still reading is nothing on screen
         ...(node.expanded && node.loading
           ? [
               textNode(ascii ? ' ...' : ' …', {
-                ...FIXED,
+                ...TREE_FIXED,
                 class: 'sigil-tree-loading sigil-muted',
               }),
             ]

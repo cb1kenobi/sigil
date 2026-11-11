@@ -28,9 +28,14 @@ import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
+import { decimalPlaces } from '../util/decimals.js';
 import { stringWidth } from '../width/index.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
+
+// published from this module's subpath, which is where an ejected `number()`
+// finds it too: the one definition is a leaf, so neither loads the other
+export { decimalPlaces };
 
 export interface SliderProps {
   /**
@@ -116,13 +121,6 @@ const MEASURED = 1000;
 /** Each slider's host, which is the focusable element the keys are described on. */
 const SLIDERS = new WeakSet<Element>();
 
-/** How many decimal places a number is written with, so a sum of steps can be rounded back. */
-function decimals(value: number): number {
-  const [mantissa = '', exponent] = String(value).split('e');
-  const places = mantissa.split('.')[1]?.length ?? 0;
-  return Math.max(0, places - Number(exponent ?? 0));
-}
-
 /** Throws unless a prop is absent or a finite number. */
 function finite(value: unknown, message: string): void {
   if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value))) {
@@ -182,7 +180,7 @@ export function Slider(props: SliderProps = {}): Element {
     throw new TypeError(__`Expected a slider step no larger than max minus min`);
   }
   const pageSteps = Math.max(1, Math.round((props.page ?? (max - min) / 10) / step));
-  const places = Math.max(decimals(min), decimals(step));
+  const places = Math.max(decimalPlaces(min), decimalPlaces(step));
   const value = props.value instanceof State ? props.value : new State(props.value ?? min);
   const disabled =
     props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);

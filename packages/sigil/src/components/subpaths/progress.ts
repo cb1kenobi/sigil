@@ -1,4 +1,5 @@
 export {
+  clampProgress,
   createProgress,
   createRateEstimator,
   formatDuration,
@@ -7,6 +8,7 @@ export {
   type ProgressOptions,
   type ProgressState,
   progressState,
+  progressTotal,
   type ProgressStatsOptions,
   type ProgressTracker,
   type ProgressViewOptions,

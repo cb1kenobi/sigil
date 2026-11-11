@@ -356,10 +356,19 @@ function entryMap() {
  * whole command surface and importing it put about 29 kB on the components
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
+ *
+ * The three after it are one helper two components share (SIG-366), each a leaf
+ * so that neither component loads the other for it, and each re-exported by the
+ * component that publishes it: `decimalPlaces()` is `number()`'s and the
+ * slider's, `MAX_TIMER_DELAY` the toast's and the clock's, and `noSize()` the
+ * pane's and the scroll box's.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
+  ['src/util/decimals.ts', 'components/slider'],
+  ['src/util/timer.ts', 'components/clock'],
+  ['src/util/no-size.ts', 'components/scroll-box'],
 ]);
 
 /**

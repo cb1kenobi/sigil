@@ -85,6 +85,7 @@ import {
 import type { KeyEvent, MouseEvent, WheelDirection } from '../input/index.js';
 import { createBranch, getOwner, type Owner, runWithOwner } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
+import { noSize } from '../util/no-size.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** Which axes a scroll box scrolls, and therefore which bars it draws. */
@@ -563,10 +564,9 @@ export function rowWindow(count: number, height: number, offset: number, view: n
   return { first, length: last - first + 1 };
 }
 
-/** A `raw` element's measure, for one whose size is its four insets. */
-function noSize(): { height: number; width: number } {
-  return { height: 0, width: 0 };
-}
+// published from this module's subpath, which is where an ejected pane finds it
+// too: the one definition is a leaf, so neither loads the other
+export { noSize };
 
 /**
  * The height the host declared, which `sync()` uses as a **floor**.

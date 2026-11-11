@@ -1,4 +1,5 @@
 export {
+  noSize,
   type RowWindow,
   rowWindow,
   type ScrollAxis,

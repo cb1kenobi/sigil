@@ -340,14 +340,21 @@ function isOffered<T>(item: Item<T>): item is Extract<Item<T>, { kind: 'choice' 
  * it is an option; the walk is at most one lap, so a list with nothing on offer
  * ends where it began rather than looping.
  *
+ * A row is on offer when its `offered` is true, which a separator never has --
+ * so the same walk serves `groupMultiselect()`, whose group headings are rows
+ * that can be on offer, and is published as `promptSeek()` for it. `kind` is in
+ * the row type only so that a separator, which has no `offered` at all, still
+ * matches it: a type of nothing but optional properties is a weak type, and
+ * TypeScript refuses a row that shares no property with one.
+ *
  * @param items - The list.
  * @param from - Where the cursor is.
  * @param direction - `1` for down, `-1` for up.
  * @param loop - Whether the ends are joined.
  * @returns Where the cursor goes. `from` if nothing else is on offer that way.
  */
-function seek<T>(
-  items: readonly Item<T>[],
+function seek(
+  items: readonly { readonly kind: string; readonly offered?: boolean }[],
   from: number,
   direction: 1 | -1,
   loop: boolean
@@ -359,7 +366,7 @@ function seek<T>(
     } else if (at < 0 || at >= items.length) {
       break;
     }
-    if (isOffered(items[at])) {
+    if (items[at].offered) {
       return at;
     }
   }
@@ -392,6 +399,30 @@ function firstOffered<T>(items: readonly Item<T>[], from: number): number {
  */
 function edge<T>(items: readonly Item<T>[], direction: 1 | -1): number {
   return direction === 1 ? firstOffered(items, 0) : seek(items, items.length, -1, false);
+}
+
+/**
+ * What is wrong with ticking this many, judged against `min` and `max`.
+ *
+ * Every prompt that ticks several answers asks it -- `multiselect()`,
+ * `groupMultiselect()` and both forms of `autocompleteMultiselect()` -- and the
+ * words are one set of i18n keys, so they are one function rather than four
+ * copies of one sentence. One tick keeps its own message, `Choose at least one`,
+ * because translators already carry it. Published as `promptCountComplaint()`.
+ *
+ * @param count - How many are ticked.
+ * @param min - The fewest allowed.
+ * @param max - The most allowed.
+ * @returns The complaint, or `undefined` if the count is allowed.
+ */
+function countComplaint(count: number, min: number, max: number): string | undefined {
+  if (count < min) {
+    return min === 1 ? __`Choose at least one` : __`Choose at least ${min}`;
+  }
+  if (count > max) {
+    return __`Choose at most ${max}`;
+  }
+  return undefined;
 }
 
 function valueOf<T>(choice: Choice<T>): T {
@@ -3240,13 +3271,7 @@ export function multiselect<T = string>(opts: MultiselectOptions<T>): Promise<T[
 
   /** What is wrong with a selection of this many, by default the one as it stands. */
   function complaint(count = ticked.size): string | undefined {
-    if (count < min) {
-      return min === 1 ? __`Choose at least one` : __`Choose at least ${min}`;
-    }
-    if (count > max) {
-      return __`Choose at most ${max}`;
-    }
-    return undefined;
+    return countComplaint(count, min, max);
   }
 
   /** Ticks every choice on offer, or none if every one already is. */
@@ -4348,6 +4373,12 @@ function lineMultiselect<T>(
  * `promptLineList()` the list alone, and `promptLineNumbers()` `multiselect()`'s
  * reading of several numbers and ranges.
  *
+ * `promptSeek()` is the cursor's walk to the next row on offer and
+ * `promptCountComplaint()` the judgement of `min` and `max`, both published for
+ * `groupMultiselect()` and `autocompleteMultiselect()`, which had copied them
+ * (SIG-366): a second walk is a second answer to where Down goes, and a second
+ * copy of the message is one a reword reaches half of.
+ *
  * Nothing here moved. The bodies are where they were, and the only edit to
  * `test/components/prompt.test.ts` is one added assertion about the surface this
  * block creates -- no existing test moved, which is the check an extraction
@@ -4356,6 +4387,8 @@ function lineMultiselect<T>(
 export {
   answered as promptAnswered,
   answerFits as promptAnswerFits,
+  countComplaint as promptCountComplaint,
+  seek as promptSeek,
   asLines as promptAsLines,
   answerSlot as promptAnswerSlot,
   sameValue as promptSameValue,
