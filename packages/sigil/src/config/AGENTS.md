@@ -480,6 +480,43 @@ without destroying it is SIG-154's.
   is the parser's own phrase for the same shape. Freezing makes the mistake loud;
   `structuredClone(config.get('x'))` is the mutable copy.
 
+- **The merged view is built when it is read, not when a layer changes**
+  (SIG-377). Every mutator used to re-merge and deep-freeze the whole stack, so
+  N `set()` calls with no read between them were N full merges. A mutator now
+  marks the view stale and `#view()` -- the one way anything reads it, which is
+  `get()`, `has()` and the watch diff -- rebuilds it on demand. Measured over two
+  object layers whose entries are `{ a, b: [1, 2, 3], c: { d } }`, with the two
+  builds run alternately on one machine under heavy parallel load, so the
+  absolute figures are that machine's and the ratio is the finding:
+
+  | entries | 200 x `set()` + 1 `get()`, before | after    |
+  | ------- | --------------------------------- | -------- |
+  | 500     | 185-194 ms                        | 2-4 ms   |
+  | 2,000   | 969-1,120 ms                      | 6 ms     |
+  | 8,000   | 4,025-4,487 ms                    | 17-19 ms |
+
+  What stays eager, and why it can: **every refusal**. Nothing a mutator refuses
+  is decided by the merge -- the schema (`coerceLayer()`), the list and
+  not-an-object checks, `canRepresent`, read-only, an unsafe key and a cycle are
+  all asked at the call, before the layer is marked. The merge's only throws are
+  `copyValue()`'s unsafe key and cycle, and every value that reaches a layer is
+  already a `copyValue()` output -- a coercion writes back through one too -- so
+  a deferred merge has no refusal left to move to a later `get()`. The defaults
+  and the environment never change after construction, which still merges
+  eagerly. The one check that read the **built** view was `#assertWritable()`'s
+  list test, and it would have forced a merge per dotted `set()` on its own, so
+  it reads the stack through `shapesAlong()` instead -- the merge's rule said a
+  second time, which is tolerable only because it is asked a kind rather than
+  contents, and is held to the merge by a differential fuzz over random stacks.
+
+  What did not move: `get()` hands back the same frozen object between writes
+  and a new one after, a write that was refused or did nothing leaves it the same
+  object, and `apply()` and a reload build the view they diff against before
+  replacing the layer, so a handler is handed the same `before` and `after` at
+  the same moment, synchronously inside the call. `lazy-merge.test.ts` pins each
+  of those over both implementations; only its two merge-count tests fail over
+  the eager one.
+
 - **Only the structure is copied and only the structure is frozen.** A `Date`, a
   class instance, a `Map` and a function are leaves carried by reference, which is
   what lets an object layer hold a plugin -- the thing a `.js` config was _for_.
@@ -527,7 +564,9 @@ without destroying it is SIG-154's.
   with the list in a lower layer and nothing in the user's, which is the ordinary
   arrangement, the write made `{ items: { "0": 9 } }` in the user layer and an
   object replaced the list in the merge (SIG-250). `#assertWritable()` now walks
-  the merged view beside the layer and refuses where an ancestor is a list there
+  the merged view beside the layer -- read off the stack by `shapesAlong()` since
+  SIG-377, for the reason the lazy-merge entry gives -- and refuses where an
+  ancestor is a list there
   and the layer has nothing of its own, with a message naming the whole-list ways
   to say it: `set('items', [...])` or the four array methods.
 
