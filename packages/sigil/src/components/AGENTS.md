@@ -1862,6 +1862,44 @@ decided once, for all of them. The runs and the sabotage passes are in
   highlight and is recomputed from it, so there is no scroll state to keep in
   agreement: the only thing that has to be true is that the active row is on
   screen.
+- **And only the window's rows exist (SIG-369).** `select()` and `multiselect()`
+  built five elements for every choice and kept the ones off screen in the tree
+  as `display: none`, and `paintChoices()` wrote props on every one of them on
+  every key -- so a key cost the length of the list, where `sort()` and
+  `selectRow()`, which build their window and nothing else, stayed flat. Now
+  `choiceRows()` starts an empty list and `paintChoices()` takes out the rows that
+  left the window and builds the ones that entered it, in place, keeping the rest.
+  A 60x12 terminal, mean of five Downs, against the built package:
+
+  | prompt                      | 1,000 choices | 4,000    | 16,000   |
+  | --------------------------- | ------------- | -------- | -------- |
+  | `select()` per Down, before | 30.9 ms       | 113.6 ms | 458.6 ms |
+  | `select()` per Down, after  | 0.9 ms        | 0.8 ms   | 0.8 ms   |
+  | `multiselect()` before      | 28.9 ms       | 125.2 ms | 494.4 ms |
+  | `multiselect()` after       | 0.8 ms        | 0.9 ms   | 0.7 ms   |
+  | `select()` build, before    | 21 ms         | 99 ms    | 399 ms   |
+  | `select()` build, after     | 1 ms          | 1 ms     | 2 ms     |
+
+  A Down that scrolls costs the same as one that does not, on both sides.
+  Nothing could be lost by it, which was checked rather than argued: every byte
+  both prompts wrote, over sixteen scripted key sequences (headings, disabled
+  rows, hints that wrap, descriptions, `loop`, Home and End, an initial `value`
+  far down the list, ticks, `a`, `i`, `min` and `max` refusals, a resize, the
+  answered line) at six terminal sizes and colour levels 0 and 3, is identical
+  before and after. The list's width was never measured from its widest choice
+  -- a `display: none` row has a zero box -- so a wide label off screen moved
+  nothing then and moves nothing now. Every drawn row still gets `display: flex`
+  written, as it did when an off-screen one got `none`, so that what a row
+  resolves to is what it was. The one thing a theme could see is a structural
+  selector over the rows: `:first-child`, `:last-child`, `:nth-child()` and the
+  sibling combinators `+` and `~` on `.sigil-choice` now match among the rows of
+  the window rather than among every row of the list -- `.sigil-choice:first-child`
+  was choice 0 even when it had scrolled away as a `display: none` row, and is the
+  top visible row now. Nothing in the framework sheet uses any of them, and it is
+  what `sort()`'s rows have always done. Pinned as counts of element
+  writes at fifty choices and at five thousand in `choice-window.test.ts`,
+  never as time; the old code fails them by a factor of a hundred.
+
 - **A choice list reserves the cursor's column on every row, and a blank cannot
   do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
   looks like the same one column and is not: `white-space: normal` collapses a run
@@ -4658,7 +4696,9 @@ how the two come to disagree." It is decided, and the answer is no.
   combining mark, so an NFD paste of `café` arrived as `cafe`. What is inserted
   is the sequence rather than the name, so the two can never disagree, and a C1
   control is refused there because `decodeKeys()` already names every C0 one as
-  Enter, Tab, Backspace, or Ctrl with a letter. The cursor is an offset into the
+  Enter, Tab, Backspace, Escape, or Ctrl with the key that sends it -- a letter,
+  or since SIG-361 `\`, `]`, `^` or `_` for 0x1c to 0x1f, and a backtick for
+  NUL. The cursor is an offset into the
   value rather than an index into its clusters -- inserting and slicing stay
   ordinary string work -- and it only ever lands on a boundary `graphemes()`
   agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
@@ -4732,6 +4772,14 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+- **Ctrl-`\` `]` `^` `_`, a lone Alt-`[`, and the Linux console's F1 to F5 are
+  recorded with the binding grammar, not here (SIG-361).** Three readings
+  `decodeKeys()` got wrong, each a key a spec could name and nothing could
+  fire: 0x1c to 0x1f are their keys plus 0x40, a flushed `ESC [` or `ESC O` is
+  the Alt key it was (`DecodeOptions.final`), and `ESC [ [ A` to `E` are
+  `f1` to `f5`. The decisions, and what each one costs, are under "Three keys
+  the decoder misnamed" in `src/input/AGENTS.md`, because the bindings are the
+  reader that made them matter.
 
 ### A number prompt: the parser's reading of a number, in a text field
 
@@ -6135,6 +6183,21 @@ come out, and the answer is the entry you land on.
   `directory` mode that is a list holding only `.`. It reuses the key `path()`
   already has rather than a new one, because the list can be empty from the
   filter as well as from the directory.
+- **A directory state is filtered and sorted once, not once per ask (SIG-364).**
+  A key asks for the listing, and so does each of `redraw()`'s two draws, and
+  every ask was `candidatesOf()` over the whole directory: three filter-and-sorts
+  an arrow key, measured at 19 sorts for six keys and about 0.25s a key at 200,000
+  entries. `candidateCache()` in `path.ts` keeps the last answer and hands it back
+  while its inputs stand still: the entries array by identity (a new directory, or
+  a directory read again, is a new array), the segment, `directory`, whether
+  `hidden` is `true`, and `extensions` by identity. `path()`'s completer had the
+  same three asks per typed key and uses the same cache, so it is one definition
+  for both. It is published from `components/path` because an ejected picker
+  imports it from there. The second draw in `redraw()` stays: it is the one that
+  shows a directory whose read had not landed at the first, and with the cache it
+  costs the visible rows and no sort. The tests count `toSorted()` on `{ dir,
+  name }` arrays (`countEntrySorts()` in the test helpers), since a spy on the
+  export cannot see calls made inside `path.ts`.
 
 What is deliberately not done: typing to filter (that is `path()` and
 `autocomplete()`); a drive list; a `~` or Home key; showing sizes or types;

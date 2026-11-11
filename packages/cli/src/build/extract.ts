@@ -203,7 +203,23 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
   let spread: number | undefined;
 
-  for (const property of object.properties) {
+  // object-literal order is what the module runs with: a spread replaces
+  // whatever came before it, and so does a computed key, which may be `desc`
+  // or `hidden` as easily as anything else -- the reason `keyedPackage()`
+  // refuses either. A lifted key written before the *last* of them is a value
+  // that may be overwritten, so it is unknown rather than read, unless the same
+  // key is written again after it, which wins at run time whatever came before
+  const lastSpread = object.properties.findLastIndex(
+    (property) => property.type === 'SpreadElement' || property.computed
+  );
+  const afterSpread = new Set(
+    object.properties
+      .slice(lastSpread + 1)
+      .map((property) => (property.type === 'SpreadElement' ? undefined : propertyKey(property)))
+  );
+  const beforeSpread = new Set<string>();
+
+  for (const [index, property] of object.properties.entries()) {
     if (property.type === 'SpreadElement') {
       spread ??= property.start;
       continue;
@@ -212,6 +228,32 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
     const key = propertyKey(property);
     if (!key || !(LIFTED as readonly string[]).includes(key)) {
       continue;
+    }
+
+    if (index < lastSpread) {
+      // said once per key, and not at all where a later spelling of it wins
+      if (!afterSpread.has(key) && !beforeSpread.has(key)) {
+        diagnostics.push({
+          ...at(property.start),
+          message:
+            key === 'desc'
+              ? '"desc" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "desc" after the last of them to have it appear in help'
+              : '"hidden" is written before a spread or a computed key, which may replace it when the module runs, so it cannot be read at build time; write "hidden" after the last of them, or this command will be listed in help until its module loads',
+          severity: 'warning',
+        });
+      }
+      beforeSpread.add(key);
+      continue;
+    }
+
+    // a key written twice is the last spelling at run time, so whatever an
+    // earlier one lifted is gone however this one turns out -- an unreadable
+    // later value leaves nothing rather than the earlier literal
+    if (key === 'desc') {
+      delete facts.desc;
+      delete facts.descTranslated;
+    } else {
+      delete facts.hidden;
     }
 
     // a getter or a setter is a function, whatever it would have returned, and
@@ -226,6 +268,12 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
     }
 
     const value = property.value;
+
+    // what the runtime reads as not declared, so it is nothing to lift and
+    // nothing to warn about
+    if (isUndefined(value)) {
+      continue;
+    }
 
     if (key === 'desc') {
       const text = literalString(value);
@@ -273,8 +321,9 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
 
   // a spread can carry anything, so an absent key beside one is unknown rather
   // than absent -- which is the whole difference between a description the
-  // build missed and one nobody wrote
-  if (spread !== undefined && facts.desc === undefined) {
+  // build missed and one nobody wrote. A `desc` written before the spread has
+  // been reported already, by name, and saying it twice says nothing more
+  if (spread !== undefined && facts.desc === undefined && !beforeSpread.has('desc')) {
     diagnostics.push({
       ...at(spread),
       message:

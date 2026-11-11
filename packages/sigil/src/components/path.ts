@@ -268,6 +268,69 @@ export function candidatesOf(
   });
 }
 
+/** What a directory that has not been read offers: nothing, one array for every ask. */
+const NOT_READ: readonly PathEntry[] = Object.freeze([]);
+
+/**
+ * `candidatesOf()` remembered for the last directory state it was asked about.
+ *
+ * A prompt asks for its list several times per key -- once to act on it and once
+ * per draw, and a draw happens before and after the directory's read lands -- and
+ * each ask is a filter and a sort over every entry. At 200,000 entries three of
+ * them are about a quarter of a second, which is every arrow key (SIG-364). So
+ * the answer is kept and handed back while nothing it depends on has moved: the
+ * entries array, by identity, which is what changes when the directory is read or
+ * a different one is asked about; the typed segment; and each field of the filter
+ * that `candidatesOf()` reads, `extensions` by identity. A filter object built
+ * afresh per ask is fine, and a fresh `extensions` array per ask is a miss every
+ * time, which is correct and merely slow.
+ *
+ * One slot rather than one per directory: a state is asked about several times in
+ * a row and then left, and the entries cache already keeps what a directory read.
+ * What it hands back is shared between asks, so it is `readonly` and is not to be
+ * changed.
+ *
+ * @param flavour - Whose file system this is, as `candidatesOf()` takes it.
+ * @returns A function answering as `candidatesOf()` does, given a directory's
+ *   entries or `undefined` for one not read yet.
+ */
+export function candidateCache(
+  flavour: PathFlavour = nodePath
+): (
+  entries: readonly PathEntry[] | undefined,
+  segment: string,
+  filter?: PathFilter
+) => readonly PathEntry[] {
+  let last:
+    | {
+        directory: boolean;
+        entries: readonly PathEntry[];
+        extensions: readonly string[] | undefined;
+        hidden: boolean;
+        offered: readonly PathEntry[];
+        segment: string;
+      }
+    | undefined;
+
+  return (entries = NOT_READ, segment, filter = {}) => {
+    const directory = Boolean(filter.directory);
+    const hidden = filter.hidden === true;
+    if (
+      last !== undefined &&
+      last.entries === entries &&
+      last.segment === segment &&
+      last.directory === directory &&
+      last.hidden === hidden &&
+      last.extensions === filter.extensions
+    ) {
+      return last.offered;
+    }
+    const offered = candidatesOf(entries, segment, filter, flavour);
+    last = { directory, entries, extensions: filter.extensions, hidden, offered, segment };
+    return offered;
+  };
+}
+
 /**
  * The longest prefix every name shares, in the first name's spelling.
  *
@@ -449,7 +512,7 @@ interface Completer {
   /** What completing to an entry makes the typed path. */
   completion(value: string, entry: PathEntry): string;
   /** The candidates for a typed path, from what has been read so far. */
-  candidates(value: string): PathEntry[];
+  candidates(value: string): readonly PathEntry[];
   /** Whether the directory a typed path is in has been read. */
   known(value: string): boolean;
   /** Reads the directory a typed path is in, unless it has been. */
@@ -467,6 +530,7 @@ interface Completer {
 /** Makes the completer for one prompt, with nothing read. */
 function completer(base: string, filter: PathFilter, flavour: PathFlavour): Completer {
   const cache = entryCache();
+  const offer = candidateCache(flavour);
 
   function target(value: string): string | undefined {
     return directoryOf(splitTyped(value, flavour).dir, base, flavour);
@@ -482,8 +546,7 @@ function completer(base: string, filter: PathFilter, flavour: PathFlavour): Comp
       const { dir, segment } = splitTyped(value, flavour);
       const rooted = dir === '' ? rootName(segment, flavour) : undefined;
       const where = target(value);
-      const found =
-        where === undefined ? [] : candidatesOf(cache.get(where) ?? [], segment, filter, flavour);
+      const found = where === undefined ? [] : offer(cache.get(where), segment, filter);
 
       // a root names a directory the working directory has no entry for, so it
       // goes in front of whatever happens to start with the same characters
@@ -578,7 +641,7 @@ export function path(opts: PathOptions): Promise<string> {
   let start = 0;
   let error: string | undefined;
   let finished = false;
-  let shown: PathEntry[] = [];
+  let shown: readonly PathEntry[] = [];
 
   /**
    * Reads the directory the field is in, unless it already has.
@@ -597,7 +660,7 @@ export function path(opts: PathOptions): Promise<string> {
   }
 
   /** The candidates for the field as it is now, from what has been read. */
-  function candidates(): PathEntry[] {
+  function candidates(): readonly PathEntry[] {
     return complete.candidates(value);
   }
 

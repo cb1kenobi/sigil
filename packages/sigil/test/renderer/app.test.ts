@@ -683,6 +683,29 @@ describe('runApp()', () => {
     expect(said).toContain('re timer frame broke');
   });
 
+  // SIG-342: the default report trimmed with an unanchored `/[\r\n]+$/`, which is
+  // quadratic in an interior run of newlines -- and a message can hold one
+  it('should not stall reporting an error whose message holds a long run of newlines', async () => {
+    const gap = '\n'.repeat(200_000);
+    const boom = new State(false);
+    const { app, term } = start(() => {
+      const label = text('');
+      createEffect(() => {
+        if (boom.get()) {
+          throw new Error(`frame${gap}broke`);
+        }
+        label.setText('fine');
+      });
+      return label;
+    });
+    app.view.frame();
+    boom.set(true);
+    app.view.frame();
+
+    expect(await app.exited).toBe(1);
+    expect(term.output).toContain(`Error: frame${gap}broke\n`);
+  });
+
   it('should end with 1 when the first frame fails inside runApp()', async () => {
     // a resize handler runs inside the first frame's layout, and `render()` paints
     // that frame before it returns -- so the failure is reported before there is a

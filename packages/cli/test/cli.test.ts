@@ -3,7 +3,7 @@ import { run, schema, version } from '../src/index.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +29,30 @@ function captureStdout() {
       return chunks.join('');
     },
   };
+}
+
+/** Tab, newline and carriage return: a file's own formatting, not a sequence. */
+const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
+
+/**
+ * Every code point in `text` that a terminal would act on rather than print,
+ * with how often each occurs.
+ *
+ * C0 and `DEL`, then C1 -- where U+009B is a CSI all by itself, and is one of
+ * the two escapes `packages/sigil/src/ansi/codes.ts` builds. This used to live in
+ * `packages/sigil/test/dist.test.ts` and read that package's `dist/` alone; it
+ * moved here, where the suite already needs every package built, so that one
+ * definition covers all five.
+ */
+function controlCharacters(text: string): Map<number, number> {
+  const found = new Map<number, number>();
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (!FORMATTING.has(code) && (code < 0x20 || (code >= 0x7f && code <= 0x9f))) {
+      found.set(code, (found.get(code) ?? 0) + 1);
+    }
+  }
+  return found;
 }
 
 describe('@ttylabs/cli', () => {
@@ -318,15 +342,25 @@ describe('@ttylabs/cli', () => {
       // somebody makes on purpose and can be asked about in review.
       expect(Object.keys(pkg.dependencies).sort()).toEqual([
         '@ttylabs/sigil',
-        // the splice that compiles an app's templates rewrites source, and a
-        // rolldown `transform` that returns code without a map is
-        // `SOURCEMAP_BROKEN` *and* drops the module from the map -- measured.
-        // So the rewrite is tracked rather than done with string surgery, by
-        // the tool rollup and vite use for it, which rolldown already brings
-        'magic-string',
         'oxc-parser',
         'rolldown',
       ]);
+    });
+
+    it('should not make an install download what the bundle already inlined', () => {
+      // the splice that compiles an app's templates rewrites source, and a
+      // rolldown `transform` that returns code without a map is
+      // `SOURCEMAP_BROKEN` *and* drops the module from the map -- measured. So
+      // the rewrite is tracked by `magic-string`, the tool rollup and vite use
+      // for it. It is plain JavaScript and `sigil.json` does not name it as
+      // external, so `sigil build` inlines it: it is a devDependency, because a
+      // production dependency nothing loads is a download every install of the
+      // toolchain pays for. Should it ever become external, it has to move back
+      const config = readSigilConfig(root);
+
+      expect(pkg.dependencies).not.toHaveProperty('magic-string');
+      expect(pkg.devDependencies).toHaveProperty('magic-string');
+      expect(config.build?.external).not.toContain('magic-string');
     });
   });
 
@@ -415,6 +449,139 @@ describe('@ttylabs/cli', () => {
       const npmrc = readFileSync(resolve(root, '../../.npmrc'), 'utf-8');
       expect(npmrc).toMatch(/^save-exact=true$/m);
     });
+  });
+
+  /**
+   * What each published package actually puts in its tarball, asked of the
+   * tool that publishes it.
+   *
+   * Read off `packages/` rather than listed, for the reason `the root build
+   * filter` reads it: a sixth package joins these checks or fails them, and it
+   * cannot be left out quietly.
+   */
+  describe('what every package publishes', () => {
+    const packagesDir = resolve(root, '..');
+    const published = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const dir = resolve(packagesDir, entry.name);
+        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8')) as {
+          license?: string;
+          name: string;
+          private?: boolean;
+        };
+        return { dir, manifest, name: manifest.name };
+      })
+      .filter(({ manifest }) => manifest.private !== true);
+
+    /**
+     * The files `pnpm pack` would put in the tarball, by their path inside it.
+     *
+     * pnpm rather than npm, because `pnpm -r publish` is what the publish
+     * workflow runs and the two do not agree: npm packs a LICENSE only when it
+     * sits in the package directory, while pnpm packs the workspace root's when
+     * the package has none of its own -- so `npm pack` lists no LICENSE for any
+     * of these and the tarball pnpm publishes holds one. The publisher's own
+     * answer is the one worth asserting.
+     *
+     * `npm_execpath` is pnpm itself whenever pnpm started the run, which is how
+     * `pnpm test` reaches vitest; it is a native binary on pnpm 12 and a script
+     * on older ones. Failing that, `pnpm` off the `PATH`, through a shell on
+     * Windows, where it is a `.cmd` or an `.exe` and only a shell finds both.
+     */
+    function packList(dir: string): string[] {
+      const execpath = process.env.npm_execpath;
+      const args = ['pack', '--dry-run', '--json'];
+      const result =
+        execpath !== undefined && /^pnpm/i.test(basename(execpath))
+          ? /\.[cm]?js$/.test(execpath)
+            ? spawnSync(process.execPath, [execpath, ...args], { cwd: dir, encoding: 'utf-8' })
+            : spawnSync(execpath, args, { cwd: dir, encoding: 'utf-8' })
+          : process.platform === 'win32'
+            ? spawnSync(`pnpm ${args.join(' ')}`, { cwd: dir, encoding: 'utf-8', shell: true })
+            : spawnSync('pnpm', args, { cwd: dir, encoding: 'utf-8' });
+
+      if (result.status !== 0) {
+        throw new Error(`pnpm pack failed in ${dir}: ${result.stderr || result.stdout}`);
+      }
+      // anything printed ahead of the JSON is not the answer. pnpm prints one
+      // object and npm an array of them, so either opening bracket starts it
+      const start = result.stdout.search(/[[{]/);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(result.stdout.slice(start));
+      } catch {
+        throw new Error(`pnpm pack in ${dir} printed no JSON: ${result.stdout || result.stderr}`);
+      }
+      const pack = (Array.isArray(parsed) ? parsed[0] : parsed) as
+        | { files?: { path: string }[] }
+        | undefined;
+      if (!Array.isArray(pack?.files)) {
+        throw new Error(`pnpm pack in ${dir} listed no files: ${result.stdout}`);
+      }
+      return pack.files.map((file) => file.path.replaceAll('\\', '/'));
+    }
+
+    it('should find every package it means to check', () => {
+      // a scan that stopped finding them would pass everything below by
+      // checking nothing
+      expect(published.map(({ name }) => name).sort()).toStrictEqual([
+        '@ttylabs/cli',
+        '@ttylabs/config-xml',
+        '@ttylabs/config-yaml',
+        '@ttylabs/screenshot',
+        '@ttylabs/sigil',
+      ]);
+    });
+
+    it.each(published.map(({ dir, manifest, name }) => [name, dir, manifest] as const))(
+      'should carry the license its manifest names: %s',
+      (_name, dir, manifest) => {
+        // MIT asks for the notice to accompany every copy, and a tarball is a
+        // copy. The file is the repository root's, which pnpm packs for a
+        // package with none of its own -- so there is one LICENSE to keep
+        // current rather than six that can drift apart
+        expect(manifest.license).toBe('MIT');
+        expect(packList(dir)).toContain('LICENSE');
+        expect(readFileSync(resolve(root, '../../LICENSE'), 'utf-8')).toContain(
+          'Permission is hereby granted, free of charge'
+        );
+      }
+    );
+
+    it.each(published.map(({ dir, name }) => [name, dir] as const))(
+      'should ship no raw control character: %s',
+      (_name, dir) => {
+        // a raw `ESC` in a shipped file is a sequence waiting for something to
+        // print it, and Node prints the offending source line on an uncaught
+        // error -- so a crash anywhere inside a bundle wrote `ESC ] 8 ; ;` to
+        // the user's terminal and left every line after it inside a hyperlink
+        // nothing closed. `@ttylabs/sigil` and `@ttylabs/cli` escape them as
+        // they build; the other three minify with nothing doing so, and are
+        // clean only because nothing they hold folds into one yet. Every file
+        // under `dist/` is read, declarations included, since all of it ships
+        const dist = join(dir, 'dist');
+        const files = readdirSync(dist, { encoding: 'utf8', recursive: true }).filter((name) =>
+          statSync(join(dist, name)).isFile()
+        );
+        expect(files.length, `nothing in ${dist}; run \`pnpm build\``).toBeGreaterThan(0);
+
+        const found: string[] = [];
+        for (const name of files) {
+          const counts = controlCharacters(readFileSync(join(dist, name), 'utf8'));
+          if (counts.size > 0) {
+            const report = [...counts]
+              .map(
+                ([code, count]) => `U+${code.toString(16).toUpperCase().padStart(4, '0')} x${count}`
+              )
+              .join(', ');
+            found.push(`${name}: ${report}`);
+          }
+        }
+
+        expect(found).toStrictEqual([]);
+      }
+    );
   });
 
   describe('the fixtures', () => {
@@ -939,6 +1106,26 @@ describe('@ttylabs/cli', () => {
         .map((name) => readFileSync(resolve(dirname(bin), name), 'utf-8'));
 
       expect(chunks.some((chunk) => /from\s*["']@ttylabs\/sigil["']/.test(chunk))).toBe(true);
+    });
+
+    it('should inline magic-string, which is why it is only a devDependency', () => {
+      // the other half of `should not make an install download what the bundle
+      // already inlined`: a chunk that imported it by name would be a bin that
+      // dies on `ERR_MODULE_NOT_FOUND` for anyone who installed the toolchain
+      // without its devDependencies, which is everyone
+      const dist = dirname(bin);
+      const chunks = readdirSync(dist, { encoding: 'utf8', recursive: true })
+        .filter((name) => name.endsWith('.mjs'))
+        .map((name) => readFileSync(resolve(dist, name), 'utf-8'));
+
+      // backticks as well as quotes: rolldown's minifier writes a dynamic
+      // import's specifier as a template literal -- ``import(`rolldown`)`` is in
+      // this very build -- so a lazy import of it would be invisible to a quote
+      // pattern. The inlined warning's `rich-harris/magic-string` URL has a `/`
+      // in front of the name, so it is not mistaken for one
+      expect(chunks.some((chunk) => /[`"']magic-string[`"']/.test(chunk))).toBe(false);
+      // its own warning text, which survives minification where a name does not
+      expect(chunks.some((chunk) => chunk.includes('rich-harris/magic-string'))).toBe(true);
     });
 
     it('should answer --version when run as a real process', () => {
