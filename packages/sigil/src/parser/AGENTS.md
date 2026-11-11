@@ -1654,7 +1654,13 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   has the same shape and is left alone: it adds two options that depend on each
   other and refuses a command that left room for neither.
 - **`env` is read by `envNames()` in `src/util/env-names.ts`**, for an option and
-  an argument alike, taking the one word of the error that differed.
+  an argument alike, taking the one word of the error that differed. A config
+  setting's `env` is the same shape read under a different contract, and is
+  deliberately not folded in: `readSchema()` in `src/config/schema.ts` **refuses**
+  an empty or non-string entry where an option or an argument skips it, and the
+  list it reads is an array rather than a set. Merging them would change one of
+  the two, so the config one is `settingEnvNames()`, private to that module,
+  and only the parser's two readers share a definition.
 
 ### Sharing options between commands
 

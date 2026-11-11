@@ -56,7 +56,7 @@ export async function addFreeFlag(
   const option = options.find(long);
   if (option) {
     // a flag always has a value, and this one is not the app's: an app that
-    // never declared it should not find `help: false` in its argv
+    // never declared it should not find `<name>: false` in its argv
     option[Internal].parserOwned = true;
   }
 
