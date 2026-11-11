@@ -1468,6 +1468,21 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   which rolldown already brings into the lockfile. `the toolchain's dependencies`
   in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
   edit somebody makes on purpose; this is that edit.
+- **...and it is a `devDependency`, because the bundle inlines it (SIG-357).**
+  It sat in `dependencies` from the day it was taken, while `sigil.json`'s
+  `external` names only `@ttylabs/sigil`, `oxc-parser` and `rolldown` -- the
+  three that really are imports at run time, two of them for the native-binding
+  reason above. So `sigil build` inlines `magic-string` into the toolchain's own
+  bundle (no file under `dist/` imports the bare specifier, grepped), and every
+  install of `@ttylabs/cli` downloaded a package nothing loads. `the toolchain's
+  dependencies` is three names now, and two tests hold the move from both sides:
+  `should not make an install download what the bundle already inlined` asserts
+  the manifest and that `external` does not name it, and `should inline
+  magic-string, which is why it is only a devDependency` reads the built chunks
+  for an import of it (none) and for its own warning text (present). Should it
+  ever join `external`, it has to go back to `dependencies`, and the first test
+  says so. Running from source (`node src/sigil.ts`) still finds it, since a
+  workspace install brings devDependencies.
 - **The prefix contract is the caller's, and `choosePrefix()` is the whole of
   it.** `compile()` puts a prefix on every name it generates and cannot check that
   the prefix is free, because it is handed IR rather than a file. It matters both
@@ -1924,7 +1939,8 @@ other is refused with numbers.
   code went into the bundle is reported with its size, `@ttylabs/sigil` included
   -- what the runtime costs is exactly as worth knowing as what a dependency
   costs. It found something on the first run: `magic-string` is **46.3 kB** of
-  the toolchain's own bundle.
+  the toolchain's own bundle -- inlined, which is why it is a devDependency (see
+  "...and it is a `devDependency`" above).
 
   A module is the app's **own** when it is inside the app root _and_ under no
   `node_modules`, and a dependency's otherwise. Both halves are load-bearing and

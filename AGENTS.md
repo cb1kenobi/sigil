@@ -634,7 +634,8 @@ These look like bugs and are not. Each is intentional and covered by tests.
   `ESC` bytes and one OSC 8 executed, from a one-line script that only called
   `rgb()` with a bad channel. A build step escapes every C0, `DEL` and C1
   character to `\xNN`, which is the same string to JavaScript and inert to a
-  terminal, and `test/dist.test.ts` reads the bytes back -- a build that quietly
+  terminal, and `should ship no raw control character` in
+  `packages/cli/test/cli.test.ts` reads the bytes back -- a build that quietly
   stops doing it looks exactly like one that does. `\t`, `\n` and `\r` are left
   alone as the file's own formatting. This is the same rule the alternate screen
   and the cursor already follow: a CLI that dies must not take the terminal with
@@ -651,7 +652,7 @@ These look like bugs and are not. Each is intentional and covered by tests.
   misses -- the identical bug, waiting for the file above it to grow. Neither was
   wrong to the regex engine, and that is the point: what a raw control character
   costs is paid by whoever reads it. Both are written `\u0000` now, and
-  `test/sources.test.ts` is the other half of `test/dist.test.ts` -- one reads
+  `test/sources.test.ts` is the other half of that `dist/` check -- one reads
   what shipped, one reads what is committed. A handful of tests and demos really
   are describing a terminal's own bytes and hold them literally; they are an
   explicit list rather than an inferred rule, so that the next one is a decision
@@ -1422,6 +1423,28 @@ why rather than what: it is the record of what each round found.
   dependency is deliberately left one, since it declares what the toolchain
   accepts from an app rather than what it installs, and pinning `typescript`
   would refuse every app on a different one.
+- **Every tarball carries the root `LICENSE`, and pnpm is what puts it there.**
+  MIT asks for the notice to go with every copy. No package directory holds a
+  `LICENSE`, so `npm pack` lists none -- but the publish workflow runs
+  `pnpm -r publish`, and pnpm packs the workspace root's `LICENSE` into a
+  package that has none of its own (checked by extracting a real `pnpm pack` of
+  `config-xml`: its `LICENSE` is byte-identical to the root file). So there is one file to keep current and
+  no copies to drift; a `prepack` copy would have been a lifecycle script, which
+  an install or publish with scripts disabled skips. `should carry the license
+  its manifest names` in `packages/cli/test/cli.test.ts` asks `pnpm pack
+  --dry-run --json` for each published package and fails if `LICENSE` is not in
+  the list -- which is what catches a move to `npm publish`, or a pnpm that stops
+  doing it. If a package ever needs a different licence, it commits its own.
+- **What ships is checked for raw control characters in every package, by one
+  test.** The rule is under "Deliberate decisions" above. `@ttylabs/sigil` and
+  `@ttylabs/cli` escape them as they build; `config-xml`, `config-yaml` and
+  `screenshot` minify with no escape pass and were clean only because nothing
+  they hold folds into one. `should ship no raw control character` in
+  `packages/cli/test/cli.test.ts` reads every file under every published
+  package's `dist/`, declarations included, with the one definition of the rule
+  (it moved there from `packages/sigil/test/dist.test.ts`, which read one
+  package). If it ever fails for one of the three, the fix is the escape pass in
+  that build config, not an exception here.
 - ESM only. Imports use `.js` extensions even for `.ts` sources -- **except
   inside `packages/cli/src/`, which uses `.ts`**. That is not drift, it is what
   makes `node src/sigil.ts build ...` work: Node's type stripping is erasure and
