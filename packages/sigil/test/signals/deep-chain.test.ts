@@ -7,8 +7,35 @@ import {
   watched,
   unwatched,
 } from '../../src/signals/index.js';
-import { spawn } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { beforeAll, describe, expect, it } from 'vitest';
+
+/**
+ * The built signals entry, which the stack-size children import. Built rather
+ * than the source because a child is plain node: type stripping erases types
+ * and does not rewrite specifiers, so `graph.ts` imported as source works only
+ * for as long as it imports nothing -- the first `./x.js` import in it is a
+ * module not found in every child. The suite's other children read `dist/` for
+ * the same reason, and build it the same way when it is missing.
+ */
+const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), '../..'), 'dist', 'signals.mjs');
+
+beforeAll(() => {
+  if (!existsSync(dist)) {
+    const root = resolve(dirname(dist), '..');
+    const built = spawnSync('pnpm', ['build'], { cwd: root, encoding: 'utf-8' });
+    // a build that never started has no output to report, so say what stopped
+    // it instead of printing two `undefined`s
+    if (built.error || built.status !== 0) {
+      throw new Error(
+        `build failed:\n${built.error?.message ?? `${built.stdout}\n${built.stderr}`}`
+      );
+    }
+  }
+}, 120000);
 
 /**
  * A chain this long is far past any native stack this package runs on: the
@@ -70,9 +97,8 @@ function chain(bottomUp: boolean, catching = false) {
  * @returns How many links were wrong, and anything the child wrote to stderr.
  */
 function atStackSize(stackSize: number, catching: boolean): Promise<string> {
-  const graph = new URL('../../src/signals/graph.ts', import.meta.url).href;
   const script = `
-    const { State, Computed } = await import(${JSON.stringify(graph)});
+    const { State, Computed } = await import(${JSON.stringify(pathToFileURL(dist).href)});
     const s = new State(0);
     const links = [];
     let prev = s;
@@ -101,12 +127,7 @@ function atStackSize(stackSize: number, catching: boolean): Promise<string> {
     ]);
     let out = '';
     child.stdout.on('data', (chunk) => (out += chunk));
-    child.stderr.on('data', (chunk) => {
-      // Node 22 announces type stripping on stderr; anything else is the answer
-      if (!/ExperimentalWarning|--trace-warnings/.test(String(chunk))) {
-        out += chunk;
-      }
-    });
+    child.stderr.on('data', (chunk) => (out += chunk));
     child.on('close', () =>
       resolve(`${stackSize}/${catching ? 'catching' : 'plain'}: ${out.trim()}`)
     );
