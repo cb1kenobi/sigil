@@ -131,6 +131,33 @@ describe('the registry', () => {
     expect(specs).not.toContain(`${pkg.name}/components/${name}`);
   });
 
+  /**
+   * Entries that import one subpath twice already in their source, so their copy
+   * does too. An explicit list rather than a rule, so that the next one is a
+   * decision: `prompt` imports `../input/index.js` in two statements on `main`,
+   * and the file is being rewritten elsewhere.
+   */
+  const DUPLICATED: Readonly<Record<string, readonly string[]>> = {
+    prompt: [`${pkg.name}/input`],
+  };
+
+  it.each(names)('should import each subpath once, in %s', (name) => {
+    // two source modules can be published by one subpath -- a leaf re-exported by
+    // the renderer is the renderer to an ejected copy -- and a copy that imports
+    // one subpath in two statements is what `import/no-duplicates` flags in the
+    // app that ran `sigil add`. Value imports only: an `import type` beside a
+    // value import of the same module is not a duplicate to that rule (SIG-366)
+    const code = readFileSync(join(registry, `${name}.ts`), 'utf-8').replaceAll(
+      /\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm,
+      ''
+    );
+    const specs = [...code.matchAll(/^import\s+(?!type\b)[^;]*?\bfrom\s*'([^']+)'/gm)].map(
+      ([, spec]) => spec as string
+    );
+    const twice = [...new Set(specs.filter((spec, i) => specs.indexOf(spec) !== i))];
+    expect(twice).toStrictEqual(DUPLICATED[name] ?? []);
+  });
+
   it('should import some sibling from a subpath, so the absence above means something', () => {
     const siblings = names.flatMap((name) =>
       (manifest.entries[name]?.imports ?? []).filter((spec) =>

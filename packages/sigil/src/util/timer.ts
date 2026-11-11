@@ -11,6 +11,7 @@
  * so that none of them loads another for it. It is published from
  * `@ttylabs/sigil/renderer`, whose frame loop is the package's own timer and
  * which the clock and the toast both import already -- so an ejected copy of
- * either loads nothing more for it.
+ * either loads nothing more for it. They import it from the renderer rather
+ * than from here, so that a copy has one import of that subpath and not two.
  */
 export const MAX_TIMER_DELAY: number = 2 ** 31 - 1;

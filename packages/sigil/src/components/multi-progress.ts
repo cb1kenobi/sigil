@@ -34,7 +34,11 @@ export interface MultiProgressOptions extends MountOptions, ProgressStatsOptions
    * line is written above the frame instead and its row goes.
    */
   keep?: boolean;
-  /** How often a plain log line is written for each bar when there is no terminal, in percent. Defaults to 10. */
+  /**
+   * How often a plain log line is written for each bar when there is no
+   * terminal, in percent. Defaults to 10. A whole number of percent: a fraction
+   * is rounded, and below 1 is every percent.
+   */
   step?: number;
 }
 

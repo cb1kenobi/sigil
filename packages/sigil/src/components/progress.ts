@@ -41,7 +41,11 @@ export interface ProgressOptions extends MountOptions, ProgressStatsOptions {
   text?: string;
   /** How wide the bar itself is. Defaults to a third of the terminal, 10-40. */
   barWidth?: number;
-  /** How often a plain log line is written when there is no terminal, in percent. Defaults to 10. */
+  /**
+   * How often a plain log line is written when there is no terminal, in percent.
+   * Defaults to 10. A whole number of percent: a fraction is rounded, and below 1
+   * is every percent.
+   */
   step?: number;
   /** How many units of work there are. Defaults to 100. */
   total?: number;

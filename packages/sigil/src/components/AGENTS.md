@@ -11911,7 +11911,8 @@ duplicates, and each pair was compared before it was folded.
   the same reason), `DIGITS` (the select row's and the data table's, both the
   nine columns a digit sorts), `noSize()` (the pane's and the scroll box's
   absolute `raw` elements) and the trees' `FIXED` run were each the same value
-  meaning the same thing. `TREE_FIXED` is frozen, as every exported object here is.
+  meaning the same thing. `TREE_FIXED` is frozen because it is exported, as
+  `PROMPT_SYMBOLS` is: a caller that wrote to it would change every tree.
 - **The timer limit had three more copies outside this directory**, the input
   router's sequence timeout, the testing helpers' delay and the config watcher's
   debounce, and all five read `src/util/timer.ts` now. The config entry gained
@@ -11927,10 +11928,18 @@ duplicates, and each pair was compared before it was folded.
   is now that a helper lives where its owner's ejected copy has it in hand:
   - `noSize()` is `@ttylabs/sigil/element`'s, beside `raw()`, which the pane and
     the scroll box both import already.
-  - `MAX_TIMER_DELAY` is a leaf every reader imports, re-exported by
-    `@ttylabs/sigil/renderer` -- the frame loop is the package's own timer, and
-    the clock and the toast both import it already -- and mapped there in
-    `generate-registry.mjs`'s `BARRELLED`.
+  - `MAX_TIMER_DELAY` is a leaf, re-exported by `@ttylabs/sigil/renderer` --
+    the frame loop is the package's own timer, and the clock and the toast both
+    import it already. The input router, the testing helpers and the config
+    watcher import the leaf; the clock and the toast import it from the renderer,
+    in the same statement as the rest of what they take from there. Mapping the
+    leaf in `BARRELLED` was the first answer and review found what it did: an
+    ejected clock imported `@ttylabs/sigil/renderer` in two statements, which
+    `import/no-duplicates` flags in the app that ran `sigil add`. So the leaf is
+    not mapped, and a component that imports it is refused by the generator.
+    `should import each subpath once` in `test/registry.test.ts` holds every
+    entry to it, with `prompt`'s two imports of the input router -- on `main`
+    already, in a file being rewritten elsewhere -- listed as the one exception.
   - `decimalPlaces()` is the slider's own, defined in `slider.ts`, and `number()`
     imports it from there. No existing subpath both of them load has anything to
     do with numbers, and a new one for one function is the exception the root

@@ -3787,7 +3787,8 @@ exported if you want the arithmetic without the bar.
 
 Both degrade the same way. Piped, there is nothing to animate, so a spinner
 writes one line per **change** and a bar one line every `step` percent — not
-one per tick:
+one per tick (`step` is a whole number of percent: a fraction is rounded, and
+anything below 1 is every percent):
 
 ```
 Resolving
@@ -3829,7 +3830,9 @@ terminal back, `group.stop()` erases it, and `group.write(line)` prints above th
 bars.
 
 Piped, there are no bars and no frame: each bar writes a labelled line of its own
-every `step` percent, so six interleaved downloads can still be followed.
+every `step` percent, so six interleaved downloads can still be followed. `step`
+is read as the single bar reads it: a whole number of percent, a fraction
+rounded, and anything below 1 every percent.
 
 ```
 react 0%
@@ -6292,7 +6295,9 @@ there for a component you write yourself too:
   share: a value held between 0 and the total, and 0 when either is not a finite
   number; a total kept only when it is positive and finite; a step in whole
   percents, 10 when it is not a positive, finite number; how far along a state
-  is; and the whole percentage a bar shows. None of them answers `NaN`.
+  is; and the whole percentage a bar shows. The clamp and the percentage never
+  answer `NaN`; `progressRatio()` over a state built by hand can, and the
+  percentage reads that as 0, as the bar does.
 - `decimalPlaces(value)`, from `@ttylabs/sigil/components/slider`, is how many
   digits follow the point when a number is written out, exponent form included
   -- `1e-7` is 7 -- so that a sum of steps can be rounded back. The slider and

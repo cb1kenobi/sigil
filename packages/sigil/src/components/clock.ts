@@ -1,7 +1,6 @@
 import { type Element, text as textNode } from '../element/index.js';
-import { createEffect } from '../renderer/index.js';
+import { createEffect, MAX_TIMER_DELAY } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
-import { MAX_TIMER_DELAY } from '../util/timer.js';
 import { type MountOptions, mountLevel } from './mount.js';
 import { formatDuration } from './progress.js';
 

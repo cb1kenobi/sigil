@@ -357,17 +357,16 @@ function entryMap() {
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
  *
- * `src/util/timer.ts` is `MAX_TIMER_DELAY`, which the clock, the toast, the input
- * router, the testing helpers and the config watcher share (SIG-366). It is
- * re-exported by `@ttylabs/sigil/renderer`, which the clock and the toast both
- * import already, so an ejected copy of either loads nothing more for it -- and
- * neither imports its own built-in subpath, which a leaf re-exported by the
- * component itself would have made it do.
+ * `src/util/timer.ts`, `MAX_TIMER_DELAY`, is deliberately **not** here (SIG-366).
+ * It is re-exported by `@ttylabs/sigil/renderer`, and the clock and the toast
+ * import it from there: mapped here, a component importing the leaf would have
+ * its ejected copy import the renderer twice, once per source line, which
+ * `import/no-duplicates` flags in the app that ran `sigil add`. Unmapped, a
+ * component that imports the leaf is refused below, naming it.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
-  ['src/util/timer.ts', 'renderer'],
 ]);
 
 /**

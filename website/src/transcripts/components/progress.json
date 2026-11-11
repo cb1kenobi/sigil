@@ -45,7 +45,7 @@
         "type": "boolean"
       },
       {
-        "description": "How often a plain log line is written when there is no terminal, in percent. Defaults to 10.",
+        "description": "How often a plain log line is written when there is no terminal, in percent. Defaults to 10. A whole number of percent: a fraction is rounded, and below 1 is every percent.",
         "default": "10",
         "name": "step",
         "optional": true,
