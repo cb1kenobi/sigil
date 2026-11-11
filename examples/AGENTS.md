@@ -30,13 +30,13 @@ the `ui` tag run by plain `node`.
 - **The contract, which `packages/cli/test/examples.test.ts` reads.** An example
   is `examples/<name>/` with:
 
-  | Path                    | What it is                                                                                                                                                                             |
-  | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `package.json`          | `"name": "@ttylabs/example-<name>"`, `"private": true`, `"type": "module"`, `@ttylabs/sigil` as `workspace:*`                                                                          |
-  | `src/root*.{tsx,ts,js}` | One per syntax: `root.tsx` for JSX, `root.ui.ts` (or `root.ts`/`root.js` in a `ui`-only example) for the tag. Each exports `App(): Element`, taking no props, and `stylesheet: string` |
-  | `src/ui.{ts,js}`        | The entry Node runs unbuilt, when there is a `ui`-tag root; with `src/index.ts`, an entry is `process.exitCode = await runApp(App, { sheets: [stylesheet] }).exited`                   |
-  | `bin`, `scripts.build`  | A JSX example only: `"build": "sigil build"` and exactly one `bin`, which is what it builds to                                                                                         |
-  | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                 |
+  | Path                    | What it is                                                                                                                                                                                                                                     |
+  | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `package.json`          | `"name": "@ttylabs/example-<name>"`, `"private": true`, `"type": "module"`, `@ttylabs/sigil` as `workspace:*`                                                                                                                                  |
+  | `src/root*.{tsx,ts,js}` | One per syntax: `root.tsx` for JSX, `root.ui.ts` (or `root.ts`/`root.js` in a `ui`-only example) for the tag. Each exports `App(): Element`, taking no props, and `stylesheet: string`                                                         |
+  | `src/ui.{ts,js}`        | The entry Node runs unbuilt, when there is a `ui`-tag root; with `src/index.ts`, an entry is `process.exitCode = await runApp(App, { sheets: [stylesheet] }).exited`, with whatever other option the app needs (`settings` turns the mouse on) |
+  | `bin`, `scripts.build`  | A JSX example only: `"build": "sigil build"` and exactly one `bin`, which is what it builds to                                                                                                                                                 |
+  | `test/`                 | Tests of the example's own, which vitest picks up as a project named after the package                                                                                                                                                         |
 
   `App` reaches the app it runs under through `useApp()`: `input` for the router
   and `exit()` to end it. Every example quits with `0` on `q` and with `130` on
@@ -346,6 +346,114 @@ the `ui` tag run by plain `node`.
   will follow its answer; the guide's console blocks are illustration, since a
   transcript of a full screen is not a thing to replay; and examples are not on
   the website, which is SIG-298.
+
+### A settings screen and a login form (SIG-293)
+
+`examples/settings`. The two blocks a web developer looks for first, and the
+caller SIG-199's form controls were waiting for: a sidebar of sections, a radio
+set, a slider, a switch, checkboxes and text fields, Save and Cancel over an
+unsaved-changes state, and a login form in a dialog. It found three gaps, each a
+ticket and each marked where the example works around it. How each answer below
+was tested, and the sabotage pass, are in
+[docs/history/a-settings-screen-and-a-login-form.md](../docs/history/a-settings-screen-and-a-login-form.md).
+
+- **JSX alone, and built.** SIG-275 asked for the two syntaxes to be compared
+  once and each later example to pick one; `hello` is the comparison and the
+  system monitor picked the tag. A form is where JSX pays: a dozen controls whose
+  props are spelled out each time, all of them checked by the build's `tsc`. So
+  there is no `src/ui.ts`, the harness's same-screen check and unbuilt-entry
+  checks do not run for it, and `--version` comes from the version `sigil build`
+  bakes into the bin.
+
+- **The ticket's open question: a field's error line is the form's, and the form
+  is `src/form.ts`.** SIG-215 settled that a field does not own validation, and
+  this is where it went. `createForm(initial, checks)` holds a `State` per field,
+  which the control is handed and writes, and a `Computed` error per field from a
+  check that is handed _every_ value -- so a check can be about two fields: the
+  phone number is required only while SMS is ticked, and ticking SMS re-runs the
+  phone's check. On top of those: `dirty`, `errors` in declaration order,
+  `valid`, `commit()` for Save, `revert()` for Cancel, and `touch()`.
+
+  Where it is shown is two places, and they differ on purpose. **Under the
+  field**, a row reserved whether or not it says anything (`Problem` in
+  `rows.tsx`, the row the prompts keep for theirs, so an error appearing moves
+  nothing), blank until the field is _touched_ and from then on following every
+  key, so a fix takes it away at once. **In the bar beside Save**, at once and
+  whichever section the field is in: `Can't save: Phone: SMS needs a phone number`
+  while the Notifications section is showing, with Profile marked `!` in the
+  sidebar. A disabled Save with no reason anywhere on screen is the trap the bar
+  exists for; a field's own line waiting is what keeps a half-typed address from
+  being called wrong. Enter on a form that cannot be saved, and Enter in the
+  login's password while it is invalid, touch every field, since a submit the
+  form refused has to say why.
+
+- **Touched is the focus leaving a field once, read off the router.** Not the
+  first edit: `not an email address` after typing `a` is about a value nobody has
+  finished. `touchOnLeave()` watches `input.focus.current` in an effect rather
+  than the field's own `onFocusChange`, because `TextField` owns that hook and
+  refuses it in `props` (SIG-305's table).
+
+- **Not extracted, and SIG-338 is the extraction.** The settings screen and the
+  login dialog use different halves of `createForm()` -- one saves and reverts,
+  the other only checks and submits -- which is evidence it is one shape. It is
+  not evidence of the published API: where it lives (it has no elements, so not
+  under `components/`), whether `touchOnLeave()` and its router come with it, and
+  whether the error row is published as an element are questions a second app
+  answers better than a guess. The root file's one-definition rule is not
+  strained, since nothing else defines it.
+
+- **The sections are built once and hidden with `display: none`.** `Tabs`' rule
+  for its panels: a hidden section is out of the focus ring, and keeps a field's
+  contents and caret while another is showing. A `Show` per section would build
+  each again on every visit.
+
+- **Appearance is the first section, and the smoke test is why the order is
+  written down.** The harness Tabs four times from the first screen and quits on
+  `q`, and a text field keeps a typed `q` (SIG-308) -- so a screen that opened on
+  Profile would put the fourth stop in a field and the quit into its value. It is
+  also the right first section, and the reason is recorded so that a reorder
+  knows what it is moving. The sidebar starts with the focus, so Down shows the
+  next section: that is the `KEYED` entry the spawned run presses, waiting for
+  `Pause all`.
+
+- **The mouse is on in the entry**, because a settings screen is clicked as
+  often as typed at, and `runApp()` leaves it off unless asked. The contract
+  line above now says an entry may pass options.
+
+- **What is worked around, each with a ticket.** `follow()` mirrors a `Computed`
+  into a `State` for a control's `disabled`, used five times (SIG-334). The login
+  dialog's Sign in and Cancel are in its body with `actions: []`, because an
+  action cannot be disabled and a dialog with actions opens on a button rather
+  than on the first field (SIG-337). And the dialog borrows an owner: it is opened
+  from `onPress`, which has none, so its body is built under a branch of the
+  Account section's owner and disposed when `result` settles -- without that, the
+  effect following the focus runs for the rest of the app, which was measured
+  (SIG-335).
+
+- **The status line is cut with an ellipsis, never wrapped.** At 60 columns the
+  SMS reason is wider than the bar, and the text wrapped: its second line drew
+  over the key-help row under the height-1 bar, where the one blank the footer
+  leaves between `tab` and `next` let the `m` of `number` through, as
+  `tabmnext`. `white-space: nowrap` and `text-overflow: ellipsis`, and `should
+  cut a long status with an ellipsis rather than wrap it into the footer`.
+
+- **No guard against a second sign-in while one is on its way.** The fields take
+  `busy` as their `disabled` and the button follows it, so nothing can submit
+  twice; the guard was written and deleted for surviving its sabotage.
+
+- **The tests pin a box-drawing terminal through the environment.** The panels'
+  borders, the list's pointer and the sidebar's marks come from
+  `unicodeSupported()`, and a Windows runner says ASCII, so `settings.test.ts`
+  stubs `TERM` and `WT_SESSION` for every test and the screens it asserts are the
+  same on every runner.
+
+- **Sabotage: twenty-three, two survived by design.** The list, and what each
+  survivor was, is in the history file.
+
+- **Not done:** saving anywhere but memory, which is the config module's and not
+  this example's subject; a confirm before `q` quits with unsaved changes; the
+  theme radio applying a theme; a level-0 cue for a focused text field, which
+  SIG-278 records as the caret's cost; and a `ui`-tag twin.
 
 ### The git client (SIG-292)
 
