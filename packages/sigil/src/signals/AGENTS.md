@@ -257,6 +257,32 @@ the entry it belongs to.
   `unwatched` that throws then leaves the counts consistent and only its own
   error escapes. The other order skips the walk entirely and strands every
   source one short, after which no later watcher can make them live again.
+- **No graph walk is bounded by the native stack, and a read that runs out of it
+  caches nothing.** Marking (`propagate()`), liveness (`incLive`/`decLive`) and
+  settling a `CHECK` node all recursed one frame per level, and a chain a few
+  thousand computeds long -- a running offset per row of a long list -- ran out
+  part-way through. The read threw, which was loud. The write was the defect: the
+  version was bumped, the upper part of the chain marked and the lower part not,
+  and every later write stopped at the first node already marked, so the tail
+  served its old value forever with no error. Liveness is now a loop over an
+  explicit stack; marking and settling recurse for the first `SHALLOW` (64)
+  levels and carry the rest of the subgraph over an explicit stack, because a
+  fully iterative walk cost a tenth on a small write and a quarter on settling a
+  long chain -- the bound is what matters, not where it sits. The order is the
+  recursion's on both sides: depth first, a subgraph finished before its next
+  sibling, one per-sink rule (`invalidate()`) for both halves of a write. What
+  cannot be flattened is a computed's _first_ evaluation, which nests one body
+  inside the next through user code. There, running out of stack is the one
+  throw that is not cached: it says how deep the stack was, not anything about
+  what the computed reads, and cached it was permanent -- the link that hit the
+  limit stayed clean holding the error and no edge to the source whose read
+  never finished. So a derivation that catches one is left `DIRTY` with nothing
+  committed or swept, and the reader gets `Computed chain too deep`, with the
+  engine's error as its `cause`; reading the chain from the bottom up, or once
+  it has been evaluated, works at any depth. An effect body caches it like any
+  other throw, for the reason a failed sweep exempts it: a flush treats anything
+  not `CLEAN` as pending and would report it on every pass. An ordinary
+  `RangeError` is cached as before. See `test/signals/deep-chain.test.ts`.
 - **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A
   watcher is only told about a node going from clean to dirty, and propagation
   stops at a node already dirty -- so a computed left dirty across a re-arm is
