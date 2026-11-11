@@ -1702,7 +1702,7 @@ Commander, these are the ones that will bite:
 | ------------------------------- | -------------------------------- | ---------------------------------------- |
 | `<value>` in an option format   | value required when option used  | **option itself** is required            |
 | Unspecified flag                | `undefined`                      | `false` (`true` when negated)            |
-| `--opt` with no value           | `true`                           | `''`, coerced by the data type           |
+| `--opt` with no value           | `true`                           | error: `Missing value for option --opt`  |
 | `--opt` when option required    | error                            | error                                    |
 | Bare positional name `foo`      | required                         | optional                                 |
 | Value that looks like an option | error                            | taken, unless it is a declared option    |
@@ -1718,15 +1718,15 @@ Commander, these are the ones that will bite:
 Coming from yargs-parser, the difference that matters most is that this parser
 is schema-driven and yargs-parser is not — it infers everything from argv:
 
-| Behavior               | yargs-parser              | Here                              |
-| ---------------------- | ------------------------- | --------------------------------- |
-| Short group `-cats`    | always expanded           | expanded only against a schema    |
-| `--no-moo`             | `moo: false`              | `noMoo: true` unless declared     |
-| `--n1 -33`             | `n1: -33`                 | `n1: true`, `-33` left positional |
-| Destinations           | every spelling and alias  | one camelCase destination         |
-| `state._`              | values are type-guessed   | raw strings                       |
-| `--foo` with a default | falls back to the default | `''`, coerced by the data type    |
-| Repeated `--multi`     | collects into an array    | last wins, unless `multiple`      |
+| Behavior               | yargs-parser              | Here                                    |
+| ---------------------- | ------------------------- | --------------------------------------- |
+| Short group `-cats`    | always expanded           | expanded only against a schema          |
+| `--no-moo`             | `moo: false`              | `noMoo: true` unless declared           |
+| `--n1 -33`             | `n1: -33`                 | `n1: true`, `-33` left positional       |
+| Destinations           | every spelling and alias  | one camelCase destination               |
+| `state._`              | values are type-guessed   | raw strings                             |
+| `--foo` with a default | falls back to the default | error: `Missing value for option --foo` |
+| Repeated `--multi`     | collects into an array    | last wins, unless `multiple`            |
 
 The reasoning for each is in the deliberate-decisions list in `AGENTS.md`.
 
