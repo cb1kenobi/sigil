@@ -244,6 +244,18 @@ describe.each([
     expect(it.screen()).not.toContain(name);
   });
 
+  it('should drop a filter when a command leaves a describe for another table', async () => {
+    const it = await mount(root);
+    await it.press('/', 'w', 'r', 'k', KEYS.enter, KEYS.enter);
+    expect(it.screen()).toMatch(/describe · pods · worker-/);
+
+    // a filter is about the table it was typed over: Escape back to the pods
+    // keeps it, and a command to the services is a table it was never typed on
+    await it.press(':', 's', 'v', 'c', KEYS.enter);
+    expect(it.screen()).toMatch(/services · 10 /);
+    expect(it.screen()).not.toMatch(/\/wrk/);
+  });
+
   it('should not go back to a describe, whose pager went with its view', async () => {
     const it = await mount(root);
     await it.press(KEYS.enter);

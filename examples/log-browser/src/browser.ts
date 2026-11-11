@@ -461,9 +461,10 @@ export function useBrowser(): Browser {
         history.shift();
       }
     }
-    if (from !== v && from !== 'describe' && v !== 'describe') {
+    if (from !== v && v !== 'describe' && (from !== 'describe' || remember)) {
       // a filter is about the table it was typed over, and is still there when a
-      // describe is closed on the way back to it
+      // describe is closed on the way back to it -- `back()`, which does not
+      // remember -- but not when a command leaves the describe for another view
       filter.set('');
     }
     if (from === 'describe' && v !== 'describe') {
