@@ -69,6 +69,7 @@ import {
 import { refuseOwnedHooks } from './owned-hooks.js';
 import {
   type FieldRow,
+  type Highlighter,
   type HighlightSpan,
   layoutField,
   offsetIn,
@@ -94,14 +95,20 @@ export interface TextAreaProps {
   /**
    * Says which stretches of the value are which tokens, for syntax highlighting.
    *
-   * The `multiline()` prompt's hook, unchanged: called with the whole value
-   * whenever it changes and never when only the caret moves, with offsets into
-   * the whole value so a comment over several lines is one span. A token becomes
-   * the class `sigil-token-<token>`, and the seven names in `TOKEN_ROLE` also
-   * draw in a role. Spans are clipped to the value; where two cover one
-   * character the later one wins.
+   * The `multiline()` prompt's hook, unchanged: called with the whole value and
+   * `lang` whenever the value changes and never when only the caret moves, with
+   * offsets into the whole value so a comment over several lines is one span. A
+   * token becomes the class `sigil-token-<token>`, and the names in `TOKEN_ROLE`
+   * also draw in a role. Spans are clipped to the value; where two cover one
+   * character the later one wins. `highlightCode()` from
+   * `@ttylabs/sigil/components/highlight` is one for a handful of languages.
    */
-  highlight?: (value: string) => readonly HighlightSpan[];
+  highlight?: Highlighter;
+  /**
+   * The language the value is in, handed to `highlight` as its second argument --
+   * `'ts'`, `'json'`, `'md'`. Nothing reads it but the highlighter.
+   */
+  lang?: string;
   /**
    * Numbers each line down the left. Two digits at the least, so the area does
    * not move a column right at the tenth line; the caret's line is the one not
@@ -249,11 +256,14 @@ export function TextArea(props: TextAreaProps = {}): Element {
   if (props.highlight !== undefined && typeof props.highlight !== 'function') {
     throw new TypeError(__`Expected a text area highlight to be a function`);
   }
+  if (props.lang !== undefined && typeof props.lang !== 'string') {
+    throw new TypeError(__`Expected a text area lang to be a string`);
+  }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');
   const disabled =
     props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);
-  const { highlight, onChange, onCopy, tab } = props;
+  const { highlight, lang, onChange, onCopy, tab } = props;
   const placeholder = (props.placeholder ?? '').split('\n');
   const mark = props.gutter ?? '';
   const numbered = props.lineNumbers === true;
@@ -778,7 +788,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
     if (highlight === undefined) {
       return;
     }
-    const all = highlight(text());
+    const all = highlight(text(), lang);
 
     // pushed rather than `Array.from({ length })`, which walks the iteration
     // protocol for every slot and was a third of the cost on a long value; the

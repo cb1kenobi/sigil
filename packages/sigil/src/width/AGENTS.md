@@ -79,3 +79,42 @@ the entry it belongs to.
   dropping the full graph's `graphemes` override turns the tokenize differential
   green while the others stay red -- which is what says that override is what
   makes the downstream comparisons mean anything.
+
+### One code unit is one cluster
+
+- **`graphemes()` hands a string of one code unit back as it is, whatever the
+  code unit is (SIG-290).** It does not answer which characters are safe, which the
+  entry above refuses to reason about. It is about length: a grapheme break rule
+  joins a character to a neighbour, and a string of one code unit has no
+  neighbour. A box-drawing line, a braille cell, a combining mark on its own and
+  half a surrogate pair are each one cluster to the segmenter, because there is
+  nothing else in the string. So the shortcut cannot change an answer, and the
+  differential below holds it to that.
+
+  It matters because a border is painted one cell at a time. `paintBorder()`
+  calls `painter.text()` with one character per cell, which reaches
+  `graphemes()` through the canvas's writer, and every cell of every edge of
+  every panel went to the segmenter on every frame. On the full-screen stress
+  workload (a 200-by-60 screen of five bordered panels; "A full-screen
+  performance budget" in `src/renderer`), the change took the frame's p50 from
+  11.49 to 12.01 ms down to 9.56 to 10.01 ms, interleaved, three runs each. That
+  is about 16%. The bytes it wrote were identical.
+
+  `stringWidth()` is left alone. It still strips and segments a one-character
+  string that is not ASCII, because nothing measured needed it. The two are not
+  in conflict: `asciiOnly` is still the one definition of plain text that both
+  ask. This is a statement about clusters, which only `graphemes()` produces.
+  Widening the shortcut to the box-drawing, block and braille ranges was not done
+  either. It would have bought the horizontal edges too, but only as a claim about
+  which characters never join, and that is the reasoning this file refuses. A
+  horizontal edge written as one string is a question for `paintBorder()`, which
+  no measurement has asked yet.
+
+  `test/width/segmenter.test.ts` holds both halves. `should build no segmenter
+  to split one code unit` splits eight single code units and renders a bordered
+  box with an ASCII label, and asserts that no segmenter was built. The
+  differential corpus gained a box-drawing line, a braille cell, a lone combining
+  mark, a lone joiner, a lone surrogate and a lone `\r`. When the shortcut was
+  sabotaged (`length === -1`), the counting test failed and the differential
+  still passed, which is the right way round: the shortcut changes no answer, and
+  only the cost shows it.

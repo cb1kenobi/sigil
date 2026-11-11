@@ -137,6 +137,12 @@ that knowledge was undiscoverable from outside this repository.
   thing to depend on. A `data:` URL rather than a file, so there is no temporary
   path to clean up and nothing platform-specific about where it lives.
 
+  SIG-288 measured what a real one would cost and deferred it to a package of
+  its own, built when the terminal element needs it -- see
+  [docs/history/a-pty-package-outside-the-zero-dependency-core.md](../../../../docs/history/a-pty-package-outside-the-zero-dependency-core.md).
+  That package would not change this entry. This module ships inside the
+  zero-dependency core, so it can never import one.
+
   Two traps come with it and both are the fixture's to close. **The environment
   decides the colour, not the stream**: a stream claiming to be a terminal with
   no `TERM` behind it still detects level 0, so a test asserting colour would be

@@ -16,10 +16,10 @@
         "type": "Record<string, string | undefined>"
       },
       {
-        "description": "Says which stretches of a code block are which tokens, for syntax highlighting -- the hook `diff()` and `multiline()` take, with the block's language beside the code.",
+        "description": "Says which stretches of a code block are which tokens, for syntax highlighting -- the hook `diff()`, `multiline()` and `TextArea()` take, with the block's language beside the code. `highlightCode()` from `@ttylabs/sigil/components/highlight` is one, for the languages it names.",
         "name": "highlight",
         "optional": true,
-        "type": "(code: string, lang: string | undefined) => readonly HighlightSpan[]"
+        "type": "Highlighter"
       },
       {
         "description": "Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and is always the second at colour level 0, which writes no escape sequence.",

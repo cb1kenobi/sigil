@@ -25,6 +25,7 @@
 
 import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type InternalOption, type ParseState } from '../types.js';
+import { addFreeFlag } from './option/free-flag.js';
 import { typedOn } from './typed-on.js';
 
 /**
@@ -61,25 +62,16 @@ export async function registerVersion(
     return {};
   }
 
-  const internal = root[Internal];
   const handles: VersionHandles = {};
 
-  // `find()` answers about spellings and `has()` about the key the registry
-  // stores an option under, which is its name -- both have to be free, for the
-  // reason the help wiring records: an option spelled `-x` and named `version`
-  // takes the key without answering to `--version`
-  if (internal.options.find('--version') || internal.options.has('version')) {
-    return handles;
-  }
-
-  const format = internal.options.find('-v') ? '--version' : '-v, --version';
-  await internal.options.add({ desc: __`Print the version`, format });
-  handles.option = internal.options.find('--version');
-
-  if (handles.option) {
-    // a flag always has a value, and this one is not the app's: an app that
-    // never declared `--version` should not find `version: false` in its argv
-    handles.option[Internal].parserOwned = true;
+  // nothing over a spelling or a name the app already holds; see `addFreeFlag()`
+  const option = await addFreeFlag(root[Internal].options, {
+    desc: () => __`Print the version`,
+    name: 'version',
+    short: 'v',
+  });
+  if (option) {
+    handles.option = option;
   }
 
   return handles;
