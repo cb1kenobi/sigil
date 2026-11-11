@@ -7990,6 +7990,18 @@ does.
   claim-only-where-it-scrolls rule, `q` without `onQuit`, a key the field does not
   want, the page size, the trailing newline, tabs by column, a straddling wide
   character, and the piped write.
+- **`searchPattern()` is the reading of a query, published on its own
+  (SIG-295).** The log browser's log is a `ListView` rather than a pager (the
+  pager reads its document once, and SIG-387 has the rest). It still had to read
+  `/` and `&` the way the pager does, literal and smart case. That rule was four
+  lines inside `searchLines()`, and copying them is the drift the one-definition
+  rule exists for. So they are `searchPattern(query, mode)`, which
+  `searchLines()` now calls and the example imports. It throws where
+  `searchLines()` reports: a function that hands back a `RegExp` has nowhere
+  else to put the complaint. The flags are `gu`, plus `i` where the query has no
+  capital. `String.search()` and `matchAll()` are the readers that ignore the
+  global flag's `lastIndex`, so the doc names them. The pager's own suite
+  passes unchanged, and `searchPattern()` has two tests of its own.
 - **Not done:** carrying the input's colour through; incremental search; `-F`
   (quit when it fits on one screen); a follow mode that tails a growing input --
   the content is read once, which is now the whole of the reason: the count that

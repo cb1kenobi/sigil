@@ -616,3 +616,106 @@ commit message in a text area. What it settled:
   followed by a refresh, and a rename's source read as a path of its own: each
   fails the example's tests. A commit that kept its draft survived, because
   nothing opened the dialog a second time; the commit test now does.
+
+### A log and resource browser, in the shape of k9s and lnav (SIG-295)
+
+`examples/log-browser`. It has a live table of resources with a `:` command bar,
+a filter and a describe pager, and a log that follows, filters and searches. It
+is written twice, as `hello` is, and is the first JSX example bigger than one
+screen of code.
+
+- **The twins share a model, and differ only in markup.** `src/browser.ts`
+  exports `useBrowser()`, which a root calls in its body. It builds every
+  signal, starts the clock, and hands back the handlers and labels. The root
+  builds the elements in its own syntax (`DataTable`, `ListView`, `TextField`,
+  `Panel`, the log row) and hands the ones the handlers reach back through
+  `attach()`. "What the twins share lives in a module neither of them is" is the
+  rule above, applied to behaviour as well as data. A twin that held the
+  handlers would be a second copy of the app with a different spelling of its
+  tree. The view keys are an `onKey` on each view's box, scoped with
+  `input.describe()`, so the footer lists what applies to the view that is up.
+  The one app-wide key, `:`, is a fallback.
+
+- **The log is a `ListView`, not the pager.** The ticket pointed at the pager
+  for `/`. The pager reads its document once, has no filter, and strips colour,
+  all recorded under its "Not done" and filed as SIG-387. So the log is a list
+  of lines, keyed by an id that rises. The describe view does use the pager,
+  because a describe is a document read once. One pager is built per describe,
+  under a branch of the app's owner, and disposed when the view goes. A query
+  is read in both by `searchPattern()`, which SIG-295 exported from the pager
+  rather than copying its literal and smart-case rule. The pager's
+  `searchLines()` is not used for the filter, because it stops at
+  `MAX_MATCHES`, and a filter that stops part way drops lines without saying
+  so.
+
+- **Following is the cursor on the newest line, decided when the cursor
+  moves.** An effect over `current` sets `following` to whether the cursor is
+  on the tail. An append while following writes the new tail's key into
+  `current` in the same step as the new rows. That relies on the list's items
+  effect running before its cursor effect, which creation order gives today.
+  The follow tests fail if it changes, and SIG-385 asks for this as a mode of
+  the list. `F` sets `following` itself, because writing the key the cursor is
+  already on wakes nothing; the sabotage that drops it fails the follow test. A
+  wheel moves the view and not the cursor. So an append first asks whether the
+  cursor's row is still on screen, read off `listControl().scroll.viewport`, and
+  stops following if it is not. Otherwise the next line would pull a reader who
+  had wheeled up back down.
+
+- **The rows of the log are not reactive; a new search refreshes them.** A
+  function child is text, not elements, so a row cannot redraw its match runs
+  from a signal without `For`. The row reads the query when it is built, and an
+  effect calls `listControl(log).refresh()` when the query changes. That
+  rebuilds the rows on screen and nothing else. `should draw a line in its
+  level's role` searches for a line already on screen, because a search that
+  scrolls builds its rows fresh and would pass without the refresh. Measured:
+  with the refresh removed, it fails and nothing else does.
+
+- **A view or the prompt line is shown with an inline `display`, and then a
+  frame is forced.** The router hides an element the moment an inline `display:
+  none` is written, but only shows one once a frame has restyled it. So focus
+  moved into a box just shown is taken back by a key that arrives in the same
+  read: `:pods` pasted, or typed fast, sent `pods` to the table, and the `l` in
+  it opened a pod's logs. `redraw()` calls `app.view.frame()` after showing,
+  which is public and says what it does. `should take a command typed in one
+  read` fails without it. SIG-384 asks the router to read a shown inline
+  `display` as current, at which point `redraw()` goes.
+
+- **The world is an injected environment, and the cluster keeps its own
+  time.** `EnvironmentContext` carries the clock, the history size, the cap,
+  the seed and the file. The cluster starts at 09:00 UTC on 2026-11-10 and moves
+  only when it is advanced, and every choice is a seeded LCG. Nothing reads
+  `Date.now()` or `Math.random()`. That is what lets the contract test compare
+  the twins' first screens under the real environment, 50,000 lines included,
+  and what lets a test know which pod crashes first. A file is the other feed:
+  `fileFeed()` reads it whole, then what was appended, holds half a line until
+  its newline, decodes as a stream, and starts again from the top when the file
+  gets shorter.
+
+- **The figures are a script's, and the test asserts only what does not
+  depend on the machine.** `scripts/measure.ts` times a batch, a page, a search
+  and a filter at four sizes, and the README records one run against this
+  change. The suite asserts the element count with 50,000 lines (under 2,000
+  against about 600 measured), which a log that built a row per line would miss
+  by two orders of magnitude, and no time at all, for the reason the layout
+  fuzzer's deadline is recorded. A batch grows with the lines held, about 11 of
+  18 ms at 200,000, in `ListView` re-keying every row: SIG-386.
+
+- **The mouse is off, and `--mouse` turns it on.** A terminal that reports the
+  mouse stops selecting text, and copying a line out of a log matters more here
+  than a click. That is the pager's reason, given for the same trade. The wheel
+  check above is what `--mouse` makes reachable, and its test runs with the
+  mouse on.
+
+- **Sabotage: ten, none survived after four tests were added.** The forced
+  frame on opening the prompt, the in-view check on an append, the refresh on a
+  new search, the refilter that keeps following, `following.set(true)` on `F`,
+  the shown lines trimmed when the log is at its cap, the pager closed with its
+  view, the filter kept across a describe, and `key` dropped from the JSX list
+  and from the JSX table. The refresh, the trim, the closed pager and the kept
+  filter each survived the first pass. Each then got the test that catches it:
+  a search for a line already on screen, a log at a cap of 510, no pager left
+  in the tree, and a describe and back with a filter up.
+
+- **Not done:** a real cluster; a row coloured whole by its status (SIG-388),
+  so the STATUS cell carries the colour as a `TableCellView`; the log as a
+  pager (SIG-387); and following as a list mode (SIG-385).
