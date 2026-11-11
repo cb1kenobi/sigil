@@ -122,42 +122,78 @@ the entry it belongs to.
 ### What turns a text-default character into a two-column emoji
 
 - **A cluster is one two-column emoji when its base is `Emoji_Presentation`, or
-  when something in the cluster asks a text-default base to be one -- and there
-  are three such things, not one.** SIG-359. `isEmoji()` knew only the
-  presentation selector, so `U+270C U+1F3FD`, a fully-qualified RGI emoji with
-  no selector in it, fell to the per-code-point sum: the base is text by default
-  and one column, the tone is two, and `stringWidth()` said three where a
-  terminal draws one glyph and `cellWidth()` clamps to two. Layout, `wrap()` and
-  `truncate()` budgeted a column the canvas never painted. The three, each
-  tested in `isEmoji()`:
+  when something in the cluster asks a text-default base to be one. Three things
+  do, not one.** SIG-359. `isEmoji()` knew only the presentation selector, so
+  `U+270C U+1F3FD`, a fully-qualified RGI emoji with no selector in it, fell to
+  the per-code-point sum. The base is text by default and one column, the tone
+  is two, so `stringWidth()` said three while `cellWidth()` clamped to two.
+  Layout, `wrap()` and `truncate()` budgeted a column the canvas never painted.
+  The three, each tested in `isEmoji()`:
 
-  - **VS16 immediately after an `Emoji` base**, which is the rule that was
-    already there.
+  - **VS16 immediately after an `Emoji` base.** This rule was already there.
   - **A skin tone immediately after an `Emoji_Modifier_Base`.** Not after any
     `Emoji`, which is the obvious spelling and is wrong: a digit, `#`, `*` and
-    `™` are `Emoji` and none of them takes a tone, so `1 U+1F3FD` is a digit and
-    a swatch beside it, three columns, as it was. Immediately after, for the
-    reason the selector has to be: `U+261D U+0301 U+1F3FD` puts the mark between
-    them, so the tone is not about the base and the cluster stays the sum.
-  - **A joiner followed by an `Extended_Pictographic`, in a cluster whose base
-    is one.** That is the unqualified ZWJ form -- `U+1F3F3 U+200D U+1F308`,
-    `U+2764 U+200D U+1F525` -- which `RGI_Emoji` under the `v` flag does _not_
-    match, so it cannot stand in for this test. The segmenter only keeps a
-    pictograph after a joiner in one cluster when the cluster began with one, so
-    the pair is what says the joiner joined two. A joiner alone is not enough:
-    `U+00A9 U+200D` with nothing after it joins nothing, and stays one column.
+    `™` are `Emoji` and none of them takes a tone, so `1 U+1F3FD` is a digit
+    with a swatch beside it, three columns, as before. It has to be immediately
+    after for the same reason the selector does: `U+261D U+0301 U+1F3FD` puts a
+    mark between them, so the tone is not about the base and the cluster stays
+    the sum. Nine bases are text by default (U+261D, U+26F9, U+270C, U+270D,
+    U+1F3CB, U+1F3CC, U+1F574, U+1F575, U+1F590), and the tests cover all nine.
+    For this form 2 matched four of six terminals in review, where 3 matched
+    only VTE.
+  - **A joiner followed by an `Extended_Pictographic`, anywhere in the
+    cluster.** That is the unqualified ZWJ form. Four sequences in the test file
+    changed width under it: the heart on fire `U+2764 U+200D U+1F525`, the
+    mending heart `U+2764 U+200D U+1FA79`, the broken chain
+    `U+26D3 U+200D U+1F4A5` and the rainbow flag `U+1F3F3 U+200D U+1F308`.
+    `RGI_Emoji` under the `v` flag does _not_ match them, so it cannot stand in
+    for this test. **Terminals disagree about this form.** Read from source in
+    review: iTerm2 and kitty advance one column, while Ghostty, WezTerm and
+    Windows Terminal advance two. Two is chosen because it is the width of the
+    fully-qualified form of the same sequence, and the terminals that widen a
+    joined cluster give it. The segmenter keeps a pictograph after a joiner in
+    one cluster only when a pictograph, followed by nothing but extending
+    marks, came before that joiner (GB11). So the pair means the joiner joined
+    two pictographs, and the base is not checked. A prepended character (GB9b)
+    can come ahead of the first pictograph, as in `U+0600 U+2764 U+200D U+1F525`,
+    and that is two columns as well. A joiner alone is not enough: `U+00A9 U+200D`
+    with nothing after it joins nothing, and stays one column.
 
-  What keeps its width, and is enumerated in
-  `test/width/text-default-emoji.test.ts`: a digit, `#` and `*` alone and before
-  a mark or a joiner (`1`), a lone tone (`2`, it is `Emoji_Presentation`), a lone
-  joiner and a lone selector (`0`), a text-default pictograph with neither a
-  selector nor a tone nor a joined pictograph (`1`), and a tone after something
-  it cannot modify (the sum, which `cellWidth()` clamps like any other
-  over-wide cluster). The same file asserts `stringWidth()` and `cellWidth()`
-  agree on every single cluster there that fits a cell pair. Sabotaged: an
-  `Emoji` base for the tone fails the three swatch cases; a bare joiner for the
-  ZWJ rule fails the two trailing-joiner cases; the old `isEmoji()` fails
-  fifteen and passes every unchanged-width case. The property escapes it adds
-  are older than every Node this package supports, so no runtime gives a different answer
-  for them -- only for which code points a newer Unicode adds to each, which is
-  why the tests use none added recently.
+  The joiner in that regular expression is written `\u{200D}`, with braces.
+  oxfmt decodes the four-digit `\u` form of it in a regular expression literal
+  into the raw, invisible character, and leaves the braced form alone. The first
+  version of this change shipped a raw joiner there.
+
+  What keeps its width is enumerated in `test/width/text-default-emoji.test.ts`:
+  - A digit, `#` and `*` alone, and before a mark or a joiner: one column.
+  - A lone tone: two columns, because it is `Emoji_Presentation`.
+  - A lone joiner and a lone selector: zero.
+  - A text-default pictograph with no selector, no tone and no joined
+    pictograph: one column.
+  - A tone after something it cannot modify: the sum, which `cellWidth()`
+    clamps like any other over-wide cluster.
+
+  The same file asserts that `stringWidth()` and `cellWidth()` agree on every
+  single cluster in it that fits in two cells. Two rules can combine, and these
+  are not in the tests:
+  - A joined pictograph wins over a swatch. `U+00A9 U+1F3FD U+200D U+1F525` is
+    two columns where it was three, because the tone is an extending mark and
+    GB11 still joins.
+  - VS15 does not undo either new rule. `U+2764 U+FE0E U+200D U+1F525` and
+    `U+261D U+1F3FD U+FE0E` are both two, where both were three.
+    `U+261D U+FE0E U+1F3FD` stays three, because the tone is not immediately
+    after the base.
+
+  Sabotaged:
+  - An `Emoji` base for the tone fails the three swatch cases.
+  - A bare joiner for the ZWJ rule fails the two trailing-joiner cases.
+  - Requiring an `Extended_Pictographic` base fails the prepended case.
+  - The original `isEmoji()` fails every widened case and passes every
+    unchanged-width case.
+
+  `isEmoji()` returns as soon as it finds a cluster of one code point, before
+  any of the new tests. Most clusters that are not ASCII are one code point, so
+  CJK, Latin and Devanagari text pay nothing for them. The property escapes are
+  older than every Node this package supports. Only which code points a newer
+  Unicode adds to each can differ, which is why the tests use none added
+  recently.

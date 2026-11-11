@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
 
 const TONE = '\u{1F3FD}'; // emoji modifier fitzpatrick type-4
 
-// every fully-qualified RGI skin-tone sequence whose base is text by default
-// that the ticket named; each is Emoji_Modifier_Base
+// the nine Emoji_Modifier_Base characters that are text by default, each with
+// a tone: every one is a fully-qualified RGI sequence
 const TONED: Record<string, string> = {
   'U+261D': `\u{261D}${TONE}`, // index pointing up
   'U+26F9': `\u{26F9}${TONE}`, // person bouncing ball
@@ -19,6 +19,7 @@ const TONED: Record<string, string> = {
   'U+270D': `\u{270D}${TONE}`, // writing hand
   'U+1F3CB': `\u{1F3CB}${TONE}`, // person lifting weights
   'U+1F3CC': `\u{1F3CC}${TONE}`, // person golfing
+  'U+1F574': `\u{1F574}${TONE}`, // person in suit levitating
   'U+1F575': `\u{1F575}${TONE}`, // detective
   'U+1F590': `\u{1F590}${TONE}`, // hand with fingers splayed
 };
@@ -27,9 +28,14 @@ const TONED: Record<string, string> = {
 const JOINED: Record<string, string> = {
   'rainbow flag': '\u{1F3F3}\u{200D}\u{1F308}',
   'heart on fire': '\u{2764}\u{200D}\u{1F525}',
-  // the same two fully qualified, which were already right
+  'mending heart': '\u{2764}\u{200D}\u{1FA79}',
+  'broken chain': '\u{26D3}\u{200D}\u{1F4A5}',
+  // two of them fully qualified, which were already right
   'rainbow flag with VS16': '\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}',
   'heart on fire with VS16': '\u{2764}\u{FE0F}\u{200D}\u{1F525}',
+  // a prepended character keeps the pair in one cluster (GB9b), and the
+  // pictograph it comes ahead of is still joined
+  'heart on fire after U+0600': '\u{0600}\u{2764}\u{200D}\u{1F525}',
 };
 
 // what must keep the width it had before SIG-359

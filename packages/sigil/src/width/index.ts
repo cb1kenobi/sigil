@@ -51,12 +51,18 @@ const emojiModifierBase = /^\p{Emoji_Modifier_Base}$/u;
 const emojiModifier = /^\p{Emoji_Modifier}$/u;
 
 /**
- * A pictograph, which is what a zero width joiner joins. The segmenter only
- * keeps a pictograph after a joiner in the same cluster when the cluster began
- * with one, so finding this pair inside a cluster means the joiner joined two.
+ * A zero width joiner and the pictograph after it. The segmenter keeps a
+ * pictograph after a joiner in the same cluster only when a pictograph, and
+ * nothing but extending marks, came before that joiner (rule GB11), so finding
+ * this pair inside one cluster means the joiner joined two pictographs. The
+ * first of them is usually the cluster's first code point, but not always: a
+ * prepended character (GB9b), such as `U+0600`, can come ahead of it.
+ *
+ * The joiner is written `\u{200D}` with braces because the formatter decodes a
+ * four-digit `\u` escape in a regular expression literal into the raw,
+ * invisible character, and leaves the braced form alone.
  */
-const pictographic = /^\p{Extended_Pictographic}$/u;
-const joinedPictograph = /‍\p{Extended_Pictographic}/u;
+const joinedPictograph = /\u{200D}\p{Extended_Pictographic}/u;
 
 /**
  * The Hangul jamo that draw inside the syllable they belong to: the medial
@@ -183,8 +189,10 @@ export function graphemes(str: string): string[] {
  * cluster right when the base is *not* first, which happens with the Arabic and
  * Indic characters that prefix one.
  *
- * @param cluster - The cluster to measure. A string of more than one cluster is
- * measured as whichever one it starts with.
+ * @param cluster - One cluster, as `graphemes()` splits it. A string of more
+ * than one cluster is not measured as any one of them: the rules read the whole
+ * string, so `'ab'` comes out as 2 and a joiner and pictograph anywhere in it
+ * make it an emoji. Split first.
  * @returns The number of columns.
  */
 export function graphemeWidth(cluster: string): number {
@@ -214,18 +222,23 @@ export function graphemeWidth(cluster: string): number {
  * something in the cluster turns into one. Three things do:
  *
  * - The presentation selector, immediately after a base that can be an emoji.
- * - A skin tone, immediately after a base a tone can modify: `☝🏽` is a
- *   fully-qualified emoji with no selector in it.
- * - A joiner followed by another pictograph, after a pictograph: the rainbow
- *   flag `U+1F3F3 U+200D U+1F308` and the heart on fire `U+2764 U+200D U+1F525`
- *   without their selectors are still one glyph to a terminal.
+ * - A skin tone, immediately after a base a tone can modify: `U+261D U+1F3FD`
+ *   is a fully-qualified emoji with no selector in it.
+ * - A joiner followed by a pictograph, after a pictograph. This is the
+ *   unqualified form, such as the rainbow flag `U+1F3F3 U+200D U+1F308` or the
+ *   heart on fire `U+2764 U+200D U+1F525` without their selectors. Terminals
+ *   disagree about it -- some advance one column and some two, which
+ *   `src/width/AGENTS.md` names -- and two is chosen because it is the width of
+ *   the fully-qualified form of the same sequence, and what the terminals that
+ *   widen a joined cluster give.
  *
  * The selector and the tone have to come immediately after the base to be
  * about the base, which is what `U+00A9 U+0301 U+FE0F` is not: a copyright sign
  * with an accent on it, followed by a selector that selects nothing. A tone
  * after something it cannot modify -- a digit, a letter, `™` -- is a swatch
- * drawn beside it, so that cluster is still the sum. A joiner that joins
- * nothing -- `©` and a trailing joiner -- leaves the pictograph as text.
+ * drawn beside it, so that cluster is the sum unless a joined pictograph
+ * follows. A joiner that joins nothing -- `©` and a trailing joiner -- leaves
+ * the pictograph as text.
  *
  * @param cluster - The cluster to test.
  * @param first - Its first code point.
@@ -240,19 +253,20 @@ function isEmoji(cluster: string, first: number): boolean {
 
   const next = cluster.codePointAt(base.length);
 
+  // a single code point, which is most clusters that are not ASCII
+  if (next === undefined) {
+    return false;
+  }
+
   if (next === VS16 && emoji.test(base)) {
     return true;
   }
 
-  if (
-    next !== undefined &&
-    emojiModifier.test(String.fromCodePoint(next)) &&
-    emojiModifierBase.test(base)
-  ) {
+  if (emojiModifier.test(String.fromCodePoint(next)) && emojiModifierBase.test(base)) {
     return true;
   }
 
-  return pictographic.test(base) && joinedPictograph.test(cluster);
+  return joinedPictograph.test(cluster);
 }
 
 /**
