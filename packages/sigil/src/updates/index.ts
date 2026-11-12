@@ -3,6 +3,7 @@ import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import { npmChecker, versionFrom, type UpdateChecker } from './checker.js';
 import { bakedConfig, compiledHost } from './host.js';
 import { cacheFileName } from './registry.js';
+import { isFreshStamp } from './stamp.js';
 import { workerSource } from './worker-source.js';
 import { cacheResponse, fetchJSON, WORKER_ARGV, WORKER_ENTRY, type UpdateCache } from './worker.js';
 import { readFileSync } from 'node:fs';
@@ -11,19 +12,10 @@ import { dirname, join } from 'node:path';
 const { log } = debug('sigil:updates');
 const oneDay = 86400000;
 
-/**
- * How far ahead of this clock a cache's stamp may be and still be fresh.
- *
- * A minute: enough for the ordinary jitter of a clock that NTP nudged back
- * between the run that wrote the cache and the one reading it, and far too
- * little for a clock that was simply wrong, which is the case a future stamp
- * has to be stale for.
- */
-const CLOCK_TOLERANCE = 60000;
-
 export type { GithubCheckerOptions, NpmCheckerOptions, UpdateChecker } from './checker.js';
 export { githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
+export { isFreshStamp } from './stamp.js';
 
 export interface CheckOptions {
   cacheDir?: string;
@@ -182,18 +174,10 @@ export async function check(
   // resumed from a snapshot, a home directory restored from another machine
   // -- stayed fresh until real time caught up with `ts + checkInterval`,
   // which can be a year of no checks with `force` the only way out. A stamp
-  // that is not a number is stale too, and that takes a type check rather than
-  // the comparisons: a string of digits passes `ts <= now` numerically and is
-  // then added to by concatenation. A number that is not finite needs nothing
-  // more, since Infinity fails the first comparison, -Infinity the second and
-  // NaN both.
-  const now = Date.now();
-  const ts = cache?.ts;
-  const fresh =
-    typeof ts === 'number' &&
-    ts <= now + CLOCK_TOLERANCE &&
-    ts + checkInterval >= now &&
-    versionIn(cache, checker) !== undefined;
+  // that is not a number is stale too. Both are `isFreshStamp()`'s rule, which
+  // is shared with `sigil package`'s runtime listings rather than written out
+  // a second time (SIG-420).
+  const fresh = isFreshStamp(cache?.ts, checkInterval) && versionIn(cache, checker) !== undefined;
 
   if (force || !fresh) {
     // the directory is made here on both paths: a spawned worker cannot

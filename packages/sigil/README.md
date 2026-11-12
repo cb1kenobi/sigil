@@ -7843,6 +7843,25 @@ The checker alone can also live in `sigil.json`, where the build bakes it in (a
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
 
+#### When a cache is fresh
+
+The cache is answered from for `checkInterval` after it was written, and a cache
+whose stamp is more than a minute **ahead** of the clock is stale too: one
+written while the clock was wrong would otherwise go unchecked until real time
+caught up with it. A stamp that is not a finite number is stale as well.
+
+`isFreshStamp(ts, maxAge, now?)` is that rule, exported for an app that keeps a
+stamped cache of its own. `sigil package` uses it for its runtime listings.
+
+```js
+import { isFreshStamp } from '@ttylabs/sigil/updates';
+
+const held = JSON.parse(readFileSync(file, 'utf-8'));
+if (!isFreshStamp(held.ts, 86_400_000)) {
+  // refetch
+}
+```
+
 #### In a compiled binary
 
 There is no runtime to spawn, so the check runs in the app's own process and
