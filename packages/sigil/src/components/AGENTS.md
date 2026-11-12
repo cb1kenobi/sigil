@@ -5620,6 +5620,28 @@ field.
   it is not given back on the way forward -- the date prompt's rule for stepping
   the month segment, so the grid and the field agree. The year stays inside
   0-9999.
+- **A day and a week stay inside 0-9999 too, and they did not until SIG-365.**
+  `addMonths()` clamped and `addDays()`, which the four arrow keys go through,
+  did not: Right on 9999-12-31 answered a `Date` in year 10000 under a head of
+  `10000-01-01`, and Left on 0000-01-01 one in year -1 under `00-1-12-31` --
+  neither of which the line form's `\d{4}` or the parser's `date` type can say.
+  The clamp is in `addDays()` rather than in the picker's `bounded()`, because
+  `bounded()` is `min` and `max` and `addMonths()` already held its own range;
+  both read one `FIRST_YEAR`/`LAST_YEAR` pair, so the range is written once in
+  `calendar.ts`. A day or week move past an end stops on 0000-01-01 or
+  9999-12-31, and Page Up and Page Down stop in the first or last month, keeping
+  the day -- so it is the years that win over a `min` or `max` set outside them,
+  not the option. Home and End never leave the month and were never affected;
+  `date()` was not either, since its year segment wraps inside `[0, 9999]` and
+  its page keys are `addMonths()`. That `[0, 9999]` is `date.ts`'s own, and
+  stays so: an ejected `date` imports every value it takes from `calendar.ts`
+  through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
+  two new names on that subpath for good. What was left alone: an
+  `initial`, `min` or `max` that is itself outside 0-9999 is still drawn as
+  given (`10000-06-15`, and Enter answers it, in the drawn form and the line
+  form), because it neither throws nor hangs; the first arrow or page key pulls
+  it into the range. And year 0's title reads `January 1`, since `Intl` writes
+  1 BC there -- the title is `Intl`'s, as the entry above says.
 - **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
   Enter.** The date prompt keeps an explicit `initial` out of range so that the
   person is told rather than handed another date, and it has an error line to tell
