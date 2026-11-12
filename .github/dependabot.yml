@@ -13,3 +13,14 @@ updates:
     schedule:
       interval: 'daily'
       time: '02:34'
+  # Every action in `.github/workflows/` is pinned to a commit SHA, with the
+  # release that SHA is named in a comment beside it, so nothing moves unless
+  # this moves it: Dependabot bumps the SHA and the `# vN.N.N` comment together.
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    labels:
+      - 'automerge'
+      - 'dependencies'
+    schedule:
+      interval: 'daily'
+      time: '02:34'
