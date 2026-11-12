@@ -898,6 +898,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
   ],
   'Matching, ranking and searching': [
     'MAX_MATCHES',
+    'candidateCache',
     'candidatesOf',
     'cellOrder',
     'compareCells',

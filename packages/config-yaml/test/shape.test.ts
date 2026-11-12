@@ -347,4 +347,24 @@ describe('the shape and the layout', () => {
       expect(endings(read(path))).toBe('0/2');
     });
   });
+
+  // SIG-342: `/\n*$/` is not anchored at its start, so an interior run of k
+  // newlines is tried from each of its k positions -- k² steps for a run that is
+  // not at the end at all. 200,000 is tens of seconds that way and well under a
+  // millisecond with the lookbehind
+  describe('a long run of blank lines inside the document', () => {
+    const gap = '\n'.repeat(200_000);
+
+    it('should take only the run the document ends with as its trailing run', () => {
+      expect(shapeOf(`a: 1${gap}b: 2\n\n`).shape.trailing).toBe('\n\n');
+      expect(shapeOf(`a: 1${gap}b: 2`).shape.trailing).toBe('');
+      expect(shapeOf('').shape.trailing).toBe('');
+    });
+
+    it('should put back the shape without being quadratic in the run', () => {
+      const doc = parseDocument('a: 1\n', PARSE_OPTIONS);
+      const { shape } = shapeOf(`a: 1${gap}b: 2\n\n`);
+      expect(reshape(`a: 1${gap}b: 2\n`, shape, doc)).toBe(`a: 1${gap}b: 2\n\n`);
+    });
+  });
 });

@@ -333,6 +333,80 @@ describe('updates', () => {
     });
   });
 
+  // only "too old" was asked, so a cache stamped while the clock was ahead --
+  // a bad RTC, a VM resumed from a snapshot, a restored home directory -- was
+  // fresh until real time caught up with `ts + checkInterval`, and every check
+  // in between answered from it without asking. `force` was the only way out
+  describe('A cache stamped in the future', () => {
+    /**
+     * Seeds a cache stamped `ts` and checks against a local listener that drops
+     * every connection, so a fetch shows up as a connection and a rejection and
+     * nothing leaves the machine.
+     */
+    async function checkWith(ts: unknown): Promise<{ connections: number; latest?: string }> {
+      const cacheDir = await generateTmpDir();
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(
+        join(cacheDir, cacheFileName('stamped', 'latest')),
+        // spliced in as text so a test can write what JSON.stringify() cannot
+        `{"body":{"latest":"0.0.1"},"ts":${String(ts)}}`
+      );
+
+      let connections = 0;
+      const server = createServer((socket) => {
+        connections++;
+        socket.destroy();
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const { port } = server.address() as AddressInfo;
+
+      try {
+        const result = await check({
+          cacheDir,
+          checker: { path: ['latest'], type: 'custom', url: `https://127.0.0.1:${port}/none` },
+          packageName: 'stamped',
+          packageVersion: '1.0.0',
+          timeout: 5000,
+          wait: true,
+        }).catch(() => undefined);
+        return { connections, latest: result?.latest };
+      } finally {
+        server.close();
+      }
+    }
+
+    it('should refetch a cache stamped a year ahead', async () => {
+      const { connections, latest } = await checkWith(Date.now() + 400 * 86400000);
+      expect(connections).to.equal(1);
+      expect(latest).to.equal(undefined);
+    });
+
+    it('should refetch a cache stamped just past the minute of tolerance', async () => {
+      const { connections } = await checkWith(Date.now() + 2 * 60000);
+      expect(connections).to.equal(1);
+    });
+
+    it('should still read a cache stamped within the minute of tolerance', async () => {
+      // the jitter of a clock NTP nudged back between two runs is not a clock
+      // that was wrong, and refetching over it would be a check per run
+      const { connections, latest } = await checkWith(Date.now() + 30000);
+      expect(connections).to.equal(0);
+      expect(latest).to.equal('0.0.1');
+    });
+
+    it('should refetch a cache whose stamp is not a finite number', async () => {
+      // `1e999` parses to Infinity, and a string of digits is added to by
+      // concatenation: the one stamped now passes `ts <= now` as a number and
+      // then `ts + checkInterval` is twenty-odd digits long, so only asking
+      // for a number catches it
+      for (const ts of ['1e999', `"${Date.now()}"`, '"99999999999999"', 'null', '"nope"']) {
+        const { connections, latest } = await checkWith(ts);
+        expect(connections, ts).to.equal(1);
+        expect(latest, ts).to.equal(undefined);
+      }
+    });
+  });
+
   // the body was appended to a string for as long as the registry kept sending,
   // so an endless answer grew it until the runtime ran out of memory -- in a
   // process nobody is watching. `https.get()` is faked rather than served,

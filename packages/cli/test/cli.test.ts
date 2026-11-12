@@ -2,8 +2,18 @@ import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
 import { readRoutes } from '@ttylabs/sigil/routes';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -29,6 +39,30 @@ function captureStdout() {
       return chunks.join('');
     },
   };
+}
+
+/** Tab, newline and carriage return: a file's own formatting, not a sequence. */
+const FORMATTING = new Set([0x09, 0x0a, 0x0d]);
+
+/**
+ * Every code point in `text` that a terminal would act on rather than print,
+ * with how often each occurs.
+ *
+ * C0 and `DEL`, then C1 -- where U+009B is a CSI all by itself, and is one of
+ * the two escapes `packages/sigil/src/ansi/codes.ts` builds. This used to live in
+ * `packages/sigil/test/dist.test.ts` and read that package's `dist/` alone; it
+ * moved here, where the suite already needs every package built, so that one
+ * definition covers all five.
+ */
+function controlCharacters(text: string): Map<number, number> {
+  const found = new Map<number, number>();
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (!FORMATTING.has(code) && (code < 0x20 || (code >= 0x7f && code <= 0x9f))) {
+      found.set(code, (found.get(code) ?? 0) + 1);
+    }
+  }
+  return found;
 }
 
 describe('@ttylabs/cli', () => {
@@ -318,15 +352,25 @@ describe('@ttylabs/cli', () => {
       // somebody makes on purpose and can be asked about in review.
       expect(Object.keys(pkg.dependencies).sort()).toEqual([
         '@ttylabs/sigil',
-        // the splice that compiles an app's templates rewrites source, and a
-        // rolldown `transform` that returns code without a map is
-        // `SOURCEMAP_BROKEN` *and* drops the module from the map -- measured.
-        // So the rewrite is tracked rather than done with string surgery, by
-        // the tool rollup and vite use for it, which rolldown already brings
-        'magic-string',
         'oxc-parser',
         'rolldown',
       ]);
+    });
+
+    it('should not make an install download what the bundle already inlined', () => {
+      // the splice that compiles an app's templates rewrites source, and a
+      // rolldown `transform` that returns code without a map is
+      // `SOURCEMAP_BROKEN` *and* drops the module from the map -- measured. So
+      // the rewrite is tracked by `magic-string`, the tool rollup and vite use
+      // for it. It is plain JavaScript and `sigil.json` does not name it as
+      // external, so `sigil build` inlines it: it is a devDependency, because a
+      // production dependency nothing loads is a download every install of the
+      // toolchain pays for. Should it ever become external, it has to move back
+      const config = readSigilConfig(root);
+
+      expect(pkg.dependencies).not.toHaveProperty('magic-string');
+      expect(pkg.devDependencies).toHaveProperty('magic-string');
+      expect(config.build?.external).not.toContain('magic-string');
     });
   });
 
@@ -415,6 +459,446 @@ describe('@ttylabs/cli', () => {
       const npmrc = readFileSync(resolve(root, '../../.npmrc'), 'utf-8');
       expect(npmrc).toMatch(/^save-exact=true$/m);
     });
+  });
+
+  /**
+   * The workflows are the other half of what gets installed: an action is code
+   * that runs with the job's token, and the publish job's token can publish.
+   * So the same rule as the manifests, plus the three ways a workflow hands an
+   * attacker the token. Read line by line rather than through a YAML parser,
+   * which this package does not have; the shapes asserted on are the ones the
+   * two workflows actually use, and each assertion first checks it found
+   * something to assert on.
+   */
+  describe('the workflows', () => {
+    const dir = resolve(root, '../../.github/workflows');
+    const workflows = readdirSync(dir)
+      .filter((file) => /\.ya?ml$/.test(file))
+      .map((file) => ({ file, lines: readFileSync(join(dir, file), 'utf-8').split(/\r?\n/) }));
+
+    const indent = (line: string) => line.length - line.trimStart().length;
+
+    /** Every `run:` value, including the lines of a block scalar under it. */
+    function runBlocks(lines: string[]): string[] {
+      const blocks: string[] = [];
+      lines.forEach((line, i) => {
+        const match = /^(\s*)(- )?run:(.*)$/.exec(line);
+        if (!match) return;
+        const key = match[1].length + (match[2] ? 2 : 0);
+        const block = [match[3]];
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].trim() !== '' && indent(lines[j]) <= key) break;
+          block.push(lines[j]);
+        }
+        blocks.push(block.join('\n'));
+      });
+      return blocks;
+    }
+
+    /**
+     * Each job's lines, by name, without comment lines -- a comment saying
+     * `archive: false` is not the setting, and a comment is where this file's
+     * own explanations of every one of these lines live.
+     */
+    function jobs(lines: string[]): Map<string, string[]> {
+      const byName = new Map<string, string[]>();
+      const start = lines.indexOf('jobs:');
+      let current: string[] | undefined;
+      for (const line of lines.slice(start + 1)) {
+        const name = /^ {2}([\w-]+):\s*$/.exec(line);
+        if (name) byName.set(name[1], (current = []));
+        else if (/^\S/.test(line)) current = undefined;
+        else if (!/^\s*#/.test(line)) current?.push(line);
+      }
+      return byName;
+    }
+
+    /** A job's steps, in order, each with its name and its lines. */
+    function steps(job: string[]): { name: string; lines: string[] }[] {
+      const found: { name: string; lines: string[] }[] = [];
+      for (const line of job) {
+        if (/^ {6}- /.test(line)) found.push({ name: '', lines: [] });
+        const step = found.at(-1);
+        if (!step) continue;
+        step.lines.push(line);
+        const name = /^ {6}(?:- | {2})name:\s*(.*)$/.exec(line);
+        if (name && step.name === '') step.name = name[1];
+      }
+      return found;
+    }
+
+    const publishJobs = jobs(workflows.find(({ file }) => file === 'publish.yml')?.lines ?? []);
+    const buildJob = publishJobs.get('build') ?? [];
+    const publishJob = publishJobs.get('publish') ?? [];
+    const publishSteps = steps(publishJob);
+    const step = (name: string) => publishSteps.find((s) => s.name === name)?.lines ?? [];
+
+    it('should find both workflows', () => {
+      expect(workflows.map(({ file }) => file).sort()).toEqual(['publish.yml', 'test.yml']);
+    });
+
+    it('should pin every action to a commit SHA and name its release', () => {
+      const uses = workflows.flatMap(({ file, lines }) =>
+        lines
+          .map((line) => /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1])
+          .filter((value) => value !== undefined)
+          .map((value) => `${file}: ${value}`)
+      );
+
+      expect(uses.length).toBeGreaterThan(5);
+      expect(
+        uses.filter((use) => !/: [\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(use))
+      ).toStrictEqual([]);
+    });
+
+    it('should put no expression inside a run block', () => {
+      // an expression is pasted into the script text before the shell parses
+      // it, so a value holding a quote becomes shell; pass it through `env`
+      for (const { file, lines } of workflows) {
+        const blocks = runBlocks(lines);
+        expect(blocks.length, file).toBeGreaterThan(0);
+        expect(
+          blocks.filter((block) => block.includes('${{')),
+          file
+        ).toStrictEqual([]);
+      }
+    });
+
+    it('should read secrets in the publish job of the publish workflow and nowhere else', () => {
+      const reads = workflows.flatMap(({ file, lines }) =>
+        [...jobs(lines)].flatMap(([job, body]) =>
+          body.some((line) => line.includes('secrets.')) ? [`${file} ${job}`] : []
+        )
+      );
+
+      expect(reads).toStrictEqual(['publish.yml publish']);
+      // and within it, only the two steps that use the token
+      expect(
+        publishSteps
+          .filter((s) => s.lines.some((line) => line.includes('secrets.')))
+          .map((s) => s.name)
+      ).toStrictEqual(['Check the token can publish', 'Publish to npm']);
+      // and no secret is read outside a job, where every job would get it
+      for (const { file, lines } of workflows) {
+        const outside = lines.slice(0, lines.indexOf('jobs:'));
+        expect(
+          outside.filter((line) => line.includes('secrets.')),
+          file
+        ).toStrictEqual([]);
+      }
+    });
+
+    it('should give id-token to the publish job alone, after the build job', () => {
+      const grants = workflows.flatMap(({ file, lines }) => [
+        ...lines
+          .slice(0, lines.indexOf('jobs:'))
+          .filter((line) => !/^\s*#/.test(line) && line.includes('id-token'))
+          .map(() => `${file} (every job)`),
+        ...[...jobs(lines)].flatMap(([job, body]) =>
+          body.some((line) => line.includes('id-token')) ? [`${file} ${job}`] : []
+        ),
+      ]);
+
+      expect(grants).toStrictEqual(['publish.yml publish']);
+      expect(publishJob).toContain('    needs: build');
+      // neither job needs git credentials, and the build job's archive must not
+      // be able to carry them
+      const checkouts = [...publishJobs.values()]
+        .flatMap(steps)
+        .filter((s) => s.lines.some((line) => line.includes('uses: actions/checkout@')));
+      expect(checkouts).toHaveLength(2);
+      for (const checkout of checkouts) {
+        expect(checkout.lines).toContain('          persist-credentials: false');
+      }
+    });
+
+    it('should run no package code in the job that holds the token', () => {
+      // every package's `prepublishOnly` is `pnpm run build`, and under pnpm
+      // 12 `--ignore-scripts` is the one thing that stops `pnpm -r publish`
+      // running it with the token in the environment
+      const publish = runBlocks(step('Publish to npm')).join('\n');
+      expect(publish).toContain('pnpm -r publish');
+      expect(publish).toContain('--ignore-scripts');
+      expect(publish).toContain('--provenance');
+
+      // and nothing else in the job installs or runs anything of a package's
+      const blocks = runBlocks(publishJob);
+      expect(blocks.length).toBeGreaterThan(3);
+      // a tool in command position: at the start of a line, after a separator,
+      // in a `$(...)`, or after `if`, `then`, `do` or `!`
+      const command = /(?:^|[\n;&|(]|\b(?:if|then|do)\b|!)\s*(pnpm|npm|npx|node)\b([^\n|;&)]*)/g;
+      const invocations = blocks.flatMap((block) =>
+        [...block.matchAll(command)].map(([, tool, rest]) => `${tool}${rest}`.trim())
+      );
+      expect(
+        invocations.filter(
+          (call) =>
+            !/^pnpm -r publish$/.test(call) &&
+            !/^npm (?:whoami|access list packages)\b/.test(call) &&
+            !/^node (?:-p|-e)\b/.test(call) &&
+            !/^node scripts\/unpack-build-output\.mjs "\$RUNNER_TEMP\/build-output"$/.test(call)
+        )
+      ).toStrictEqual([]);
+      expect(publishJob.filter((line) => /run_install|run-install/.test(line))).toStrictEqual([]);
+
+      // what it publishes is a clean build, not what a cached one left behind
+      expect(buildJob).toContain('        run: pnpm build --force');
+    });
+
+    it('should unpack the build output only through the member filter', () => {
+      const text = publishJob.join('\n');
+      const names = publishSteps.map((s) => s.name);
+
+      // uploaded and downloaded as one file, so nothing unzips it, into a
+      // directory outside the checkout
+      expect(buildJob).toContain('          archive: false');
+      expect(step('Download the build output')).toContain('          skip-decompress: true');
+      expect(step('Download the build output')).toContain(
+        '          path: ${{ runner.temp }}/build-output'
+      );
+      // unpacked by the script that refuses anything but dist and registry
+      expect(runBlocks(step('Unpack the build output')).map((block) => block.trim())).toStrictEqual(
+        ['node scripts/unpack-build-output.mjs "$RUNNER_TEMP/build-output"']
+      );
+      // and checked afterwards: nothing tracked changed, nothing new outside
+      const backstop = runBlocks(step('Check the checkout holds nothing but build output')).join(
+        '\n'
+      );
+      expect(backstop).toContain('if ! git diff --exit-code');
+      expect(backstop).toContain('git ls-files -z --others --exclude-standard');
+      expect(backstop).toContain(
+        "git ls-files -z --others --ignored --exclude-standard | grep -zvE '^packages/[^/]+/(dist|registry)/'"
+      );
+      // and by nothing else that could extract it
+      expect(
+        runBlocks(publishJob).filter((block) => /\b(?:tar|unzip|bsdtar|7z)\b/.test(block))
+      ).toStrictEqual([]);
+      // in this order: the token check before anything from `build` is on
+      // disk, since `npm whoami` reads a project `.npmrc`, and the publish
+      // after every check of what arrived
+      const order = [
+        'Check the token can publish',
+        'Download the build output',
+        'Unpack the build output',
+        'Check the checkout holds nothing but build output',
+        'Check every published file is present',
+        'Publish to npm',
+      ].map((name) => names.indexOf(name));
+      expect(order).toStrictEqual([...order].sort((a, b) => a - b));
+      expect(order).not.toContain(-1);
+      expect(text.indexOf('npm whoami')).toBeLessThan(text.indexOf('download-artifact'));
+    });
+
+    describe.skipIf(process.platform === 'win32')('the checkout backstop, run', () => {
+      // the block scalar's lines, without the `|` that introduced it
+      const [indicator, ...body] = runBlocks(
+        step('Check the checkout holds nothing but build output')
+      )[0].split('\n');
+      const script = body.join('\n');
+
+      it('should find the script it runs', () => {
+        expect(indicator.trim()).toBe('|');
+        expect(script).toContain('git ls-files');
+      });
+      let repo: string;
+
+      function git(...args: string[]) {
+        const result = spawnSync('git', ['-c', 'commit.gpgsign=false', ...args], {
+          cwd: repo,
+          encoding: 'utf-8',
+          env: Object.fromEntries(
+            Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+          ),
+        });
+        expect(result.status, result.stderr).toBe(0);
+      }
+
+      function backstop() {
+        return spawnSync('bash', ['-e', '-c', script], { cwd: repo, encoding: 'utf-8' });
+      }
+
+      beforeEach(() => {
+        repo = mkdtempSync(join(tmpdir(), 'sigil-backstop-'));
+        mkdirSync(join(repo, 'packages/sigil'), { recursive: true });
+        writeFileSync(join(repo, '.gitignore'), 'dist/\nregistry/\nnode_modules/\n');
+        writeFileSync(join(repo, '.npmrc'), 'save-exact=true\n');
+        writeFileSync(join(repo, 'packages/sigil/package.json'), '{}');
+        git('init', '-q');
+        git('add', '.');
+        git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'init');
+        mkdirSync(join(repo, 'packages/sigil/dist'));
+        writeFileSync(join(repo, 'packages/sigil/dist/index.mjs'), '');
+      });
+
+      afterEach(() => {
+        rmSync(repo, { force: true, recursive: true });
+      });
+
+      it('should pass build output whose names git would quote', () => {
+        // a non-ASCII name and a `"` are both C-quoted by git without `-z`,
+        // and a quoted name does not start with `packages/`
+        writeFileSync(join(repo, 'packages/sigil/dist/é.mjs'), '');
+        writeFileSync(join(repo, 'packages/sigil/dist/a"b.mjs'), '');
+        mkdirSync(join(repo, 'packages/sigil/registry'));
+        writeFileSync(join(repo, 'packages/sigil/registry/x.json'), '');
+
+        const result = backstop();
+        expect(result.stdout).toBe('');
+        expect(result.status).toBe(0);
+      });
+
+      it('should fail on a tracked file changed, a new file, or an ignored one elsewhere', () => {
+        writeFileSync(join(repo, '.npmrc'), 'registry=http://registry.npmjs.org/\n');
+        expect(backstop().stdout).toContain('::error::unpacking changed tracked files');
+        writeFileSync(join(repo, '.npmrc'), 'save-exact=true\n');
+        expect(backstop().status).toBe(0);
+
+        writeFileSync(join(repo, 'pnpm-workspace.yaml'), '');
+        expect(backstop().stdout).toContain('outside the build output: pnpm-workspace.yaml');
+        rmSync(join(repo, 'pnpm-workspace.yaml'));
+
+        mkdirSync(join(repo, 'node_modules'));
+        writeFileSync(join(repo, 'node_modules/x.js'), '');
+        const result = backstop();
+        expect(result.stdout).toContain(
+          '::error::ignored files outside the build output: node_modules/x.js'
+        );
+        expect(result.status).toBe(1);
+      });
+    });
+  });
+
+  /**
+   * What each published package actually puts in its tarball, asked of the
+   * tool that publishes it.
+   *
+   * Read off `packages/` rather than listed, for the reason `the root build
+   * filter` reads it: a sixth package joins these checks or fails them, and it
+   * cannot be left out quietly.
+   */
+  describe('what every package publishes', () => {
+    const packagesDir = resolve(root, '..');
+    const published = readdirSync(packagesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const dir = resolve(packagesDir, entry.name);
+        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8')) as {
+          license?: string;
+          name: string;
+          private?: boolean;
+        };
+        return { dir, manifest, name: manifest.name };
+      })
+      .filter(({ manifest }) => manifest.private !== true);
+
+    /**
+     * The files `pnpm pack` would put in the tarball, by their path inside it.
+     *
+     * pnpm rather than npm, because `pnpm -r publish` is what the publish
+     * workflow runs and the two do not agree: npm packs a LICENSE only when it
+     * sits in the package directory, while pnpm packs the workspace root's when
+     * the package has none of its own -- so `npm pack` lists no LICENSE for any
+     * of these and the tarball pnpm publishes holds one. The publisher's own
+     * answer is the one worth asserting.
+     *
+     * `npm_execpath` is pnpm itself whenever pnpm started the run, which is how
+     * `pnpm test` reaches vitest; it is a native binary on pnpm 12 and a script
+     * on older ones. Failing that, `pnpm` off the `PATH`, through a shell on
+     * Windows, where it is a `.cmd` or an `.exe` and only a shell finds both.
+     */
+    function packList(dir: string): string[] {
+      const execpath = process.env.npm_execpath;
+      const args = ['pack', '--dry-run', '--json'];
+      const result =
+        execpath !== undefined && /^pnpm/i.test(basename(execpath))
+          ? /\.[cm]?js$/.test(execpath)
+            ? spawnSync(process.execPath, [execpath, ...args], { cwd: dir, encoding: 'utf-8' })
+            : spawnSync(execpath, args, { cwd: dir, encoding: 'utf-8' })
+          : process.platform === 'win32'
+            ? spawnSync(`pnpm ${args.join(' ')}`, { cwd: dir, encoding: 'utf-8', shell: true })
+            : spawnSync('pnpm', args, { cwd: dir, encoding: 'utf-8' });
+
+      if (result.status !== 0) {
+        throw new Error(`pnpm pack failed in ${dir}: ${result.stderr || result.stdout}`);
+      }
+      // anything printed ahead of the JSON is not the answer. pnpm prints one
+      // object and npm an array of them, so either opening bracket starts it
+      const start = result.stdout.search(/[[{]/);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(result.stdout.slice(start));
+      } catch {
+        throw new Error(`pnpm pack in ${dir} printed no JSON: ${result.stdout || result.stderr}`);
+      }
+      const pack = (Array.isArray(parsed) ? parsed[0] : parsed) as
+        | { files?: { path: string }[] }
+        | undefined;
+      if (!Array.isArray(pack?.files)) {
+        throw new Error(`pnpm pack in ${dir} listed no files: ${result.stdout}`);
+      }
+      return pack.files.map((file) => file.path.replaceAll('\\', '/'));
+    }
+
+    it('should find every package it means to check', () => {
+      // a scan that stopped finding them would pass everything below by
+      // checking nothing
+      expect(published.map(({ name }) => name).sort()).toStrictEqual([
+        '@ttylabs/cli',
+        '@ttylabs/config-xml',
+        '@ttylabs/config-yaml',
+        '@ttylabs/screenshot',
+        '@ttylabs/sigil',
+      ]);
+    });
+
+    it.each(published.map(({ dir, manifest, name }) => [name, dir, manifest] as const))(
+      'should carry the license its manifest names: %s',
+      (_name, dir, manifest) => {
+        // MIT asks for the notice to accompany every copy, and a tarball is a
+        // copy. The file is the repository root's, which pnpm packs for a
+        // package with none of its own -- so there is one LICENSE to keep
+        // current rather than six that can drift apart
+        expect(manifest.license).toBe('MIT');
+        expect(packList(dir)).toContain('LICENSE');
+        expect(readFileSync(resolve(root, '../../LICENSE'), 'utf-8')).toContain(
+          'Permission is hereby granted, free of charge'
+        );
+      }
+    );
+
+    it.each(published.map(({ dir, name }) => [name, dir] as const))(
+      'should ship no raw control character: %s',
+      (_name, dir) => {
+        // a raw `ESC` in a shipped file is a sequence waiting for something to
+        // print it, and Node prints the offending source line on an uncaught
+        // error -- so a crash anywhere inside a bundle wrote `ESC ] 8 ; ;` to
+        // the user's terminal and left every line after it inside a hyperlink
+        // nothing closed. `@ttylabs/sigil` and `@ttylabs/cli` escape them as
+        // they build; the other three minify with nothing doing so, and are
+        // clean only because nothing they hold folds into one yet. Every file
+        // under `dist/` is read, declarations included, since all of it ships
+        const dist = join(dir, 'dist');
+        const files = readdirSync(dist, { encoding: 'utf8', recursive: true }).filter((name) =>
+          statSync(join(dist, name)).isFile()
+        );
+        expect(files.length, `nothing in ${dist}; run \`pnpm build\``).toBeGreaterThan(0);
+
+        const found: string[] = [];
+        for (const name of files) {
+          const counts = controlCharacters(readFileSync(join(dist, name), 'utf8'));
+          if (counts.size > 0) {
+            const report = [...counts]
+              .map(
+                ([code, count]) => `U+${code.toString(16).toUpperCase().padStart(4, '0')} x${count}`
+              )
+              .join(', ');
+            found.push(`${name}: ${report}`);
+          }
+        }
+
+        expect(found).toStrictEqual([]);
+      }
+    );
   });
 
   describe('the fixtures', () => {
@@ -939,6 +1423,26 @@ describe('@ttylabs/cli', () => {
         .map((name) => readFileSync(resolve(dirname(bin), name), 'utf-8'));
 
       expect(chunks.some((chunk) => /from\s*["']@ttylabs\/sigil["']/.test(chunk))).toBe(true);
+    });
+
+    it('should inline magic-string, which is why it is only a devDependency', () => {
+      // the other half of `should not make an install download what the bundle
+      // already inlined`: a chunk that imported it by name would be a bin that
+      // dies on `ERR_MODULE_NOT_FOUND` for anyone who installed the toolchain
+      // without its devDependencies, which is everyone
+      const dist = dirname(bin);
+      const chunks = readdirSync(dist, { encoding: 'utf8', recursive: true })
+        .filter((name) => name.endsWith('.mjs'))
+        .map((name) => readFileSync(resolve(dist, name), 'utf-8'));
+
+      // backticks as well as quotes: rolldown's minifier writes a dynamic
+      // import's specifier as a template literal -- ``import(`rolldown`)`` is in
+      // this very build -- so a lazy import of it would be invisible to a quote
+      // pattern. The inlined warning's `rich-harris/magic-string` URL has a `/`
+      // in front of the name, so it is not mistaken for one
+      expect(chunks.some((chunk) => /[`"']magic-string[`"']/.test(chunk))).toBe(false);
+      // its own warning text, which survives minification where a name does not
+      expect(chunks.some((chunk) => chunk.includes('rich-harris/magic-string'))).toBe(true);
     });
 
     it('should answer --version when run as a real process', () => {

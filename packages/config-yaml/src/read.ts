@@ -86,7 +86,10 @@ function decimalOf(source: string): string | undefined {
     return '0';
   }
 
-  const trimmed = digits.replace(/0+$/, '');
+  // the lookbehind starts a match only where a run of zeros starts: unanchored,
+  // an interior run of k zeros is tried from each of its k positions, which is
+  // k² steps for a run that is not at the end at all
+  const trimmed = digits.replace(/(?<!0)0+$/, '');
   const exp = Number(parts[4] ?? '0') - frac.length + (digits.length - trimmed.length);
 
   return `${parts[1] === '-' ? '-' : ''}${trimmed}e${exp}`;
