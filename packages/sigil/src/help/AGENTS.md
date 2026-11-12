@@ -75,7 +75,10 @@ the entry it belongs to.
   command.** A default command is in the context chain without argv having named
   it, and answering with its screen would hide every other command there is. The
   chain is trimmed to the commands argv actually named -- one `ParsedCommand`
-  each, none for a default.
+  each, none for a default -- from the innermost one rather than by counting
+  them, so a typed subcommand of a default is still what is described (SIG-340,
+  under "`--help` is trimmed from the innermost command argv named" in
+  `src/parser/AGENTS.md`).
 - **An option's `group` makes a section; a `help` hook contributes one.** Both
   are the same idea -- a titled list of options -- and they differ in what they
   are for. A group is the command's own options, split up, and still shadows

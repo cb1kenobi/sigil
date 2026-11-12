@@ -822,10 +822,11 @@ async function parseArgv(state: ParseState): Promise<void> {
           state.cmd = contexts[0];
 
           // one `ParsedCommand` per command rather than one for the token, so
-          // that everything downstream counts commands the way it always has --
-          // help trims a chain back to the commands argv *named*, and a token
-          // that named three has to count as three. Each carries the segment as
-          // it was *typed*, which for an alias is not the command's name
+          // that everything downstream sees each command argv named, the way the
+          // space form shows it -- help trims a chain back to the innermost one
+          // and the palette's catalog maps each to the token that reached it, so
+          // a token that named three has to be three entries. Each carries the
+          // segment as it was *typed*, which for an alias is not the command's name
           emit(
             ...topic.map<ParsedValue>((cmd, i) => ({
               cmd,
