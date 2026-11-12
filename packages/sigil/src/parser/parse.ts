@@ -236,6 +236,41 @@ async function initArgv(state: ParseState): Promise<void> {
 }
 
 /**
+ * A token as it was typed, for every place that hands one on rather than reading
+ * it as an option: a value after the terminator, and a positional argument.
+ * `inputs` is the split form -- `--foo=bar` was taken apart into a name and a
+ * value in the very first pass, before anything knew what the token would turn
+ * out to be -- so flattening it turns one token into two.
+ *
+ * @param entry - The parsed entry.
+ * @returns The typed token, or the inputs where nothing recorded one.
+ */
+function whole(entry: ParsedBase): (string | undefined)[] {
+  return entry.orig === undefined ? entry.inputs : [entry.orig];
+}
+
+/**
+ * Puts what a walk built back into `state.$`, in place.
+ *
+ * A walk reads the entries as the pass found them and writes what it resolved
+ * into a new list, which replaces them once, when the walk ends. Splicing them
+ * in place instead -- a consumed value out, a short option group's entries in --
+ * shifted everything after the edit, so a walk was quadratic in argv: 100,000
+ * tokens of `<files...>` took seconds. Called from a `finally`, so a walk that
+ * throws leaves what it had resolved, the entry it was reading, and what it had
+ * not reached, with no consumed value left behind as a stray entry.
+ *
+ * @param $ - The parsed entries, replaced in place: callers hold this array.
+ * @param entries - What takes their place.
+ */
+function refill($: ParsedValue[], entries: ParsedValue[]): void {
+  $.length = 0;
+  for (const entry of entries) {
+    $.push(entry);
+  }
+}
+
+/**
  * Finds an option by name across the entire context chain, innermost context
  * first, so that a subcommand can use the options its parents declared.
  *
@@ -271,6 +306,12 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
   const explicit = entry.inputs[1];
   const expanded: ParsedValue[] = [];
 
+  // the token as typed, where it still reads as the group: `initArgv()` split
+  // it at the first `=` before anything knew whether a letter takes a value,
+  // so the text after a letter is only ever whole here
+  const { orig } = entry;
+  const typed = orig?.startsWith(`-${chars}`) ? orig : undefined;
+
   for (let i = 0; i < chars.length; i++) {
     const name = `-${chars[i]}`;
     const option = findOption(contexts, name);
@@ -281,12 +322,17 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
         return;
       }
 
-      // partially resolved, so defer whatever is left
+      // partially resolved, so defer whatever is left -- carrying its own
+      // spelling, so that a later pass, or a positional slot, still has it whole
       const rest: (string | undefined)[] = [`-${chars.slice(i)}`];
       if (explicit !== undefined) {
         rest.push(explicit);
       }
-      expanded.push({ inputs: rest, type: 'Unknown' });
+      expanded.push({
+        inputs: rest,
+        orig: typed === undefined ? undefined : `-${typed.slice(i + 1)}`,
+        type: 'Unknown',
+      });
       return expanded;
     }
 
@@ -295,11 +341,14 @@ function expandGroup(contexts: InternalCommand[], entry: ParsedBase): ParsedValu
       continue;
     }
 
-    // this option takes a value, so the rest of the group is that value
+    // this option takes a value, so the rest of the group is that value -- the
+    // rest of the *token*, `=` and all: `-Dfoo=bar` was split into `-Dfoo` and
+    // `bar` before `-D` was known to take a value, and reading only the letters
+    // made the value `foo` and dropped `=bar` without a word
     const rest = chars.slice(i + 1);
     const inputs: (string | undefined)[] = [name];
     if (rest) {
-      inputs.push(rest);
+      inputs.push(explicit !== undefined && typed !== undefined ? typed.slice(i + 2) : rest);
     } else if (explicit !== undefined) {
       inputs.push(explicit);
     }
@@ -674,182 +723,205 @@ async function parseArgv(state: ParseState): Promise<void> {
   for (let pass = 0; pass < contexts.length; pass++) {
     log(`Parsing argv with context "${contexts[0].name}"`);
 
-    for (let j = 0; j < $.length; j++) {
-      const arg = $[j];
+    // `$` is read as the pass found it and what resolves is written to `out`,
+    // which takes its place when the pass ends: see `refill()`. A consumed
+    // value is taken and never written, and a short option group's entries
+    // wait in `queue`, ahead of the rest of `$`
+    const out: ParsedValue[] = [];
+    const queue: ParsedValue[] = [];
+    let k = 0;
+    // the entry being read, which a throw leaves where it was
+    let current: ParsedValue | undefined;
+    const peek = (): ParsedValue | undefined => (queue.length ? queue[0] : $[k]);
+    const take = (): ParsedValue => (queue.length ? queue.shift()! : $[k++]);
+    const emit = (...entries: ParsedValue[]): void => {
+      out.push(...entries);
+      current = undefined;
+    };
 
-      if (arg.type !== 'Unknown') {
-        continue;
-      }
+    try {
+      while (queue.length || k < $.length) {
+        const arg = (current = take());
 
-      const subject = arg.inputs[0];
-
-      if (subject === '--') {
-        $[j] = {
-          inputs: $.splice(j, $.length)
-            .slice(1)
-            // what follows the terminator is not argv's to read, so each
-            // token goes through whole. `inputs` is the split form --
-            // `--foo=bar` was taken apart into a name and a value before
-            // anything knew a terminator preceded it -- and flattening that
-            // turned one extra argument into two
-            .flatMap((a) => (a.orig === undefined ? a.inputs : [a.orig])),
-          type: 'Extra',
-        };
-        break;
-      }
-
-      // commands only resolve against the innermost context, otherwise a
-      // token repeating a command name would match a second time
-      const cmd = contexts[0][Internal].commands.find(subject);
-      if (cmd) {
-        log(`Found command "${cmd.name}"`);
-
-        // the command has matched, so it joins the chain before the module
-        // behind it is loaded -- a module that will not load is an error
-        // this command's own `beforeError` hooks should still see
-        // the parent is the context the command was found in, read before
-        // the unshift puts `cmd` in front of it
-        const parent = contexts[0]!;
-
-        contexts.unshift(cmd);
-        state.cmd = cmd;
-
-        const loaded = await loadCommand(cmd, parent);
-        if (loaded !== cmd) {
-          // loading merged the module's exports into a new command object,
-          // which takes the placeholder's place in its parent's registry --
-          // the same place, so a spelling it shares with a sibling is settled
-          // by declaration order, and the same operation the `:` walk uses,
-          // so the registry after a load does not depend on how argv spelled it
-          contexts[0] = loaded;
-          state.cmd = loaded;
-          parent[Internal].commands.replace(cmd, loaded);
+        if (arg.type !== 'Unknown') {
+          emit(arg);
+          continue;
         }
 
-        $[j] = {
-          cmd: loaded,
-          inputs: arg.inputs,
-          type: 'Command',
-        };
+        const subject = arg.inputs[0];
 
-        await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
+        if (subject === '--') {
+          // the queue is empty here: a group's entries are read before the
+          // token after the group, and none of them is ever `--`
+          emit({
+            inputs: $.slice(k)
+              // what follows the terminator is not argv's to read, so each
+              // token goes through whole. `inputs` is the split form --
+              // `--foo=bar` was taken apart into a name and a value before
+              // anything knew a terminator preceded it -- and flattening that
+              // turned one extra argument into two
+              .flatMap(whole),
+            type: 'Extra',
+          });
+          k = $.length;
+          break;
+        }
 
-        continue;
-      }
+        // commands only resolve against the innermost context, otherwise a
+        // token repeating a command name would match a second time
+        const cmd = contexts[0][Internal].commands.find(subject);
+        if (cmd) {
+          log(`Found command "${cmd.name}"`);
 
-      // ...and the whole token is tried before it is taken apart, because a
-      // command may legitimately be *named* with a separator in it. Only then
-      // is the coloned form read, and only when every segment resolves: a
-      // token that is a value keeps being one, which is what lets `mycli fetch
-      // http://example.com` through unchanged. See `command/topic.ts`
-      const segments = subject === undefined ? undefined : splitTopic(subject, separator);
-      // grows `contexts` with what resolved, and leaves it alone when the
-      // token turns out not to be a path
-      const topic = segments && (await resolveTopic(contexts, segments));
+          // the command has matched, so it joins the chain before the module
+          // behind it is loaded -- a module that will not load is an error
+          // this command's own `beforeError` hooks should still see
+          // the parent is the context the command was found in, read before
+          // the unshift puts `cmd` in front of it
+          const parent = contexts[0]!;
 
-      if (topic) {
-        log(`Found command path "${subject}"`);
+          contexts.unshift(cmd);
+          state.cmd = cmd;
 
-        state.cmd = contexts[0];
+          const loaded = await loadCommand(cmd, parent);
+          if (loaded !== cmd) {
+            // loading merged the module's exports into a new command object,
+            // which takes the placeholder's place in its parent's registry --
+            // the same place, so a spelling it shares with a sibling is settled
+            // by declaration order, and the same operation the `:` walk uses,
+            // so the registry after a load does not depend on how argv spelled it
+            contexts[0] = loaded;
+            state.cmd = loaded;
+            parent[Internal].commands.replace(cmd, loaded);
+          }
 
-        // one `ParsedCommand` per command rather than one for the token, so
-        // that everything downstream counts commands the way it always has --
-        // help trims a chain back to the commands argv *named*, and a token
-        // that named three has to count as three. Each carries the segment as
-        // it was *typed*, which for an alias is not the command's name
-        $.splice(
-          j,
-          1,
-          ...topic.map<ParsedValue>((cmd, i) => ({
-            cmd,
-            inputs: [segments[i]!],
+          emit({
+            cmd: loaded,
+            inputs: arg.inputs,
             type: 'Command',
-          }))
-        );
+          });
 
-        // the whole path resolved before any of its hooks fired, so this is a
-        // loop over what is already in hand, in the order the segments were
-        // typed
-        for (const cmd of topic) {
-          await cmd.hooks?.parse?.({ cmd, ...cmd[Internal] });
+          await loaded.hooks?.parse?.({ cmd: loaded, ...loaded[Internal] });
+
+          continue;
         }
 
-        j += topic.length - 1;
+        // ...and the whole token is tried before it is taken apart, because a
+        // command may legitimately be *named* with a separator in it. Only then
+        // is the coloned form read, and only when every segment resolves: a
+        // token that is a value keeps being one, which is what lets `mycli fetch
+        // http://example.com` through unchanged. See `command/topic.ts`
+        const segments = subject === undefined ? undefined : splitTopic(subject, separator);
+        // grows `contexts` with what resolved, and leaves it alone when the
+        // token turns out not to be a path
+        const topic = segments && (await resolveTopic(contexts, segments));
 
-        continue;
-      }
+        if (topic) {
+          log(`Found command path "${subject}"`);
 
-      // options resolve against the whole chain so that a subcommand can
-      // use its parents' options, but only option-like tokens get to look:
-      // the registry also indexes bare names, so an unguarded lookup would
-      // resolve the positional value `foo` as the option `--foo`
-      const option = optionLikeRE.test(`${subject}`) ? findOption(contexts, subject) : undefined;
+          state.cmd = contexts[0];
 
-      if (!option) {
-        const expanded = expandGroup(contexts, arg);
-        if (expanded) {
-          // reprocess starting at the first expanded entry
-          $.splice(j--, 1, ...expanded);
+          // one `ParsedCommand` per command rather than one for the token, so
+          // that everything downstream counts commands the way it always has --
+          // help trims a chain back to the commands argv *named*, and a token
+          // that named three has to count as three. Each carries the segment as
+          // it was *typed*, which for an alias is not the command's name
+          emit(
+            ...topic.map<ParsedValue>((cmd, i) => ({
+              cmd,
+              inputs: [segments[i]!],
+              type: 'Command',
+            }))
+          );
+
+          // the whole path resolved before any of its hooks fired, so this is a
+          // loop over what is already in hand, in the order the segments were
+          // typed
+          for (const cmd of topic) {
+            await cmd.hooks?.parse?.({ cmd, ...cmd[Internal] });
+          }
+
+          continue;
         }
-        continue;
-      }
 
-      const { inputs } = arg;
-      const { type } = option;
-      const { isFlag, label } = option[Internal];
-      let value: unknown;
+        // options resolve against the whole chain so that a subcommand can
+        // use its parents' options, but only option-like tokens get to look:
+        // the registry also indexes bare names, so an unguarded lookup would
+        // resolve the positional value `foo` as the option `--foo`
+        const option = optionLikeRE.test(`${subject}`) ? findOption(contexts, subject) : undefined;
 
-      log(`Found ${label}`);
+        if (!option) {
+          const expanded = expandGroup(contexts, arg);
+          if (expanded) {
+            // read next, ahead of the rest of argv, in place of the group
+            queue.unshift(...expanded);
+          } else {
+            emit(arg);
+          }
+          continue;
+        }
 
-      if (isFlag && type === 'count' && inputs.length > 1) {
-        // a counter reached with a value takes that value, the same way an
-        // explicit `--foo=false` beats the name a bool flag was reached by.
-        // Read as a `bool` it was either rejected for saying a number --
-        // `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
-        // away, because the counting path increments and never looks at the
-        // value, so `-v=false` counted up to 1
-        value = transformValue(`${inputs[1]}`, 'count');
-      } else if (isFlag) {
-        // `--foo` is true and `--no-foo` is false, but an explicit
-        // `--foo=false` beats the name it was reached by
-        const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-        value = isNegated(option, subject) ? !bool : bool;
-      } else {
-        const next = $[j + 1];
+        const { inputs } = arg;
+        const { type } = option;
+        const { isFlag, label } = option[Internal];
+        let value: unknown;
 
-        if (inputs.length > 1) {
-          value = inputs[1];
-        } else if (next && canBeValue(contexts, next)) {
-          value = next.orig ?? next.inputs[0];
-          inputs.push(value as string);
-          $.splice(j + 1, 1);
+        log(`Found ${label}`);
+
+        if (isFlag && type === 'count' && inputs.length > 1) {
+          // a counter reached with a value takes that value, the same way an
+          // explicit `--foo=false` beats the name a bool flag was reached by.
+          // Read as a `bool` it was either rejected for saying a number --
+          // `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
+          // away, because the counting path increments and never looks at the
+          // value, so `-v=false` counted up to 1
+          value = transformValue(`${inputs[1]}`, 'count');
+        } else if (isFlag) {
+          // `--foo` is true and `--no-foo` is false, but an explicit
+          // `--foo=false` beats the name it was reached by
+          const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
+          value = isNegated(option, subject) ? !bool : bool;
         } else {
-          // an option that takes a value was given none. Required or not is a
-          // question about the *option* -- `<value>` means the option itself
-          // must appear, `[value]` means it need not -- and neither says the
-          // value may be left out. `--port=` is the way to give an empty one,
-          // and then the data type decides whether empty is a value it has
-          throw new Error(__`Missing value for option ${label}`);
+          const next = peek();
+
+          if (inputs.length > 1) {
+            value = inputs[1];
+          } else if (next && canBeValue(contexts, next)) {
+            // taken, so it is never read as a token of its own -- a value that
+            // spells a command name must not then match the command
+            take();
+            value = whole(next)[0];
+            inputs.push(value as string);
+          } else {
+            // an option that takes a value was given none. Required or not is a
+            // question about the *option* -- `<value>` means the option itself
+            // must appear, `[value]` means it need not -- and neither says the
+            // value may be left out. `--port=` is the way to give an empty one,
+            // and then the data type decides whether empty is a value it has
+            throw new Error(__`Missing value for option ${label}`);
+          }
         }
-      }
 
-      if (typeof option.transform === 'function') {
-        const result = await option.transform(value, state);
-        if (result !== undefined) {
-          value = result;
+        if (typeof option.transform === 'function') {
+          const result = await option.transform(value, state);
+          if (result !== undefined) {
+            value = result;
+          }
         }
-      }
 
-      if (typeof value === 'string') {
-        value = transformValue(value, type);
-      }
+        if (typeof value === 'string') {
+          value = transformValue(value, type);
+        }
 
-      $[j] = {
-        inputs,
-        option,
-        type: 'Option',
-        value,
-      };
+        emit({
+          inputs,
+          option,
+          type: 'Option',
+          value,
+        });
+      }
+    } finally {
+      refill($, [...out, ...(current ? [current] : []), ...queue, ...$.slice(k)]);
     }
 
     // this pass turned up no new context, so argv has named every command it
@@ -880,53 +952,65 @@ async function parseArgv(state: ParseState): Promise<void> {
 function parseUnknownOptions(state: ParseState): void {
   const { $ } = state;
   const allowed = state.settings?.allowUnknownOptions !== false;
+  // written to a new list and put back once, for the reason `refill()` gives
+  const out: ParsedValue[] = [];
+  let current: ParsedValue | undefined;
+  let j = 0;
 
-  for (let j = 0; j < $.length; j++) {
-    const arg = $[j];
+  try {
+    for (; j < $.length; j++) {
+      const arg = (current = $[j]);
 
-    if (arg.type !== 'Unknown') {
-      continue;
-    }
-
-    const subject = arg.inputs[0];
-    const m = subject?.match(unknownOptionRE);
-    if (!m) {
-      continue;
-    }
-
-    if (!allowed) {
-      throw new Error(unknownOption(subject, state.contexts, state.settings));
-    }
-
-    log(`Found unknown option "${subject}"`);
-
-    const { inputs } = arg;
-    let value: unknown = true;
-
-    if (inputs.length > 1) {
-      value = inputs[1];
-    } else {
-      const next = j + 1 < $.length ? $[j + 1] : undefined;
-      const following = next?.inputs[0];
-      if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
-        value = next.orig ?? following;
-        inputs.push(value as string);
-        $.splice(j + 1, 1);
+      if (arg.type !== 'Unknown') {
+        out.push(arg);
+        continue;
       }
-    }
 
-    if (typeof value === 'string') {
-      // nothing declared a data type for this, so guess at one
-      value = transformValue(value, 'auto');
-    }
+      const subject = arg.inputs[0];
+      const m = subject?.match(unknownOptionRE);
+      if (!m) {
+        out.push(arg);
+        continue;
+      }
 
-    $[j] = {
-      dest: camelCase(m[1] ?? m[2]),
-      inputs,
-      orig: arg.orig,
-      type: 'UnknownOption',
-      value,
-    };
+      if (!allowed) {
+        throw new Error(unknownOption(subject, state.contexts, state.settings));
+      }
+
+      log(`Found unknown option "${subject}"`);
+
+      const { inputs } = arg;
+      let value: unknown = true;
+
+      if (inputs.length > 1) {
+        value = inputs[1];
+      } else {
+        const next = j + 1 < $.length ? $[j + 1] : undefined;
+        const following = next?.inputs[0];
+        if (next?.type === 'Unknown' && following !== '--' && !optionLikeRE.test(`${following}`)) {
+          value = whole(next)[0];
+          inputs.push(value as string);
+          // taken, so it is stepped over rather than read as a token of its own
+          j++;
+        }
+      }
+
+      if (typeof value === 'string') {
+        // nothing declared a data type for this, so guess at one
+        value = transformValue(value, 'auto');
+      }
+
+      out.push({
+        dest: camelCase(m[1] ?? m[2]),
+        inputs,
+        orig: arg.orig,
+        type: 'UnknownOption',
+        value,
+      });
+    }
+    current = undefined;
+  } finally {
+    refill($, [...out, ...(current ? [current] : []), ...$.slice(j + 1)]);
   }
 }
 
@@ -952,6 +1036,13 @@ export async function processArgs(state: ParseState): Promise<void> {
     if (parsedType === 'Unknown') {
       const arg = internal.args[argIdx++];
 
+      // a positional is the token as it was typed. `inputs` is the split form,
+      // so `-Dfoo=bar` landing here arrived as `-Dfoo` with `bar` as a second
+      // value -- the half the terminator, a declared option and an undeclared
+      // one had each already been given back. A copy, because coercion below
+      // writes into it and `state.$` is what argv said
+      inputs = [...whole(parsed)];
+
       if (!state.settings?.allowUnexpectedArguments && !arg) {
         throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
       }
@@ -962,14 +1053,20 @@ export async function processArgs(state: ParseState): Promise<void> {
         if (multiple) {
           // gobble every remaining positional value, but with its own
           // index: advancing `i` here would run the outer loop off the
-          // end and silently drop every option that follows
+          // end and silently drop every option that follows. What is
+          // gobbled is dropped from `state.$` in the same pass, rather than
+          // spliced out one at a time, which was quadratic in argv
+          let w = i + 1;
           for (let k = i + 1; k < state.$.length; k++) {
-            const next: ParsedBase = state.$[k];
+            const next = state.$[k];
             if (next.type === 'Unknown') {
-              inputs.push(...next.inputs);
-              state.$.splice(k--, 1);
+              parsed.inputs.push(...next.inputs);
+              inputs.push(...whole(next));
+            } else {
+              state.$[w++] = next;
             }
           }
+          state.$.length = w;
         }
 
         if (typeof arg.transform === 'function') {
@@ -979,11 +1076,10 @@ export async function processArgs(state: ParseState): Promise<void> {
           }
         }
 
-        for (let i = 0, len = inputs.length; i < len; i++) {
-          if (typeof inputs[i] === 'string') {
-            inputs[i] = transformValue(inputs[i] as string, type);
-          }
-        }
+        // into a new array: what a `transform` returned is the caller's
+        inputs = inputs.map((input) =>
+          typeof input === 'string' ? transformValue(input, type) : input
+        );
 
         state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
         produced(state, dest, arg);
@@ -1164,11 +1260,19 @@ export function validateOptions(state: ParseState): void {
   const all = state.contexts.flatMap((ctx) => [...ctx[Internal].options.values()]);
   const live = liveDeclarations(state);
 
+  // once, rather than a walk of `state.$` per declared option
+  const typedOptions = new Set<InternalOption>();
+  for (const parsed of state.$) {
+    if (parsed.type === 'Option') {
+      typedOptions.add(parsed.option);
+    }
+  }
+
   for (const opt of all) {
     const { choices, required } = opt;
     const { dest, label } = opt[Internal];
     const value = resolved(state, dest);
-    const typed = state.$.some((parsed) => parsed.type === 'Option' && parsed.option === opt);
+    const typed = typedOptions.has(opt);
 
     if (required && !typed && value === undefined) {
       missingOptions.unshift(label);
