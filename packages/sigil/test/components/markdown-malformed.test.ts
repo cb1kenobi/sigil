@@ -374,12 +374,67 @@ describe('parseMarkdown() on malformed input', () => {
       expect(drawn.slice(-2)).to.deep.equal(['      10.', '      w10']);
     });
 
-    it('should keep a third of a narrow document for the text, so a list three deep still indents', () => {
+    it('should draw a block too wide for the room beside a marker under it, not off the grid', () => {
+      // six levels leave two columns beside the innermost marker at ten, twelve
+      // and fourteen columns. A paragraph wraps into two, but a code block is two
+      // columns in and a table needs a column each and the gap: beside the marker
+      // they were drawn past the edge, and the bullet was all that was on screen
+      const blocks = {
+        code: ['```', 'secret', '```'],
+        table: ['| a | b |', '| - | - |', '| x | y |'],
+      };
+      for (const width of [10, 12, 14]) {
+        for (const [kind, lines] of Object.entries(blocks)) {
+          const levels = Array.from({ length: 5 }, (_, i) => `${'  '.repeat(i)}- l${i + 1}`);
+          const block = lines.map((line, i) => (i === 0 ? '- ' : '  ') + line);
+          const source = [...levels, ...block.map((line) => `${'  '.repeat(5)}${line}`)];
+          const drawn = markdown(source.join('\n'), { ...glyphs, width }).split('\n');
+          const label = `${kind} at ${width}`;
+          expect(Math.max(...drawn.map((line) => line.trimEnd().length)), label).to.be.at.most(
+            width
+          );
+          if (kind === 'code') {
+            expect(drawn.join('').replaceAll(/\s/g, ''), label).to.include('secret');
+          } else {
+            expect(
+              drawn.map((line) => line.trim()),
+              label
+            ).to.include.members(['a  b', 'x  y']);
+          }
+        }
+      }
+    });
+
+    it('should draw the code under an ASCII task box, which takes three columns', () => {
+      // `[ ]` is three columns where a bullet is one, so a task list runs out of
+      // room a level sooner: the code after an item's words went beside them, in
+      // two columns, and was drawn off the grid
+      for (const width of [10, 12, 14]) {
+        const source = '- [ ] a\n  - [ ] b\n    - [ ] c\n      ```\n      secret\n      ```\n';
+        const drawn = markdown(source, { ...plain, platform: 'win32', width }).split('\n');
+        expect(Math.max(...drawn.map((line) => line.trimEnd().length))).to.be.at.most(width);
+        expect(drawn.join('').replaceAll(/\s/g, ''), `at ${width}`).to.include('secret');
+      }
+    });
+
+    it('should keep four columns of a narrow document for the text, so a list three deep still indents', () => {
       // twenty columns is more than a narrow document has to give: at the
-      // narrowest, ten, a third is three, and a list three deep keeps the four
-      // columns it has always had there
+      // narrowest, ten, a list three deep keeps the four columns it has always
+      // had there. The fourth level stops indenting, and its one-letter word is
+      // the one kind of block that two columns beside the marker can draw
       const drawn = markdown('- a\n  - b\n    - c d\n      - e', { ...glyphs, width: 10 });
       expect(drawn.split('\n')).to.deep.equal(['• a', '  ◦ b', '    ▪ c d', '      • e']);
+      // and never fewer than four, which a table of two columns needs: a third
+      // of ten is three, and a list that left three indented a table into them
+      const table = ['- a', '  1. b', '     - c', '', '       | a | b |', '       | - | - |'];
+      expect(markdown(table.join('\n'), { ...glyphs, width: 10 }).split('\n')).to.deep.equal([
+        '• a',
+        '  1. b',
+        '     ▪ c',
+        '',
+        '     a  b',
+        '     ─  ─',
+      ]);
     });
 
     it('should draw deep nesting in time linear in its depth, not in its square', () => {
