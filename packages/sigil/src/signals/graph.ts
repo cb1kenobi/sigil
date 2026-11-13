@@ -14,6 +14,8 @@
  * `effect()`'s job, and further up it is the frame loop's.
  */
 
+import { raise } from './raise.js';
+
 /** Nothing upstream changed; the cache stands. */
 const CLEAN = 0;
 
@@ -48,7 +50,7 @@ interface Producer {
   /** Brings the value up to date so that `version` can be trusted. */
   refresh(): void;
   /** What this reads, for liveness to propagate through. Empty for a state. */
-  producerSources(): Iterable<Producer>;
+  producerSources(): Iterator<Producer>;
   notifyWatched(): void;
   notifyUnwatched(): void;
 }
@@ -80,6 +82,16 @@ interface Consumer {
    * clean over a value it computed from what a source held before the write.
    */
   stale: boolean;
+  /**
+   * The outermost read (see `read`) in which this one's last run started and
+   * never finished -- abandoned for a chain too deep, or cut short by the stack
+   * running out in the graph's own code -- and `0` once a run has finished. Such
+   * a node is `DIRTY` or `CHECK`, which ordinarily says its subgraph has been told,
+   * and here nothing has: what read it was handed an error, not a write. So the
+   * next write to reach it passes through it once (see `invalidate()`), and
+   * within the read it failed in it is not run again (see `#run()`).
+   */
+  incomplete: number;
   /** A watcher is notified rather than marked, and is always live. */
   readonly isWatcher: boolean;
   notify(): void;
@@ -148,17 +160,28 @@ export interface SignalOptions<T> {
  * re-enter propagation halfway through a liveness update -- the same hazard the
  * ban on `notify` exists for, and the proposal freezes both for the same reason.
  *
- * @param fn - What to run.
+ * @param producer - Whose callback to run.
+ * @param gained - `watched` if it became live, `unwatched` if it stopped.
  */
-function frozen(fn: () => void): void {
+function frozen(producer: Producer, gained: boolean): void {
   const previous = notifying;
   notifying = true;
   try {
-    fn();
+    if (gained) {
+      producer.notifyWatched();
+    } else {
+      producer.notifyUnwatched();
+    }
   } finally {
     notifying = previous;
   }
 }
+
+/**
+ * What a state reads, which is nothing: an iterator that is done from the start
+ * and stays done, so one serves every state.
+ */
+const noSources: Iterator<Producer> = ([] as Producer[]).values();
 
 /**
  * Whether a consumer is observed, and so whether the things it reads are.
@@ -171,21 +194,62 @@ function isLive(consumer: Consumer): boolean {
 }
 
 /**
+ * Moves a producer's live count by one, and passes the change on to what that
+ * producer itself reads when the count crosses zero.
+ *
+ * A loop over an explicit stack rather than a recursion, because the walk is as
+ * deep as the graph: a chain of a few thousand computeds -- a running offset per
+ * row of a long list -- ran out of native stack part-way through, with the upper
+ * counts moved and the lower ones not. The order is the recursion's exactly: a
+ * node's sources are walked before its own callback fires, depth first, in the
+ * order `producerSources()` hands them over.
+ *
+ * @param producer - The producer that gained or lost a live sink.
+ * @param gained - Whether it gained one.
+ */
+function moveLive(producer: Producer, gained: boolean): void {
+  if ((gained ? ++producer.liveCount : --producer.liveCount) !== (gained ? 1 : 0)) {
+    return;
+  }
+
+  // the walk happens before the callback, so a callback that throws leaves the
+  // counts below it consistent and only its own error escapes. The other order
+  // skips the walk entirely and strands every source one short.
+  //
+  // The frames above the node being walked are pairs of a node and its sources'
+  // iterator, flat in one array, which is only built once a source crosses zero
+  // too -- most changes stop at the first node
+  let stack: (Producer | Iterator<Producer>)[] | undefined;
+  let node = producer;
+  let walk = producer.producerSources();
+  for (;;) {
+    const step = walk.next();
+    if (step.done !== true) {
+      const source = step.value;
+      if ((gained ? ++source.liveCount : --source.liveCount) === (gained ? 1 : 0)) {
+        (stack ??= []).push(node, walk);
+        node = source;
+        walk = source.producerSources();
+      }
+      continue;
+    }
+    frozen(node, gained);
+    if (stack === undefined || stack.length === 0) {
+      return;
+    }
+    walk = stack.pop() as Iterator<Producer>;
+    node = stack.pop() as Producer;
+  }
+}
+
+/**
  * Records that a producer gained a live sink, and passes the liveness on to
  * what that producer itself reads.
  *
  * @param producer - The producer that gained one.
  */
 function incLive(producer: Producer): void {
-  if (++producer.liveCount === 1) {
-    // the walk happens before the callback, so a callback that throws leaves the
-    // counts consistent and only its own error escapes. The other order skips
-    // the walk entirely and strands every source one short
-    for (const source of producer.producerSources()) {
-      incLive(source);
-    }
-    frozen(() => producer.notifyWatched());
-  }
+  moveLive(producer, true);
 }
 
 /**
@@ -194,12 +258,7 @@ function incLive(producer: Producer): void {
  * @param producer - The producer that lost one.
  */
 function decLive(producer: Producer): void {
-  if (--producer.liveCount === 0) {
-    for (const source of producer.producerSources()) {
-      decLive(source);
-    }
-    frozen(() => producer.notifyUnwatched());
-  }
+  moveLive(producer, false);
 }
 
 /**
@@ -250,6 +309,79 @@ function track(producer: Producer): void {
 }
 
 /**
+ * How many levels a graph walk -- a write's `propagate()`, a read's settling of
+ * a `CHECK` node -- recurses before it carries the rest over an explicit stack.
+ *
+ * Recursing is what makes a shallow walk cheap: a `for...of` that stays inside
+ * its own frame is one the engine compiles down to almost nothing, and an
+ * iterator kept on a stack is one it has to allocate. Fully iterative, a small
+ * write cost a tenth more and settling a long chain a quarter more. Sixty-four
+ * levels is far past any graph built by hand and costs a few kilobytes of
+ * native stack, so the bound is what matters and not where it is.
+ */
+const SHALLOW = 64;
+
+/** `propagateDeep()`'s stack of sink iterators, shared by every write. */
+const sinkWalks: Iterator<Consumer>[] = [];
+
+/**
+ * Tells one sink that a write has reached it, and says whether the write goes
+ * on to what reads it.
+ *
+ * The one rule both halves of `propagate()` walk by, so that how deep a sink
+ * sits can never change what it is told.
+ *
+ * @param sink - The sink the walk has reached.
+ * @param state - `DIRTY` for the first ring of dependents, `CHECK` beyond it.
+ * @param errors - Where a watcher's throw is collected, to be raised after.
+ * @returns Whether the walk goes on below it.
+ */
+function invalidate(sink: Consumer, state: NodeState, errors: unknown[]): boolean {
+  if (sink.isWatcher) {
+    // a watcher that throws must not take the rest of the walk with it.
+    // Sinks after it in the set would never be marked, so they would keep
+    // serving a value from before the write -- stale with nothing to
+    // un-stale them until something else happens to touch the same source
+    try {
+      sink.notify();
+    } catch (err) {
+      errors.push(err);
+    }
+    return false;
+  }
+
+  if (sink.seen !== undefined) {
+    // running: an effect body wrote one of its own sources, or one a source
+    // of it reads. Its state is already DIRTY for the run in progress, so the
+    // check below would stop here and the run's end would mark it CLEAN over
+    // a value computed from before this write -- a `Show` keeping a branch
+    // whose condition is already false. So the run is told it is stale, and
+    // what reads it hears now, once, the way it would have from a clean node:
+    // that is what schedules the re-run, and what keeps a reader from
+    // trusting a version this run is about to commit
+    if (sink.stale) {
+      return false;
+    }
+    sink.stale = true;
+    return true;
+  }
+
+  // only a node that was clean has a subgraph that has not heard yet -- or one
+  // whose last run never finished, when what read it was handed an error rather
+  // than a write, and an effect that let it through would otherwise never hear
+  // of the chain again. That holds whether this write finds it already as
+  // invalidated or raises it: a CHECK derivation left incomplete is raised to
+  // DIRTY by a write to a source it reads directly, and stopping there kept its
+  // effect on the cached error. Passed through once, which keeps this linear
+  const passes = sink.state === CLEAN || sink.incomplete !== 0;
+  if (sink.state < state) {
+    sink.state = state;
+  }
+  sink.incomplete = 0;
+  return passes;
+}
+
+/**
  * Announces that a producer may have changed, across the whole subgraph below
  * it, before anything recomputes.
  *
@@ -259,93 +391,177 @@ function track(producer: Producer): void {
  * at least as invalidated as it is about to be marked, which keeps this linear
  * over a graph with shared subexpressions rather than exponential.
  *
+ * Recursive for the first `SHALLOW` levels and a loop over an
+ * explicit stack past them, so the native stack it uses is bounded however deep
+ * the graph is. It used to recurse all the way down, and a write into a chain a
+ * few thousand computeds long -- a running offset per row of a long list -- ran
+ * out of stack part-way through: the version was bumped, the upper part of the
+ * subgraph marked and the lower part not, and every later write stopped at the
+ * first node already marked, so the unmarked tail served its old value forever
+ * with nothing said. The order is the recursion's exactly, on both sides of the
+ * bound: depth first, each node's sinks in insertion order, a subgraph finished
+ * before its next sibling is looked at.
+ *
  * @param producer - What changed.
  * @param state - `DIRTY` for the first ring of dependents, `CHECK` beyond it.
+ * @param errors - Where a watcher's throw is collected, to be raised after.
+ * @param depth - How many levels down the recursion already is.
  */
-function propagate(producer: Producer, state: NodeState, errors: unknown[]): void {
+function propagate(producer: Producer, state: NodeState, errors: unknown[], depth = 0): void {
   for (const sink of producer.sinks) {
-    if (sink.isWatcher) {
-      // a watcher that throws must not take the rest of the walk with it.
-      // Sinks after it in the set would never be marked, so they would keep
-      // serving a value from before the write -- stale with nothing to
-      // un-stale them until something else happens to touch the same source
-      try {
-        sink.notify();
-      } catch (err) {
-        errors.push(err);
+    if (invalidate(sink, state, errors)) {
+      if (depth < SHALLOW) {
+        propagate(sink as unknown as Producer, CHECK, errors, depth + 1);
+      } else {
+        propagateDeep(sink as unknown as Producer, errors);
       }
-      continue;
-    }
-
-    if (sink.seen !== undefined) {
-      // running: an effect body wrote one of its own sources, or one a source
-      // of it reads. Its state is already DIRTY for the run in progress, so the
-      // check below would stop here and the run's end would mark it CLEAN over
-      // a value computed from before this write -- a `Show` keeping a branch
-      // whose condition is already false. So the run is told it is stale, and
-      // what reads it hears now, once, the way it would have from a clean node:
-      // that is what schedules the re-run, and what keeps a reader from
-      // trusting a version this run is about to commit
-      if (!sink.stale) {
-        sink.stale = true;
-        propagate(sink as unknown as Producer, CHECK, errors);
-      }
-      continue;
-    }
-
-    if (sink.state >= state) {
-      // already at least this invalidated, so its subgraph has been told
-      continue;
-    }
-
-    const wasClean = sink.state === CLEAN;
-    sink.state = state;
-
-    // only a node that was clean has a subgraph that has not heard yet
-    if (wasClean) {
-      propagate(sink as unknown as Producer, CHECK, errors);
     }
   }
 }
 
 /**
- * Rethrows what a walk collected, having finished the walk first.
+ * The rest of a write's walk past `SHALLOW` levels: everything below
+ * `producer`, over an explicit stack of sink iterators.
  *
- * One callback must not take the rest of a graph mutation with it -- a sink left
- * unmarked keeps serving a value from before the write, and a source left
- * unswept keeps an edge nothing reads -- so the errors are gathered and raised
- * once the structure is consistent again.
+ * The stack is shared by every write, used from wherever this walk found its
+ * top. A watcher's throw is caught by `invalidate()`, and a write made from
+ * inside a watcher, by a scheduler flushing synchronously, runs its own walk to
+ * the end above this one's frames, so what this walk pushes is what it pops.
+ * What can still escape is the engine running out of stack, which a write made
+ * with fewer than about `SHALLOW` frames to spare can do anywhere in the walk --
+ * that is the caller's stack rather than the graph's depth, and nothing can
+ * finish a walk the stack will not hold. The `finally` puts the shared stack
+ * back however the walk ends, so what one write left behind is never another's.
  *
- * @param errors - What was caught along the way.
- * @param message - What to call the aggregate, when there is more than one.
+ * @param producer - The node whose subgraph is still to be told.
+ * @param errors - Where a watcher's throw is collected, to be raised after.
  */
-function raise(errors: unknown[], message: string): void {
-  if (errors.length === 1) {
-    throw errors[0];
-  }
-  if (errors.length > 1) {
-    throw new AggregateError(errors, message);
+function propagateDeep(producer: Producer, errors: unknown[]): void {
+  const base = sinkWalks.length;
+  let walk: Iterator<Consumer> = producer.sinks.values();
+  try {
+    for (;;) {
+      const step = walk.next();
+      if (step.done === true) {
+        if (sinkWalks.length === base) {
+          return;
+        }
+        walk = sinkWalks.pop() as Iterator<Consumer>;
+        continue;
+      }
+      const sink = step.value;
+      if (invalidate(sink, CHECK, errors)) {
+        sinkWalks.push(walk);
+        walk = (sink as unknown as Producer).sinks.values();
+      }
+    }
+  } finally {
+    sinkWalks.length = base;
   }
 }
 
 /**
- * Whether any source of a `CHECK` consumer actually changed.
- *
- * Each source is refreshed first -- a computed source may itself be stale --
- * and then compared by version rather than by value, because the version is
- * what the consumer recorded and what `equals` already decided.
- *
- * @param consumer - The consumer to check.
- * @returns Whether it needs to recompute.
+ * The errors that say a read ran out of native stack, once they have been
+ * given a message that says so.
  */
-function sourcesChanged(consumer: Consumer): boolean {
-  for (const [source, seen] of consumer.sources) {
-    source.refresh();
-    if (source.version !== seen) {
-      return true;
-    }
+const tooDeep = new WeakSet<object>();
+
+/** How many computeds are evaluating, one inside the next. */
+let running = 0;
+
+/**
+ * Which outermost read is under way: bumped by every run that starts with
+ * nothing evaluating around it. A run cut short by the stack is not run again
+ * inside the same read, and this is how a run knows it is the same read.
+ */
+let read = 0;
+
+/** The error the current read rethrows for a run it already saw cut short. */
+let readError: RangeError | undefined;
+
+/**
+ * How many computeds have to be evaluating one inside the next before the engine
+ * running out of stack under them is taken for a chain's. A chain runs out
+ * hundreds or thousands deep; with fewer, the overflow is cached under the
+ * engine's own message, as it always was. That is right for a body's own
+ * runaway recursion, which is an answer about that body. It is a known limit for
+ * a short chain read by a caller whose own stack is all but spent: the overflow
+ * is cached on whichever link it reached, and a fresh chain has no edges yet for
+ * a write to come back along, so that link keeps the error until disposed.
+ * Measured on chains of 10 and 40 read at every frame of an unwinding overflow:
+ * errors kept, but no wrong value, where `main` kept the same errors and handed
+ * back a few wrong values besides.
+ */
+const CHAIN_DEPTH = 64;
+
+/**
+ * Whether a thrown value is a chain running out of stack: the error a run
+ * already made of one, or the engine's own overflow raised under more than
+ * `CHAIN_DEPTH` computeds evaluating one inside the next.
+ *
+ * @param error - What was thrown.
+ * @returns Whether it is a chain too deep to evaluate.
+ */
+function isTooDeep(error: unknown): error is RangeError {
+  return (
+    error instanceof RangeError &&
+    (tooDeep.has(error) ||
+      (running > CHAIN_DEPTH && error.message.startsWith('Maximum call stack size exceeded')))
+  );
+}
+
+/**
+ * The error a read throws when evaluating a chain ran out of native stack, made
+ * once at the run that caught the engine's and passed through unchanged by every
+ * run it unwinds through after that.
+ *
+ * A thrown value is otherwise cached the way a value is, and running out of
+ * stack is the one throw that is not an answer: it says how deep the stack
+ * already was when the read happened, not anything about what the computed
+ * reads, so the same read made from a shallower stack -- or after the chain
+ * below it has been read from the bottom up, outside any computed or effect --
+ * succeeds. Cached, it was
+ * permanent: the computed whose body hit the limit kept the error, clean, and
+ * held no edge to the source whose read never finished, so no write could ever
+ * reach it again.
+ *
+ * So a derivation it passes through is left `DIRTY`, with nothing committed and
+ * nothing swept -- `sources` is the old set plus whatever the run read before it
+ * stopped, which is more than it needs and never less, and the next run sweeps
+ * it -- and marked `incomplete`, and the error goes on up. The whole partial
+ * evaluation unwinds and a later read is a fresh attempt. Whoever read one of
+ * those nodes keeps an edge to it (see `get()`), and a write that reaches it
+ * passes through it once rather than stopping at a node already dirty, since
+ * nothing below it was told by a write the first time (see `invalidate()`).
+ *
+ * A body that catches the error and returns something else is not second-
+ * guessed: what it returns is an answer like any other and is cached, with the
+ * edge `get()` records, so a write that reaches what it failed to read reaches
+ * it. Where the engine runs out at the call into `get()` itself, nothing of the
+ * graph's runs to record that edge, and the fallback is cached with none -- a
+ * chain whose every link catches is not safe at the edge of the stack.
+ *
+ * An effect body is exempt, for the reason a failed sweep exempts it: it has
+ * already run and written whatever it writes, and a flush reads anything not
+ * `CLEAN` as still pending, so leaving it dirty would run it again on every
+ * pass. It caches this error like any other throw and the flush reports it
+ * once -- whether its own body ran out, or the asking of its sources did before
+ * the body could run.
+ *
+ * @param error - The engine's overflow, or the error an inner run made of it.
+ * @returns The error to throw.
+ */
+function chainTooDeep(error: RangeError): RangeError {
+  if (tooDeep.has(error)) {
+    return error;
   }
-  return false;
+  const clear = new RangeError(
+    'Computed chain too deep: the stack ran out evaluating it in one read, and nothing was cached. Read it in steps, from the bottom up, outside any computed or effect',
+    { cause: error }
+  );
+  tooDeep.add(clear);
+  readError = clear;
+  return clear;
 }
 
 /** A writable cell. */
@@ -375,8 +591,8 @@ export class State<T> implements Producer {
   }
 
   /** @internal */
-  producerSources(): Iterable<Producer> {
-    return [];
+  producerSources(): Iterator<Producer> {
+    return noSources;
   }
 
   /** @internal */
@@ -438,6 +654,8 @@ export class Computed<T> implements Producer, Consumer {
   #value: T | undefined;
   #thrown: Thrown | undefined;
   #evaluating = false;
+  /** Whether `#settleDeep()` is part-way through asking this one's sources. */
+  #settling = false;
   #everRun = false;
   #writes: boolean;
   #watchedCallback: (() => void) | undefined;
@@ -458,6 +676,8 @@ export class Computed<T> implements Producer, Consumer {
   /** @internal */
   stale: boolean = false;
   /** @internal */
+  incomplete: number = 0;
+  /** @internal */
   readonly isWatcher: boolean = false;
 
   constructor(fn: () => T, options: SignalOptions<T> = {}) {
@@ -469,7 +689,7 @@ export class Computed<T> implements Producer, Consumer {
   }
 
   /** @internal */
-  producerSources(): Iterable<Producer> {
+  producerSources(): Iterator<Producer> {
     return this.sources.keys();
   }
 
@@ -501,19 +721,169 @@ export class Computed<T> implements Producer, Consumer {
 
     if (this.state === CHECK) {
       // the announcement said "maybe"; ask the sources whether it was real
-      this.state = sourcesChanged(this) ? DIRTY : CLEAN;
-      if (this.state === CLEAN) {
-        return;
-      }
+      this.#settle(0);
+      return;
     }
 
     this.#run();
+  }
+
+  /**
+   * Settles a `CHECK` computed: asks each source whether it actually changed,
+   * and recomputes only if one did.
+   *
+   * Each source is refreshed first -- a computed source may itself be stale --
+   * and then compared by version rather than by value, because the version is
+   * what the consumer recorded and what `equals` already decided. The first
+   * source that changed ends the asking, so a source after it is not refreshed
+   * for a value the recompute may never read.
+   *
+   * Recursive for the first `SHALLOW` levels of `CHECK` sources and a loop over
+   * an explicit stack past them, so the native stack the asking uses is bounded.
+   * A write marks everything past its first ring `CHECK`, so reading the end of a
+   * long chain after a write descends through every level of it before anything
+   * recomputes -- and no user code is on the stack for any of that descent, so
+   * there is nothing to stop it being flat. A chain of a few thousand ran out of
+   * native stack here. What recomputes still does it from the bottom up, one
+   * level at a time, on both sides of the bound: a source that changed is rerun
+   * before the consumer that reads it is asked.
+   *
+   * @param depth - How many `CHECK` levels down the asking already is.
+   * @internal
+   */
+  #settle(depth: number): void {
+    let changed = false;
+    for (const [source, seen] of this.sources) {
+      if ((source as Partial<Consumer>).state === CHECK) {
+        // a computed that has to ask its own sources first, which is what its
+        // `refresh()` would do -- called directly so the depth goes with it
+        if (depth < SHALLOW) {
+          (source as Computed<any>).#settle(depth + 1);
+        } else {
+          (source as Computed<any>).#settleDeep();
+        }
+      } else {
+        source.refresh();
+      }
+      if (source.version !== seen) {
+        changed = true;
+        break;
+      }
+    }
+
+    if (changed) {
+      this.state = DIRTY;
+      this.#run();
+    } else {
+      this.state = CLEAN;
+    }
+  }
+
+  /**
+   * The rest of `#settle()` past `SHALLOW` levels: the same asking, over an
+   * explicit stack, for this node and everything `CHECK` below it.
+   *
+   * Each node on the stack is marked `#settling`, and reaching one again is a
+   * cycle among `CHECK` nodes -- which takes a disposed computed read again by
+   * what it used to read -- and throws the error a computed reading itself
+   * throws. The recursion this replaced found the same cycle by running out of
+   * stack, at once; a loop with nothing to stop it pushed until the heap ran out
+   * instead, which is a crash rather than an error. Whatever is still on the
+   * stack when anything throws stays `CHECK`, which means "ask", so the next
+   * read asks again.
+   *
+   * @internal
+   */
+  #settleDeep(): void {
+    // the frames below the one being asked about: each node, its sources'
+    // iterator where the asking stopped, and the version of the node above it
+    // that it recorded. Flat in one array, and only built if a source is itself
+    // a computed that has to ask, which is not the common case
+    let stack: unknown[] | undefined;
+    // the walk moves down onto other computeds, which is what makes this a
+    // cursor rather than an alias: `#run()` is reachable on any of them from in
+    // here, and a source that is CHECK is always a computed, since a state has
+    // no state of its own to be in
+    // eslint-disable-next-line typescript/no-this-alias
+    let node: Computed<any> = this;
+    let walk: Iterator<[Producer, number]> = node.sources.entries();
+    let changed = false;
+    node.#settling = true;
+
+    try {
+      walking: for (;;) {
+        if (!changed) {
+          for (let step = walk.next(); step.done !== true; step = walk.next()) {
+            // indexed rather than destructured, which would run the array
+            // iterator protocol on every entry of a hot loop
+            const source = step.value[0];
+            const seen = step.value[1];
+            if ((source as Partial<Consumer>).state === CHECK) {
+              // a computed that has to ask its own sources first: descend,
+              // and come back to compare it against `seen` once it has settled
+              if ((source as Computed<any>).#settling) {
+                throw new Error('A Computed may not read itself');
+              }
+              (stack ??= []).push(node, walk, seen);
+              node = source as Computed<any>;
+              node.#settling = true;
+              walk = node.sources.entries();
+              continue walking;
+            }
+            source.refresh();
+            if (source.version !== seen) {
+              changed = true;
+              break;
+            }
+          }
+        }
+
+        node.#settling = false;
+        if (changed) {
+          node.state = DIRTY;
+          node.#run();
+        } else {
+          node.state = CLEAN;
+        }
+
+        if (stack === undefined || stack.length === 0) {
+          return;
+        }
+        const seen = stack.pop() as number;
+        walk = stack.pop() as Iterator<[Producer, number]>;
+        const settled = node;
+        node = stack.pop() as Computed<any>;
+        changed = settled.version !== seen;
+      }
+    } catch (err) {
+      node.#settling = false;
+      for (let i = 0; stack !== undefined && i < stack.length; i += 3) {
+        (stack[i] as Computed<any>).#settling = false;
+      }
+      throw err;
+    }
   }
 
   /** Recomputes, rehooking dependencies and bumping the version only on change. */
   #run(): void {
     if (this.#evaluating) {
       throw new Error('A Computed may not read itself');
+    }
+
+    if (running === 0) {
+      read++;
+      readError = undefined;
+    } else if (this.incomplete === read) {
+      // cut short by the stack already in this read, and not run again until
+      // the next one. Inside one read a retry starts no shallower than the run
+      // that failed, so it fails again -- and a body that reads the same source
+      // twice, catching each time, retried a whole subchain per level: work that
+      // doubled with every level the stack's edge cut through, millions of runs
+      // for a chain `main` read in a few thousand. It is also why reading the
+      // chain in steps from inside the body that caught the error is refused:
+      // every link on the path that failed was cut short in this read, so the
+      // steps have to be taken outside any computed or effect
+      throw (readError ??= chainTooDeep(new RangeError('Maximum call stack size exceeded')));
     }
 
     const previousConsumer = currentConsumer;
@@ -529,6 +899,11 @@ export class Computed<T> implements Producer, Consumer {
     const seen = new Set<Producer>();
     this.seen = seen;
     this.stale = false;
+    // until the end of the run says otherwise: a run that never gets there --
+    // a chain too deep that it was abandoned for, or the stack running out in
+    // this very code -- leaves it set, and `invalidate()` and the check above
+    // read it
+    this.incomplete = read;
 
     // installing `this` as the tracking context is the mechanism, not an alias
     // of convenience: every read during `#fn()` registers against whatever is
@@ -537,6 +912,7 @@ export class Computed<T> implements Producer, Consumer {
     currentConsumer = this;
     computing = !this.#writes;
     this.#evaluating = true;
+    running++;
 
     let next: T | undefined;
     let thrown: Thrown | undefined;
@@ -546,17 +922,17 @@ export class Computed<T> implements Producer, Consumer {
     } catch (err) {
       thrown = { error: err };
     } finally {
+      running--;
       this.#evaluating = false;
       computing = previousComputing;
       currentConsumer = previousConsumer;
       this.seen = undefined;
-      // CHECK rather than DIRTY when a source moved during the run, because the
-      // write may have landed before the read that saw it: `sources` holds the
-      // version each read recorded, so asking them settles it -- a write to a
-      // signal the body went on to read is no reason to run again, and one to a
-      // signal it had already read, or to what a computed it read reads, is
-      this.state = this.stale ? CHECK : CLEAN;
-      this.stale = false;
+    }
+
+    if (thrown !== undefined) {
+      // throws, leaving the run abandoned, for a derivation a chain too deep
+      // went through
+      thrown = this.#caught(thrown);
     }
 
     // committed before the sweep, and the sweep is where user code runs again: a
@@ -565,7 +941,53 @@ export class Computed<T> implements Producer, Consumer {
     // CLEAN, so the throw reached the caller once and every read after it handed
     // back the value from before the recompute, with nothing left to say so
     this.#commit(next, thrown);
+
+    // and marked only once there is something committed to be clean over. The
+    // state is DIRTY for the whole of a run, so anything that escapes before
+    // here -- the catch above, which first runs cold with the stack just
+    // exhausted and can overflow itself, or the commit, which a body that caught
+    // an overflow and returned reaches at the very same depth -- leaves the run
+    // abandoned rather than CLEAN over a value it never stored. Both happened,
+    // and each read back `undefined` from then on. CHECK rather than CLEAN when
+    // a source moved during the run, because the write may have landed before
+    // the read that saw it: `sources` holds the version each read recorded, so
+    // asking them settles it -- a write to a signal the body went on to read is
+    // no reason to run again, and one to a signal it had already read, or to
+    // what a computed it read reads, is
+    this.state = this.stale ? CHECK : CLEAN;
+    this.stale = false;
+    this.incomplete = 0;
     this.#sweep(seen);
+  }
+
+  /**
+   * Decides what a run that threw leaves behind: an ordinary throw is cached
+   * like a value, and a chain running out of native stack is not cached at all
+   * -- see `chainTooDeep()`.
+   *
+   * A method of its own rather than a branch in `#run()`, which is a frame per
+   * level of every chain being evaluated and so is kept as small as it was. The
+   * run is still DIRTY here, so if the stack is still all but gone and this call
+   * is what overflows, the run is left abandoned -- which is the right answer.
+   *
+   * The engine's overflow counts as the chain's only under more than
+   * `CHAIN_DEPTH` computeds evaluating around this one. With fewer, the stack ran
+   * out in this body's own code -- runaway recursion of its own -- which is an
+   * answer about the body and is cached under the engine's own message, as it
+   * always was, rather than re-run on every read.
+   *
+   * @param thrown - What the body threw.
+   * @returns What to commit.
+   */
+  #caught(thrown: Thrown): Thrown {
+    if (!isTooDeep(thrown.error)) {
+      return thrown;
+    }
+    const error = chainTooDeep(thrown.error);
+    if (this.#writes) {
+      return { error };
+    }
+    throw error;
   }
 
   /**
@@ -696,12 +1118,60 @@ export class Computed<T> implements Producer, Consumer {
     // change it. Recording first means the reader stores a version the
     // producer has already left behind, and so looks stale on every check
     // forever after -- a dependent that can never settle.
-    this.refresh();
+    try {
+      this.refresh();
+    } catch (err) {
+      this.#unreadable(err);
+    }
     track(this);
     if (this.#thrown) {
       throw this.#thrown.error;
     }
     return this.#value as T;
+  }
+
+  /**
+   * Rethrows what a refresh threw, having first made a chain too deep to read
+   * leave the graph able to recover.
+   *
+   * The reader keeps an edge to what it could not read, recorded at the version
+   * it is still at. Without one, a body that caught the error and returned
+   * something else held no edge to the source it had failed to read, so no write
+   * could ever reach it again -- a fallback cached for good -- and an effect that
+   * let it through was deaf to the chain from then on. With one, a write that
+   * reaches this once it can be read reaches the reader too.
+   *
+   * An effect whose sources ran out of stack while they were being asked -- a
+   * `CHECK` effect over a chain of dirty links, before its body could run --
+   * commits the error the way a body that ran out does and is marked `CLEAN`, so
+   * a flush reports it once rather than on every pass. It keeps its edges, so a
+   * write that reaches it once the chain is readable runs it again.
+   *
+   * @param error - What the refresh threw.
+   */
+  #unreadable(error: unknown): never {
+    if (isTooDeep(error)) {
+      const clear = chainTooDeep(error);
+      if (this.#writes) {
+        this.#commit(undefined, { error: clear });
+        this.state = CLEAN;
+      } else {
+        // what read this was handed an error, not a write, which is what
+        // `incomplete` says -- and a derivation that was only asking its sources
+        // never ran to set it, stayed CHECK, and stopped the next write there
+        this.incomplete = read;
+      }
+      track(this);
+      // at a version this can never be at: the reader's answer came from a read
+      // that never finished, so whatever this settles on is news to it -- even
+      // the value it held before, which recorded as its current version read as
+      // nothing having changed, and a catching reader kept its fallback for good
+      if (currentConsumer) {
+        currentConsumer.sources.set(this, -1);
+      }
+      throw clear;
+    }
+    throw error;
   }
 }
 
@@ -728,6 +1198,8 @@ export class Watcher implements Consumer {
   state: NodeState = CLEAN;
   /** @internal */
   stale: boolean = false;
+  /** @internal */
+  incomplete: number = 0;
   /** @internal */
   readonly isWatcher: boolean = true;
 

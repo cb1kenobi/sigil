@@ -655,8 +655,8 @@ makes were each measured against the running demo before the prose was written.
   what runs, so the resolution that matters is the demo's.
 
   Resolving it from the test instead would have meant a devDependency on
-  `@ttylabs/config-xml` for `@ttylabs/cli`, and `the toolchain's dependencies`
-  writes that list out so that taking one is a decision somebody makes. Taking a
+  `@ttylabs/config-xml` for `@ttylabs/cli`, and `should declare every
+  dependency it has taken, and no more` writes that list out so that taking one is a decision somebody makes. Taking a
   dependency to make a test resolve, when the correct resolution needs none, is
   not that decision.
 

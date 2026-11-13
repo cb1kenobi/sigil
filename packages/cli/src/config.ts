@@ -355,25 +355,36 @@ export function readSigilConfig(root: string): SigilConfig {
   // one layer, which is this file. The stack is what an *app* reaches for; the
   // toolchain has exactly one place its own settings live, and a second layer
   // would be a second place to look for an answer to one question
-  const config = createConfigSync({ layers: [configLayer(root)], schema: CONFIG_SCHEMA });
+  const layer = configLayer(root);
+  const config = createConfigSync({ layers: [layer], schema: CONFIG_SCHEMA });
 
-  const build = readSection(config.get('build'), 'build');
-  const components = readName(config.get('components'), 'components');
-  const locale = readName(config.get('locale'), 'locale');
-  const packaging = readSection(config.get('package'), 'package');
-  const reference = readSection(config.get('reference'), 'reference');
-  const updateCheck = readSection(config.get('updateCheck'), 'updateCheck');
+  // every message below opens with the name of the file that was **read**,
+  // which is the layer's: `sigil.jsonc` is a file somebody can have, and a
+  // message naming `sigil.json` over it sends them to a file that is not there
+  // (SIG-353). The shared validator's own messages already said it this way
+  const file = layer.name;
+
+  const build = readSection(config.get('build'), 'build', file);
+  const components = readName(config.get('components'), 'components', file);
+  const locale = readName(config.get('locale'), 'locale', file);
+  const packaging = readSection(config.get('package'), 'package', file);
+  const reference = readSection(config.get('reference'), 'reference', file);
+  const updateCheck = readSection(config.get('updateCheck'), 'updateCheck', file);
 
   // the keys are set only where the file said something, so that a directory
   // with no file in it and a file holding `{}` are the same answer -- which they
   // are, and which the old reader distinguished only by returning early
   return {
-    ...(build && { build: readBuild(build as BuildConfig) }),
-    ...(components !== undefined && { components: readRelative(components, 'components') }),
+    ...(build && { build: readBuild(build as BuildConfig, file) }),
+    ...(components !== undefined && {
+      components: readRelative(components, 'components', file),
+    }),
     ...(locale !== undefined && { locale }),
-    ...(packaging && { package: readPackage(packaging as PackageConfig) }),
-    ...(reference && { reference: readReference(reference as ReferenceConfig) }),
-    ...(updateCheck && { updateCheck: readUpdateCheck(updateCheck as UpdateCheckConfig) }),
+    ...(packaging && { package: readPackage(packaging as PackageConfig, file) }),
+    ...(reference && { reference: readReference(reference as ReferenceConfig, file) }),
+    ...(updateCheck && {
+      updateCheck: readUpdateCheck(updateCheck as UpdateCheckConfig, file),
+    }),
   };
 }
 
@@ -397,19 +408,21 @@ export function readSigilConfig(root: string): SigilConfig {
  *
  * @param value - What the merged view holds at the section.
  * @param name - The section, which is both the message and the field list.
+ * @param file - The file that was read, for the message.
  * @returns The section's declared keys, or `undefined` where the file said
  *   nothing.
  * @throws If it is there and is not an object.
  */
 function readSection(
   value: unknown,
-  name: keyof typeof FIELDS
+  name: keyof typeof FIELDS,
+  file: string
 ): Record<string, unknown> | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${CONFIG_FILE}: "${name}" must be an object`);
+    throw new Error(`${file}: "${name}" must be an object`);
   }
 
   // the declared fields and nothing else, which is what the hand-written reader
@@ -439,15 +452,16 @@ function readSection(
  *
  * @param value - The value.
  * @param field - The field, for the message.
+ * @param file - The file that was read, for the message.
  * @returns The value, or `undefined` where the file said nothing.
  * @throws If it is there and empty.
  */
-function readName(value: unknown, field: string): string | undefined {
+function readName(value: unknown, field: string, file: string): string | undefined {
   if (value === undefined) {
     return undefined;
   }
   if (!value) {
-    throw new Error(`${CONFIG_FILE}: "${field}" must be a non-empty string`);
+    throw new Error(`${file}: "${field}" must be a non-empty string`);
   }
   return value as string;
 }
@@ -461,12 +475,13 @@ function readName(value: unknown, field: string): string | undefined {
  *
  * @param value - The non-empty name.
  * @param field - The field, for the message.
+ * @param file - The file that was read, for the message.
  * @returns It, unchanged.
  * @throws If it is absolute.
  */
-function readRelative(value: string, field: string): string {
+function readRelative(value: string, field: string, file: string): string {
   if (isAbsolute(value)) {
-    throw new Error(`${CONFIG_FILE}: "${field}" must be relative to the app`);
+    throw new Error(`${file}: "${field}" must be relative to the app`);
   }
   return value;
 }
@@ -481,15 +496,16 @@ function readRelative(value: string, field: string): string {
  * machine reads.
  *
  * @param reference - What the merged view holds at `reference`.
+ * @param file - The file that was read, for the messages.
  * @returns The section.
  * @throws If a destination is empty or absolute.
  */
-function readReference(reference: ReferenceConfig): ReferenceConfig {
+function readReference(reference: ReferenceConfig, file: string): ReferenceConfig {
   for (const field of ['out', 'snapshot'] as const) {
-    const value = readName(reference[field], `reference.${field}`);
+    const value = readName(reference[field], `reference.${field}`, file);
 
     if (value !== undefined) {
-      readRelative(value, `reference.${field}`);
+      readRelative(value, `reference.${field}`, file);
     }
   }
 
@@ -508,15 +524,16 @@ function readReference(reference: ReferenceConfig): ReferenceConfig {
  * answer to what a target is.
  *
  * @param packaging - What the merged view holds at `package`.
+ * @param file - The file that was read, for the messages.
  * @returns The section.
  * @throws If a name in it is empty.
  */
-function readPackage(packaging: PackageConfig): PackageConfig {
-  readName(packaging.out, 'package.out');
-  readName(packaging.runtime, 'package.runtime');
+function readPackage(packaging: PackageConfig, file: string): PackageConfig {
+  readName(packaging.out, 'package.out', file);
+  readName(packaging.runtime, 'package.runtime', file);
 
   if (packaging.target?.some((target) => !target)) {
-    throw new Error(`${CONFIG_FILE}: "package.target" must be an array of targets`);
+    throw new Error(`${file}: "package.target" must be an array of targets`);
   }
 
   return packaging;
@@ -530,19 +547,20 @@ function readPackage(packaging: PackageConfig): PackageConfig {
  * and is not a name anything can use.
  *
  * @param build - What the merged view holds at `build`.
+ * @param file - The file that was read, for the messages.
  * @returns The section.
  * @throws If a name in it is empty.
  */
-function readBuild(build: BuildConfig): BuildConfig {
-  readName(build.name, 'build.name');
-  readName(build.out, 'build.out');
+function readBuild(build: BuildConfig, file: string): BuildConfig {
+  readName(build.name, 'build.name', file);
+  readName(build.out, 'build.out', file);
 
   for (const [field, names, what] of [
     ['build.external', build.external, 'package names'],
     ['build.safelist', build.safelist, 'class names'],
   ] as const) {
     if (names?.some((name) => !name)) {
-      throw new Error(`${CONFIG_FILE}: "${field}" must be an array of ${what}`);
+      throw new Error(`${file}: "${field}" must be an array of ${what}`);
     }
   }
 
@@ -565,15 +583,16 @@ function readBuild(build: BuildConfig): BuildConfig {
  * app gets for declaring nothing at all.
  *
  * @param updateCheck - What the merged view holds at `updateCheck`.
+ * @param file - The file that was read, for the messages.
  * @returns The section.
  * @throws If the kind is missing, or a field does not belong to it.
  */
-function readUpdateCheck(updateCheck: UpdateCheckConfig): UpdateCheckConfig {
+function readUpdateCheck(updateCheck: UpdateCheckConfig, file: string): UpdateCheckConfig {
   const { type } = updateCheck;
 
   if (!type) {
     throw new Error(
-      `${CONFIG_FILE}: "updateCheck.type" is required; it is one of ${UPDATE_CHECK_FIELDS.map(
+      `${file}: "updateCheck.type" is required; it is one of ${UPDATE_CHECK_FIELDS.map(
         ([name]) => `"${name}"`
       ).join(', ')}`
     );
@@ -584,7 +603,7 @@ function readUpdateCheck(updateCheck: UpdateCheckConfig): UpdateCheckConfig {
   // anything else -- kept because this list and that one are two places and
   // the failure of them disagreeing is a field silently going unchecked
   if (!allowed) {
-    throw new Error(`${CONFIG_FILE}: "updateCheck.type" must be a known kind, got "${type}"`);
+    throw new Error(`${file}: "updateCheck.type" must be a known kind, got "${type}"`);
   }
 
   for (const field of FIELDS.updateCheck) {
@@ -592,29 +611,25 @@ function readUpdateCheck(updateCheck: UpdateCheckConfig): UpdateCheckConfig {
       continue;
     }
     if (!allowed.includes(field)) {
-      throw new Error(
-        `${CONFIG_FILE}: "updateCheck.${field}" does not belong to a "${type}" check`
-      );
+      throw new Error(`${file}: "updateCheck.${field}" does not belong to a "${type}" check`);
     }
     // `prefix` is left out on purpose: an empty one is how a GitHub check
     // says the tag is already the version
     if (field !== 'prefix' && field !== 'path') {
-      readName(updateCheck[field as keyof UpdateCheckConfig], `updateCheck.${field}`);
+      readName(updateCheck[field as keyof UpdateCheckConfig], `updateCheck.${field}`, file);
     }
   }
 
   if (type === 'github' && !updateCheck.repo) {
-    throw new Error(`${CONFIG_FILE}: a "github" check needs "updateCheck.repo"`);
+    throw new Error(`${file}: a "github" check needs "updateCheck.repo"`);
   }
 
   if (type === 'custom' && (!updateCheck.url || !updateCheck.path?.length)) {
-    throw new Error(
-      `${CONFIG_FILE}: a "custom" check needs "updateCheck.url" and "updateCheck.path"`
-    );
+    throw new Error(`${file}: a "custom" check needs "updateCheck.url" and "updateCheck.path"`);
   }
 
   if (updateCheck.path?.some((key) => !key)) {
-    throw new Error(`${CONFIG_FILE}: "updateCheck.path" must be an array of keys`);
+    throw new Error(`${file}: "updateCheck.path" must be an array of keys`);
   }
 
   return updateCheck;

@@ -1,5 +1,5 @@
 import { __ } from '../i18n/index.js';
-import { LINE_END, lineAt } from './spans.js';
+import { LINE_END, lineCounter } from './spans.js';
 
 /**
  * JSONC, as the two things it adds to JSON and nothing else.
@@ -97,6 +97,13 @@ export function scanJsonc(text: string, what: string): JsoncScan {
   let last = '';
   let i = 0;
 
+  // the line of each comment, counted as the scan moves forward rather than
+  // from the start of the file per comment: that made N comments N walks of the
+  // file, and a 480 KB config of comment lines took 92 seconds to load
+  // (SIG-371). Every question below is at or past the one before it, which is
+  // what lets the count resume
+  const lineOf = lineCounter(source);
+
   /** Blanks a run, keeping its newlines so that line numbers survive. */
   const blank = (from: number, to: number) => {
     for (let j = from; j < to; j++) {
@@ -128,7 +135,7 @@ export function scanJsonc(text: string, what: string): JsoncScan {
         i++;
       }
       if (!closed) {
-        throw new Error(__`Unterminated string in ${what} on line ${lineAt(source, start)}`);
+        throw new Error(__`Unterminated string in ${what} on line ${lineOf(start)}`);
       }
       // a `\\` at the very end walked the cursor past the source, and `slice()`
       // clamps -- so the copy below would hand `JSON.parse` a string that ends
@@ -149,7 +156,7 @@ export function scanJsonc(text: string, what: string): JsoncScan {
       if (block) {
         const close = source.indexOf('*/', i + 2);
         if (close === -1) {
-          throw new Error(__`Unterminated comment in ${what} on line ${lineAt(source, start)}`);
+          throw new Error(__`Unterminated comment in ${what} on line ${lineOf(start)}`);
         }
         end = close + 2;
       } else {
@@ -166,7 +173,7 @@ export function scanJsonc(text: string, what: string): JsoncScan {
         }
       }
 
-      comments.push({ line: lineAt(source, start), text: source.slice(start, end) });
+      comments.push({ line: lineOf(start), text: source.slice(start, end) });
       blank(start, end);
       i = end;
       // a comment is trivia, so it neither opens nor closes the window a
@@ -188,7 +195,7 @@ export function scanJsonc(text: string, what: string): JsoncScan {
     if (c === '\u2028' || c === '\u2029') {
       const code = c === '\u2028' ? 'U+2028' : 'U+2029';
       throw new Error(
-        __`Unexpected ${code} in ${what} on line ${lineAt(source, i)}: JSON allows it only inside a string`
+        __`Unexpected ${code} in ${what} on line ${lineOf(i)}: JSON allows it only inside a string`
       );
     }
 

@@ -33,7 +33,7 @@ import {
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, minOf, stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { labelLine, unicodeSupported } from './note.js';
@@ -255,8 +255,8 @@ function bounds(values: readonly unknown[], opts: ScaleOptions): [number, number
   }
 
   const found = values.filter(isPlottable);
-  const low = given(opts.min) ? opts.min : found.length > 0 ? Math.min(...found) : 0;
-  const high = given(opts.max) ? opts.max : found.length > 0 ? Math.max(...found) : 1;
+  const low = given(opts.min) ? opts.min : found.length > 0 ? minOf(found) : 0;
+  const high = given(opts.max) ? opts.max : found.length > 0 ? maxOf(found) : 1;
 
   return [low, Math.max(low, high)];
 }
@@ -425,25 +425,27 @@ function drawnSegments(row: Row): Row {
  * @returns The tree.
  */
 function viewOf(drawing: Drawing): ChartView {
-  const width = Math.max(
-    1,
-    ...drawing.rows.map((row) => stringWidth(row.map((s) => s.text).join('')))
+  const width = maxOf(
+    drawing.rows.map((row) => stringWidth(row.map((s) => s.text).join(''))),
+    1
   );
 
-  const rows = drawing.rows.map((row) =>
-    box(
-      { class: `sigil-chart-${drawing.kind}-row` },
-      ...drawnSegments(row).map((segment) => segmentNode(drawing.kind, segment))
-    )
-  );
+  // appended one at a time rather than spread into `box()`: a horizontal chart
+  // has a row per bar, and a vertical one a segment per bar in each row, and
+  // either can be more than a call has room for arguments
+  const element = box({
+    class: `sigil-chart sigil-chart-${drawing.kind}`,
+    'flex-direction': 'column',
+  });
+  for (const row of drawing.rows) {
+    const line = box({ class: `sigil-chart-${drawing.kind}-row` });
+    for (const segment of drawnSegments(row)) {
+      line.append(segmentNode(drawing.kind, segment));
+    }
+    element.append(line);
+  }
 
-  return {
-    element: box(
-      { class: `sigil-chart sigil-chart-${drawing.kind}`, 'flex-direction': 'column' },
-      ...rows
-    ),
-    width,
-  };
+  return { element, width };
 }
 
 /**
@@ -617,7 +619,7 @@ function barAcross(ratio: number, cells: number, plain: boolean): string {
 function barBounds(data: readonly BarDatum[], opts: ScaleOptions): [number, number] {
   return bounds(
     data.map((d) => d.value),
-    { max: opts.max, min: opts.min ?? Math.min(0, ...data.map((d) => d.value).filter(isPlottable)) }
+    { max: opts.max, min: opts.min ?? minOf(data.map((d) => d.value).filter(isPlottable), 0) }
   );
 }
 
@@ -644,10 +646,21 @@ function horizontalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[]
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
   const cap = count(opts.labelWidth, Infinity);
-  const labelWidth = Math.min(cap, Math.max(0, ...labels.map((label) => stringWidth(label))));
+  const labelWidth = Math.min(
+    cap,
+    maxOf(
+      labels.map((label) => stringWidth(label)),
+      0
+    )
+  );
   const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
   const showValues = opts.showValues !== false;
-  const valueWidth = showValues ? Math.max(0, ...values.map((value) => stringWidth(value))) : 0;
+  const valueWidth = showValues
+    ? maxOf(
+        values.map((value) => stringWidth(value)),
+        0
+      )
+    : 0;
   const total = count(opts.width, terminalWidth({ env: opts.env }));
   // the label and the value each take a column of space beside the bar
   const room = Math.max(
@@ -692,13 +705,16 @@ function naturalColumn(
 ): number {
   const format = opts.format ?? formatNumber;
   const showValues = opts.showValues !== false;
-  return Math.max(
-    1,
-    ...data.map((d) => stringWidth(labelLine(d.label))),
-    ...(showValues
-      ? data.map((d) => stringWidth(isPlottable(d.value) ? format(d.value) : '-'))
-      : [])
+  const labels = maxOf(
+    data.map((d) => stringWidth(labelLine(d.label))),
+    1
   );
+  return showValues
+    ? maxOf(
+        data.map((d) => stringWidth(isPlottable(d.value) ? format(d.value) : '-')),
+        labels
+      )
+    : labels;
 }
 
 /**
@@ -895,7 +911,10 @@ function plotSeries(list: readonly LineChartSeries[], role: ChartRole | undefine
 function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
   const { axis, format, height, step } = layout;
   const plain = layout.ascii;
-  const longest = Math.max(0, ...list.map((s) => s.values.length));
+  const longest = maxOf(
+    list.map((s) => s.values.length),
+    0
+  );
 
   /** The plot's width at a gutter, the scale of what it shows there, and the labels on it. */
   const fit = (gutter: number) => {
@@ -1659,7 +1678,9 @@ function liveChart(
         for (const child of held.element.children.slice()) {
           held.element.removeChild(child);
         }
-        held.element.append(...segments.map((segment) => segmentNode(kind, segment)));
+        for (const segment of segments) {
+          held.element.append(segmentNode(kind, segment));
+        }
         held.signature = signature;
         changed = true;
       }

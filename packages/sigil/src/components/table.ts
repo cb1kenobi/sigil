@@ -7,7 +7,7 @@ import {
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 
 export type Align = 'left' | 'right' | 'center';
@@ -116,13 +116,15 @@ export function tableCells(
   opts: TableOptions
 ): { cells: TableCell[][]; columns: Column[]; headers: string[] } {
   // a column may be a name, a declaration, or nothing at all -- in which case
-  // the first row says what the columns are
+  // the first row says what the columns are, and no rows say there are none
   const first = rows[0];
   const columns: Column[] = (
     opts.columns ??
-    (Array.isArray(first)
-      ? first.map(() => ({}))
-      : Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
+    (first === undefined
+      ? []
+      : Array.isArray(first)
+        ? first.map(() => ({}))
+        : Object.keys(first as Record<string, unknown>).map((key) => ({ header: key, key })))
   ).map((column) => (typeof column === 'string' ? { header: column, key: column } : column));
 
   const cells = rows.map((row) =>
@@ -288,9 +290,9 @@ export function tableWidths(
   head: boolean
 ): number[] {
   return columns.map((column, i) => {
-    const widest = Math.max(
-      head ? stringWidth(headers[i]) : 0,
-      ...cells.map((row) => row[i].width)
+    const widest = maxOf(
+      cells.map((row) => row[i].width),
+      head ? stringWidth(headers[i]) : 0
     );
     return column.maxWidth && column.maxWidth > 0 ? Math.min(widest, column.maxWidth) : widest;
   });
@@ -413,13 +415,14 @@ export function tableView(
     widths.reduce((total, width) => total + width, 0) +
     gap * Math.max(0, widths.length - 1);
 
-  return {
-    element: box(
-      { class: 'sigil-table', 'flex-direction': 'column', 'padding-left': indent },
-      ...children
-    ),
-    width: Math.max(1, natural),
-  };
+  // appended one at a time rather than spread into `box()`, which has a row per
+  // row of data and can be more than a call has room for arguments
+  const element = box({ class: 'sigil-table', 'flex-direction': 'column', 'padding-left': indent });
+  for (const child of children) {
+    element.append(child);
+  }
+
+  return { element, width: Math.max(1, natural) };
 }
 
 /**

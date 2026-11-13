@@ -1,4 +1,9 @@
-import { generateBin, generateCommands, specifier } from '../../src/build/generate.js';
+import {
+  generateBin,
+  generateCommands,
+  SCHEMA_EXPORT,
+  specifier,
+} from '../../src/build/generate.js';
 import { resolveCommandTree, walkTree, type ResolvedCommand } from '../../src/build/tree.js';
 import { tempDir } from '../temp.js';
 import { Internal, main, type AnyCommand, type ParseState } from '@ttylabs/sigil';
@@ -522,6 +527,48 @@ describe('a translated description', () => {
     }
   });
 
+  it('should quote a description with the one quote(), which escapes what JSON leaves raw', () => {
+    // SIG-353: this file and the template emitter each had a `quote()`, escaping
+    // two different sets. JSON leaves DEL, the C1 controls and the two line
+    // separators raw; V8 counts a separator as a line break, so a raw one moves
+    // every line number after it. Built from code points so that no editor and
+    // no tool between here and the file can turn the escape into the character
+    const raw = [0x7f, 0x85, 0x9f, 0x2028, 0x2029].map((point) => String.fromCharCode(point));
+    const prose = `a "quoted" \\ ${raw.join(' ')} \t\n end`;
+    const source = generateCommands(treeWith(prose, false), { from: '/app' });
+
+    for (const char of raw) {
+      expect(source.includes(char), JSON.stringify(char)).toBe(false);
+    }
+    // eslint-disable-next-line no-new-func
+    const desc = new Function(
+      `${source.replace('export const', 'const')}\nreturn commands.a.desc;`
+    )();
+    expect(desc).toBe(prose);
+  });
+
+  it('should escape a control character in a translated key, as the untranslated path does', () => {
+    // SIG-353: `quote()` escaped ESC, DEL and the C1 controls in a plain
+    // description while `backtick()` wrote them raw into the module for a
+    // translated one. Built from code points so that no tool between here and
+    // the file turns an escape into the character
+    const raw = [0x1b, 0x7f, 0x85, 0x2028, 0x2029].map((point) => String.fromCharCode(point));
+    const key = `a ${raw.join(' b ')} \t end`;
+    const source = generateCommands(treeWith(key, true), { from: '/app' });
+
+    for (const char of raw) {
+      expect(source.includes(char), JSON.stringify(char)).toBe(false);
+    }
+    // and the key the tag looks up is the one lifted, which is what the escape
+    // has to keep: `__` reads the cooked quasis, and `\uXXXX` cooks back
+    const body = source.replace(/^import .*\n/, '').replace('export const', 'const');
+    // eslint-disable-next-line no-new-func
+    const cooked = new Function('__', `${body}\nreturn commands.a.desc();`)(
+      (parts: readonly string[]) => parts.join('')
+    ) as string;
+    expect(cooked).toBe(key);
+  });
+
   it('should not leave a raw backtick in the template it printed', () => {
     // the round trip above is the claim; this is the one spelling worth
     // pinning, because an unescaped backtick is a syntax error rather than a
@@ -576,8 +623,64 @@ describe('the generated executable', () => {
       },
     });
 
-    expect(source).to.contain('import { main } from "@scope/runtime";');
+    expect(source).to.contain('import { errorHandler, main } from "@scope/runtime";');
     expect(source).to.contain('import { __ } from "@scope/runtime/i18n";');
+  });
+
+  /**
+   * The startup chain both forms share: the export resolved and awaited, then
+   * handed to `main()`, with only the schema's own failure rendered here.
+   */
+  const startup = [
+    'Promise.resolve()',
+    "  .then(() => (typeof declared === 'function' ? declared() : declared))",
+    '  .then(compose)',
+    '  .then(',
+    '    (schema) => main({ schema }),',
+    '    (err) => errorHandler(err),',
+    '  )',
+  ].join('\n');
+
+  it('should await the schema export, function or Promise, and render its failure', () => {
+    // SIG-353: `declared()` was spread unawaited, so an `async` schema was a
+    // Promise and the built app had no name, description or options -- and a
+    // Promise exported outright, or a function that threw, was no better. The
+    // two-argument `.then()` is what keeps a rejection `main()` was asked to
+    // make (`errorHandler: false`) away from the handler meant for the schema
+    const source = generateBin({ from: '/app/out', schemaModule: '/app/src/index.ts', tree });
+
+    expect(source).to.contain('import { errorHandler, main } from "@ttylabs/sigil";');
+    expect(source).to.contain(`\nawait ${startup};\n`);
+    // the spread is its own step, before the last `.then()`: inside that one's
+    // fulfilment handler a getter that throws escapes the handler beside it
+    expect(source).to.contain(
+      [
+        'function compose(schema) {',
+        "  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {",
+        `    throw new Error(${JSON.stringify(`This app's entry exports no schema: ${SCHEMA_EXPORT}.`)});`,
+        '  }',
+        '  return {',
+        '    ...schema,',
+        '    commands,',
+        '  };',
+        '}',
+      ].join('\n')
+    );
+  });
+
+  it('should await it inside the function in the CommonJS form, where module scope cannot', () => {
+    // rolldown refuses a top-level `await` in a `cjs` bundle, so the whole chain
+    // -- the schema's resolution with it -- goes inside the async IIFE
+    const source = generateBin({
+      from: '/app/out',
+      schemaModule: '/app/src/index.ts',
+      tree,
+      wrap: true,
+    });
+
+    expect(source).to.contain(`\nvoid (async () => {\n  await ${startup};\n})();\n`);
+    // every `await` in the module is inside that function
+    expect(source.slice(0, source.indexOf('void (async () => {'))).to.not.contain('await ');
   });
 
   it('should bake no locale when the config named none', () => {
@@ -598,7 +701,7 @@ describe('the generated executable', () => {
     });
 
     expect(source).to.match(
-      /\.\.\.schema,\n  commands,\n  version: "1\.2\.3",\n  defaultLocale: "de",/
+      /\.\.\.schema,\n\s+commands,\n\s+version: "1\.2\.3",\n\s+defaultLocale: "de",/
     );
   });
 });

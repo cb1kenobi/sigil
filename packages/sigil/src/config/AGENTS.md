@@ -480,6 +480,54 @@ without destroying it is SIG-154's.
   is the parser's own phrase for the same shape. Freezing makes the mistake loud;
   `structuredClone(config.get('x'))` is the mutable copy.
 
+- **The merged view is built when it is read, not when a layer changes**
+  (SIG-377). Every mutator used to re-merge and deep-freeze the whole stack, so
+  N `set()` calls with no read between them were N full merges. A mutator now
+  only marks the view stale and `#view()` -- the one way anything reads it, which
+  is `get()`, `has()` and the watch diff -- rebuilds it on demand. That includes
+  `apply()`, which builds the view it diffs against only while somebody is
+  watching (`#before()`): with nobody, there is no diff to make, and building it
+  anyway was one merge per call that nothing read. Measured over two
+  object layers whose entries are `{ a, b: [1, 2, 3], c: { d } }`, with the two
+  builds run alternately on one machine under heavy parallel load, so the
+  absolute figures are that machine's and the ratio is the finding:
+
+  | entries | 200 x `set()` + 1 `get()`, before | after    |
+  | ------- | --------------------------------- | -------- |
+  | 500     | 185-194 ms                        | 2-4 ms   |
+  | 2,000   | 969-1,120 ms                      | 6 ms     |
+  | 8,000   | 4,025-4,487 ms                    | 17-19 ms |
+
+  What stays eager, and why it can: **every refusal**. Nothing a mutator refuses
+  is decided by the merge -- the schema (`coerceLayer()`), the list and
+  not-an-object checks, `canRepresent`, read-only, an unsafe key and a cycle are
+  all asked at the call, before the layer is marked. The merge's only throws are
+  `copyValue()`'s unsafe key and cycle, and every value that reaches a layer is
+  already a `copyValue()` output -- a coercion writes back through one too -- so
+  a deferred merge has no refusal left to move to a later `get()`. The defaults
+  and the environment never change after construction, which still merges
+  eagerly. That rests on one assumption nothing enforces: **a leaf stays a
+  leaf.** A class instance carried by reference that the app later
+  re-prototypes to `Object.prototype` and gives a key referring back to itself
+  is a plain object the merge walks and refuses -- from the next mutator under
+  the eager merge, from the next read now. Both are equally far from the app's
+  own mutation that caused it, so it is recorded in `#settle()` rather than
+  guarded. The one check that read the **built** view was `#assertWritable()`'s
+  list test, and it would have forced a merge per dotted `set()` on its own, so
+  it reads the stack through `shapesAlong()` instead -- the merge's rule said a
+  second time, which is tolerable only because it is asked a kind rather than
+  contents, and is held to the merge by a differential fuzz over random stacks.
+
+  What did not move: `get()` hands back the same frozen object between writes
+  and a new one after; a refused write, or a `set()` of `null` or `undefined`
+  where the layer holds nothing, leaves it the same object, while a write of the
+  value already there makes the next read a new, equal one, as it always did;
+  and while anybody watches, `apply()` and a reload build the view they diff
+  against before replacing the layer, so a handler is handed the same `before` and `after` at
+  the same moment, synchronously inside the call. `lazy-merge.test.ts` pins each
+  of those over both implementations; only its two merge-count tests fail over
+  the eager one.
+
 - **Only the structure is copied and only the structure is frozen.** A `Date`, a
   class instance, a `Map` and a function are leaves carried by reference, which is
   what lets an object layer hold a plugin -- the thing a `.js` config was _for_.
@@ -527,7 +575,9 @@ without destroying it is SIG-154's.
   with the list in a lower layer and nothing in the user's, which is the ordinary
   arrangement, the write made `{ items: { "0": 9 } }` in the user layer and an
   object replaced the list in the merge (SIG-250). `#assertWritable()` now walks
-  the merged view beside the layer and refuses where an ancestor is a list there
+  the merged view beside the layer -- read off the stack by `shapesAlong()` since
+  SIG-377, for the reason the lazy-merge entry gives -- and refuses where an
+  ancestor is a list there
   and the layer has nothing of its own, with a message naming the whole-list ways
   to say it: `set('items', [...])` or the four array methods.
 
@@ -888,7 +938,9 @@ without destroying it is SIG-154's.
   `transformValue()` already follows.** They were, and they have no caller
   outside this package: SIG-154's span editor is in it and imports relatively,
   the tests import the module directly, and nobody has asked for a JSONC scanner.
-  Real surface for no caller is what `which` waited eighteen months over.
+  Real surface for no caller is what `which` waited eighteen months over. Since
+  SIG-371 there is no `lineAt()` at all -- `lineCounter()` replaced it, under "A
+  line is counted once per file" -- and the rule holds for its replacement.
 
   What the barrel does export is `createConfig`, `createConfigSync`, `Config`,
   `isWritableStore`, the three stores, and the eleven types -- and `Config` is
@@ -1482,9 +1534,108 @@ And an edit whose offsets are `NaN` prepends, which is unreachable for the same
 reason the inverted one is and which the guard above does not catch, since every
 comparison against `NaN` is false -- written down rather than guarded, because a
 second tripwire for a value no emitter can produce is a guard the first one
-already stands for.
+already stands for. `lineStartAt()` and `lineAt()` are gone since SIG-371, below;
+`lineCounter()` keeps the past-the-end answer.
 
 > Moved: _What the fourth review round found, and five of the six were the last two commits' own prose_, _What the fifth round found: the insertion arithmetic nobody had read_, _What the first round of PR review found, and the CI it was reading_, _What the second round of PR review found: the dangling half of the symlink fix_, _What the third round of PR review found: lexical `..` against the kernel's_, _What the fourth round of PR review found: the kept entry's own comment_ — see [docs/history/writing-a-config-file-back-without-destroying-it.md](../../../../docs/history/writing-a-config-file-back-without-destroying-it.md).
+
+#### A line is counted once per file, not once per thing on it
+
+`lineAt()` walked from the start of the text, which is the right cost for one
+message that needs a line and was the wrong one for the scanner, which asked it
+for **every comment** (SIG-371). N comments were N walks of the file:
+
+| comment lines | bytes  | load before | load after |
+| ------------- | ------ | ----------- | ---------- |
+| 5,000         | 60 KB  | 1,502 ms    | 30 ms      |
+| 10,000        | 120 KB | 5,755 ms    | 13 ms      |
+| 20,000        | 240 KB | 23,221 ms   | 16 ms      |
+| 40,000        | 480 KB | 92,259 ms   | 23 ms      |
+
+The "before" column is the ticket's, measured through `createConfig()` over a
+`json()` layer; "after" is the same script over the built `dist/`, with the first
+row paying for the warm-up. `sigil.json`, `commands.json` and every JSONC store
+read through this scanner, so it was a denial of service wherever an app reads a
+config it did not write. A 400 KB file of `/*` repeated took 118 seconds to say
+`Unterminated comment` and takes 15 ms: that is the **same** loop rather than a
+second one, because `/*/*/*` is a run of six-byte block comments each closed by
+the next opener's star, and each one asked `lineAt()` before the last opener
+failed to close.
+
+- **`lineCounter()` is `lineAt()` resumed, and `lineAt()` is gone.** The scanner
+  was its only caller -- its comments and its three refusals -- so once all four
+  asked the counter, the one-shot walk had nothing left to run for, and a fresh
+  counter asked once is the same answer. One rule about what a line is, then --
+  every `LINE_END`, a CRLF once -- with nothing beside it to disagree. The
+  counter keeps the loop's own cursor rather than the offset last asked, because
+  a CRLF steps the cursor one past the `\n`, and an offset behind the last one
+  restarts the walk rather than answering wrong. The scanner's questions only ever
+  go forward, the refusals included, so all four ask it.
+
+- **The writer had the same shape four more ways, and on a minified file each was
+  the whole document.** A single-line file puts every entry on line 1, so a walk
+  back to a line's start is a walk to offset 0: `detectStep()` asked
+  `ownLineIndent()` of every entry on every save, `diffObject()` asked every
+  object's indentation whether or not it gained a key, each container that
+  did gain one asked again, and every member a removal took asked whether it
+  owned its line. Measured over the built `dist/`, one `set()` and
+  `save()`, on a machine with a load average near 80 -- so read the after column
+  as a magnitude, which is the point of it:
+
+  | one-line document                 | before    | after  |
+  | --------------------------------- | --------- | ------ |
+  | 5,000 scalar keys, add one        | 4,553 ms  | 21 ms  |
+  | 10,000 scalar keys, add one       | 25,291 ms | 31 ms  |
+  | 3,000 one-key objects, add one    | 4,453 ms  | 39 ms  |
+  | 10,000 objects, add a key to each | 17,535 ms | 71 ms  |
+  | 40,000 one-key objects, add one   | --        | 191 ms |
+  | 20,000 scalar keys, keep one      | 19,852 ms | 12 ms  |
+
+  The last row is the PR review's, through `editJsonc()` directly. The same
+  `ownLineIndent()` change closed it without anybody aiming at it, which is why
+  the table did not have it until the review measured it -- and why it has a
+  growth test of its own now rather than riding on the others.
+
+  So `ownLineIndent()` walks back over whitespace and stops at the first thing
+  that is not -- the same answer, since `\s` is what `trim()` takes, and the walk
+  is the indentation rather than the line. Every other line start the writer
+  needs comes from `lineStarts()`, an index of the text built once per edit and
+  read by binary search, which agrees with the old `lineStartAt()` walk at every
+  offset in the text: both answer just past any `LINE_END` character. That walk
+  had no caller left once the index existed, so it went, and `lineIndent()` now
+  takes a line's start rather than an offset on it; the test keeps the walk as
+  the reference the index is pinned against. A **negative** offset is the one
+  place the two differ -- the walk handed it back and the index answers 0 -- and
+  no caller passes one. `detectStep()` walks its queue by index rather than by
+  `shift()`, which moves every element behind the one it takes, and
+  `diffObject()` asks an object's indentation only when it gains a key. Neither of
+  those two is pinned by a growth test, and neither needs one: once every line
+  start comes from the index they change the constant rather than the shape.
+
+- **Pinned by counting rather than by timing.** `test/config/lines.test.ts`
+  counts how often `LINE_END.test` runs at a size and at twice it, which is 2 for
+  a linear walk and 4 for a quadratic one, and asserts under 3 -- for the comment
+  file, the `/*` file, a minified save, a key added to every object and every key
+  but one removed. Counted by
+  hand rather than through `vi.spyOn()`, because a spy keeps every call's
+  arguments and the quadratic version exhausted the heap before the assertion
+  could fail. Every sabotage was run: the comment line back on `lineAt()` fails
+  the first two at 3.99, the old `ownLineIndent()` fails the writer's two at 4.1,
+  the writer's indentation off the index fails both at 4.09, and a counter that
+  forgets the CRLF step fails the any-order test. Exactness is a seeded corpus of
+  300 documents mixing all three line endings, comments flush against strings,
+  strings holding U+2028 and comment markers, and block comments running over
+  lines, with every comment's line compared against a fresh counter asked once
+  -- what `lineAt()` was -- and against an oracle that splits on a regex and
+  shares no code with either.
+
+- **Swept, and nothing else in config reads a line per item.** The YAML store
+  takes lines from `yaml`'s own `LineCounter`, which is a binary search, and only
+  for a refusal; its `align()` is a longest common subsequence, already capped by
+  `LCS_CELLS`. The XML store counts a line once per residual kind, which is a
+  fixed table, and its `contentOf()` skips past each region it blanks. The
+  stylesheet parser's `countLines()` is message-only, so it counts once per
+  refusal rather than once per token.
 
 #### What the write half costs
 

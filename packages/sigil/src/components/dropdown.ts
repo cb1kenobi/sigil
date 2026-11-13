@@ -31,7 +31,7 @@ import { __ } from '../i18n/index.js';
 import type { InputRouter, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import {
   type MenuEntry,
@@ -158,7 +158,10 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   /** The columns the label gets: the widest choice, or what a declared width leaves. */
   const room =
     props.width === undefined
-      ? Math.max(1, stringWidth(placeholder), ...options.map((option) => stringWidth(option.label)))
+      ? maxOf(
+          options.map((option) => stringWidth(option.label)),
+          Math.max(1, stringWidth(placeholder))
+        )
       : props.width - CHROME;
 
   const left = textNode(' ', { class: 'sigil-dropdown-bracket', 'white-space': 'pre' });

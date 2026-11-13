@@ -10,6 +10,7 @@ import { createLiveRegion, type LiveRegion } from '../../src/terminal/live.js';
 import { Screen, screenStream } from '../../src/testing/screen.js';
 import { reading } from './reads.js';
 import { PassThrough } from 'node:stream';
+import { vi } from 'vitest';
 
 /**
  * What is left of a string once the escape sequences are gone.
@@ -182,6 +183,41 @@ export function setup(
     stdin,
     stdout,
     terminal,
+  };
+}
+
+/** Whether an array is a directory's entries, `{ dir, name }` and nothing else. */
+function isEntryList(list: unknown): boolean {
+  return (
+    Array.isArray(list) &&
+    list.length > 0 &&
+    list.every(
+      (entry: unknown) =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        'dir' in entry &&
+        'name' in entry &&
+        Object.keys(entry).length === 2
+    )
+  );
+}
+
+/**
+ * Counts how many times a directory's entries are sorted, which is once per
+ * `candidatesOf()` that found anything: its last step is a `toSorted()`, and
+ * nothing else in the library sorts `{ dir, name }` pairs (SIG-364).
+ *
+ * Counted from the outside, on `Array.prototype`, because `candidatesOf()` is
+ * called from inside its own module and a spy on the export would see none of
+ * it. An empty list is not counted, since there is no telling it apart.
+ *
+ * @returns How many so far, and a way to stop counting.
+ */
+export function countEntrySorts(): { count(): number; restore(): void } {
+  const sorts = vi.spyOn(Array.prototype, 'toSorted');
+  return {
+    count: () => sorts.mock.contexts.filter(isEntryList).length,
+    restore: () => sorts.mockRestore(),
   };
 }
 

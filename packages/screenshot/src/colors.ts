@@ -1,3 +1,4 @@
+import { hexChannels } from '@ttylabs/sigil/ansi';
 import { ATTR, type Color, DEFAULT_COLOR, rgbChannels, type Style } from '@ttylabs/sigil/canvas';
 import {
   type ColorScheme,
@@ -150,16 +151,16 @@ export const BUILTIN_PALETTES: Readonly<Record<ColorScheme, ResolvedColors>> = O
  */
 export function parseColor(value: ColorInput): Rgb {
   if (typeof value === 'string') {
-    const match = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value.trim());
-    if (!match) {
+    // trimmed, and the `#` required, which are this caller's own rules; the
+    // digits are `hexChannels()`'s, the one reader the styler and a
+    // stylesheet's `parseColor()` share
+    const text = value.trim();
+    const channels = text.startsWith('#') ? hexChannels(text.slice(1)) : undefined;
+    if (!channels) {
       throw new TypeError(`Invalid colour ${JSON.stringify(value)}: expected #rgb or #rrggbb`);
     }
-    const digits = match[1].length === 3 ? [...match[1]].map((d) => d + d).join('') : match[1];
-    return Object.freeze({
-      b: Number.parseInt(digits.slice(4, 6), 16),
-      g: Number.parseInt(digits.slice(2, 4), 16),
-      r: Number.parseInt(digits.slice(0, 2), 16),
-    });
+    const [r, g, b] = channels;
+    return Object.freeze({ b, g, r });
   }
   if (value === null || typeof value !== 'object') {
     throw new TypeError(`Invalid colour ${String(value)}: expected #rrggbb or { r, g, b }`);

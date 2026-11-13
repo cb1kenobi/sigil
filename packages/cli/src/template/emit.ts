@@ -763,15 +763,58 @@ function key(name: string): string {
 /**
  * A string, as a JavaScript string literal.
  *
- * `JSON.stringify` rather than quoting by hand: it escapes every control
- * character and every lone surrogate, which is what keeps a generated module
- * free of the raw control characters AGENTS.md records two entries about.
+ * The one definition for everything the toolchain prints as source -- the
+ * template emitter here and the entry `sigil build` generates -- which were two
+ * copies escaping two different sets until SIG-353.
+ *
+ * `JSON.stringify` rather than quoting by hand, because a string here is
+ * somebody's prose: it may hold a quote, a backslash or a newline, and JSON's
+ * escaping is already right about all three, about every C0 control character
+ * and about a lone surrogate. Two things it leaves raw are escaped after it:
+ *
+ * - `DEL` and the C1 controls, which `\p{Cc}` names along with the C0 set JSON
+ *   has already taken. A generated module carries no raw control character for
+ *   the reason AGENTS.md records about what ships -- the build's own escape pass
+ *   is what guarantees the shipped bytes, since the minifier would fold any
+ *   escape back, and this keeps the module it is handed honest too.
+ * - U+2028 and U+2029, which `\p{Zl}` and `\p{Zp}` name -- each of those
+ *   classes holds exactly one character. Not because they would end the string: they have been
+ *   legal in a string literal since ES2019, and node parses one happily. It is
+ *   because V8 still **counts them as line breaks**, measured -- a raw U+2028 in
+ *   a string on line 1 puts a throw on line 2 at line 3 in the stack -- while an
+ *   editor and a sourcemap count `\n`. So a raw one moves every line number
+ *   after it in exactly the place nobody can see it.
+ *
+ * The second step is `escapeUnseen()`, which a template literal's text goes
+ * through too.
  *
  * @param value - The string.
  * @returns The literal.
  */
-function quote(value: string): string {
-  return JSON.stringify(value);
+export function quote(value: string): string {
+  return escapeUnseen(JSON.stringify(value));
+}
+
+/**
+ * Every control character and line separator in a piece of source, as a
+ * `\uXXXX` escape.
+ *
+ * The half of `quote()` that is not JSON's, apart so that `generate.ts`'s
+ * `backtick()` -- a `__` key printed as a template literal, which JSON cannot
+ * quote -- escapes the same set by the same rule rather than a list of its
+ * own. Only for text that is already inside a string or a template literal,
+ * where `\uXXXX` cooks back to the character it replaced; the caller has
+ * already escaped its own backslashes, so none of these is read as anything
+ * but the escape it is.
+ *
+ * @param source - The quoted text.
+ * @returns It with nothing invisible left raw.
+ */
+export function escapeUnseen(source: string): string {
+  return source.replaceAll(
+    /[\p{Cc}\p{Zl}\p{Zp}]/gu,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`
+  );
 }
 
 /**

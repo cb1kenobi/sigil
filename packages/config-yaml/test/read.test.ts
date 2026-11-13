@@ -155,6 +155,15 @@ describe('reading a document', () => {
       });
     });
 
+    // SIG-342: the canonical decimal trimmed its trailing zeros with an
+    // unanchored `/0+$/`, which is quadratic in an interior run of them -- and a
+    // key's digits are the file's. An implicit key stops at 1,024 characters,
+    // and an explicit `?` key has no such limit. 200,000 is tens of seconds that way
+    it('should not be quadratic in a run of zeros inside a numeric key', () => {
+      const zeros = '0'.repeat(200_000);
+      expect(() => yaml(file(`? 1${zeros}1.5\n: a\n`)).readSync()).toThrow(/is a different number/);
+    });
+
     it('should refuse a null key, which names no path either', () => {
       // this used to read as `''`, which no dotted path can address, and the
       // JSON analogy the rule above rests on says `'null'`:

@@ -95,6 +95,21 @@ export const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
 export type Manager = (typeof MANAGERS)[number];
 
 /**
+ * The pnpm major a pnpm app's release workflow installs, since no runner image
+ * has one.
+ *
+ * A major rather than the latest, because the release is the one build nobody
+ * gets to redo and a new major is where pnpm changes what a frozen install
+ * accepts: 12 refuses the `6.0` lockfile pnpm 8 wrote, and 11 began holding a
+ * lockfile to a minimum release age that 9 and 10 never checked. Measured on
+ * this scaffold's own app, pnpm 12.18 takes a frozen install of the `9.0`
+ * lockfile that 9.15, 10.34, 11.28 and 12.18 each write. It is the major this
+ * repository is developed with, and `should install a pnpm this repository
+ * uses` in `new.test.ts` fails when the two part.
+ */
+export const PNPM_MAJOR = 12;
+
+/**
  * The command that runs one of the app's scripts with arguments, spelled the way
  * `manager` takes them.
  *
@@ -555,17 +570,25 @@ export default [
 function releaseWorkflow(name: string, manager: Manager): string {
   const install = manager === 'npm' ? 'npm ci' : `${manager} install --frozen-lockfile`;
 
-  // npm ships with Node and pnpm is on the GitHub runner images; `vlt` is
-  // neither, and the generated workflow ran `vlt install` on a runner where
-  // nothing had installed it -- so a vlt app's release failed at "Install
-  // dependencies" on its first tag. Spelled as a step rather than left to the
-  // reader, because this file is what a scaffold is for.
-  const setup =
+  // npm ships with Node, and that is the only one of the three a runner has:
+  // the macOS images list npm and Yarn under Package Management and neither
+  // pnpm nor corepack, and the Node 26 `setup-node` installs carries no
+  // corepack either. The workflow ran `vlt install` and then `pnpm install` on
+  // a runner where nothing had installed them -- so the release failed at
+  // "Install dependencies" on its first tag, and for pnpm that is the default
+  // path. Spelled as a step rather than left to the reader, because this file
+  // is what a scaffold is for.
+  const step =
     manager === 'vlt'
-      ? `
-      - name: Install vlt
+      ? `      - name: Install vlt
         run: npm install --global vlt`
-      : '';
+      : manager === 'pnpm'
+        ? `      # pinned to a major so that a release cannot change pnpm under you;
+      # move it when you move the pnpm that writes pnpm-lock.yaml
+      - name: Install pnpm
+        run: npm install --global pnpm@${PNPM_MAJOR}`
+        : undefined;
+  const setup = step === undefined ? '' : `\n${step}\n`;
   const test = `${manager} run test`;
   const run = manager === 'npm' ? 'npx' : manager === 'pnpm' ? 'pnpm exec' : 'vlt exec';
   const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-x64'];
@@ -622,7 +645,6 @@ jobs:
       - name: Use Bun
         uses: oven-sh/setup-bun@v2
 ${setup}
-
       - name: Install dependencies
         run: ${install}
 

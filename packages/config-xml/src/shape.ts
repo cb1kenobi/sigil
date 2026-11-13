@@ -82,7 +82,10 @@ export function shapeOf(text: string): { shape: Shape; xml: string } {
         : undefined;
 
   return {
-    shape: { bom, eol, trailing: /[\n\r]+$/.exec(xml)?.[0] },
+    // the lookbehind starts the match only where a run of line ends starts: unanchored,
+    // an interior run of k of them is tried from each of its k positions, which is
+    // k² steps for a run that is not at the end at all
+    shape: { bom, eol, trailing: /(?<![\n\r])[\n\r]+$/.exec(xml)?.[0] },
     xml,
   };
 }

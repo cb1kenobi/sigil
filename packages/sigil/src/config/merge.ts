@@ -244,6 +244,62 @@ export function mergeLayers(
 }
 
 /**
+ * What the merged view holds at each step down a path, without building it.
+ *
+ * A mutator has to know whether an ancestor of the path it writes is a **list
+ * in the merged view**, and asking the built view meant a full merge and freeze
+ * of every layer before every `set()` -- the cost the merge being lazy exists to
+ * stop paying (SIG-377). This answers the same question from the sources, in
+ * O(depth x layers), by reading the merge's own rule rather than running it:
+ * `mergeInto()` merges two plain objects key by key and lets anything else on
+ * top replace what is under it. So at each step the value on top decides the
+ * merged value's kind, and only the plain objects above the topmost thing that
+ * is not one reach the next step -- whatever sits under a replacing value is
+ * gone from the merged view, however deep it goes.
+ *
+ * It is the merge's rule said a second time, which this module refuses
+ * elsewhere, and the reason it is tolerable here is that it is asked one thing
+ * the merge's rule decides by the top value alone: *is it a list, an object, or
+ * neither*. Contents never come from here, so `concat` -- which changes what a
+ * list holds and never whether it is one -- has nothing to say. And it is held
+ * to the merge by a differential test over random stacks rather than by
+ * reading, which is how the two are kept from coming apart.
+ *
+ * @param values - What is merged, bottom first, each a plain object.
+ * @param parts - The path.
+ * @returns For each prefix of the path, the topmost value that reaches the
+ * merged view there: a plain object exactly where the merged view holds one, a
+ * list exactly where it holds a list, and otherwise a leaf or `undefined` --
+ * which is all a kind can be asked, since a `null` the first copy drops reads
+ * here as the `null` it was rather than as nothing.
+ */
+export function shapesAlong(values: readonly unknown[], parts: readonly string[]): unknown[] {
+  // the values whose keys reach the merged view at this depth, bottom first
+  let live: readonly unknown[] = values;
+  const out: unknown[] = [];
+
+  for (const part of parts) {
+    const here: unknown[] = [];
+    for (const value of live) {
+      if (isPlainObject(value) && Object.hasOwn(value, part)) {
+        here.push(value[part]);
+      }
+    }
+    out.push(here.at(-1));
+
+    // a value that is not a plain object replaces everything under it, so only
+    // the run of objects above the last such value is merged at the next step
+    let from = here.length;
+    while (from > 0 && isPlainObject(here[from - 1])) {
+      from--;
+    }
+    live = here.slice(from);
+  }
+
+  return out;
+}
+
+/**
  * Freezes the structure this module built, and nothing else.
  *
  * The merged view is handed out by `get()`, so an app holds a live reference to

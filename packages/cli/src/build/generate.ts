@@ -62,6 +62,7 @@
  * module it never reads.
  */
 
+import { escapeUnseen, quote } from '../template/emit.ts';
 import { RUNTIME } from './discover.ts';
 import { TAG_EXPORT } from './i18n.ts';
 import type { ResolvedCommand, ResolvedTree } from './tree.ts';
@@ -253,22 +254,6 @@ function quoteKey(name: string): string {
 }
 
 /**
- * A string as JavaScript source.
- *
- * `JSON.stringify` and not a template literal, because a description is
- * somebody's prose: it may hold a quote, a backslash, or a newline, and JSON's
- * escaping is the one already known to be right about all three. The two line
- * terminators JSON leaves raw are escaped after it, since they are line breaks
- * to a JavaScript parser and would end the string.
- *
- * @param value - The string.
- * @returns Its source.
- */
-function quote(value: string): string {
-  return JSON.stringify(value).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
-}
-
-/**
  * A catalog key as the template literal a `__` tag reads.
  *
  * It has to be a template literal rather than a quoted string, because `__` is
@@ -290,12 +275,25 @@ function backtick(value: string): string {
     .replaceAll('`', '\\`')
     .replaceAll('${', '\\${')
     .replaceAll('\r', '\\r')
-    .replaceAll('\n', '\\n')
-    .replaceAll('\u2028', '\\u2028')
-    .replaceAll('\u2029', '\\u2029');
+    .replaceAll('\n', '\\n');
 
-  return `\`${escaped}\``;
+  // every other control character and the two line separators, by the rule
+  // `quote()` uses: the untranslated path escaped `ESC`, `DEL` and C1 while
+  // this one wrote them raw into the module (SIG-353). `\uXXXX` cooks back to
+  // the character, so the key the tag looks up is unchanged
+  return `\`${escapeUnseen(escaped)}\``;
 }
+
+/**
+ * What a schema export may be, as the end of the sentence that refuses one.
+ *
+ * One sentence for the two places that refuse: the entry `sigil build`
+ * generates, when the export resolves to something that is not an object, and
+ * `sigil reference`, which reads the same export. Two wordings of one rule is
+ * how the two came to disagree about it (SIG-353).
+ */
+export const SCHEMA_EXPORT: string =
+  'a sigil app\'s entry has a default export (or a "schema" export) that is the schema object, a function returning one, or a Promise of one';
 
 /**
  * Prints the executable a built app runs, which the app does not write.
@@ -316,7 +314,13 @@ function backtick(value: string): string {
  * The schema export may be a function, because `packages/cli` writes one and
  * because a schema that reads the environment has to be built rather than
  * declared. It is called once, at startup, exactly where the app would have
- * called it.
+ * called it -- and **awaited**, as is an export that is itself a Promise, so an
+ * `async` schema is a schema rather than a Promise spread into nothing
+ * (SIG-353). `sigil reference` awaits the same export, and two commands of one
+ * toolchain disagreeing about what a valid schema export is was the defect. A
+ * schema that throws or rejects is rendered by `errorHandler()` and sets the
+ * exit code, as anything `main()` catches is, rather than reaching Node's
+ * uncaught-error report with a stack and a line of minified source.
  *
  * @param options - Where the generated module lands, what it imports, and the
  *   tree it bakes in.
@@ -330,7 +334,7 @@ export function generateBin(options: GenerateBinOptions): string {
   // wherever the bundle was written, which is a throw rather than a version.
   // The app keeps its own answer for the unbundled case and this replaces it,
   // the same way the tree replaces `commands`
-  const bakedVersion = version === undefined ? '' : `\n  version: ${quote(version)},`;
+  const bakedVersion = version === undefined ? '' : `\n    version: ${quote(version)},`;
 
   // baked for the reason the version is: the runtime cannot read `sigil.json`,
   // because reading a file at startup is what `locales` being a map rather than
@@ -338,25 +342,67 @@ export function generateBin(options: GenerateBinOptions): string {
   // chain, so this says what the app ships in and every environment variable
   // still beats it
   const bakedLocale =
-    defaultLocale === undefined ? '' : `\n  defaultLocale: ${quote(defaultLocale)},`;
+    defaultLocale === undefined ? '' : `\n    defaultLocale: ${quote(defaultLocale)},`;
 
-  // `await main(...)` at module scope is the ordinary shape and the one thing a
-  // CommonJS bundle cannot hold: rolldown refuses it outright with
+  // The schema is resolved, composed with the baked tree and then handed to
+  // `main()` in one chain, so that everything the app's export can do before
+  // `main()` exists is one rule:
+  //
+  // - whatever was exported is awaited, a function's result or the export
+  //   itself, so an `async` function, a sync one returning a Promise and a
+  //   Promise exported outright are all a schema (SIG-353). Awaiting a plain
+  //   object hands it straight back
+  // - what that resolves to has to be an object, as `sigil reference` requires,
+  //   so a Promise of a function or a `null` is refused with the sentence
+  //   reference uses rather than spread into an app with no name or options
+  // - anything that throws on the way -- the function, a rejection, the refusal
+  //   above, or a getter the spread in `compose()` reads -- is rendered by
+  //   `errorHandler()`, the message and no stack, with the exit code
+  //   `errorExitCode()` gives it, because there is no `main()` yet to catch it
+  //   and Node's own report prints a whole minified line of the bundle. The
+  //   built-in handler and no other, since the settings that could name another
+  //   are on the schema that just failed to arrive
+  //
+  // The second argument to the **last** `.then()` and not a `.catch()`, so that
+  // only what comes before `main()` is routed there: `main()` handles its own
+  // errors, and with `errorHandler: false` it rejects on purpose, which has to
+  // stay a rejection the app asked for. That is also why the spread is a step of
+  // its own rather than inside the call: in the last `.then()`'s fulfilment
+  // handler, a getter that throws would escape the handler beside it
+  const run = `Promise.resolve()
+  .then(() => (typeof declared === 'function' ? declared() : declared))
+  .then(compose)
+  .then(
+    (schema) => main({ schema }),
+    (err) => errorHandler(err),
+  )`;
+
+  // \`commands\` last, because the baked tree is the one property the build
+  // knows better than the app does -- everything else is the app's own
+  const compose = `function compose(schema) {
+  if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
+    throw new Error(${quote(`This app's entry exports no schema: ${SCHEMA_EXPORT}.`)});
+  }
+  return {
+    ...schema,
+    commands,${bakedVersion}${bakedLocale}
+  };
+}`;
+
+  // `await` at module scope is the ordinary shape and the one thing a CommonJS
+  // bundle cannot hold: rolldown refuses it outright with
   // `Top-level await is currently not supported with the 'cjs' output format`,
-  // so the entry a Node single executable is built from has to put the call
-  // inside an async function instead. It is the *same* call either way -- the
-  // IIFE is not caught, so a rejection is an unhandled one exactly as a
-  // top-level `await` leaves it, and `main()` already handles its own errors
-  // and sets `process.exitCode` rather than rejecting.
-  const call = `main({ schema: {
-  ...schema,
-  commands,${bakedVersion}${bakedLocale}
-} })`;
-  const dispatch = wrap ? `void (async () => {\n  await ${call};\n})();` : `await ${call};`;
+  // so the entry a Node single executable is built from awaits the same chain
+  // inside an async function instead -- the schema's resolution included, since
+  // it is part of the chain. It is the *same* code either way: the IIFE is not
+  // caught, so what the chain leaves rejected -- only `main()` with
+  // `errorHandler: false` -- is an unhandled rejection exactly as a top-level
+  // `await` leaves it
+  const dispatch = wrap ? `void (async () => {\n  await ${run};\n})();` : `await ${run};`;
 
   return `#!/usr/bin/env node
 // Generated by sigil build. Do not edit.
-import { main } from ${quote(runtime)};
+import { errorHandler, main } from ${quote(runtime)};
 import * as app from ${quote(specifier(from, schemaModule))};
 
 ${generateCommands(tree, { declare: 'const', from, name: 'commands', runtime })}
@@ -366,10 +412,17 @@ ${generateCommands(tree, { declare: 'const', from, name: 'commands', runtime })}
 // namespace asks at run time, which is when the answer is known
 const exported = { ...app };
 const declared = exported.default ?? exported.schema;
-const schema = typeof declared === 'function' ? declared() : declared;
 
 // \`commands\` last, because the baked tree is the one property the build knows
-// better than the app does -- everything else is the app's own
+// better than the app does -- everything else is the app's own. Anything but an
+// object is refused here, as \`sigil reference\` refuses it
+${compose}
+
+// the schema may be an object, a function (async or not) or a Promise of one,
+// and is awaited whichever it is. Anything that throws before \`main()\` is
+// called is rendered by \`errorHandler()\`, since there is no \`main()\` yet to
+// catch it -- and only that: what \`main()\` rejects with, which
+// \`errorHandler: false\` asks for, stays a rejection
 ${dispatch}
 `;
 }
@@ -401,7 +454,8 @@ export interface GenerateBinOptions {
   /** The command tree to bake in. */
   readonly tree: ResolvedTree;
   /**
-   * Whether to put the `main()` call inside an async function.
+   * Whether to put the startup -- resolving the schema and the `main()` call
+   * it feeds -- inside an async function.
    *
    * Off by default, which is the ordinary top-level `await` -- the shape every
    * built app has had and the one to leave alone. On is for a bundle that has

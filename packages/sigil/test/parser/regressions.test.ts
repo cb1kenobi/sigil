@@ -1,11 +1,18 @@
 import { completionSpec } from '../../src/completion/spec.js';
-import { renderHelp } from '../../src/help/index.js';
+import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
 import { parse } from '../../src/parser/parse.js';
 import { commandSurface } from '../../src/reference/surface.js';
-import { Argument, Internal, type InternalCommand, type Schema } from '../../src/types.js';
+import {
+  Argument,
+  ErrorState,
+  Internal,
+  type InternalCommand,
+  type ParseState,
+  type Schema,
+} from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
 import { daysInMonth } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
@@ -2581,6 +2588,341 @@ describe('regressions', () => {
       const schema = { commands: { 'list, ls': { load } } };
       expect(await screen(schema, ['ls'])).toContain('Aliases: list, ls');
       expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('show');
+    });
+  });
+
+  // SIG-339. `initArgv()` splits an option-like token at its first `=` before
+  // the schema is known, and two readers took the split form for the token
+  describe("a short option's attached value was cut at the first =", () => {
+    const options = { '-v, --verbose': {}, '-D, --define <def>': {} };
+
+    it('should keep the whole value after the letter', async () => {
+      const result = await parse({ argv: ['-Dfoo=bar'], schema: { options } });
+      expect(result.argv.define).to.equal('foo=bar');
+    });
+
+    it('should agree with the spelling that puts the value in the next token', async () => {
+      const result = await parse({ argv: ['--define', 'foo=bar'], schema: { options } });
+      expect(result.argv.define).to.equal('foo=bar');
+    });
+
+    it('should keep every = in a value that follows a flag in the group', async () => {
+      const result = await parse({ argv: ['-vDa=b=c'], schema: { options } });
+      expect(result.argv.verbose).to.equal(true);
+      expect(result.argv.define).to.equal('a=b=c');
+    });
+
+    it('should keep the value whole when the letter is only declared by a later command', async () => {
+      // the group is deferred at `-X`, and the deferred rest is read again on the
+      // pass that knows `sub`'s options
+      const result = await parse({
+        argv: ['-vXa=b', 'sub'],
+        schema: {
+          commands: { sub: { options: { '-X <x>': {} }, run: () => {} } },
+          options: { '-v': {} },
+        },
+      });
+      expect(result.argv.v).to.equal(true);
+      expect(result.argv.X).to.equal('a=b');
+    });
+
+    it('should still read a value attached without an =', async () => {
+      const result = await parse({ argv: ['-vDfoo'], schema: { options } });
+      expect(result.argv.define).to.equal('foo');
+    });
+
+    it('should still read a value given after an = right behind the letter', async () => {
+      const result = await parse({ argv: ['-vD=a=b'], schema: { options } });
+      expect(result.argv.define).to.equal('a=b');
+    });
+  });
+
+  describe('a positional that looks like an option arrived split', () => {
+    it('should give an argument the token as typed', async () => {
+      const result = await parse({ argv: ['-Dfoo=bar'], schema: { args: ['<def>'] } });
+      expect(result.argv.def).to.equal('-Dfoo=bar');
+      expect(result._).to.deep.equal(['-Dfoo=bar']);
+    });
+
+    it('should give a variadic argument one value per token', async () => {
+      const result = await parse({
+        argv: ['x', '-Dfoo=bar', '--a.b=c'],
+        schema: { args: ['<def...>'] },
+      });
+      expect(result.argv.def).to.deep.equal(['x', '-Dfoo=bar', '--a.b=c']);
+      expect(result._).to.deep.equal(['x', '-Dfoo=bar', '--a.b=c']);
+    });
+
+    it('should name the token as typed when nothing takes it', async () => {
+      await expect(parse({ argv: ['-Dfoo=bar'], schema: {} })).rejects.toThrow(
+        'Unexpected argument "-Dfoo=bar"'
+      );
+    });
+
+    it('should pass the token through whole when unexpected arguments are allowed', async () => {
+      const result = await parse({
+        argv: ['-Dfoo=bar'],
+        schema: {},
+        settings: { allowUnexpectedArguments: true },
+      });
+      expect(result._).to.deep.equal(['-Dfoo=bar']);
+    });
+
+    it('should keep the rest of a group a declared flag began', async () => {
+      // `-v` resolves and `-XY=z` is what is left, which no option declares
+      const result = await parse({
+        argv: ['-vXY=z'],
+        schema: { args: ['<rest>'], options: { '-v': {} } },
+      });
+      expect(result.argv.v).to.equal(true);
+      expect(result.argv.rest).to.equal('-XY=z');
+    });
+
+    it('should coerce a copy, so state.$ keeps what was typed', async () => {
+      const result = await parse({
+        argv: ['8080', 'x'],
+        schema: { args: [{ name: '<port>', type: 'int' }, '[y]'] },
+      });
+      expect(result.argv.port).to.equal(8080);
+      expect(result._).to.deep.equal([8080, 'x']);
+      expect(result.$[0].inputs).to.deep.equal(['8080']);
+    });
+
+    it("should not coerce inside the array an argument's transform returned", async () => {
+      const returned = ['1', '2'];
+      const result = await parse({
+        argv: ['a', 'b'],
+        schema: { args: [{ name: '<n...>', transform: async () => returned, type: 'int' }] },
+      });
+      expect(result.argv.n).to.deep.equal([1, 2]);
+      expect(returned).to.deep.equal(['1', '2']);
+    });
+  });
+
+  describe('consuming tokens was quadratic in argv', () => {
+    // a splice per consumed token shifts everything after it; what is pinned is
+    // that no walk removes tokens one splice at a time. Counted rather than
+    // timed, because a timing is a flake on a loaded machine
+    async function splices(argv: string[], schema: Schema): Promise<number> {
+      let count = 0;
+      await parse({
+        argv,
+        schema: {
+          ...schema,
+          hooks: {
+            beforeParse: (state) => {
+              const splice = state.$.splice.bind(state.$);
+              state.$.splice = ((...args: Parameters<typeof splice>) => {
+                count++;
+                return splice(...args);
+              }) as typeof splice;
+            },
+          },
+        },
+      });
+      return count;
+    }
+
+    const n = 1000;
+
+    it('should not splice per value a repeated option takes', async () => {
+      const argv = Array.from({ length: n }, (_, i) => ['--tag', `x${i}`]).flat();
+      const schema = { options: { '--tag <t>': { multiple: true } } };
+      expect(await splices(argv, schema)).to.equal(0);
+      const result = await parse({ argv, schema });
+      expect(result.argv.tag).toHaveLength(n);
+      expect(result.$).toHaveLength(n);
+    });
+
+    it('should not splice per value an undeclared option takes', async () => {
+      const argv = Array.from({ length: n }, (_, i) => [`--k${i}`, `v${i}`]).flat();
+      expect(await splices(argv, {})).to.equal(0);
+      const result = await parse({ argv, schema: {} });
+      expect(result.argv[`k${n - 1}`]).to.equal(`v${n - 1}`);
+      expect(result.$).toHaveLength(n);
+    });
+
+    it('should not splice per value a variadic argument gobbles', async () => {
+      const argv = Array.from({ length: n }, (_, i) => `f${i}`);
+      const schema = { args: ['<files...>'], options: { '--force': {} } };
+      expect(await splices([...argv, '--force'], schema)).to.equal(0);
+      const result = await parse({ argv: [...argv, '--force'], schema });
+      expect(result.argv.files).toHaveLength(n);
+      expect(result.argv.force).to.equal(true);
+      expect(result.$).toHaveLength(2);
+    });
+
+    it('should still step over a consumed value to the option after it', async () => {
+      const result = await parse({
+        argv: ['--name', 'a', '--name', 'b', 'pos', '--flag'],
+        schema: {
+          args: ['<p>'],
+          options: { '--flag': {}, '--name <n>': { multiple: true } },
+        },
+      });
+      expect(result.argv.name).to.deep.equal(['a', 'b']);
+      expect(result.argv.p).to.equal('pos');
+      expect(result.argv.flag).to.equal(true);
+    });
+
+    it('should not splice per short option group', async () => {
+      const argv = Array.from({ length: n }, () => '-ab');
+      const schema = {
+        options: { '-a': { type: 'count' as const }, '-b': { type: 'count' as const } },
+      };
+      expect(await splices(argv, schema)).to.equal(0);
+      const result = await parse({ argv, schema });
+      expect(result.argv.a).to.equal(n);
+      expect(result.argv.b).to.equal(n);
+      expect(result.$).toHaveLength(2 * n);
+    });
+
+    it('should not match a consumed value that spells a command as the command', async () => {
+      // a value taken by an option is never read as a token of its own, so
+      // `sub` here is the value of `--name` and not the command `sub`
+      const result = await parse({
+        argv: ['--name', 'sub'],
+        schema: { commands: { sub: { run: () => {} } }, options: { '--name [n]': {} } },
+      });
+      expect(result.cmd).toBeUndefined();
+      expect(result.argv.name).to.equal('sub');
+    });
+
+    it('should not match a consumed value that spells a subcommand as the subcommand', async () => {
+      const result = await parse({
+        argv: ['sub', '--x', 'deep'],
+        schema: {
+          commands: {
+            sub: {
+              commands: { deep: { run: () => {} } },
+              options: { '--x [v]': {} },
+              run: () => {},
+            },
+          },
+        },
+      });
+      expect(result.cmd?.name).to.equal('sub');
+      expect(result.argv.x).to.equal('deep');
+    });
+
+    it('should leave no consumed value behind when a walk throws', async () => {
+      // `--port eight` throws while argv is read; what the error carries is
+      // what the walk resolved, the entry it was reading, and nothing else
+      const err = await parse({
+        argv: ['--name', 'a', '--port', 'eight'],
+        schema: { options: { '--name [n]': {}, '--port [p]': { type: 'int' } } },
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '--name', 'a'],
+        ['Unknown', '--port', 'eight'],
+      ]);
+    });
+
+    it("should leave a group's unread entries behind when a walk throws inside it", async () => {
+      // `-vxw` is expanded into three entries and `-x` throws, so `-w` is still
+      // waiting to be read: it has to be in the error state, as it was on main
+      const err = await parse({
+        argv: ['-vxw', 'next'],
+        schema: {
+          args: ['[a]'],
+          options: {
+            '-v': {},
+            '-w': {},
+            '-x': {
+              transform: () => {
+                throw new Error('x refused');
+              },
+            },
+          },
+        },
+      }).catch((e: unknown) => e);
+      expect((err as Error).message).to.equal('x refused');
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '-v'],
+        ['Unknown', '-x'],
+        ['Unknown', '-w'],
+        ['Unknown', 'next'],
+      ]);
+    });
+
+    it('should leave a refused unknown option behind when the walk for them throws', async () => {
+      const err = await parse({
+        argv: ['--n', 'v', '-u', 'x', '--w', 'y'],
+        schema: { options: { '--n [v]': {} } },
+        settings: { allowUnknownOptions: false },
+      }).catch((e: unknown) => e);
+      expect((err as Error).message).toMatch(/^Unknown option "-u"/);
+      const state = (err as { [ErrorState]?: ParseState })[ErrorState];
+      expect(state?.$.map((parsed) => [parsed.type, ...parsed.inputs])).to.deep.equal([
+        ['Option', '--n', 'v'],
+        ['Unknown', '-u'],
+        ['Unknown', 'x'],
+        ['Unknown', '--w'],
+        ['Unknown', 'y'],
+      ]);
+    });
+  });
+
+  describe('an array of options declared an option named 0', () => {
+    // `Object.entries()` yields an array's indices, so `['--foo <x>']` was an
+    // option named `0` described as `--foo <x>`, and the parse went on with
+    // `argv` holding `{ 0: false }` -- where `args` and `commands` refuse a
+    // container of the wrong shape
+    it('should refuse an array of options on a schema', async () => {
+      await expect(
+        parse({ argv: [], schema: { options: ['--foo <x>'] as never } })
+      ).rejects.toThrow(new TypeError('Expected options to be an object'));
+    });
+
+    it('should refuse an array of options on a command', async () => {
+      await expect(
+        parse({ argv: ['b'], schema: { commands: { b: { options: ['--foo'] as never } } } })
+      ).rejects.toThrow(new TypeError('Expected options to be an object'));
+    });
+
+    it('should refuse an array of options in a help section', async () => {
+      const sections = createSections();
+      await expect(sections.add({ options: ['--foo'] as never, title: 'Extra' })).rejects.toThrow(
+        new TypeError('Expected help section "Extra" options to be an object')
+      );
+      expect(sections.list).toEqual([]);
+    });
+  });
+
+  describe('a help section refused a function description', () => {
+    // `HelpSection.options` is the same `OptionDeclarations` a command's is,
+    // which takes a thunk as the description -- and the section's own copy of
+    // the reading took only a string, so it threw `Expected help section
+    // "Extra" option to be an object` over a declaration a schema accepts
+    it('should render a function description in a help section', async () => {
+      const state = await parse({
+        argv: ['build', '--help'],
+        schema: {
+          commands: {
+            build: {
+              hooks: {
+                help: async ({ sections }) => {
+                  await sections.add({ options: { '--foo': () => 'lazy desc' }, title: 'Extra' });
+                },
+              },
+            },
+          },
+          completion: false,
+          name: 'mycli',
+          quiet: false,
+        },
+      });
+      const text = await resolveHelp(state, { width: 80 });
+      expect(text.split('\n')).toContain('  --foo  lazy desc');
+    });
+
+    it('should still refuse a description that is neither a string nor a function', async () => {
+      await expect(
+        createSections().add({ options: { '--foo': 42 as never }, title: 'Extra' })
+      ).rejects.toThrow(new TypeError('Expected help section "Extra" option to be an object'));
     });
   });
 });

@@ -718,6 +718,24 @@ toolchain's one reader.
 - **A named colour stays a palette index.** The basic sixteen are whatever the
   user's terminal theme says they are, so resolving `red` to a specific RGB
   overrides a choice they already made.
+- **The hex digits are `hexChannels()`'s and the `#` is this file's (SIG-358).**
+  `ansi.hex()`, `parseColor()` here and `@ttylabs/screenshot`'s colour option
+  each parsed hex on their own, with two grammars and three errors: a stylesheet
+  and the screenshot both trim and require the `#`, and only `ansi.hex()` differs.
+  `hexChannels()` in `src/ansi/hex.ts`, exported from `@ttylabs/sigil/ansi`,
+  reads three or six digits and nothing else and answers `undefined` rather than
+  throwing, so what differs stays with each caller: `ansi.hex()` takes the `#` or
+  not and trims nothing, a stylesheet requires it and trims, and a hex miss here
+  falls through to `rgb()` and `palette()` and then `Invalid colour`. No caller
+  took four or eight digits and none does now. `test/ansi/hex.test.ts` and the
+  screenshot's `colors.test.ts` are the before-and-after tables. The X11 reply
+  reader, `parseReportedColor()` in `src/input/capabilities.ts`, is deliberately
+  **not** a caller: its `#` form is 3, 6, 9 or 12 digits, each group scaled from
+  its own width, which is a different grammar and is recorded under "Light and
+  dark". It is published from `/ansi` rather than `/canvas` beside `rgbChannels()`
+  because `ansi/` is the layer it lives in and `ansi.hex()` is its first caller;
+  the cost is that the screenshot package now loads the ~4.8 kB ansi styler chunk,
+  once, and a second public spelling on `/canvas` would be one function on two subpaths.
 - **`text-overflow` is read off the text's own box and bites only where a line
   does not fit.** It parsed and did nothing for as long as there was nothing
   that had to fit text into a column, which is the rule about a property the
@@ -756,6 +774,27 @@ toolchain's one reader.
   shorthand could not have said which part was wrong. That means each longhand
   has to carry its _own_ name; the padding parsers all said "padding", which is
   the message the shorthand would have given anyway.
+- **The shorthand hook is the one import-time effect in the package, and
+  `"sideEffects": false` is declared over it (SIG-357).** The field lets an app's
+  bundler drop a shipped file whose exports go unused. Every module in
+  `packages/sigil/src` was walked for top-level statements that are not
+  declarations, and for top-level initializers that call something: the only one
+  that writes into another module is `registerShorthandLookup(shorthandLonghands)`
+  at the end of `shorthand.ts`, which fills the hook `parseTransitionProperty()`
+  in `properties.ts` asks (the rest build or freeze their own values, and a
+  module-scope `debug()`, `createTerminal()` or `createLog()` is a value nobody
+  needs if its module is dropped). It is safe because both modules ship in one
+  `dist/` file, so a bundler cannot keep the reader and drop the registration,
+  and `what "sideEffects": false relies on` in `test/dist.test.ts` fails if the
+  chunking ever splits them. If it does, the answer is a `sideEffects` array
+  naming the registrar's file, not dropping the field. Measured with rolldown, a
+  bundle importing only `createSpinner` from `@ttylabs/sigil/components` went
+  from **157,099 B to 149,855 B** minified, and every demo bundled both ways
+  (honouring the field, and with every module forced effectful) behaved
+  identically -- **21,282,171 B against 21,851,237 B** over the 111 files under
+  `demos/`. The field also reaches tsdown's own build of this package, which
+  read it and dropped some bare `import "./x.mjs"` lines it had kept only in case
+  those chunks had effects.
 - **Every lookup table here is null-prototype, and every lookup uses
   `Object.hasOwn`.** The same entry Conventions already carries for the parser's
   registries, rediscovered: on a plain object `constructor` and `toString` read
@@ -854,6 +893,43 @@ toolchain's one reader.
   keeping in proportion: browsers optimize this hard because they have ten
   thousand elements and ten thousand rules, and a terminal UI has a couple of
   hundred of each. Naive may simply be the permanent answer; see SIG-65.
+- **`~` finds an element's place once and walks the list from there (SIG-360).**
+  It used to step back through `previousSibling()`, which is an `indexOf()` per
+  step, so one element cost O(n^2) and a list of n siblings O(n^3) whenever the
+  left side rarely matched -- and `touchClasses()` restyles every sibling on a
+  class or state change, so a hover in such a list paid all of it. Resolving
+  every child of one parent against `.heading ~ row`, on a loaded machine:
+
+  | rows  | before    | after   |
+  | ----- | --------- | ------- |
+  | 250   | 2.5 ms    | 1.5 ms  |
+  | 500   | 8.1 ms    | 2.5 ms  |
+  | 1,000 | 45.8 ms   | 7.7 ms  |
+  | 2,000 | 298.2 ms  | 25.7 ms |
+  | 4,000 | 2442.7 ms | 95.9 ms |
+
+  That is quadratic over the list, as `+` and `:nth-child()` are, and it is
+  **not** their cost: what is left is the backward walk itself, which tests the
+  left compound against every earlier sibling until one matches, and when none
+  does that is the whole list. It dominates the one `indexOf()` per element by
+  far -- 135.5ms for `~` at 4,000 rows in a re-run beside 15.8ms for `row + row`
+  and 14.1ms for `row:nth-child(odd)`, and a review measured 55.7ms against
+  1.4ms, so the constant is roughly ten to forty times theirs. It is inherent
+  to `~`, since any of those siblings could be the one that matches, and it is
+  the argument against an **index cache**: a cache would remove only the
+  `indexOf()`, which is the small part, and a cache keyed on a children array
+  has to be cleared by every write to that array, which the element tree makes
+  in place. `should find its siblings once per element, not once per step back`
+  counts the entries `indexOf()` reads rather than timing anything: doubling the
+  list is 8x the reads before and 4x after, and the bound is 6x.
+
+  A **chain** of `~` steps is still cubic. `.a ~ row ~ row` with no `.a`
+  backtracks the inner step from every `row` the outer one finds, the way a
+  chain of descendant steps does, and the review measured 2.3, 20.1 and 155.6ms
+  at 125, 250 and 500 rows, against 5.3, 59.4 and 768.8ms before. That is the
+  matcher's shape rather than this defect, and a memo of which siblings matched
+  the inner step would be the fix if a sheet ever needs one.
+
 - **A cascade can take a sheet out and put another in its place, and a change to
   it restyles on its own (SIG-307).** `remove(sheet)` answers whether it was
   there; `replace(old, next)` puts `next` in `old`'s turn in source order and
