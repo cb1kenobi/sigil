@@ -1,0 +1,7 @@
+{
+  "name": "async-schema",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

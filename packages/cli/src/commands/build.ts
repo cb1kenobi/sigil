@@ -270,19 +270,19 @@ function assertBuildable(found: Inspection, bin: string | undefined): void {
  *
  * Startup time is the metric the whole design is pointed at, so what loads on
  * the fast path and what does not is worth saying rather than leaving somebody
- * to stat the directory. The entry is what `--help` pays for; every chunk below
- * it is a command that loads only when argv names it.
+ * to stat the directory. What `--help` pays for is the entry and every chunk it
+ * imports statically, which is `startup`; a `dynamic` chunk is reached only
+ * through an `import()`, a command's or the runtime's own, so it loads when
+ * something asks for it -- which for the runtime's parser is every run. Which
+ * is which is read off the graph rather than off "not the entry" -- see
+ * `ChunkLoads` and `chunkLoads()`.
  *
  * @param chunks - What was written, largest first.
  */
 function printSizes(chunks: readonly BuiltChunk[]): void {
   const rows = chunks
     .filter((chunk) => !chunk.name.endsWith('.map'))
-    .map((chunk) => [
-      chunk.name,
-      `${(chunk.size / 1024).toFixed(1)} kB`,
-      chunk.entry ? 'entry' : 'lazy',
-    ]);
+    .map((chunk) => [chunk.name, `${(chunk.size / 1024).toFixed(1)} kB`, chunk.loads]);
 
   if (rows.length) {
     process.stdout.write(

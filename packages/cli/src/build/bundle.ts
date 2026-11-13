@@ -144,7 +144,8 @@ export interface BundleOptions {
    * Node single executable runs its embedded main script as CommonJS and cannot
    * `import()` anything at all. It is one file rather than an entry and chunks,
    * since a SEA has nowhere to put a chunk, and its generated entry wraps the
-   * `main()` call because CommonJS cannot hold a top-level `await`.
+   * schema's resolution and the `main()` call in an async function, because
+   * CommonJS cannot hold a top-level `await`.
    *
    * It is not offered as a build output, and that is deliberate: a `.cjs`
    * written into `dist/` is a thing somebody would run directly, where the
@@ -192,10 +193,37 @@ export interface BundleOptions {
   readonly updateCheck?: BakedUpdateConfig;
 }
 
+/**
+ * When a file the build wrote is loaded.
+ *
+ * - `entry` -- it is the executable.
+ * - `startup` -- the executable imports it statically, directly or through
+ *   another such chunk, so it loads every time the executable does: `--help`
+ *   pays for it as surely as for the entry.
+ * - `dynamic` -- nothing on that path imports it, so it is reached only through
+ *   a dynamic `import()`, **the runtime's own included**. That is a claim about
+ *   how it is reached and not about how often: `main()` imports its parser and
+ *   its topic table that way on every run, and help, the theme and the output
+ *   formats on every `--help`, so a `dynamic` chunk may well load every time.
+ *   What it does say is that nothing loads it before something asks. An asset,
+ *   such as a sourcemap, is never loaded by the executable at all, and is
+ *   `dynamic` too, which is the one answer the column has for "not on the
+ *   static path".
+ *
+ * It was `lazy`, and that word claimed the "how often" this cannot know: it
+ * labelled a 31.8 kB parser chunk that loads on every run as one a command had
+ * to ask for -- the same mislabelling `startup` was introduced to fix, arriving
+ * through the runtime's imports instead of the app's. Proving which dynamic
+ * imports `main()` always reaches would mean reading the runtime's control
+ * flow out of a minified bundle, where what it reaches depends on argv, so the
+ * label says what the graph proves instead.
+ */
+export type ChunkLoads = 'dynamic' | 'entry' | 'startup';
+
 /** One file the build wrote. */
 export interface BuiltChunk {
-  /** Whether it is the executable. */
-  readonly entry: boolean;
+  /** When it is loaded. See `ChunkLoads`. */
+  readonly loads: ChunkLoads;
   /** Its name inside the output directory. */
   readonly name: string;
   /** Its size in bytes. */
@@ -748,9 +776,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
     escapeControls(out, written.output);
 
+    const loads = chunkLoads(written.output);
     const chunks = written.output
       .map((chunk) => ({
-        entry: chunk.type === 'chunk' && chunk.isEntry,
+        loads: loads.get(chunk.fileName) ?? 'dynamic',
         name: chunk.fileName,
         size: Buffer.byteLength(
           chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
@@ -1028,6 +1057,64 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
 function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
   const sheet: ShakenSheet | undefined = shaker?.result();
   return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
+}
+
+/** The part of a written chunk `chunkLoads()` reads. */
+interface LinkedChunk {
+  readonly fileName: string;
+  readonly imports?: readonly string[];
+  readonly isEntry?: boolean;
+  readonly type: string;
+}
+
+/**
+ * When each written file is loaded, read off the graph rolldown reports.
+ *
+ * Every chunk that is not the entry used to be called `lazy`, which was false
+ * for the ones the entry imports **statically**: on a scaffolded app the entry
+ * was 0.8 kB and the chunks it imports came to another 12 kB, all of it paid on
+ * every `--help` and all of it labelled as though a command had to ask for it
+ * (SIG-353). So the static closure of the entry is walked through each chunk's
+ * `imports` -- rolldown's list of the chunks it imports statically, by file name
+ * -- and what it reaches is `startup`. Everything else can only be reached
+ * through a `dynamicImports` edge somewhere, and is `dynamic`: a command's own
+ * module, or one of the runtime's, which `main()` may import on every run --
+ * see `ChunkLoads` for why that is not narrowed further.
+ *
+ * Walked rather than read off `isDynamicEntry`, because that flag answers a
+ * different question: a chunk can be the target of an `import()` and also be
+ * imported statically by the entry, and it then loads at startup whatever the
+ * `import()` says.
+ *
+ * Exported for the reason `rawJsxIn()` is: what it answers is worth asserting
+ * directly as well as through a bundler.
+ *
+ * @param output - What rolldown wrote.
+ * @returns Each file's name, mapped to when it loads.
+ */
+export function chunkLoads(output: readonly LinkedChunk[]): Map<string, ChunkLoads> {
+  const byName = new Map(output.map((chunk) => [chunk.fileName, chunk]));
+  const loads = new Map<string, ChunkLoads>(output.map((chunk) => [chunk.fileName, 'dynamic']));
+  const pending = output.filter((chunk) => chunk.type === 'chunk' && chunk.isEntry);
+
+  for (const entry of pending) {
+    loads.set(entry.fileName, 'entry');
+  }
+
+  // a work list rather than recursion, and a chunk is queued only the first time
+  // it is marked, so a cycle between two chunks -- which rolldown does emit --
+  // ends rather than looping
+  for (let chunk = pending.pop(); chunk; chunk = pending.pop()) {
+    for (const name of chunk.imports ?? []) {
+      const imported = byName.get(name);
+      if (imported && loads.get(name) === 'dynamic') {
+        loads.set(name, 'startup');
+        pending.push(imported);
+      }
+    }
+  }
+
+  return loads;
 }
 
 /**

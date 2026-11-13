@@ -48,6 +48,7 @@ export {
   hash,
   WORK_DIR,
   type BuiltChunk,
+  type ChunkLoads,
   type BundleOptions,
   type BundleResult,
   type InlinedPackage,

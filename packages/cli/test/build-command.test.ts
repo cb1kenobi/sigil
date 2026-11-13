@@ -93,7 +93,13 @@ describe('sigil build', () => {
 
     expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
     expect(stdout).toContain('entry');
-    expect(stdout).toContain('lazy');
+    // a chunk the entry imports statically loads with it, and says so; the rest
+    // are reached through an `import()`, the runtime's own among them, which
+    // may be on every run -- so `dynamic`, and never the `lazy` that claimed
+    // a command had to ask for the parser
+    expect(stdout).toMatch(/^chunks\/\S+\s+[\d.]+ kB\s+startup$/m);
+    expect(stdout).toMatch(/^chunks\/\S+\s+[\d.]+ kB\s+dynamic$/m);
+    expect(stdout).not.toMatch(/\blazy$/m);
     expect(err).toContain('4 commands');
     expect(process.exitCode).toBeFalsy();
   }, 60_000);
