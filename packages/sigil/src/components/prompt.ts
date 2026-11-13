@@ -1,3 +1,4 @@
+import { hasIntroducer } from '../ansi/index.js';
 import { cellWidth } from '../canvas/index.js';
 import {
   box,
@@ -24,7 +25,7 @@ import { isAbort } from '../input/index.js';
 import { State, untrack } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
-import { graphemes, stringWidth } from '../width/index.js';
+import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import {
   boundary,
@@ -718,6 +719,15 @@ interface Window {
  * flex items, and a wrapped first item leaves the other two beside its *box*
  * rather than after its last line.
  *
+ * **The value is segmented once and walked outward from the caret (SIG-368).**
+ * This used to drop one cluster at a time and measure what was left with
+ * `stringWidth()` each time, so a draw was quadratic in the value's length and a
+ * draw is every key: one 4,000-character CJK paste made each later keystroke
+ * take a second and a half. Walking out from the caret and adding up each
+ * cluster's width keeps the same clusters for the same reason -- the caret's
+ * side first, then whatever room the before left for the after -- and a
+ * differential test holds it to the old loop over random strings.
+ *
  * @param value - What has been typed.
  * @param cursor - Where the caret is, as an offset into it.
  * @param width - How many columns there are.
@@ -725,6 +735,64 @@ interface Window {
  */
 function windowOf(value: string, cursor: number, width: number): Window {
   const room = Math.max(1, width);
+
+  // `stringWidth()` strips escape sequences before it measures, and a value
+  // with nothing `strip()` acts on is one where it strips nothing from any
+  // slice -- so the width of every slice is the sum of its clusters' widths and
+  // the sum can be kept rather than taken again. A tab or a line break is
+  // measured that way like any other cluster. A value holding an `ESC` or a C1
+  // character is measured the old way below, because what `strip()` takes out
+  // of a slice of it depends on where the slice was cut. Typing and pasting
+  // refuse both, so that path is a value the app wrote, or a file name the path
+  // prompt completed, holding one
+  if (!hasIntroducer(value)) {
+    const clusters = graphemes(value);
+    // the cluster the caret is on is the first to end past it, which is the
+    // answer `boundary()` gives -- found in the one segmentation every other
+    // question here is asked of, rather than in a second one of its own
+    let at = 0;
+    let start = 0;
+    while (at < clusters.length && start + clusters[at]!.length <= cursor) {
+      start += clusters[at]!.length;
+      at++;
+    }
+    const end = at < clusters.length ? start + clusters[at]!.length : value.length;
+    const under = value.slice(cursor, end);
+    // the caret always takes a column, whether it is on a character or past
+    // the last one, so the room for the value itself is one less
+    let used = Math.max(1, stringWidth(under));
+
+    // the caret is kept on screen by taking clusters backward from it while
+    // they fit, which is the smallest run of dropped clusters at the front. A
+    // caret inside a cluster, or past the end, has a head that is not a run of
+    // the value's clusters, so that one is segmented on its own -- as it always
+    // was -- and measured from the slice's end rather than from `cursor`
+    const head = value.slice(0, cursor);
+    const own = start === cursor;
+    const behind = own ? clusters : graphemes(head);
+    let from = head.length;
+    for (let i = (own ? at : behind.length) - 1; i >= 0; i--) {
+      const cost = graphemeWidth(behind[i]!);
+      if (used + cost > room) {
+        break;
+      }
+      used += cost;
+      from -= behind[i]!.length;
+    }
+    // and the room the before left over goes to the clusters after the caret,
+    // forward from it, which is the largest run the back can keep
+    let to = end;
+    for (let i = at + 1; i < clusters.length; i++) {
+      const cost = graphemeWidth(clusters[i]!);
+      if (used + cost > room) {
+        break;
+      }
+      used += cost;
+      to += clusters[i]!.length;
+    }
+    return { after: value.slice(end, to), before: head.slice(from), under };
+  }
+
   const end = boundary(value, cursor, 1);
   const under = value.slice(cursor, end);
   // the caret always takes a column, whether it is on a character or past the
