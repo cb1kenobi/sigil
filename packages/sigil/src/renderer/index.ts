@@ -77,6 +77,7 @@ import {
   schemeFromTerminalEnv,
 } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
+import { errorMessage } from '../util/error-message.js';
 import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
@@ -1397,10 +1398,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     if (raised.length > 0) {
       // the body's message is in the aggregate's own, because a writer that
       // renders an error as its message says nothing else about an aggregate
-      const said = error instanceof Error ? error.message : String(error);
       throw new AggregateError(
         [error, ...raised],
-        `${said} (and onError threw while reporting what the teardown threw)`,
+        `${errorMessage(error)} (and onError threw while reporting what the teardown threw)`,
         { cause: error }
       );
     }

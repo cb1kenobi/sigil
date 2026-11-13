@@ -2072,6 +2072,32 @@ describe('an onError that throws during a teardown', () => {
     expect((raised as AggregateError).cause).toBe((raised as AggregateError).errors[0]);
   });
 
+  it('should keep a body that threw a value with no prototype when its cleanup threw too', () => {
+    // SIG-427: the aggregate's message was `String(error)` for anything that is
+    // not an `Error`, which throws for an object with no prototype -- so the
+    // caller was handed that `TypeError` and lost both of the real failures
+    const { h, onError } = counted();
+    const thrown = Object.assign(Object.create(null) as object, { message: 'no prototype' });
+    let raised: unknown;
+    try {
+      render(
+        () => {
+          onCleanup(() => {
+            throw new Error('cleanup broke');
+          });
+          throw thrown;
+        },
+        { backend: h.backend, effects, onError, terminal: h.terminal }
+      );
+    } catch (error) {
+      raised = error;
+    }
+
+    expect(raised).toBeInstanceOf(AggregateError);
+    expect((raised as AggregateError).errors[0]).toBe(thrown);
+    expect((raised as AggregateError).message).toContain('no prototype');
+  });
+
   it('should restore the terminal when stopping the backend threw, and report that too', () => {
     const { count, h, order } = counted();
     (h.backend as unknown as { stop: () => void }).stop = () => {
