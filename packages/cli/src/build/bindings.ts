@@ -98,6 +98,29 @@ export function importBindings(parsed: ParsedModule, from: string, name: string)
   return { direct: keep(direct), name, namespaces: keep(namespaces) };
 }
 
+/** What `reboundNames()` found per module, since several questions ask it. */
+const rebound = new WeakMap<ParsedModule, Set<string>>();
+
+/**
+ * Whether the module binds a name anywhere other than by importing it, which
+ * makes every use of that name in it one this cannot tell from the global or
+ * the import it may shadow -- module-wide, since per use site is the scope
+ * question there is no tree here to answer.
+ *
+ * @param parsed - The module.
+ * @param name - The name.
+ * @returns Whether it is bound.
+ */
+export function bindsName(parsed: ParsedModule, name: string): boolean {
+  let names = rebound.get(parsed);
+  if (!names) {
+    names = reboundNames(parsed);
+    rebound.set(parsed, names);
+  }
+
+  return names.has(name);
+}
+
 /**
  * Every name the module binds somewhere other than by importing it.
  *

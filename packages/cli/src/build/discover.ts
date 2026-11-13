@@ -799,7 +799,7 @@ function placeholderFacts(
 
     // `undefined` is what the runtime reads as not declared
     const declared =
-      found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
+      found?.kind === 'init' && !found.method && isUndefined(found.value, parsed) && !replaced
         ? undefined
         : found;
     return { carrier: unspelledCarrier(object, key), declared, replaced };
@@ -835,7 +835,7 @@ function placeholderFacts(
     const value = desc.kind === 'init' && !desc.method ? desc.value : undefined;
     // the runtime names the command by the name its name string parses to
     const what = `the "${command.name}" command`;
-    const refused = refusedThunk(desc);
+    const refused = refusedThunk(desc, parsed);
     const read = value && !refused ? placeholderDesc(parsed, value) : undefined;
 
     if (read) {
@@ -944,9 +944,13 @@ function commandName(nameString: string): { hidden: boolean; name: string } {
  * something this cannot read, may well answer a string, and is computed.
  *
  * @param property - The `desc` property.
+ * @param parsed - The module, for whether `undefined` is the global.
  * @returns What to point the error at, or `undefined` when it is not refused.
  */
-function refusedThunk(property: ObjectProperty): { start: number } | undefined {
+function refusedThunk(
+  property: ObjectProperty,
+  parsed: ParsedModule
+): { start: number } | undefined {
   if (property.kind !== 'init') {
     return undefined;
   }
@@ -963,7 +967,7 @@ function refusedThunk(property: ObjectProperty): { start: number } | undefined {
 
   if (fn.type === 'ArrowFunctionExpression' && fn.expression) {
     const body = fn.body as Expression;
-    if (isUndefined(body) || isWrongType(body, 'string')) {
+    if (isUndefined(body, parsed) || isWrongType(body, 'string')) {
       return body;
     }
   }
@@ -1072,7 +1076,7 @@ function placeholderRouting(
 
   // `undefined` is what the runtime reads as not declared
   const declared = (property: { value: Expression } | undefined) =>
-    property && !isUndefined(property.value) ? property : undefined;
+    property && !isUndefined(property.value, parsed) ? property : undefined;
 
   const alias = declared(plainProperty(object, 'alias'));
   if (alias) {
@@ -1149,7 +1153,7 @@ function placeholderName(
   key: string
 ): string {
   const declared = plainProperty(object, 'name');
-  if (!declared || isUndefined(declared.value)) {
+  if (!declared || isUndefined(declared.value, parsed)) {
     return key;
   }
 
@@ -1497,7 +1501,7 @@ function packageName(
   manifest: string
 ): string | undefined {
   const declared = plainProperty(object, 'name');
-  if (declared && !isUndefined(declared.value) && literalType(declared.value) !== 'null') {
+  if (declared && !isUndefined(declared.value, entry) && literalType(declared.value) !== 'null') {
     const text = literalString(declared.value);
     if (text) {
       return text;

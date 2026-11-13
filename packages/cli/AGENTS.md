@@ -658,11 +658,22 @@ makes it testable with a fixture directory and no bundler at all.
   in `literals.ts`, which `factsOf()` asks too, so the module lift and the
   placeholder read cannot disagree about which spelling runs: a computed key
   that is a literal may carry only the key `String()` makes of it (`['path']`,
-  ``[`path`]``, `[1]` and `[1n]` are `"1"`, `[true]`, `[null]`); a spread of an
-  object literal only what that literal carries, read through its own spreads;
-  a spread of an array, a string or a template literal only its indices; a
-  spread of any other literal, or of `undefined`, nothing; and a spread of a
-  name or a call, or a key computed from a name, may carry anything. **Literals
+  ``[`path`]``, `[1]` and `[1n]` are `"1"`, `[true]`, `[null]`, `[/a/g]` is
+  `"/a/g"`); a spread of an object literal only what that literal carries, read
+  through its own spreads; a spread of a string or a template literal only its
+  indices, and of an array literal too unless an element is itself a spread
+  (`[...null]` throws when the object is evaluated); a spread of any other
+  literal, or of a `void` expression, nothing; and a spread of a name or a
+  call, or a key computed from a name, may carry anything. The bare identifier
+  `undefined` is a name here, because a binding of that name shadows the
+  global -- and where a placeholder's value is read as not declared, it counts
+  as `undefined` only in a module that binds no `undefined` anywhere
+  (`bindsName()`, module-wide, since there is no scope tree to ask), since
+  under `const undefined = 'x'` a `desc: undefined` registers `x`. That is
+  asked wherever what is decided is baked -- the placeholder's `desc`,
+  `hidden`, `alias`, `default` and `name`, a package's `name`, and a thunk
+  returning it; the module lift's own `desc: undefined` and the warnings that
+  only word a message do not ask, since neither bakes anything over it. **Literals
   are read and expressions are not evaluated**, so a spread of a conditional,
   logical or sequence expression and a key like `['de' + 'sc']` may carry
   anything too, even when every operand is a literal -- which can only turn a
