@@ -8,7 +8,7 @@ import {
   type Syntax,
   type Tui,
 } from '../src/scaffold/index.ts';
-import { tempDir } from './temp.ts';
+import { REMOVAL_TIMEOUT, removeTempDir, tempDir } from './temp.ts';
 import { ttyPreload, typeKeys } from './tty-child.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,7 +24,7 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, type TestContext } from 'vitest';
 
 /**
  * `sigil new` with a full-screen app (SIG-279).
@@ -1573,9 +1573,40 @@ function link(app: string): void {
   }
 }
 
-/** Writes a scaffold into a directory and links its packages. */
-function materialize(opts: Partial<ScaffoldOptions>): string {
+/** What running node in an app said. */
+interface Ran {
+  /** The exit code, or `null` for a child that was killed. */
+  readonly code: number | null;
+  /** stdout and stderr, interleaved as they arrived. */
+  readonly out: string;
+}
+
+/** A scaffolded app, and node run inside it. */
+interface App {
+  /** The app's directory. */
+  readonly app: string;
+  /** Runs node in the app with nothing on stdin, and reads what it did. */
+  readonly node: (...argv: string[]) => Promise<Ran>;
+}
+
+/**
+ * Writes a scaffold into a directory, links its packages, and ties both to the
+ * test that asked for it.
+ *
+ * The directory goes when that test finishes rather than when the file does.
+ * An app is about a hundred entries once it has been built and its own suite
+ * has run, every one of them new to a Windows runner's scanner, and the sixteen
+ * of them were half of what this file's `afterAll` had to remove -- the hook
+ * that ran past its budget on Windows (SIG-426). The test's `signal` is handed
+ * to every child it runs, so a test that times out kills what it started rather
+ * than leaving it writing into a directory that is being removed.
+ */
+function materialize(
+  opts: Partial<ScaffoldOptions>,
+  { onTestFinished, signal }: Pick<TestContext, 'onTestFinished' | 'signal'>
+): App {
   const app = tempDir('sigil-tui-app-');
+  onTestFinished(() => removeTempDir(app), REMOVAL_TIMEOUT);
   const manifest = JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf-8')) as {
     devDependencies: Record<string, string>;
   };
@@ -1591,15 +1622,16 @@ function materialize(opts: Partial<ScaffoldOptions>): string {
     writeFileSync(join(app, entry.path), entry.contents);
   }
   link(app);
-  return app;
+  return { app, node: (...argv) => spawnNode(app, signal, argv) };
 }
 
 /** Runs node in `cwd` with nothing on stdin and reads what it did. */
-function node(cwd: string, ...argv: string[]): Promise<{ code: number | null; out: string }> {
+function spawnNode(cwd: string, signal: AbortSignal, argv: string[]): Promise<Ran> {
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, argv, {
       cwd,
       env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
+      signal,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -1610,6 +1642,31 @@ function node(cwd: string, ...argv: string[]): Promise<{ code: number | null; ou
   });
 }
 
+/**
+ * The argv that runs an app's own suite: `vitest run`, as its `test` script
+ * has it, with a per-test budget that is this file's rather than the app's.
+ *
+ * The app keeps vitest's 5-second default. What took a Windows runner past it
+ * was this file linking `@ttylabs/sigil` by junction, which vitest transforms
+ * module by module where an installed app hands it to node -- 72 ms against
+ * 14 for the same test -- so the budget is raised here, where the cost is.
+ * Thirty seconds is six times the default and well inside the 180 the variant
+ * test gives the whole app. The measurements, and why the faithful link is not
+ * used, are "The scaffolded tests keep vitest's 5-second default" and the known
+ * defect after it, under `sigil new` in `packages/cli/AGENTS.md` (SIG-426).
+ */
+function ownSuite(app: string): string[] {
+  const vitest = JSON.parse(
+    readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
+  ) as { bin: { vitest: string } };
+  return [
+    join('node_modules', 'vitest', vitest.bin.vitest),
+    'run',
+    '--reporter=default',
+    '--testTimeout=30000',
+  ];
+}
+
 /** What `runApp()` says when there is no terminal, which is the app's own refusal and not ours. */
 const REFUSAL = 'not a terminal';
 
@@ -1618,17 +1675,18 @@ describe('every variant, scaffolded and run', () => {
     SYNTAXES.flatMap((syntax) => LANGUAGES.map((language) => ({ ...placement, language, syntax })))
   );
 
-  it.concurrent.each(variants)(
+  it.concurrent.for(variants)(
     '$name, $syntax, $language: should build or start, refuse a pipe, and pass its own tests',
-    async ({ language, layout, syntax, tui }) => {
-      const app = materialize({ language, layout, syntax, tui });
+    { timeout: 180_000 },
+    async ({ language, layout, syntax, tui }, test) => {
+      const { app, node } = materialize({ language, layout, syntax, tui }, test);
       const argv = tui.at === 'command' ? [tui.command] : [];
 
       // the entry a person runs: the bundle for JSX, which is the only form it
       // has, and the source for the `ui` tag, which needs nothing built
       let start: string[];
       if (syntax === 'jsx') {
-        const built = await node(app, cli, 'build');
+        const built = await node(cli, 'build');
         expect(built.code, built.out).toBe(0);
         start = [join('dist', 'demo.mjs')];
       } else {
@@ -1638,40 +1696,31 @@ describe('every variant, scaffolded and run', () => {
       // piped, `runApp()` refuses with its own line: exit 1 and no stack. That the
       // refusal is reached at all is the proof the component was found and
       // imported, so it is also the proof the dynamic import resolved
-      const piped = await node(app, ...start, ...argv);
+      const piped = await node(...start, ...argv);
       expect(piped.out).toContain(REFUSAL);
       expect(piped.code).toBe(1);
       expect(piped.out).not.toMatch(/^\s+at /m);
 
       // and the commands that are not the app never meet it
-      const help = await node(app, ...start, '--help');
+      const help = await node(...start, '--help');
       expect(help.code, help.out).toBe(0);
       expect(help.out).toContain('Usage: demo');
 
       // its own suite, which is the test a new author copies
-      const vitest = JSON.parse(
-        readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
-      ) as { bin: { vitest: string } };
-      const suite = await node(
-        app,
-        join('node_modules', 'vitest', vitest.bin.vitest),
-        'run',
-        '--reporter=default'
-      );
+      const suite = await node(...ownSuite(app));
       expect(suite.code, suite.out).toBe(0);
       expect(suite.out).toMatch(/Tests\s+\d+ passed/);
-    },
-    180_000
+    }
   );
 
-  it.concurrent('should not load the renderer for a command that is not the app, though the root opens it', async () => {
+  it.concurrent('should not load the renderer for a command that is not the app, though the root opens it', async (test) => {
     // the lazy tree is the reason for the dynamic import, so it is measured
     // rather than read off the source: a hook watches for the one subpath that
     // is the renderer, and `hello` is run beside an app that opens from the root.
     // The `ui` tag
     // only, because a built bundle has no specifier left to watch -- the build
     // has already turned each `import()` into a chunk that loads when asked
-    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'ui', tui: { at: 'root' } }, test);
     // a synchronous hook in the loader's own thread. `module.register()` is the
     // older spelling and prints DEP0205 on Node 26; `registerHooks()` is there
     // from 22.15, under the 22.19 floor
@@ -1680,14 +1729,14 @@ describe('every variant, scaffolded and run', () => {
       "import { registerHooks } from 'node:module';\nregisterHooks({\n  resolve(specifier, context, next) {\n    if (specifier === '@ttylabs/sigil/app') {\n      process.stderr.write('RENDERER LOADED\\n');\n    }\n    return next(specifier, context);\n  },\n});\n"
     );
 
-    const hello = await node(app, '--import', './probe.mjs', 'dev.ts', 'hello', 'there');
+    const hello = await node('--import', './probe.mjs', 'dev.ts', 'hello', 'there');
     expect(hello.code, hello.out).toBe(0);
     expect(hello.out).toContain('hello there');
     expect(hello.out).not.toContain('RENDERER LOADED');
     expect(hello.out).not.toContain('DEP0205');
 
     // and the probe is shown to work, or a silent hook would pass for a lazy tree
-    const ops = await node(app, '--import', './probe.mjs', 'dev.ts');
+    const ops = await node('--import', './probe.mjs', 'dev.ts');
     expect(ops.out).toContain('RENDERER LOADED');
   }, 120_000);
 
@@ -1740,59 +1789,52 @@ describe('every variant, scaffolded and run', () => {
     expect(ran.status).toBe(0);
   });
 
-  it.concurrent('should size the footer by columns and not by characters, for an item with wide ones', async () => {
+  it.concurrent('should size the footer by columns and not by characters, for an item with wide ones', async (test) => {
     // a copied template gets its own item names, and one in a script that takes
     // two columns a character is the case `.length` gets wrong: the status is
     // measured short, the footer is given too much, and the status is pushed off
     // the row. `stringWidth()` is what the component asks
-    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'ui', tui: { at: 'root' } }, test);
     for (const path of [join('src', 'ui', 'app.ts'), join('test', 'tui.test.ts')]) {
       writeFileSync(
         join(app, path),
         readFileSync(join(app, path), 'utf-8').replaceAll('Settings', '設定設定設定')
       );
     }
-    const vitest = JSON.parse(
-      readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
-    ) as { bin: { vitest: string } };
 
     // the narrow-terminal test alone: the resize test goes down to 22 columns,
     // which a status this wide does not fit in whatever measures it
-    const ran = await node(
-      app,
-      join('node_modules', 'vitest', vitest.bin.vitest),
-      'run',
-      '--reporter=default',
-      '-t',
-      'in a narrow terminal'
-    );
+    const ran = await node(...ownSuite(app), '-t', 'in a narrow terminal');
 
     expect(ran.code, ran.out).toBe(0);
     expect(ran.out).toMatch(/Tests\s+1 passed/);
   }, 120_000);
 
-  it.concurrent('should still say what is wrong when the dev script builds quietly', async () => {
+  it.concurrent('should still say what is wrong when the dev script builds quietly', async (test) => {
     // `dev` is `sigil build --quiet && node ...`, so a build that failed has to
     // say so with the tables gone, or the loop would fail with nothing on screen
-    const app = materialize({ syntax: 'jsx', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'jsx', tui: { at: 'root' } }, test);
     const component = join(app, 'src', 'ui', 'app.tsx');
     writeFileSync(
       component,
       `${readFileSync(component, 'utf-8')}\nexport const x: number = 'a';\n`
     );
 
-    const built = await node(app, cli, 'build', '--quiet');
+    const built = await node(cli, 'build', '--quiet');
 
     expect(built.code).not.toBe(0);
     expect(built.out).toContain('TS2322');
     expect(built.out).not.toContain('Loads');
   }, 120_000);
 
-  it.concurrent('should resolve a .js specifier to the .tsx in a build, though the scaffold spells it .tsx', async () => {
+  it.concurrent('should resolve a .js specifier to the .tsx in a build, though the scaffold spells it .tsx', async (test) => {
     // the ticket's question, asked of the build: does `import('../ui/app.js')`
     // find `app.tsx` the way a `load()` follows `.js` to `.ts`? It does, in
     // rolldown and in the app's own `tsc`, and this is what keeps it true
-    const app = materialize({ syntax: 'jsx', tui: { at: 'command', command: 'ops' } });
+    const { app, node } = materialize(
+      { syntax: 'jsx', tui: { at: 'command', command: 'ops' } },
+      test
+    );
     const command = join(app, 'src', 'commands', 'ops.ts');
     writeFileSync(
       command,
@@ -1800,10 +1842,10 @@ describe('every variant, scaffolded and run', () => {
     );
     expect(readFileSync(command, 'utf-8')).toContain("'../ui/app.js'");
 
-    const built = await node(app, cli, 'build');
+    const built = await node(cli, 'build');
     expect(built.code, built.out).toBe(0);
 
-    const piped = await node(app, join('dist', 'demo.mjs'), 'ops');
+    const piped = await node(join('dist', 'demo.mjs'), 'ops');
     expect(piped.out).toContain(REFUSAL);
     expect(readdirSync(join(app, 'dist'))).toContain('demo.mjs');
   }, 120_000);

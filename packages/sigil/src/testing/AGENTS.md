@@ -742,7 +742,26 @@ pre-commit hook and every local run.
   `beforeAll` made, or one made at module level like `runtimes-cache.test.ts`'s
   `box`, before the second test could use it. Per-test isolation already comes
   from each test getting a directory of its own from `mkdtemp`. Removing it
-  between tests was never what kept two tests apart.
+  between tests was never what kept two tests apart. A test whose directory is
+  heavy and its own may still remove it as it finishes, with `removeTempDir()`
+  in its `onTestFinished` -- not `afterEach`, which is the file's and would
+  reach every other test's directory too. `new-tui.test.ts` does it for each app
+  it scaffolds and builds (SIG-426): sixteen of them were half of what that
+  file's `afterAll` had to remove, and that hook ran past 10 seconds on Windows
+  with every test green. The test's `signal` goes to every child it spawns,
+  because a test that times out otherwise leaves its child running, and the
+  child put `node_modules/.vitest-cache` back after the directory was removed:
+  measured by timing out all twelve variants, three app directories were left
+  without the signal and none with it.
+- **Removal is asynchronous and concurrent, with a budget of 60 seconds.**
+  `REMOVAL_TIMEOUT` in `temp.ts`, given to the `afterAll` in each `setup.ts`.
+  `rmSync` over every directory in turn put each one's retries end to end, and
+  vitest counts a slow synchronous hook against its 10-second default as well,
+  which is the timeout `new-tui.test.ts` hit on Windows after every test had
+  passed: Defender scans what a test has just written, so removal there is
+  slow. Run together, one directory waiting out its retries no longer holds up
+  the rest. The budget is a bound on a hang and not on speed: a directory that
+  cannot be removed is not a hang, because `rm` stops retrying and throws.
 - **Each directory is tracked, and none of them are nested under a shared
   root.** A per-worker root removed in `afterAll` was the other proposal. It
   saves nothing, because a recursive `rmSync` of one root unlinks the same 510
@@ -759,7 +778,7 @@ pre-commit hook and every local run.
   belong in a module that is runner-agnostic on purpose. A file outside every
   package would sit outside each package's `tsconfig` `include`. The file is
   about fifty lines, and the four copies are identical so they can be diffed.
-- **A directory that cannot be removed fails the file.** `rmSync` gets
+- **A directory that cannot be removed fails the file.** `rm` gets
   `maxRetries: 5` for Windows, where a directory a child has just let go of can
   answer `EBUSY` or `EPERM` for a moment. After that the error is thrown. A
   cleanup that swallows its own failure is a leak nobody hears about, and that

@@ -1,9 +1,25 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /** Every directory `tempDir()` has made in this test file and not yet removed. */
 const made = new Set<string>();
+
+/**
+ * How long a removal may take before vitest calls it hung: the budget the
+ * `afterAll` in `test/setup.ts` is given, and the one a test removing its own
+ * directory early gives its hook.
+ *
+ * Six times vitest's 10-second default, because Windows is where removal is
+ * slow and the default was too little there: Defender scans every file a test
+ * has just written, and `new-tui.test.ts` ran past 10 seconds in this hook after
+ * every test had passed (SIG-426). A removal that cannot finish does not hang --
+ * `rm` gives up after `maxRetries` and throws, which fails the file -- so this
+ * only ever fires on a removal that is slow, and slow is not what the hook is
+ * there to catch.
+ */
+export const REMOVAL_TIMEOUT = 60_000;
 
 /**
  * A fresh directory under the OS temp directory, removed once the test file
@@ -30,23 +46,34 @@ export function tempDir(prefix: string): string {
 }
 
 /**
- * Removes every directory `tempDir()` made and has not removed yet.
+ * Removes one directory `tempDir()` made, now rather than when the file ends.
  *
+ * For a directory that is heavy and of no use to any other test, so that it
+ * goes when its test finishes rather than piling up for the `afterAll`.
  * `maxRetries` is for Windows, where a directory a child process has only just
  * let go of can still answer `EBUSY` or `EPERM` for a moment. A directory that
- * still cannot be removed fails the file rather than leaking quietly, which is
- * the failure this exists to stop.
+ * still cannot be removed stays on the list, so the file's own removal tries it
+ * once more, and the error is thrown.
+ *
+ * @param dir - A directory `tempDir()` returned.
  */
-export function removeTempDirs(): void {
-  const failed: unknown[] = [];
-  for (const dir of made) {
-    try {
-      rmSync(dir, { force: true, maxRetries: 5, recursive: true });
-    } catch (err) {
-      failed.push(err);
-    }
-  }
+export async function removeTempDir(dir: string): Promise<void> {
+  await rm(dir, { force: true, maxRetries: 5, recursive: true });
+  made.delete(dir);
+}
+
+/**
+ * Removes every directory `tempDir()` made and has not removed yet.
+ *
+ * All at once rather than one after another, so that one directory waiting out
+ * its retries does not hold up the rest. A directory that still cannot be
+ * removed fails the file rather than leaking quietly, which is the failure this
+ * exists to stop.
+ */
+export async function removeTempDirs(): Promise<void> {
+  const results = await Promise.allSettled([...made].map((dir) => removeTempDir(dir)));
   made.clear();
+  const failed = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
   if (failed.length) {
     throw new AggregateError(failed, `Could not remove ${failed.length} temp directories`);
   }
