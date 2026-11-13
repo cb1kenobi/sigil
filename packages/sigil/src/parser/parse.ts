@@ -265,8 +265,24 @@ function whole(entry: ParsedBase): (string | undefined)[] {
  */
 function refill($: ParsedValue[], entries: ParsedValue[]): void {
   $.length = 0;
-  for (const entry of entries) {
-    $.push(entry);
+  append($, entries);
+}
+
+/**
+ * Appends every entry of a list to another, one at a time.
+ *
+ * `to.push(...from)` puts every entry on the call stack as an argument, and past
+ * about 125,000 of them a main thread throws `RangeError: Maximum call stack size
+ * exceeded` -- which is a glob of 200,000 files handed to `<files...>`, the same
+ * after `--`, or one short option group that long. So anything as long as argv,
+ * or as one of its tokens, is appended with this rather than spread.
+ *
+ * @param to - The list appended to, in place.
+ * @param from - What is appended, in order.
+ */
+function append<T>(to: T[], from: readonly T[]): void {
+  for (const entry of from) {
+    to.push(entry);
   }
 }
 
@@ -726,21 +742,24 @@ async function parseArgv(state: ParseState): Promise<void> {
     // `$` is read as the pass found it and what resolves is written to `out`,
     // which takes its place when the pass ends: see `refill()`. A consumed
     // value is taken and never written, and a short option group's entries
-    // wait in `queue`, ahead of the rest of `$`
+    // wait in `queue`, ahead of the rest of `$`. The queue is read from `q` on
+    // rather than shifted, because a shift moves everything behind it and a
+    // group is as long as its token
     const out: ParsedValue[] = [];
     const queue: ParsedValue[] = [];
+    let q = 0;
     let k = 0;
     // the entry being read, which a throw leaves where it was
     let current: ParsedValue | undefined;
-    const peek = (): ParsedValue | undefined => (queue.length ? queue[0] : $[k]);
-    const take = (): ParsedValue => (queue.length ? queue.shift()! : $[k++]);
+    const peek = (): ParsedValue | undefined => (q < queue.length ? queue[q] : $[k]);
+    const take = (): ParsedValue => (q < queue.length ? queue[q++] : $[k++]);
     const emit = (...entries: ParsedValue[]): void => {
       out.push(...entries);
       current = undefined;
     };
 
     try {
-      while (queue.length || k < $.length) {
+      while (q < queue.length || k < $.length) {
         const arg = (current = take());
 
         if (arg.type !== 'Unknown') {
@@ -854,8 +873,13 @@ async function parseArgv(state: ParseState): Promise<void> {
         if (!option) {
           const expanded = expandGroup(contexts, arg);
           if (expanded) {
-            // read next, ahead of the rest of argv, in place of the group
-            queue.unshift(...expanded);
+            // read next, ahead of the rest of argv, in place of the group. Not
+            // `unshift(...expanded)`, which is a spread as long as the token
+            const waiting = queue.slice(q);
+            queue.length = 0;
+            q = 0;
+            append(queue, expanded);
+            append(queue, waiting);
           } else {
             emit(arg);
           }
@@ -922,7 +946,7 @@ async function parseArgv(state: ParseState): Promise<void> {
         });
       }
     } finally {
-      refill($, [...out, ...(current ? [current] : []), ...queue, ...$.slice(k)]);
+      refill($, [...out, ...(current ? [current] : []), ...queue.slice(q), ...$.slice(k)]);
     }
 
     // this pass turned up no new context, so argv has named every command it
@@ -1086,10 +1110,10 @@ export async function processArgs(state: ParseState): Promise<void> {
         produced(state, dest, arg);
       }
 
-      state._.push(...inputs);
+      append(state._, inputs);
     } else if (parsedType === 'Extra') {
       if (state.settings?.allowExtraArguments) {
-        state._.push(...inputs);
+        append(state._, inputs);
       } else {
         throw new Error(__`Extra arguments are not allowed: ${inputs.join(' ')}`);
       }

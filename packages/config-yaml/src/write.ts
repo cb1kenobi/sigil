@@ -273,9 +273,29 @@ function same(a: unknown, b: unknown): boolean {
  * @returns The edits, in document order.
  */
 export function editsFor(current: unknown, target: unknown, at: readonly string[] = []): Edit[] {
-  if (isPlainObject(current) && isPlainObject(target)) {
-    const out: Edit[] = [];
+  const out: Edit[] = [];
+  collectEdits(current, target, at, out);
+  return out;
+}
 
+/**
+ * `editsFor()`'s walk, appending to one list rather than returning one per
+ * level.
+ *
+ * A level that returned its own list and had its parent `push(...)` it put every
+ * edit under it on the call stack as an argument, and past about 125,000 of them
+ * -- a list that long, changed element by element -- a main thread throws
+ * `RangeError: Maximum call stack size exceeded`. One list handed down is what
+ * makes that impossible rather than merely rarer, and it copies each edit once
+ * instead of once per level above it.
+ *
+ * @param current - What the document holds.
+ * @param target - What it should hold.
+ * @param at - The path reached so far.
+ * @param out - The edits so far, appended to in document order.
+ */
+function collectEdits(current: unknown, target: unknown, at: readonly string[], out: Edit[]): void {
+  if (isPlainObject(current) && isPlainObject(target)) {
     for (const key of Object.keys(current)) {
       if (!Object.hasOwn(target, key)) {
         out.push({ at: [...at, key], drop: true });
@@ -286,15 +306,12 @@ export function editsFor(current: unknown, target: unknown, at: readonly string[
         out.push({ at: [...at, key], drop: false, value });
         continue;
       }
-      out.push(...editsFor(current[key], value, [...at, key]));
+      collectEdits(current[key], value, [...at, key], out);
     }
-
-    return out;
+    return;
   }
 
   if (Array.isArray(current) && Array.isArray(target)) {
-    const out: Edit[] = [];
-
     // the tail first, so that a shorter target drops from the end rather than
     // renumbering under the sets that follow
     for (let i = current.length - 1; i >= target.length; i--) {
@@ -305,13 +322,14 @@ export function editsFor(current: unknown, target: unknown, at: readonly string[
         out.push({ at: [...at, String(i)], drop: false, value: target[i] });
         continue;
       }
-      out.push(...editsFor(current[i], target[i], [...at, String(i)]));
+      collectEdits(current[i], target[i], [...at, String(i)], out);
     }
-
-    return out;
+    return;
   }
 
-  return same(current, target) ? [] : [{ at, drop: false, value: target }];
+  if (!same(current, target)) {
+    out.push({ at, drop: false, value: target });
+  }
 }
 
 /**

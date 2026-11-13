@@ -2949,6 +2949,47 @@ describe('regressions', () => {
     });
   });
 
+  describe('200,000 argv values threw RangeError', () => {
+    // `state._.push(...inputs)` and `queue.unshift(...expanded)` put every value
+    // on the call stack as an argument, and a main thread throws past about
+    // 125,000 of them. A million, because this file runs in a worker whose stack
+    // is four times a main thread's: 200,000 passed here against the code that
+    // threw on it in an app. See "No spread as long as argv" in
+    // `src/parser/AGENTS.md`
+    const n = 1_000_000;
+    const values = Array.from({ length: n }, (_, i) => `f${i}`);
+
+    it('should take a million values for a variadic argument', async () => {
+      const result = await parse({ argv: values, schema: { args: ['<files...>'] } });
+      expect(result.argv.files).toHaveLength(n);
+      expect(result._).toHaveLength(n);
+      expect(result._[n - 1]).to.equal(`f${n - 1}`);
+    });
+
+    it('should take a million values after the terminator', async () => {
+      const result = await parse({
+        argv: ['--', ...values],
+        schema: {},
+        settings: { allowExtraArguments: true },
+      });
+      expect(result._).toHaveLength(n);
+      expect(result._[n - 1]).to.equal(`f${n - 1}`);
+    });
+
+    // a group's entries were also taken off the front of their queue with
+    // `shift()`, which moves everything behind it: 100,000 letters took 1.25 s
+    // and 200,000 took 5 s, so a million would time this out long before it
+    // could pass
+    it('should expand a short option group a million letters long', async () => {
+      const result = await parse({
+        argv: [`-${'v'.repeat(n)}`, 'pos'],
+        schema: { args: ['[p]'], options: { '-v': { type: 'count' } } },
+      });
+      expect(result.argv.v).to.equal(n);
+      expect(result.argv.p).to.equal('pos');
+    });
+  });
+
   describe('an array of options declared an option named 0', () => {
     // `Object.entries()` yields an array's indices, so `['--foo <x>']` was an
     // option named `0` described as `--foo <x>`, and the parse went on with

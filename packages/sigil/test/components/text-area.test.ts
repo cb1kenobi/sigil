@@ -403,14 +403,18 @@ describe('TextArea()', () => {
       expect(stopped).toBe(true);
     });
 
+    // a million lines, because a spread into `splice()` fails at about 124,000
+    // on a main thread and about 494,000 in the vitest worker this runs in: the
+    // 500,000 this was written at was one percent past the worker's limit, and a
+    // slightly larger worker stack would have passed it against the spread
     it('should take a long file without overflowing the stack', async () => {
       const value = new State('');
       const s = scene({ value });
-      const long = Array.from({ length: 500_000 }, (_, i) => `${i}`).join('\n');
+      const long = Array.from({ length: 1_000_000 }, (_, i) => `${i}`).join('\n');
       await s.term.paste(long);
       expect(value.get()).toBe(long);
       await settle();
-      expect(picture(s.root).at(-1)).toBe('499999');
+      expect(picture(s.root).at(-1)).toBe('999999');
     });
   });
 

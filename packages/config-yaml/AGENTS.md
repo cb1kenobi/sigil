@@ -240,6 +240,17 @@ reimplemented.
   down because it is why a README example needed a map with an own key beside the
   merge in order to show the merged-delete refusal at all.
 
+- **The diff appends to one list handed down, and never spreads a level's edits
+  into its parent's.** SIG-416. Each level of `editsFor()` used to return its own
+  list and the level above did `out.push(...editsFor(...))`, which puts every edit
+  under it on the call stack as an argument -- so saving a list of 200,000 changed
+  elements threw `RangeError: Maximum call stack size exceeded` on a main thread,
+  which is past about 124,000. `collectEdits()` appends to the one list instead,
+  and a list of a million changed elements now saves -- in about 10 s, measured
+  through the built store on a main thread. Pinned at a million in-process in
+  `write.test.ts`, because a vitest worker's stack is four times a main thread's
+  and passed the old code at 200,000.
+
 #### The layout is detected as _options_, which is the half XML has no analogue for
 
 - **`yaml` renders indentation from options rather than from the source**, where

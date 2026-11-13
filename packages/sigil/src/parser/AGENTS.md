@@ -1714,6 +1714,21 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   `Option --x 1`, `Unknown --a 2`, `Unknown pos`. Pinned by counting `state.$.splice` calls
   in `consuming tokens was quadratic in argv`, which asserts none, because a
   timing would be a flake on a loaded machine.
+- **No spread as long as argv.** SIG-416. `state._.push(...inputs)` put every
+  gobbled positional, and every value after `--`, on the call stack as an
+  argument, and a main thread throws `RangeError: Maximum call stack size
+  exceeded` past about 124,000 of them -- a glob of 200,000 files handed to
+  `<files...>` failed through `main()`. `queue.unshift(...expanded)` did the same
+  for one short option group 200,000 letters long. Anything as long as argv, or as
+  one of its tokens, is appended with `append()` in `parse.ts`; a spread whose
+  length the schema decides -- a token's `inputs`, a `:` path's commands, an
+  `exports` map's conditions, a command's declared arguments -- is left alone. The
+  group's queue is also read from an index rather than shifted, because a `shift()`
+  moves everything behind it: 100,000 letters took 1.25 s and 200,000 took 5 s,
+  where both are under 100 ms now. The tests are at a million, in-process, in
+  `200,000 argv values threw RangeError`: a vitest worker's stack is four times a
+  main thread's and spreads about 494,000 arguments, so a test at 200,000 passed
+  against the code that failed an app.
 
 ### A command module that fails to load keeps what it failed with
 
