@@ -8146,6 +8146,22 @@ does.
   copying a line out is half of what a pager is for; `less` asks for `--mouse`
   for the same reason. The facade builds its own router rather than taking one,
   since the router's root has to be the tree the pager is in.
+- **A handler that throws rejects `page()`, wherever it throws from.** SIG-428.
+  `props` are the app's, so `onResize`, `onLayout` and `onFocusChange` are the
+  app's code. Three places lost what they threw. The renderer reports a
+  first-frame throw from inside `render()`, before `page()` had a view or an
+  input, so `finish()` touched both in their temporal dead zone and rejected
+  with that `ReferenceError`. The first focus is the executor's last statement,
+  so a throw there rejected the promise without giving the screen or stdin back.
+  And the wrap was `new Error(String(error))`, which throws for a value with no
+  prototype, so `page()` never settled. Now `view` and `input` start unset,
+  nothing is created once it has finished, the focus is caught, and the wrap is
+  `errorMessage()` with the value as `cause`. `fail()` is its own function
+  because a handler may throw `undefined`, which `finish(error)` read as the
+  reader leaving. The `view.dispose()` after a `render()` that already finished
+  survives sabotage: every first-frame throw `page()`'s options can reach fails
+  the renderer, which has given the screen back already. It stays for an error
+  the renderer only reports.
 - **Twenty-two sabotages, twenty-two caught.** Each named test was broken against
   its code and failed alone or with its neighbours: the zero-length rule, the
   compile guard, the mid-match catch, the literal escaping, smart case and its

@@ -6292,6 +6292,9 @@ output or the input is not a terminal it writes the document out as it was given
 and resolves, which is what `less` does when it is piped. It leaves the mouse
 alone unless you pass `mouse: true`, because a terminal reporting the mouse stops
 doing its own selection, and copying a line out is half of what a pager is for.
+If a handler you passed in `props` throws, `page()` gives the screen back and
+rejects with what it threw. A value that is not an `Error` is wrapped in one,
+with the value as its `cause`.
 
 #### Building on a scroll box
 
