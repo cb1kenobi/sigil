@@ -4,7 +4,7 @@ import {
   applyEdits,
   LINE_END,
   lineIndent,
-  lineStartAt,
+  lineStarts,
   ownLineIndent,
   type Edit,
   type Span,
@@ -105,6 +105,14 @@ interface Ctx {
   readonly eaten: Set<number>;
   /** The line ending the document uses, so an inserted line matches it. */
   readonly eol: string;
+  /**
+   * Where the line holding an offset starts, from an index built once.
+   *
+   * A walk back to the start was the whole document on a minified file -- once
+   * per container that gains a key, which was quadratic in the edit (SIG-371).
+   * Read through `indentAt()`.
+   */
+  readonly lineStart: (offset: number) => number;
   readonly source: string;
   /** One level of indentation, as this document writes it. */
   readonly step: string;
@@ -455,7 +463,7 @@ function entryIndent(ctx: Ctx, node: Node): string {
     }
   }
 
-  return lineIndent(ctx.source, node.open as number) + ctx.step;
+  return indentAt(ctx, node.open as number) + ctx.step;
 }
 
 /**
@@ -474,9 +482,12 @@ function entryIndent(ctx: Ctx, node: Node): string {
  * @returns The indentation.
  */
 function insertIndent(ctx: Ctx, node: Node): string {
-  return multiline(ctx, node)
-    ? entryIndent(ctx, node)
-    : lineIndent(ctx.source, node.open as number);
+  return multiline(ctx, node) ? entryIndent(ctx, node) : indentAt(ctx, node.open as number);
+}
+
+/** What the line holding an offset is indented by, through the line index. */
+function indentAt(ctx: Pick<Ctx, 'lineStart' | 'source'>, offset: number): string {
+  return lineIndent(ctx.source, ctx.lineStart(offset));
 }
 
 /**
@@ -739,7 +750,7 @@ function removeFrom(ctx: Ctx, node: Node, drop: ReadonlySet<number>): void {
     }
 
     if (own && LINE_END.test(ctx.source[tail] ?? '')) {
-      start = lineStartAt(ctx.source, start);
+      start = ctx.lineStart(start);
       end = ctx.source.startsWith('\r\n', tail) ? tail + 2 : tail + 1;
     }
 
@@ -797,7 +808,7 @@ function diffNode(ctx: Ctx, node: Node, current: unknown, next: unknown): void {
     ctx.edits.push({
       end: node.span.end,
       start: node.span.start,
-      text: serialize(next, lineIndent(ctx.source, node.span.start), ctx),
+      text: serialize(next, indentAt(ctx, node.span.start), ctx),
     });
   }
 }
@@ -840,13 +851,20 @@ function diffObject(
     removeFrom(ctx, node, drop);
   }
 
-  const indent = insertIndent(ctx, node);
-  const added = Object.keys(next)
-    .filter((key) => !live.has(key))
-    .map((key) => member(key, next[key], indent, ctx));
+  // the indentation only where something is added: every object in the document
+  // is walked on every save, and there is no reason to ask one that gains
+  // nothing. Not a complexity fix once the line index exists, so no growth test
+  // pins it (SIG-371)
+  const keys = Object.keys(next).filter((key) => !live.has(key));
 
-  if (added.length > 0) {
-    insertInto(ctx, node, added, drop);
+  if (keys.length > 0) {
+    const indent = insertIndent(ctx, node);
+    insertInto(
+      ctx,
+      node,
+      keys.map((key) => member(key, next[key], indent, ctx)),
+      drop
+    );
   }
 }
 
@@ -893,25 +911,32 @@ function diffArray(ctx: Ctx, node: Node, current: unknown[], next: unknown[]): v
  * style is one of the things a write is not being asked to change. The first
  * container with an entry that owns a line and is indented further than the
  * container's own line answers it; a document with no such container -- one
- * written on a single line -- gets the default, which is a tab because that is
- * `npm init` writes and what every JSON file in this repository uses.
+ * written on a single line -- gets `DEFAULT_STEP`.
  *
- * @param source - The file as it is.
+ * It runs on every save, so it is linear in the document (SIG-371). That is a
+ * single-line file's case above, which visits every container and every entry
+ * and answers with the default: an entry asks only how far back its own
+ * indentation goes, a container's line start comes from the line index, and the
+ * queue is walked by an index rather than by `shift()`, which moves every
+ * element behind the one it takes.
+ *
+ * @param texts - The file as it is, and its line index.
  * @param root - The root node.
  * @returns The step.
  */
-function detectStep(source: string, root: Node): string {
-  const stack: Node[] = [root];
+function detectStep(texts: Pick<Ctx, 'lineStart' | 'source'>, root: Node): string {
+  const { source } = texts;
+  const queue: Node[] = [root];
 
-  while (stack.length > 0) {
-    const node = stack.shift() as Node;
+  for (let next = 0; next < queue.length; next++) {
+    const node = queue[next] as Node;
     const entries = node.entries;
 
     if (entries === undefined) {
       continue;
     }
 
-    const base = lineIndent(source, node.open as number);
+    const base = indentAt(texts, node.open as number);
 
     for (const entry of entries) {
       const own = ownLineIndent(source, entry.span.start);
@@ -921,7 +946,7 @@ function detectStep(source: string, root: Node): string {
     }
 
     for (const entry of entries) {
-      stack.push(entry.node);
+      queue.push(entry.node);
     }
   }
 
@@ -945,6 +970,7 @@ export function editJsonc(source: string, next: unknown, opts: EditOptions): str
   // accepted has no malformed shape left in it for a guard to describe
   const current = JSON.parse(scan.json) as unknown;
   const root = readNode(scan.json, 0).node;
+  const lineStart = lineStarts(source);
 
   const ctx: Ctx = {
     blank: scan.json,
@@ -959,8 +985,9 @@ export function editJsonc(source: string, next: unknown, opts: EditOptions): str
     // writes a document in them, so inserting a `\n` into one is the subset
     // this claims to be rather than a lost case
     eol: source.includes('\r\n') ? '\r\n' : source.includes('\r') ? '\r' : '\n',
+    lineStart,
     source,
-    step: detectStep(source, root),
+    step: detectStep({ lineStart, source }, root),
     trailing: new Set(scan.trailing),
   };
 
