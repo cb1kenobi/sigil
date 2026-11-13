@@ -69,10 +69,11 @@
 import { generateUtilities, utilities } from '../utilities/index.ts';
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
+import { landsAt } from './discover.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import MagicString from 'magic-string';
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { CallExpression, Node } from 'oxc-parser';
 
@@ -227,13 +228,15 @@ export interface ScanOptions {
  * optimization that is free: an app that never calls `utilitySheet()` pays
  * none of it.
  *
- * What it must not read is a *previous build's output*, which holds the whole
- * utility sheet as a string and would therefore be evidence for every rule
- * there is. The output directory is excluded for that reason, and a build
- * cleans it first in any case. A **second**, stale output directory somewhere
- * else in the app is the case that gets through, and the failure is the safe
- * one: everything is kept, and the summary says `383 of 383` rather than
- * saying nothing. That is what the count is in the summary for.
+ * What it must not read is a *previous build's output*, whose text is evidence
+ * for rules the app never names -- the whole sheet when it was built
+ * `--no-shake`, a few dozen more when it was shaken. The output directory is
+ * excluded for that reason, compared by physical path, and the exclusion is
+ * the whole of the guard: a build empties it only once the bundle has read its
+ * graph, which is after this walk. A **second**, stale output directory
+ * somewhere else in the app is the case that gets through, and the failure is
+ * the safe one: more is kept than the app names, never less, and the count in
+ * the summary shows it.
  *
  * @param root - The app root.
  * @param options - What to leave out, and what to keep regardless.
@@ -241,12 +244,14 @@ export interface ScanOptions {
  */
 export function scanClassEvidence(root: string, options: ScanOptions = {}): ClassEvidence {
   const evidence = new Evidence();
-  // resolved on both sides, because the caller's `out` and this walk's
-  // `join()` are two spellings of one directory and a trailing slash or a
-  // `./` would make them miss each other -- which is the one exclusion that
-  // really matters, since a previous build's output holds the whole utility
-  // sheet and reading it keeps every rule
-  const exclude = new Set((options.exclude ?? []).map((path) => resolve(path)));
+  // compared by physical path, because the caller's `out` and this walk's
+  // `join()` are two spellings of one directory -- a trailing slash, a `./`,
+  // `/tmp` for `/private/tmp`, a symlinked `--out`, `DIST` on a volume that
+  // folds case -- and a miss is the one exclusion that really matters, since a
+  // previous build's output holds the whole utility sheet and reading it keeps
+  // every rule. Measured: built once and then built again with `--out` spelled
+  // through `/tmp`, an app kept 52 of 383 rules and then 58, where it keeps 25
+  const exclude = new Set((options.exclude ?? []).map((path) => landsAt(path)));
 
   for (const name of options.safelist ?? []) {
     evidence.safelist(name);
@@ -257,10 +262,14 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
   // than the paths walked to, because two links to one directory are one
   // directory and a loop is exactly two of those
   const entered = new Set<string>();
+  const start = landsAt(resolve(root));
 
   const visit = (dir: string): void => {
-    const real = realOrSelf(dir);
-    if (entered.has(real)) {
+    const real = landsAt(dir);
+    // never the root itself: `--out . --no-clean` makes the app root the
+    // output directory, and excluding it skips every source file the app has,
+    // which keeps too little rather than too much
+    if (entered.has(real) || (real !== start && exclude.has(real))) {
       return;
     }
     entered.add(real);
@@ -287,12 +296,10 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
       const kind = entry.isSymbolicLink() ? linkKind(path) : entry.isDirectory() ? 'dir' : 'file';
 
       if (kind === 'dir') {
-        // a dot directory is `.git`, `.turbo`, a cache -- never source
-        // `path` needs no resolving of its own: the walk starts at a resolved
-        // root and `join()` normalizes, so it is already the spelling the set
-        // holds. A second `resolve()` here reads as load-bearing and is not,
-        // which is the guard this repository keeps deleting
-        if (!entry.name.startsWith('.') && !SKIPPED.has(entry.name) && !exclude.has(path)) {
+        // a dot directory is `.git`, `.turbo`, a cache -- never source. An
+        // excluded directory is answered by `visit()`, which has its physical
+        // path in hand already
+        if (!entry.name.startsWith('.') && !SKIPPED.has(entry.name)) {
           visit(path);
         }
         continue;
@@ -322,24 +329,6 @@ function linkKind(path: string): 'dir' | 'file' | undefined {
     // a dangling link is not a file, and it is not a build error either: it is
     // something in the tree that nothing can read
     return undefined;
-  }
-}
-
-/**
- * A directory's real path, or the path itself when that cannot be answered.
- *
- * The falling-back half matters: a path that cannot be resolved is still a path
- * worth walking, and what is lost is only the loop check -- which the `readdir`
- * failure below then handles anyway.
- *
- * @param dir - The directory.
- * @returns Its real path.
- */
-function realOrSelf(dir: string): string {
-  try {
-    return realpathSync(dir);
-  } catch {
-    return dir;
   }
 }
 

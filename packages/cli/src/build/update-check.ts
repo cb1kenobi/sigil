@@ -266,8 +266,9 @@ export type UpdateCheckUse = 'import' | 'schema';
  *
  * ## Why this one is not a pre-flight
  *
- * `assertCleanable()` is refused before a runtime is fetched because it is
- * pure path arithmetic -- it can be asked at any time, so it is asked first.
+ * `assertCleanable()` is refused before a runtime is fetched because it needs
+ * only paths `inspect()` already has and a few stats of them -- it can be asked
+ * at any time, so it is asked first.
  * The import half of this cannot: whether the check is in the app is a
  * question about the module graph, and the graph does not exist until the
  * bundle is built. So it is asked at the first moment there is an answer,

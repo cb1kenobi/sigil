@@ -1837,15 +1837,33 @@ other is refused with numbers.
   is correct output rather than a miss: the shaken sheet is a _subset_, so the
   two disagree only about rules the evidence says nothing can match.
 
-  What the walk must not read is a **previous build's output**, which holds the
-  whole sheet as a string and is therefore evidence for every rule there is. The
-  output directory is excluded, and `clean()` empties it first in any case. A
-  _second_, stale output directory elsewhere in the app is the case that gets
-  through, and its failure is the safe one: everything is kept and the summary
-  says `383 of 383` rather than saying nothing. That is what the count in the
-  summary is for, and it is why the summary says nothing at all when no module
-  called `utilitySheet()` -- `383 of 383` about an app with no utility sheet in
-  its bundle would describe a sheet that is not there.
+  What the walk must not read is a **previous build's output**, whose text is
+  evidence for rules the app never names -- the whole sheet when it was built
+  `--no-shake`, and a few dozen more besides when it was shaken. The output
+  directory is excluded, and that exclusion is the whole of the guard: since
+  SIG-350 `clean()` empties it only once the bundle's graph has been read, which
+  is after this walk, so a previous bundle is still on disk while it runs. So the
+  exclusion is compared by **physical path**, through `landsAt()`, because the
+  build's `out` and the walk's `join()` are two spellings of one directory --
+  `/tmp` for `/private/tmp`, a symlinked `--out`, `DIST` on a volume that folds
+  case -- and a spelling that missed kept 52 of 383 rules, then 58, where the app
+  names 25 (found by review once the clean had moved; `clean()` emptying it
+  first had hidden it). `sigil package` writes its bundle to a staging directory
+  and its binaries to `--out`, so it passes `--out` as well
+  (`BundleOptions.exclude`), or a `sigil build` into that directory is evidence
+  too. The exclusion never applies to the **app root** itself: under
+  `--out . --no-clean` the root _is_ `out`, and excluding it skipped every source
+  file, so the build shook all 383 rules down to the safelist and reported
+  success -- too little, the one direction this walk must not err in. A previous
+  bundle written beside the source is then read as evidence, which keeps more,
+  never less (`--out . --no-clean shakes to what a separate --out keeps`, found in
+  review). A _second_, stale output directory elsewhere in the app is the case that
+  gets through, and its failure is the safe one: more is kept than the app
+  names, never less, and the count in the summary is higher than it should be
+  rather than silent. That is what the count is for, and it is why the summary
+  says nothing at all when no module called `utilitySheet()` -- `383 of 383`
+  about an app with no utility sheet in its bundle would describe a sheet that
+  is not there.
 
 - **The count describes the sheet the build produced, which is narrower than
   "what is in the bundle".** Two things part them and neither is detectable from
@@ -2362,6 +2380,156 @@ other is refused with numbers.
   that file hands `clean()` the root, because a regression would make that
   removal real. The root only ever goes to the pure guard, and the one
   end-to-end case is a temp directory above a temp app.
+- **...and it refuses an `--out` that holds anything the build reads, because
+  "the one way" was not the only way.** SIG-350. `sigil build --out src` is
+  below the app rather than above it, so it passed, and `clean()` removed `src/`
+  after `inspect()` had read it and before rolldown went back for the entry --
+  so the build then failed with `Module not found` over a source tree it had
+  just deleted. Through `"build": { "out": "src" }` and through `sigil package`
+  equally. `buildReads()` is the list, and it is everything `inspect()` has
+  already read: the entry, every module the tree walk found, every file a
+  catalog loader on the entry names by a literal `import()`, the command
+  directory, `package.json`, `sigil.json`/`sigil.jsonc`, the root
+  `tsconfig.json` the type check uses, and a `--bin`. `assertCleanable()`
+  refuses an `out` that is or holds any of them and names the file -- `which
+  holds` the entry for `--out src`, `which is` the file for `--out sigil.json`.
+  Asked in a pre-flight, so `package` still refuses before a runtime is
+  fetched and nothing is removed first.
+
+  **A catalog is listed whether or not it read as one.** `AppCatalogs.files` is
+  every literal specifier `readAppCatalogs()` resolved to a file that exists,
+  recorded before the parse, because the bundle imports the file whatever it
+  holds. The first version kept the path only once the file parsed as a JSON
+  object, so a `.js` catalog, a JSON file with a byte-order mark, one that does
+  not parse and one that is not an object were each emptied by `--out locales`
+  (found by review). All four are pinned, and each fails against that first
+  check; the not-an-object row is a number, because the first check took an
+  array for an object and an array row passed against the code it was meant to
+  catch.
+
+  **The removal waits for the module graph, and refuses a directory holding any
+  module in it.** What `inspect()` read is not all the build reads: a helper the
+  entry imports, a vendored module, a catalog behind a loader that is not a
+  literal `import()` are known only to the bundle, and `--out vendor` with
+  `vendor/lib.mjs` imported by the entry was emptied and then failed on
+  `Module not found`. So `clean(out, guard, modules)` takes the physical path of
+  every module in the graph and refuses an `out` whose physical path is or holds
+  one, naming it -- `which holds` for a directory and `which is` for
+  `--out vendor/lib.mjs`, as `assertCleanable()` words the same two. `sigil build` calls it from `bundleApp()`'s `beforeWrite`,
+  which runs in `generateBundle` -- after rolldown has read every module and
+  before it writes anything -- and `sigil package` calls it with
+  `BundleResult.modules` after the bundle and before `compileAll()`. Emptying
+  before the bundle had been for a stale chunk a previous build left, which
+  could be read back, and a stale chunk the bundle reads is a module inside
+  `out`, which is now refused rather than removed. A normal build still empties
+  its output directory -- pinned by a stale file that has to be gone afterwards,
+  for `build` and for `package` -- and what moved is only when. The style
+  shaker's walk excludes `out` for the same reason it always did, and that
+  exclusion is now the whole of its guard against a previous bundle, since the
+  walk runs before the removal -- which is what exposed that it compared
+  spellings, and that `package` never passed its `--out` at all; see "What the
+  walk must not read" under the shaking entries. One consequence is a change of
+  answer rather than of safety: a failure rolldown raises while it reads the
+  graph -- a missing relative module, a parse error -- now leaves the previous
+  output where it was, where it used to have emptied it. The two gates that
+  refuse a build **after** the write are unchanged: an unresolved bare import,
+  which rolldown only warns about and externalizes, and raw JSX from
+  `jsx: "preserve"` both fail after `out` has been emptied and written, and
+  `undo()` takes back only what was written, so they still leave `out`
+  empty. An `out` that is itself a symlink is
+  unlinked rather than emptied, which is what `rmSync()` does with one, so
+  nothing behind it is asked about -- `--out outlink`, a link to `lib/` holding
+  a module the entry imports, builds and leaves `lib/tool.mjs` alone, and asking
+  the module check of the link would refuse a build that loses nothing.
+
+  **It is asked whether or not cleaning is.** `--out src --no-clean` removed
+  nothing and wrote the bundle over the source instead: an entry at
+  `src/<bin>.mjs` was replaced by the minified bundle, and the build reported
+  success. A directory of source is never an output directory, so the message
+  offers no `--no-clean`. The one place `--no-clean` still means something is
+  the app root and above, because that is the escape hatch the root refusal
+  names, and every such directory holds `package.json` -- refusing it outright
+  would take the hatch away. There, what is refused is a **write** that lands on
+  something the build reads: `OutputGuard.writes`, which is `bundleWrites()` for
+  a build (`<bin>.mjs`, `<bin>.cjs`, their maps, `chunks/`) and the binaries'
+  `outputName()`s for a package. Both commands are pinned to passing it, a
+  package by a binary named `package.json` built for Linux, which lands on a
+  read on every host. And a write that lands on a module only the graph knows
+  -- `src/index.mjs` importing `../tool.mjs` in a package called `tool`, built
+  `--out . --no-clean` -- is refused by `sigil:own-source` in
+  `build/bundle.ts`, in `generateBundle` too: any output whose physical path is
+  a module's fails the build, naming both.
+
+  It is asked two ways in `heldFile()`, and each catches what the other cannot.
+  By **spelling**, through `holds()` -- which `holdsApp()` now is, rather than a
+  second copy of the `relative()` rule -- so a relative `out`, a trailing
+  separator, `..` segments and Windows' case folding are settled by `resolve()`
+  and `win32.relative()` as before. And by **identity**: `out` is `lstat`ed,
+  which is what `rmSync()` decides by, and compared by device and inode with
+  every directory above each file, walked from the path the build reads and
+  from its physical path. That is what sees an `out` under a symlinked
+  directory (`rmSync()` follows every link on the way), a module that is a
+  symlink into the directory named, and `--out SRC` on a volume that folds case,
+  which macOS's default does and `relative()` cannot know. An `out` that **is**
+  a symlink to the source is allowed when it is to be cleaned, and correctly:
+  `rmSync()` does not follow the last link, so it removes the link and nothing
+  behind it -- measured, and pinned by a test that runs the removal. An `out`
+  that is a link the build reads _through_ is refused by spelling, since
+  removing it loses no data but breaks the read.
+
+  **A write follows the last link where a removal does not, so `--no-clean` is
+  also asked where the write lands.** `--out outlink --no-clean`, with `outlink`
+  a link to `src`, wrote the bundle into `src` and replaced the entry, with the
+  guard seeing only a link. So under `--no-clean` the out is asked about as
+  `landsAt()` lands it as well, and so is each write at the root, which catches
+  a `<bin>.mjs` that is itself a link to the entry. `landsAt()`, in
+  `build/discover.ts`, is `physicalPath()` from `@ttylabs/sigil/config` --
+  exported for this, the climb `writeAtomic()` already asks about its own
+  target, rather than a second copy of it in the toolchain -- with a failure to
+  resolve answered by the path as spelled, since the write or removal that
+  follows fails with the file system's own error a moment later. It does not
+  follow a dangling link at the end of a path, and need not: every file the
+  guards protect exists, so a link pointing at nothing cannot point at one.
+  `realPathOf()` beside it does follow one and was the other candidate; it
+  answers a path that does not exist yet as itself, without resolving the
+  directories above it, which is exactly the `outlink/<bin>.mjs` case. The root
+  test asks the physical path too, so a link to the root, and the root spelled
+  `APP` on a volume that folds case, are the escape hatch rather than a source
+  directory: the native `realpath` answers in the case the volume stores. With
+  cleaning, `APP` is still refused, as a directory holding the app's files
+  rather than with the root's message, which is the safe direction.
+
+  **A refusal from the bundle reaches the user as its sentence.** An error raised
+  in a rolldown hook comes back out of `write()` as `[plugin sigil:own-source]
+  RolldownError` with six frames of rolldown's own stack, and the root rule is
+  the message, never a stack. So what `generateBundle` refuses is kept in a
+  closure, and the `write()` rejection is replaced by `new Error()` of it.
+
+  **`out` is resolved once, and that path is what is checked, tested and
+  removed.** The first version asked `lstat` and `existsSync` about the raw
+  string and removed `resolve(out)`, and those are different directories when a
+  symlink is followed by `..`: `link/../alias/src` is the directory beside the
+  link's target to the kernel and `alias/src` to `resolve()`, so the check passed
+  and the removal took the source (found by review). A consequence worth
+  knowing: a symlink to the source spelled with a trailing separator was refused
+  before, because `lstat` of `link/` follows the link, and is allowed now, which
+  is right for the same reason the bare spelling is -- `resolve()` drops the
+  separator and the removal unlinks the link.
+
+  Sabotages each fail a test in `test/clean-source.test.ts`,
+  `build-command.test.ts` or `package-command.test.ts`: no spelling check, no
+  identity walk, no physical-path start, `stat` for `lstat`, no catalog files or
+  the first catalog check, the `--no-clean` out not asked where it lands, a
+  write not asked through a link, the root not asked by physical path, no
+  `sigil:own-source`, either command passing no `writes`, `clean()` not asking
+  the graph, `beforeWrite` never called, `package` cleaning without the graph,
+  and a refusal left wrapped.
+
+  Every other recursive delete in `src/` was audited with it and removes only a
+  directory this toolchain made for itself: the bundle's and `package`'s
+  scratch directories under `node_modules/.sigil/`, the SEA config's
+  `mkdtempSync()` directory, and a runtime download's `.partial-<pid>`.
+
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
   of the minified code they describe -- 203 KB against 38 KB -- and a package
@@ -3485,8 +3653,8 @@ about what a valid app is would be the worse half of the feature.
   Windows job had reached a download. One `executable()` so the write and the
   lookup cannot disagree.
 
-- **`--out` is refused before a runtime is fetched, not after.** The check is
-  pure path arithmetic and sat inside `clean()`, which runs after
+- **`--out` is refused before a runtime is fetched, not after.** The check
+  needs only paths and a few stats of them, and sat inside `clean()`, which runs after
   `resolveExec()` -- so on CI `sigil package --out <the app root>` **downloaded a
   90 MB runtime** and then refused. `assertCleanable()` is the pre-flight half,
   and it deliberately does not take `clean()`'s `existsSync` guard with it: a
@@ -3622,8 +3790,10 @@ about what a valid app is would be the worse half of the feature.
   of a question that was written out twice before this needed it twice more:
   `undo()` and `isAppsOwn()` in `bundle.ts` ask it now instead of spelling the
   separator rule themselves. `assertCleanable()` asks the opposite question --
-  whether the output directory holds the app, not whether a path is under a
-  directory -- and is left as it is.
+  whether the output directory is or holds the app, or anything the build
+  reads, not whether a path is under a directory -- through `holds()`, which is
+  `isInside()` plus the path itself, and by identity on disk; see "...and it
+  refuses an `--out` that holds anything the build reads".
 
   Prereleases were already refused by `latestBun()` and are now refused when
   typed, too: `bun@1.3.14-canary.1` used to pass `parseSpec()` on the strength of
@@ -4753,7 +4923,8 @@ hand-written page sits beside the generated ones -- so a stale page is
 **reported** and left, and a `--check` fails over it. Reporting costs the author
 one `rm`; deleting costs them a file they wrote, and the guard that would make
 deleting safe does not exist: `sigil build`'s own refusal is of the app root and
-above, and a destination typed one directory wrong is below it.
+above and of a directory holding what the build reads, and a docs destination
+typed one directory wrong is neither.
 
 Which forced a message per kind rather than one sentence with the kind
 interpolated: `sigil reference` writes a missing or an out-of-date file and does
@@ -4876,8 +5047,9 @@ measurements are in
 
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is
-  refused before a runtime is fetched because it is pure path arithmetic -- it
-  can be asked at any time, so it is asked first. This cannot: whether the
+  refused before a runtime is fetched because it needs only paths `inspect()`
+  already has and a few stats of them -- it can be asked at any time, so it is
+  asked first. This cannot: whether the
   check is in the app is a question about the **module graph**, and there is
   no graph until the bundle is built. So it is asked at the first moment there
   is an answer, which is still before `compileAll()` -- the download is a

@@ -94,6 +94,7 @@ export {
   discoverApp,
   isFile,
   isInside,
+  landsAt,
   readAppCommands,
   readManifest,
   resolveSpecifier,

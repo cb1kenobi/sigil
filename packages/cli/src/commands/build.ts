@@ -54,6 +54,9 @@ import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
   binName,
+  assertCleanable,
+  buildReads,
+  bundleWrites,
   clean,
   commandsFound,
   failure,
@@ -142,12 +145,25 @@ const build: AnyCommand = command({
       String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
     );
 
-    clean(out, found.app.root, argv.clean !== false);
+    const name = binName(found, (argv.name as string | undefined) ?? config.name);
+
+    const guard = {
+      clean: argv.clean !== false,
+      reads: buildReads(found, bin),
+      root: found.app.root,
+      writes: bundleWrites(name),
+    };
+
+    // what is known before the bundle is refused before the bundle; the
+    // removal itself waits for the graph, which is what says whether `out`
+    // holds a module nothing else knew about -- see `clean()`
+    assertCleanable(out, guard);
 
     const result = await bundleApp({
       app: found.app,
+      beforeWrite: (modules) => clean(out, guard, modules),
       bin,
-      binName: binName(found, (argv.name as string | undefined) ?? config.name),
+      binName: name,
       defaultLocale: sigilConfig.locale,
       external: (argv.external as string[] | undefined) ?? config.external ?? [],
       out,

@@ -1,12 +1,18 @@
+import { displayPath } from '../src/build/index.ts';
 import { run } from '../src/index.js';
+import { copyFixture } from './copy-fixture.ts';
+import { tempDir } from './temp.ts';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -764,5 +770,344 @@ describe('sigil build', () => {
     expect(built.status).toBe(0);
     expect(built.stdout).toContain('Verwendung:');
     expect(built.stdout).toContain('Die App bauen');
+  }, 60_000);
+});
+
+/**
+ * SIG-350: `sigil build --out src` removed the app's source and then failed,
+ * because the clean guard refused only an `--out` at or above the app root. The
+ * app is a copy in a temp directory, so a regression removes the copy's source
+ * rather than a fixture's.
+ */
+describe('sigil build into its own source', () => {
+  let exitCode: typeof process.exitCode;
+
+  beforeEach(() => {
+    exitCode = process.exitCode;
+  });
+
+  afterEach(() => {
+    process.exitCode = exitCode;
+    vi.restoreAllMocks();
+  });
+
+  /** A copy of the `buildable` fixture, and the files the build reads from it. */
+  function copyApp(): { app: string; sources: string[] } {
+    const app = join(tempDir('sigil-build-into-src-'), 'buildable');
+    copyFixture(join(fixtures, 'buildable'), app);
+    return {
+      app,
+      sources: [
+        join(app, 'src', 'index.ts'),
+        join(app, 'src', 'commands', 'greet.ts'),
+        join(app, 'src', 'commands', 'db', 'migrate.js'),
+      ],
+    };
+  }
+
+  /**
+   * Links `@ttylabs/sigil` into an app outside the workspace, so the bundle
+   * resolves it from a temp directory. A junction, so Windows needs no
+   * privilege to make one; elsewhere the type is ignored.
+   */
+  function linkSigil(app: string): void {
+    mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+    symlinkSync(
+      resolve(fixtures, '..', '..', '..', 'sigil'),
+      join(app, 'node_modules', '@ttylabs', 'sigil'),
+      'junction'
+    );
+  }
+
+  /** A small app of the test's own, with `@ttylabs/sigil` linked in. */
+  function smallApp(name: string, files: Record<string, string>): string {
+    const app = join(tempDir('sigil-build-into-src-'), name);
+    linkSigil(app);
+    writeFileSync(
+      join(app, 'package.json'),
+      JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
+    );
+    for (const [file, body] of Object.entries(files)) {
+      mkdirSync(dirname(join(app, file)), { recursive: true });
+      writeFileSync(join(app, file), body);
+    }
+    return app;
+  }
+
+  const RUN = "export default { name: 'x', run() { console.log('ran'); } };\n";
+
+  it('--out . --no-clean shakes to what a separate --out keeps', async () => {
+    // `--out .` makes the output directory the app root, and the shaker leaves
+    // the output directory out of its class evidence. Applied to the root
+    // itself, that exclusion skipped the whole app: no source was read, every
+    // rule off the safelist was shaken out, and the build reported success
+    const app = join(tempDir('sigil-build-into-src-'), 'styled');
+    copyFixture(join(fixtures, 'styled'), app);
+    linkSigil(app);
+    const kept = (err: string) => /(\d+) of 383 utility rules/.exec(err)?.[1];
+
+    const elsewhere = await sigil('build', app, '--out', tempDir('sigil-build-into-src-'));
+    const here = await sigil('build', app, '--out', '.', '--no-clean');
+
+    expect(process.exitCode).toBeFalsy();
+    expect(kept(elsewhere.err)).toBeDefined();
+    expect(kept(here.err)).toBe(kept(elsewhere.err));
+  }, 60_000);
+
+  it.each([
+    ['cli', 'is refused, because it would write cli.mjs over the entry'],
+    ['other', 'still builds beside the manifest, which is the escape hatch'],
+  ])(
+    'a package called %s with a root entry cli.mjs, built --out . --no-clean, %s',
+    async (name) => {
+      const app = smallApp(name, { 'cli.mjs': RUN });
+
+      const { err } = await sigil('build', app, '--entry', 'cli.mjs', '--out', '.', '--no-clean');
+
+      if (name === 'cli') {
+        expect(err).toContain(
+          `Refusing to write over ${displayPath(join(app, 'cli.mjs'))}, which is cli.mjs`
+        );
+        expect(process.exitCode).toBeTruthy();
+      } else {
+        expect(err).not.toContain('Refusing');
+        expect(process.exitCode).toBeFalsy();
+        expect(existsSync(join(app, 'other.mjs'))).toBe(true);
+      }
+      expect(readFileSync(join(app, 'cli.mjs'), 'utf-8')).toBe(RUN);
+    },
+    60_000
+  );
+
+  it('--out . --no-clean wrote the bundle over a helper only the bundle reads, and reported success', async () => {
+    // `tool.mjs` is imported by the entry and named nowhere the guard can see
+    // before the bundle, and the package is called `tool` -- so the entry
+    // the build writes is `tool.mjs`. Refused before anything is written
+    const helper = "export const t = 'helper';\n";
+    const app = smallApp('tool', {
+      'src/index.mjs': `import { t } from '../tool.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+      'tool.mjs': helper,
+    });
+
+    const { err } = await sigil('build', app, '--out', '.', '--no-clean');
+
+    expect(err).toContain(
+      `Refusing to write ${displayPath(join(app, 'tool.mjs'))}, which is tool.mjs, a module the app is built from`
+    );
+    // the sentence and nothing else: rolldown wraps an error raised in a hook
+    // as `[plugin sigil:own-source] RolldownError` with six frames of its own
+    expect(err).not.toContain('RolldownError');
+    expect(err).not.toMatch(/\n\s+at /);
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'tool.mjs'), 'utf-8')).toBe(helper);
+    expect(existsSync(join(app, 'chunks'))).toBe(false);
+  }, 60_000);
+
+  describe('a previous bundle, which the shaker must not read as evidence', () => {
+    // since the clean waits for the module graph, a previous bundle is still on
+    // disk when the shaker walks the app, and its exclusion compared spellings:
+    // a second build with `--out` spelled through `/tmp` kept 52 of 383 rules
+    // and then 58, where it keeps 25. A junction stands in for `/tmp` here,
+    // because it spells the same directory another way on every platform
+    function styledApp(): { app: string; base: string } {
+      const base = tempDir('sigil-build-into-src-');
+      const app = join(base, 'styled');
+      copyFixture(join(fixtures, 'styled'), app);
+      mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+      symlinkSync(
+        resolve(fixtures, '..', '..', '..', 'sigil'),
+        join(app, 'node_modules', '@ttylabs', 'sigil'),
+        'junction'
+      );
+      return { app, base };
+    }
+
+    const KEPT = /(\d+) of 383 utility rules/;
+
+    it.each([
+      [
+        '--out spelled through a link to the app',
+        (app: string, base: string) => {
+          symlinkSync(app, join(base, 'alias'), 'junction');
+          return join(base, 'alias', 'dist');
+        },
+      ],
+      [
+        '--out a link to the previous output',
+        (app: string) => {
+          symlinkSync(join(app, 'dist'), join(app, 'outlink'), 'junction');
+          return join(app, 'outlink');
+        },
+      ],
+    ])(
+      'should keep what the first build kept, with %s',
+      async (_, spell) => {
+        const { app, base } = styledApp();
+
+        const first = await sigil('build', app);
+        const kept = KEPT.exec(first.err)?.[1];
+        expect(kept, first.err).toBeDefined();
+
+        const second = await sigil('build', app, '--out', spell(app, base));
+
+        expect(KEPT.exec(second.err)?.[1], second.err).toBe(kept);
+        expect(process.exitCode).toBeFalsy();
+      },
+      60_000
+    );
+  });
+
+  it('should unlink an --out that is a link to a module directory, and leave the module alone', async () => {
+    // `outlink` points at `lib/`, which holds `lib/tool.mjs`, a module the
+    // entry imports. Removing `outlink` unlinks it and takes nothing behind it,
+    // so the module check, which is about what a removal would take, is not
+    // asked of a link -- asking it would refuse a build that loses nothing
+    const tool = "export const t = 'tool';\n";
+    const app = smallApp('lapp', {
+      'lib/tool.mjs': tool,
+      'src/index.mjs': `import { t } from '../lib/tool.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+    });
+    symlinkSync(join(app, 'lib'), join(app, 'outlink'), 'junction');
+
+    const { err } = await sigil('build', app, '--out', 'outlink');
+
+    expect(err).not.toContain('Refusing');
+    expect(process.exitCode).toBeFalsy();
+    expect(lstatSync(join(app, 'outlink')).isSymbolicLink()).toBe(false);
+    expect(existsSync(join(app, 'outlink', 'lapp.mjs'))).toBe(true);
+    expect(readFileSync(join(app, 'lib', 'tool.mjs'), 'utf-8')).toBe(tool);
+  }, 60_000);
+
+  it('--out vendor emptied a vendored module only the bundle reads, then failed on it', async () => {
+    // nothing before the bundle names `vendor/lib.mjs` -- the entry imports it
+    // -- so the clean waits for the graph, and refuses with the module named
+    const lib = "export const t = 'vendored';\n";
+    const app = smallApp('vapp', {
+      'src/index.mjs': `import { t } from '../vendor/lib.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n`,
+      'vendor/lib.mjs': lib,
+    });
+
+    const { err } = await sigil('build', app, '--out', 'vendor');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'vendor'))}, which holds ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+    );
+    expect(err).not.toContain('Module not found');
+    expect(err).not.toMatch(/\n\s+at /);
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'vendor', 'lib.mjs'), 'utf-8')).toBe(lib);
+  }, 60_000);
+
+  it('should still empty an output directory that holds no module, once the graph says so', async () => {
+    // the clean moved to after the graph is read, and it still has to happen:
+    // a build that leaves the last one behind publishes the union of both
+    const app = smallApp('sapp', {
+      'dist/stale.txt': 'stale\n',
+      'src/index.mjs': RUN,
+    });
+
+    const { err } = await sigil('build', app);
+
+    expect(err).not.toContain('Refusing');
+    expect(process.exitCode).toBeFalsy();
+    expect(existsSync(join(app, 'dist', 'stale.txt'))).toBe(false);
+    expect(existsSync(join(app, 'dist', 'sapp.mjs'))).toBe(true);
+  }, 60_000);
+
+  it('--out outlink --no-clean, outlink a link to src, wrote the bundle over the source', async () => {
+    const app = smallApp('buildable', { 'src/buildable.mjs': RUN });
+    symlinkSync(join(app, 'src'), join(app, 'outlink'), 'junction');
+
+    const { err } = await sigil(
+      'build',
+      app,
+      '--entry',
+      join('src', 'buildable.mjs'),
+      '--out',
+      'outlink',
+      '--no-clean'
+    );
+
+    expect(err).toContain(
+      `Refusing to build into ${displayPath(join(app, 'outlink'))}, which holds ${displayPath(join('src', 'buildable.mjs'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(readFileSync(join(app, 'src', 'buildable.mjs'), 'utf-8')).toBe(RUN);
+  }, 60_000);
+
+  it('sigil build --out src deleted the app source and then failed on the missing entry', async () => {
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', 'src');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(err).not.toContain('Module not found');
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+  }, 60_000);
+
+  it('a build.out of src in sigil.json deleted the app source the same way', async () => {
+    const { app, sources } = copyApp();
+    writeFileSync(join(app, 'sigil.json'), `${JSON.stringify({ build: { out: 'src' } })}\n`);
+
+    const { err } = await sigil('build', app);
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+    expect(existsSync(join(app, 'sigil.json'))).toBe(true);
+  }, 60_000);
+
+  it('sigil build --out src --no-clean wrote the bundle over the source and reported success', async () => {
+    // nothing removed, but `<out>/<bin>.mjs` is the entry when the entry is
+    // `src/<bin>.mjs` -- so it is refused whether or not it is emptied
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', 'src', '--no-clean');
+
+    expect(err).toContain(
+      `Refusing to build into ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(existsSync(join(app, 'src', 'buildable.mjs'))).toBe(false);
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
+  }, 60_000);
+
+  it('sigil build --out locales deleted the catalogs the entry declares', async () => {
+    const app = join(tempDir('sigil-build-into-src-'), 'i18n');
+    copyFixture(join(fixtures, 'i18n'), app);
+
+    const { err } = await sigil('build', app, '--out', 'locales');
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'locales'))}, which holds ${displayPath(join('locales', 'de.json'))}`
+    );
+    expect(process.exitCode).toBeTruthy();
+    expect(existsSync(join(app, 'locales', 'de.json'))).toBe(true);
+  }, 60_000);
+
+  it('should refuse the command directory, naming a module the build reads from it', async () => {
+    const { app, sources } = copyApp();
+
+    const { err } = await sigil('build', app, '--out', join('src', 'commands'));
+
+    expect(err).toContain(
+      `Refusing to empty ${displayPath(join(app, 'src', 'commands'))}, which holds`
+    );
+    expect(err).toContain('and the build reads it');
+    expect(process.exitCode).toBeTruthy();
+    for (const file of sources) {
+      expect(existsSync(file), file).toBe(true);
+    }
   }, 60_000);
 });
