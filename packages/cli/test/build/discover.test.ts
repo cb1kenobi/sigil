@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const apps = resolve(__dirname, '../fixtures/discover');
@@ -42,6 +42,8 @@ async function withSchema<T>(
  * wording a build that refuses the same declaration has to match.
  */
 async function runtimeRefusal(name: string, declaration: unknown): Promise<string | undefined> {
+  // a schema the runtime takes prints its help, which is not this test's output
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   try {
     await main({
       argv: [],
@@ -50,6 +52,8 @@ async function runtimeRefusal(name: string, declaration: unknown): Promise<strin
     });
   } catch (err) {
     return (err as Error).message;
+  } finally {
+    write.mockRestore();
   }
   return undefined;
 }
@@ -357,6 +361,52 @@ describe("reading where an app's commands are", () => {
           expect(at(list, name).desc).toBeUndefined();
         }
         expect(at(list, 'remove, rm').hidden).toBeUndefined();
+      });
+    });
+
+    it('refused a desc or hidden that a later spread or computed key replaces, though the runtime starts fine', async () => {
+      // SIG-421, from review. The refusals read the last *explicit* spelling,
+      // and a spread or a computed key after it replaces it -- so the value the
+      // runtime registers is a fine one and the app starts, while the build
+      // failed. What may be replaced is unknown, as it is in a module: a
+      // warning, nothing baked, and never an error
+      const source = `const base = { desc: 'Build the app', path: './commands/a.js' };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    async: { desc: async () => 'x', ...base },
+    number: { desc: () => 42, ...base },
+    method: { hidden() { return true; }, ...{ hidden: false, path: './commands/a.js' } },
+    computed: { desc: async () => 'x', ['desc']: 'Build the app', path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          expect(await runtimeRefusal(name, declaration), name).toBeUndefined();
+        }
+
+        const before = (name: string, key: string, consequence: string) =>
+          `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+          ['warning', before('async', 'desc', 'the built app will list it by name alone')],
+          ['warning', before('number', 'desc', 'the built app will list it by name alone')],
+          ['warning', before('method', 'hidden', 'the built app will list it in help')],
+          ['warning', before('computed', 'desc', 'the built app will list it by name alone')],
+        ]);
+        // ...and nothing baked, `x` least of all
+        for (const name of ['async', 'number', 'computed']) {
+          expect(at(list, name).desc).toBeUndefined();
+        }
+        expect(at(list, 'method').hidden).toBeUndefined();
       });
     });
 

@@ -785,12 +785,31 @@ function placeholderFacts(
     return found?.kind === 'init' && !found.method && isUndefined(found.value) ? undefined : found;
   };
 
+  // a spread or a computed key replaces whatever was written before it, so a
+  // key whose last spelling comes before the last of them is not known to be
+  // what the runtime registers: it is never refused, since the value that runs
+  // may be a fine one, and never baked -- the rule `factsOf()` follows for a
+  // module (SIG-421)
+  const lastOpaque = object.properties.findLastIndex(
+    (property) => property.type === 'SpreadElement' || property.computed
+  );
+  const replaceable = (property: ObjectProperty) =>
+    object.properties.indexOf(property) < lastOpaque;
+  const beforeOpaque = (key: string, consequence: string) =>
+    `the "${command.name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
+
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
   const desc = declared('desc');
   const hidden = declared('hidden');
   const command = commandName(nameString);
 
-  if (desc) {
+  if (desc && replaceable(desc)) {
+    diagnostics.push({
+      ...locate(parsed, desc.start),
+      message: beforeOpaque('desc', 'the built app will list it by name alone'),
+      severity: 'warning',
+    });
+  } else if (desc) {
     const value = desc.kind === 'init' && !desc.method ? desc.value : undefined;
     // the runtime names the command by the name its name string parses to
     const what = `the "${command.name}" command`;
@@ -824,7 +843,15 @@ function placeholderFacts(
     }
   }
 
-  if (hidden) {
+  if (hidden && replaceable(hidden)) {
+    if (!command.hidden) {
+      diagnostics.push({
+        ...locate(parsed, hidden.start),
+        message: beforeOpaque('hidden', 'the built app will list it in help'),
+        severity: 'warning',
+      });
+    }
+  } else if (hidden) {
     const value = hidden.kind === 'init' && !hidden.method ? hidden.value : undefined;
     const flag = value ? literalBoolean(value) : undefined;
 
@@ -840,8 +867,10 @@ function placeholderFacts(
         severity: 'error',
       });
     } else if (!command.hidden) {
-      // a `!` in the name string hides it whatever `hidden` turns out to be,
-      // since the two are additive -- so the built app does not list it either
+      // a `!` in the name string hides it whatever boolean `hidden` turns out
+      // to be, since the two are additive and `false` cannot un-hide it -- so
+      // the built app does not list it either. A value that is not a boolean
+      // is still thrown on, which is not this branch's to know
       diagnostics.push({
         ...locate(parsed, (value ?? hidden).start),
         message: `the "${command.name}" command's "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help`,

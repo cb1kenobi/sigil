@@ -629,10 +629,22 @@ makes it testable with a fixture directory and no bundler at all.
   string **as declared**, and a build repeating the runtime's refusal repeats
   that rather than improving on it. The build's own warnings use the parsed
   name. A computed `hidden` on a name string with a `!` is not warned about,
-  since the two are additive and the built app hides it whatever the value is;
-  and an interpolated `__` tag on a placeholder, or a thunk over one, gets the
-  interpolation message a module's already got. The test asks `main()` for its
-  refusals over the very schema the build read, so the wording cannot drift.
+  because the two are additive and a **boolean** cannot un-hide a `!` name --
+  while a value that is not a boolean still throws, since `initCommand()` checks
+  the type before it applies the `!`; and an interpolated `__` tag on a
+  placeholder, or a thunk over one, gets the interpolation message a module's
+  already got. The test asks `main()` for its refusals over the very schema the
+  build read, so the wording cannot drift.
+- **...and a refusal applies only to the spelling the runtime will see.**
+  SIG-421, from review. `{ desc: async () => 'x', ...base }` and
+  `{ hidden() {}, ...{ hidden: false } }` start fine, because the spread
+  replaces the refused spelling -- and the build failed on them. A `desc` or
+  `hidden` whose last spelling comes before a placeholder's last spread or
+  computed key is now unknown, the rule `factsOf()` already follows for a
+  module: a warning naming the key, nothing baked, never an error -- whether
+  the spelling was refusable, a literal, or computed. Covered by `refused a desc
+  or hidden that a later spread or computed key replaces` in
+  `test/build/discover.test.ts`, which asks `main()` that each one starts.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
