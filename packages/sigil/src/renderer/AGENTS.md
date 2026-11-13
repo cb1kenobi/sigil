@@ -375,6 +375,54 @@ the entry it belongs to.
   keying exists to keep. An item that appears twice is two rows, so the
   bookkeeping is a queue per key: two equal primitives in a list are a list with
   two entries in it, not a bug to refuse.
+- **`For` moves only the rows off a longest run already in order, and reads each
+  key's queue through a cursor (SIG-345).** Placement used to walk the target
+  order and move every row not at its index, which is "out of place" by
+  _position_ -- and by that measure taking the first row to the end puts every
+  other row out of place, so it was n-1 `insertBefore` calls where one would do,
+  each a removal and an insertion that both search the host's children: quadratic
+  for a one-row move. `place()` reads where each kept row sits in the host now,
+  takes a longest increasing run of those positions with `longestIncreasing()` in
+  `src/util/`, leaves the rows on it alone, appends the rows after the last one
+  that stays in order, and moves the rest backwards from there, each in front of
+  the row that follows it. That is the fewest moves there are, and it is what
+  Inferno and Vue 3 do (Solid's reconcile does not use one). The tail is
+  appended rather than walked because a review round measured the walk: on a
+  first mount nothing stays, so every row went in front of the one after it --
+  index 0 of the children, a splice that shifts everything behind it -- and a
+  200,000-row mount went from 388ms to 4,781ms, 100,000 from 216ms to 1,244ms.
+  With the append it measured 351ms against 379ms for the old placement, and
+  `should never put a row in front of the first child` pins it by asking every
+  `insertBefore` whether it was handed the first child: 2,999 times of 3,000 on
+  the walk, and never now. Positions come off the host
+  rather than off the rows' previous indices, so what is placed against is what is
+  on screen. The queue per key is unchanged and so is which copy a key hands out --
+  the first one held -- but it is read through an index rather than `shift()`,
+  which was O(k) for a key held k times. Measured on `box(text, text)` rows, median
+  of seven, before and after (both timings on a loaded machine; the move counts
+  are the point):
+
+  | n      | first to end                  | swap ends                 | last to front         |
+  | ------ | ----------------------------- | ------------------------- | --------------------- |
+  | 1,000  | 999 moves, 1.27ms → 1, 1.24ms | 999, 0.95ms → 2, 0.54ms   | 1, 0.28ms → 1, 0.40ms |
+  | 4,000  | 3,999, 6.37ms → 1, 1.77ms     | 3,999, 6.88ms → 2, 1.79ms | 1, 0.94ms → 1, 1.80ms |
+  | 16,000 | 15,999, 857ms → 1, 12.8ms     | 15,999, 535ms → 2, 15.0ms | 1, 16.6ms → 1, 14.8ms |
+
+  A list of one repeated primitive reconciled against itself went from 146ms,
+  1,030ms and 3,054ms at 20,000, 40,000 and 80,000 to 22ms, 36ms and 43ms. What is
+  still quadratic is a reorder that really does move most rows -- a reverse is n-1
+  moves and must be -- because each `insertBefore` searches the children; that is
+  the element API's cost and not this one's. The tests count `insertBefore` and
+  never time anything: first to end, swap ends, last to front, a reverse, an
+  insert, and a seeded shuffle whose bound is exact (n minus the longest run,
+  computed the quadratic way). Run against the old placement, three of them fail
+  -- 99 moves where 1 and 2 belong. The cursor's test pins what a cursor has to
+  keep -- every copy kept, none built, moved or disposed, and a shrink letting go
+  of the copies past the end -- and, since `shift()` gave the same answers and
+  cost only time, also spies on `Array.prototype.shift` across the reconcile and
+  asserts it is never called: nothing else on that path shifts an array, and
+  putting `shift()` back fails it with 9,886 calls.
+
 - **Nothing dirty means no frame, and no frame means no timer.** The scheduler is
   asked for a frame by a signal write or by a tree mutation, sets one timer, and
   a frame that finds nothing to do sets no other -- so a CLI that prints one line
