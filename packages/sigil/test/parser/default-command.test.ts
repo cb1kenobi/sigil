@@ -1,6 +1,6 @@
 import { main } from '../../src/index.js';
 import { parse } from '../../src/parser/parse.js';
-import { ErrorState, type ParseState } from '../../src/types.js';
+import { ErrorState, type ParseState, type Schema } from '../../src/types.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -324,6 +324,66 @@ describe('default command', () => {
 
       expect(state.cmd?.name).toBe('all');
       expect(state.contexts.map((c) => c.name)).toStrictEqual(['all', 'build', 'global']);
+    });
+  });
+
+  describe('help', () => {
+    const helped = async (argv: string[], schema: Schema) => {
+      const state = await parse({ argv, schema });
+      expect(state.help?.via).toBe('option');
+      return state.help?.contexts.map((c) => c.name);
+    };
+
+    it("--help on a subcommand reached through a default command printed the parent's screen", async () => {
+      // `status` is typed and `serve` is implied, so the chain is
+      // `[status, serve, root]` having named one command -- counting kept the
+      // outer two and described `serve`
+      const schema = {
+        commands: { serve: { commands: { status: { run() {} } }, default: true } },
+      };
+
+      expect(await helped(['status', '--help'], schema)).toStrictEqual([
+        'status',
+        'serve',
+        'global',
+      ]);
+      // the spelled-out path was always right, and is the same chain
+      expect(await helped(['serve', 'status', '--help'], schema)).toStrictEqual([
+        'status',
+        'serve',
+        'global',
+      ]);
+    });
+
+    it('should still describe the program when argv named no command', async () => {
+      expect(
+        await helped(['--help'], {
+          commands: { serve: { commands: { status: {} }, default: true } },
+        })
+      ).toStrictEqual(['global']);
+    });
+
+    it('should not describe a default dispatched inside the command argv named', async () => {
+      expect(
+        await helped(['build', '--help'], {
+          commands: { build: { commands: { all: { default: true }, one: {} } } },
+        })
+      ).toStrictEqual(['build', 'global']);
+    });
+
+    it('should describe the typed subcommand of a default and not its own default', async () => {
+      // implied on both sides of the named command: `serve` outside it stays,
+      // because it is the path to `status`, and `deep` inside it goes
+      expect(
+        await helped(['status', '--help'], {
+          commands: {
+            serve: {
+              commands: { status: { commands: { deep: { default: true } } } },
+              default: true,
+            },
+          },
+        })
+      ).toStrictEqual(['status', 'serve', 'global']);
     });
   });
 

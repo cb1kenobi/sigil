@@ -82,6 +82,23 @@ const SEQUENCES: Record<string, string> = {
   '29~': 'menu',
 };
 
+/**
+ * The Linux virtual console's F1 to F5, keyed by the letter after `ESC [ [`.
+ *
+ * A spelling of its own rather than a row in `SEQUENCES`, because the second `[`
+ * is a byte the CSI reader takes as the final one: read that way, `ESC [ [ A` was
+ * an unknown sequence and a literal `A`, so F1 in a text field typed the letter.
+ * F6 on are `ESC [ 17 ~` and the rest of the VT220 family, which `SEQUENCES`
+ * already names.
+ */
+const LINUX_CONSOLE: Record<string, string> = {
+  A: 'f1',
+  B: 'f2',
+  C: 'f3',
+  D: 'f4',
+  E: 'f5',
+};
+
 /** The control bytes worth naming. Everything else falls through to `ctrl+<letter>`. */
 const CONTROLS: Record<string, string> = {
   '\r': 'enter',
@@ -97,10 +114,10 @@ const CONTROLS: Record<string, string> = {
 /**
  * Every name this decoder gives a key that is not a character.
  *
- * Derived from the two tables above rather than written out, which is the rule
+ * Derived from the three tables above rather than written out, which is the rule
  * `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
  * the tables is a second list to keep in agreement, and a name added to one of
- * them without the other is a key no spec can name. The read is what a binding
+ * them without the list is a key no spec can name. The read is what a binding
  * grammar needs -- `up` is a name and `u` is a character, and only this knows
  * which strings are which.
  *
@@ -111,9 +128,12 @@ const CONTROLS: Record<string, string> = {
  * than from a table.
  */
 export const KEY_NAMES: ReadonlySet<string> = new Set(
-  [...Object.values(SEQUENCES), ...Object.values(CONTROLS), 'escape'].filter(
-    (name) => [...name].length > 1
-  )
+  [
+    ...Object.values(SEQUENCES),
+    ...Object.values(LINUX_CONSOLE),
+    ...Object.values(CONTROLS),
+    'escape',
+  ].filter((name) => [...name].length > 1)
 );
 
 function key(partial: Partial<Key> & { name: string; sequence: string }): Key {
@@ -184,6 +204,20 @@ export interface DecodeOptions {
    * written for with the window chosen rather than permanent.
    */
   strings?: boolean;
+  /**
+   * Whether nothing more will arrive, so a tail that was waiting is read as what
+   * it is now.
+   *
+   * `false` by default, and `true` only from a reader flushing what it held after
+   * a silence -- the router's `expire()`. It changes exactly one reading: `ESC [`
+   * or `ESC O` with nothing after it, which is held as the start of a CSI or an
+   * SS3 while more could follow, and which is Alt-[ or Alt-Shift-O once nothing
+   * did. Left `unknown`, the two keys could not be pressed at all, while `ESC ]`
+   * and `ESC P` -- introducers too -- already came out as their Alt keys. Any
+   * longer unfinished sequence is still `unknown`: `ESC [ 1 ;` is a sequence that
+   * stopped arriving, not a key somebody pressed.
+   */
+  final?: boolean;
 }
 
 /** The introducer of a control string, and which payloads the default claims. */
@@ -317,6 +351,42 @@ function readEscape(input: string, start: number, opts: DecodeOptions): Read {
   }
 
   if (next === '[' || next === 'O') {
+    // the introducer and nothing after it, from a reader that knows nothing more
+    // is coming: that is Alt-[ or Alt-Shift-O rather than a sequence, the same
+    // reading `ESC ]` and `ESC P` already get when they are not a control string.
+    // Without `final` it is held below like any other unfinished sequence,
+    // because a read that split puts the rest of an arrow key in the next chunk
+    if (opts.final && input.length === start + 2) {
+      return {
+        key: key({ meta: true, name: next, sequence: input.slice(start) }),
+        length: 2,
+        pending: false,
+      };
+    }
+
+    // the Linux console's F1 to F5, `ESC [ [ A` to `ESC [ [ E`. The second `[` is
+    // a final byte to the reader below, which ended the sequence there and left
+    // the letter to be typed. `ESC [ [` followed by anything else is still read
+    // the way it always was, and with nothing after it yet it is held, so a read
+    // that split before the letter cannot type it either. Held under `final`
+    // too, which reads the same -- an unknown `ESC [ [` -- since `final` is
+    // asked only of `decodeKeys()`, which reads the key and not whether it held
+    if (next === '[' && input[start + 2] === '[') {
+      const letter = input[start + 3];
+      if (letter === undefined) {
+        const sequence = input.slice(start);
+        return { key: key({ name: 'unknown', sequence }), length: sequence.length, pending: true };
+      }
+      const fn = LINUX_CONSOLE[letter];
+      if (fn !== undefined) {
+        return {
+          key: key({ name: fn, sequence: input.slice(start, start + 4) }),
+          length: 4,
+          pending: false,
+        };
+      }
+    }
+
     // the parameters, then the byte that ends it. A CSI ends on a byte in
     // 0x40-0x7e; everything before it carries on the sequence
     let i = start + 2;
@@ -413,10 +483,19 @@ function readOne(input: string, start: number, opts: DecodeOptions): Read {
   // point and the low surrogate is then read as a second key
   const code = input.codePointAt(start) as number;
 
-  // the rest of the C0 range is Ctrl with a letter: 0x01 is Ctrl-A
+  // the rest of the C0 range is Ctrl with the key that sends it. 0x01 to 0x1a
+  // are Ctrl with a letter, named in lower case from 0x60 up, and 0x00 is the
+  // Ctrl-backtick that offset gives it. 0x1c to 0x1f are Ctrl-\, Ctrl-],
+  // Ctrl-^ and Ctrl-_, which are their keys plus 0x40: from 0x60 they came out
+  // as `|`, `}`, `~` and DEL, so `ctrl+\` and readline's `ctrl+_` were bindings
+  // nothing could fire. 0x1b never reaches here, since it is ESC
   if (code < 0x20) {
     return {
-      key: key({ ctrl: true, name: String.fromCharCode(code + 0x60), sequence: ch }),
+      key: key({
+        ctrl: true,
+        name: String.fromCharCode(code >= 0x1c ? code + 0x40 : code + 0x60),
+        sequence: ch,
+      }),
       length: 1,
       pending: false,
     };

@@ -58,6 +58,7 @@ import {
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
+import { physicalPath } from '@ttylabs/sigil/config';
 import { readPackage } from '@ttylabs/sigil/routes';
 import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
@@ -325,12 +326,12 @@ export function isFile(path: string): boolean {
  * outside the directory it was meant for.
  *
  * **Strictly** inside: the directory is not inside itself, because every caller
- * is asking about a file or a subdirectory below it. `holdsApp()` is the one
- * caller that wants the directory itself counted too, and it says so beside
- * this rather than with a path rule of its own.
+ * is asking about a file or a subdirectory below it. `holds()` in
+ * `commands/_inspect.ts` is the one caller that wants the path itself counted
+ * too, and it says so beside this rather than with a path rule of its own.
  *
  * Asked of `relative()` rather than of a string prefix, for the reasons SIG-246
- * found in the copy of this that `holdsApp()` used to carry. A prefix needs a
+ * found in the copy of this that the clean guard used to carry. A prefix needs a
  * separator appended, so that `dist-old` is not read as inside `dist`, and the
  * root is the one directory `resolve()` already ends in one -- every caller had
  * to remember that, and the clean guard did not. A prefix is also
@@ -358,6 +359,36 @@ export function isInside(dir: string, target: string, path: typeof nodePath = no
   const rel = path.relative(path.resolve(dir), path.resolve(target));
 
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+/**
+ * Where the kernel would put a write to `path`, as `physicalPath()` in
+ * `@ttylabs/sigil/config` answers it -- every symlink on the way followed, a
+ * `..` after one read the way the kernel reads it, for a path that need not
+ * exist -- or the path as spelled where the file system cannot answer.
+ *
+ * `physicalPath()` throws for anything but a missing file, which is right for a
+ * writer about to write and wrong for a guard asking a question: a path under a
+ * file, a link loop or a directory it cannot read fails the write or the
+ * removal itself a moment later, with the file system's own error, and a guard
+ * that threw first would only replace that error with one about asking. A
+ * dangling link at the end of the path is not followed, and need not be: what
+ * the guards ask is whether a path lands on a file the build reads, every one of
+ * which exists, so a link that points at nothing cannot point at one.
+ *
+ * `isInside()` is lexical on purpose (see `undo()`), and this is the one place
+ * the build asks the file system instead: the clean guard and the bundle's own
+ * write guard, both of which are about what is on disk at the end of a path.
+ *
+ * @param path - The path, which need not exist.
+ * @returns Its physical path, or `resolve(path)` where that cannot be learned.
+ */
+export function landsAt(path: string): string {
+  try {
+    return physicalPath(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 /**

@@ -19,8 +19,9 @@ import { defineConfig, type UserConfig } from 'tsdown';
  * terminal does nothing surprising with them. Everything else in C0, `DEL` and
  * C1 -- where U+009B is a CSI all by itself, and is in `codes.ts` -- becomes a
  * `\xNN` escape, which is the same string to JavaScript and inert to a
- * terminal. Asserted by `test/dist.test.ts`, because a build that quietly stops
- * doing this looks exactly like one that does.
+ * terminal. Asserted by `should ship no raw control character` in
+ * `packages/cli/test/cli.test.ts`, which reads every package's `dist/`, because
+ * a build that quietly stops doing this looks exactly like one that does.
  */
 /**
  * Every control character, as a property rather than as a range.

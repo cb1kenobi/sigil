@@ -142,6 +142,96 @@ describe('caching the version listings', () => {
   });
 });
 
+/**
+ * Writes a listing whose `ts` is the given source text, so a test can write what
+ * `JSON.stringify()` cannot -- `1e999` is Infinity once parsed.
+ */
+function stamp(runtime: 'bun' | 'node', ts: string): void {
+  mkdirSync(dirname(file(runtime)), { recursive: true });
+  writeFileSync(file(runtime), `{"releases":[{"major":9,"version":"9.9.9"}],"ts":${ts}}`);
+}
+
+/** How many times `latest()` asked a registry, offline, for the listing it was handed. */
+async function asksFor(ts: string): Promise<number> {
+  let asked = 0;
+  vi.stubGlobal('fetch', () => {
+    asked++;
+    throw new Error('offline');
+  });
+  stamp('bun', ts);
+
+  await latest('bun');
+
+  return asked;
+}
+
+// Only "too old" was asked, `held.ts + within < Date.now()`, so a listing stamped
+// while the clock was ahead -- clock skew, a clock set back, a cache directory
+// restored from another machine -- was fresh until real time caught up, and a
+// `ts` that is a string of digits was concatenated rather than added to. Either
+// way `sigil package` went on offering an old runtime listing. SIG-420, the twin
+// of SIG-376 in the update check.
+describe('a version listing stamped in the future', () => {
+  beforeEach(() => {
+    rmSync(join(box, 'sigil'), { force: true, recursive: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('should fetch again over a listing stamped a year ahead', async () => {
+    expect(await asksFor(String(Date.now() + 365 * 86_400_000))).toBe(1);
+  });
+
+  it('should fetch again over a listing stamped just past the minute of tolerance', async () => {
+    // five seconds past it, which is longer than the write-to-read gap below
+    expect(await asksFor(String(Date.now() + 65_000))).toBe(1);
+  });
+
+  it('should still reuse a listing stamped within the minute of tolerance', async () => {
+    // a clock NTP nudged back between two runs is jitter rather than a wrong
+    // clock, and refetching over it would be a request per run
+    expect(await asksFor(String(Date.now() + 30_000))).toBe(0);
+  });
+
+  it('should fetch again over a listing whose ts is a string of digits', async () => {
+    // stamped now and quoted: `"1762…" + 86400000` is a twenty-odd digit string,
+    // which compares as a number far in the future, so it was fresh forever
+    expect(await asksFor(`"${Date.now()}"`)).toBe(1);
+  });
+
+  it('should fetch again over a listing whose ts is not a finite number', async () => {
+    // `1e999` parses to Infinity; a garbage string concatenated to garbage, and
+    // `NaN < now` is false, so both were read as fresh
+    for (const ts of ['1e999', '-1e999', '"nope"', '"NaN"', 'null', 'true', '{}', '[1]']) {
+      expect(await asksFor(ts), ts).toBe(1);
+    }
+  });
+
+  it('should still offer a listing stamped in the future when the fetch fails', async () => {
+    // stale means "ask again", not "throw it away": offline, a listing whose
+    // clock was wrong is still last week's list, which beats offering nothing
+    vi.stubGlobal('fetch', () => {
+      throw new Error('offline');
+    });
+    stamp('bun', String(Date.now() + 365 * 86_400_000));
+
+    expect(await latest('bun')).toEqual([{ major: 9, version: '9.9.9' }]);
+  });
+
+  it('should not offer a listing whose ts is not a number when the fetch fails', async () => {
+    // a stamp that is not a number is a file this did not write, which is the
+    // same answer as an unreadable one
+    vi.stubGlobal('fetch', () => {
+      throw new Error('offline');
+    });
+    stamp('bun', '"nope"');
+
+    expect(await latest('bun')).toEqual([]);
+  });
+});
+
 /** A version that starts like one and then climbs, with this platform's separator. */
 const climbing = ['26.12.1', '..', '..', '..', 'tmp', 'pwn'].join(sep);
 

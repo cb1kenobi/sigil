@@ -1488,8 +1488,29 @@ which is the same asymmetry `version` already has.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
-fallback chain truncates at `-`, so `de-DE` is served by a `de` catalog and
-`zh-Hans-CN` by `zh-Hans` or `zh`.
+modifiers `@latin` and `@cyrillic` name a script and are read as one, so
+`sr_RS@latin` is `sr-Latn-RS`; every other modifier is dropped. The fallback
+chain truncates at `-`, so `de-DE` is served by a `de` catalog and `zh-Hans-CN`
+by `zh-Hans` or `zh`.
+
+A POSIX locale never spells a script, so before the bare language is tried the
+tag's likely script is: `zh_TW.UTF-8` is served by a `zh-TW` catalog if there is
+one, then by `zh-Hant`, and only then by `zh` — never by `zh-Hans`. What was
+asked for always wins when it is registered, so `LANG=zh` with `zh` and
+`zh-Hans` registered is served by `zh`. The likely form never changes the
+language or swaps one region for another, so `pt-BR` with `pt` and `pt-PT`
+registered is served by `pt`.
+
+| Asked for     | Registered           | Served by |
+| ------------- | -------------------- | --------- |
+| `zh`          | `zh`, `zh-Hans`      | `zh`      |
+| `zh-TW`       | `zh-Hant`, `zh`      | `zh-Hant` |
+| `zh-TW`       | `zh-TW`, `zh-Hant`   | `zh-TW`   |
+| `zh-TW`       | `zh`                 | `zh`      |
+| `zh-CN`       | `zh-Hans`, `zh-Hant` | `zh-Hans` |
+| `pt-BR`       | `pt`, `pt-PT`        | `pt`      |
+| `sr_RS@latin` | `sr-Latn`, `sr`      | `sr-Latn` |
+| `sr_RS`       | `sr-Latn`, `sr`      | `sr`      |
 
 There is no `--locale` flag, and that is a refusal rather than an omission: a
 parse can fail _before_ an option is read, so `mycli --porx --locale=de` throws
@@ -1504,6 +1525,10 @@ import { setLocale } from '@ttylabs/sigil/i18n';
 
 await setLocale(config.language); // after the app has read its config
 ```
+
+Two calls that overlap end with the **later** one in effect, however long each
+catalog takes to load; the earlier one resolves without changing anything, and
+the locale in effect stays so until the later one's catalog arrives.
 
 A string is translated **where it is built**, so a locale set here does not
 reach one already rendered. In practice that means a parse error and `--help`
@@ -2969,7 +2994,9 @@ and End to the first and last day of the month, and Enter takes the day under th
 cursor. It returns a `Date` at local midnight. `min` and `max` are inclusive and
 every move lands on the nearest bound rather than past it, `initial` outside them
 is moved to the nearer one, and `highlight`, `locale` and `weekStart` are as above.
-The grid keeps six rows while it is open, so the lines under it do not move as the
+No move leaves the years 0000-9999 that the parser's `date` type reads: a day or a
+week stops on 0000-01-01 or 9999-12-31, and a month in the first or last month of
+that range. The grid keeps six rows while it is open, so the lines under it do not move as the
 month changes.
 
 **`date({ calendar })`** shows the same grid under the date prompt's field, with
@@ -7436,6 +7463,14 @@ swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 of those is a recorded review finding, and it costs 102 bytes, because `json()`
 already uses four of the six and what is added is the export statements.
 
+`physicalPath(path)` is the path the kernel would resolve `path` to -- every
+symlink on the way followed, a `..` after a symlinked directory read the way
+the kernel reads it rather than collapsed lexically -- for a path that need not
+exist yet: the deepest ancestor that does is resolved and the rest is joined
+back on. It is what `writeAtomic` asks about its own target, and what
+`sigil build` asks before it empties or writes an output directory. A
+resolution that fails for any reason but something not being there throws.
+
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
 holds, or `undefined` where it is not there; `claim(theirs, value, paths,
@@ -7842,6 +7877,25 @@ The checker alone can also live in `sigil.json`, where the build bakes it in (a
 `npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
+
+#### When a cache is fresh
+
+The cache is answered from for `checkInterval` after it was written, and a cache
+whose stamp is more than a minute **ahead** of the clock is stale too: one
+written while the clock was wrong would otherwise go unchecked until real time
+caught up with it. A stamp that is not a finite number is stale as well.
+
+`isFreshStamp(ts, maxAge, now?)` is that rule, exported for an app that keeps a
+stamped cache of its own. `sigil package` uses it for its runtime listings.
+
+```js
+import { isFreshStamp } from '@ttylabs/sigil/updates';
+
+const held = JSON.parse(readFileSync(file, 'utf-8'));
+if (!isFreshStamp(held.ts, 86_400_000)) {
+  // refetch
+}
+```
 
 #### In a compiled binary
 

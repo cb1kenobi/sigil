@@ -563,5 +563,10 @@ export function shorthandLonghands(name: string): readonly PropertyName[] | unde
 // property table needs to know what a shorthand covers -- and this module
 // imports *that* one, because expanding a shorthand is the longhand parsers
 // doing the reading. So the dependency goes the only way it can: a hook, filled
-// in here, where the answer is
+// in here, where the answer is.
+//
+// It is the one import-time effect in the package, which declares
+// `"sideEffects": false`: that holds only while this module ships in the same
+// file as `properties.ts`, and `what "sideEffects": false relies on` in
+// `test/dist.test.ts` fails if the build ever splits them
 registerShorthandLookup(shorthandLonghands);

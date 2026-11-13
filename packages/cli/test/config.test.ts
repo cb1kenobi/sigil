@@ -239,6 +239,28 @@ describe('which of the two files it reads', () => {
     expect(() => readSigilConfig(root)).toThrow(/has both sigil\.json and sigil\.jsonc; keep one/);
   });
 
+  it('should name sigil.jsonc in an error about sigil.jsonc, where every message said sigil.json', () => {
+    // SIG-353: the messages written here opened with a constant, so a mistake in
+    // a `sigil.jsonc` sent its author to a `sigil.json` that is not there. One
+    // per reader the prefix is threaded through, since each was its own literal
+    const wrong: readonly [unknown, string][] = [
+      [{ build: [] }, '"build" must be an object'],
+      [{ components: '' }, '"components" must be a non-empty string'],
+      [{ components: '/etc' }, '"components" must be relative to the app'],
+      [{ build: { external: [''] } }, '"build.external" must be an array of package names'],
+      [{ package: { target: [''] } }, '"package.target" must be an array of targets'],
+      [{ updateCheck: { repo: 'a/b' } }, '"updateCheck.type" is required'],
+    ];
+
+    for (const name of CONFIG_FILES) {
+      for (const [json, message] of wrong) {
+        writeFileSync(join(root, name), JSON.stringify(json));
+        expect(() => readSigilConfig(root), `${name} ${message}`).toThrow(`${name}: ${message}`);
+        rmSync(join(root, name));
+      }
+    }
+  });
+
   it('should name the .json one where there is neither', () => {
     // which is the one `sigil new` writes and the one a message should name
     expect(CONFIG_FILE).to.equal('sigil.json');

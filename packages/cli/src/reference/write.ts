@@ -223,8 +223,8 @@ export interface SyncOptions {
  * stale page is **reported** and left, and a `--check` fails over it. Reporting
  * costs the author one `rm`; deleting costs them a file they wrote, and the
  * guard that would make deleting safe does not exist: `sigil build`'s own
- * refusal is of the app root and above, and a destination typed one directory
- * wrong is below it.
+ * refusal is of the app root and above and of a directory holding what the
+ * build reads, and a docs destination typed one directory wrong is neither.
  *
  * @param dir - The destination directory, or the file's own directory.
  * @param files - What the reference comes to.

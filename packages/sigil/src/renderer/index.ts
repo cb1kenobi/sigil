@@ -300,7 +300,15 @@ export interface RenderOptions {
    * panel wants. Ignored when `backend` was passed.
    */
   width?: number | 'auto';
-  /** Where a throw from a component, an effect or a frame goes. */
+  /**
+   * Where a throw from a component, an effect or a frame goes.
+   *
+   * Called only once the screen is back whenever a teardown is involved. What
+   * this throws does not stop the teardown or the other reports. It is raised
+   * from the call that was doing the reporting once every report has been tried:
+   * `frame()`, `dispose()`, or `render()` itself. Several throws are raised as an
+   * `AggregateError`.
+   */
   onError?: (error: unknown) => void;
   /** The terminal. Defaults to the process's. */
   terminal?: Terminal;
@@ -361,6 +369,10 @@ export interface Renderer {
    * region is what hands the rows back, and afterwards there is no anchor left
    * for an erase to be relative to, so a `stop()` on the other side of this
    * quietly does nothing.
+   *
+   * What a dispose handler, a cleanup or `backend.done()` itself threw goes to
+   * `onError` after the screen is back, and what `onError` throws in turn is
+   * raised from here.
    */
   dispose(): void;
   /**
@@ -751,11 +763,51 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     timer.unref?.();
   }
 
-  function teardown(finish: boolean): void {
+  /**
+   * Unmounts the tree and, for a `dispose()`, finishes the region.
+   *
+   * What a dispose handler or a cleanup throws is collected and handed back
+   * rather than reported, because `onError` is the caller's and so is what it
+   * throws: reporting from in here put it ahead of the screen coming back, and an
+   * `onError` that threw left the rest of the teardown undone along with the
+   * screen. Everything in the unmount that runs code from outside this file --
+   * the dispose handlers, the terminal's and the cascade's unsubscribes, the
+   * owner cleanups -- is caught one call at a time, so the unmount itself does
+   * not throw. `backend.done()` runs after it, and what that throws is collected
+   * with the rest.
+   *
+   * @returns What was thrown, in the order it was thrown.
+   */
+  function teardown(finish: boolean): unknown[] {
     if (disposed) {
-      return;
+      return [];
     }
     disposed = true;
+    const thrown: unknown[] = [];
+    unmount(thrown);
+    // and the screen goes back, which is what `dispose()` has always claimed to
+    // do and did not. An inline backend holds its rows until it is told
+    // otherwise: the anchor stays, and with it the arithmetic that says where
+    // the frame's top is relative to the cursor. A `console.log()` after
+    // `dispose()` moved the real cursor and left that arithmetic describing
+    // somewhere else, so the erase the region does on its way out started two
+    // rows *inside* the frame and cleared downwards -- taking the log line with
+    // it and leaving the top of the frame behind. `done()` leaves the frame in
+    // the log and puts the cursor below it, which is the state the docs
+    // describe. Not on the failure path: there the caller wants it erased, and
+    // `release()` calls `stop()` itself
+    if (finish) {
+      try {
+        backend.done();
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
+    return thrown;
+  }
+
+  /** The unmount half of `teardown()`, collecting what the app's code threw. */
+  function unmount(thrown: unknown[]): void {
     if (timer) {
       clearTimeout(timer);
       timer = undefined;
@@ -768,7 +820,11 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...disposeHandlers]) {
       if (disposeHandlers.delete(handler)) {
-        callDisposeHandler(handler);
+        try {
+          handler();
+        } catch (error) {
+          thrown.push(error);
+        }
       }
     }
     // and what was handed to this renderer goes with it, which is the renderer's
@@ -786,32 +842,74 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // than made to look load bearing
     frameHandlers.clear();
     excluded.clear();
-    offResize?.();
-    offCascade?.();
+    // the two unsubscribes belong to a terminal and a cascade the caller may
+    // have passed, so one that throws is collected like a cleanup rather than
+    // leaving the owner tree below undisposed
+    for (const off of [offResize, offCascade]) {
+      try {
+        off?.();
+      } catch (error) {
+        thrown.push(error);
+      }
+    }
     scope.setScheduler(previousScheduler);
     scope.setErrorHandler(previousHandler);
     if (owner) {
-      // reported rather than thrown: this is the renderer unmounting rather
+      // collected rather than thrown: this is the renderer unmounting rather
       // than a caller who asked, and the rule that one failing cleanup must
-      // not leave the rest of the teardown undone is why it collects
-      for (const error of disposeOwner(owner, false)) {
-        onError(error);
+      // not leave the rest of the teardown undone is why it collects. Reported
+      // by whoever called the teardown, once the screen is back
+      thrown.push(...disposeOwner(owner, false));
+    }
+  }
+
+  /**
+   * Unmounts, stops the backend and restores the terminal, each whatever the
+   * others threw, which is the failure path's teardown.
+   *
+   * @returns What was thrown on the way, for the caller to report.
+   */
+  function release(): unknown[] {
+    const thrown: unknown[] = [];
+    for (const step of [
+      () => thrown.push(...teardown(false)),
+      () => backend.stop(),
+      () => terminal.restore(),
+    ]) {
+      try {
+        step();
+      } catch (error) {
+        thrown.push(error);
       }
     }
+    return thrown;
+  }
 
-    // and the screen goes back, which is what `dispose()` has always claimed to
-    // do and did not. An inline backend holds its rows until it is told
-    // otherwise: the anchor stays, and with it the arithmetic that says where
-    // the frame's top is relative to the cursor. A `console.log()` after
-    // `dispose()` moved the real cursor and left that arithmetic describing
-    // somewhere else, so the erase the region does on its way out started two
-    // rows *inside* the frame and cleared downwards -- taking the log line with
-    // it and leaving the top of the frame behind. `done()` leaves the frame in
-    // the log and puts the cursor below it, which is the state the docs
-    // describe. Not on the failure path: there the caller wants it erased, and
-    // `fail()` calls `stop()` itself
-    if (finish) {
-      backend.done();
+  /**
+   * Hands each error to `onError`, every one whatever it did with the one before.
+   *
+   * @returns What `onError` threw, which the caller raises: an error handler that
+   *   throws is a bug in the app, and dropping it is the one answer that hides it.
+   */
+  function report(errors: readonly unknown[]): unknown[] {
+    const raised: unknown[] = [];
+    for (const error of errors) {
+      try {
+        onError(error);
+      } catch (thrown) {
+        raised.push(thrown);
+      }
+    }
+    return raised;
+  }
+
+  /** Raises what `onError` threw: itself if it threw once, an aggregate if more. */
+  function raise(raised: readonly unknown[]): void {
+    if (raised.length === 1) {
+      throw raised[0];
+    }
+    if (raised.length > 1) {
+      throw new AggregateError(raised, 'Errors thrown by onError');
     }
   }
 
@@ -822,14 +920,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     failed = true;
     // the terminal comes back before anything is written about why: a CLI that
     // dies on the alternate buffer with the cursor hidden has eaten the user's
-    // shell, and a message printed into a half-drawn frame is unreadable
-    try {
-      teardown(false);
-      backend.stop();
-      terminal.restore();
-    } finally {
-      onError(error);
-    }
+    // shell, and a message printed into a half-drawn frame is unreadable. What the
+    // teardown threw is said first, in the order it was thrown, then the failure
+    raise(report([...release(), error]));
   }
 
   /**
@@ -1248,6 +1341,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       // left it subscribed (SIG-321)
       untrack(settle);
     } catch (error) {
+      if (failed) {
+        // what `onError` threw while `fail()` reported, on its way out of an
+        // effect's flush: the renderer has already failed, and handing this to
+        // `fail()` again would return early and drop it in silence. Raised from
+        // the frame instead, over a screen that is already back
+        throw error;
+      }
       fail(error);
     } finally {
       settling = false;
@@ -1279,11 +1379,30 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // `onError`: `render()` is still on the stack, so there is somebody to hand
     // it to, and reporting it as well is the same failure said twice. A throw
     // from an effect during the *first frame* has no such caller and is
-    // reported, which is why the two paths differ
+    // reported, which is why the two paths differ.
+    //
+    // An effect the body created that failed on its first run has already been
+    // through `fail()`, which gave everything back; what reaches here then is the
+    // body's own throw or what `onError` threw in there, and giving the screen
+    // back a second time would restore a terminal twice
+    if (failed) {
+      throw error;
+    }
     failed = true;
-    teardown(false);
-    backend.stop();
-    terminal.restore();
+    // what a cleanup threw is reported once the screen is back, like `fail()`'s.
+    // What `onError` throws for one of those travels with the body's error rather
+    // than replacing it: the body's is the one the caller is owed
+    const raised = report(release());
+    if (raised.length > 0) {
+      // the body's message is in the aggregate's own, because a writer that
+      // renders an error as its message says nothing else about an aggregate
+      const said = error instanceof Error ? error.message : String(error);
+      throw new AggregateError(
+        [error, ...raised],
+        `${said} (and onError threw while reporting what the teardown threw)`,
+        { cause: error }
+      );
+    }
     throw error;
   }
 
@@ -1413,7 +1532,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     },
     backend,
     detect,
-    dispose: () => teardown(true),
+    // what the teardown threw is reported after `backend.done()` has given the
+    // region back, and what `onError` throws for it is raised from here
+    dispose: () => raise(report(teardown(true))),
 
     excludeFromStats(element: Element): () => void {
       excluded.add(element);

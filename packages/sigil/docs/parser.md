@@ -1000,9 +1000,15 @@ character is a flag or the start of a value depends on how it was declared:
 | `-n5`       | `-n` takes a value           | `-n 5`           |
 | `-abcvalue` | `-a`, `-b` flags, `-c` value | `-a -b -c value` |
 | `-ab val`   | `-a` flag, `-b` value        | `-a -b val`      |
+| `-Dfoo=bar` | `-D` takes a value           | `-D foo=bar`     |
 
-A group that cannot be resolved in the current context is left alone and
-retried once more contexts are known.
+Everything after the letter that takes a value is that value, exactly as typed,
+`=` included. Quotes are the one exception, and only when they come straight
+after the option's name: `-D"foo"` and `--name"val"` lose them, while
+`-Dfoo"bar"` is `foo"bar"`. A group that cannot be resolved in the current
+context is left alone and retried once more contexts are known. Whatever part of
+it never resolves reaches a positional argument exactly as typed: with only `-v`
+declared, `-vXY=z` sets `-v` and leaves the positional `-XY=z`.
 
 ### Option properties
 

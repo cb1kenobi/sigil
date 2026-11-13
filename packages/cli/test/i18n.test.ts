@@ -274,6 +274,6 @@ describe('reading an app`s catalogs', () => {
     const { discoverApp } = await import('../src/build/discover.ts');
     const read = readAppCatalogs(discoverApp(join(fixture, '..', 'app')));
 
-    expect(read).toEqual({ catalogs: [], declared: false, diagnostics: [] });
+    expect(read).toEqual({ catalogs: [], declared: false, diagnostics: [], files: [] });
   });
 });

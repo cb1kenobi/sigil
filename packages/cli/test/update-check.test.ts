@@ -290,6 +290,18 @@ describe('what the build bakes in', () => {
     expect(JSON.parse(JSON.parse(define[UPDATE_CHECK_DEFINE]!))).toEqual({ compiled: true });
   });
 
+  it('should print that literal with quote(), so no separator is left raw', () => {
+    // SIG-353: the one helper for a string printed as source. JSON leaves
+    // U+2028 raw and V8 counts it as a line break. Built from a code point so
+    // that no tool between here and the file turns an escape into the character
+    const separator = String.fromCharCode(0x2028);
+    const packageName = `pkg${separator}name`;
+    const literal = updateCheckDefine({ compiled: true, packageName })[UPDATE_CHECK_DEFINE]!;
+
+    expect(literal.includes(separator)).toBe(false);
+    expect(JSON.parse(JSON.parse(literal))).toEqual({ compiled: true, packageName });
+  });
+
   it('should carry the package name even when nothing was declared', () => {
     // the program is `sigil` and the package is `@ttylabs/cli`, and an
     // automatic check has only the first in hand

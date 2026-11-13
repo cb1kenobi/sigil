@@ -1279,7 +1279,9 @@ describe('Renderer.onDispose()', () => {
     view.onDispose(() => order.push('second'));
 
     view.dispose();
-    expect(order).toEqual(['reported first', 'second', 'owner', 'screen']);
+    // and reported once the screen is back, which is the failure path's order
+    // and holds for a dispose() too (SIG-348)
+    expect(order).toEqual(['second', 'owner', 'screen', 'reported first']);
   });
 
   it('should not call a handler that unsubscribed, before or during the dispatch', () => {
@@ -1461,6 +1463,304 @@ describe('a frame that failed part way', () => {
     ).toThrow('during mount');
 
     expect(reports).toEqual([]);
+  });
+});
+
+/**
+ * SIG-348: an `onError` that throws while a teardown reports.
+ *
+ * Each of the three teardowns reported what a cleanup threw from inside itself,
+ * ahead of the backend and the terminal, so an `onError` that threw there left
+ * both undone -- and on the failure path the throw then came back to `fail()`,
+ * which had already failed and dropped it.
+ */
+describe('an onError that throws during a teardown', () => {
+  /** A harness whose backend and terminal count, and log, what went back. */
+  function counted() {
+    const h = harness();
+    const order: string[] = [];
+    const count = { done: 0, restore: 0, stop: 0 };
+    const backend = h.backend as unknown as { done: () => void; stop: () => void };
+    backend.done = () => {
+      count.done++;
+      order.push('done');
+    };
+    backend.stop = () => {
+      count.stop++;
+      order.push('stop');
+    };
+    (h.terminal as unknown as { restore: () => void }).restore = () => {
+      count.restore++;
+      order.push('restore');
+    };
+    /** Logs what it is handed, then throws it straight back. */
+    const onError = (error: unknown): never => {
+      order.push(`reported ${(error as Error).message}`);
+      throw error;
+    };
+    return { count, h, onError, order };
+  }
+
+  it('should restore the terminal once when a failed frame reports a throwing cleanup', () => {
+    const { count, h, onError, order } = counted();
+    const n = new State(0);
+    const view = render(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        const label = text('');
+        createEffect(() => {
+          if (n.get() > 0) {
+            throw new Error('boom');
+          }
+          label.setText('ok');
+        });
+        return label;
+      },
+      { backend: h.backend, effects, onError, terminal: h.terminal }
+    );
+
+    n.set(1);
+    let raised: unknown;
+    try {
+      view.frame();
+    } catch (error) {
+      raised = error;
+    }
+
+    expect(view.failed).toBe(true);
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+    // the screen first, then every report, the failure last
+    expect(order).toEqual(['stop', 'restore', 'reported cleanup broke', 'reported boom']);
+    // what `onError` threw comes out of the frame rather than being dropped
+    expect(raised).toBeInstanceOf(AggregateError);
+    expect((raised as AggregateError).errors.map((e: Error) => e.message)).toEqual([
+      'cleanup broke',
+      'boom',
+    ]);
+  });
+
+  it('should raise what onError threw from the frame when only the failure is reported', () => {
+    const { count, h, onError } = counted();
+    const n = new State(0);
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          if (n.get() > 0) {
+            throw new Error('boom');
+          }
+          label.setText('ok');
+        });
+        return label;
+      },
+      { backend: h.backend, effects, onError, terminal: h.terminal }
+    );
+
+    n.set(1);
+    expect(() => view.frame()).toThrow('boom');
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+    // and the renderer has stopped: a later frame neither restores nor raises
+    expect(() => view.frame()).not.toThrow();
+    expect(count.restore).toBe(1);
+  });
+
+  it('should restore the terminal once when a body that threw has a throwing cleanup', () => {
+    const { count, h, onError, order } = counted();
+    let raised: unknown;
+    try {
+      render(
+        () => {
+          onCleanup(() => {
+            throw new Error('cleanup broke');
+          });
+          throw new Error('during mount');
+        },
+        { backend: h.backend, effects, onError, terminal: h.terminal }
+      );
+    } catch (error) {
+      raised = error;
+    }
+
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+    expect(order).toEqual(['stop', 'restore', 'reported cleanup broke']);
+    // the body's error is still the first thing the caller is handed, with what
+    // `onError` threw beside it rather than in its place
+    expect(raised).toBeInstanceOf(AggregateError);
+    expect((raised as AggregateError).errors.map((e: Error) => e.message)).toEqual([
+      'during mount',
+      'cleanup broke',
+    ]);
+    // and says the body's message itself, since a writer that renders one line
+    // per error shows only an aggregate's own
+    expect((raised as AggregateError).message).toContain('during mount');
+    expect((raised as AggregateError).cause).toBe((raised as AggregateError).errors[0]);
+  });
+
+  it('should restore the terminal when stopping the backend threw, and report that too', () => {
+    const { count, h, order } = counted();
+    (h.backend as unknown as { stop: () => void }).stop = () => {
+      count.stop++;
+      throw new Error('stop broke');
+    };
+    const n = new State(0);
+    const view = render(
+      () => {
+        const label = text('');
+        createEffect(() => {
+          if (n.get() > 0) {
+            throw new Error('boom');
+          }
+          label.setText('ok');
+        });
+        return label;
+      },
+      {
+        backend: h.backend,
+        effects,
+        onError: (e) => void order.push(`reported ${(e as Error).message}`),
+        terminal: h.terminal,
+      }
+    );
+
+    n.set(1);
+    view.frame();
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+    expect(order).toEqual(['restore', 'reported stop broke', 'reported boom']);
+  });
+
+  it('should not restore twice when the renderer failed during mount and onError threw', () => {
+    // an effect's first run throws straight out of `createEffect()`, so the way
+    // to fail inside the body is a flush of the scope the caller passed: the
+    // re-run reports to `fail()`, which gives everything back, and what
+    // `onError` throws there reaches the body's catch on its way out
+    const { count, h, onError } = counted();
+    const n = new State(0);
+    expect(() =>
+      render(
+        () => {
+          createEffect(() => {
+            if (n.get() > 0) {
+              throw new Error('re-run');
+            }
+          });
+          n.set(1);
+          effects.flush();
+          return text('x');
+        },
+        { backend: h.backend, effects, onError, terminal: h.terminal }
+      )
+    ).toThrow('re-run');
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+  });
+
+  it('should still hand the body error alone to the caller when onError does not throw', () => {
+    const { count, h, order } = counted();
+    expect(() =>
+      render(
+        () => {
+          onCleanup(() => {
+            throw new Error('cleanup broke');
+          });
+          throw new Error('during mount');
+        },
+        {
+          backend: h.backend,
+          effects,
+          onError: (e) => void order.push(`reported ${(e as Error).message}`),
+          terminal: h.terminal,
+        }
+      )
+    ).toThrow('during mount');
+    expect(count).toEqual({ done: 0, restore: 1, stop: 1 });
+    expect(order).toEqual(['stop', 'restore', 'reported cleanup broke']);
+  });
+
+  it('should finish the region once when a dispose() reports a throwing cleanup', () => {
+    const { count, h, onError, order } = counted();
+    const view = render(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        return text('x');
+      },
+      { backend: h.backend, effects, onError, terminal: h.terminal }
+    );
+    view.onDispose(() => {
+      throw new Error('handler broke');
+    });
+
+    let raised: unknown;
+    try {
+      view.dispose();
+    } catch (error) {
+      raised = error;
+    }
+
+    // `dispose()` finishes the region and leaves the terminal to its caller, as
+    // it always has; what changed is that it now does so whatever `onError` does
+    expect(count).toEqual({ done: 1, restore: 0, stop: 0 });
+    expect(order).toEqual(['done', 'reported handler broke', 'reported cleanup broke']);
+    expect(raised).toBeInstanceOf(AggregateError);
+    expect(view.mounted).toBe(false);
+    expect(view.failed).toBe(false);
+    // and a second dispose() has nothing left to give back or say
+    expect(() => view.dispose()).not.toThrow();
+    expect(count.done).toBe(1);
+  });
+
+  it('should report a cleanup and a backend.done() that both threw on dispose()', () => {
+    const { count, h, order } = counted();
+    (h.backend as unknown as { done: () => void }).done = () => {
+      count.done++;
+      order.push('done');
+      throw new Error('done broke');
+    };
+    const view = render(
+      () => {
+        onCleanup(() => {
+          throw new Error('cleanup broke');
+        });
+        return text('x');
+      },
+      {
+        backend: h.backend,
+        effects,
+        onError: (e) => void order.push(`reported ${(e as Error).message}`),
+        terminal: h.terminal,
+      }
+    );
+
+    expect(() => view.dispose()).not.toThrow();
+    expect(count.done).toBe(1);
+    expect(order).toEqual(['done', 'reported cleanup broke', 'reported done broke']);
+  });
+
+  it('should still run the cleanups when the terminal unsubscribe throws', () => {
+    // a terminal can be the caller's, and its `onResize()` unsubscribe is called
+    // in the middle of the unmount, ahead of the owner tree
+    const { count, h, order } = counted();
+    (h.terminal as unknown as { onResize: () => () => void }).onResize = () => () => {
+      throw new Error('unsubscribe broke');
+    };
+    const view = render(
+      () => {
+        onCleanup(() => order.push('cleanup'));
+        return text('x');
+      },
+      {
+        backend: h.backend,
+        effects,
+        onError: (e) => void order.push(`reported ${(e as Error).message}`),
+        terminal: h.terminal,
+      }
+    );
+
+    view.dispose();
+    expect(count.done).toBe(1);
+    expect(order).toEqual(['cleanup', 'done', 'reported unsubscribe broke']);
   });
 });
 
