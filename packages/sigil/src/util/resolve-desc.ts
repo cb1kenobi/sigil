@@ -23,7 +23,7 @@ export function resolveDesc(desc: unknown, what: string): string | undefined {
   }
 
   if (typeof desc !== 'function') {
-    throw new TypeError(`Expected desc for ${what} to be a string or a function`);
+    throw new TypeError(descTypeMessage(what));
   }
 
   const text: unknown = (desc as () => unknown)();
@@ -35,8 +35,32 @@ export function resolveDesc(desc: unknown, what: string): string | undefined {
   // about the same shape and is entitled to be, since what it answers is
   // interpolated into a string and coerces
   if (typeof text !== 'string') {
-    throw new TypeError(`Expected desc for ${what} to return a string`);
+    throw new TypeError(descReturnMessage(what));
   }
 
   return text;
+}
+
+/**
+ * What a description that is neither a string nor a function is refused with.
+ *
+ * Exported, through `@ttylabs/sigil/routes`, because `sigil build` refuses the
+ * same placeholder from source and has to say it in these words (SIG-421).
+ *
+ * @param what - What is being described, as `resolveDesc()` takes it.
+ * @returns The message.
+ */
+export function descTypeMessage(what: string): string {
+  return `Expected desc for ${what} to be a string or a function`;
+}
+
+/**
+ * What a description thunk that answers something other than a string is
+ * refused with -- a number, or the promise an `async` one always answers.
+ *
+ * @param what - What is being described, as `resolveDesc()` takes it.
+ * @returns The message.
+ */
+export function descReturnMessage(what: string): string {
+  return `Expected desc for ${what} to return a string`;
 }

@@ -24,6 +24,13 @@
  * and at most one `commands.json` read per level, which is what lets the build
  * ask about a tree it is compiling and the runtime ask about a level it is
  * about to match.
+ *
+ * This file is also the entry `@ttylabs/sigil/routes` is built from, which is
+ * the subpath `sigil build` reads the runtime's rules through -- so the other
+ * rules the build has to apply exactly as the runtime does are re-exported
+ * below rather than given a subpath each: how a name string is read, and the
+ * words a placeholder's `desc`, `hidden` and `default` are refused in
+ * (SIG-421).
  */
 
 import { parseJsonc } from '../../config/jsonc.js';
@@ -31,6 +38,14 @@ import { byCodeUnit } from '../../util/by-code-unit.js';
 import { errorMessage } from '../../util/error-message.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
+
+export { descReturnMessage, descTypeMessage } from '../../util/resolve-desc.js';
+export {
+  defaultTypeMessage,
+  hiddenTypeMessage,
+  type ParsedName,
+  parseName,
+} from './declaration.js';
 
 /**
  * A module file, which is any of the six extensions a route may have.

@@ -12,7 +12,7 @@
  */
 
 import { walk } from './walk.ts';
-import type { Expression, Node, ObjectExpression, ObjectProperty } from 'oxc-parser';
+import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
 /**
  * Looks through the wrappers that do not change what a value is.
@@ -128,6 +128,155 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
   }
 
   return undefined;
+}
+
+/**
+ * Whether a spread or a computed key may set `key` on the object it sits in,
+ * which is what decides whether a spelling of `key` written before it is the
+ * one that runs.
+ *
+ * Read rather than assumed, because the cheap answer -- any spread, any
+ * computed key -- is wrong in both directions at once: `['path']` after a
+ * `desc` cannot replace it, so treating it as though it might either drops a
+ * description the build can read or waves through one the runtime refuses
+ * (SIG-421). So a computed key that is a literal may replace only the key it
+ * converts to -- `[1]` and `[1n]` are `"1"`, `[true]` is `"true"`, `[null]` is
+ * `"null"`, `[/a/g]` is `"/a/g"` -- and a spread may replace only what its operand can carry: an
+ * object literal what it carries, read through its own spreads; an array, a
+ * string or a template literal its indices and nothing else -- an array only
+ * when no element is itself a spread; and any other literal, or `undefined`,
+ * nothing at all.
+ *
+ * **Literals are read and expressions are not evaluated.** A spread of a name,
+ * a call, or a conditional, logical or sequence expression -- even one whose
+ * arms are all literals -- and a key computed by an expression, `['de' +
+ * 'sc']`, may carry anything. That costs only a warning where a bake was
+ * possible, and never bakes a wrong value. A call is not looked through here,
+ * even the single-argument one `objectLiteral()` unwraps: a wrapper adding a
+ * `desc` is exactly the case this question exists for.
+ *
+ * A plain property is not asked about: its key is its own, and the caller
+ * reads it by name.
+ *
+ * @param property - A property of an object literal.
+ * @param key - The key in question.
+ * @returns Whether it may set `key`.
+ */
+export function mayCarry(property: ObjectExpression['properties'][number], key: string): boolean {
+  if (property.type === 'SpreadElement') {
+    const spread = unwrapShallow(property.argument);
+
+    switch (spread.type) {
+      case 'ObjectExpression':
+        return spread.properties.some((inner) =>
+          inner.type === 'SpreadElement' || inner.computed
+            ? mayCarry(inner, key)
+            : propertyKey(inner) === key
+        );
+      case 'ArrayExpression':
+        // an array copies its indices and nothing else -- unless an element
+        // is itself a spread, which is an expression rather than a literal and
+        // so is not read: `[...null]` throws when the object is evaluated
+        return (
+          spread.elements.some((element) => element?.type === 'SpreadElement') || INDEX.test(key)
+        );
+      case 'TemplateLiteral':
+        // ...and so does a string
+        return INDEX.test(key);
+      case 'Literal':
+        // ...and so does a string literal, while a primitive copies nothing:
+        // `null`, a boolean, a number, a bigint, and a regular expression,
+        // whose one own property is `lastIndex`, which does not enumerate
+        return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
+      default:
+        return !isUndefined(spread);
+    }
+  }
+
+  if (!property.computed) {
+    return false;
+  }
+
+  const name = literalKey(property.key as Expression);
+  return name === undefined || name === key;
+}
+
+/** The order `RegExp.prototype.flags` lists flags in, which is what `String()` prints. */
+const FLAGS = 'dgimsuvy';
+
+/** A canonical array index, the only kind of key an array or a string spreads. */
+const INDEX = /^(?:0|[1-9]\d*)$/;
+
+/**
+ * The property key a computed key written as a literal converts to.
+ *
+ * @param node - The expression inside the brackets.
+ * @returns The key, or `undefined` where it is not a literal this reads.
+ */
+function literalKey(node: Expression): string | undefined {
+  const value = unwrapShallow(node);
+  if (value.type !== 'Literal') {
+    return literalString(value);
+  }
+
+  // a regular expression's is its source between slashes and its flags, read
+  // off the node rather than off a `RegExp` the host may not be able to build
+  if ('regex' in value) {
+    const { flags, pattern } = value.regex;
+    return `/${pattern}/${[...flags].sort((a, b) => FLAGS.indexOf(a) - FLAGS.indexOf(b)).join('')}`;
+  }
+
+  // what `String()` makes of it is what the property key is: `[1.0]` is `"1"`
+  return value.value === null || typeof value.value !== 'object' ? String(value.value) : undefined;
+}
+
+/**
+ * Where the last property that may set `key` without spelling it sits -- a
+ * spread or a computed key that `mayCarry()` says may carry it.
+ *
+ * A spelling of `key` written before it is not known to be what runs, since
+ * object-literal order is what the module runs with and that property may
+ * replace it. One function for the module lift and the placeholder read, so
+ * the two cannot come to disagree about which spelling is the one that runs.
+ *
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @returns Its index, or `-1` where nothing may replace the key.
+ */
+export function lastReplacing(object: ObjectExpression, key: string): number {
+  return object.properties.findLastIndex((property) => mayCarry(property, key));
+}
+
+/**
+ * The spread that may set `key` on an object that never spells it, which makes
+ * the key unknown rather than absent -- the difference between a description
+ * the build missed and one nobody wrote.
+ *
+ * One function for the module lift and the placeholder read, as
+ * `lastReplacing()` is for a key that *is* spelled: in a module an absent
+ * `desc` beside one is reported, and on a placeholder a key a spread may carry
+ * is the placeholder's rather than the module's, since the runtime merges the
+ * module in only where the placeholder's key is `undefined` (SIG-421). Spreads
+ * only: a computed key beside an absent key is not reported, as it never was.
+ *
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @returns The first such spread, or `undefined` where the key is spelled or
+ *   nothing may carry it.
+ */
+export function unspelledCarrier(object: ObjectExpression, key: string): SpreadElement | undefined {
+  if (
+    object.properties.some(
+      (property) => property.type !== 'SpreadElement' && propertyKey(property) === key
+    )
+  ) {
+    return undefined;
+  }
+
+  return object.properties.find(
+    (property): property is SpreadElement =>
+      property.type === 'SpreadElement' && mayCarry(property, key)
+  );
 }
 
 /**

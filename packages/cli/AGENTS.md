@@ -612,6 +612,82 @@ makes it testable with a fixture directory and no bundler at all.
   `a placeholder's ... were replaced by the module's` in
   `test/build/discover.test.ts` and its built-against-source twin in
   `test/build-command.test.ts`, over `discover/placeholder-decides`.
+- **...and what the runtime refuses at start includes the shapes that only look
+  readable.** SIG-421. `desc: async () => 'x'` was baked as `x`, so the built app
+  worked where the app from source threw at start; `hidden() { return true }`
+  and `desc: () => 42` only warned. A thunk the source settles cannot answer a
+  string -- `async`, a generator, an arrow whose body is `undefined` or a literal
+  of another type -- and a method `hidden`, are now errors. The words are the
+  runtime's own definitions rather than copies: `descTypeMessage()`,
+  `descReturnMessage()`, `hiddenTypeMessage()` and `defaultTypeMessage()` are
+  re-exported from `@ttylabs/sigil/routes` beside `parseName()`, which moved out
+  of `initCommand()` into `src/parser/command/declaration.ts` for it -- the
+  subpath the build already reads the route rules through, rather than a new
+  one. A command is named the way the runtime names it in each message, which is
+  not one rule: a `desc` message names the **parsed** name (`'build, b'` is
+  `build`, `'!secret'` is `secret`), while `hidden` and `default` name the name
+  string **as declared**, and a build repeating the runtime's refusal repeats
+  that rather than improving on it. The build's own warnings use the parsed
+  name. An interpolated `__` tag on a placeholder, or a thunk over one, gets
+  the interpolation message a module's already got. The test asks `main()` for
+  its refusals over the very schema the build read, so the wording cannot
+  drift.
+- **A `!` name drops one warning and nothing else.** A `!` and `hidden` are
+  additive and a **boolean** cannot un-hide a `!` name, so for a `hidden` the
+  build cannot read -- `hidden: flag`, an accessor -- "the built app will list
+  it in help" is false under a `!`, and it is the only thing that warning says,
+  so it is not given. Everything else is reported under a `!` as anywhere: a
+  `hidden` of the wrong type or a method is the runtime's error, since
+  `initCommand()` checks the type before it applies the `!`, and a `hidden` a
+  later spread or computed key may replace, or a spread may carry, is still
+  warned about, saying that the `!` hides the command unless the value that
+  runs is neither a boolean nor `undefined` -- `initCommand()` refuses only a
+  `hidden` that is defined and not a boolean.
+- **...and a refusal applies only to the spelling the runtime will see.**
+  SIG-421, from review. `{ desc: async () => 'x', ...base }` and
+  `{ hidden() {}, ...{ hidden: false } }` start fine, because the spread
+  replaces the refused spelling -- and the build failed on them. A `desc` or
+  `hidden` whose last spelling comes before a later property that **may carry
+  it** is unknown: a warning naming the key, nothing baked -- not the module's
+  answer either, since the placeholder declares one -- and never an error,
+  whether the spelling was refusable, a literal, computed or `undefined`. That
+  last one is asked before an `undefined` is set aside, because
+  `{ desc: undefined, ...{ desc: 'x' } }` registers `x`; an `undefined` with
+  nothing after it that may carry `desc` is still not declared. Whether a
+  property may carry a key is **read**, by `mayCarry()` and `lastReplacing()`
+  in `literals.ts`, which `factsOf()` asks too, so the module lift and the
+  placeholder read cannot disagree about which spelling runs: a computed key
+  that is a literal may carry only the key `String()` makes of it (`['path']`,
+  ``[`path`]``, `[1]` and `[1n]` are `"1"`, `[true]`, `[null]`, `[/a/g]` is
+  `"/a/g"`); a spread of an object literal only what that literal carries, read
+  through its own spreads; a spread of a string or a template literal only its
+  indices, and of an array literal too unless an element is itself a spread; a
+  spread of any other literal, or of `undefined`, nothing; and a spread of a
+  name or a call, or a key computed from a name, may carry anything. A module
+  that rebinds `undefined`, by any declaration or import, is not modeled: the
+  build reads the identifier as the value `undefined`. Nor is an expression
+  that throws when the schema module is evaluated (`...[[...null]]`), since
+  the built app evaluates that module too and throws in the same place. **Literals
+  are read and expressions are not evaluated**, so a spread of a conditional,
+  logical or sequence expression and a key like `['de' + 'sc']` may carry
+  anything too, even when every operand is a literal -- which can only turn a
+  bake into a warning, never bake a wrong value. A call is not looked through,
+  not even the one-argument wrapper `objectLiteral()` unwraps, because a wrapper
+  adding a `desc` is the very case in question. So `{ desc: 'Build', ['path']:
+  ... }` and `{ desc: 'Build', ...[1, 2] }` bake `Build`, `{ desc: async () =>
+  'x', ['path']: ... }` and `{ desc: async () => 'x', ...null }` are the
+  runtime's error, and `{ hidden: true, ...{ path } }` bakes `true`. The other
+  half is a key the placeholder spells **nowhere** that a spread may carry,
+  which `unspelledCarrier()` answers for both readers: `{ ...{ desc: 'x',
+  hidden: true }, path }` registers both from the spread, and the runtime
+  merges the module in only where the placeholder's key is `undefined` -- so
+  the build no longer bakes the module's `desc` and `hidden` in their place,
+  and says so, as a module's absent `desc` beside a spread already was. Spreads
+  only, there: a computed key beside an absent key is not reported on either
+  side. Covered by the three `main()`-checked tests in
+  `test/build/discover.test.ts` that name a later spread or computed key, and by
+  the `nothing can replace it`, `carries no desc` and `nothing is evaluated`
+  cases in `test/build/extract.test.ts`.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
@@ -646,7 +722,12 @@ makes it testable with a fixture directory and no bundler at all.
   ``{ desc: __`key`, desc: 'plain' }`` is prose, where the earlier tag's
   `descTranslated` used to survive and print `plain` as a catalog key. A later
   `undefined` is not declared, as the runtime reads it, so it leaves nothing and
-  says nothing.
+  says nothing. SIG-421 finished it from the other side: only the last spelling
+  is read at all, so `{ desc: f(), desc: 'a' }` bakes `a` **without** the
+  earlier spelling's warning, which was about a value the module never runs
+  with -- the same for an earlier accessor, computed `hidden` or interpolated
+  tag. For the same reason a `desc` after the last spread, readable or not,
+  is no longer also reported as one the spread might carry.
 - **It looks through the wrappers that change nothing and stops at the one that
   might not.** `command()` is documented as the identity function and exists only
   so inference reaches a nested literal; `as` and `satisfies` are type syntax that

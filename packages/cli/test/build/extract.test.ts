@@ -391,6 +391,20 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.deep.equal([]);
     });
 
+    it('a computed desc written after a spread was also said to be one the spread might carry', () => {
+      // SIG-421. A `desc` after the last spread decides whatever the spread
+      // carried, so the only thing unknown about it is its own value -- which
+      // the computed warning already says
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { ...base, desc: f() };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+    });
+
     it('a desc or hidden written before a spread was lifted with no warning, though the spread wins at run time', () => {
       // SIG-352. Object-literal order is what the module runs with, so in
       // `{ desc: 'early', hidden: false, ...base }` both values are whatever
@@ -463,6 +477,138 @@ describe('extracting a command module', () => {
     });
 
     it.each([
+      ['a computed key naming another', `export default { desc: 'a', ['path']: 'x' };`],
+      ['a template key naming another', 'export default { desc: `a`, [`path`]: 1 };'],
+      [
+        'a spread of a literal without it',
+        `export default { desc: 'a', ...{ run() {}, ...{ hidden: true } } };`,
+      ],
+    ])(
+      'a desc before %s was taken for one that may be replaced, though nothing can replace it',
+      (_, source) => {
+        // SIG-421, review round 2. Whether a later property may carry a key is
+        // read rather than assumed, by the `lastReplacing()` the placeholder
+        // read shares -- so the spelling before it is the one that runs
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts.desc).to.equal('a');
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
+
+    it.each([
+      ['a spread of a literal that carries it', `export default { desc: 'a', ...{ desc: 'b' } };`],
+      ['a nested one', `export default { desc: 'a', ...{ ...{ desc: 'b' } } };`],
+      ['a spread of a call', `export default { desc: 'a', ...wrap({ run() {} }) };`],
+      ['a key computed from a name', `export default { desc: 'a', [key]: 'b' };`],
+    ])('should still read a desc before %s as unknown', (_, source) => {
+      const { diagnostics, facts } = extractCommand('a.js', source);
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it('said a spread that cannot carry a desc might carry one', () => {
+      // SIG-421, review round 2
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { hidden: true, ...{ run() {} } };`
+      );
+
+      expect(facts).to.deep.equal({ hidden: true });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it.each([
+      ['an array', `export default { desc: 'a', ...[1, 2] };`],
+      ['a string', `export default { desc: 'a', ...'ab' };`],
+      ['a template', 'export default { desc: `a`, ...`b${c}` };'],
+      ['a boolean', `export default { desc: 'a', ...false };`],
+      ['null', `export default { desc: 'a', ...null };`],
+      ['a number and a bigint', `export default { desc: 'a', ...1, ...1n };`],
+      ['a regular expression', `export default { desc: 'a', .../desc/ };`],
+      ['undefined', `export default { desc: 'a', ...undefined, ...void 0, ...void f() };`],
+      ['an array of null', `export default { desc: 'a', ...[null, , 1] };`],
+      ['a number key', `export default { desc: 'a', [1]: 0 };`],
+      ['a bigint key', `export default { desc: 'a', [1n]: 0 };`],
+      ['a boolean key', `export default { desc: 'a', [true]: 0 };`],
+      ['a null key', `export default { desc: 'a', [null]: 0 };`],
+    ])(
+      'a desc before a spread or computed key of %s was taken for one that may be replaced, though a literal like it carries no desc',
+      (_, source) => {
+        // SIG-421, review round 3. An array or a string spreads its indices, a
+        // primitive spreads nothing, and a literal key is what `String()` makes
+        // of it -- all read off the literal, nothing evaluated
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts.desc).to.equal('a');
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
+
+    it.each([
+      ['a key built by an expression', `export default { desc: 'a', ['de' + 'sc']: 'b' };`],
+      [
+        'a conditional of two literals',
+        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+      ],
+      ['a logical expression', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      ['a sequence', `export default { desc: 'a', ...(0, { run() {} }) };`],
+    ])('should read a desc before %s as unknown, because nothing is evaluated', (_, source) => {
+      // the rule is that literals are read and expressions are not evaluated,
+      // which can only turn a bake into a warning and never bake a wrong value
+      const { diagnostics, facts } = extractCommand('a.js', source);
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it.each([
+      ['an array holding a spread', `export default { desc: 'a', ...[...null] };`],
+      ['an array holding a spread of a name', `export default { desc: 'a', ...[...items] };`],
+    ])(
+      'a desc before a spread of %s was baked, though that spread is not known to carry indices or nothing',
+      (_, source) => {
+        // SIG-421, review round 4. A spread inside an array is an expression
+        // rather than a literal -- `[...null]` throws when the object is
+        // evaluated -- so it is not read, and the array may carry anything
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts).to.deep.equal({});
+        expect(diagnostics).to.have.lengthOf(1);
+        expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+      }
+    );
+
+    it.each([
+      ['a regular expression key', `export default { desc: 'a', [/desc/]: 0 };`],
+      ['one with flags', `export default { desc: 'a', [/desc/gi]: 0 };`],
+    ])(
+      'a desc before %s was taken for one that may be replaced, though String() makes it "/desc/..."',
+      (_, source) => {
+        // SIG-421, review round 4. A regular expression is a literal too, and
+        // the key it converts to is its source between slashes
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts.desc).to.equal('a');
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
+
+    it('said a spread of an array might carry a desc', () => {
+      // SIG-421, review round 3
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { hidden: true, ...[1] };`
+      );
+
+      expect(facts).to.deep.equal({ hidden: true });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it.each([
       ['an identifier', `const k = 'desc'; export default { desc: 'early', [k]: 'late' };`],
       ['a string', `export default { desc: 'early', ['desc']: 'late' };`],
       ['a key after a spread', `export default { ...base, desc: 'early', [k]: 'late' };`],
@@ -519,6 +665,30 @@ describe('extracting a command module', () => {
       expect(facts).to.deep.equal({ desc: 'plain' });
       expect(diagnostics).to.deep.equal([]);
     });
+
+    it.each([
+      ['computed value', `export default { desc: f(), desc: 'a' };`, { desc: 'a' }],
+      ['accessor', `export default { get desc() { return 'g'; }, desc: 'a' };`, { desc: 'a' }],
+      ['computed hidden', `export default { hidden: flag, hidden: true };`, { hidden: true }],
+      [
+        'interpolated tag',
+        `import { __ } from '@ttylabs/sigil/i18n';
+         export default { desc: __\`a \${x}\`, desc: 'b' };`,
+        { desc: 'b' },
+      ],
+    ])(
+      'an earlier %s was warned about beside a later literal, which is what runs and was baked',
+      (_, source, expected) => {
+        // SIG-421. The reverse of the case above: the later literal was baked,
+        // which is right, and the earlier spelling's warning -- "by name alone",
+        // or "fall back to loading the module" -- was printed anyway, about a
+        // value the module never runs with
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts).to.deep.equal(expected);
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
 
     it('should read a later undefined as not declared, as the runtime does', () => {
       const { diagnostics, facts } = extractCommand(
