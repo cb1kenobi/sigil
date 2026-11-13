@@ -1,4 +1,11 @@
-import { bundleApp, inlinedPackages, rawJsxIn, undo } from '../../src/build/bundle.js';
+import {
+  type BuiltChunk,
+  bundleApp,
+  chunkLoads,
+  inlinedPackages,
+  rawJsxIn,
+  undo,
+} from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
@@ -26,7 +33,7 @@ const app = resolve(__dirname, '../fixtures/buildable');
 
 let out: string;
 let bin: string;
-let chunks: readonly { entry: boolean; name: string; size: number }[];
+let chunks: readonly BuiltChunk[];
 
 /**
  * Every module specifier the bundle imports, static and dynamic.
@@ -406,7 +413,7 @@ describe('bundling an app', () => {
     // a literal specifier inside a dynamic import is the one thing a bundler
     // can see, follow and split on -- so the deferral survives bundling rather
     // than being flattened into the entry
-    const lazy = chunks.filter((chunk) => !chunk.entry).map((chunk) => chunk.name);
+    const lazy = chunks.filter((chunk) => chunk.loads === 'dynamic').map((chunk) => chunk.name);
 
     expect(lazy.some((name) => name.includes('greet'))).toBe(true);
     expect(lazy.some((name) => name.includes('migrate'))).toBe(true);
@@ -415,10 +422,31 @@ describe('bundling an app', () => {
   it('should keep the entry small, because startup time is the metric', () => {
     // what `--help` pays for is the entry plus what it reaches; the parser and
     // the help renderer are chunks of their own, and no command body is in it
-    const entry = chunks.find((chunk) => chunk.entry)!;
+    const entry = chunks.find((chunk) => chunk.loads === 'entry')!;
 
     expect(entry.size).toBeLessThan(16 * 1024);
     expect(readFileSync(bin, 'utf-8')).not.toContain('hello ');
+  });
+
+  it('should call a chunk the entry imports statically startup, where every chunk was lazy', () => {
+    // SIG-353: every chunk but the entry was labelled `lazy`, so the 12 kB a
+    // scaffolded app's entry imports statically -- paid on every `--help` --
+    // read as though a command had to ask for it. Asked of the entry's own
+    // static imports, read off the bytes, so the graph rolldown reports and the
+    // file node loads have to agree
+    const parsed = parseModule(bin, readFileSync(bin, 'utf-8'));
+    const imported = parsed.module.staticImports.map((one) =>
+      join(dirname(bin), one.moduleRequest.value)
+    );
+    const named = (chunk: BuiltChunk) => join(out, chunk.name);
+
+    expect(imported.length).toBeGreaterThan(0);
+    for (const path of imported) {
+      expect(chunks.find((chunk) => named(chunk) === path)?.loads, path).toBe('startup');
+    }
+    // and a command body is still reached only by an `import()`
+    expect(chunks.filter((chunk) => chunk.loads === 'entry')).toHaveLength(1);
+    expect(chunks.find((chunk) => chunk.name.includes('greet'))?.loads).toBe('dynamic');
   });
 
   it('should inline everything by default', async () => {
@@ -1121,6 +1149,68 @@ describe('recognising JSX in what was written', () => {
     writeFileSync(join(dir, 'notes.map'), 'const a = <text>x</text>;\n');
 
     expect(rawJsxIn(dir, [{ fileName: 'notes.map', type: 'asset' }])).toBeUndefined();
+  });
+});
+
+describe('when each written chunk loads', () => {
+  /** A chunk as rolldown reports it, reduced to what the labels read. */
+  const chunk = (fileName: string, imports: string[] = [], isEntry = false) => ({
+    fileName,
+    imports,
+    isEntry,
+    type: 'chunk',
+  });
+
+  it('should call the static closure of the entry startup, and only that', () => {
+    // `shared` is reached through `runtime`, not by the entry directly, and it
+    // loads at startup all the same. `cmd` is reached through no static import
+    // from the entry at all, so it is dynamic, and so is what only it imports
+    const loads = chunkLoads([
+      chunk('app.mjs', ['runtime.mjs'], true),
+      chunk('runtime.mjs', ['shared.mjs']),
+      chunk('shared.mjs'),
+      chunk('cmd.mjs', ['cmd-dep.mjs', 'shared.mjs']),
+      chunk('cmd-dep.mjs'),
+      { fileName: 'app.mjs.map', type: 'asset' },
+    ]);
+
+    expect(Object.fromEntries(loads)).toStrictEqual({
+      'app.mjs': 'entry',
+      'app.mjs.map': 'dynamic',
+      'cmd-dep.mjs': 'dynamic',
+      'cmd.mjs': 'dynamic',
+      'runtime.mjs': 'startup',
+      'shared.mjs': 'startup',
+    });
+  });
+
+  it('should end on a cycle between two chunks', () => {
+    // rolldown does emit one, and a walk that queued a chunk every time it was
+    // reached rather than the first time would never finish
+    const loads = chunkLoads([
+      chunk('app.mjs', ['a.mjs'], true),
+      chunk('a.mjs', ['b.mjs']),
+      chunk('b.mjs', ['a.mjs', 'app.mjs']),
+    ]);
+
+    expect(Object.fromEntries(loads)).toStrictEqual({
+      'a.mjs': 'startup',
+      'app.mjs': 'entry',
+      'b.mjs': 'startup',
+    });
+  });
+
+  it('should call a chunk with no static path from the entry dynamic, whoever imports it', () => {
+    // a chunk only a dynamic chunk imports statically still loads only when that
+    // dynamic one does, which is the case `isDynamicEntry` alone would mislabel:
+    // it is not a dynamic entry, and it is not loaded at startup either
+    const loads = chunkLoads([
+      chunk('app.mjs', [], true),
+      chunk('cmd.mjs', ['dep.mjs']),
+      chunk('dep.mjs'),
+    ]);
+
+    expect(loads.get('dep.mjs')).toBe('dynamic');
   });
 });
 

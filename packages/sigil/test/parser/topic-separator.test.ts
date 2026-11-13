@@ -166,9 +166,10 @@ describe('topicSeparator', () => {
     });
 
     it('should count one command per segment, not one per token', async () => {
-      // everything downstream counts `ParsedCommand` entries -- help trims a
-      // chain back to the commands argv *named* -- so a token that named three
-      // has to be three entries
+      // everything downstream reads `ParsedCommand` entries per command --
+      // help trims a chain back to the innermost command argv *named*, and the
+      // palette's catalog maps each command to its typed segment -- so a token
+      // that named three has to be three entries
       const result = await parse({ argv: ['db:migrate:up'], schema: inline() });
       const named = result.$.filter((parsed) => parsed.type === 'Command');
       expect(named.map((parsed) => parsed.inputs[0])).to.deep.equal(['db', 'migrate', 'up']);
@@ -521,6 +522,23 @@ describe('topicSeparator', () => {
       const screen = await resolveHelp(result, { name: 'mycli', width: 80 });
       expect(screen).to.include('Usage: mycli db');
       expect(screen).to.match(/^\s+migrate/m);
+    });
+
+    it("--help on a coloned path reached through a default command printed the parent's screen", async () => {
+      // `status:deep` names two commands inside the implied `serve`, so the
+      // chain is `[deep, status, serve, root]` -- counting two from the root
+      // end kept `status` and described it, when `deep` is what was typed
+      const result = await parse({
+        argv: ['status:deep', '--help'],
+        schema: {
+          commands: {
+            serve: { commands: { status: { commands: { deep: {} } } }, default: true },
+          },
+          topicSeparator: ':',
+        },
+      });
+      const screen = await resolveHelp(result, { name: 'x', width: 80 });
+      expect(screen).to.include('Usage: x serve:status:deep');
     });
 
     it('should answer a coloned path given to the help command', async () => {

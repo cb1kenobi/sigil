@@ -2164,7 +2164,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     timer = undefined;
     const rest = held;
     held = '';
-    for (const key of decodeKeys(rest, decoding())) {
+    // `final`, because this is the one reading that knows nothing followed: a
+    // held `ESC [` or `ESC O` is the Alt key it was rather than `unknown`. Only
+    // here -- `keys()` reads with more possibly on its way, which is what holds
+    // a split arrow key long enough to become one
+    for (const key of decodeKeys(rest, { ...decoding(), final: true })) {
       if (stopped) {
         return;
       }

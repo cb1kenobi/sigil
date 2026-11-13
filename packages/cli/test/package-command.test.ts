@@ -1,7 +1,9 @@
 import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
+import { displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { copyFixture } from './copy-fixture.ts';
+import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import {
@@ -12,6 +14,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -403,11 +406,98 @@ describe('sigil package', () => {
         // moved: `sigil package` defaulted to `dist/` beside `sigil build`, and
         // `clean()` empties whichever directory it is given -- so each command
         // deleted the other's output, measured in both orders
+        //
+        // A stale file is put there first, because the clean now waits for the
+        // bundle's graph (SIG-350) and this is the test that says it still runs
+        writeFileSync(join(out, 'stale.txt'), 'stale\n');
+
         await sigil('package', join(fixtures, 'buildable'), '--out', out, '--runtime', 'bun');
 
         expect(readdirSync(out)).toEqual([BINARY]);
         expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
         expect(existsSync(join(out, 'chunks'))).toBe(false);
+      },
+      120_000
+    );
+  });
+
+  // SIG-350: a module only the bundle reads -- here `vendor/lib.mjs`, imported
+  // by the entry -- is in nothing the clean guard can name before the bundle,
+  // so `--out vendor` emptied it. The clean now waits for the graph. Whichever
+  // runtime this host can compile with without fetching one, for the reason
+  // the tests above skip rather than branch
+  describe.each([
+    ['bun', hasBun, ['--runtime', 'bun']],
+    ['node', hasBuildSea, ['--runtime', 'node', '--target', label(hostTarget())]],
+  ] as const)('a module only the bundle reads, packaged with %s', (_, available, runtime) => {
+    it.skipIf(!available)(
+      '--out vendor emptied it and then failed, and is refused with the module named',
+      async () => {
+        const app = join(tempDir('sigil-pkg-into-src-'), 'vapp');
+        const lib = "export const t = 'vendored';\n";
+        mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+        symlinkSync(
+          resolve(fixtures, '..', '..', '..', 'sigil'),
+          join(app, 'node_modules', '@ttylabs', 'sigil'),
+          'junction'
+        );
+        mkdirSync(join(app, 'src'));
+        mkdirSync(join(app, 'vendor'));
+        writeFileSync(
+          join(app, 'package.json'),
+          JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'vapp', type: 'module' })
+        );
+        writeFileSync(
+          join(app, 'src', 'index.mjs'),
+          "import { t } from '../vendor/lib.mjs';\nexport default { name: 'x', run() { console.log(t); } };\n"
+        );
+        writeFileSync(join(app, 'vendor', 'lib.mjs'), lib);
+
+        const { err } = await sigil('package', app, '--out', 'vendor', ...runtime);
+
+        expect(err).toContain(
+          `Refusing to empty ${displayPath(join(app, 'vendor'))}, which holds ${displayPath(join('vendor', 'lib.mjs'))}, a module the app is built from`
+        );
+        expect(process.exitCode).toBeTruthy();
+        expect(readFileSync(join(app, 'vendor', 'lib.mjs'), 'utf-8')).toBe(lib);
+      },
+      120_000
+    );
+  });
+
+  // the shaker leaves out the directory a bundle is written to, and `package`
+  // writes its bundle to a staging directory -- so `--out dist` after a
+  // `sigil build` into `dist` read that build's bundle as class evidence and
+  // kept 52 rules where 25 are named. `width: 75%` is `w-3/4`, one of the rules
+  // that bundle's text admits and the app's own source does not
+  describe.each([
+    ['bun', hasBun, ['--runtime', 'bun']],
+    ['node', hasBuildSea, ['--runtime', 'node', '--target', label(hostTarget())]],
+  ] as const)('a package after a build into its out, with %s', (_, available, runtime) => {
+    it.skipIf(!available)(
+      'should not read the build it is about to replace as evidence for a class',
+      async () => {
+        const app = join(tempDir('sigil-pkg-into-src-'), 'styled');
+        copyFixture(join(fixtures, 'styled'), app);
+        mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
+        symlinkSync(
+          resolve(fixtures, '..', '..', '..', 'sigil'),
+          join(app, 'node_modules', '@ttylabs', 'sigil'),
+          'junction'
+        );
+
+        await sigil('build', app);
+        expect(process.exitCode).toBeFalsy();
+        const { err } = await sigil('package', app, '--out', 'dist', ...runtime);
+
+        expect(err).not.toMatch(/^Error:/m);
+        const binary = readFileSync(
+          join(app, 'dist', binaryName('styled', hostTarget())),
+          'latin1'
+        );
+        // a boolean rather than `not.toContain()`, which prints its subject on
+        // failure -- and the subject is an 89 MB binary
+        expect(binary.includes('width: 75%')).toBe(false);
       },
       120_000
     );
@@ -595,6 +685,92 @@ describe('sigil package', () => {
       expect(err).toContain('holds the app itself');
       expect(process.exitCode).toBeTruthy();
     }, 60_000);
+
+    it('should refuse a --no-clean package into the app root whose binary would write over what the build reads', async () => {
+      // the escape hatch stays open at the root, so what is refused there is a
+      // binary landing on a file the build reads. A binary called
+      // `package.json` is the one that lands on a read on every platform: the
+      // target is pinned to Linux, which adds no `.exe`
+      const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
+      copyFixture(join(fixtures, 'buildable'), app);
+      const manifest = readFileSync(join(app, 'package.json'), 'utf-8');
+
+      const { err } = await sigil(
+        'package',
+        app,
+        '--out',
+        '.',
+        '--no-clean',
+        '--name',
+        'package.json',
+        '--runtime',
+        'bun',
+        '--target',
+        'linux-x64'
+      );
+
+      expect(err).toContain(
+        `Refusing to write over ${displayPath(join(app, 'package.json'))}, which is package.json`
+      );
+      expect(process.exitCode).toBeTruthy();
+      expect(readFileSync(join(app, 'package.json'), 'utf-8')).toBe(manifest);
+    }, 60_000);
+
+    // SIG-350: the guard refused only an `--out` at or above the app, so
+    // `--out src` passed it and `clean()` removed the source before the bundle
+    // failed on the entry. A copy of the fixture, so a regression removes the
+    // copy's source rather than the fixture's
+    describe.each([
+      [
+        '--out src',
+        'empty',
+        'deleted the app source and then failed, and is refused before anything is removed',
+        (app: string) => sigil('package', app, '--out', 'src', '--runtime', 'bun'),
+      ],
+      [
+        '--out src --no-clean',
+        'build into',
+        'wrote the binary into the source directory, and is refused before anything is written',
+        (app: string) => sigil('package', app, '--out', 'src', '--no-clean', '--runtime', 'bun'),
+      ],
+      [
+        'a package.out of src in sigil.json',
+        'empty',
+        'deleted the app source and then failed, and is refused before anything is removed',
+        (app: string) => {
+          writeFileSync(
+            join(app, CONFIG_FILE),
+            `${JSON.stringify({ package: { out: 'src', runtime: 'bun' } })}\n`
+          );
+          return sigil('package', app);
+        },
+      ],
+    ])('%s', (_, verb, defect, pack) => {
+      it(
+        defect,
+        async () => {
+          const app = join(tempDir('sigil-pkg-into-src-'), 'buildable');
+          copyFixture(join(fixtures, 'buildable'), app);
+          const sources = [
+            join(app, 'src', 'index.ts'),
+            join(app, 'src', 'commands', 'greet.ts'),
+            join(app, 'src', 'commands', 'db', 'migrate.js'),
+          ];
+
+          const { err } = await pack(app);
+
+          expect(err).toContain(
+            `Refusing to ${verb} ${displayPath(join(app, 'src'))}, which holds ${displayPath(join('src', 'index.ts'))}`
+          );
+          expect(err).not.toContain('Module not found');
+          expect(process.exitCode).toBeTruthy();
+          for (const file of sources) {
+            expect(existsSync(file), file).toBe(true);
+          }
+        },
+        60_000
+      );
+    });
   });
 
   describe('the binary', () => {

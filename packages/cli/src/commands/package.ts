@@ -67,6 +67,7 @@ import {
   appRuns,
   assertCleanable,
   binName,
+  buildReads,
   clean,
   commandsFound,
   failure,
@@ -202,9 +203,18 @@ const pkg: AnyCommand = command({
 
     assertSelfContained(external);
     assertSignable(identity, targets);
-    // before `resolveExec()`, because it is pure path arithmetic and a run
-    // doomed by its own `--out` should not fetch a 90 MB runtime first
-    assertCleanable(out, found.app.root, argv.clean !== false);
+    // before `resolveExec()`, because it needs nothing but the paths and a few
+    // stats, and a run doomed by its own `--out` should not fetch a 90 MB
+    // runtime first. What lands in `out` is the binaries and nothing else: the
+    // bundle goes to the staging directory below
+    const name = binName(found, (argv.name as string | undefined) ?? build.name);
+    const guard = {
+      clean: argv.clean !== false,
+      reads: buildReads(found),
+      root: found.app.root,
+      writes: targets.map((target) => outputName(name, target, targets)),
+    };
+    assertCleanable(out, guard);
     for (const target of targets) {
       assertCompilable(runtime, target);
     }
@@ -215,8 +225,6 @@ const pkg: AnyCommand = command({
     // was going to be refused is the one order that wastes the user's time, and
     // before `clean()`, so a failed download leaves the output directory alone
     const exec = await resolveExec(spec, targets[0] as Target);
-
-    const name = binName(found, (argv.name as string | undefined) ?? build.name);
 
     // the bundle is an intermediate, so it does not land beside the binaries.
     // Under `node_modules/.sigil/`, which is where `writeEntry()` already puts
@@ -239,19 +247,11 @@ const pkg: AnyCommand = command({
     // before anybody looked. If you want the bundle, `sigil build` writes one.
     const staging = join(found.app.root, WORK_DIR, `${hash(out)}-package`);
 
-    clean(out, found.app.root, argv.clean !== false);
-
     // and the staging directory, always: it is this command's own scratch space
     // rather than anything the user asked to keep, so a stale chunk from a
     // previous run has no business surviving into the next binary. `--no-clean`
     // is about the *output*, which is now a different directory entirely.
     rmSync(staging, { force: true, recursive: true });
-
-    // nothing else creates the output directory any more. It used to appear
-    // because the bundle was written into it; now the bundle is elsewhere and
-    // the first thing to touch it is a compiler writing an `--outfile`, which
-    // does not make parents.
-    mkdirSync(out, { recursive: true });
 
     // Node embeds one CommonJS script and cannot `import()` at all, so its
     // bundle is a different shape rather than the same one compiled
@@ -263,6 +263,9 @@ const pkg: AnyCommand = command({
         app: found.app,
         binName: name,
         defaultLocale: sigilConfig.locale,
+        // the binaries' directory, which the bundle is not written to: a
+        // previous `sigil build` there is a bundle the shaker must not read
+        exclude: [out],
         external,
         form: runtime === 'node' ? 'cjs' : 'esm',
         out: staging,
@@ -297,6 +300,17 @@ const pkg: AnyCommand = command({
         (result.usesUpdateCheck && schemaCheck !== 'names' && 'import') ||
           (schemaCheck === 'asks' && 'schema')
       );
+
+      // emptied only now, once the graph says whether `out` holds a module
+      // only the bundle reads -- after every refusal that can come before the
+      // compile, and before the compile writes the first binary. See `clean()`
+      clean(out, guard, result.modules);
+
+      // nothing else creates the output directory any more. It used to appear
+      // because the bundle was written into it; now the bundle is elsewhere and
+      // the first thing to touch it is a compiler writing an `--outfile`, which
+      // does not make parents.
+      mkdirSync(out, { recursive: true });
 
       const compiled = compileAll(runtime, {
         entry: result.bin,

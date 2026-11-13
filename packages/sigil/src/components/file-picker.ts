@@ -24,7 +24,7 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { truncate } from '../wrap/index.js';
 import { typedText } from './editing.js';
 import {
-  candidatesOf,
+  candidateCache,
   entryCache,
   type PathEntry,
   type PathFilter,
@@ -218,15 +218,27 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
   let error: string | undefined;
   let finished = false;
 
-  /** What the directory being looked at offers, from what has been read. */
-  function listing(): PathEntry[] {
-    const found = candidatesOf(
-      cache.get(dir) ?? [],
-      '',
-      { ...filter, hidden: showHidden },
-      flavour
-    );
-    return opts.directory ? [HERE, ...found] : found;
+  const offer = candidateCache(flavour);
+  /** What `listing()` last answered, and the offer it was built from. */
+  let lastListing: { found: readonly PathEntry[]; rows: readonly PathEntry[] } | undefined;
+
+  /**
+   * What a directory offers, from what has been read.
+   *
+   * Filtered and sorted once per directory state rather than once per ask: a key
+   * asks, and so does each of the two draws after it (SIG-364).
+   */
+  function offered(at: string): readonly PathEntry[] {
+    return offer(cache.get(at), '', { ...filter, hidden: showHidden });
+  }
+
+  /** What the directory being looked at offers, with `.` in front in `directory` mode. */
+  function listing(): readonly PathEntry[] {
+    const found = offered(dir);
+    if (lastListing?.found !== found) {
+      lastListing = { found, rows: opts.directory ? [HERE, ...found] : found };
+    }
+    return lastListing.rows;
   }
 
   /**
@@ -275,12 +287,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
 
     async function listed(at: string, from?: string): Promise<PromptLineForm<string>> {
       await cache.load(at);
-      const found = candidatesOf(
-        cache.get(at) ?? [],
-        '',
-        { ...filter, hidden: showHidden },
-        flavour
-      );
+      const found = offered(at);
       const steps: Step[] = [];
       const entries: ChoiceEntry<Step>[] = [];
       const add = (label: string, hint: string | undefined, value: Step): void => {
@@ -337,12 +344,7 @@ export function filePicker(opts: FilePickerOptions): Promise<string> {
       if (want !== undefined) {
         await cache.load(dir);
         const name = want;
-        const there = candidatesOf(
-          cache.get(dir) ?? [],
-          '',
-          { ...filter, hidden: showHidden },
-          flavour
-        ).some((entry) => sameName(entry.name, name, flavour));
+        const there = offered(dir).some((entry) => sameName(entry.name, name, flavour));
         if (!there) {
           return listed(base);
         }

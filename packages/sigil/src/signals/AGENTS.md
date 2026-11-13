@@ -257,6 +257,111 @@ the entry it belongs to.
   `unwatched` that throws then leaves the counts consistent and only its own
   error escapes. The other order skips the walk entirely and strands every
   source one short, after which no later watcher can make them live again.
+- **No graph walk is bounded by the native stack, and a read that runs out of it
+  caches nothing.** Marking (`propagate()`), liveness (`incLive`/`decLive`) and
+  settling a `CHECK` node all recursed one frame per level, and a chain a few
+  thousand computeds long -- a running offset per row of a long list -- ran out
+  part-way through. The read threw, which was loud. The write was the defect: the
+  version was bumped, the upper part of the chain marked and the lower part not,
+  and every later write stopped at the first node already marked, so the tail
+  served its old value forever with no error. Liveness is now a loop over an
+  explicit stack; marking and settling recurse for the first `SHALLOW` (64)
+  levels and carry the rest of the subgraph over an explicit stack, because a
+  fully iterative walk cost a tenth on a small write and a quarter on settling a
+  long chain -- the bound is what matters, not where it sits. The order is the
+  recursion's on both sides: depth first, a subgraph finished before its next
+  sibling, one per-sink rule (`invalidate()`) for both halves of a write. So a
+  write needs about `SHALLOW` frames of its _caller's_ stack and no more however
+  deep the graph is; one made with less can still run out mid-walk, which is the
+  caller's stack rather than the graph's depth. The explicit-stack settle marks
+  what it is asking about, and reaching a marked node again -- a cycle among
+  `CHECK` nodes, which a disposed computed read again by what it used to read
+  makes -- throws `A Computed may not read itself`. The recursion found that
+  cycle by running out of stack at once; an unguarded loop pushed until the heap
+  ran out, a crash rather than an error.
+
+  What cannot be flattened is a body: a `DIRTY` link reruns its body, and a body
+  reading a `DIRTY` source nests inside it. So reading the tail after a write
+  that dirties a few links works at any depth -- everything above them is
+  `CHECK`, and asking is flat -- while a fresh chain, or one where a write
+  dirtied every link (every row's height changing at once), is evaluated one
+  body inside the next and can run out. There, running out is the one throw that
+  is not cached: it says how deep the stack was, not anything about what the
+  computed reads, and cached it was permanent -- the link that hit the limit
+  stayed clean holding the error and no edge to the source whose read never
+  finished. So a derivation it passes through is left `DIRTY` with nothing
+  committed or swept, and the reader gets `Computed chain too deep`, with the
+  engine's error as its `cause`. Reading the chain from the bottom up works at
+  any depth -- **outside any computed or effect**, at top level or before the
+  effect is made, which the message says too: inside the body that caught the
+  error, every link on the path that failed was cut short in that same read and
+  is not run again until the next (the second rule below), so the steps are
+  refused. The state is marked only after the commit, so a run that the stack
+  ran out in anywhere -- the catch and the commit are both reached cold at the
+  edge -- stays `DIRTY` rather than `CLEAN` over nothing, which once read back
+  `undefined` for good. Three smaller rules keep that sound:
+
+  - **A run cut short stays `incomplete`, and a write passes through it once.**
+    It is `DIRTY`, which ordinarily says its subgraph has been told, and here
+    nothing has: what read it was handed an error, not a write. Without this an
+    effect that read through such a node never heard of the chain again however
+    readable it became. A derivation whose sources ran out while it was only
+    asking them is `CHECK` and never ran, so the failed read marks it too -- and
+    a write passes through it whether it finds it `CHECK` or raises it to
+    `DIRTY`: one to a source it reads directly does the second, and stopping
+    there left its effect on the cached error (found in review). The
+    read is still recorded on the way out, so the reader has an edge to what it
+    could not read -- at version `-1`, one nothing is ever at, because the
+    reader's answer came from a read that never finished: recorded at the
+    version the node was still at, a chain that came back to the value it held
+    before the failure looked unchanged, and a catching reader kept its fallback
+    and a plain effect never ran again. Passed through _once_, clearing the mark,
+    because a diamond of such nodes walked every path rather than every node: a
+    write that takes a millisecond never returned.
+  - **Within one outermost read, a run cut short is not run again.** A retry
+    starts no shallower than the run that failed, so it fails again, and a body
+    that reads the same source twice -- or two sources sharing the chain below --
+    retried a whole subchain per level: work that doubled with every level the
+    edge cut through, millions of runs for a chain `main` read in two thousand.
+    It rethrows instead, and the next outermost read tries afresh.
+  - **The engine's overflow is the chain's only under more than `CHAIN_DEPTH`
+    (64) computeds evaluating one inside the next.** A chain runs out hundreds or
+    thousands deep. With fewer, the overflow is cached under the engine's
+    message as it always was -- right for a body's own runaway recursion, whether
+    read from the top or from inside another computed. It is a **known limit**
+    for a short chain read by a caller whose own stack is all but spent: the
+    error is cached on the link it reached, and a fresh chain has no edges yet
+    for a write to come back along, so it stays until the link is disposed.
+    Measured on chains of 10 and 40 links read at every frame of an unwinding
+    overflow: most failures stayed failed after a write, with no wrong value,
+    where `main` kept the same failures and handed back a few wrong values
+    besides. An ordinary `RangeError` is cached too.
+
+  An effect is never left dirty by any of this, for the reason a failed sweep
+  exempts it: a flush treats anything not `CLEAN` as pending, so it would be run
+  and reported on every pass. It caches the error and is reported once, whether
+  its own body ran out or asking its sources did before the body could run, and
+  it keeps its edges, so it runs again when a write reaches it once the chain can
+  be read.
+
+  **A body that catches the error is not second-guessed, and a chain whose links
+  catch it is not guaranteed.** What a catching body returns is an answer like
+  any other and is cached, with the edge recorded on the way out, so a write that
+  reaches what it failed to read reaches it. At the very edge of the stack the
+  engine can raise the overflow at the call into `get()` itself, before any of
+  the graph's code runs to record that edge, and the fallback is then cached with
+  none. **The wrong result is silent and permanent**: measured with the
+  reviewer's sweep, a 30,000-link chain whose every link catches is left with
+  wrong links at about two stack sizes in three, and an effect on its tail ends
+  at a number like 481 or 977 instead of 30,200, with no error reported and no
+  later write correcting it. `main` crashes on the same sweep. Closing it took a
+  pessimistic counter of unfinished reads and a fixed headroom probe before
+  deep bodies, and a review found each one broken in turn -- fallbacks left
+  dirty re-ran exponentially, the probe shrank once optimized -- so the
+  guarantee was narrowed instead. Read a deep chain from the bottom up, outside
+  any computed or effect, rather than catching inside it. See
+  `test/signals/deep-chain.test.ts`.
+
 - **A bare `watch()` re-arm looks for what went stale while it was disarmed.** A
   watcher is only told about a node going from clean to dirty, and propagation
   stops at a node already dirty -- so a computed left dirty across a re-arm is

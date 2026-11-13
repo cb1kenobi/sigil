@@ -73,6 +73,7 @@ import {
 import { type Cascade, parseStylesheet, type Stylesheet } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { parseTheme, themedCascade } from '../theme/index.js';
+import { trimTrailingNewlines } from '../util/trim-trailing-newlines.js';
 import { render, type Renderer, type RenderOptions } from './index.js';
 import { type Context, createContext, provideContext, useContext } from './owner.js';
 
@@ -558,13 +559,27 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * screen, and never replayed a second time (`diverted`).
    */
   let reporting = 0;
+  // a custom handler that throws is reported the way the default one would have
+  // reported, rather than let out: `render()` raises what `onError` throws from
+  // the call that was reporting, and for a frame that failed on the frame timer
+  // that call is the timer, so the throw was an uncaught exception that ended the
+  // process before `finish()`'s microtask could stop the router or settle
+  // `exited` (SIG-348). The runner has somewhere to put it, so it does
   const report = custom
     ? (error: unknown): void => {
+        let threw = false;
+        let thrown: unknown;
         reporting++;
         try {
           custom(error);
+        } catch (caught) {
+          threw = true;
+          thrown = caught;
         } finally {
           reporting--;
+        }
+        if (threw) {
+          reportError(thrown);
         }
       }
     : reportError;
@@ -638,7 +653,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * With no renderer coming at all, which is a refusal, it goes straight out.
    */
   function reportError(error: unknown): void {
-    const line = `${renderError(error).replace(/[\r\n]+$/, '')}\n`;
+    const line = `${trimTrailingNewlines(renderError(error))}\n`;
     if (view) {
       hold(line, 'stderr');
     } else if (rendering) {

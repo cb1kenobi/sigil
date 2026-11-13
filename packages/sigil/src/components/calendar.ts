@@ -132,14 +132,33 @@ export function dayOf(d: Date): Day {
 }
 
 /**
+ * The years a day may be moved through: the four digits the parser's `date`
+ * type reads and `isoOf()` writes. Stated once, for a move by days and by
+ * months alike.
+ */
+const FIRST_YEAR = 0;
+const LAST_YEAR = 9999;
+
+/**
  * A day some days away.
+ *
+ * The year stays inside 0-9999, as it does for `addMonths()`: a move past
+ * either end stops on the first or the last day of the range rather than
+ * reaching a year the field cannot write and the parser cannot read.
  *
  * @param d - The day.
  * @param days - How many days to move, negative for earlier.
  * @returns The day, which may be in another month.
  */
 export function addDays(d: Day, days: number): Day {
-  return dayOf(localDate(d.year, d.month, d.day + days));
+  const next = dayOf(localDate(d.year, d.month, d.day + days));
+  if (next.year < FIRST_YEAR) {
+    return { day: 1, month: 1, year: FIRST_YEAR };
+  }
+  if (next.year > LAST_YEAR) {
+    return { day: 31, month: 12, year: LAST_YEAR };
+  }
+  return next;
 }
 
 /**
@@ -155,7 +174,10 @@ export function addDays(d: Day, days: number): Day {
  * @returns The day.
  */
 export function addMonths(d: Day, months: number): Day {
-  const index = Math.max(0, Math.min(9999 * 12 + 11, d.year * 12 + d.month - 1 + months));
+  const index = Math.max(
+    FIRST_YEAR * 12,
+    Math.min(LAST_YEAR * 12 + 11, d.year * 12 + d.month - 1 + months)
+  );
   const year = Math.floor(index / 12);
   const month = (index % 12) + 1;
   return { day: Math.min(d.day, daysInMonth(year, month)), month, year };

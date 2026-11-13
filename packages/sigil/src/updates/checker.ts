@@ -179,7 +179,14 @@ export function versionFrom(body: unknown, checker: UpdateChecker): string | und
   return prefix && version.startsWith(prefix) ? version.slice(prefix.length) : version;
 }
 
-const VERSION_RE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+// The pre-release and the build metadata are dot-separated identifiers, none of
+// them empty: a class with the dot inside it read `1.0.0-a..b` as newer than
+// `1.0.0-a`, and semver forbids an empty identifier. The dot is outside each
+// class, so every repetition is unambiguous and the match stays linear. It is
+// also what keeps a hostile answer off the terminal -- anchored, ASCII only,
+// no space and no control character -- so it may only ever get narrower.
+const VERSION_RE =
+  /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 /** A version, as far as this reads one. */
 interface ParsedVersion {

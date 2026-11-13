@@ -3,6 +3,7 @@ import { assertSerialized, formatFor, type SerializedError } from './format.js';
 import { __ } from './i18n/index.js';
 import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
+import { trimTrailingNewlines } from './util/trim-trailing-newlines.js';
 
 export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } from './types.js';
 
@@ -269,7 +270,7 @@ export function errorHandler(err: unknown, opts: ErrorHandlerOptions = {}): void
   // event on the stream, which is the terminal wrapper's job once there is
   // one again.
   try {
-    stderr.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+    stderr.write(`${trimTrailingNewlines(text)}\n`);
   } catch (writeErr) {
     safeLog(writeErr);
   }

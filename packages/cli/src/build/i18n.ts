@@ -24,7 +24,7 @@
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
-import type { DiscoveredApp } from './discover.ts';
+import { type DiscoveredApp, resolveSpecifier } from './discover.ts';
 import {
   literalString,
   loaderSpecifier,
@@ -344,6 +344,14 @@ export interface AppCatalogs {
   readonly declared: boolean;
   /** Everything worth saying about what it could not read. */
   readonly diagnostics: readonly Diagnostic[];
+  /**
+   * Every file a loader's literal `import()` names that exists, whether or not
+   * it could be read as a catalog. The bundle imports each one whatever this
+   * made of it -- a `.js` catalog, a JSON file with a byte-order mark, one that
+   * does not parse -- so emptying the directory it is in is emptying the app's
+   * source. See `buildReads()` in `commands/_inspect.ts`.
+   */
+  readonly files: readonly string[];
 }
 
 /**
@@ -367,12 +375,13 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
   const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
   const diagnostics: Diagnostic[] = [];
   const catalogs: FoundCatalog[] = [];
+  const files: string[] = [];
   const file = displayPath(app.entry);
 
   const schemas = outermostWith(parsed.program as never, 'locales');
 
   if (!schemas.length) {
-    return { catalogs, declared: false, diagnostics };
+    return { catalogs, declared: false, diagnostics, files };
   }
 
   const declared = objectLiteral(plainProperty(schemas[0]!, 'locales')!.value);
@@ -388,7 +397,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
       severity: 'warning',
     });
 
-    return { catalogs, declared: true, diagnostics };
+    return { catalogs, declared: true, diagnostics, files };
   }
 
   const entryDir = dirname(app.entry);
@@ -419,6 +428,13 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
 
     const path = resolve(entryDir, specifier);
 
+    // before the parse, which is only this check's business: the bundle reads
+    // the file whatever it holds
+    const read = resolveSpecifier(entryDir, specifier);
+    if (read !== undefined) {
+      files.push(read);
+    }
+
     try {
       const value: unknown = JSON.parse(readFileSync(path, 'utf-8'));
 
@@ -438,7 +454,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
     }
   }
 
-  return { catalogs, declared: true, diagnostics };
+  return { catalogs, declared: true, diagnostics, files };
 }
 
 /**
