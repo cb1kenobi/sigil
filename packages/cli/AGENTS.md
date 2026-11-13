@@ -914,6 +914,46 @@ makes it testable with a fixture directory and no bundler at all.
   was fatal. The type checker's paths are made absolute on the way in, because
   it is run with the app as its cwd and writes relative ones, and a report
   holding both spellings is one nobody can sort.
+- **The compiler's output is read with one line ending, and with no 1 MiB
+  ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
+  Ending it `\r\n` made `DIAGNOSTIC_RE`'s `.*$` miss every line, since `.` does
+  not match `\r`, so the build said `tsconfig.json: error: the type checker
+  exited 2 without reporting a diagnostic:` over the raw text and `1 error`
+  where it should have said `src/index.ts:3:5: error: TS2322: ...`. The output
+  is normalized to `\n` before it is read, which also keeps a `\r` out of the
+  unlocated dump, where a terminal would read it as a cursor movement. It is
+  load-bearing for an app on TypeScript 5 or 6 on Windows, by reading their
+  source rather than by running one there: `ts.sys.newLine` is `os.EOL`, and the
+  `--pretty false` reporter ends each diagnostic with `host.getNewLine()`, so
+  every such error used to collapse into the fallback -- the build still failed,
+  with no file or line. TypeScript 7.0.2 writes `\n`, which is why
+  `should report a type error, with the file and the position` already passed on
+  Windows CI. And `spawnSync()`'s default `maxBuffer` is 1 MiB, so 15,000 lines
+  (about 1.2 MiB) failed the build with `spawnSync .../node ENOBUFS` instead of
+  printing them -- an app mid-migration is exactly the one with that many.
+  `TSC_MAX_OUTPUT` is 128 MiB **per stream** -- `maxBuffer` counts stdout and
+  stderr apart, so the two together can reach twice that -- about a million and
+  a half diagnostics, and finite on purpose: `Infinity` works (checked) but leaves V8's longest string,
+  536,870,888 code units, as the real bound, which fails as
+  `ERR_STRING_TOO_LONG`. Past the limit the error says so in words and names
+  `tsc --noEmit -p <project>` rather than passing `ENOBUFS` through, and the
+  partial output is not parsed, because the compiler was killed and a prefix
+  of the diagnostics is not all of them. The `-p` it prints is relative to the
+  app's root, where `tsc` ran -- usually just `tsconfig.json` -- and goes
+  through `word()`: the first version printed the absolute path bare, so an app
+  under `app dir`, which a Windows profile directory often is, got a command a
+  shell splits in two. `word()` moved out of `commands/reference.ts` into
+  `src/shell.ts` for it rather than being copied. `maxOutput` exists for the
+  test, the way `tsc` does.
+- **A compiler stopped by a signal did not finish, and the report says so.**
+  Found by review of SIG-355, and older than it: a diagnostic followed by a
+  `SIGKILL` came back as that one diagnostic, reading as the whole report, and a
+  silent `SIGKILL` as `the type checker exited without a status`, which names
+  no cause. `run.signal` now adds an error naming the signal -- "may not be all
+  of them" when something was reported, the raw output when nothing was --
+  which is the `ENOBUFS` branch's own reasoning: a prefix is not the whole. The
+  test is skipped on Windows, where a process killing itself is
+  `TerminateProcess` and the parent sees an exit code rather than a signal.
 - **The type-check fixtures are excluded from the package's own tsconfig.**
   `test/fixtures/typecheck/broken/` holds a deliberate type error, and a suite
   that fails on its own fixture is a suite nobody can run. Same exclusion the JSX
@@ -1422,6 +1462,49 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
+- **`parseModule()` keeps what it read, keyed by the path and checked against
+  the source.** SIG-355. Every pass with a question for a module parsed it
+  again to ask, so a comment in `extract.ts` saying the build "parses each
+  module once" was true inside one pass and false across them: counted by
+  wrapping `parseSync()` over a `sigil build`, the `styled` fixture was 12
+  parses of 4 files (`src/index.ts` 3, `panel.ts` 3, `tpl.ts` 4, `dev.ts` 2)
+  and `i18n` 5 of 2 (`index.ts` 3, `commands/build.ts` 2). After, 5 and 2: the
+  one repeat left is `tpl.ts`, parsed once as written and once as the template
+  compile left it for the utility rewrite, which is a different source and is
+  right. A synthetic 244-module, 2.8 MB copy of `styled` went from **852 parses
+  to 365** -- 244 plus its 121 templated modules -- with in-process parse time
+  at a median of about 590 ms against 330 ms and the build at 1,232 ms against
+  921 ms wall, interleaved, nine runs each, on a machine busy with other work
+  (so the absolutes are loose and the delta is the claim). The small fixtures,
+  `examples/hello` and the toolchain's own build moved by nothing measurable.
+  Output is byte-identical with and without it, `diff -r` over all three.
+
+  Three things were checked before sharing a tree, and each is why the cache is
+  the shape it is. **Nothing writes to one**: every tree was deep-frozen
+  (`Object.freeze` over the whole `ParsedModule`, ESM being strict so a write
+  throws) and the toolchain's suite (1,817 tests) and four real builds ran clean, and a
+  search for in-place writes and sorts over AST arrays found none. **The parse
+  options are the same everywhere**, because there are none: every caller goes
+  through `parseSync(file, source)`, which takes the language from the
+  extension, and the extension is in the key. **The key is the path and the
+  source, never the path alone** -- every caller already hands the source it
+  read, so a stale hit cannot happen, and the sabotage proves it is not
+  hypothetical: keyed by path alone, the `styled` build reads `tpl.ts`'s
+  pre-compile tree for the utility rewrite and the test fails.
+
+  What it costs is memory, and it is bounded twice. **One entry per path**, so a
+  changed source replaces its tree rather than sitting beside it, and
+  `forgetParsedModules()` empties the map where `inspect()` starts, so a process
+  that builds again -- `check`, `build` and `package` all start there -- holds one
+  build's trees. That call is pinned by two in-process builds in a row, the
+  second of a different app: without it the first app's trees are still there
+  after the second, since nothing in the second replaces their paths. Measured on the 244-module app, the heap left after a forced GC
+  at exit is 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
+  source**, and peak RSS about 40 MB higher (702–710 MB against 660–672 MB). A
+  one-shot `sigil build` pays that once; there is no watch loop in the toolchain
+  today, and one would get the right lifetime from `inspect()` for free. A failed
+  parse is not kept, so asking again throws again.
+
 - **The fixture differs from `jsx-dev/` by one tsconfig field, and it
   type-checks.** `preserve` still checks the JSX against the `JSX` namespace
   `jsxImportSource` names, so `test/fixtures/jsx-preserve/` is an app the build

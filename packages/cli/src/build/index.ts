@@ -114,6 +114,7 @@ export {
   type GenerateOptions,
 } from './generate.ts';
 export {
+  forgetParsedModules,
   formatPosition,
   MODULE_RE,
   parseModule,

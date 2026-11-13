@@ -40,11 +40,12 @@
  * not how anything starts on Windows.
  */
 
-import { type Diagnostic, type Severity } from './diagnostic.ts';
+import { word } from '../shell.ts';
+import { displayPath, type Diagnostic, type Severity } from './diagnostic.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /** The config file an app is checked against, when it does not name one. */
 const TSCONFIG = 'tsconfig.json';
@@ -67,6 +68,14 @@ export interface TypeCheckOptions {
    * checks with what the app checks with.
    */
   readonly tsc?: string;
+  /**
+   * The most output, in bytes, the build reads from each of the compiler's
+   * streams.
+   *
+   * For a test, which has to reach the limit without printing 128 MiB to do
+   * it. Defaults to `TSC_MAX_OUTPUT`.
+   */
+  readonly maxOutput?: number;
 }
 
 /** What type-checking found, or why it did not happen. */
@@ -91,6 +100,24 @@ const DIAGNOSTIC_RE = /^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+: .*)$/;
 
 /** A diagnostic with no file in front of it, such as a bad config option. */
 const GLOBAL_RE = /^(error|warning) (TS\d+: .*)$/;
+
+/**
+ * How much the compiler may print before the build stops reading, in bytes,
+ * **per stream**: it is `spawnSync()`'s `maxBuffer`, which counts stdout and
+ * stderr separately, so the two together can reach twice this.
+ *
+ * `spawnSync()` defaults to 1 MiB and fails past it with `ENOBUFS`, which is
+ * about 12,000 diagnostics -- a number a large app mid-migration reaches, and
+ * the moment the build most needs to print them is the moment it would have
+ * printed a buffer error instead. 128 MiB is about a million and a half, far
+ * past any program anybody reads the errors of, and it is finite on purpose:
+ * `Infinity` is accepted and does turn the limit off -- checked, a 3 MiB write
+ * comes back whole -- but then what bounds the read is V8's longest string,
+ * 536,870,888 code units, and decoding past that fails as
+ * `ERR_STRING_TOO_LONG` rather than as anything this can name. Stopping well
+ * short of it keeps the failure ours and plainly worded.
+ */
+const TSC_MAX_OUTPUT = 128 * 1024 * 1024;
 
 /**
  * Type-checks an app.
@@ -135,19 +162,61 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
     };
   }
 
+  const limit = options.maxOutput ?? TSC_MAX_OUTPUT;
+
   // `node <bin>` rather than the bin itself: it is a Node script behind a
   // shebang, and a shebang is not how anything starts on Windows
   const run = spawnSync(process.execPath, [tsc, '--noEmit', '--pretty', 'false', '-p', project], {
     cwd,
     encoding: 'utf-8',
+    maxBuffer: limit,
   });
+
+  // more output than the build will read is a thing to say in words: the raw
+  // `spawnSync ... ENOBUFS` names neither the limit nor what to do about it,
+  // and the compiler has been killed by then, so what was read is a prefix of
+  // the diagnostics rather than all of them and is not reported as though it
+  // were. The command it suggests names the config relative to the app's root,
+  // which is where `tsc` ran, and through `word()`, because an absolute path
+  // with a space in it -- a Windows profile directory, often -- is two
+  // arguments to the shell it is pasted into
+  if ((run.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
+    throw new Error(
+      `The type checker at ${tsc} printed more than ${formatBytes(limit)} on one stream, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${rerun(cwd, project)}\` in ${displayPath(cwd)} to see what it found`
+    );
+  }
 
   if (run.error) {
     throw new Error(`Failed to run the type checker at ${tsc}: ${run.error.message}`);
   }
 
-  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`;
+  // one line ending from here on. A compiler that writes CRLF left a `\r` on
+  // every line, which `DIAGNOSTIC_RE`'s `.*$` will not match -- so every
+  // diagnostic fell through to the unlocated dump below, `\r`s and all, and a
+  // carriage return in a message is a cursor movement to the terminal printing it
+  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`.replace(/\r\n?/g, '\n');
   const diagnostics = parseDiagnostics(output, cwd);
+
+  // a compiler stopped by a signal did not finish, whatever it printed first:
+  // the diagnostics before the signal are real and are kept, but they are a
+  // prefix rather than the whole -- the reasoning the `ENOBUFS` branch above
+  // follows -- and with nothing saying so the report reads as complete. And
+  // with nothing printed, "exited without a status" named no cause at all
+  if (run.signal) {
+    return {
+      checked: true,
+      diagnostics: [
+        ...diagnostics,
+        {
+          file: project,
+          message: diagnostics.length
+            ? `the type checker was stopped by ${run.signal} before it finished, so the diagnostics it reported may not be all of them`
+            : `the type checker was stopped by ${run.signal} before it finished:\n${output.trim() || '(no output)'}`,
+          severity: 'error',
+        },
+      ],
+    };
+  }
 
   // a non-zero exit with nothing parseable behind it is the compiler refusing
   // to run rather than the app failing to check -- a `composite` project that
@@ -247,4 +316,30 @@ function parseDiagnostics(output: string, cwd: string): Diagnostic[] {
   }
 
   return diagnostics;
+}
+
+/**
+ * A byte count the way the limit was chosen, in whole MiB where it is one.
+ *
+ * @param bytes - The count.
+ * @returns The text.
+ */
+function formatBytes(bytes: number): string {
+  const mib = bytes / (1024 * 1024);
+  return Number.isInteger(mib) ? `${mib} MiB` : `${bytes} bytes`;
+}
+
+/**
+ * The config as the `-p` of a command run from the app's root.
+ *
+ * Relative, because that is where `tsc` ran and it is usually just
+ * `tsconfig.json`; forward-slashed, which `tsc` takes on Windows too; and
+ * quoted where a shell would split it.
+ *
+ * @param cwd - The app's root.
+ * @param project - The config's absolute path.
+ * @returns The argument.
+ */
+function rerun(cwd: string, project: string): string {
+  return word(displayPath(relative(cwd, project)));
 }
