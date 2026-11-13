@@ -1,3 +1,4 @@
+import { groupMultiselect } from '../../src/components/group-multiselect.js';
 import { multiselect, select, separator } from '../../src/components/prompt.js';
 import { Element } from '../../src/element/index.js';
 import { screenSetup, tick } from './helpers.js';
@@ -237,5 +238,231 @@ describe('a choice list whose rows are built as the window moves', () => {
       await type(ui.stdin, CTRL_C);
       await answer;
     }
+  });
+});
+
+/**
+ * SIG-424: `groupMultiselect()` had the same O(n) shape and was outside SIG-369.
+ * It built five elements for every group and every choice, and its `draw()` wrote
+ * props on all of them on every key, `display: none` on the ones off screen -- a
+ * Down at fifty thousand choices took 1.3s, and at eighty thousand the prompt
+ * never opened, because spreading every row into one `box()` overflowed the
+ * stack. It draws through `promptBuiltRows()` now, the window `select()` and
+ * `multiselect()` draw through, and these are the same counts over its rows.
+ */
+
+/** Groups of ten, `count` choices in all. */
+function grouped(count: number): Record<string, string[]> {
+  const choices: Record<string, string[]> = {};
+  for (let g = 0; g < count / 10; g++) {
+    choices[`group ${g}`] = Array.from({ length: 10 }, (_, i) => `item ${g * 10 + i}`);
+  }
+  return choices;
+}
+
+/** What building a `groupMultiselect()` over `count` choices costs, and its keys after. */
+async function groupCost(
+  count: number,
+  keys: string[],
+  selectableGroups = true
+): Promise<{ build: number; keys: number }> {
+  const ui = screenSetup({ columns: 40, rows: 10 });
+  let answer: Promise<unknown> = Promise.resolve();
+
+  const build = await writes(async () => {
+    answer = groupMultiselect({
+      ansi: ui.ansi,
+      choices: grouped(count),
+      message: 'Pick',
+      selectableGroups,
+      terminal: ui.terminal,
+    }).catch(() => undefined);
+    await tick();
+  });
+  const pressed = await writes(() => type(ui.stdin, ...keys));
+
+  await type(ui.stdin, CTRL_C);
+  await answer;
+  return { build, keys: pressed };
+}
+
+describe('groupMultiselect() builds only the rows on screen', () => {
+  // past the bottom of the window and back, a choice ticked, its group ticked
+  // and cleared, every choice ticked and inverted: each a path the window takes
+  // or a state the rows on screen redraw for, and none reaching the far end
+  const keys = [
+    ...Array(14).fill(DOWN),
+    ...Array(14).fill(UP),
+    DOWN,
+    SPACE,
+    UP,
+    SPACE,
+    SPACE,
+    'a',
+    'i',
+    DOWN,
+  ];
+
+  for (const selectableGroups of [true, false]) {
+    const as = selectableGroups ? 'selectable groups' : 'headings only';
+
+    it(`should build at fifty choices what it builds at five thousand, with ${as}`, async () => {
+      const small = await groupCost(50, [], selectableGroups);
+      const large = await groupCost(5000, [], selectableGroups);
+
+      expect(large.build).to.be.greaterThan(0);
+      expect(large.build).to.equal(small.build);
+    });
+
+    it(`should write as much per key at five thousand choices as at fifty, with ${as}`, async () => {
+      const small = await groupCost(50, keys, selectableGroups);
+      const large = await groupCost(5000, keys, selectableGroups);
+
+      expect(large.keys).to.be.greaterThan(0);
+      expect(large.keys).to.equal(small.keys);
+    });
+  }
+
+  // Up from the first row wraps to the last, End and Home jump the whole list:
+  // a window of rows rebuilt and nothing more, so each costs at five thousand
+  // what it costs at fifty
+  it('should cost a jump to either end what a window of rows costs', async () => {
+    for (const jump of [
+      [UP, DOWN],
+      [END, HOME],
+    ]) {
+      const small = await groupCost(50, jump);
+      const large = await groupCost(5000, jump);
+
+      expect(large.keys).to.be.greaterThan(0);
+      expect(large.keys).to.equal(small.keys);
+    }
+  });
+});
+
+describe('groupMultiselect() opening a long list', () => {
+  // Each group used to find its choices by reading the whole list built so far,
+  // so opening was quadratic in the number of groups: 2.4s at a hundred thousand
+  // choices with every row already windowed. Not a count of element writes,
+  // since the reading wrote nothing, so it is two sizes compared, as
+  // `highlight.test.ts` does it (SIG-429): eight times the choices must cost less
+  // than three times eight, where linear is eight and this was sixty-four. Best
+  // of five, the sizes taking turns.
+  it('should open in time linear in the number of groups', async () => {
+    const SIZE = 8000;
+
+    /** How long the call that opens a prompt over `count` choices takes. */
+    async function open(choices: Record<string, string[]>): Promise<number> {
+      const ui = screenSetup({ columns: 40, rows: 10 });
+      const started = performance.now();
+      const answer = groupMultiselect({
+        ansi: ui.ansi,
+        choices,
+        message: 'Pick',
+        terminal: ui.terminal,
+      }).catch(() => undefined);
+      const took = performance.now() - started;
+      await tick();
+      await type(ui.stdin, CTRL_C);
+      await answer;
+      return took;
+    }
+
+    const small = grouped(SIZE);
+    const large = grouped(SIZE * 8);
+    let bestSmall = Infinity;
+    let bestLarge = Infinity;
+    for (let run = 0; run < 5; run++) {
+      bestSmall = Math.min(bestSmall, await open(small));
+      bestLarge = Math.min(bestLarge, await open(large));
+    }
+
+    expect(Math.max(bestLarge, 2) / Math.max(bestSmall, 2)).to.be.lessThan(24);
+  });
+});
+
+describe('groupMultiselect() rows built as the window moves', () => {
+  /** Every row's name, top to bottom, as the list holds them. */
+  const all = Object.entries(grouped(60)).flatMap(([group, items]) => [group, ...items]);
+
+  /** The names of the rows on screen, top to bottom, and the highlighted one. */
+  function shown(frame: string): { active: string | undefined; rows: string[] } {
+    let active: string | undefined;
+    const rows: string[] = [];
+    for (const line of frame.split('\n')) {
+      const match = /(group \d+|item \d+)$/.exec(line.trimEnd());
+      if (match) {
+        rows.push(match[1] as string);
+        if (line.startsWith('❯')) {
+          active = match[1];
+        }
+      }
+    }
+    return { active, rows };
+  }
+
+  // the rows taken out and put back have an order to keep in both directions,
+  // with a heading among them: the window is one run of the list, whichever way
+  // it moved and however it got there
+  it('should keep the rows in order and the highlight among them whichever way it moves', async () => {
+    const ui = screenSetup({ columns: 40, rows: 10 });
+    const answer = groupMultiselect({
+      ansi: ui.ansi,
+      choices: grouped(60),
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
+    const keys = [
+      ...Array(14).fill(DOWN),
+      ...Array(14).fill(UP),
+      END,
+      ...Array(13).fill(UP),
+      HOME,
+      UP,
+      DOWN,
+    ];
+
+    let height = 0;
+    for (const key of keys) {
+      await type(ui.stdin, key);
+      const { active, rows } = shown(drawn(ui));
+      height ||= rows.length;
+      const from = all.indexOf(rows[0] as string);
+
+      expect(rows.length, drawn(ui)).to.equal(height);
+      expect(rows, drawn(ui)).to.deep.equal(all.slice(from, from + rows.length));
+      expect(rows, drawn(ui)).to.include(active);
+    }
+    expect(height).to.be.greaterThan(1);
+
+    // back round to the first heading, so Space is the whole of its group
+    await type(ui.stdin, SPACE, ENTER);
+    expect(await answer).to.deep.equal(Array.from({ length: 10 }, (_, i) => `item ${i}`));
+  });
+
+  // a row built again when the window comes back to it is drawn from the ticked
+  // set as it is now, not as it was when the row left: a heading that scrolled
+  // away over none of its choices ticked comes back partial
+  it('should draw a heading the window comes back to as its choices are now', async () => {
+    const ui = screenSetup({ columns: 40, rows: 10 });
+    const answer = groupMultiselect({
+      ansi: ui.ansi,
+      choices: grouped(60),
+      message: 'Pick',
+      terminal: ui.terminal,
+    });
+
+    await type(ui.stdin, DOWN, DOWN, DOWN, SPACE);
+    expect(drawn(ui)).to.contain('◐ group 0');
+
+    await type(ui.stdin, END);
+    expect(drawn(ui)).not.to.contain('group 0');
+
+    await type(ui.stdin, HOME);
+    expect(drawn(ui)).to.contain('❯ ◐ group 0');
+    expect(drawn(ui)).to.contain('◉ item 2');
+
+    await type(ui.stdin, ENTER);
+    expect(await answer).to.deep.equal(['item 2']);
   });
 });

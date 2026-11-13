@@ -1963,6 +1963,48 @@ decided once, for all of them. The runs and the sabotage passes are in
   writes at fifty choices and at five thousand in `choice-window.test.ts`,
   never as time; the old code fails them by a factor of a hundred.
 
+  `groupMultiselect()` had the same shape and was outside that ticket, and
+  SIG-424 put it on the same window. Which rows exist is now one function,
+  `builtRows()` -- published as `promptBuiltRows()` -- that takes a builder and
+  a painter, and `choiceRows()` and `paintChoices()` are `select()`'s and
+  `multiselect()`'s builder and painter over it. `groupMultiselect()` hands it
+  its own, because a group row is the third kind of row the section on that
+  prompt says should not become a branch in `paintChoices()`: so neither the
+  group branch nor a second copy of the window was written. The selector rule
+  above is therefore true of `groupMultiselect()`'s rows as well -- a group
+  heading and its choices are siblings in one list, so `:first-child`,
+  `:last-child`, `:nth-child()`, `+` and `~` over `.sigil-choice` match among
+  the rows on screen, a heading that has scrolled away is not a sibling of
+  anything, and `.sigil-choice:first-child` is whichever row is at the top of
+  the window, heading or choice. Measured as of that change, against the built
+  package, on a 60x12 terminal over groups of ten, mean of eight Downs:
+
+  | `groupMultiselect()` | 1,000 choices | 10,000   | 50,000    | 100,000                  |
+  | -------------------- | ------------- | -------- | --------- | ------------------------ |
+  | Down, before         | 29.6 ms       | 273.6 ms | 1388.8 ms | never opened             |
+  | Down, after          | 1.1 ms        | 0.6 ms   | 0.7 ms    | 0.8 ms                   |
+  | first frame, before  | 48.7 ms       | 263.2 ms | 2126.9 ms | `RangeError` after 2.8 s |
+  | first frame, after   | 15.6 ms       | 4.3 ms   | 9.9 ms    | 17.1 ms                  |
+
+  The 1,000 column's first frame is the first in a fresh process and pays for
+  warming up. Two more things went with it. Every row was spread into one
+  `box()` as arguments, which overflowed the stack somewhere between fifty and
+  eighty thousand choices, so the prompt rejected with `Maximum call stack size
+  exceeded` before it drew anything -- the list starts empty now, so there is
+  no spread to overflow, and that is SIG-417's site in this module gone without
+  its having been looked for. And each group found its choices by reading the
+  whole list built so far, which made opening quadratic in the number of groups
+  and was most of the 2.4 s that was left once the rows were windowed; it reads
+  from its own heading now. Every byte the prompt wrote, over four scripted key
+  sequences (both ends, both kinds of group, disabled choices, hints that wrap,
+  descriptions, a starting `value`, `min`, `max`, `loop: false`, `a`, `i`, a
+  resize) at six terminal sizes and colour levels 0 and 3, 480 runs, was
+  identical before and after, and so were `select()`'s and `multiselect()`'s
+  over 48 more. Pinned in `choice-window.test.ts` as counts of writes at fifty
+  choices and five thousand, which the old code failed by a factor of a
+  hundred, and the quadratic opening as two sizes compared, which it failed at
+  52 against a bound of 24.
+
 - **A choice list reserves the cursor's column on every row, and a blank cannot
   do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
   looks like the same one column and is not: `white-space: normal` collapses a run
@@ -6670,7 +6712,10 @@ SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
 `autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
 row is a third kind of row beside a choice and a separator, and teaching
 `choiceRows()` and `paintChoices()` about it would put a branch for a feature one
-prompt has into the two functions all of them share.
+prompt has into the two functions all of them share. What it does share with
+them since SIG-424 is the window under those two, `promptBuiltRows()`, with a
+builder and a painter of its own -- the window is the same question for every
+kind of row, and a row's look is not.
 
 - **A group is a selectable row, which is Clack's answer and the default.** The
   ticket asked, and the reason is that "tick the whole area" is the point of

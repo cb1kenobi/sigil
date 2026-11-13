@@ -839,6 +839,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'promptAnswerSlot',
     'promptAnswered',
     'promptAsLines',
+    'promptBuiltRows',
     'promptChoice',
     'promptCountComplaint',
     'promptFooter',

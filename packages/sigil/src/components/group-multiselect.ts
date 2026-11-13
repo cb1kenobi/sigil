@@ -39,6 +39,7 @@ import {
   promptKeys,
   promptNote,
   type PromptOptions,
+  promptBuiltRows,
   PromptError,
   promptSameValue,
   promptSeek,
@@ -140,6 +141,68 @@ interface RowView {
 }
 
 /**
+ * Builds the elements one row is drawn as.
+ *
+ * Called for a row only once it is on screen, and again if it leaves and comes
+ * back: `promptBuiltRows()` holds the window's rows and nothing else (SIG-424),
+ * so a list of a hundred thousand costs what a list of ten does per key.
+ *
+ * @param row - The group or the choice.
+ * @param selectableGroups - Whether a group's heading can be ticked.
+ * @returns The row.
+ */
+function rowView<T>(row: Row<T>, selectableGroups: boolean): RowView {
+  // the cursor on every row, hidden where it is not the active one, for the
+  // reason `select()` records: hidden content still takes its space. A choice
+  // is pushed in under its group by a wider margin on the same element
+  const pointer = textNode(PROMPT_SYMBOLS.cursor, {
+    'margin-right': row.kind === 'option' ? 3 : 1,
+    visibility: 'hidden',
+  });
+  const mark = textNode(PROMPT_SYMBOLS.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
+
+  if (row.kind === 'group' && !selectableGroups) {
+    // a heading only: it starts in the cursor's column and has no box
+    pointer.setProps({ display: 'none' });
+    mark.setProps({ display: 'none' });
+  }
+
+  const reason =
+    row.kind === 'option'
+      ? typeof row.choice.disabled === 'string' && row.choice.disabled
+        ? row.choice.disabled
+        : row.choice.disabled
+          ? __`disabled`
+          : row.choice.hint
+      : undefined;
+  const label = textNode(row.kind === 'group' ? row.label : row.choice.label, {
+    class:
+      row.kind === 'group'
+        ? selectableGroups
+          ? row.offered
+            ? 'sigil-choice-group sigil-heading'
+            : 'sigil-choice-group sigil-muted'
+          : 'sigil-choice-separator sigil-muted'
+        : row.offered
+          ? ''
+          : 'sigil-muted',
+  });
+  const hint = textNode(reason ?? '', {
+    class: 'sigil-choice-hint sigil-muted',
+    display: reason ? 'flex' : 'none',
+    'margin-left': 1,
+  });
+
+  return {
+    hint,
+    label,
+    mark,
+    pointer,
+    row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
+  };
+}
+
+/**
  * Asks for any number of a list that has groups.
  *
  * @param opts - What to ask and what to offer.
@@ -170,10 +233,17 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
       rows.push({ choice, kind: 'option', offered: !choice.disabled });
     }
 
+    // the rows after the heading are this group's and nobody else's yet, so
+    // they are read from where it starts: the whole list from its first row, as
+    // this was, is every group reading every row before it -- a hundred
+    // thousand choices took 2.4s to open that way (SIG-424)
     const group = rows[at] as Extract<Row<T>, { kind: 'group' }>;
-    group.members = rows.flatMap((row, i) =>
-      i > at && row.kind === 'option' && row.offered ? [i] : []
-    );
+    for (let i = at + 1; i < rows.length; i++) {
+      const row = rows[i] as Row<T>;
+      if (row.kind === 'option' && row.offered) {
+        group.members.push(i);
+      }
+    }
     // a heading over nothing that can be ticked is nothing to tick; and when
     // groups are headings only it is never on offer, whatever is under it
     group.offered = selectableGroups && group.members.length > 0;
@@ -265,58 +335,8 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     const answer = promptAnswerSlot(head.rest);
     const { line, mark } = promptHeadLine(opts.message, head.message, answer.beside);
 
-    const views = rows.map((row): RowView => {
-      // the cursor on every row, hidden where it is not the active one, for the
-      // reason `select()` records: hidden content still takes its space. A choice
-      // is pushed in under its group by a wider margin on the same element
-      const pointer = textNode(PROMPT_SYMBOLS.cursor, {
-        'margin-right': row.kind === 'option' ? 3 : 1,
-        visibility: 'hidden',
-      });
-      const mark = textNode(PROMPT_SYMBOLS.off, { class: 'sigil-choice-mark', 'margin-right': 1 });
-
-      if (row.kind === 'group' && !selectableGroups) {
-        // a heading only: it starts in the cursor's column and has no box
-        pointer.setProps({ display: 'none' });
-        mark.setProps({ display: 'none' });
-      }
-
-      const reason =
-        row.kind === 'option'
-          ? typeof row.choice.disabled === 'string' && row.choice.disabled
-            ? row.choice.disabled
-            : row.choice.disabled
-              ? __`disabled`
-              : row.choice.hint
-          : undefined;
-      const label = textNode(row.kind === 'group' ? row.label : row.choice.label, {
-        class:
-          row.kind === 'group'
-            ? selectableGroups
-              ? row.offered
-                ? 'sigil-choice-group sigil-heading'
-                : 'sigil-choice-group sigil-muted'
-              : 'sigil-choice-separator sigil-muted'
-            : row.offered
-              ? ''
-              : 'sigil-muted',
-      });
-      const hint = textNode(reason ?? '', {
-        class: 'sigil-choice-hint sigil-muted',
-        display: reason ? 'flex' : 'none',
-        'margin-left': 1,
-      });
-
-      return {
-        hint,
-        label,
-        mark,
-        pointer,
-        row: box({ class: 'sigil-choice' }, pointer, mark, label, hint),
-      };
-    });
-
-    const list = box({ 'flex-direction': 'column' }, ...views.map((view) => view.row));
+    const views = promptBuiltRows(rows.length, (i) => rowView(rows[i] as Row<T>, selectableGroups));
+    const { list } = views;
     const describing = rows.some((row) => row.kind === 'option' && row.choice.description);
     const description = textNode('', {
       class: 'sigil-choice-description sigil-muted',
@@ -386,20 +406,19 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
       Math.max(1, Math.max(1, terminal.height) - head.lines - 2 - (describing ? 1 : 0));
 
     function draw(): void {
-      const visible = Math.max(1, Math.min(room(), rows.length));
       start = listWindow(rows.length, active, room(), start);
       setPromptNote(problem, error);
 
-      for (const [i, row] of rows.entries()) {
-        const v = views[i];
+      views.draw(start, room(), (v, i) => {
+        const row = rows[i] as Row<T>;
         const here = i === active;
         v.row.setProps({
           class: here ? 'sigil-choice is-active sigil-accent' : 'sigil-choice',
-          display: i >= start && i < start + visible ? 'flex' : 'none',
+          display: 'flex',
         });
 
         if (row.kind === 'group' && !selectableGroups) {
-          continue;
+          return;
         }
 
         v.pointer.setProps({
@@ -421,7 +440,7 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
                   ? 'sigil-choice-mark'
                   : 'sigil-choice-mark sigil-muted',
         });
-      }
+      });
 
       const text = rows[active].kind === 'option' ? choiceAt(active).description : undefined;
       description.setText(text ?? '');
