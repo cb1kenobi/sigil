@@ -60,7 +60,14 @@ import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { physicalPath } from '@ttylabs/sigil/config';
 import { errorMessage } from '@ttylabs/sigil/error-handler';
-import { readPackage } from '@ttylabs/sigil/routes';
+import {
+  defaultTypeMessage,
+  descReturnMessage,
+  descTypeMessage,
+  hiddenTypeMessage,
+  parseName,
+  readPackage,
+} from '@ttylabs/sigil/routes';
 import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
@@ -673,10 +680,10 @@ function readCommand(
 
   const specifier = moduleSpecifier(object);
   const nested = plainProperty(object, 'commands');
-  const own = placeholderFacts(object, parsed, diagnostics, name);
-  const routing = placeholderRouting(object, parsed, diagnostics, name);
-  warnUnbaked(object, parsed, diagnostics, name);
   const named = placeholderName(object, parsed, diagnostics, name);
+  const own = placeholderFacts(object, parsed, diagnostics, named);
+  const routing = placeholderRouting(object, parsed, diagnostics, named);
+  warnUnbaked(object, parsed, diagnostics, named);
 
   // what the *placeholder* declares is what help shows before the module loads,
   // so a `desc` here -- readable or not -- is the answer to every question the
@@ -748,20 +755,22 @@ interface PlaceholderFacts extends CommandFacts {
  * loads a catalog, so the tag answers in English there (see `DescThunk`). A
  * thunk over the tag, `` () => __`...` ``, is evaluated during the parse and
  * after the catalog, so it is read as the key it returns and printed as the
- * same thunk. A literal of a type the runtime refuses fails the build in the
- * runtime's words, as a placeholder's `alias` and `default` do.
+ * same thunk. A value of a type the runtime refuses fails the build in the
+ * runtime's words, as a placeholder's `alias` and `default` do -- and that
+ * includes a function where the runtime wants a boolean, and a thunk that
+ * cannot answer a string, which an `async` one never does (SIG-421).
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
  * @param diagnostics - Where to report.
- * @param name - The command, for the message.
+ * @param nameString - The name string it is registered under.
  * @returns What it declares.
  */
 function placeholderFacts(
   object: ObjectExpression,
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
-  name: string
+  nameString: string
 ): PlaceholderFacts {
   // the last spelling of a key is the one an object literal keeps, and
   // `undefined` is what the runtime reads as not declared
@@ -779,23 +788,37 @@ function placeholderFacts(
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
   const desc = declared('desc');
   const hidden = declared('hidden');
+  const command = commandName(nameString);
 
   if (desc) {
     const value = desc.kind === 'init' && !desc.method ? desc.value : undefined;
-    const read = value ? placeholderDesc(parsed, value) : undefined;
+    // the runtime names the command by the name its name string parses to
+    const what = `the "${command.name}" command`;
+    const refused = refusedThunk(desc);
+    const read = value && !refused ? placeholderDesc(parsed, value) : undefined;
 
     if (read) {
       Object.assign(facts, read);
+    } else if (refused) {
+      diagnostics.push({
+        ...locate(parsed, refused.start),
+        message: descReturnMessage(what),
+        severity: 'error',
+      });
     } else if (value && literalType(value) !== 'function' && isWrongType(value, 'string')) {
       diagnostics.push({
         ...locate(parsed, value.start),
-        message: `Expected desc for the "${name}" command to be a string or a function`,
+        message: descTypeMessage(what),
         severity: 'error',
       });
     } else {
       diagnostics.push({
         ...locate(parsed, (value ?? desc).start),
-        message: `the "${name}" command's "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone`,
+        message: `the "${command.name}" command's "desc" is ${
+          value && interpolated(parsed, value)
+            ? 'a translated string with a value interpolated into it'
+            : 'computed rather than a string literal'
+        }, so it cannot be read at build time; the built app will list it by name alone`,
         severity: 'warning',
       });
     }
@@ -807,22 +830,103 @@ function placeholderFacts(
 
     if (flag !== undefined) {
       facts.hidden = flag;
-    } else if (value && isWrongType(value, 'boolean')) {
-      diagnostics.push({
-        ...locate(parsed, value.start),
-        message: `Expected hidden to be a boolean in "${name}" command`,
-        severity: 'error',
-      });
-    } else {
+    } else if (hidden.method || (value && isWrongType(value, 'boolean'))) {
+      // a method is a function however it is spelled, and the runtime refuses
+      // one as it refuses `hidden: () => true`; an accessor is not known to be
       diagnostics.push({
         ...locate(parsed, (value ?? hidden).start),
-        message: `the "${name}" command's "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help`,
+        // the runtime names the name string as declared, here
+        message: hiddenTypeMessage(nameString),
+        severity: 'error',
+      });
+    } else if (!command.hidden) {
+      // a `!` in the name string hides it whatever `hidden` turns out to be,
+      // since the two are additive -- so the built app does not list it either
+      diagnostics.push({
+        ...locate(parsed, (value ?? hidden).start),
+        message: `the "${command.name}" command's "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help`,
         severity: 'warning',
       });
     }
   }
 
   return { ...facts, declaresDesc: desc !== undefined, declaresHidden: hidden !== undefined };
+}
+
+/**
+ * What the runtime calls a command, for a message, and whether its name string
+ * hides it.
+ *
+ * Read with the runtime's own `parseName()`, because the alternative is a
+ * second reading of rules that have to stay one: `'build, b'` is `build` and
+ * `'!secret'` is `secret`. A name string that names nothing is refused by the
+ * runtime as it registers the command, which is not this message's to say, so
+ * it is named as written.
+ *
+ * @param nameString - The name string a placeholder is registered under.
+ * @returns Its name, and whether a `!` hides it.
+ */
+function commandName(nameString: string): { hidden: boolean; name: string } {
+  try {
+    const { hidden, name } = parseName(nameString);
+    return { hidden, name };
+  } catch {
+    return { hidden: false, name: nameString };
+  }
+}
+
+/**
+ * A `desc` written as a function that cannot answer a string, which the runtime
+ * calls and refuses: an `async` one answers a promise, a generator answers an
+ * iterator, and an arrow whose body is a literal of another type answers that.
+ *
+ * Only what the source settles. A function whose body is a block, or returns
+ * something this cannot read, may well answer a string, and is computed.
+ *
+ * @param property - The `desc` property.
+ * @returns What to point the error at, or `undefined` when it is not refused.
+ */
+function refusedThunk(property: ObjectProperty): { start: number } | undefined {
+  if (property.kind !== 'init') {
+    return undefined;
+  }
+
+  // `async desc() {}` and `*desc() {}` are functions written as methods
+  const fn = property.method ? property.value : unwrapShallow(property.value);
+  if (fn.type !== 'ArrowFunctionExpression' && fn.type !== 'FunctionExpression') {
+    return undefined;
+  }
+
+  if (fn.async || fn.generator) {
+    return fn;
+  }
+
+  if (fn.type === 'ArrowFunctionExpression' && fn.expression) {
+    const body = fn.body as Expression;
+    if (isUndefined(body) || isWrongType(body, 'string')) {
+      return body;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Whether a `desc` is a `__` tag with a value interpolated into it, or a thunk
+ * returning one -- which is unreadable for a reason of its own, and is told
+ * apart from "computed" because a tag whose neighbour lifted fine is the thing
+ * the author is looking at.
+ *
+ * @param parsed - The module, for the tag's binding.
+ * @param value - What the `desc` was written as.
+ * @returns Whether it is.
+ */
+function interpolated(parsed: ParsedModule, value: Expression): boolean {
+  const fn = unwrapShallow(value);
+  const returned =
+    fn.type === 'ArrowFunctionExpression' && fn.expression ? (fn.body as Expression) : value;
+  const translated = translatedKey(parsed, returned);
+  return translated !== undefined && translated.key === undefined;
 }
 
 /**
@@ -892,7 +996,7 @@ function placeholderDesc(
  * @param object - The command literal.
  * @param parsed - The module, for positions.
  * @param diagnostics - Where to report.
- * @param name - The command, for the message.
+ * @param nameString - The name string it is registered under, for the messages.
  * @param refusal - Why a computed value fails the build, where it does.
  * @returns The routing it declares, absent where it declares none.
  */
@@ -900,10 +1004,11 @@ function placeholderRouting(
   object: ObjectExpression,
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
-  name: string,
+  nameString: string,
   refusal?: string
 ): { alias?: readonly string[]; default?: boolean } {
   const routing: { alias?: readonly string[]; default?: boolean } = {};
+  const { name } = commandName(nameString);
 
   // `undefined` is what the runtime reads as not declared
   const declared = (property: { value: Expression } | undefined) =>
@@ -937,7 +1042,8 @@ function placeholderRouting(
     } else if (isWrongType(isDefault.value, 'boolean')) {
       diagnostics.push({
         ...locate(parsed, isDefault.value.start),
-        message: `Expected default in "${name}" command to be a boolean`,
+        // the runtime names the name string as declared, here
+        message: defaultTypeMessage(nameString),
         severity: 'error',
       });
     } else {
@@ -1031,14 +1137,16 @@ function placeholderName(
  * @param object - The command literal.
  * @param parsed - The module, for positions.
  * @param diagnostics - Where to report.
- * @param name - The command, for the message.
+ * @param nameString - The name string it is registered under, for the message.
  */
 function warnUnbaked(
   object: ObjectExpression,
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
-  name: string
+  nameString: string
 ): void {
+  const { name } = commandName(nameString);
+
   for (const property of object.properties) {
     if (property.type === 'SpreadElement') {
       continue;

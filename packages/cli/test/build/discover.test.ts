@@ -1,15 +1,58 @@
 import { discoverApp, readAppCommands, resolveSpecifier } from '../../src/build/discover.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
 import type { ResolvedCommand } from '../../src/build/tree.js';
+import { type AnyCommand, main } from '@ttylabs/sigil';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, it, expect } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const apps = resolve(__dirname, '../fixtures/discover');
 const repo = resolve(__dirname, '../../../..');
+
+/**
+ * Builds a throwaway app whose schema module is `source`, with one command
+ * module at `./commands/a.js` for its placeholders to point at, hands its
+ * directory to `use`, and removes it afterwards.
+ */
+async function withSchema<T>(
+  source: string,
+  use: (dir: string) => T | Promise<T>,
+  module = "export default { desc: 'from the module', run() {} };\n"
+): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), 'sigil-placeholder-'));
+  try {
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'app', type: 'module' })
+    );
+    mkdirSync(join(dir, 'src', 'commands'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'commands', 'a.js'), module);
+    writeFileSync(join(dir, 'src', 'index.js'), source);
+    return await use(dir);
+  } finally {
+    rmSync(dir, { force: true, recursive: true });
+  }
+}
+
+/**
+ * What the runtime throws registering one command of a schema, which is the
+ * wording a build that refuses the same declaration has to match.
+ */
+async function runtimeRefusal(name: string, declaration: unknown): Promise<string | undefined> {
+  try {
+    await main({
+      argv: [],
+      schema: { commands: { [name]: declaration as AnyCommand } },
+      settings: { errorHandler: false },
+    });
+  } catch (err) {
+    return (err as Error).message;
+  }
+  return undefined;
+}
 
 /** The command of a name, for reading one entry at a time. */
 function at(commands: readonly ResolvedCommand[], name: string): ResolvedCommand {
@@ -266,6 +309,186 @@ describe("reading where an app's commands are", () => {
       } finally {
         rmSync(dir, { force: true, recursive: true });
       }
+    });
+
+    it("a placeholder's async desc, method hidden or non-string thunk was let through, though the runtime refuses each", async () => {
+      // SIG-421. The first was worse than a warning: the build baked `x`, so the
+      // built app worked while the same app from source crashed at start. The
+      // other two only warned. Each is now the runtime's own error, in its
+      // words -- asked of the runtime itself rather than written out here, over
+      // the very schema the build read, and naming the command as it does: the
+      // parsed name for a `desc`, the name string as declared for a `hidden`
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    'build, b': { desc: async () => 'x', path: './commands/a.js' },
+    '!secret': { desc: () => 42, path: './commands/a.js' },
+    gen: { *desc() {}, path: './commands/a.js' },
+    nothing: { desc: () => undefined, path: './commands/a.js' },
+    'remove, rm': { hidden() { return true; }, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        const refusals: (string | undefined)[] = [];
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          refusals.push(await runtimeRefusal(name, declaration));
+        }
+        expect(refusals).toStrictEqual([
+          'Expected desc for the "build" command to return a string',
+          'Expected desc for the "secret" command to return a string',
+          'Expected desc for the "gen" command to return a string',
+          'Expected desc for the "nothing" command to return a string',
+          'Expected hidden to be a boolean in "remove, rm" command',
+        ]);
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual(
+          refusals.map((message) => ['error', message])
+        );
+        // and nothing is baked for any of them -- `x` least of all
+        for (const name of ['build, b', '!secret', 'gen', 'nothing']) {
+          expect(at(list, name).desc).toBeUndefined();
+        }
+        expect(at(list, 'remove, rm').hidden).toBeUndefined();
+      });
+    });
+
+    it('should read a last `undefined` as not declared, and take the module’s desc', async () => {
+      // `declared()` in `placeholderFacts()`. The runtime merges the module's
+      // `desc` in wherever the placeholder's is `undefined`, so the lift is what
+      // applies -- where treating it as declared bakes nothing and warns that the
+      // value is computed
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    bare: { desc: undefined, path: './commands/a.js' },
+    late: { desc: 'early', desc: undefined, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics).toStrictEqual([]);
+        expect(at(list, 'bare').desc).toBe('from the module');
+        expect(at(list, 'late').desc).toBe('from the module');
+      });
+    });
+
+    it('should warn about a thunk over a computed value rather than refuse it as the wrong type', async () => {
+      // the `literalType(value) !== 'function'` guard in `placeholderFacts()`. A
+      // function is one of the two types a `desc` takes, so a thunk this cannot
+      // read is computed rather than wrong -- and without the guard a valid app
+      // failed to build
+      const source = `const words = 'computed words';
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    thunk: { desc: () => words, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+          [
+            'warning',
+            'the "thunk" command\'s "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone',
+          ],
+        ]);
+        expect(at(list, 'thunk').desc).toBeUndefined();
+      });
+    });
+
+    it('named a command by its raw key in a message where the runtime parses it', async () => {
+      // SIG-421. `'build, b'` is the `build` command and `'!secret'` the
+      // `secret` one, read with the runtime's own `parseName()` -- except where
+      // the runtime's own message names the name string as declared, which a
+      // build refusing the same thing repeats rather than improves on
+      const source = `const words = 'computed words';
+const names = ['rm'];
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    'build, b': { desc: 42, path: './commands/a.js' },
+    '!secret, s': { desc: words, path: './commands/a.js' },
+    'ship, go': { hidden: 'yes', path: './commands/a.js' },
+    'remove, rm': { default: 'yes', alias: names, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(diagnostics.map((d) => d.message)).toStrictEqual([
+          'Expected desc for the "build" command to be a string or a function',
+          'the "s" command\'s "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone',
+          'Expected hidden to be a boolean in "ship, go" command',
+          'the "remove" command\'s "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; the built app will not answer to it',
+          'Expected default in "remove, rm" command to be a boolean',
+        ]);
+      });
+    });
+
+    it('warned that a command hidden by a `!` would be listed because its `hidden` is computed', async () => {
+      // SIG-421. A `!` and `hidden` are additive, so whatever `flag` holds the
+      // built app hides the command -- the warning was false. A `hidden` of the
+      // wrong type is still refused, since the runtime throws on it either way
+      const source = `const flag = false;
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    '!quiet': { hidden: flag, path: './commands/a.js' },
+    '!wrong': { hidden: 'yes', path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+          ['error', 'Expected hidden to be a boolean in "!wrong" command'],
+        ]);
+        expect(at(list, '!quiet').hidden).toBeUndefined();
+      });
+    });
+
+    it('called a placeholder’s interpolated `__` tag computed, where a module’s gets a message of its own', async () => {
+      // SIG-421. The tag is the thing the author is looking at, and its
+      // neighbour without an interpolation lifted fine -- so "computed rather
+      // than a string literal" names nothing to act on. A thunk over one is
+      // the same thing evaluated later
+      const source = `import { __ } from '@ttylabs/sigil/i18n';
+const who = 'you';
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    tagged: { desc: __\`Greet \${who}\`, path: './commands/a.js' },
+    thunk: { desc: () => __\`Greet \${who}\`, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual(
+          ['tagged', 'thunk'].map((name) => [
+            'warning',
+            `the "${name}" command's "desc" is a translated string with a value interpolated into it, so it cannot be read at build time; the built app will list it by name alone`,
+          ])
+        );
+      });
     });
 
     it('should nest a subcommand under its parent', () => {

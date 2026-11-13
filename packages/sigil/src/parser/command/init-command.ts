@@ -16,6 +16,12 @@ import { optionDeclarations } from '../option/option-map.js';
 import { OptionRegistry } from '../option/option-registry.js';
 import { CommandRegistry } from './command-registry.js';
 import {
+  defaultTypeMessage,
+  hiddenTypeMessage,
+  type ParsedName,
+  parseName,
+} from './declaration.js';
+import {
   moduleName,
   readDirectory,
   readPackage,
@@ -29,8 +35,6 @@ import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
 
-const nameSplitRegExp = /[, ]+/;
-
 /**
  * "-a"
  * "-a, --all"
@@ -43,14 +47,6 @@ const nameSplitRegExp = /[, ]+/;
 // const optionFormatRE = /^(?:-(\w)(?:[ ,|]+)?)?(?:--(no-)?([^\s=]+))?(?:[\s=]+(.+))?$/;
 
 type CommandsLike = Command | InternalCommand | Schema;
-
-interface ParsedName {
-  aliases: string[];
-  args: string[];
-  hidden: boolean;
-  label: string;
-  name: string;
-}
 
 /**
  * Builds an internal command from a declaration.
@@ -131,11 +127,11 @@ export async function initCommand(
   }
 
   if (decl.hidden !== undefined && typeof decl.hidden !== 'boolean') {
-    throw new TypeError(`Expected hidden to be a boolean in "${decl.name}" command`);
+    throw new TypeError(hiddenTypeMessage(decl.name));
   }
 
   if (decl.default !== undefined && typeof decl.default !== 'boolean') {
-    throw new TypeError(`Expected default in "${decl.name}" command to be a boolean`);
+    throw new TypeError(defaultTypeMessage(decl.name));
   }
 
   const parsed = parseName(decl.name);
@@ -399,69 +395,6 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
   }
 
   return cmd;
-}
-
-function parseName(unparsedName: string): ParsedName {
-  const aliases: string[] = [];
-  const args: string[] = [];
-  const labels: string[] = [];
-  let hidden = false;
-  let name: string | undefined;
-  let fallbackName: string | undefined;
-
-  for (let label of unparsedName.split(nameSplitRegExp)) {
-    if (!label) {
-      // a leading, trailing, or doubled separator
-      continue;
-    }
-
-    const c = label[0];
-    if ('<['.includes(c)) {
-      args.push(label);
-      continue;
-    }
-
-    if (c === '!') {
-      // "!" hides the command, not just the label it sits on, so a stray
-      // "!" still hides rather than quietly doing nothing
-      hidden = true;
-    }
-
-    if ('!@'.includes(c)) {
-      label = label.slice(1);
-      if (!label) {
-        // a stray "!" or "@" declares no name
-        continue;
-      }
-      aliases.push(label);
-      // a prefixed label names the command only if no bare label does
-      fallbackName ??= label;
-    } else if (name === undefined) {
-      // the first bare label is the name...
-      name = label;
-    } else {
-      // ...and every bare label after it is an alias
-      aliases.push(label);
-    }
-
-    if (c !== '!') {
-      labels.push(label);
-    }
-  }
-
-  name ??= fallbackName;
-
-  if (!name) {
-    throw new Error(`Unable to determine command name from "${unparsedName}"`);
-  }
-
-  return {
-    aliases,
-    args,
-    hidden,
-    label: labels.join(', '),
-    name,
-  };
 }
 
 /**

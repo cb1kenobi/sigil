@@ -391,6 +391,20 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.deep.equal([]);
     });
 
+    it('a computed desc written after a spread was also said to be one the spread might carry', () => {
+      // SIG-421. A `desc` after the last spread decides whatever the spread
+      // carried, so the only thing unknown about it is its own value -- which
+      // the computed warning already says
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { ...base, desc: f() };`
+      );
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is computed');
+    });
+
     it('a desc or hidden written before a spread was lifted with no warning, though the spread wins at run time', () => {
       // SIG-352. Object-literal order is what the module runs with, so in
       // `{ desc: 'early', hidden: false, ...base }` both values are whatever
@@ -519,6 +533,30 @@ describe('extracting a command module', () => {
       expect(facts).to.deep.equal({ desc: 'plain' });
       expect(diagnostics).to.deep.equal([]);
     });
+
+    it.each([
+      ['computed value', `export default { desc: f(), desc: 'a' };`, { desc: 'a' }],
+      ['accessor', `export default { get desc() { return 'g'; }, desc: 'a' };`, { desc: 'a' }],
+      ['computed hidden', `export default { hidden: flag, hidden: true };`, { hidden: true }],
+      [
+        'interpolated tag',
+        `import { __ } from '@ttylabs/sigil/i18n';
+         export default { desc: __\`a \${x}\`, desc: 'b' };`,
+        { desc: 'b' },
+      ],
+    ])(
+      'an earlier %s was warned about beside a later literal, which is what runs and was baked',
+      (_, source, expected) => {
+        // SIG-421. The reverse of the case above: the later literal was baked,
+        // which is right, and the earlier spelling's warning -- "by name alone",
+        // or "fall back to loading the module" -- was printed anyway, about a
+        // value the module never runs with
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts).to.deep.equal(expected);
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
 
     it('should read a later undefined as not declared, as the runtime does', () => {
       const { diagnostics, facts } = extractCommand(

@@ -612,6 +612,27 @@ makes it testable with a fixture directory and no bundler at all.
   `a placeholder's ... were replaced by the module's` in
   `test/build/discover.test.ts` and its built-against-source twin in
   `test/build-command.test.ts`, over `discover/placeholder-decides`.
+- **...and what the runtime refuses at start includes the shapes that only look
+  readable.** SIG-421. `desc: async () => 'x'` was baked as `x`, so the built app
+  worked where the app from source threw at start; `hidden() { return true }`
+  and `desc: () => 42` only warned. A thunk the source settles cannot answer a
+  string -- `async`, a generator, an arrow whose body is `undefined` or a literal
+  of another type -- and a method `hidden`, are now errors. The words are the
+  runtime's own definitions rather than copies: `descTypeMessage()`,
+  `descReturnMessage()`, `hiddenTypeMessage()` and `defaultTypeMessage()` are
+  re-exported from `@ttylabs/sigil/routes` beside `parseName()`, which moved out
+  of `initCommand()` into `src/parser/command/declaration.ts` for it -- the
+  subpath the build already reads the route rules through, rather than a new
+  one. A command is named the way the runtime names it in each message, which is
+  not one rule: a `desc` message names the **parsed** name (`'build, b'` is
+  `build`, `'!secret'` is `secret`), while `hidden` and `default` name the name
+  string **as declared**, and a build repeating the runtime's refusal repeats
+  that rather than improving on it. The build's own warnings use the parsed
+  name. A computed `hidden` on a name string with a `!` is not warned about,
+  since the two are additive and the built app hides it whatever the value is;
+  and an interpolated `__` tag on a placeholder, or a thunk over one, gets the
+  interpolation message a module's already got. The test asks `main()` for its
+  refusals over the very schema the build read, so the wording cannot drift.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
@@ -646,7 +667,12 @@ makes it testable with a fixture directory and no bundler at all.
   ``{ desc: __`key`, desc: 'plain' }`` is prose, where the earlier tag's
   `descTranslated` used to survive and print `plain` as a catalog key. A later
   `undefined` is not declared, as the runtime reads it, so it leaves nothing and
-  says nothing.
+  says nothing. SIG-421 finished it from the other side: only the last spelling
+  is read at all, so `{ desc: f(), desc: 'a' }` bakes `a` **without** the
+  earlier spelling's warning, which was about a value the module never runs
+  with -- the same for an earlier accessor, computed `hidden` or interpolated
+  tag. For the same reason a `desc` after the last spread, readable or not,
+  is no longer also reported as one the spread might carry.
 - **It looks through the wrappers that change nothing and stops at the one that
   might not.** `command()` is documented as the identity function and exists only
   so inference reaches a nested literal; `as` and `satisfies` are type syntax that
