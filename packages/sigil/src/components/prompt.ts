@@ -2979,25 +2979,87 @@ interface ChoiceRow {
 }
 
 /**
- * A choice list: the box on screen, and the rows of it that have been built.
+ * A list whose rows are built only while they are on screen.
  *
- * Only the rows in the window exist (SIG-369). Every choice used to be a row in
+ * Only the rows in the window exist (SIG-369, SIG-424). Every row used to be in
  * the tree, `display: none` outside the window, and every key wrote props on all
  * of them -- so a key cost the length of the list rather than the height of the
  * screen. A row that is not drawn is not built, which is what `sort()` and
  * `selectRow()` already do with theirs.
+ *
+ * Which rows exist is this and nothing else: what a row is made of and how it is
+ * drawn belong to the prompt, through `build` and the painter `draw()` is handed.
+ * `select()` and `multiselect()` ask it through `choiceRows()`, and
+ * `groupMultiselect()`, whose group rows are a third kind of row, asks it
+ * directly -- one window over two kinds of row, rather than a group branch in
+ * `paintChoices()` or a second copy of the window beside it.
+ *
+ * Which rows are on screen is the caller's `start` and `room`, from
+ * `windowStart()`, since a prompt's rows are a line each. The scroll box's
+ * `rowWindow()` is the other answer to that question, in cells, for a list
+ * scrolled by offset rather than by a highlight.
  */
-interface ChoiceList<T> {
-  /** The rows on screen, by their index in `items`. */
-  built: Map<number, ChoiceRow>;
-  items: readonly Item<T>[];
-  /** The box the rows are in. */
-  list: Element;
+interface BuiltRows<R extends { row: Element }> {
+  /** The box the rows are in, holding the ones on screen and nothing else. */
+  readonly list: Element;
   /**
-   * Whether each row carries a tick box, for a multiselect. Not which rows are
-   * ticked, which is `paintChoices()`'s `ticked`.
+   * Puts the window's rows in the list and paints each.
+   *
+   * The rows that left the window are taken out and the ones that entered it are
+   * built in their place, so a key costs the window's height whatever the length
+   * of the list. A row that stays on screen is kept rather than rebuilt, and
+   * every row on screen is handed to `paint`, the kept ones and the new alike.
+   *
+   * @param start - The first row on screen.
+   * @param room - How many rows the list may take.
+   * @param paint - Draws one row, given its index in the list.
    */
-  boxes: boolean;
+  draw(start: number, room: number, paint: (row: R, i: number) => void): void;
+}
+
+/**
+ * Starts a list whose rows are built as the window reaches them.
+ *
+ * @param count - How many rows the list has.
+ * @param build - Builds the row at an index, once it is on screen.
+ * @returns The list, with no row built until `draw()` puts one on screen.
+ */
+function builtRows<R extends { row: Element }>(
+  count: number,
+  build: (i: number) => R
+): BuiltRows<R> {
+  const built = new Map<number, R>();
+  const list = box({ 'flex-direction': 'column' });
+
+  return {
+    list,
+
+    draw(start: number, room: number, paint: (row: R, i: number) => void): void {
+      const visible = Math.max(1, Math.min(room, count));
+      const end = Math.min(count, start + visible);
+
+      for (const [i, row] of built) {
+        if (i < start || i >= end) {
+          list.removeChild(row.row);
+          built.delete(i);
+        }
+      }
+
+      // walked from the bottom, so that a row the window gained goes in front of
+      // the row below it: the rows kept are one run, already in order
+      let below: Element | undefined;
+      for (let i = end - 1; i >= start; i--) {
+        let row = built.get(i);
+        if (!row) {
+          row = build(i);
+          built.set(i, row);
+          list.insertBefore(row.row, below);
+        }
+        below = row.row;
+        paint(row, i);
+      }
+    },
+  };
 }
 
 /**
@@ -3005,11 +3067,12 @@ interface ChoiceList<T> {
  * screen.
  *
  * @param items - The choices and the separators between them.
- * @param boxes - Whether each row carries a tick box, for a multiselect.
+ * @param boxes - Whether each row carries a tick box, for a multiselect. Not
+ *   which rows are ticked, which is `paintChoices()`'s `ticked`.
  * @returns The list.
  */
-function choiceRows<T>(items: readonly Item<T>[], boxes: boolean): ChoiceList<T> {
-  return { boxes, built: new Map(), items, list: box({ 'flex-direction': 'column' }) };
+function choiceRows<T>(items: readonly Item<T>[], boxes: boolean): BuiltRows<ChoiceRow> {
+  return builtRows(items.length, (i) => choiceRow(items[i] as Item<T>, boxes));
 }
 
 /**
@@ -3143,12 +3206,9 @@ function windowStart(count: number, active: number, room: number, from: number):
 /**
  * Draws which row is highlighted, which are ticked, and which are on screen.
  *
- * The rows that left the window are taken out and the ones that entered it are
- * built in their place, so the tree holds the window and nothing else and a key
- * costs the window's height whatever the length of the list. A row that stays on
- * screen is kept rather than rebuilt. `display: flex` is still written on every
- * row drawn, as it was when a row off screen was `none`, so that what a row
- * resolves to is what it was.
+ * Only the rows on screen are built and painted, which `builtRows()` decides.
+ * `display: flex` is still written on every row drawn, as it was when a row off
+ * screen was `none`, so that what a row resolves to is what it was.
  *
  * @param choices - The list.
  * @param active - Which is highlighted.
@@ -3156,39 +3216,17 @@ function windowStart(count: number, active: number, room: number, from: number):
  * @param room - How many rows the list may take.
  * @param ticked - Which are ticked, for a multiselect.
  */
-function paintChoices<T>(
-  choices: ChoiceList<T>,
+function paintChoices(
+  choices: BuiltRows<ChoiceRow>,
   active: number,
   start: number,
   room: number,
   ticked?: ReadonlySet<number>
 ): void {
-  const { built, items, list } = choices;
-  const visible = Math.max(1, Math.min(room, items.length));
-  const end = Math.min(items.length, start + visible);
-
-  for (const [i, row] of built) {
-    if (i < start || i >= end) {
-      list.removeChild(row.row);
-      built.delete(i);
-    }
-  }
-
-  // walked from the bottom, so that a row the window gained goes in front of
-  // the row below it: the rows kept are one run, already in order
-  let below: Element | undefined;
-  for (let i = end - 1; i >= start; i--) {
-    let row = built.get(i);
-    if (!row) {
-      row = choiceRow(items[i] as Item<T>, choices.boxes);
-      built.set(i, row);
-      list.insertBefore(row.row, below);
-    }
-    below = row.row;
-
+  choices.draw(start, room, (row, i) => {
     if (row.kind === 'separator') {
       row.row.setProps({ display: 'flex' });
-      continue;
+      return;
     }
 
     const here = i === active;
@@ -3211,7 +3249,7 @@ function paintChoices<T>(
             : 'sigil-choice-mark',
       });
     }
-  }
+  });
 }
 
 /**
@@ -4502,6 +4540,12 @@ function lineMultiselect<T>(
  * `min` and `max`, which `groupMultiselect()` had copied once and
  * `autocompleteMultiselect()` twice. A second walk is a second answer to where
  * Down goes, and a second copy of a message is one a reword reaches half of.
+ *
+ * `promptBuiltRows()` joined them the same way (SIG-424): it is the window of
+ * built rows `select()` and `multiselect()` draw through, and
+ * `groupMultiselect()` built every row of its own list instead, so a key there
+ * cost the length of the list after SIG-369 had made it the height of the screen
+ * here.
  */
 export {
   answered as promptAnswered,
@@ -4514,6 +4558,7 @@ export {
   promptFooter,
   promptKeys,
   listRows as promptListRows,
+  builtRows as promptBuiltRows,
   rowCap as promptRowCap,
   headWidths as promptHeadWidths,
   fitsBeside as promptTailFits,
@@ -4538,5 +4583,6 @@ export type {
   AnswerSlot as PromptAnswerSlot,
   Handlers as PromptHandlers,
   LineForm as PromptLineForm,
+  BuiltRows as PromptBuiltRows,
   Window as PromptWindow,
 };

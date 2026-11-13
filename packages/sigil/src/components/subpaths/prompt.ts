@@ -57,6 +57,8 @@ export {
   promptNote,
   promptListRows,
   promptRowCap,
+  promptBuiltRows,
+  type PromptBuiltRows,
   promptLineChoice,
   type PromptLineChoice,
   promptLineList,

@@ -6392,6 +6392,15 @@ there for a component you write yourself too:
   is wrong -- `Choose at least one`, `Choose at least 2`, `Choose at most 3` --
   or `undefined` when it is not. `multiselect()`, `groupMultiselect()` and
   `autocompleteMultiselect()` all ask them.
+- `promptBuiltRows(count, build)`, from `@ttylabs/sigil/components/prompt`, is a
+  list prompt's list with only the rows on screen in it. `build(i)` makes row
+  `i`, an object whose `row` is the element, the first time the window reaches
+  it; `draw(start, room, paint)` takes out the rows that left the window, builds
+  the ones that entered it, and hands every row on screen to `paint(row, i)`, so
+  a key costs the height of the screen rather than the length of the list.
+  `start` is what `listWindow()` answers. `select()`, `multiselect()` and
+  `groupMultiselect()` draw through it, and a theme's `:first-child` or `+` over
+  their rows matches among the rows on screen.
 - `clampProgress(value, total)`, `progressTotal(total, fallback)`,
   `progressStep(step)`, `progressRatio(state)` and `progressPercent(ratio, step)`,
   from `@ttylabs/sigil/components/progress`, are the arithmetic both progress bars

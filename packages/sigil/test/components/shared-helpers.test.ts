@@ -18,11 +18,11 @@ import {
   progressTotal,
   progressView,
 } from '../../src/components/progress.js';
-import { promptCountComplaint, promptSeek } from '../../src/components/prompt.js';
+import { promptCountComplaint, promptBuiltRows, promptSeek } from '../../src/components/prompt.js';
 import { decimalPlaces } from '../../src/components/slider.js';
 import { DIGIT_COLUMNS } from '../../src/components/table.js';
 import { TREE_FIXED } from '../../src/components/tree.js';
-import { noSize, renderToString } from '../../src/element/index.js';
+import { noSize, renderToString, text } from '../../src/element/index.js';
 import { MAX_TIMER_DELAY } from '../../src/renderer/index.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -68,6 +68,62 @@ describe('promptSeek()', () => {
     expect(promptSeek(lone, 1, 1, true)).toBe(1);
     expect(promptSeek(none, 0, 1, true)).toBe(0);
     expect(promptSeek(none, 1, -1, true)).toBe(1);
+  });
+});
+
+describe('promptBuiltRows()', () => {
+  /** A list of `count` rows that records which it built and which it painted. */
+  function list(count: number) {
+    const built: number[] = [];
+    const painted: number[] = [];
+    const rows = promptBuiltRows(count, (i) => {
+      built.push(i);
+      return { row: text(`row ${i}`) };
+    });
+    return {
+      built,
+      /** Draws a window and hands back what is in the list, top to bottom. */
+      draw(start: number, room: number): string[] {
+        built.length = 0;
+        painted.length = 0;
+        rows.draw(start, room, (_, i) => painted.push(i));
+        return rows.list.children.map((child) => child.text);
+      },
+      painted,
+    };
+  }
+
+  it('should build nothing until it is drawn, and then the window and nothing more', () => {
+    const rows = list(1000);
+    expect(rows.built).toEqual([]);
+
+    expect(rows.draw(0, 3)).toEqual(['row 0', 'row 1', 'row 2']);
+    expect(rows.built.sort((a, b) => a - b)).toEqual([0, 1, 2]);
+  });
+
+  it('should keep the rows that stay and build only the ones that came in, in order', () => {
+    const rows = list(1000);
+    rows.draw(0, 3);
+
+    expect(rows.draw(1, 3)).toEqual(['row 1', 'row 2', 'row 3']);
+    expect(rows.built).toEqual([3]);
+    expect(rows.draw(0, 3)).toEqual(['row 0', 'row 1', 'row 2']);
+    expect(rows.built).toEqual([0]);
+    expect(rows.draw(997, 3)).toEqual(['row 997', 'row 998', 'row 999']);
+    expect(rows.built.sort((a, b) => a - b)).toEqual([997, 998, 999]);
+  });
+
+  it('should paint every row on screen, the kept ones and the new alike', () => {
+    const rows = list(1000);
+    rows.draw(0, 3);
+    rows.draw(1, 3);
+
+    expect(rows.painted.sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
+  it('should take a window taller than the list as the whole list, and a room of nothing as one row', () => {
+    expect(list(2).draw(0, 10)).toEqual(['row 0', 'row 1']);
+    expect(list(5).draw(2, 0)).toEqual(['row 2']);
   });
 });
 
@@ -226,6 +282,7 @@ describe('one definition of each', () => {
 
   it.each([
     ['the walk to the next row on offer', /function seek\b/],
+    ['the window of built rows', /function builtRows\b/],
     ['the count of decimal places', /function decimal(?:s|Places)\b/],
     ['the longest a timer waits', /\bMAX_(?:TIMER_)?DELAY\b(?::\s*\w+)?\s*=/],
     ['the longest a timer waits, written out', /\b2 \*\* 31 - 1\b|\b2_?147_?483_?647\b/],
