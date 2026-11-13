@@ -718,6 +718,24 @@ toolchain's one reader.
 - **A named colour stays a palette index.** The basic sixteen are whatever the
   user's terminal theme says they are, so resolving `red` to a specific RGB
   overrides a choice they already made.
+- **The hex digits are `hexChannels()`'s and the `#` is this file's (SIG-358).**
+  `ansi.hex()`, `parseColor()` here and `@ttylabs/screenshot`'s colour option
+  each parsed hex on their own, with two grammars and three errors: a stylesheet
+  and the screenshot both trim and require the `#`, and only `ansi.hex()` differs.
+  `hexChannels()` in `src/ansi/hex.ts`, exported from `@ttylabs/sigil/ansi`,
+  reads three or six digits and nothing else and answers `undefined` rather than
+  throwing, so what differs stays with each caller: `ansi.hex()` takes the `#` or
+  not and trims nothing, a stylesheet requires it and trims, and a hex miss here
+  falls through to `rgb()` and `palette()` and then `Invalid colour`. No caller
+  took four or eight digits and none does now. `test/ansi/hex.test.ts` and the
+  screenshot's `colors.test.ts` are the before-and-after tables. The X11 reply
+  reader, `parseReportedColor()` in `src/input/capabilities.ts`, is deliberately
+  **not** a caller: its `#` form is 3, 6, 9 or 12 digits, each group scaled from
+  its own width, which is a different grammar and is recorded under "Light and
+  dark". It is published from `/ansi` rather than `/canvas` beside `rgbChannels()`
+  because `ansi/` is the layer it lives in and `ansi.hex()` is its first caller;
+  the cost is that the screenshot package now loads the ~4.8 kB ansi styler chunk,
+  once, and a second public spelling on `/canvas` would be one function on two subpaths.
 - **`text-overflow` is read off the text's own box and bites only where a line
   does not fit.** It parsed and did nothing for as long as there was nothing
   that had to fit text into a column, which is the rule about a property the

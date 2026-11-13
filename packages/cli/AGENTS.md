@@ -2216,6 +2216,15 @@ other is refused with numbers.
   co-location convention. Revisit it when an app has a sheet big enough to want
   its own file.
 
+- **The bundle's three literal patterns are `escapeRegExp()`'s (SIG-358).** An
+  `external` package name, `TAG_MODULE` and `STYLE_MODULE` each became a
+  pattern through the same inline `replaceAll()`, and the pager had a fourth.
+  The one helper is in `@ttylabs/sigil`, published from
+  `@ttylabs/sigil/reference` beside `byCodeUnit()`, which is where the toolchain
+  already reached for the runtime's string helpers; `RegExp.escape()` is not at
+  the Node 22.19 floor. The debug logger's escape is the one left alone on
+  purpose: it skips `*`, which is a `DEBUG` wildcard.
+
 ### Writing the CLI in sigil
 
 - **The toolchain routes its own commands, and that is what the acceptance test
@@ -4650,6 +4659,15 @@ that a pull request renaming a flag **fails** rather than silently breaking
 everybody's scripts. `src/reference/surface.ts` in the runtime is the walk,
 `packages/cli/src/reference/` is the two printers, and `sigil reference` is the
 command.
+
+- **A missing file is `isMissing()`'s answer (SIG-358).** `write.ts` asked
+  `code === 'ENOENT'` inline in three places under a comment naming
+  `isMissing()` from `@ttylabs/sigil/config`; it imports that now. The rule is
+  the same -- `ENOENT` alone, not `ENOTDIR` and not `EISDIR` -- and the one
+  difference between the spellings is unreachable: the inline copies read
+  `err?.code` and `isMissing()` reads `.code`, so only a thrown `null` or
+  `undefined` would tell them apart, and `readFileSync`, `statSync` and
+  `readdirSync` throw neither.
 
 #### Where the surface comes from, which the ticket did not ask and which decides everything else
 

@@ -86,6 +86,39 @@ describe('a colour option', () => {
     expect(() => parseColor(value)).toThrow(TypeError);
   });
 
+  // the hex digits are read by `hexChannels()` from `@ttylabs/sigil/ansi`, and
+  // what is this caller's own is the rest: the `#` is required, the text is
+  // trimmed, and a refusal is a `TypeError` quoting the value as it was given
+  it.each([
+    ['#abc', [0xaa, 0xbb, 0xcc]],
+    ['#ABC', [0xaa, 0xbb, 0xcc]],
+    ['#5F87af', [95, 135, 175]],
+    [' #abc ', [0xaa, 0xbb, 0xcc]],
+    ['\t#aabbcc\n', [0xaa, 0xbb, 0xcc]],
+  ] as const)('should read %j', (value, [r, g, b]) => {
+    const color = parseColor(value);
+    expect(color).toEqual({ b, g, r });
+    expect(Object.isFrozen(color)).toBe(true);
+  });
+
+  it.each([
+    'abc',
+    'aabbcc',
+    '#',
+    '#abcd',
+    '#abcde',
+    '#aabbccd',
+    '#aabbccdd',
+    '##abc',
+    '#abg',
+    '# abc',
+    '0xabc',
+  ])('should refuse %j with the message it always had', (value) => {
+    expect(() => parseColor(value)).toThrow(
+      new TypeError(`Invalid colour ${JSON.stringify(value)}: expected #rgb or #rrggbb`)
+    );
+  });
+
   it('should refuse a channel out of range rather than clamp it', () => {
     expect(() => parseColor({ b: 256, g: 0, r: 0 })).toThrow(TypeError);
     expect(() => parseColor({ b: 0.5, g: 0, r: 0 })).toThrow(TypeError);

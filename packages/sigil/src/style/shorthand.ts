@@ -1,4 +1,4 @@
-import { type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
+import { kebab, type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
 import { parts, StyleError } from './value.js';
 
 /**
@@ -502,8 +502,7 @@ function accepts(property: PropertyName, value: string): boolean {
 /** The shorthand a name refers to, in either spelling and any case. */
 function shorthandFor(name: string): Shorthand | undefined {
   const trimmed = name.trim();
-  const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-  for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
+  for (const candidate of [trimmed.toLowerCase(), kebab(trimmed).toLowerCase()]) {
     if (Object.hasOwn(SHORTHANDS, candidate)) {
       return SHORTHANDS[candidate as ShorthandName];
     }

@@ -41,7 +41,7 @@ import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
-import { byCodeUnit } from '@ttylabs/sigil/reference';
+import { byCodeUnit, escapeRegExp } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
@@ -401,10 +401,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // left as imports rather than inlined. Rolldown does not report these as
     // unresolved, which is the point: an external is a deliberate answer to
     // "this cannot be inlined" and an unresolved import is the absence of one
-    external: external.flatMap((name) => [
-      name,
-      new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
-    ]),
+    external: external.flatMap((name) => [name, new RegExp(`^${escapeRegExp(name)}/`)]),
     input,
     // an import a bundler cannot resolve is left as an import, so the bundle
     // reaches for it at run time -- which is the zero-dependency promise
@@ -501,7 +498,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
            * it needs no Windows spelling.
            */
           filter: {
-            code: new RegExp(TAG_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            code: new RegExp(escapeRegExp(TAG_MODULE)),
             id: MODULE_RE,
           },
 
@@ -556,7 +553,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
            * boundary.
            */
           filter: {
-            code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            code: new RegExp(escapeRegExp(STYLE_MODULE)),
             id: MODULE_RE,
           },
 
