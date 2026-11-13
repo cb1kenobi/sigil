@@ -846,3 +846,131 @@ describe('a bar in a group moved from an effect', () => {
     ).toBe(2);
   });
 });
+
+describe('a value that is not a finite number, which drew NaN% (SIG-366)', () => {
+  /** The ways a caller hands a bar a value or a total that is not a finite number. */
+  const MOVES: [string, (bar: { current: number; total: number }) => void][] = [
+    ['a value of NaN', (bar) => (bar.current = Number.NaN)],
+    ['a done / total over a zero total', (bar) => (bar.current = 0 / 0)],
+    ['a value of Infinity', (bar) => (bar.current = Number.POSITIVE_INFINITY)],
+    ['a value of -Infinity', (bar) => (bar.current = Number.NEGATIVE_INFINITY)],
+    ['a tick of NaN', (bar) => (bar.current += Number.NaN)],
+    ['a total of NaN', (bar) => (bar.total = Number.NaN)],
+    ['a total of zero', (bar) => (bar.total = 0)],
+    ['a negative total', (bar) => (bar.total = -5)],
+    ['a total of Infinity', (bar) => (bar.total = Number.POSITIVE_INFINITY)],
+  ];
+
+  it.each(MOVES)('should draw 0 percent rather than NaN for %s, on a terminal', (_, move) => {
+    const ui = screenSetup();
+    const bar = createProgress({ ansi: ui.ansi, barWidth: 4, terminal: ui.terminal, text: 'x' });
+
+    move(bar);
+
+    expect(ui.frame).to.equal(`x ${LIGHT.repeat(4)} 0%`);
+    expect(ui.output).not.toMatch(/NaN|Infinity/);
+    expect(Number.isFinite(bar.current)).toBe(true);
+    expect(Number.isFinite(bar.total)).toBe(true);
+  });
+
+  it.each(MOVES)('should write 0 percent rather than NaN for %s, piped', (_, move) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const bar = createProgress({ ansi, terminal, text: 'x' });
+
+    move(bar);
+
+    expect(stdout.text).not.toMatch(/NaN|Infinity/);
+    expect(stdout.text.trimEnd().split('\n').at(-1)).to.equal('x 0%');
+  });
+
+  it.each(MOVES)('should draw 0 percent rather than NaN for %s, in a group', (_, move) => {
+    const ui = screenSetup();
+    const group = createMultiProgress({ ansi: ui.ansi, barWidth: 4, terminal: ui.terminal });
+    const bar = group.add({ text: 'x' });
+
+    move(bar);
+
+    expect(ui.frame).to.equal(`x ${LIGHT.repeat(4)}   0%`);
+    expect(ui.output).not.toMatch(/NaN|Infinity/);
+    expect(Number.isFinite(bar.current)).toBe(true);
+    expect(Number.isFinite(bar.total)).toBe(true);
+  });
+
+  it.each(MOVES)('should write 0 percent rather than NaN for %s, in a group, piped', (_, move) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const group = createMultiProgress({ ansi, terminal });
+    const bar = group.add({ text: 'x' });
+
+    move(bar);
+
+    expect(stdout.text).not.toMatch(/NaN|Infinity/);
+    expect(stdout.text.trimEnd().split('\n').at(-1)).to.equal('x 0%');
+  });
+
+  it('should finish at 100% after a total of Infinity, where done() drew NaN%', () => {
+    // `done()` writes the total as the value rather than going through the
+    // clamp, so a total of Infinity was Infinity / Infinity at the end
+    const single = setup({ isTTY: false });
+    const bar = createProgress({
+      ansi: single.ansi,
+      terminal: single.terminal,
+      text: 'x',
+      total: Number.POSITIVE_INFINITY,
+    });
+    bar.total = Number.POSITIVE_INFINITY;
+    bar.done();
+
+    const grouped = setup({ isTTY: false });
+    const row = createMultiProgress({ ansi: grouped.ansi, terminal: grouped.terminal }).add({
+      text: 'x',
+      total: Number.POSITIVE_INFINITY,
+    });
+    row.total = Number.POSITIVE_INFINITY;
+    row.done();
+
+    expect(single.stdout.text).not.toMatch(/NaN|Infinity/);
+    expect(single.stdout.text.trimEnd().split('\n').at(-1)).to.equal('x 100%');
+    expect(grouped.stdout.text).not.toMatch(/NaN|Infinity/);
+    expect(grouped.stdout.text.trimEnd().split('\n').at(-1)).to.equal('x 100%');
+  });
+
+  it('should move on again from a NaN rather than staying there', () => {
+    // a stored NaN was a bar no later tick could move, since NaN + 1 is NaN
+    const ui = screenSetup();
+    const bar = createProgress({ ansi: ui.ansi, barWidth: 4, terminal: ui.terminal, total: 4 });
+
+    bar.current = Number.NaN;
+    bar.tick(2);
+
+    expect(bar.current).to.equal(2);
+    expect(ui.frame).to.equal(`${FULL}${FULL}${LIGHT}${LIGHT} 50%`);
+  });
+});
+
+describe('a step that is not a whole, finite number, which wrote NaN% and 49.8% (SIG-366)', () => {
+  /** What each bar writes, piped, at 0% and then at 50%. */
+  const STEPS: [string, number, string][] = [
+    ['Infinity', Number.POSITIVE_INFINITY, 'x 0%\nx 50%\n'],
+    ['NaN', Number.NaN, 'x 0%\nx 50%\n'],
+    ['0.3', 0.3, 'x 0%\nx 50%\n'],
+    ['7.5', 7.5, 'x 0%\nx 48%\n'],
+  ];
+
+  it.each(STEPS)('should write whole percents for a step of %s, piped', (_, step, written) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const bar = createProgress({ ansi, step, terminal, text: 'x' });
+
+    bar.current = 50;
+
+    expect(stdout.text).to.equal(written);
+  });
+
+  it.each(STEPS)('should write whole percents for a step of %s, in a group', (_, step, written) => {
+    const { ansi, stdout, terminal } = setup({ isTTY: false });
+    const bar = createMultiProgress({ ansi, step, terminal }).add({ text: 'x' });
+
+    bar.current = 50;
+
+    expect(stdout.text).to.equal(written);
+  });
+});

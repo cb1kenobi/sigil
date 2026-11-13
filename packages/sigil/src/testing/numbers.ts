@@ -10,8 +10,7 @@
  * records from the other side.
  */
 
-/** The largest delay node stores, which is a signed 32-bit integer. */
-const MAX_DELAY = 2_147_483_647;
+import { MAX_TIMER_DELAY } from '../util/timer.js';
 
 /**
  * A whole number of cells, at least one, or an error naming what was passed.
@@ -67,5 +66,5 @@ export function delay(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value) || value < 1) {
     return fallback;
   }
-  return Math.min(value, MAX_DELAY);
+  return Math.min(value, MAX_TIMER_DELAY);
 }

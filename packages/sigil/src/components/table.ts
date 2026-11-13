@@ -183,6 +183,15 @@ function orderKey(value: unknown): bigint | number | string | undefined {
 }
 
 /**
+ * How many columns a digit key can reach to sort by: `1` to `9`.
+ *
+ * Beside `compareCells()` for the reason that is: `selectRow()` and `DataTable`
+ * sort the same columns by the same keys, and the data table should not load a
+ * prompt to know how many there are.
+ */
+export const DIGIT_COLUMNS = 9;
+
+/**
  * Orders two cell values, the way a column sorts when it does not say.
  *
  * Numbers, bigints, dates and booleans order by what they are, so `9` comes

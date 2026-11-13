@@ -1,5 +1,5 @@
 import { type Element, text as textNode } from '../element/index.js';
-import { createEffect } from '../renderer/index.js';
+import { createEffect, MAX_TIMER_DELAY } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type MountOptions, mountLevel } from './mount.js';
 import { formatDuration } from './progress.js';
@@ -95,9 +95,6 @@ export function formatClock(seconds: number): string {
   const rest = `${two(Math.floor((total % 3600) / 60))}:${two(total % 60)}`;
   return hours > 0 ? `${hours}:${rest}` : rest;
 }
-
-/** The longest a timer can be asked to wait, in milliseconds: 2^31 - 1. */
-const MAX_DELAY = 2147483647;
 
 /**
  * A clock's readout, as an element tree.
@@ -242,7 +239,7 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
         // a delay past what a timer can hold is one it fires at once, so a
         // long countdown is waited for in pieces
       },
-      Math.min(left(), MAX_DELAY)
+      Math.min(left(), MAX_TIMER_DELAY)
     );
   }
 

@@ -26,7 +26,7 @@ import { strip } from '../ansi/index.js';
 import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
-import { onCleanup } from '../renderer/index.js';
+import { MAX_TIMER_DELAY, onCleanup } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
 import { mountLevel } from './mount.js';
 import { type NoteVariant, unicodeSupported } from './note.js';
@@ -142,9 +142,6 @@ const MAX = 3;
 /** How wide a toast is when nobody says. */
 const WIDTH = 32;
 
-/** The longest a timer can wait: past it, the platform fires at once. */
-const MAX_DELAY = 2 ** 31 - 1;
-
 const POSITIONS: readonly ToastPosition[] = [
   'bottom-left',
   'bottom-right',
@@ -259,7 +256,7 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   if (
     typeof timeout !== 'number' ||
     !(timeout > 0) ||
-    (timeout !== Infinity && timeout > MAX_DELAY)
+    (timeout !== Infinity && timeout > MAX_TIMER_DELAY)
   ) {
     throw new TypeError(__`Expected a toast timeout to be a number of milliseconds`);
   }

@@ -44,6 +44,7 @@ import { refuseOwnedHooks } from './owned-hooks.js';
 import {
   type TreeChoice,
   type TreeChoiceItem,
+  TREE_FIXED,
   treeChoiceOf,
   type TreeChoiceParts,
   treeGlyphs,
@@ -207,9 +208,6 @@ type Load<T> =
   | { readonly run: number; readonly state: 'loading' }
   | { readonly items: readonly TreeChoiceItem<T>[]; readonly state: 'loaded' }
   | { readonly message: string; readonly state: 'failed' };
-
-/** A run of a row that is drawn at the width it has, never wrapped or squeezed. */
-const FIXED = { 'flex-shrink': 0, 'white-space': 'nowrap' } as const;
 
 interface Model {
   control: TreeListControl<unknown>;
@@ -593,14 +591,14 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
 
   const drawRow = (row: Row<T>): Element => {
     const guide = row.guide
-      ? [textNode(row.guide, { ...FIXED, class: 'sigil-tree-guide sigil-muted' })]
+      ? [textNode(row.guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
       : [];
     if (row.kind !== 'node') {
       return box(
         { class: 'sigil-tree-node', 'flex-direction': 'row' },
         ...guide,
         // in the twisty's place, so the line reads as being under the branch
-        textNode(glyphs.leaf, { ...FIXED, class: 'sigil-tree-toggle' }),
+        textNode(glyphs.leaf, { ...TREE_FIXED, class: 'sigil-tree-toggle' }),
         textNode(row.text, {
           class:
             row.kind === 'loading'
@@ -612,7 +610,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
     const { parts } = row;
     const twisty = textNode(parts.branch ? (row.open ? glyphs.open : glyphs.closed) : glyphs.leaf, {
-      ...FIXED,
+      ...TREE_FIXED,
       class: 'sigil-tree-toggle sigil-muted',
     });
     if (parts.branch) {

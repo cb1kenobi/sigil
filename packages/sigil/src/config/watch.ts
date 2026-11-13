@@ -54,6 +54,7 @@
  */
 
 import debug from '../debug/index.js';
+import { MAX_TIMER_DELAY } from '../util/timer.js';
 import { realPathOf } from './atomic.js';
 import { isPlainObject, readPath } from './dotted.js';
 import type { ConfigChange, WatchOptions, WatchSource } from './types.js';
@@ -521,7 +522,7 @@ export function delay(value: number | undefined, fallback: number, min = 0): num
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return fallback;
   }
-  return Math.min(Math.max(value, min), 2 ** 31 - 1);
+  return Math.min(Math.max(value, min), MAX_TIMER_DELAY);
 }
 
 /**

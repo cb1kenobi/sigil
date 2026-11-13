@@ -3860,7 +3860,8 @@ exported if you want the arithmetic without the bar.
 
 Both degrade the same way. Piped, there is nothing to animate, so a spinner
 writes one line per **change** and a bar one line every `step` percent — not
-one per tick:
+one per tick (`step` is a whole number of percent: a fraction is rounded, and
+anything below 1 is every percent):
 
 ```
 Resolving
@@ -3902,7 +3903,9 @@ terminal back, `group.stop()` erases it, and `group.write(line)` prints above th
 bars.
 
 Piped, there are no bars and no frame: each bar writes a labelled line of its own
-every `step` percent, so six interleaved downloads can still be followed.
+every `step` percent, so six interleaved downloads can still be followed. `step`
+is read as the single bar reads it: a whole number of percent, a fraction
+rounded, and anything below 1 every percent.
 
 ```
 react 0%
@@ -6351,6 +6354,40 @@ there for a component you write yourself too:
   menubar and the dropdown open their menus in, the `&` read out of a label, a
   label drawn with its mnemonic set apart, the check that a list of items is one a
   menu can draw, all the way down, and the check that a `menuClass` option is one.
+- `promptSeek(rows, from, direction, loop)`, from
+  `@ttylabs/sigil/components/prompt`, is where Up or Down moves a list cursor: the
+  nearest row whose `offered` is true, wrapping when `loop` is, and `from` itself
+  when nothing else is on offer. `promptCountComplaint(count, min, max)`, from the
+  same subpath, is what a prompt that ticks several answers says when the count
+  is wrong -- `Choose at least one`, `Choose at least 2`, `Choose at most 3` --
+  or `undefined` when it is not. `multiselect()`, `groupMultiselect()` and
+  `autocompleteMultiselect()` all ask them.
+- `clampProgress(value, total)`, `progressTotal(total, fallback)`,
+  `progressStep(step)`, `progressRatio(state)` and `progressPercent(ratio, step)`,
+  from `@ttylabs/sigil/components/progress`, are the arithmetic both progress bars
+  share: a value held between 0 and the total, and 0 when either is not a finite
+  number; a total kept only when it is positive and finite; a step in whole
+  percents, 10 when it is not a positive, finite number; how far along a state
+  is; and the whole percentage a bar shows. The clamp and the percentage never
+  answer `NaN`; `progressRatio()` over a state built by hand can, and the
+  percentage reads that as 0, as the bar does.
+- `decimalPlaces(value)`, from `@ttylabs/sigil/components/slider`, is how many
+  digits follow the point when a number is written out, exponent form included
+  -- `1e-7` is 7 -- so that a sum of steps can be rounded back. The slider and
+  `number()` read it.
+- `DIGIT_COLUMNS`, from `@ttylabs/sigil/components/table`, is how many columns a
+  digit key sorts by in `selectRow()` and `DataTable`: 9.
+- `TREE_FIXED`, from `@ttylabs/sigil/components/tree`, is the frozen props of a
+  run of a tree row drawn at its own width and never wrapped or squeezed -- a
+  guide, a marker, a twisty -- which `tree()`, `selectTree()` and `TreeListView`
+  spread into their texts.
+- `noSize()`, from `@ttylabs/sigil/element`, is the measure of a `raw` element
+  that takes no room of its own, such as an absolute one sized by its insets: the
+  scroll box's track and thumb and the pane's edge.
+- `MAX_TIMER_DELAY`, from `@ttylabs/sigil/renderer`, is the longest a timer can
+  be asked to wait, 2^31 - 1 milliseconds: past it the platform fires at once.
+  The toast refuses a timeout past it and the clock waits in pieces no longer
+  than it.
 
 ### `sigil/canvas`
 
@@ -7535,12 +7572,12 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 39 kB over ten modules — `paths`,
+not use sigil's parser. The subpath is about 39 kB over eleven modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
 the completion installer shares, the array-index rule the output formats share,
-the JSONC reader a routed directory's `commands.json` shares, and the module
-itself — which is a module
+the JSONC reader a routed directory's `commands.json` shares, the timer limit
+the input router shares, and the module itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`

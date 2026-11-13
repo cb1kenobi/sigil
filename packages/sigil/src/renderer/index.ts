@@ -80,6 +80,7 @@ import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js
 import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './owner.js';
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
+export { MAX_TIMER_DELAY } from '../util/timer.js';
 export {
   type BlockModifier,
   enableSelection,
