@@ -357,7 +357,11 @@ function entryMap() {
  * graph for a three-token comparison. An ejected copy imports it from the
  * subpath, where an app's own bundler shakes the rest.
  *
- * `src/util/error-message.ts` is the same shape again: `errorMessage()` is
+ * `src/util/escape-regexp.ts` is the same shape again: `escapeRegExp()` is
+ * published beside `byCodeUnit()` for the toolchain, and the pager's literal
+ * search imports the module itself for the same reason.
+ *
+ * `src/util/error-message.ts` is that shape too: `errorMessage()` is
  * published from `@ttylabs/sigil/error-handler`, and lives in a leaf module so
  * that the signals graph can ask it without importing the error handler. The
  * components import the leaf, for the same reason the signals do.
@@ -365,6 +369,7 @@ function entryMap() {
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
+  ['src/util/escape-regexp.ts', 'reference'],
   ['src/util/error-message.ts', 'error-handler'],
 ]);
 

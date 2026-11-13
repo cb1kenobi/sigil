@@ -34,7 +34,7 @@ import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { onCleanup } from '../renderer/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { isAbort } from './keys.js';
 import type { ModalHost } from './modal.js';
 import { unicodeSupported } from './note.js';
@@ -515,7 +515,10 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
 
   /** The width a list of entries needs inside its border. */
   function widthOf(items: readonly MenuEntry<T>[]): number {
-    return Math.max(4, ...items.map((entry) => rowWidth(entry)));
+    return maxOf(
+      items.map((entry) => rowWidth(entry)),
+      4
+    );
   }
 
   /** Opens a menu at the end of the chain. */

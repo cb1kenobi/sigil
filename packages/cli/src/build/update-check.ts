@@ -17,6 +17,7 @@
  */
 
 import type { SigilConfig, UpdateCheckConfig } from '../config.ts';
+import { quote } from '../template/emit.ts';
 import { bindingName, importBindings, type ImportBindings } from './bindings.ts';
 import {
   literalBoolean,
@@ -87,8 +88,10 @@ export function updateCheckDefine(baked: BakedUpdateConfig): Record<string, stri
   // is a JSON string literal rather than the JSON itself -- stringified twice
   // on purpose. Unbuilt, nothing replaces it and `check()` reads a free
   // identifier through `typeof`, which is the one operator that is legal on
-  // a name nothing declared.
-  return { [UPDATE_CHECK_DEFINE]: JSON.stringify(JSON.stringify(baked)) };
+  // a name nothing declared. The outer quoting is `quote()`, the one helper for
+  // a string printed as source, so a separator in a URL or a repo name is
+  // escaped there as it is everywhere else
+  return { [UPDATE_CHECK_DEFINE]: quote(JSON.stringify(baked)) };
 }
 
 /**
@@ -266,8 +269,9 @@ export type UpdateCheckUse = 'import' | 'schema';
  *
  * ## Why this one is not a pre-flight
  *
- * `assertCleanable()` is refused before a runtime is fetched because it is
- * pure path arithmetic -- it can be asked at any time, so it is asked first.
+ * `assertCleanable()` is refused before a runtime is fetched because it needs
+ * only paths `inspect()` already has and a few stats of them -- it can be asked
+ * at any time, so it is asked first.
  * The import half of this cannot: whether the check is in the app is a
  * question about the module graph, and the graph does not exist until the
  * bundle is built. So it is asked at the first moment there is an answer,

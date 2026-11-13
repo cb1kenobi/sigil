@@ -1,6 +1,14 @@
 import { __ } from '../i18n/index.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
-import { copyDocument, copyValue, deepFreeze, mergeLayers, overlay } from './merge.js';
+import {
+  copyDocument,
+  copyValue,
+  deepFreeze,
+  mergeLayers,
+  overlay,
+  shapesAlong,
+  type MergeSource,
+} from './merge.js';
 import { coerceLayer, concatPaths, defaultsOf, envOf, readSchema, type Setting } from './schema.js';
 import type {
   ConfigChangeHandler,
@@ -156,8 +164,17 @@ interface Layer {
 export class Config {
   /** The layers, bottom first, including nothing synthetic. */
   readonly #layers: Layer[];
-  /** The merged view, rebuilt whenever a layer changes. */
+  /**
+   * The merged view, rebuilt when it is next read after a layer changes.
+   *
+   * Lazily, which is the whole of SIG-377: a mutator marks it stale and the
+   * readers -- `get()`, `has()`, and the watch diff -- rebuild it through
+   * `#view()`. Nothing a mutator refuses is decided by the merge, so deferring
+   * it moves no throw; `#settle()` has the argument.
+   */
   #merged: unknown;
+  /** Whether a layer has changed since `#merged` was built. */
+  #stale = false;
   /** The schema's defaults, which sit under every layer. */
   readonly #defaults: Record<string, unknown>;
   /** The environment's values, which sit over every layer. */
@@ -274,7 +291,7 @@ export class Config {
   }
 
   /**
-   * Replaces a layer's content and recomputes the merged view.
+   * Replaces a layer's content, and tells whoever is watching what moved.
    *
    * The same mechanism as construction, after construction -- which is what a
    * reload is. An app that re-reads its own config, or that was handed a blob
@@ -303,13 +320,13 @@ export class Config {
 
     // copied and validated **before** anything is assigned, which is the order
     // `Show` keeps: build first and touch nothing until there is something to
-    // put there. Which is also why there is no rollback around the recompute
-    // below -- a `copyValue()` the coercion already ran cannot find an unsafe
-    // key a second time, so nothing it could roll back for can happen, and a
-    // guard that cannot fire is one this repository deletes
+    // put there. Which is also why there is no rollback after the assignment
+    // below -- every refusal is one of these two, and the merge that a later
+    // read runs over a `copyValue()` output has nothing left to refuse (see
+    // `#settle()`), and a guard that cannot fire is one this repository deletes
     const next = copyValue(value, name) as Record<string, unknown>;
     coerceLayer(next, this.#settings, name);
-    const before = this.#merged;
+    const before = this.#before();
     layer.value = next;
     // the whole layer, which is what `save()` writes wholesale -- `apply()`'s own
     // replace-not-merge rule read from the write side. A reload is the same
@@ -321,7 +338,7 @@ export class Config {
     // construction: with `''` in the set the value written *is* this layer's,
     // so applying any path of it over itself is a copy of an equal subtree
     layer.touched.add('');
-    this.#recompute();
+    this.#stale = true;
     // **`apply()` publishes and `set()` does not**, which is the one asymmetry
     // in this class worth stating rather than smoothing over. `apply()` is a
     // *reload*: it replaces a layer with what some source now says, which is
@@ -385,7 +402,7 @@ export class Config {
    * @returns What is there, or `undefined`.
    */
   get(path?: string): unknown {
-    return readPath(this.#merged, segments(path));
+    return readPath(this.#view(), segments(path));
   }
 
   /**
@@ -990,9 +1007,9 @@ export class Config {
         return;
       }
 
-      const before = this.#merged;
+      const before = this.#before();
       layer.value = next;
-      this.#recompute();
+      this.#stale = true;
       this.#publish(before);
     } finally {
       this.#reloading.delete(layer.name);
@@ -1009,16 +1026,24 @@ export class Config {
    * timer-based suppression, because that also swallows somebody *else's* write
    * that landed in the same window.
    *
-   * @param before - The merged view as it was.
+   * @param before - The merged view as it was, or `undefined` where nobody was
+   * watching when it would have been built -- see `#before()`.
    */
   #publish(before: unknown): void {
-    if (this.#watchers.size === 0) {
+    // `before` is never `undefined` for a built view, which is always an
+    // object, so this is the "nobody was watching" answer as well as the count
+    if (this.#watchers.size === 0 || before === undefined) {
       return;
     }
 
-    const changes = diffMerged(before, this.#merged);
+    // built here, synchronously and before any handler runs, so a handler is
+    // handed the same `after` it would have been when the merge was eager --
+    // and a handler that `set()`s marks a view it has already been given stale
+    // rather than changing it under the others
+    const after = this.#view();
+    const changes = diffMerged(before, after);
     if (changes.length > 0) {
-      dispatch(this.#watchers, changes, before, this.#merged, this.#onError);
+      dispatch(this.#watchers, changes, before, after, this.#onError);
     }
   }
 
@@ -1115,11 +1140,17 @@ export class Config {
    */
   #assertWritable(layer: Layer, parts: readonly string[]): void {
     let at: unknown = layer.value;
-    let seen: unknown = this.#merged;
+    // the merged view's kind at each ancestor, read from the sources rather
+    // than from the built view: asking the view meant a full merge before every
+    // dotted `set()`, which is the cost SIG-377 took away
+    const shapes = shapesAlong(
+      this.#sources().map((it) => it.value),
+      parts.slice(0, -1)
+    );
 
     for (const [i, part] of parts.slice(0, -1).entries()) {
       at = isPlainObject(at) && Object.hasOwn(at, part) ? at[part] : undefined;
-      seen = isPlainObject(seen) && Object.hasOwn(seen, part) ? seen[part] : undefined;
+      const seen = shapes[i];
       const prefix = parts.slice(0, i + 1).join('.');
       if (at !== undefined && !isPlainObject(at)) {
         throw new Error(__`"${prefix}" in ${layer.name} is not an object`);
@@ -1192,7 +1223,7 @@ export class Config {
   #saved(layer: Layer, hold: Record<string, unknown>): void {
     layer.value = hold;
     layer.touched.clear();
-    this.#recompute();
+    this.#stale = true;
   }
 
   /**
@@ -1291,8 +1322,8 @@ export class Config {
   }
 
   /**
-   * Validates the **whole** layer after a mutation and recomputes, putting the
-   * one path back if either is refused.
+   * Validates the **whole** layer after a mutation and marks the merged view
+   * stale, putting the one path back if the validation is refused.
    *
    * The whole layer rather than the setting at the written path, and that is a
    * hole rather than a cost: a path can be *inside* a declared setting or
@@ -1323,25 +1354,42 @@ export class Config {
    * run that threw part way through has changed nothing but the path being put
    * back.
    *
+   * ## The merge is not run here, and that moves no refusal
+   *
+   * This used to rebuild the merged view inside the guard, so that a merge
+   * which threw would roll the write back. The merged view is lazy now
+   * (SIG-377), and what makes that safe is that the merge has no refusal of its
+   * own to defer: the only things in it that throw are `copyValue()`'s unsafe
+   * key and its cycle, and every value that reaches a layer is already a
+   * `copyValue()` output -- `set()`, `push()` and `unshift()` copy at the call,
+   * `apply()` and a reload copy before assigning, `save()` holds a copy, and
+   * `coerceSetting()` writes what a coercion produced back through one -- which
+   * is the door a `type: 'json'` string becomes an object by. A copy of a copy
+   * finds no unsafe key and no cycle, and the defaults and the environment are
+   * merged once at construction, eagerly, where anything they hold would throw.
+   * So every refusal a mutator can make is made here or before here, at the
+   * call, and a later `get()` has nothing left to throw about.
+   *
+   * That rests on one assumption, stated because nothing enforces it: **a leaf
+   * stays a leaf.** A class instance, a `Map` or a `Date` is carried by
+   * reference and not walked by the copy, and an app that later re-prototypes
+   * such an object to `Object.prototype` -- turning it into a plain object the
+   * merge does walk -- and gives it a key that is unsafe or refers back to
+   * itself has made a value the next merge refuses. Under the eager merge that
+   * throw came from whichever mutator ran next; now it comes from the next read.
+   * Both are equally far from the mutation that caused it, which was the app's
+   * and no call of this class's, so it is recorded rather than guarded.
+   * `apply()` replaces such a layer with nobody watching; with a watcher it
+   * builds the view it diffs against first, and throws there too.
+   *
    * @param layer - The layer that was mutated.
    * @param parts - The path that was written.
    * @param before - What that path held, for the rollback.
-   * @throws If the layer is no longer one the schema or the merge can hold.
+   * @throws If the layer is no longer one the schema can hold.
    */
   #settle(layer: Layer, parts: readonly string[], before: unknown): void {
     try {
       coerceLayer(layer.value, this.#settings, layer.name);
-      // the recompute is inside the guard rather than after it, and this is
-      // one statement's placement rather than any code -- which is why it is
-      // here although nothing can currently reach it. `copyValue()`'s
-      // unsafe-key refusal is a tripwire the coercion sites above reach first,
-      // so the merge cannot throw today; the day a fourth door is added and it
-      // can, a throw with the recompute outside leaves the layer holding what
-      // it had just written, after which every later mutation throws again
-      // over a value nobody can see. A declared survivor of the sabotage pass,
-      // kept for the reason `clipboardSequence()`'s own tripwire is: it costs
-      // nothing and the failure it is for is unrecoverable
-      this.#recompute();
     } catch (e: unknown) {
       // the layer is put back before the throw escapes, because a mutation that
       // failed must not leave half of itself behind -- the rule `Show` and
@@ -1353,8 +1401,11 @@ export class Config {
     }
 
     // after the guard rather than inside it, because a mutation that was rolled
-    // back changed nothing and has nothing for `save()` to write
+    // back changed nothing and has nothing for `save()` to write -- and nothing
+    // for the merged view to show, so a refused write leaves `get()` handing
+    // back the very object it handed back before
     layer.touched.add(parts.join('.'));
+    this.#stale = true;
   }
 
   /**
@@ -1374,7 +1425,7 @@ export class Config {
   }
 
   /**
-   * Records a path as this process's and rebuilds the merged view.
+   * Records a path as this process's and marks the merged view stale.
    *
    * The joined path rather than the segments, because a `Set` de-duplicates on
    * a primitive and `segments()` splits it back when `save()` asks -- which it
@@ -1383,21 +1434,53 @@ export class Config {
    */
   #touch(layer: Layer, parts: readonly string[]): void {
     layer.touched.add(parts.join('.'));
-    this.#recompute();
+    this.#stale = true;
+  }
+
+  /**
+   * The merged view, rebuilt first if a layer changed since it was built.
+   *
+   * The one way anything reads `#merged`, so that a reader cannot see a stale
+   * one. Between two writes it hands back the same frozen object every time,
+   * which is the identity an eager merge gave; a write is what makes the next
+   * read a new object, also as before. What a lazy merge no longer does is
+   * build the views nobody read in between.
+   */
+  #view(): unknown {
+    if (this.#stale) {
+      this.#recompute();
+    }
+    return this.#merged;
+  }
+
+  /**
+   * The view a publish diffs against, built only where somebody will be told.
+   *
+   * `apply()` and a reload replace a layer and then publish, so the view they
+   * diff against has to be the one `get()` would have answered a moment ago --
+   * built now if a `set()` left it stale. With nobody watching there is no diff
+   * to make, and building it anyway was a full merge per `apply()` that nothing
+   * read, which is the cost the lazy view exists to stop paying. Nothing runs
+   * between this and `#publish()` that could add a watcher, and `#publish()`
+   * reads an `undefined` here as nobody watching either way.
+   */
+  #before(): unknown {
+    return this.#watchers.size > 0 ? this.#view() : undefined;
+  }
+
+  /** What is merged, bottom first: the defaults, the layers, the environment. */
+  #sources(): MergeSource[] {
+    return [
+      { label: DEFAULTS, value: this.#defaults },
+      ...this.#layers.map((layer) => ({ label: layer.name, value: layer.value })),
+      { label: ENVIRONMENT, value: this.#env },
+    ];
   }
 
   /** Rebuilds the merged view from the layers, the defaults and the environment. */
   #recompute(): void {
-    this.#merged = deepFreeze(
-      mergeLayers(
-        [
-          { label: DEFAULTS, value: this.#defaults },
-          ...this.#layers.map((layer) => ({ label: layer.name, value: layer.value })),
-          { label: ENVIRONMENT, value: this.#env },
-        ],
-        this.#concat
-      )
-    );
+    this.#merged = deepFreeze(mergeLayers(this.#sources(), this.#concat));
+    this.#stale = false;
   }
 
   /** The topmost read-only layer that holds a path, if one does. */

@@ -1,4 +1,4 @@
-import { type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
+import { kebab, type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
 import { parts, StyleError } from './value.js';
 
 /**
@@ -502,8 +502,7 @@ function accepts(property: PropertyName, value: string): boolean {
 /** The shorthand a name refers to, in either spelling and any case. */
 function shorthandFor(name: string): Shorthand | undefined {
   const trimmed = name.trim();
-  const kebab = trimmed.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
-  for (const candidate of [trimmed.toLowerCase(), kebab.toLowerCase()]) {
+  for (const candidate of [trimmed.toLowerCase(), kebab(trimmed).toLowerCase()]) {
     if (Object.hasOwn(SHORTHANDS, candidate)) {
       return SHORTHANDS[candidate as ShorthandName];
     }
@@ -563,5 +562,10 @@ export function shorthandLonghands(name: string): readonly PropertyName[] | unde
 // property table needs to know what a shorthand covers -- and this module
 // imports *that* one, because expanding a shorthand is the longhand parsers
 // doing the reading. So the dependency goes the only way it can: a hook, filled
-// in here, where the answer is
+// in here, where the answer is.
+//
+// It is the one import-time effect in the package, which declares
+// `"sideEffects": false`: that holds only while this module ships in the same
+// file as `properties.ts`, and `what "sideEffects": false relies on` in
+// `test/dist.test.ts` fails if the build ever splits them
 registerShorthandLookup(shorthandLonghands);

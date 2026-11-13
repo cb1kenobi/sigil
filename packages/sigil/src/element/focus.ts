@@ -34,10 +34,11 @@
  * outermost move in the process lets go, and what they throw is raised from that
  * outermost call.
  *
- * It imports nothing but types, for the reason `hit.ts` does: the input router
- * imports it.
+ * It imports nothing but types and `signals/raise.ts`, which imports nothing
+ * itself, for the reason `hit.ts` does: the input router imports it.
  */
 
+import { raise } from '../signals/raise.js';
 import type { Element } from './index.js';
 
 /**
@@ -112,7 +113,7 @@ export function announceFocus(element: Element): void {
   // queued twice is harmless: the second turn finds it already told
   queue.push(element);
   if (holds === 0 && !draining) {
-    raise(drain());
+    raise(drain(), 'Errors in onFocusChange');
   }
 }
 
@@ -169,7 +170,7 @@ export function moveFocus(
   if (holds === 0 && !draining) {
     errors.push(...drain());
   }
-  raise(errors);
+  raise(errors, 'Errors in onFocusChange');
 }
 
 /**
@@ -235,18 +236,4 @@ function drain(): unknown[] {
     draining = false;
   }
   return errors;
-}
-
-/**
- * Rethrows what a drain collected: one error as itself, more as an aggregate.
- *
- * @param errors - What was caught.
- */
-function raise(errors: unknown[]): void {
-  if (errors.length === 1) {
-    throw errors[0];
-  }
-  if (errors.length > 1) {
-    throw new AggregateError(errors, 'Errors in onFocusChange');
-  }
 }

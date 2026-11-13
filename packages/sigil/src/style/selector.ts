@@ -621,13 +621,20 @@ function matchFrom(steps: readonly Step[], i: number, node: StyleNode): boolean 
       const previous = previousSibling(node);
       return previous ? matchFrom(steps, i - 1, previous) : false;
     }
-    case 'later-sibling':
-      for (let s = previousSibling(node); s; s = previousSibling(s)) {
-        if (matchFrom(steps, i - 1, s)) {
+    case 'later-sibling': {
+      // Find this node's place once and walk the list from there. Asking each
+      // sibling for its own position in turn, which is what `previousSibling()`
+      // does, is an `indexOf()` per step back: O(n^2) for one node, and O(n^3)
+      // for a list of them whose left side rarely matches. A node with no
+      // parent has an empty list, so it has nothing before it.
+      const list = siblings(node);
+      for (let k = list.indexOf(node) - 1; k >= 0; k--) {
+        if (matchFrom(steps, i - 1, list[k])) {
           return true;
         }
       }
       return false;
+    }
     default:
       for (let p = node.parent; p; p = p.parent) {
         if (matchFrom(steps, i - 1, p)) {

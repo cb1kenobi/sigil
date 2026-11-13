@@ -39,7 +39,8 @@
  */
 
 import { type Diagnostic, displayPath } from './diagnostic.ts';
-import { factsOf, type RoutedBy } from './extract.ts';
+import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
+import { translatedKey } from './i18n.ts';
 import {
   isUndefined,
   isWrongType,
@@ -53,14 +54,16 @@ import {
   plainProperty,
   propertyKey,
   stringList,
+  unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
+import { physicalPath } from '@ttylabs/sigil/config';
 import { errorMessage } from '@ttylabs/sigil/error-handler';
 import { readPackage } from '@ttylabs/sigil/routes';
 import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { Expression, ObjectExpression } from 'oxc-parser';
+import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
 /**
  * What makes a directory an app this can check.
@@ -324,12 +327,12 @@ export function isFile(path: string): boolean {
  * outside the directory it was meant for.
  *
  * **Strictly** inside: the directory is not inside itself, because every caller
- * is asking about a file or a subdirectory below it. `holdsApp()` is the one
- * caller that wants the directory itself counted too, and it says so beside
- * this rather than with a path rule of its own.
+ * is asking about a file or a subdirectory below it. `holds()` in
+ * `commands/_inspect.ts` is the one caller that wants the path itself counted
+ * too, and it says so beside this rather than with a path rule of its own.
  *
  * Asked of `relative()` rather than of a string prefix, for the reasons SIG-246
- * found in the copy of this that `holdsApp()` used to carry. A prefix needs a
+ * found in the copy of this that the clean guard used to carry. A prefix needs a
  * separator appended, so that `dist-old` is not read as inside `dist`, and the
  * root is the one directory `resolve()` already ends in one -- every caller had
  * to remember that, and the clean guard did not. A prefix is also
@@ -357,6 +360,36 @@ export function isInside(dir: string, target: string, path: typeof nodePath = no
   const rel = path.relative(path.resolve(dir), path.resolve(target));
 
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+/**
+ * Where the kernel would put a write to `path`, as `physicalPath()` in
+ * `@ttylabs/sigil/config` answers it -- every symlink on the way followed, a
+ * `..` after one read the way the kernel reads it, for a path that need not
+ * exist -- or the path as spelled where the file system cannot answer.
+ *
+ * `physicalPath()` throws for anything but a missing file, which is right for a
+ * writer about to write and wrong for a guard asking a question: a path under a
+ * file, a link loop or a directory it cannot read fails the write or the
+ * removal itself a moment later, with the file system's own error, and a guard
+ * that threw first would only replace that error with one about asking. A
+ * dangling link at the end of the path is not followed, and need not be: what
+ * the guards ask is whether a path lands on a file the build reads, every one of
+ * which exists, so a link that points at nothing cannot point at one.
+ *
+ * `isInside()` is lexical on purpose (see `undo()`), and this is the one place
+ * the build asks the file system instead: the clean guard and the bundle's own
+ * write guard, both of which are about what is on disk at the end of a path.
+ *
+ * @param path - The path, which need not exist.
+ * @returns Its physical path, or `resolve(path)` where that cannot be learned.
+ */
+export function landsAt(path: string): string {
+  try {
+    return physicalPath(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 /**
@@ -640,18 +673,17 @@ function readCommand(
 
   const specifier = moduleSpecifier(object);
   const nested = plainProperty(object, 'commands');
-  const declaredDesc = plainProperty(object, 'desc');
-  const declaredHidden = plainProperty(object, 'hidden');
+  const own = placeholderFacts(object, parsed, diagnostics, name);
   const routing = placeholderRouting(object, parsed, diagnostics, name);
   warnUnbaked(object, parsed, diagnostics, name);
   const named = placeholderName(object, parsed, diagnostics, name);
 
   // what the *placeholder* declares is what help shows before the module loads,
-  // so a readable `desc` here is the answer to every question the module's own
-  // readability could have raised -- which is why it silences them. All of
-  // `factsOf()`'s diagnostics are about what help would show pre-load, and a
-  // `hidden` the module computes is what the `!` name prefix is for
-  const described = declaredDesc !== undefined && literalString(declaredDesc.value) !== undefined;
+  // so a `desc` here -- readable or not -- is the answer to every question the
+  // module's own readability could have raised, which is why it silences them.
+  // All of `factsOf()`'s diagnostics are about what help would show pre-load,
+  // and a `hidden` the module computes is what the `!` name prefix is for
+  const described = own.declaresDesc;
 
   const module = specifier ? resolveSpecifier(from, specifier) : undefined;
   const facts = moduleFacts(
@@ -670,6 +702,14 @@ function readCommand(
     )
   );
 
+  // what the *placeholder* declares is what help shows before the module
+  // loads, so whenever it declares one it decides -- even where this cannot
+  // read it, which bakes nothing rather than the module's answer to a question
+  // the placeholder already answered. And `descTranslated` goes with whichever
+  // `desc` is used: the module's key is printed as a thunk over the tag, as the
+  // string-path spelling above already does by spreading the facts
+  const desc = own.declaresDesc ? own : facts;
+
   return {
     ...routing,
     commands: nested
@@ -677,15 +717,146 @@ function readCommand(
         ? readInline(objectLiteral(nested.value)!, from, parsed, diagnostics)
         : []
       : [],
-    // what the *placeholder* declares is what help shows before the module
-    // loads, so it wins over what the module says -- which is the runtime's
-    // merge read from the other side
-    desc: declaredDesc ? (literalString(declaredDesc.value) ?? facts.desc) : facts.desc,
-    hidden: declaredHidden ? (literalBoolean(declaredHidden.value) ?? facts.hidden) : facts.hidden,
+    desc: desc.desc,
+    ...(desc.descTranslated ? { descTranslated: true } : {}),
+    hidden: own.declaresHidden ? own.hidden : facts.hidden,
     kind: 'inline',
     module: facts.module,
     name: named,
   };
+}
+
+/** What a placeholder says help shows before its module loads. */
+interface PlaceholderFacts extends CommandFacts {
+  /** Whether it declares a `desc` at all, readable or not. */
+  readonly declaresDesc: boolean;
+  /** Whether it declares a `hidden` at all, readable or not. */
+  readonly declaresHidden: boolean;
+}
+
+/**
+ * What a placeholder declares about what help shows before its module loads.
+ *
+ * The runtime registers the placeholder as it is written, so any `desc` or
+ * `hidden` on it is what an unloaded command shows -- its module's are merged in
+ * only where the placeholder left the key `undefined`, and only once it loads.
+ * So a declared value decides whether or not this can read it, and one it
+ * cannot read bakes nothing rather than the module's answer (SIG-352).
+ *
+ * A `__` tag is read as its key and printed as **prose**, because that is what
+ * the app shows from source: the schema module is evaluated before `main()`
+ * loads a catalog, so the tag answers in English there (see `DescThunk`). A
+ * thunk over the tag, `` () => __`...` ``, is evaluated during the parse and
+ * after the catalog, so it is read as the key it returns and printed as the
+ * same thunk. A literal of a type the runtime refuses fails the build in the
+ * runtime's words, as a placeholder's `alias` and `default` do.
+ *
+ * @param object - The command literal.
+ * @param parsed - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param name - The command, for the message.
+ * @returns What it declares.
+ */
+function placeholderFacts(
+  object: ObjectExpression,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  name: string
+): PlaceholderFacts {
+  // the last spelling of a key is the one an object literal keeps, and
+  // `undefined` is what the runtime reads as not declared
+  const declared = (key: string): ObjectProperty | undefined => {
+    let found: ObjectProperty | undefined;
+    for (const property of object.properties) {
+      if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
+        found = property;
+      }
+    }
+
+    return found?.kind === 'init' && !found.method && isUndefined(found.value) ? undefined : found;
+  };
+
+  const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
+  const desc = declared('desc');
+  const hidden = declared('hidden');
+
+  if (desc) {
+    const value = desc.kind === 'init' && !desc.method ? desc.value : undefined;
+    const read = value ? placeholderDesc(parsed, value) : undefined;
+
+    if (read) {
+      Object.assign(facts, read);
+    } else if (value && literalType(value) !== 'function' && isWrongType(value, 'string')) {
+      diagnostics.push({
+        ...locate(parsed, value.start),
+        message: `Expected desc for the "${name}" command to be a string or a function`,
+        severity: 'error',
+      });
+    } else {
+      diagnostics.push({
+        ...locate(parsed, (value ?? desc).start),
+        message: `the "${name}" command's "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone`,
+        severity: 'warning',
+      });
+    }
+  }
+
+  if (hidden) {
+    const value = hidden.kind === 'init' && !hidden.method ? hidden.value : undefined;
+    const flag = value ? literalBoolean(value) : undefined;
+
+    if (flag !== undefined) {
+      facts.hidden = flag;
+    } else if (value && isWrongType(value, 'boolean')) {
+      diagnostics.push({
+        ...locate(parsed, value.start),
+        message: `Expected hidden to be a boolean in "${name}" command`,
+        severity: 'error',
+      });
+    } else {
+      diagnostics.push({
+        ...locate(parsed, (value ?? hidden).start),
+        message: `the "${name}" command's "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help`,
+        severity: 'warning',
+      });
+    }
+  }
+
+  return { ...facts, declaresDesc: desc !== undefined, declaresHidden: hidden !== undefined };
+}
+
+/**
+ * A placeholder's `desc`, where the source holds it: a string, a `__` tag read
+ * as the prose it is from source, or a thunk returning either.
+ *
+ * @param parsed - The module, for the tag's binding.
+ * @param value - What the `desc` was written as.
+ * @returns The description, or `undefined` where the source does not hold it.
+ */
+function placeholderDesc(
+  parsed: ParsedModule,
+  value: Expression
+): { desc: string; descTranslated?: true } | undefined {
+  const text = literalString(value) ?? translatedKey(parsed, value)?.key;
+  if (text !== undefined) {
+    return { desc: text };
+  }
+
+  const fn = unwrapShallow(value);
+  if (fn.type === 'ArrowFunctionExpression' && !fn.params.length && fn.expression) {
+    const body = fn.body as Expression;
+    const returned = literalString(body);
+    if (returned !== undefined) {
+      return { desc: returned };
+    }
+
+    const key = translatedKey(parsed, body)?.key;
+    if (key !== undefined) {
+      return { desc: key, descTranslated: true };
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -1210,7 +1381,7 @@ function moduleFacts(
   at_: { start: number },
   described: boolean,
   routedBy: RoutedBy | undefined
-): { desc?: string; hidden?: boolean; module?: string } {
+): CommandFacts & { module?: string } {
   if (!module) {
     if (specifier) {
       diagnostics.push({

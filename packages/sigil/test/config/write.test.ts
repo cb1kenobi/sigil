@@ -12,7 +12,7 @@ import {
 import { editJsonc } from '../../src/config/jsonc-write.js';
 import { scanJsonc } from '../../src/config/jsonc.js';
 import { jsonCanHold } from '../../src/config/represent.js';
-import { applyEdits, lineAt } from '../../src/config/spans.js';
+import { applyEdits, lineCounter } from '../../src/config/spans.js';
 import {
   chmodSync,
   existsSync,
@@ -112,12 +112,12 @@ describe('the edit applier', () => {
     // it: a `\r`-only file reported every diagnostic "on line 1", so a comment
     // the scanner correctly ended at a `\r` was named at a line it is not on.
     // Found by review
-    expect(lineAt('a\rb\rc', 4)).to.equal(3);
-    expect(lineAt('a\u2028b', 2)).to.equal(2);
-    expect(lineAt('a\u2029b', 2)).to.equal(2);
+    expect(lineCounter('a\rb\rc')(4)).to.equal(3);
+    expect(lineCounter('a\u2028b')(2)).to.equal(2);
+    expect(lineCounter('a\u2029b')(2)).to.equal(2);
     // a CRLF is one break rather than two
-    expect(lineAt('a\r\nb', 3)).to.equal(2);
-    expect(lineAt('a\nb', 2)).to.equal(2);
+    expect(lineCounter('a\r\nb')(3)).to.equal(2);
+    expect(lineCounter('a\nb')(2)).to.equal(2);
     // and the scan really does report a comment on that line, which is the claim
     // -- the vehicle used to be the strict reader's own message, and with one
     // forgiving reader the comment's recorded line is what carries it

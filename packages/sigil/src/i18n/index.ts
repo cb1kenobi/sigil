@@ -97,6 +97,12 @@ let registered: Locales | undefined;
 let rules: Intl.PluralRules | undefined;
 
 /**
+ * How many times a locale has been asked for, so that a load which settles after
+ * a later request can tell it lost and put nothing into effect.
+ */
+let generations = 0;
+
+/**
  * `{{`, `}}` and a numbered slot, in one pass.
  *
  * One regex rather than three passes, so that `{{0}}` cannot be unescaped into
@@ -551,6 +557,20 @@ export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
 }
 
 /**
+ * The POSIX modifiers that name a script, as the script subtag they mean.
+ *
+ * A `Map` rather than an object literal, because the modifier is read out of the
+ * environment and `@constructor` must not find `Object.prototype`'s.
+ */
+const POSIX_SCRIPTS = new Map([
+  ['cyrillic', 'Cyrl'],
+  ['latin', 'Latn'],
+]);
+
+/** A script subtag: four letters, where a region is two letters or three digits. */
+const SCRIPT_RE = /^[a-z]{4}$/i;
+
+/**
  * Turns whatever is in the environment into a BCP 47 tag, or nothing.
  *
  * `Intl` refuses every POSIX form there is -- `en_US.UTF-8`, `pt_BR`,
@@ -561,6 +581,12 @@ export function confirmKeys(pair: string, fallback: boolean): ConfirmKeys {
  * language; and `nonsense` canonicalizes to `nonsense`, because
  * canonicalization checks syntax and not existence -- which is harmless, since
  * a tag no loader is keyed by simply reads as English.
+ *
+ * A POSIX locale never carries a script subtag, and the two modifiers that name
+ * one are read as one: `sr_RS@latin` is `sr-Latn-RS` and `uz_UZ@cyrillic` is
+ * `uz-Cyrl-UZ`, because dropping them would hand a Latin-script reader the
+ * Cyrillic catalog. Every other modifier -- `@euro` -- says nothing about
+ * language and is dropped.
  *
  * @param raw - An environment value, or a tag an app named.
  * @returns A canonical tag, or nothing for English.
@@ -574,15 +600,27 @@ export function normalizeLocale(raw: string | undefined): string | undefined {
   // taking the first entry is right for all of them
   const first = raw.split(':')[0].trim();
 
-  // `de_DE.UTF-8@euro` is a tag, a codeset and a modifier; only the tag is a
-  // question about language
-  const tag = first.replace(/[@.].*$/, '').replace(/_/g, '-');
+  // `de_DE.UTF-8@euro` is a tag, a codeset and a modifier; the tag is a
+  // question about language, and so is a modifier that names a script
+  let tag = first.replace(/[@.].*$/, '').replace(/_/g, '-');
 
   // the C locale is this feature's `NO_COLOR`: it is what CI generally holds,
   // and English is the right answer for a CI log. Asked before `Intl`, which
   // would throw for `C` and quietly answer `posix` for `POSIX`
   if (!tag || /^(c|posix)$/i.test(tag)) {
     return;
+  }
+
+  const script = POSIX_SCRIPTS.get(/@([^.]*)/.exec(first)?.[1].toLowerCase() ?? '');
+
+  if (script) {
+    const [language, ...rest] = tag.split('-');
+
+    // a tag that already spells a script keeps its own rather than gaining a
+    // second one, which `Intl` would refuse
+    if (!SCRIPT_RE.test(rest[0] ?? '')) {
+      tag = [language, script, ...rest].join('-');
+    }
   }
 
   try {
@@ -652,6 +690,11 @@ export function resolveLocale(
  * and one that ships `pt-BR` and `pt` serves Brazil from the first and Portugal
  * from the second.
  *
+ * This is the **literal** chain, truncating what was written. Finding a catalog
+ * also walks the chain of the tag's likely-subtags form, so that `zh-TW` -- which
+ * truncates straight to `zh` -- reaches a `zh-Hant` catalog; `findLoader()` has
+ * the order.
+ *
  * @param tag - A canonical tag.
  * @returns The chain, most specific first.
  */
@@ -670,12 +713,51 @@ export function localeChain(tag: string): string[] {
 }
 
 /**
+ * The tag with the subtags it leaves implicit filled in, or nothing.
+ *
+ * `zh-TW` is `zh-Hant-TW` and `pt-BR` is `pt-Latn-BR`: CLDR's likely subtags,
+ * which is the only place the script a region-only tag means is written down.
+ * The base name, so an extension does not come along into the chain. A tag
+ * `Intl` cannot parse is no answer rather than an exception -- the literal chain
+ * still stands for it.
+ *
+ * @param tag - A canonical tag.
+ * @returns The maximized tag, or nothing.
+ */
+function likelyTag(tag: string): string | undefined {
+  try {
+    return new Intl.Locale(tag).maximize().baseName;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Finds the loader for a tag, walking the fallback chain.
  *
  * Both sides are normalized before they are compared, because a loader map is
  * written by hand: an app that keys one `de_DE` or `de-de` means `de-DE`, and
  * matching the spelling rather than the tag would leave it unreachable with
  * nothing to say so.
+ *
+ * The order is the literal chain down to, and not including, the bare
+ * language -- unless the bare language is what was asked for, when it is the
+ * whole of that chain; then the chain of the tag's likely-subtags form; then the
+ * bare language. So what was asked for still wins exactly, `zh` with `zh` and
+ * `zh-Hans` registered included, a registered `zh-TW` beats a `zh-Hant`, and a
+ * `zh-Hant` beats a `zh` for a `zh-TW` that never spelled its script -- which no
+ * POSIX locale can, so without the second step a script-specific catalog is
+ * unreachable from `LANG`. The likely form never changes the language and never
+ * swaps one region for another, so `pt-BR` is `pt-Latn-BR` and reaches `pt`
+ * rather than `pt-PT`; it can add a region a tag did not name, so `zh-Hant`
+ * reaches a registered `zh-Hant-TW`.
+ *
+ * The likely form is only asked for when the map holds a script-specific
+ * catalog in the requested language, because that is the only kind of key it
+ * can add -- every tag in its chain the literal chain lacks spells a script --
+ * and `maximize()` reads CLDR's likely-subtags data, measured at about 1.3 ms
+ * in a cold process against 0.06 for `getCanonicalLocales()`. An app that ships
+ * `de` and `pt-BR` never pays it.
  *
  * @param locales - The loader map.
  * @param tag - The canonical tag to serve.
@@ -697,15 +779,36 @@ function findLoader(
     }
   }
 
-  for (const candidate of localeChain(tag)) {
-    const loader = byTag.get(candidate);
+  const first = (candidates: string[]): { loader: LocaleLoader; tag: string } | undefined => {
+    for (const candidate of candidates) {
+      const loader = byTag.get(candidate);
 
-    if (loader) {
-      return { loader, tag: candidate };
+      if (loader) {
+        return { loader, tag: candidate };
+      }
     }
+
+    return undefined;
+  };
+
+  const literal = localeChain(tag);
+  const language = literal.at(-1) as string;
+  // a bare language is its own whole literal chain, and is what was asked for
+  const exact = first(literal.length === 1 ? literal : literal.slice(0, -1));
+
+  if (exact) {
+    return exact;
   }
 
-  return undefined;
+  const scripted = [...byTag.keys()].some((key) => {
+    const [head, second = ''] = key.split('-');
+    return head === language && SCRIPT_RE.test(second);
+  });
+  const likely = scripted ? likelyTag(tag) : undefined;
+
+  // the likely chain ends at the language already; it is named again so that
+  // a likely form `Intl` could not give still reaches it
+  return first([...(likely ? localeChain(likely) : []), language]);
 }
 
 /**
@@ -736,14 +839,30 @@ function readCatalog(answer: unknown): Catalog | undefined {
  * not do is fail a parse, because the English it falls back to is a working
  * message and the user is already being told something went wrong.
  *
+ * The **latest** call wins, whatever order the loaders settle in. Each call
+ * takes a generation before it awaits anything, and one that finds the
+ * generation moved when its loader settles puts nothing into effect and
+ * resolves -- never rejects, even where its loader threw, because a load
+ * nobody wants any more has failed nobody. Nothing is cleared while a load is
+ * in flight either: the catalog, the tag and the plural selector change
+ * together, at the one assignment, so `locale()` never changes before the
+ * catalog does. `loadCatalog()` comes through here too, so
+ * an older `setLocale()` still loading cannot overwrite what a later `main()`
+ * resolved.
+ *
  * @param tag - A canonical tag, or nothing for English.
  */
 async function use(tag: string | undefined): Promise<void> {
-  active = undefined;
-  current = tag;
-  rules = undefined;
+  const generation = ++generations;
+
+  const commit = (catalog: Catalog | undefined, resolved: string | undefined): void => {
+    active = catalog;
+    current = resolved;
+    rules = undefined;
+  };
 
   if (!tag || !registered) {
+    commit(undefined, tag);
     return;
   }
 
@@ -751,19 +870,35 @@ async function use(tag: string | undefined): Promise<void> {
 
   if (!found) {
     log(`no catalog for ${tag}`);
+    commit(undefined, tag);
     return;
   }
 
-  try {
-    active = readCatalog(await found.loader());
-    current = found.tag;
+  let answer: unknown;
 
-    if (!active) {
-      log(`loader for ${found.tag} answered no catalog`);
-    }
+  try {
+    answer = await found.loader();
   } catch (err) {
-    log(`loader for ${found.tag} threw: ${errorMessage(err)}`);
+    if (generation === generations) {
+      log(`loader for ${found.tag} threw: ${errorMessage(err)}`);
+      commit(undefined, tag);
+    }
+
+    return;
   }
+
+  if (generation !== generations) {
+    log(`loader for ${found.tag} was superseded`);
+    return;
+  }
+
+  const catalog = readCatalog(answer);
+
+  if (!catalog) {
+    log(`loader for ${found.tag} answered no catalog`);
+  }
+
+  commit(catalog, found.tag);
 }
 
 /**
@@ -813,6 +948,10 @@ export async function loadCatalog(
  * never had an answer to offer.
  *
  * `undefined` puts English back, which is also how a test clears one.
+ *
+ * Two calls that overlap end with the **later** one in effect, however long
+ * each loader takes; the earlier one resolves having put nothing into effect,
+ * and whatever was in effect stays so until the later one's catalog arrives.
  *
  * @param tag - A locale tag, in any spelling, or nothing for English.
  */

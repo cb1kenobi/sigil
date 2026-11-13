@@ -195,7 +195,7 @@ function rawJoin(dir: string, rest: string): string {
  * @returns What the kernel would resolve it to.
  * @throws If a resolution failed for any reason but something not being there.
  */
-function physicalPath(raw: string): string {
+export function physicalPath(raw: string): string {
   let rest = '';
   let at = raw;
 

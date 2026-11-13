@@ -1,4 +1,5 @@
 import type { Style } from '../style/index.js';
+import { maxOf } from '../util/extent.js';
 import {
   type Box,
   borderWidth,
@@ -641,7 +642,10 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       ? // the longest line, taken from the same `hypotheticalMain()` that decided
         // which line each item landed on -- so the box cannot be measured for a
         // packing it was not packed by
-        Math.max(0, ...lines.map((line) => lineTotal(line, hypotheticalMain)))
+        maxOf(
+          lines.map((line) => lineTotal(line, hypotheticalMain)),
+          0
+        )
       : // and a nowrap row is one line, so what it asks for is that line's total,
         // which is SIG-126. It used to keep the loop's own sum instead, each
         // child's measured *content* width, and a `flex-basis` is exactly what
@@ -665,7 +669,10 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       ? // the smallest a wrapping container can be on its main axis is its widest
         // single item rather than the sum of them, because everything else can be
         // pushed onto a line of its own
-        Math.max(0, ...items.map((item) => hypotheticalMain(item, axis)))
+        maxOf(
+          items.map((item) => hypotheticalMain(item, axis)),
+          0
+        )
       : // and a nowrap row's is the sum of how short each item can be made, because
         // they all stay on the one line. Through `minimumMain()` rather than the
         // loop's `Math.max(automatic, declared)`, which is the second half of
@@ -683,12 +690,18 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       remeasureLine(line, axis, childContaining, settled, cache);
       // exactly what `layoutChildren()` puts in `lineCrossSizes`, which is what
       // the next line starts after
-      cross += Math.max(0, ...line.map((item) => outerCross(item, axis)));
+      cross += maxOf(
+        line.map((item) => outerCross(item, axis)),
+        0
+      );
       // and the same sum over how short each line can be made, which is this
       // container's own minimum. Per line rather than over every item, because a
       // line cannot be shorter than its own shortest-possible tallest item and the
       // lines stack: three one-row items on three lines cannot be one row
-      crossMin += Math.max(0, ...line.map((item) => outerMinCross(item, axis)));
+      crossMin += maxOf(
+        line.map((item) => outerMinCross(item, axis)),
+        0
+      );
     }
 
     // replaced rather than taken as a floor, which is the whole of the fix: the loop
@@ -1057,7 +1070,12 @@ function layoutChildren(
   for (const line of lines) {
     resolveFlexible(line, mainSpace, gap, axis);
     remeasureLine(line, axis, content.width, true, cache);
-    lineCrossSizes.push(Math.max(0, ...line.map((item) => outerCross(item, axis))));
+    lineCrossSizes.push(
+      maxOf(
+        line.map((item) => outerCross(item, axis)),
+        0
+      )
+    );
   }
 
   const crossGap = axis.column ? style.columnGap : style.rowGap;

@@ -18,8 +18,8 @@
   },
   "dependencies": {
     "@ttylabs/sigil": "workspace:*",
-    "next": "16.4.5",
-    "posthog-js": "1.447.3",
+    "next": "16.4.6",
+    "posthog-js": "1.447.10",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
@@ -36,7 +36,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "babel-plugin-react-compiler": "1.0.0",
-    "oxc-parser": "0.157.0",
+    "oxc-parser": "0.158.0",
     "pagefind": "1.6.0",
     "tailwindcss": "4.3.5",
     "typescript": "7.0.2"

@@ -48,6 +48,7 @@ export {
   hash,
   WORK_DIR,
   type BuiltChunk,
+  type ChunkLoads,
   type BundleOptions,
   type BundleResult,
   type InlinedPackage,
@@ -94,6 +95,7 @@ export {
   discoverApp,
   isFile,
   isInside,
+  landsAt,
   readAppCommands,
   readManifest,
   resolveSpecifier,
@@ -112,6 +114,7 @@ export {
   type GenerateOptions,
 } from './generate.ts';
 export {
+  forgetParsedModules,
   formatPosition,
   MODULE_RE,
   parseModule,

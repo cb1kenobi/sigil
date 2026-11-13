@@ -93,7 +93,7 @@ import {
   toDisplayText,
 } from '../element/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 
 /** The five characters every `.flf` begins with. */
@@ -891,7 +891,10 @@ export function renderFiglet(value: string, font: FigFont, opts: FigletOptions =
     }
   }
 
-  const width = Math.max(0, ...rows.map((row) => columnsOf(row).length));
+  const width = maxOf(
+    rows.map((row) => columnsOf(row).length),
+    0
+  );
   return rows.map((row) => padTo(row, width));
 }
 
@@ -946,7 +949,10 @@ export function largeTextView(
     // `toDisplayText()` to avoid. The format says nothing about which characters a
     // glyph may be drawn with, so what a cell grid refuses is sigil's rule and
     // belongs where sigil draws rather than where the font is read
-    width: Math.max(1, ...rows.map((row) => stringWidth(toDisplayText(row)))),
+    width: maxOf(
+      rows.map((row) => stringWidth(toDisplayText(row))),
+      1
+    ),
   };
 }
 

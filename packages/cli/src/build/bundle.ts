@@ -32,7 +32,8 @@
  */
 
 import { compileTemplates } from './compile-templates.ts';
-import { isInside, RUNTIME, type DiscoveredApp } from './discover.ts';
+import { displayPath } from './diagnostic.ts';
+import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
@@ -40,11 +41,11 @@ import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
-import { byCodeUnit } from '@ttylabs/sigil/reference';
+import { byCodeUnit, escapeRegExp } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Plugin } from 'rolldown';
 
 /**
@@ -86,6 +87,24 @@ interface GeneratedEntry {
 export interface BundleOptions {
   /** The app. */
   readonly app: DiscoveredApp;
+  /**
+   * Called with the physical path of every module in the graph once the bundle
+   * is built and before anything is written to `out`. Throwing refuses the
+   * build with that message and nothing is written.
+   *
+   * It is where `sigil build` empties its output directory: the graph is what
+   * says whether `out` holds a module only the bundle reads, and it does not
+   * exist until now. See `clean()` in `commands/_inspect.ts`.
+   */
+  readonly beforeWrite?: (modules: readonly string[]) => void;
+  /**
+   * Directories the style shaker's evidence walk leaves out besides `out`,
+   * which it always does. For a caller whose bundle is not its output --
+   * `sigil package` writes its bundle to a staging directory and its binaries
+   * to `--out`, and a previous `sigil build` into that directory holds the
+   * whole utility sheet as a string, which is evidence for every rule.
+   */
+  readonly exclude?: readonly string[];
   /** What the built executable is called, without an extension. */
   readonly binName: string;
   /**
@@ -125,7 +144,8 @@ export interface BundleOptions {
    * Node single executable runs its embedded main script as CommonJS and cannot
    * `import()` anything at all. It is one file rather than an entry and chunks,
    * since a SEA has nowhere to put a chunk, and its generated entry wraps the
-   * `main()` call because CommonJS cannot hold a top-level `await`.
+   * schema's resolution and the `main()` call in an async function, because
+   * CommonJS cannot hold a top-level `await`.
    *
    * It is not offered as a build output, and that is deliberate: a `.cjs`
    * written into `dist/` is a thing somebody would run directly, where the
@@ -173,10 +193,37 @@ export interface BundleOptions {
   readonly updateCheck?: BakedUpdateConfig;
 }
 
+/**
+ * When a file the build wrote is loaded.
+ *
+ * - `entry` -- it is the executable.
+ * - `startup` -- the executable imports it statically, directly or through
+ *   another such chunk, so it loads every time the executable does: `--help`
+ *   pays for it as surely as for the entry.
+ * - `dynamic` -- nothing on that path imports it, so it is reached only through
+ *   a dynamic `import()`, **the runtime's own included**. That is a claim about
+ *   how it is reached and not about how often: `main()` imports its parser and
+ *   its topic table that way on every run, and help, the theme and the output
+ *   formats on every `--help`, so a `dynamic` chunk may well load every time.
+ *   What it does say is that nothing loads it before something asks. An asset,
+ *   such as a sourcemap, is never loaded by the executable at all, and is
+ *   `dynamic` too, which is the one answer the column has for "not on the
+ *   static path".
+ *
+ * It was `lazy`, and that word claimed the "how often" this cannot know: it
+ * labelled a 31.8 kB parser chunk that loads on every run as one a command had
+ * to ask for -- the same mislabelling `startup` was introduced to fix, arriving
+ * through the runtime's imports instead of the app's. Proving which dynamic
+ * imports `main()` always reaches would mean reading the runtime's control
+ * flow out of a minified bundle, where what it reaches depends on argv, so the
+ * label says what the graph proves instead.
+ */
+export type ChunkLoads = 'dynamic' | 'entry' | 'startup';
+
 /** One file the build wrote. */
 export interface BuiltChunk {
-  /** Whether it is the executable. */
-  readonly entry: boolean;
+  /** When it is loaded. See `ChunkLoads`. */
+  readonly loads: ChunkLoads;
   /** Its name inside the output directory. */
   readonly name: string;
   /** Its size in bytes. */
@@ -207,6 +254,12 @@ export interface BundleResult {
   readonly chunks: readonly BuiltChunk[];
   /** What was left as an import rather than inlined, in the order given. */
   readonly external: readonly string[];
+  /**
+   * The physical path of every module in the graph, for a caller that writes
+   * somewhere other than `out` -- `sigil package`, whose binaries go where its
+   * bundle does not, and which empties that directory only once this is known.
+   */
+  readonly modules: readonly string[];
   /**
    * Every package whose code went into the bundle, largest first.
    *
@@ -283,9 +336,11 @@ export interface BundleResult {
 export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   const {
     app,
+    beforeWrite,
     bin,
     binName,
     defaultLocale,
+    exclude = [],
     external = [],
     form = 'esm',
     out,
@@ -321,6 +376,12 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // for it
   const { rolldown } = await import('rolldown');
 
+  // what `generateBundle` refused, kept to be thrown as itself: rolldown wraps
+  // an error raised in a hook as `[plugin ...] RolldownError` with its own
+  // stack, and what reaches the user is the message, never a stack
+  let refused: string | undefined;
+  let modules: readonly string[] = [];
+
   const generated = bin ? undefined : entryLocation(app, out);
   const input = bin ?? generated!.file;
 
@@ -333,17 +394,14 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // and the sheet regenerates 383 rules, neither of which an app that has not
   // opted into utilities should pay for
   const shaker: Shaker | undefined = shake
-    ? createShaker(app.root, { exclude: [out], safelist })
+    ? createShaker(app.root, { exclude: [out, ...exclude], safelist })
     : undefined;
 
   const bundle = await rolldown({
     // left as imports rather than inlined. Rolldown does not report these as
     // unresolved, which is the point: an external is a deliberate answer to
     // "this cannot be inlined" and an unresolved import is the absence of one
-    external: external.flatMap((name) => [
-      name,
-      new RegExp(`^${name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`),
-    ]),
+    external: external.flatMap((name) => [name, new RegExp(`^${escapeRegExp(name)}/`)]),
     input,
     // an import a bundler cannot resolve is left as an import, so the bundle
     // reaches for it at run time -- which is the zero-dependency promise
@@ -440,7 +498,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
            * it needs no Windows spelling.
            */
           filter: {
-            code: new RegExp(TAG_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            code: new RegExp(escapeRegExp(TAG_MODULE)),
             id: MODULE_RE,
           },
 
@@ -495,7 +553,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
            * boundary.
            */
           filter: {
-            code: new RegExp(STYLE_MODULE.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+            code: new RegExp(escapeRegExp(STYLE_MODULE)),
             id: MODULE_RE,
           },
 
@@ -516,6 +574,62 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             // from the report failed no test, because it could not
             return { code: shaken.code, map: shaken.map };
           },
+        },
+      } satisfies Plugin,
+      {
+        name: 'sigil:own-source',
+        /**
+         * Refuses an output that would land on a module the bundle was built
+         * from, before anything is written.
+         *
+         * The clean guard in `commands/_inspect.ts` can only refuse what is
+         * known before the bundle, and under `--no-clean` at the app root the
+         * rest is a write over a module only the graph knows: `src/index.mjs`
+         * importing `../tool.mjs` in a package called `tool`, built
+         * `--out . --no-clean`, replaced `tool.mjs` with the bundle and
+         * reported success. `generateBundle` is the one moment the graph and
+         * the file names both exist and nothing has been written yet. Each
+         * side is asked by real path, because a write follows every link on
+         * the way and a module id is whatever the resolver made of it.
+         */
+        generateBundle(outputOptions, outputBundle) {
+          const real = new Set<string>();
+          for (const id of this.getModuleIds()) {
+            // a virtual module is not a file, and an id the file system cannot
+            // resolve is compared as it is spelled rather than failing a build
+            // over a question about where it would land
+            if (isAbsolute(id)) {
+              real.add(landsAt(id));
+            }
+          }
+          modules = [...real];
+
+          try {
+            beforeWrite?.(modules);
+          } catch (e: unknown) {
+            refused = e instanceof Error ? e.message : String(e);
+          }
+          if (refused !== undefined) {
+            this.error(refused);
+          }
+
+          const dir = outputOptions.dir;
+          if (!dir) {
+            return;
+          }
+
+          // named relative to the root's real path, since that is what a module
+          // id is under, and `/var` against `/private/var` reads as a climb
+          const root = landsAt(app.root);
+
+          for (const fileName of Object.keys(outputBundle)) {
+            const path = resolve(dir, fileName);
+            const landing = landsAt(path);
+            if (real.has(landing)) {
+              refused = `Refusing to write ${displayPath(path)}, which is ${displayPath(relative(root, landing) || landing)}, a module the app is built from. Name a directory that holds none of the app's source.`;
+              this.error(refused);
+            }
+          }
         },
       } satisfies Plugin,
     ],
@@ -604,18 +718,24 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       writeEntry(generated, app, tree, defaultLocale, cjs);
     }
 
-    const written = await bundle.write({
-      chunkFileNames: 'chunks/[name]-[hash].mjs',
-      ...(cjs && { codeSplitting: false }),
-      dir: out,
-      entryFileNames: entryFile,
-      format: cjs ? 'cjs' : 'esm',
-      minify: true,
-      // the first thing anybody debugging a built app wants, and nothing to
-      // whoever never opens one -- but several times the size of the code it
-      // describes, and a package publishing its `dist` publishes it too
-      sourcemap,
-    });
+    const written = await bundle
+      .write({
+        chunkFileNames: 'chunks/[name]-[hash].mjs',
+        ...(cjs && { codeSplitting: false }),
+        dir: out,
+        entryFileNames: entryFile,
+        format: cjs ? 'cjs' : 'esm',
+        minify: true,
+        // the first thing anybody debugging a built app wants, and nothing to
+        // whoever never opens one -- but several times the size of the code it
+        // describes, and a package publishing its `dist` publishes it too
+        sourcemap,
+      })
+      .catch((e: unknown) => {
+        // a refusal is thrown as itself, so the user reads the sentence and
+        // not rolldown's wrapping of it with six frames of its own stack
+        throw refused === undefined ? e : new Error(refused);
+      });
 
     // asked after the write, which reads backwards and is the only place the
     // answer exists. `rolldown()` builds nothing: rolldown's own documentation
@@ -653,9 +773,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
     escapeControls(out, written.output);
 
+    const loads = chunkLoads(written.output);
     const chunks = written.output
       .map((chunk) => ({
-        entry: chunk.type === 'chunk' && chunk.isEntry,
+        loads: loads.get(chunk.fileName) ?? 'dynamic',
         name: chunk.fileName,
         size: Buffer.byteLength(
           chunk.type === 'chunk' ? chunk.code : (chunk.source as string | Uint8Array)
@@ -678,6 +799,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       inlined: inlinedPackages(app.root, input, written.output),
       styles: styleReport(shaker),
       templates,
+      modules,
       usesUpdateCheck,
     };
   } finally {
@@ -932,6 +1054,64 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
 function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
   const sheet: ShakenSheet | undefined = shaker?.result();
   return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
+}
+
+/** The part of a written chunk `chunkLoads()` reads. */
+interface LinkedChunk {
+  readonly fileName: string;
+  readonly imports?: readonly string[];
+  readonly isEntry?: boolean;
+  readonly type: string;
+}
+
+/**
+ * When each written file is loaded, read off the graph rolldown reports.
+ *
+ * Every chunk that is not the entry used to be called `lazy`, which was false
+ * for the ones the entry imports **statically**: on a scaffolded app the entry
+ * was 0.8 kB and the chunks it imports came to another 12 kB, all of it paid on
+ * every `--help` and all of it labelled as though a command had to ask for it
+ * (SIG-353). So the static closure of the entry is walked through each chunk's
+ * `imports` -- rolldown's list of the chunks it imports statically, by file name
+ * -- and what it reaches is `startup`. Everything else can only be reached
+ * through a `dynamicImports` edge somewhere, and is `dynamic`: a command's own
+ * module, or one of the runtime's, which `main()` may import on every run --
+ * see `ChunkLoads` for why that is not narrowed further.
+ *
+ * Walked rather than read off `isDynamicEntry`, because that flag answers a
+ * different question: a chunk can be the target of an `import()` and also be
+ * imported statically by the entry, and it then loads at startup whatever the
+ * `import()` says.
+ *
+ * Exported for the reason `rawJsxIn()` is: what it answers is worth asserting
+ * directly as well as through a bundler.
+ *
+ * @param output - What rolldown wrote.
+ * @returns Each file's name, mapped to when it loads.
+ */
+export function chunkLoads(output: readonly LinkedChunk[]): Map<string, ChunkLoads> {
+  const byName = new Map(output.map((chunk) => [chunk.fileName, chunk]));
+  const loads = new Map<string, ChunkLoads>(output.map((chunk) => [chunk.fileName, 'dynamic']));
+  const pending = output.filter((chunk) => chunk.type === 'chunk' && chunk.isEntry);
+
+  for (const entry of pending) {
+    loads.set(entry.fileName, 'entry');
+  }
+
+  // a work list rather than recursion, and a chunk is queued only the first time
+  // it is marked, so a cycle between two chunks -- which rolldown does emit --
+  // ends rather than looping
+  for (let chunk = pending.pop(); chunk; chunk = pending.pop()) {
+    for (const name of chunk.imports ?? []) {
+      const imported = byName.get(name);
+      if (imported && loads.get(name) === 'dynamic') {
+        loads.set(name, 'startup');
+        pending.push(imported);
+      }
+    }
+  }
+
+  return loads;
 }
 
 /**

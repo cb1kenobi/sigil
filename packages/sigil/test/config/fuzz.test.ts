@@ -1,4 +1,6 @@
+import { isPlainObject, readPath } from '../../src/config/dotted.js';
 import { scanJsonc } from '../../src/config/jsonc.js';
+import { mergeLayers, shapesAlong } from '../../src/config/merge.js';
 import { describe, expect, it } from 'vitest';
 
 /** xorshift32, the generator the layout fuzzer already uses. */
@@ -173,5 +175,85 @@ describe('the jsonc scan, differentially', () => {
       expect(scan.json).to.have.lengthOf(text.length);
       expect(JSON.parse(scan.json), text).to.deep.equal({ k: [JSON.parse(s), JSON.parse(s)] });
     }
+  });
+});
+
+describe('shapesAlong(), differentially', () => {
+  /** What the list check asks of a value: a list, an object, or neither. */
+  function kind(v: unknown): string {
+    return Array.isArray(v) ? 'list' : isPlainObject(v) ? 'object' : 'other';
+  }
+
+  /** A layer over a small key alphabet, so that layers collide often. */
+  function layer(rnd: () => number, depth: number): unknown {
+    const r = rnd();
+    if (depth > 0 && r < 0.25) {
+      return [1, null, 'x', 0][Math.floor(rnd() * 4)];
+    }
+    if (depth > 0 && r < 0.4) {
+      return Array.from({ length: Math.floor(rnd() * 3) }, () => layer(rnd, depth + 1));
+    }
+    const out: Record<string, unknown> = {};
+    if (depth > 3) {
+      return out;
+    }
+    for (const key of ['a', 'b', 'c']) {
+      if (rnd() < 0.5) {
+        out[key] = layer(rnd, depth + 1);
+      }
+    }
+    return out;
+  }
+
+  it("should answer the merged view's kind at every step of every path", () => {
+    // the list check reads the stack rather than the built view, so that a run
+    // of `set()` calls never merges (SIG-377) -- which makes it the merge's rule
+    // said a second time, and this is what holds the two together
+    const paths: string[][] = [];
+    for (const a of ['a', 'b', 'c', 'z']) {
+      for (const b of ['a', 'b', 'c']) {
+        for (const c of ['a', 'b']) {
+          paths.push([a, b, c]);
+        }
+      }
+    }
+
+    let lists = 0;
+    let shadowed = 0;
+
+    for (let seed = 1; seed <= 400; seed++) {
+      const rnd = seeded(seed);
+      // the first draws from a small seed are near zero, so they are thrown
+      // away -- left in, every stack was one layer deep and nothing was shadowed
+      for (let i = 0; i < 8; i++) rnd();
+      const values = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => layer(rnd, 0));
+      const concat = rnd() < 0.5 ? () => true : () => false;
+      const merged = mergeLayers(
+        values.map((value, i) => ({ label: `l${i}`, value })),
+        concat
+      );
+
+      for (const parts of paths) {
+        const shapes = shapesAlong(values, parts);
+        for (let i = 0; i < parts.length; i++) {
+          const prefix = parts.slice(0, i + 1);
+          const want = kind(readPath(merged, prefix));
+          expect(kind(shapes[i]), `seed ${seed}: ${prefix.join('.')}`).to.equal(want);
+          if (want === 'list') lists++;
+          // a list some layer holds that the merged view does not, which is the
+          // case a naive top-down read of the layers gets wrong
+          if (want !== 'list' && values.some((v) => Array.isArray(readPath(v, prefix)))) {
+            shadowed++;
+          }
+        }
+      }
+    }
+
+    // a corpus that never met a list, or never met one a higher layer replaced,
+    // is a green test about nothing -- the rule the scan's own fuzzer records
+    // floors well under what was measured -- 1,199 and 598 -- so ordinary
+    // generator churn never touches them and a stack that stopped colliding does
+    expect(lists, 'lists in the merged view').to.be.greaterThan(500);
+    expect(shadowed, 'lists a higher layer replaced').to.be.greaterThan(100);
   });
 });

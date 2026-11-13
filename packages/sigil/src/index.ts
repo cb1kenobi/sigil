@@ -13,6 +13,7 @@ import {
   type Schema,
   type Settings,
 } from './types.js';
+import { trimTrailingNewlines } from './util/trim-trailing-newlines.js';
 
 export * from './types.js';
 export { command } from './command.js';
@@ -355,7 +356,7 @@ function writeFormatted(state: ParseState, cmd: InternalCommand, value: unknown)
   // exactly one trailing newline, which is `errorHandler()`'s own rule: a
   // line-oriented consumer wants one and a serializer that already ended with
   // one must not produce a blank line
-  process.stdout.write(`${text.replace(/[\r\n]+$/, '')}\n`);
+  process.stdout.write(`${trimTrailingNewlines(text)}\n`);
 }
 
 /**

@@ -34,11 +34,13 @@
  * Here: the span and edit types, the applier, and the questions about *text
  * offsets* that no format owns -- which line an offset is on, where that line
  * starts, what it is indented by. The **scanner** reads `LINE_END` and
- * `lineAt()` and the **writer** reads `LINE_END`, `lineStartAt()` and
- * `lineIndent()`, rather than either keeping its own, because two definitions of
- * "a line terminator" is how the two come to disagree about where a comment
- * ended. Which is three functions across two readers rather than "`jsonc.ts`
- * reads the last three", as this said for a commit: that file reads two.
+ * `lineCounter()` and the **writer** reads `LINE_END`, `lineStarts()`,
+ * `lineIndent()` and `ownLineIndent()`, rather than either keeping its own,
+ * because two definitions of "a line terminator" is how the two come to
+ * disagree about where a comment ended. `lineCounter()` and `lineStarts()`
+ * answer many questions over one text because the one-shot walks they replaced,
+ * `lineAt()` and `lineStartAt()`, were asked per comment and per container,
+ * which made reading and saving a large file quadratic (SIG-371).
  *
  * Not here: the scanner, the serialization of a *new* value, and the insertion
  * mechanics, which are per format. Same call as the two SGR tables and the two
@@ -64,6 +66,9 @@
  * part way in. One pattern used two ways is how that happens.
  */
 export const LINE_END: RegExp = /[\n\r\u2028\u2029]/;
+
+/** What `trim()` takes off, which is `\s` by specification; not global, like `LINE_END`. */
+const SPACE = /\s/;
 
 /** A half-open range of a source text. */
 export interface Span {
@@ -157,67 +162,114 @@ export function applyEdits(source: string, edits: readonly Edit[]): string {
 }
 
 /**
- * Counts the line a 0-based offset is on.
+ * Counts the 1-based line of each 0-based offset it is asked about.
  *
- * Counted only when a message needs one, which is the rule the stylesheet
- * parser already keeps: counting newlines per token makes reading a file with
- * nothing wrong with it quadratic in its own length.
+ * Every line terminator counts, not `\n` alone, which is `LINE_END`'s own rule:
+ * a `\r`-only file once reported every diagnostic "on line 1", so a comment the
+ * scanner correctly ended at a `\r` was named at a line it is not on. Found by
+ * review. A CRLF is one line rather than two, because the `\n` after a `\r` is
+ * the same break. An offset past the end is on the last line.
  *
- * Every line terminator counts, not `\n` alone, which is `LINE_END`'s own rule
- * met by the one function here that was not keeping it: a `\r`-only file
- * reported every diagnostic "on line 1", so a comment the scanner correctly
- * ended at a `\r` was named at a line it is not on. Found by review. A CRLF is
- * one line rather than two, because the `\n` after a `\r` is the same break.
+ * The count resumes from where the last question left it rather than from the
+ * start, so a scan that asks once per comment pays for the text once rather
+ * than once per comment. That is SIG-371: this was `lineAt()`, a walk from
+ * offset 0 per call, and `scanJsonc()` called it for every comment it found --
+ * so N comments cost N walks of the file and a 480 KB config of comment lines
+ * took 92 seconds to load. With the scanner on this, `lineAt()` had no caller
+ * left and went. An offset behind the last one asked starts the walk again,
+ * which is correct and is only slow for a caller that goes backwards, of which
+ * there is none.
  *
  * @param text - The source.
- * @param offset - The offset.
- * @returns The 1-based line.
+ * @returns A function from a 0-based offset to its 1-based line.
  */
-export function lineAt(text: string, offset: number): number {
+export function lineCounter(text: string): (offset: number) => number {
+  // the loop's own state, kept between calls: a CRLF advances `i` past the
+  // `\n`, so `i` can stand one past the offset last asked and is resumed from
+  // there rather than from that offset
+  let i = 0;
   let line = 1;
-  for (let i = 0; i < offset && i < text.length; i++) {
-    if (LINE_END.test(text[i] as string)) {
-      // a CRLF is one break rather than two
-      if (text[i] === '\r' && text[i + 1] === '\n') {
-        i++;
-      }
-      line++;
+  let asked = 0;
+
+  return (offset) => {
+    if (offset < asked) {
+      i = 0;
+      line = 1;
     }
-  }
-  return line;
+    asked = offset;
+    for (; i < offset && i < text.length; i++) {
+      if (LINE_END.test(text[i] as string)) {
+        // a CRLF is one break rather than two
+        if (text[i] === '\r' && text[i + 1] === '\n') {
+          i++;
+        }
+        line++;
+      }
+    }
+    return line;
+  };
 }
 
 /**
- * Where the line holding an offset starts.
+ * Where the line holding each offset it is asked about starts.
+ *
+ * Just past the last `LINE_END` character before the offset, or 0 -- so the
+ * offset of the `\n` of a CRLF is a line start, which no caller asks about.
+ *
+ * This replaced `lineStartAt()`, which walked back from the offset to the
+ * line's start: the right cost for one question and the wrong one for many on
+ * one long line. A minified config is a single line, so the writer asking it
+ * once per container that gains a key walked the whole document each time, and
+ * adding a key to each of 10,000 one-line objects took 17.5 seconds to save
+ * (SIG-371). This finds every line start once, on the first question, and
+ * answers each by a binary search; `lines.test.ts` pins it against that walk at
+ * every offset of a mixed-ending corpus.
  *
  * @param text - The source.
- * @param offset - The offset.
- * @returns The offset of the first character of that line.
+ * @returns A function from an offset to where its line starts.
  */
-export function lineStartAt(text: string, offset: number): number {
-  // no clamp on `offset`, because every caller hands over a span of this text
-  // -- a sabotage of one changed no answer, and a bounds guard that cannot fire
-  // is one this repository deletes rather than keeps
-  let i = offset;
-  while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
-    i--;
-  }
-  return i;
+export function lineStarts(text: string): (offset: number) => number {
+  let starts: number[] | undefined;
+
+  return (offset) => {
+    if (starts === undefined) {
+      starts = [0];
+      for (let i = 0; i < text.length; i++) {
+        if (LINE_END.test(text[i] as string)) {
+          starts.push(i + 1);
+        }
+      }
+    }
+
+    // the last start at or before the offset
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if ((starts[mid] as number) <= offset) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return starts[lo] as number;
+  };
 }
 
 /**
- * The leading whitespace of the line holding an offset.
+ * The leading whitespace of a line.
  *
  * What the line is indented by, whatever sits further along it -- which is the
  * question a *new* nested value asks, since it is indented relative to the line
- * its container opened on.
+ * its container opened on. Handed the line's start rather than an offset on it,
+ * because the caller has an index of them and a walk back to find one is what
+ * made the writer quadratic (SIG-371).
  *
  * @param text - The source.
- * @param offset - The offset.
+ * @param start - Where the line starts.
  * @returns The indentation, which may be empty.
  */
-export function lineIndent(text: string, offset: number): string {
-  const start = lineStartAt(text, offset);
+export function lineIndent(text: string, start: number): string {
   let i = start;
   while (i < text.length && (text[i] === ' ' || text[i] === '\t')) {
     i++;
@@ -234,13 +286,27 @@ export function lineIndent(text: string, offset: number): string {
  * "b": 2 }` has two members and neither owns a line, so a third one cannot
  * inherit anything and the container's own line decides instead.
  *
+ * Walked back over whitespace only, rather than to the line's start and then
+ * asked whether what it passed was blank: the answer is the same, and the walk
+ * is the indentation rather than the line. The difference is the whole of a
+ * minified file, where every entry is on line one -- the writer asks this of
+ * every entry on every save, so walking to the line start made one `set()` and
+ * `save()` over 5,000 keys on one line take 4.5 seconds (SIG-371). `\s` and
+ * `trim()` agree about what whitespace is, by specification, and a line
+ * terminator is the one kind that ends the walk instead of continuing it.
+ *
  * @param text - The source.
  * @param offset - The offset.
  * @returns The whitespace back to the line start, or `undefined` where
  * something else sits between.
  */
 export function ownLineIndent(text: string, offset: number): string | undefined {
-  const start = lineStartAt(text, offset);
-  const before = text.slice(start, offset);
-  return before.trim() === '' ? before : undefined;
+  let i = offset;
+  while (i > 0 && !LINE_END.test(text[i - 1] as string)) {
+    if (!SPACE.test(text[i - 1] as string)) {
+      return undefined;
+    }
+    i--;
+  }
+  return text.slice(i, offset);
 }

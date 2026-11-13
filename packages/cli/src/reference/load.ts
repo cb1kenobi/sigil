@@ -26,7 +26,7 @@
  * ## The toolchain's runtime initializes the app's schema
  *
  * What crosses the boundary from the app is **plain data**: an entry exports an
- * object (or a function returning one), and `command()` is the identity
+ * object (or a function returning one, or a Promise of one), and `command()` is the identity
  * function, so a command module's declaration is plain data too. Nothing with
  * an `Internal` symbol on it is ever handed over, which is what makes this safe
  * -- `Internal` is a module-private `Symbol()`, so two copies of the runtime
@@ -43,6 +43,7 @@
 
 import { displayPath } from '../build/diagnostic.ts';
 import { discoverApp, type DiscoveredApp } from '../build/discover.ts';
+import { SCHEMA_EXPORT } from '../build/generate.ts';
 import type { Schema } from '@ttylabs/sigil';
 import { pathToFileURL } from 'node:url';
 
@@ -72,8 +73,9 @@ export interface LoadedApp {
  * Copying the namespace asks at run time, which is when the answer is known.
  *
  * A function is called, because a schema that reads the environment has to be
- * built rather than declared -- which is what the generated entry does with the
- * same two lines, so an app that works built works here.
+ * built rather than declared, and whatever comes back -- or the export itself --
+ * is awaited. That is what the generated entry does, so an app that works built
+ * works here.
  *
  * @param entry - The module.
  * @returns The schema.
@@ -83,12 +85,14 @@ export interface LoadedApp {
 async function schemaFrom(entry: string): Promise<Schema> {
   const namespace = { ...(await import(pathToFileURL(entry).href)) };
   const declared = namespace.default ?? namespace.schema;
-  const schema = typeof declared === 'function' ? await declared() : declared;
+  // the export is awaited as well as the function's result, which is what the
+  // generated entry does: a Promise exported outright used to come through only
+  // because an `async` function adopts a Promise it returns, so the check below
+  // was asking about the Promise rather than about what it held
+  const schema: unknown = await (typeof declared === 'function' ? declared() : declared);
 
   if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
-    throw new Error(
-      `${displayPath(entry)} exports no schema: a sigil app's entry has a default export (or a "schema" export) that is the schema object, or a function returning one.`
-    );
+    throw new Error(`${displayPath(entry)} exports no schema: ${SCHEMA_EXPORT}.`);
   }
 
   return schema as Schema;

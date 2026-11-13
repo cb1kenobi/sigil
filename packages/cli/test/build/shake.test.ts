@@ -6,6 +6,7 @@ import {
   shakeUtilities,
   type ClassEvidence,
 } from '../../src/build/index.js';
+import { quote } from '../../src/template/emit.js';
 import { generateUtilities, utilities } from '../../src/utilities/index.js';
 import { parseStylesheet, UTILITY_CSS } from '@ttylabs/sigil/style';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -392,6 +393,22 @@ describe('rewriting utilitySheet()', () => {
     expect(out?.code).toContain('parseStylesheet as $cssp');
     expect(out?.code).toContain('function $csss()');
     expect(out?.code).toContain(JSON.stringify(sheet.css));
+  });
+
+  it('should quote the sheet with quote(), leaving no separator raw', () => {
+    // SIG-353: a bare `JSON.stringify` leaves U+2028 and U+2029 raw, and V8
+    // counts each as a line break, so every line number after it moved. Built
+    // from a code point so that no tool turns an escape into the character
+    const separator = String.fromCharCode(0x2028);
+    const css = `/* a${separator}b */\n.p-2 { padding: 2 }\n`;
+    const out = shakeStyles(
+      '/app/src/view.ts',
+      `import { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = utilitySheet();\n`,
+      () => ({ ...sheet, css })
+    );
+
+    expect(out?.code.includes(separator)).toBe(false);
+    expect(out?.code).toContain(quote(css));
   });
 
   it('should hoist the replacement rather than leaving it in a temporal dead zone', () => {

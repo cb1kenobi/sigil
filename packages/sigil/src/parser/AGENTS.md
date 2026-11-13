@@ -330,6 +330,26 @@ The sharpest question in the design, and the ticket did not name it.
   the serializer ended with -- `errorHandler()`'s own rule, which is what keeps a
   CSV serializer that already ends with one from producing a blank line.
 
+- **That trim is a walk back from the end, and never `replace(/[\r\n]+$/, '')`
+  (SIG-342).** The pattern has no anchor at its start, so the engine tries an
+  interior run of k newlines from each of its k positions and fails each at the
+  first character that is not one: k² steps for a run that is not at the end at
+  all. An error message echoes argv, so one argument made of newlines stalled the
+  error path -- measured for SIG-342 against the built package, on a loaded
+  machine, `errorHandler()` took 425ms at 20,000, 2,786ms at 40,000 and 8,306ms at
+  80,000, and is under a millisecond for all three now.
+  `trimTrailingNewlines()` in `src/util/` is the one definition, used by
+  `errorHandler()`, `writeFormatted()` and `runApp()`'s default error report, and
+  its test asserts it holds no regex, because a timeout cannot interrupt
+  synchronous code and so only reports a regression after it has finished. A sweep
+  of `packages/*/src` for the same shape found three more over a file's own bytes,
+  in the XML and YAML stores, and those take a lookbehind (`(?<!\n)\n*$`) instead
+  of an import, since the helper is not on a published subpath and one regex is not
+  worth a new one. What is left unanchored is bounded -- canvas and screen rows are
+  at most the width, and a locale variable would need a newline in it -- apart from
+  `components/markdown-parse.ts`, whose ATX heading pattern, closing-`#` strip and
+  two trailing-space patterns are the same bug, and which SIG-362 (PR #415) fixes.
+
 #### An exit code is not a return value, and `run()` sets it rather than returning it
 
 - **A command hands `main()` an exit code by setting `process.exitCode` and
@@ -1170,10 +1190,11 @@ resolution.
   option that works and the command that does not.
 
 - **One `ParsedCommand` per command rather than one per token, each carrying
-  the segment as it was typed.** Everything downstream counts those entries --
-  `asked()` trims a help chain back to the commands argv _named_ -- so a token
-  that named three has to count as three or `mycli db:migrate --help` would
-  describe the wrong command. The `inputs` is the segment rather than the
+  the segment as it was typed.** Everything downstream reads those entries
+  per command -- `asked()` trims a help chain back to the innermost command
+  argv _named_, and `commandCatalog()` maps each command to the token that
+  reached it -- so a token that named three has to say all three or
+  `mycli db:migrate --help` would describe the wrong command. The `inputs` is the segment rather than the
   command's name, because `state.$` is what argv said and `d:m` reaching `db`
   and `migrate` through their aliases is exactly the case where the two
   differ.
@@ -1621,6 +1642,78 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   the load for a `subcommandLoaded` hook that hands back an ancestor, was
   written and deleted: the next dispatch refuses that ancestor anyway, with the
   same message.
+
+### `--help` is trimmed from the innermost command argv named
+
+- **Not by counting the commands argv named.** SIG-340. `asked()` kept as many
+  contexts from the root end as there were `ParsedCommand` entries, which
+  assumed every implied default sits inside every named command. A typed
+  subcommand of an adopted default breaks that: with `serve` the default and
+  `status` its child, `mycli status` ends in `[status, serve, root]` having named
+  one command, so `mycli status --help` kept `[serve, root]` and printed
+  `serve`'s screen while `mycli status` ran `status`. Now the chain starts at the
+  first context that some `ParsedCommand` holds, and is the root alone when argv
+  named none. A default _inside_ the named command (`build` dispatching `all`) is
+  still dropped and a default _outside_ it (`serve` above) is kept, because it is
+  the path to what was named -- the usage line reads `mycli serve status`, which
+  is also typeable. The rule in `src/help/AGENTS.md` ("`--help` with no command
+  named describes the program") is unchanged; only its implementation was wrong.
+  Pinned under `help` in `test/parser/default-command.test.ts`.
+- **`mycli help status` is not changed by this, and still refuses.** `resolve()`
+  walks the `help` command's path from the root only, so a subcommand reachable
+  through a default is `Unknown command "status"` there even though `mycli
+  status` runs it. Whether `help <name>` should resolve through a default is a
+  product decision that was left open rather than taken inside a bug fix.
+
+### A token split at its `=` is handed on whole
+
+- **`initArgv()` splits at the first `=` before the schema is known, so whatever
+  reads a token as something other than an option name reads `orig`.** SIG-339.
+  The split is right for `--name=value` and wrong for everyone else, and three
+  readers had been given the whole token back one at a time -- the terminator, a
+  declared option's value, an undeclared option's value. Two had not. A short
+  option's attached value is the text after its letter, so `-Dfoo=bar` is
+  `define: 'foo=bar'` and `-vDa=b=c` is `'a=b=c'`, where reading only the letters
+  of `-Dfoo` made it `'foo'` and dropped `=bar` silently; `--define foo=bar` always
+  said `'foo=bar'`, so the two spellings now agree. And a positional is the token
+  as typed, so `-Dfoo=bar` landing on `<def>` is `'-Dfoo=bar'` rather than `-Dfoo`
+  plus a stray `bar` in `_`, a variadic takes one value per token, and
+  `Unexpected argument` names what was typed. A group deferred part way carries
+  the rest of its own spelling, so a later pass or a positional slot still has it.
+  `whole()` is how every walk hands a token on, a value included;
+  `expandGroup()` reads `orig` itself, because what it needs is the text after
+  one letter rather than the token. This is "An attached value is taken exactly
+  as typed" applied to the two places it had not reached, and nothing about which
+  token is a value moved. Coercion writes into a copy, so `state.$` keeps the
+  strings argv held and a `transform`'s returned array is not written into.
+  Quotes straight after an option's name are still stripped by the first split
+  (`-D"foo"` is `foo`), and quotes after more of a group are part of the value
+  (`-Dfoo"bar"` is `foo"bar"`). That asymmetry is recorded in `docs/parser.md`
+  and was left alone here.
+- **A walk builds a new list and never splices `state.$`.** A splice shifts
+  everything after it, and a walk spliced once per consumed value, once per
+  gobbled positional and once per short option group, so it was quadratic in
+  argv: 100,000 tokens of `<files...>` took 2.1 to 2.4 s on `main`, and 100,000
+  of `-ab` about 2 s. `parseArgv()` reads each pass's entries as the pass found
+  them and writes what resolves to a new list. A consumed value is taken and
+  never written, which is also what stops a value that spells a command name
+  from matching the command. A group's entries wait in a queue ahead of the rest
+  of argv. `refill()` puts the list back in place, in a `finally`, so a walk that
+  throws leaves what it resolved, the entry it was reading, and what it had not
+  reached, with no consumed value left behind as a stray entry.
+  `parseUnknownOptions()` does the same, and the variadic gobble in
+  `processArgs()` compacts in the loop that collects. `validateOptions()` builds
+  a `Set` of the typed options once rather than walking `state.$` per declared
+  option. The visible difference is mid-walk. An option's `transform` is the one
+  piece of app code that runs during a pass and is handed the state. It sees the
+  pass's starting entries, not the resolved ones. Each option that has taken a
+  value has already pushed it onto its own entry's `inputs`, and the consumed
+  token is still listed after it, so every value taken so far appears twice. With
+  a `transform` on `--a`, argv `--x 1 --a 2 pos` shows it `Unknown --x 1`,
+  `Unknown 1`, `Unknown --a 2`, `Unknown 2`, `Unknown pos`, where `main` showed
+  `Option --x 1`, `Unknown --a 2`, `Unknown pos`. Pinned by counting `state.$.splice` calls
+  in `consuming tokens was quadratic in argv`, which asserts none, because a
+  timing would be a flake on a loaded machine.
 
 ### A command module that fails to load keeps what it failed with
 
