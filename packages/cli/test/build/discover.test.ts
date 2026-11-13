@@ -396,9 +396,14 @@ export default {
 
         const before = (name: string, key: string, consequence: string) =>
           `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
+        const carried = (name: string, key: string, consequence: string) =>
+          `the "${name}" command spreads another object, which may carry a "${key}" this cannot see; ${consequence}`;
         expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
           ['warning', before('async', 'desc', 'the built app will list it by name alone')],
+          // `base` is a name, so it may carry a `hidden` too
+          ['warning', carried('async', 'hidden', 'the built app will list it in help')],
           ['warning', before('number', 'desc', 'the built app will list it by name alone')],
+          ['warning', carried('number', 'hidden', 'the built app will list it in help')],
           ['warning', before('method', 'hidden', 'the built app will list it in help')],
           ['warning', before('computed', 'desc', 'the built app will list it by name alone')],
         ]);
@@ -460,7 +465,11 @@ export default {
           ],
           [
             'warning',
-            'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is not a boolean, which the app refuses',
+            'the "quiet" command spreads another object, which may carry a "desc" this cannot see; the built app will list it by name alone',
+          ],
+          [
+            'warning',
+            'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is neither a boolean nor undefined, which the app refuses',
           ],
         ]);
         expect(at(list, 'keyed').desc).toBe('Build the app');
@@ -469,6 +478,121 @@ export default {
         // module's own words are not baked in its place
         expect(at(list, 'spread').desc).toBeUndefined();
         expect(at(list, '!quiet').hidden).toBeUndefined();
+      });
+    });
+
+    it('took a spread or computed key of a non-object literal for one that may replace a desc or hidden, and baked the module’s answer over a spread that may carry it', async () => {
+      // SIG-421, review round 3. An array or a string spreads its indices, a
+      // primitive spreads nothing, and a literal key is what `String()` makes of
+      // it -- so the spelling before them is the one that runs. And a key the
+      // placeholder spells nowhere is still the placeholder's when a spread may
+      // carry it, since the runtime merges the module in only where the
+      // placeholder's key is `undefined`: the module's answer was baked
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    array: { desc: 'Build the app', ...[1, 2], path: './commands/a.js' },
+    string: { desc: 'Build the app', ...'ab', path: './commands/a.js' },
+    off: { hidden: true, ...false, path: './commands/a.js' },
+    nulled: { desc: async () => 'x', ...null, path: './commands/a.js' },
+    keyed: { desc: 'Build the app', [1]: 0, [1n]: 0, [true]: 0, [null]: 0, path: './commands/a.js' },
+    // the spread is before desc, which is what makes second the one that runs
+    second: { ...{ desc: 'spread' }, desc: 'second', [0]: true, path: './commands/a.js' },
+    zero: { desc: async () => 'x', [0]: 1, path: './commands/a.js' },
+    absent: { ...{ desc: 'from the placeholder', hidden: true }, path: './commands/a.js' },
+    '!quiet': { hidden: true, ...{ hidden: undefined }, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        const runtime: Record<string, string | undefined> = {};
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          runtime[name] = await runtimeRefusal(name, declaration);
+        }
+        expect(runtime).toStrictEqual({
+          array: undefined,
+          string: undefined,
+          off: undefined,
+          nulled: 'Expected desc for the "nulled" command to return a string',
+          keyed: undefined,
+          second: undefined,
+          zero: 'Expected desc for the "zero" command to return a string',
+          absent: undefined,
+          // `undefined` is not refused, and the `!` still hides it
+          '!quiet': undefined,
+        });
+
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+          ['error', runtime.nulled],
+          ['error', runtime.zero],
+          [
+            'warning',
+            'the "absent" command spreads another object, which may carry a "desc" this cannot see; the built app will list it by name alone',
+          ],
+          [
+            'warning',
+            'the "absent" command spreads another object, which may carry a "hidden" this cannot see; the built app will list it in help',
+          ],
+          [
+            'warning',
+            'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is neither a boolean nor undefined, which the app refuses',
+          ],
+        ]);
+        for (const name of ['array', 'string', 'keyed']) {
+          expect(at(list, name).desc, name).toBe('Build the app');
+        }
+        expect(at(list, 'off').hidden).toBe(true);
+        expect(at(list, 'second').desc).toBe('second');
+        // the placeholder's spread decides both, so the module's are not baked
+        expect(at(list, 'absent').desc).toBeUndefined();
+        expect(at(list, 'absent').hidden).toBeUndefined();
+      });
+    });
+
+    it('should read a key built by an expression, or a spread of a conditional, as one that may carry anything', async () => {
+      // literals are read and expressions are not evaluated, which can only
+      // turn a bake into a warning and never bake a wrong value
+      const source = `const flag = false;
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    joined: { desc: 'Build the app', ['de' + 'sc']: 'Joined', path: './commands/a.js' },
+    either: { desc: 'Build the app', ...(flag ? { path: './commands/a.js' } : { path: './commands/a.js' }) },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          expect(await runtimeRefusal(name, declaration), name).toBeUndefined();
+        }
+        expect(
+          diagnostics
+            .filter((d) => d.message.includes('"desc"'))
+            .map((d) => [d.severity, d.message])
+        ).toStrictEqual(
+          ['joined', 'either'].map((name) => [
+            'warning',
+            `the "${name}" command's "desc" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will list it by name alone`,
+          ])
+        );
+        expect(at(list, 'joined').desc).toBeUndefined();
+        expect(at(list, 'either').desc).toBeUndefined();
       });
     });
 

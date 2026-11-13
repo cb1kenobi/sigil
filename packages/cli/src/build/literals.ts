@@ -12,7 +12,7 @@
  */
 
 import { walk } from './walk.ts';
-import type { Expression, Node, ObjectExpression, ObjectProperty } from 'oxc-parser';
+import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
 /**
  * Looks through the wrappers that do not change what a value is.
@@ -139,13 +139,20 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * computed key -- is wrong in both directions at once: `['path']` after a
  * `desc` cannot replace it, so treating it as though it might either drops a
  * description the build can read or waves through one the runtime refuses
- * (SIG-421). So a computed key that is a string written down may replace only
- * its own name, and a spread of an object literal may replace only what that
- * literal, read through its own spreads, might carry. Anything else -- a
- * spread of a name or a call, a key computed from something unwritten -- may
- * carry anything. A call is not looked through here, even the single-argument
- * one `objectLiteral()` unwraps: a wrapper adding a `desc` is exactly the case
- * this question exists for.
+ * (SIG-421). So a computed key that is a literal may replace only the key it
+ * converts to -- `[1]` and `[1n]` are `"1"`, `[true]` is `"true"`, `[null]` is
+ * `"null"` -- and a spread may replace only what its operand can carry: an
+ * object literal what it carries, read through its own spreads; an array, a
+ * string or a template literal its indices and nothing else; and any other
+ * literal, or `undefined`, nothing at all.
+ *
+ * **Literals are read and expressions are not evaluated.** A spread of a name,
+ * a call, or a conditional, logical or sequence expression -- even one whose
+ * arms are all literals -- and a key computed by an expression, `['de' +
+ * 'sc']`, may carry anything. That costs only a warning where a bake was
+ * possible, and never bakes a wrong value. A call is not looked through here,
+ * even the single-argument one `objectLiteral()` unwraps: a wrapper adding a
+ * `desc` is exactly the case this question exists for.
  *
  * A plain property is not asked about: its key is its own, and the caller
  * reads it by name.
@@ -157,23 +164,53 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
 export function mayCarry(property: ObjectExpression['properties'][number], key: string): boolean {
   if (property.type === 'SpreadElement') {
     const spread = unwrapShallow(property.argument);
-    if (spread.type !== 'ObjectExpression') {
-      return true;
-    }
 
-    return spread.properties.some((inner) =>
-      inner.type === 'SpreadElement' || inner.computed
-        ? mayCarry(inner, key)
-        : propertyKey(inner) === key
-    );
+    switch (spread.type) {
+      case 'ObjectExpression':
+        return spread.properties.some((inner) =>
+          inner.type === 'SpreadElement' || inner.computed
+            ? mayCarry(inner, key)
+            : propertyKey(inner) === key
+        );
+      case 'ArrayExpression':
+      case 'TemplateLiteral':
+        // an array and a string copy their indices and nothing else
+        return INDEX.test(key);
+      case 'Literal':
+        // ...and so does a string literal, while a primitive copies nothing:
+        // `null`, a boolean, a number, a bigint, and a regular expression,
+        // whose one own property is `lastIndex`, which does not enumerate
+        return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
+      default:
+        return !isUndefined(spread);
+    }
   }
 
   if (!property.computed) {
     return false;
   }
 
-  const name = literalString(property.key as Expression);
+  const name = literalKey(property.key as Expression);
   return name === undefined || name === key;
+}
+
+/** A canonical array index, the only kind of key an array or a string spreads. */
+const INDEX = /^(?:0|[1-9]\d*)$/;
+
+/**
+ * The property key a computed key written as a literal converts to.
+ *
+ * @param node - The expression inside the brackets.
+ * @returns The key, or `undefined` where it is not a literal this reads.
+ */
+function literalKey(node: Expression): string | undefined {
+  const value = unwrapShallow(node);
+  if (value.type !== 'Literal' || 'regex' in value) {
+    return literalString(value);
+  }
+
+  // what `String()` makes of it is what the property key is: `[1.0]` is `"1"`
+  return value.value === null || typeof value.value !== 'object' ? String(value.value) : undefined;
 }
 
 /**
@@ -191,6 +228,38 @@ export function mayCarry(property: ObjectExpression['properties'][number], key: 
  */
 export function lastReplacing(object: ObjectExpression, key: string): number {
   return object.properties.findLastIndex((property) => mayCarry(property, key));
+}
+
+/**
+ * The spread that may set `key` on an object that never spells it, which makes
+ * the key unknown rather than absent -- the difference between a description
+ * the build missed and one nobody wrote.
+ *
+ * One function for the module lift and the placeholder read, as
+ * `lastReplacing()` is for a key that *is* spelled: in a module an absent
+ * `desc` beside one is reported, and on a placeholder a key a spread may carry
+ * is the placeholder's rather than the module's, since the runtime merges the
+ * module in only where the placeholder's key is `undefined` (SIG-421). Spreads
+ * only: a computed key beside an absent key is not reported, as it never was.
+ *
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @returns The first such spread, or `undefined` where the key is spelled or
+ *   nothing may carry it.
+ */
+export function unspelledCarrier(object: ObjectExpression, key: string): SpreadElement | undefined {
+  if (
+    object.properties.some(
+      (property) => property.type !== 'SpreadElement' && propertyKey(property) === key
+    )
+  ) {
+    return undefined;
+  }
+
+  return object.properties.find(
+    (property): property is SpreadElement =>
+      property.type === 'SpreadElement' && mayCarry(property, key)
+  );
 }
 
 /**

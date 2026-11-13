@@ -70,11 +70,11 @@ import {
   lastReplacing,
   literalBoolean,
   literalString,
-  mayCarry,
   objectLiteral,
   plainProperty,
   propertyKey,
   stringList,
+  unspelledCarrier,
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
@@ -204,7 +204,6 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   }
 
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
-  let spread: number | undefined;
 
   // object-literal order is what the module runs with: a spread replaces
   // whatever came before it, and so does a computed key, which may be `desc`
@@ -231,9 +230,6 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
 
   for (const [index, property] of object.properties.entries()) {
     if (property.type === 'SpreadElement') {
-      if (mayCarry(property, 'desc')) {
-        spread ??= property.start;
-      }
       continue;
     }
 
@@ -317,14 +313,14 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
     facts.hidden = flag;
   }
 
-  // a spread can carry anything, so an absent key beside one is unknown rather
-  // than absent -- which is the whole difference between a description the
-  // build missed and one nobody wrote. A `desc` written before the spread has
-  // been reported already, by name, and one written after it decides whatever
-  // the spread carried, readable or not
-  if (spread !== undefined && !last.has('desc')) {
+  // a spread may carry what it likes, so an absent key beside one is unknown
+  // rather than absent -- which is the whole difference between a description
+  // the build missed and one nobody wrote. A `desc` written anywhere has been
+  // read or reported already, by name
+  const carrier = unspelledCarrier(object, 'desc');
+  if (carrier) {
     diagnostics.push({
-      ...at(spread),
+      ...at(carrier.start),
       message:
         'the default export spreads another object, which may carry a "desc" this cannot see; write "desc" on the exported object to have it appear in help',
       severity: 'warning',

@@ -639,8 +639,10 @@ makes it testable with a fixture directory and no bundler at all.
   so it is not given. Everything else is reported under a `!` as anywhere: a
   `hidden` of the wrong type or a method is the runtime's error, since
   `initCommand()` checks the type before it applies the `!`, and a `hidden` a
-  later spread or computed key may replace is still warned about, saying that
-  the `!` hides the command unless the value that runs is not a boolean.
+  later spread or computed key may replace, or a spread may carry, is still
+  warned about, saying that the `!` hides the command unless the value that
+  runs is neither a boolean nor `undefined` -- `initCommand()` refuses only a
+  `hidden` that is defined and not a boolean.
 - **...and a refusal applies only to the spelling the runtime will see.**
   SIG-421, from review. `{ desc: async () => 'x', ...base }` and
   `{ hidden() {}, ...{ hidden: false } }` start fine, because the spread
@@ -655,18 +657,32 @@ makes it testable with a fixture directory and no bundler at all.
   property may carry a key is **read**, by `mayCarry()` and `lastReplacing()`
   in `literals.ts`, which `factsOf()` asks too, so the module lift and the
   placeholder read cannot disagree about which spelling runs: a computed key
-  that is a string written down (`['path']`, ``[`path`]``) may carry only
-  itself, a spread of an object literal only what that literal carries, read
-  through its own spreads, and a spread of a name or a call, or a key computed
-  from a name, may carry anything. A call is not looked through, not even the
-  one-argument wrapper `objectLiteral()` unwraps, because a wrapper adding a
-  `desc` is the very case in question. So `{ desc: 'Build', ['path']: ... }`
-  bakes `Build`, `{ desc: async () => 'x', ['path']: ... }` is the runtime's
-  error, and `{ hidden: true, ...{ path } }` bakes `true`. Covered by `refused a
-  desc or hidden that a later spread or computed key replaces` and `took any
-  later spread or computed key for one that may replace a desc or hidden` in
-  `test/build/discover.test.ts`, both asking `main()` whether each one starts,
-  and by the `nothing can replace it` cases in `test/build/extract.test.ts`.
+  that is a literal may carry only the key `String()` makes of it (`['path']`,
+  ``[`path`]``, `[1]` and `[1n]` are `"1"`, `[true]`, `[null]`); a spread of an
+  object literal only what that literal carries, read through its own spreads;
+  a spread of an array, a string or a template literal only its indices; a
+  spread of any other literal, or of `undefined`, nothing; and a spread of a
+  name or a call, or a key computed from a name, may carry anything. **Literals
+  are read and expressions are not evaluated**, so a spread of a conditional,
+  logical or sequence expression and a key like `['de' + 'sc']` may carry
+  anything too, even when every operand is a literal -- which can only turn a
+  bake into a warning, never bake a wrong value. A call is not looked through,
+  not even the one-argument wrapper `objectLiteral()` unwraps, because a wrapper
+  adding a `desc` is the very case in question. So `{ desc: 'Build', ['path']:
+  ... }` and `{ desc: 'Build', ...[1, 2] }` bake `Build`, `{ desc: async () =>
+  'x', ['path']: ... }` and `{ desc: async () => 'x', ...null }` are the
+  runtime's error, and `{ hidden: true, ...{ path } }` bakes `true`. The other
+  half is a key the placeholder spells **nowhere** that a spread may carry,
+  which `unspelledCarrier()` answers for both readers: `{ ...{ desc: 'x',
+  hidden: true }, path }` registers both from the spread, and the runtime
+  merges the module in only where the placeholder's key is `undefined` -- so
+  the build no longer bakes the module's `desc` and `hidden` in their place,
+  and says so, as a module's absent `desc` beside a spread already was. Spreads
+  only, there: a computed key beside an absent key is not reported on either
+  side. Covered by the three `main()`-checked tests in
+  `test/build/discover.test.ts` that name a later spread or computed key, and by
+  the `nothing can replace it`, `carries no desc` and `nothing is evaluated`
+  cases in `test/build/extract.test.ts`.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --

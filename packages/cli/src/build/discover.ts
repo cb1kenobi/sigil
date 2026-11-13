@@ -55,6 +55,7 @@ import {
   plainProperty,
   propertyKey,
   stringList,
+  unspelledCarrier,
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
@@ -781,7 +782,10 @@ function placeholderFacts(
   // never refused, since the value that runs may be a fine one, and never
   // baked. The rule `factsOf()` follows for a module, asked through the same
   // `lastReplacing()`, and asked *before* an `undefined` is set aside: a
-  // `desc: undefined` a spread replaces is a `desc` (SIG-421)
+  // `desc: undefined` a spread replaces is a `desc` (SIG-421). A key spelled
+  // nowhere that a spread may carry is the placeholder's too, since the
+  // runtime merges the module in only where the placeholder's is `undefined`
+  // -- so it is unknown, and the module's answer is not baked in its place
   const spelled = (key: string) => {
     let found: ObjectProperty | undefined;
     for (const property of object.properties) {
@@ -798,19 +802,33 @@ function placeholderFacts(
       found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
         ? undefined
         : found;
-    return { declared, replaced };
+    return { carrier: unspelledCarrier(object, key), declared, replaced };
   };
   const beforeOpaque = (key: string, consequence: string) =>
     `the "${command.name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
+  const carried = (key: string, consequence: string) =>
+    `the "${command.name}" command spreads another object, which may carry a "${key}" this cannot see; ${consequence}`;
+  // reported under a `!` too, with what is true there: a `!` hides it from a
+  // boolean of either value and from `undefined`, and anything else -- which
+  // a spread may hold as easily as a boolean -- is a value the runtime refuses
+  const hiddenUnknown = command.hidden
+    ? 'the "!" in its name hides it either way, unless the value the app runs with is neither a boolean nor undefined, which the app refuses'
+    : 'the built app will list it in help';
 
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
-  const { declared: desc, replaced: descReplaced } = spelled('desc');
-  const { declared: hidden, replaced: hiddenReplaced } = spelled('hidden');
+  const { carrier: descCarrier, declared: desc, replaced: descReplaced } = spelled('desc');
+  const { carrier: hiddenCarrier, declared: hidden, replaced: hiddenReplaced } = spelled('hidden');
 
   if (desc && descReplaced) {
     diagnostics.push({
       ...locate(parsed, desc.start),
       message: beforeOpaque('desc', 'the built app will list it by name alone'),
+      severity: 'warning',
+    });
+  } else if (descCarrier) {
+    diagnostics.push({
+      ...locate(parsed, descCarrier.start),
+      message: carried('desc', 'the built app will list it by name alone'),
       severity: 'warning',
     });
   } else if (desc) {
@@ -848,17 +866,15 @@ function placeholderFacts(
   }
 
   if (hidden && hiddenReplaced) {
-    // reported under a `!` too, with what is true there: a `!` hides it from
-    // a boolean of either value, and a value of another type -- which a spread
-    // may hold as easily as a boolean -- is one the runtime refuses
     diagnostics.push({
       ...locate(parsed, hidden.start),
-      message: beforeOpaque(
-        'hidden',
-        command.hidden
-          ? 'the "!" in its name hides it either way, unless the value the app runs with is not a boolean, which the app refuses'
-          : 'the built app will list it in help'
-      ),
+      message: beforeOpaque('hidden', hiddenUnknown),
+      severity: 'warning',
+    });
+  } else if (hiddenCarrier) {
+    diagnostics.push({
+      ...locate(parsed, hiddenCarrier.start),
+      message: carried('hidden', hiddenUnknown),
       severity: 'warning',
     });
   } else if (hidden) {
@@ -890,7 +906,11 @@ function placeholderFacts(
     }
   }
 
-  return { ...facts, declaresDesc: desc !== undefined, declaresHidden: hidden !== undefined };
+  return {
+    ...facts,
+    declaresDesc: desc !== undefined || descCarrier !== undefined,
+    declaresHidden: hidden !== undefined || hiddenCarrier !== undefined,
+  };
 }
 
 /**
@@ -1172,7 +1192,8 @@ function placeholderName(
  * module), and `commands` when it is an object literal.
  *
  * Properties only. A spread or a computed key can carry anything, and is
- * reported by neither this nor the reads above.
+ * reported here for nothing -- the reads above report it only for the `desc`
+ * and `hidden` it may carry.
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.

@@ -521,6 +521,61 @@ describe('extracting a command module', () => {
     });
 
     it.each([
+      ['an array', `export default { desc: 'a', ...[1, 2] };`],
+      ['a string', `export default { desc: 'a', ...'ab' };`],
+      ['a template', 'export default { desc: `a`, ...`b${c}` };'],
+      ['a boolean', `export default { desc: 'a', ...false };`],
+      ['null', `export default { desc: 'a', ...null };`],
+      ['a number and a bigint', `export default { desc: 'a', ...1, ...1n };`],
+      ['a regular expression', `export default { desc: 'a', .../desc/ };`],
+      ['undefined', `export default { desc: 'a', ...undefined, ...void 0 };`],
+      ['a number key', `export default { desc: 'a', [1]: 0 };`],
+      ['a bigint key', `export default { desc: 'a', [1n]: 0 };`],
+      ['a boolean key', `export default { desc: 'a', [true]: 0 };`],
+      ['a null key', `export default { desc: 'a', [null]: 0 };`],
+    ])(
+      'a desc before a spread or computed key of %s was taken for one that may be replaced, though a literal like it carries no desc',
+      (_, source) => {
+        // SIG-421, review round 3. An array or a string spreads its indices, a
+        // primitive spreads nothing, and a literal key is what `String()` makes
+        // of it -- all read off the literal, nothing evaluated
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts.desc).to.equal('a');
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
+
+    it.each([
+      ['a key built by an expression', `export default { desc: 'a', ['de' + 'sc']: 'b' };`],
+      [
+        'a conditional of two literals',
+        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+      ],
+      ['a logical expression', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      ['a sequence', `export default { desc: 'a', ...(0, { run() {} }) };`],
+    ])('should read a desc before %s as unknown, because nothing is evaluated', (_, source) => {
+      // the rule is that literals are read and expressions are not evaluated,
+      // which can only turn a bake into a warning and never bake a wrong value
+      const { diagnostics, facts } = extractCommand('a.js', source);
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it('said a spread of an array might carry a desc', () => {
+      // SIG-421, review round 3
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { hidden: true, ...[1] };`
+      );
+
+      expect(facts).to.deep.equal({ hidden: true });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it.each([
       ['an identifier', `const k = 'desc'; export default { desc: 'early', [k]: 'late' };`],
       ['a string', `export default { desc: 'early', ['desc']: 'late' };`],
       ['a key after a spread', `export default { ...base, desc: 'early', [k]: 'late' };`],
