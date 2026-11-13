@@ -410,6 +410,68 @@ export default {
       });
     });
 
+    it('took any later spread or computed key for one that may replace a desc or hidden, and let an undefined past it', async () => {
+      // SIG-421, review round 2. Whether a later property may replace a key is
+      // read rather than assumed: `['path']` and `...{ path }` cannot, so the
+      // spelling before them is the one that runs -- baked when it is readable,
+      // refused when the runtime refuses it, `!` name or not. And a
+      // `desc: undefined` that a spread replaces is a `desc`, not the module's
+      const source = `const base = { path: './commands/a.js' };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    keyed: { desc: 'Build the app', ['path']: './commands/a.js' },
+    refused: { desc: async () => 'x', ['path']: './commands/a.js' },
+    shown: { hidden: true, ...{ path: './commands/a.js' } },
+    '!secret': { hidden() { return true; }, ...{ path: './commands/a.js' } },
+    spread: { desc: undefined, ...{ desc: 'from spread' }, path: './commands/a.js' },
+    '!quiet': { hidden: true, ...base },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        const runtime: Record<string, string | undefined> = {};
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          runtime[name] = await runtimeRefusal(name, declaration);
+        }
+        expect(runtime).toStrictEqual({
+          keyed: undefined,
+          refused: 'Expected desc for the "refused" command to return a string',
+          shown: undefined,
+          '!secret': 'Expected hidden to be a boolean in "!secret" command',
+          spread: undefined,
+          '!quiet': undefined,
+        });
+
+        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+          ['error', runtime.refused],
+          ['error', runtime['!secret']],
+          [
+            'warning',
+            'the "spread" command\'s "desc" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will list it by name alone',
+          ],
+          [
+            'warning',
+            'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is not a boolean, which the app refuses',
+          ],
+        ]);
+        expect(at(list, 'keyed').desc).toBe('Build the app');
+        expect(at(list, 'shown').hidden).toBe(true);
+        // the runtime shows `from spread` before the module loads, and the
+        // module's own words are not baked in its place
+        expect(at(list, 'spread').desc).toBeUndefined();
+        expect(at(list, '!quiet').hidden).toBeUndefined();
+      });
+    });
+
     it('should read a last `undefined` as not declared, and take the module’s desc', async () => {
       // `declared()` in `placeholderFacts()`. The runtime merges the module's
       // `desc` in wherever the placeholder's is `undefined`, so the lift is what

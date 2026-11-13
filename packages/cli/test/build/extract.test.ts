@@ -477,6 +477,50 @@ describe('extracting a command module', () => {
     });
 
     it.each([
+      ['a computed key naming another', `export default { desc: 'a', ['path']: 'x' };`],
+      ['a template key naming another', 'export default { desc: `a`, [`path`]: 1 };'],
+      [
+        'a spread of a literal without it',
+        `export default { desc: 'a', ...{ run() {}, ...{ hidden: true } } };`,
+      ],
+    ])(
+      'a desc before %s was taken for one that may be replaced, though nothing can replace it',
+      (_, source) => {
+        // SIG-421, review round 2. Whether a later property may carry a key is
+        // read rather than assumed, by the `lastReplacing()` the placeholder
+        // read shares -- so the spelling before it is the one that runs
+        const { diagnostics, facts } = extractCommand('a.js', source);
+
+        expect(facts.desc).to.equal('a');
+        expect(diagnostics).to.deep.equal([]);
+      }
+    );
+
+    it.each([
+      ['a spread of a literal that carries it', `export default { desc: 'a', ...{ desc: 'b' } };`],
+      ['a nested one', `export default { desc: 'a', ...{ ...{ desc: 'b' } } };`],
+      ['a spread of a call', `export default { desc: 'a', ...wrap({ run() {} }) };`],
+      ['a key computed from a name', `export default { desc: 'a', [key]: 'b' };`],
+    ])('should still read a desc before %s as unknown', (_, source) => {
+      const { diagnostics, facts } = extractCommand('a.js', source);
+
+      expect(facts).to.deep.equal({});
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.message).to.contain('"desc" is written before a spread');
+    });
+
+    it('said a spread that cannot carry a desc might carry one', () => {
+      // SIG-421, review round 2
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default { hidden: true, ...{ run() {} } };`
+      );
+
+      expect(facts).to.deep.equal({ hidden: true });
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it.each([
       ['an identifier', `const k = 'desc'; export default { desc: 'early', [k]: 'late' };`],
       ['a string', `export default { desc: 'early', ['desc']: 'late' };`],
       ['a key after a spread', `export default { ...base, desc: 'early', [k]: 'late' };`],

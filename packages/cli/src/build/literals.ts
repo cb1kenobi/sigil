@@ -131,6 +131,69 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
 }
 
 /**
+ * Whether a spread or a computed key may set `key` on the object it sits in,
+ * which is what decides whether a spelling of `key` written before it is the
+ * one that runs.
+ *
+ * Read rather than assumed, because the cheap answer -- any spread, any
+ * computed key -- is wrong in both directions at once: `['path']` after a
+ * `desc` cannot replace it, so treating it as though it might either drops a
+ * description the build can read or waves through one the runtime refuses
+ * (SIG-421). So a computed key that is a string written down may replace only
+ * its own name, and a spread of an object literal may replace only what that
+ * literal, read through its own spreads, might carry. Anything else -- a
+ * spread of a name or a call, a key computed from something unwritten -- may
+ * carry anything. A call is not looked through here, even the single-argument
+ * one `objectLiteral()` unwraps: a wrapper adding a `desc` is exactly the case
+ * this question exists for.
+ *
+ * A plain property is not asked about: its key is its own, and the caller
+ * reads it by name.
+ *
+ * @param property - A property of an object literal.
+ * @param key - The key in question.
+ * @returns Whether it may set `key`.
+ */
+export function mayCarry(property: ObjectExpression['properties'][number], key: string): boolean {
+  if (property.type === 'SpreadElement') {
+    const spread = unwrapShallow(property.argument);
+    if (spread.type !== 'ObjectExpression') {
+      return true;
+    }
+
+    return spread.properties.some((inner) =>
+      inner.type === 'SpreadElement' || inner.computed
+        ? mayCarry(inner, key)
+        : propertyKey(inner) === key
+    );
+  }
+
+  if (!property.computed) {
+    return false;
+  }
+
+  const name = literalString(property.key as Expression);
+  return name === undefined || name === key;
+}
+
+/**
+ * Where the last property that may set `key` without spelling it sits -- a
+ * spread or a computed key that `mayCarry()` says may carry it.
+ *
+ * A spelling of `key` written before it is not known to be what runs, since
+ * object-literal order is what the module runs with and that property may
+ * replace it. One function for the module lift and the placeholder read, so
+ * the two cannot come to disagree about which spelling is the one that runs.
+ *
+ * @param object - The object literal.
+ * @param key - The key in question.
+ * @returns Its index, or `-1` where nothing may replace the key.
+ */
+export function lastReplacing(object: ObjectExpression, key: string): number {
+  return object.properties.findLastIndex((property) => mayCarry(property, key));
+}
+
+/**
  * The string a node is, when it is one written down.
  *
  * A template literal with no substitutions counts: `` `build the app` `` is a

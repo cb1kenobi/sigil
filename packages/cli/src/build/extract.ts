@@ -67,8 +67,10 @@ import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import {
   isUndefined,
+  lastReplacing,
   literalBoolean,
   literalString,
+  mayCarry,
   objectLiteral,
   plainProperty,
   propertyKey,
@@ -207,10 +209,12 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // object-literal order is what the module runs with: a spread replaces
   // whatever came before it, and so does a computed key, which may be `desc`
   // or `hidden` as easily as anything else -- the reason `keyedPackage()`
-  // refuses either. A lifted key whose last spelling is before the *last* of
-  // them is a value that may be overwritten, so it is unknown rather than read
-  const lastSpread = object.properties.findLastIndex(
-    (property) => property.type === 'SpreadElement' || property.computed
+  // refuses either. A lifted key whose last spelling is before the last of
+  // them that *may carry it* is a value that may be overwritten, so it is
+  // unknown rather than read; `['path']` or `...{ run }` cannot carry it, and
+  // is not asked about (see `mayCarry()`)
+  const replacing: Record<string, number> = Object.fromEntries(
+    LIFTED.map((key) => [key, lastReplacing(object, key)])
   );
 
   // and a key written twice is its last spelling, so only that one is read:
@@ -227,7 +231,9 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
 
   for (const [index, property] of object.properties.entries()) {
     if (property.type === 'SpreadElement') {
-      spread ??= property.start;
+      if (mayCarry(property, 'desc')) {
+        spread ??= property.start;
+      }
       continue;
     }
 
@@ -236,7 +242,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
       continue;
     }
 
-    if (index < lastSpread) {
+    if (index < replacing[key]!) {
       diagnostics.push({
         ...at(property.start),
         message:

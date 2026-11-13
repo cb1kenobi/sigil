@@ -44,6 +44,7 @@ import { translatedKey } from './i18n.ts';
 import {
   isUndefined,
   isWrongType,
+  lastReplacing,
   literalBoolean,
   literalString,
   literalType,
@@ -772,9 +773,16 @@ function placeholderFacts(
   diagnostics: Diagnostic[],
   nameString: string
 ): PlaceholderFacts {
-  // the last spelling of a key is the one an object literal keeps, and
-  // `undefined` is what the runtime reads as not declared
-  const declared = (key: string): ObjectProperty | undefined => {
+  const command = commandName(nameString);
+
+  // the last spelling of a key is the one an object literal keeps -- unless a
+  // spread or a computed key after it may carry the key too, since order is
+  // what the runtime registers: then it is not known to be what runs, so it is
+  // never refused, since the value that runs may be a fine one, and never
+  // baked. The rule `factsOf()` follows for a module, asked through the same
+  // `lastReplacing()`, and asked *before* an `undefined` is set aside: a
+  // `desc: undefined` a spread replaces is a `desc` (SIG-421)
+  const spelled = (key: string) => {
     let found: ObjectProperty | undefined;
     for (const property of object.properties) {
       if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
@@ -782,28 +790,24 @@ function placeholderFacts(
       }
     }
 
-    return found?.kind === 'init' && !found.method && isUndefined(found.value) ? undefined : found;
-  };
+    const replaced =
+      found !== undefined && object.properties.indexOf(found) < lastReplacing(object, key);
 
-  // a spread or a computed key replaces whatever was written before it, so a
-  // key whose last spelling comes before the last of them is not known to be
-  // what the runtime registers: it is never refused, since the value that runs
-  // may be a fine one, and never baked -- the rule `factsOf()` follows for a
-  // module (SIG-421)
-  const lastOpaque = object.properties.findLastIndex(
-    (property) => property.type === 'SpreadElement' || property.computed
-  );
-  const replaceable = (property: ObjectProperty) =>
-    object.properties.indexOf(property) < lastOpaque;
+    // `undefined` is what the runtime reads as not declared
+    const declared =
+      found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
+        ? undefined
+        : found;
+    return { declared, replaced };
+  };
   const beforeOpaque = (key: string, consequence: string) =>
     `the "${command.name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
 
   const facts: { desc?: string; descTranslated?: boolean; hidden?: boolean } = {};
-  const desc = declared('desc');
-  const hidden = declared('hidden');
-  const command = commandName(nameString);
+  const { declared: desc, replaced: descReplaced } = spelled('desc');
+  const { declared: hidden, replaced: hiddenReplaced } = spelled('hidden');
 
-  if (desc && replaceable(desc)) {
+  if (desc && descReplaced) {
     diagnostics.push({
       ...locate(parsed, desc.start),
       message: beforeOpaque('desc', 'the built app will list it by name alone'),
@@ -843,14 +847,20 @@ function placeholderFacts(
     }
   }
 
-  if (hidden && replaceable(hidden)) {
-    if (!command.hidden) {
-      diagnostics.push({
-        ...locate(parsed, hidden.start),
-        message: beforeOpaque('hidden', 'the built app will list it in help'),
-        severity: 'warning',
-      });
-    }
+  if (hidden && hiddenReplaced) {
+    // reported under a `!` too, with what is true there: a `!` hides it from
+    // a boolean of either value, and a value of another type -- which a spread
+    // may hold as easily as a boolean -- is one the runtime refuses
+    diagnostics.push({
+      ...locate(parsed, hidden.start),
+      message: beforeOpaque(
+        'hidden',
+        command.hidden
+          ? 'the "!" in its name hides it either way, unless the value the app runs with is not a boolean, which the app refuses'
+          : 'the built app will list it in help'
+      ),
+      severity: 'warning',
+    });
   } else if (hidden) {
     const value = hidden.kind === 'init' && !hidden.method ? hidden.value : undefined;
     const flag = value ? literalBoolean(value) : undefined;
@@ -869,8 +879,9 @@ function placeholderFacts(
     } else if (!command.hidden) {
       // a `!` in the name string hides it whatever boolean `hidden` turns out
       // to be, since the two are additive and `false` cannot un-hide it -- so
-      // the built app does not list it either. A value that is not a boolean
-      // is still thrown on, which is not this branch's to know
+      // "the built app will list it" is false there, and it is the only thing
+      // this warning says. The refusal above is reported under a `!` all the
+      // same, because `initCommand()` checks the type before it applies the `!`
       diagnostics.push({
         ...locate(parsed, (value ?? hidden).start),
         message: `the "${command.name}" command's "hidden" is computed rather than a boolean literal, so it cannot be read at build time; the built app will list it in help`,

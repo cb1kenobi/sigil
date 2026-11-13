@@ -628,23 +628,45 @@ makes it testable with a fixture directory and no bundler at all.
   `build`, `'!secret'` is `secret`), while `hidden` and `default` name the name
   string **as declared**, and a build repeating the runtime's refusal repeats
   that rather than improving on it. The build's own warnings use the parsed
-  name. A computed `hidden` on a name string with a `!` is not warned about,
-  because the two are additive and a **boolean** cannot un-hide a `!` name --
-  while a value that is not a boolean still throws, since `initCommand()` checks
-  the type before it applies the `!`; and an interpolated `__` tag on a
-  placeholder, or a thunk over one, gets the interpolation message a module's
-  already got. The test asks `main()` for its refusals over the very schema the
-  build read, so the wording cannot drift.
+  name. An interpolated `__` tag on a placeholder, or a thunk over one, gets
+  the interpolation message a module's already got. The test asks `main()` for
+  its refusals over the very schema the build read, so the wording cannot
+  drift.
+- **A `!` name drops one warning and nothing else.** A `!` and `hidden` are
+  additive and a **boolean** cannot un-hide a `!` name, so for a `hidden` the
+  build cannot read -- `hidden: flag`, an accessor -- "the built app will list
+  it in help" is false under a `!`, and it is the only thing that warning says,
+  so it is not given. Everything else is reported under a `!` as anywhere: a
+  `hidden` of the wrong type or a method is the runtime's error, since
+  `initCommand()` checks the type before it applies the `!`, and a `hidden` a
+  later spread or computed key may replace is still warned about, saying that
+  the `!` hides the command unless the value that runs is not a boolean.
 - **...and a refusal applies only to the spelling the runtime will see.**
   SIG-421, from review. `{ desc: async () => 'x', ...base }` and
   `{ hidden() {}, ...{ hidden: false } }` start fine, because the spread
   replaces the refused spelling -- and the build failed on them. A `desc` or
-  `hidden` whose last spelling comes before a placeholder's last spread or
-  computed key is now unknown, the rule `factsOf()` already follows for a
-  module: a warning naming the key, nothing baked, never an error -- whether
-  the spelling was refusable, a literal, or computed. Covered by `refused a desc
-  or hidden that a later spread or computed key replaces` in
-  `test/build/discover.test.ts`, which asks `main()` that each one starts.
+  `hidden` whose last spelling comes before a later property that **may carry
+  it** is unknown: a warning naming the key, nothing baked -- not the module's
+  answer either, since the placeholder declares one -- and never an error,
+  whether the spelling was refusable, a literal, computed or `undefined`. That
+  last one is asked before an `undefined` is set aside, because
+  `{ desc: undefined, ...{ desc: 'x' } }` registers `x`; an `undefined` with
+  nothing after it that may carry `desc` is still not declared. Whether a
+  property may carry a key is **read**, by `mayCarry()` and `lastReplacing()`
+  in `literals.ts`, which `factsOf()` asks too, so the module lift and the
+  placeholder read cannot disagree about which spelling runs: a computed key
+  that is a string written down (`['path']`, ``[`path`]``) may carry only
+  itself, a spread of an object literal only what that literal carries, read
+  through its own spreads, and a spread of a name or a call, or a key computed
+  from a name, may carry anything. A call is not looked through, not even the
+  one-argument wrapper `objectLiteral()` unwraps, because a wrapper adding a
+  `desc` is the very case in question. So `{ desc: 'Build', ['path']: ... }`
+  bakes `Build`, `{ desc: async () => 'x', ['path']: ... }` is the runtime's
+  error, and `{ hidden: true, ...{ path } }` bakes `true`. Covered by `refused a
+  desc or hidden that a later spread or computed key replaces` and `took any
+  later spread or computed key for one that may replace a desc or hidden` in
+  `test/build/discover.test.ts`, both asking `main()` whether each one starts,
+  and by the `nothing can replace it` cases in `test/build/extract.test.ts`.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
