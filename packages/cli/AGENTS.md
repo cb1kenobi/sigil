@@ -1835,7 +1835,13 @@ other is refused with numbers.
   first had hidden it). `sigil package` writes its bundle to a staging directory
   and its binaries to `--out`, so it passes `--out` as well
   (`BundleOptions.exclude`), or a `sigil build` into that directory is evidence
-  too. A _second_, stale output directory elsewhere in the app is the case that
+  too. The exclusion never applies to the **app root** itself: under
+  `--out . --no-clean` the root _is_ `out`, and excluding it skipped every source
+  file, so the build shook all 383 rules down to the safelist and reported
+  success -- too little, the one direction this walk must not err in. A previous
+  bundle written beside the source is then read as evidence, which keeps more,
+  never less (`--out . --no-clean shakes to what a separate --out keeps`, found in
+  review). A _second_, stale output directory elsewhere in the app is the case that
   gets through, and its failure is the safe one: more is kept than the app
   names, never less, and the count in the summary is higher than it should be
   rather than silent. That is what the count is for, and it is why the summary

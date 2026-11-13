@@ -806,18 +806,23 @@ describe('sigil build into its own source', () => {
   }
 
   /**
-   * A small app of the test's own, with `@ttylabs/sigil` linked in so the
-   * bundle resolves it from a temp directory. A junction, so Windows needs no
+   * Links `@ttylabs/sigil` into an app outside the workspace, so the bundle
+   * resolves it from a temp directory. A junction, so Windows needs no
    * privilege to make one; elsewhere the type is ignored.
    */
-  function smallApp(name: string, files: Record<string, string>): string {
-    const app = join(tempDir('sigil-build-into-src-'), name);
+  function linkSigil(app: string): void {
     mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
     symlinkSync(
       resolve(fixtures, '..', '..', '..', 'sigil'),
       join(app, 'node_modules', '@ttylabs', 'sigil'),
       'junction'
     );
+  }
+
+  /** A small app of the test's own, with `@ttylabs/sigil` linked in. */
+  function smallApp(name: string, files: Record<string, string>): string {
+    const app = join(tempDir('sigil-build-into-src-'), name);
+    linkSigil(app);
     writeFileSync(
       join(app, 'package.json'),
       JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
@@ -830,6 +835,24 @@ describe('sigil build into its own source', () => {
   }
 
   const RUN = "export default { name: 'x', run() { console.log('ran'); } };\n";
+
+  it('--out . --no-clean shakes to what a separate --out keeps', async () => {
+    // `--out .` makes the output directory the app root, and the shaker leaves
+    // the output directory out of its class evidence. Applied to the root
+    // itself, that exclusion skipped the whole app: no source was read, every
+    // rule off the safelist was shaken out, and the build reported success
+    const app = join(tempDir('sigil-build-into-src-'), 'styled');
+    copyFixture(join(fixtures, 'styled'), app);
+    linkSigil(app);
+    const kept = (err: string) => /(\d+) of 383 utility rules/.exec(err)?.[1];
+
+    const elsewhere = await sigil('build', app, '--out', tempDir('sigil-build-into-src-'));
+    const here = await sigil('build', app, '--out', '.', '--no-clean');
+
+    expect(process.exitCode).toBeFalsy();
+    expect(kept(elsewhere.err)).toBeDefined();
+    expect(kept(here.err)).toBe(kept(elsewhere.err));
+  }, 60_000);
 
   it.each([
     ['cli', 'is refused, because it would write cli.mjs over the entry'],

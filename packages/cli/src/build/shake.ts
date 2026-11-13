@@ -262,10 +262,14 @@ export function scanClassEvidence(root: string, options: ScanOptions = {}): Clas
   // than the paths walked to, because two links to one directory are one
   // directory and a loop is exactly two of those
   const entered = new Set<string>();
+  const start = landsAt(resolve(root));
 
   const visit = (dir: string): void => {
     const real = landsAt(dir);
-    if (entered.has(real) || exclude.has(real)) {
+    // never the root itself: `--out . --no-clean` makes the app root the
+    // output directory, and excluding it skips every source file the app has,
+    // which keeps too little rather than too much
+    if (entered.has(real) || (real !== start && exclude.has(real))) {
       return;
     }
     entered.add(real);
