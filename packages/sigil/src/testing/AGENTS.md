@@ -748,11 +748,37 @@ pre-commit hook and every local run.
   reach every other test's directory too. `new-tui.test.ts` does it for each app
   it scaffolds and builds (SIG-426): sixteen of them were half of what that
   file's `afterAll` had to remove, and that hook ran past 10 seconds on Windows
-  with every test green. The test's `signal` goes to every child it spawns,
-  because a test that times out otherwise leaves its child running, and the
-  child put `node_modules/.vitest-cache` back after the directory was removed:
-  measured by timing out all twelve variants, three app directories were left
-  without the signal and none with it.
+  with every test green.
+- **A test that removes its own directory reaps its children first, the whole
+  tree of each.** When a test times out, vitest aborts its `signal` and runs
+  `onTestFinished` straight away, with the test's `await` still pending. So
+  the removal has to wait for the children itself: `new-tui.test.ts` keeps each
+  child's promise, which settles only on `close`, and its hook awaits them
+  before it removes anything. Settling on `close` is the point, which is why
+  `spawn()`'s own `signal` option is not used: it rejects at the abort, with
+  the child still alive. And ending the child alone does not end what it
+  started. A nested `vitest run` uses forked workers, and killing that vitest
+  with SIGTERM or SIGKILL on macOS left its worker running under pid 1,
+  measured with `ps`. So on POSIX the child is spawned `detached`, which makes
+  it the leader of a process group its descendants join, and the abort kills
+  the group (`process.kill(-pid, 'SIGKILL')`). On Windows, where killing a
+  process kills only that process, it is `taskkill /pid <pid> /T /F`, which
+  walks the tree by parent pid. Timing out all twelve variants at 250, 350,
+  450 and 550 ms left no directory and no `forks.js` worker, and at 350 and
+  450 every abort was a nested vitest's. The first version, which passed the
+  signal to `spawn()`, left an orphaned worker at 350 and at 400 ms. A child that never closes holds the hook until
+  `REMOVAL_TIMEOUT`, which fails the test and leaves the directory to the
+  `afterAll`. One cost: a `detached` child is in no terminal's foreground
+  group, so a Ctrl-C of the suite does not reach it, and it runs until its
+  pipes close.
+- **A directory removed early is checked again when the file ends.**
+  `removeTempDir()` remembers what it removed, and `removeTempDirs()` fails the
+  file over any of it that exists again, after removing it a second time. A
+  cleanup that cannot see its own failure is a leak nobody hears about. Proved
+  by sabotage: with the reaping taken out, the full `new-tui.test.ts` failed
+  on four apps `written to after it was removed`, and nothing was left. It only
+  sees a write that lands before the file ends; one after that is what `pnpm
+  test:leaks` is for.
 - **Removal is asynchronous and concurrent, with a budget of 60 seconds.**
   `REMOVAL_TIMEOUT` in `temp.ts`, given to the `afterAll` in each `setup.ts`.
   `rmSync` over every directory in turn put each one's retries end to end, and

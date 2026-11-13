@@ -3773,7 +3773,9 @@ people's software and will move.
   modules; with `@ttylabs/sigil` copied under a `node_modules`, as an install puts
   it, node loaded all 73 and the test took 14 ms. The Windows log said
   `transform 64%`. So the budget is raised where the cost is, as
-  `--testTimeout=30000` on the harness's own `vitest run`, and a new app gets no
+  `--testTimeout=30000` in `OWN_SUITE` (`test/own-suite.ts`), the argv both
+  `new-tui.test.ts` and the guides' `$ npm test` steps run an app's suite with,
+  and a new app gets no
   timeout it does not need. Thirty is six times the default and inside the 180
   seconds the variant test gives the whole app. Raising it in the scaffold
   instead would put a number in every new app to pay for how this repository

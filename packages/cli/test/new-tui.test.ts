@@ -8,6 +8,7 @@ import {
   type Syntax,
   type Tui,
 } from '../src/scaffold/index.ts';
+import { OWN_SUITE } from './own-suite.ts';
 import { REMOVAL_TIMEOUT, removeTempDir, tempDir } from './temp.ts';
 import { ttyPreload, typeKeys } from './tty-child.ts';
 import { whichSync } from '@ttylabs/sigil/which';
@@ -1597,16 +1598,27 @@ interface App {
  * An app is about a hundred entries once it has been built and its own suite
  * has run, every one of them new to a Windows runner's scanner, and the sixteen
  * of them were half of what this file's `afterAll` had to remove -- the hook
- * that ran past its budget on Windows (SIG-426). The test's `signal` is handed
- * to every child it runs, so a test that times out kills what it started rather
- * than leaving it writing into a directory that is being removed.
+ * that ran past its budget on Windows (SIG-426).
+ *
+ * The removal waits for every child the test started to close first. A test
+ * that times out does not: vitest aborts its `signal` and goes straight on to
+ * `onTestFinished`, with the test's own `await` still pending. So the signal
+ * ends each child's whole process tree (`spawnNode()`), and the hook waits for
+ * those children before it removes anything, since one still running writes
+ * its `node_modules/.vitest-cache` back into a directory already gone. A child
+ * that never closes holds the hook until `REMOVAL_TIMEOUT`, which fails it and
+ * leaves the directory to the file's `afterAll`.
  */
 function materialize(
   opts: Partial<ScaffoldOptions>,
   { onTestFinished, signal }: Pick<TestContext, 'onTestFinished' | 'signal'>
 ): App {
   const app = tempDir('sigil-tui-app-');
-  onTestFinished(() => removeTempDir(app), REMOVAL_TIMEOUT);
+  const children: Promise<Ran>[] = [];
+  onTestFinished(async () => {
+    await Promise.allSettled(children);
+    await removeTempDir(app);
+  }, REMOVAL_TIMEOUT);
   const manifest = JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf-8')) as {
     devDependencies: Record<string, string>;
   };
@@ -1622,49 +1634,83 @@ function materialize(
     writeFileSync(join(app, entry.path), entry.contents);
   }
   link(app);
-  return { app, node: (...argv) => spawnNode(app, signal, argv) };
-}
-
-/** Runs node in `cwd` with nothing on stdin and reads what it did. */
-function spawnNode(cwd: string, signal: AbortSignal, argv: string[]): Promise<Ran> {
-  return new Promise((settle, fail) => {
-    const child = spawn(process.execPath, argv, {
-      cwd,
-      env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
-      signal,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let out = '';
-    child.stdout.on('data', (chunk: Buffer) => void (out += chunk.toString()));
-    child.stderr.on('data', (chunk: Buffer) => void (out += chunk.toString()));
-    child.on('error', fail);
-    child.on('close', (code) => settle({ code, out: out.replaceAll('\r\n', '\n') }));
-  });
+  return {
+    app,
+    node: (...argv) => {
+      const ran = spawnNode(app, signal, argv);
+      children.push(ran);
+      return ran;
+    },
+  };
 }
 
 /**
- * The argv that runs an app's own suite: `vitest run`, as its `test` script
- * has it, with a per-test budget that is this file's rather than the app's.
+ * Runs node in `cwd` with nothing on stdin and reads what it did, and ends the
+ * child and everything it started if `signal` is aborted.
  *
- * The app keeps vitest's 5-second default. What took a Windows runner past it
- * was this file linking `@ttylabs/sigil` by junction, which vitest transforms
- * module by module where an installed app hands it to node -- 72 ms against
- * 14 for the same test -- so the budget is raised here, where the cost is.
- * Thirty seconds is six times the default and well inside the 180 the variant
- * test gives the whole app. The measurements, and why the faithful link is not
- * used, are "The scaffolded tests keep vitest's 5-second default" and the known
- * defect after it, under `sigil new` in `packages/cli/AGENTS.md` (SIG-426).
+ * It settles on `close` in every case, abort included: `spawn()`'s own `signal`
+ * option rejects the moment the abort happens, while the child is still alive.
+ *
+ * What it ends is the whole tree, because ending the child alone was measured
+ * to leave its descendants running. A nested `vitest run` uses forked workers,
+ * and killing that vitest with SIGTERM or SIGKILL on macOS left its worker
+ * running under pid 1, mid-test. On POSIX the child is spawned `detached`, which
+ * makes it a process group leader that its descendants join, and the group is
+ * killed. Windows has no process groups, and killing a process there kills that
+ * process alone, so it is `taskkill /T`, which walks the tree by parent pid.
+ *
+ * @param cwd - The directory to run in.
+ * @param signal - The test's, aborted when the test times out.
+ * @param argv - The arguments to node.
+ * @returns The exit code and what was written, or a rejection with the abort's
+ *   reason once the tree has gone.
  */
-function ownSuite(app: string): string[] {
-  const vitest = JSON.parse(
-    readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
-  ) as { bin: { vitest: string } };
-  return [
-    join('node_modules', 'vitest', vitest.bin.vitest),
-    'run',
-    '--reporter=default',
-    '--testTimeout=30000',
-  ];
+function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): Promise<Ran> {
+  return new Promise((settle, fail) => {
+    const child = spawn(process.execPath, argv, {
+      cwd,
+      detached: process.platform !== 'win32',
+      env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const end = (): void => {
+      if (child.pid === undefined) {
+        return;
+      }
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on(
+          'error',
+          () => {}
+        );
+      } else {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+        } catch {
+          // the group has already gone
+        }
+      }
+    };
+    signal.addEventListener('abort', end, { once: true });
+    if (signal.aborted) {
+      end();
+    }
+
+    let out = '';
+    child.stdout.on('data', (chunk: Buffer) => void (out += chunk.toString()));
+    child.stderr.on('data', (chunk: Buffer) => void (out += chunk.toString()));
+    child.on('error', (err) => {
+      signal.removeEventListener('abort', end);
+      fail(err);
+    });
+    child.on('close', (code) => {
+      signal.removeEventListener('abort', end);
+      if (signal.aborted) {
+        fail(signal.reason);
+      } else {
+        settle({ code, out: out.replaceAll('\r\n', '\n') });
+      }
+    });
+  });
 }
 
 /** What `runApp()` says when there is no terminal, which is the app's own refusal and not ours. */
@@ -1679,7 +1725,7 @@ describe('every variant, scaffolded and run', () => {
     '$name, $syntax, $language: should build or start, refuse a pipe, and pass its own tests',
     { timeout: 180_000 },
     async ({ language, layout, syntax, tui }, test) => {
-      const { app, node } = materialize({ language, layout, syntax, tui }, test);
+      const { node } = materialize({ language, layout, syntax, tui }, test);
       const argv = tui.at === 'command' ? [tui.command] : [];
 
       // the entry a person runs: the bundle for JSX, which is the only form it
@@ -1707,7 +1753,7 @@ describe('every variant, scaffolded and run', () => {
       expect(help.out).toContain('Usage: demo');
 
       // its own suite, which is the test a new author copies
-      const suite = await node(...ownSuite(app));
+      const suite = await node(...OWN_SUITE);
       expect(suite.code, suite.out).toBe(0);
       expect(suite.out).toMatch(/Tests\s+\d+ passed/);
     }
@@ -1804,7 +1850,7 @@ describe('every variant, scaffolded and run', () => {
 
     // the narrow-terminal test alone: the resize test goes down to 22 columns,
     // which a status this wide does not fit in whatever measures it
-    const ran = await node(...ownSuite(app), '-t', 'in a narrow terminal');
+    const ran = await node(...OWN_SUITE, '-t', 'in a narrow terminal');
 
     expect(ran.code, ran.out).toBe(0);
     expect(ran.out).toMatch(/Tests\s+1 passed/);
