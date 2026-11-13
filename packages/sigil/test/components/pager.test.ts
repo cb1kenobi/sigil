@@ -824,4 +824,118 @@ describe('page()', () => {
     await ui.press('q');
     await done;
   });
+
+  /** How `page()` settled, or `'hung'` if it had not by the time a frame or two had. */
+  const settled = (pending: Promise<void>): Promise<unknown> =>
+    Promise.race([
+      pending.then(
+        () => 'resolved',
+        (error: unknown) => ({ rejected: error })
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('hung'), 200)),
+    ]);
+
+  it('should reject with what a handler threw during the first frame', async () => {
+    // SIG-428: the renderer reports it while `render()` is still running, before
+    // `page()` had a view or an input to give back, so it rejected with the
+    // `ReferenceError` for touching them instead
+    const ui = createTestTerminal({ columns: 30, rows: 8 });
+    const thrown = new Error('layout broke');
+    const outcome = await settled(
+      page(DOC, {
+        frameMs: 0,
+        props: {
+          onResize: () => {
+            throw thrown;
+          },
+        },
+        terminal: ui.terminal,
+      })
+    );
+    expect((outcome as { rejected?: unknown }).rejected).toBe(thrown);
+    expect(ui.screen.alternate).to.equal(false);
+    // and reads no keys afterwards, which an input created once it had finished would
+    expect(ui.stdin.listenerCount('data')).to.equal(0);
+  });
+
+  it('should give everything back when the first focus threw', async () => {
+    // SIG-428: the first focus is the last thing the promise's executor does, so
+    // what `onFocusChange` threw there rejected it without `finish()` -- on the
+    // alternate screen, with stdin still being read
+    const ui = createTestTerminal({ columns: 30, rows: 8 });
+    const thrown = new Error('focus broke');
+    const outcome = await settled(
+      page(DOC, {
+        frameMs: 0,
+        props: {
+          onFocusChange: () => {
+            throw thrown;
+          },
+        },
+        terminal: ui.terminal,
+      })
+    );
+    expect((outcome as { rejected?: unknown }).rejected).toBe(thrown);
+    expect(ui.screen.alternate).to.equal(false);
+    expect(ui.stdin.listenerCount('data')).to.equal(0);
+  });
+
+  it('should resolve when stdin ends, since nobody is left to read', async () => {
+    const ui = createTestTerminal({ columns: 30, rows: 8 });
+    const pending = settled(page(DOC, { frameMs: 0, terminal: ui.terminal }));
+    await frame();
+    ui.stdin.end();
+    expect(await pending).to.equal('resolved');
+    expect(ui.screen.alternate).to.equal(false);
+  });
+
+  it('should reject rather than resolve when a handler threw undefined', async () => {
+    // SIG-428: `finish()` read an `undefined` error as the reader leaving, so a
+    // handler that threw one settled `page()` as though nothing had gone wrong
+    const ui = createTestTerminal({ columns: 30, rows: 8 });
+    const outcome = await settled(
+      page(DOC, {
+        frameMs: 0,
+        props: {
+          onResize: () => {
+            throw undefined;
+          },
+        },
+        terminal: ui.terminal,
+      })
+    );
+    const { rejected } = outcome as { rejected?: Error };
+    expect(rejected).toBeInstanceOf(Error);
+    expect(rejected?.message).to.equal('Unknown error');
+  });
+
+  it('should reject with what a handler threw on a later frame, whatever it threw', async () => {
+    // SIG-428: wrapping it said `String(error)`, which throws for a value with no
+    // prototype -- out of `finish()`, after `done` was set, so it never settled
+    const ui = createTestTerminal({ columns: 30, rows: 8 });
+    const thrown = Object.assign(Object.create(null) as object, { message: 'resize broke' });
+    let calls = 0;
+    const pending = settled(
+      page(DOC, {
+        frameMs: 0,
+        props: {
+          onResize: () => {
+            calls++;
+            if (calls > 1) {
+              throw thrown;
+            }
+            return false;
+          },
+        },
+        terminal: ui.terminal,
+      })
+    );
+    await frame();
+    ui.resize(40, 8);
+    const outcome = (await pending) as { rejected: Error };
+    expect(outcome.rejected).toBeInstanceOf(Error);
+    expect(outcome.rejected.message).to.equal('resize broke');
+    expect(outcome.rejected.cause).to.equal(thrown);
+    expect(ui.screen.alternate).to.equal(false);
+  });
 });

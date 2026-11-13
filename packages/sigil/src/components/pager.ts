@@ -60,9 +60,10 @@ import {
   isAbort,
   type KeyEvent,
 } from '../input/index.js';
-import { render } from '../renderer/index.js';
+import { render, type Renderer } from '../renderer/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { errorMessage } from '../util/error-message.js';
 import { escapeRegExp } from '../util/escape-regexp.js';
 import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
@@ -1188,9 +1189,13 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
   return new Promise((resolve, reject) => {
     let done = false;
     let pager: Pager | undefined;
+    // both unset while `render()` runs, and a handler that throws during the first
+    // frame is reported from inside it: `finish()` is called before either exists
+    let view: Renderer | undefined;
+    let input: InputRouter | undefined;
 
     const backend = createFullscreenCanvas({ terminal });
-    const view = render(
+    view = render(
       () => {
         pager = createPager({
           ...opts,
@@ -1206,29 +1211,44 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
         colorLevel: colorLevelOf(opts, opts.terminal),
         colorScheme: opts.colorScheme,
         frameMs: opts.frameMs,
-        onError: (error) => finish(error),
+        onError: (error) => fail(error),
         reducedMotion: opts.reducedMotion,
         terminal,
       }
     );
-    const input = createInput({
+    if (done) {
+      view.dispose();
+      return;
+    }
+    input = createInput({
       root: view.root,
       stdin,
       terminal,
       ...(opts.mouse ? { mouse: { surface: view.backend } } : {}),
     });
 
-    function finish(error?: unknown): void {
+    /** Gives the screen and stdin back, once: `false` if that has already happened. */
+    function giveBack(): boolean {
       if (done) {
-        return;
+        return false;
       }
       done = true;
-      input.stop();
-      view.dispose();
-      if (error === undefined) {
+      input?.stop();
+      view?.dispose();
+      return true;
+    }
+
+    function finish(): void {
+      if (giveBack()) {
         resolve();
-      } else {
-        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    // a function of its own rather than `finish(error)`, because a handler may
+    // throw `undefined`, and that is a failure rather than the reader leaving
+    function fail(error: unknown): void {
+      if (giveBack()) {
+        reject(error instanceof Error ? error : new Error(errorMessage(error), { cause: error }));
       }
     }
 
@@ -1238,7 +1258,13 @@ export function page(content: string | readonly string[], opts: PageOptions = {}
         finish();
       }
     });
-    input.onEnd((error) => finish(error));
-    input.focus.focus(pager?.element);
+    input.onEnd((error) => (error === undefined ? finish() : fail(error)));
+    // `onFocusChange` is the app's, and a throw out of the executor would reject
+    // the promise without giving the screen or stdin back
+    try {
+      input.focus.focus(pager?.element);
+    } catch (error) {
+      fail(error);
+    }
   });
 }
