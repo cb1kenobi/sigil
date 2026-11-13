@@ -1664,7 +1664,11 @@ makes it testable with a fixture directory and no bundler at all.
   `_inspect.ts`, so a failure in one is a failure in the other and the two
   cannot come to disagree about what a valid app is. `build` refuses an app that
   does not check out, because finding out at run time what a compiler knew at
-  build time is the thing a build is for.
+  build time is the thing a build is for. The one way `build` refuses more than
+  `check` is a `ui` template that cannot be compiled in a module only the bundler
+  reaches -- a helper the commands import -- which `check` does not read; see "A
+  template that cannot be compiled is a diagnostic" under "Compiling an app's
+  templates" for why it stops at the modules it already reads.
 - **The CLI declares its own `check` the way `sigil build` generates an app's
   commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
   and it pays immediately -- the module behind it imports `oxc-parser`, which is
@@ -1812,6 +1816,48 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   naming the file, the line and the column. What is decidable from the IR fails
   the build rather than the frame, which is the rule the utility generator already
   follows by parsing every declaration it generates on the way out.
+- **A template that cannot be compiled is a diagnostic, and every one in a
+  module the bundle reaches is reported.** SIG-354. The error was thrown raw out of the `sigil:templates`
+  hook, and rolldown folds a hook's throw into `Build failed with 1 error:
+  [plugin sigil:templates] ...` with the error's stack inside the message, so
+  `main()` printed seven of the toolchain's own frames under an absolute path.
+  Now the hook catches `TemplateCompileError`, turns it into `Diagnostic`s
+  through `templateDiagnostics()`, returns the module untouched (still valid
+  JavaScript, so rolldown carries on and finds the next broken module), and after
+  the write `bundleApp()` unwinds the output and throws a `DiagnosticError`
+  sorted by `byLocation()`, since rolldown transforms in no fixed order. `build`
+  and `package` hand that to `bundleFailure()` in `_inspect.ts`, which writes it
+  with `writeDiagnostics()` and the same app-relative path `reportDiagnostics()`
+  uses and then throws the same `N errors in <app>` sentence a type error gets.
+  So it is one located line per template, coloured on a terminal, plain on a
+  pipe, and no frame anywhere. The unresolved-import and raw-JSX gates still
+  throw a sentence, because what they report is about the bundle and has no
+  line in the app's source.
+
+  `TemplateCompileError` carries `failures`, every failing template in the
+  module, with `file`, `line` and `column` the first's. Every template `parse()`
+  or `analyze()` refuses is collected, and when any is, each template that did
+  parse is compiled on its own, so a `compile()`-only failure beside a parse
+  failure is reported in the same run; that path is already failing and
+  compiling alone says what compiling in the module says (the property `blame()`
+  rests on). When every template parses and the module's `compile()` throws,
+  `blame()` compiles each alone as it always did, and now reports every one that
+  fails rather than stopping at the match: the template the module's message was
+  about comes **first**, with that message, so `line` still names the culprit
+  `blame.test.ts` pins, and the rest follow with their own. The first version
+  stopped at the culprit, so two bad `<raw>`s and a `<box>` in a `<text>` were
+  `1 error`; found by review, pinned by `should name every template when all of
+  them parse and only compile() refuses`.
+
+  `sigil check` reports it too, by compiling the templates in the modules it
+  already reads -- the entry and every command module -- in `checkTemplates()`.
+  Not every module in the app: only the bundler knows what is reached, and
+  walking the tree would refuse an app over a fixture or a test nothing imports,
+  which the build would not. A template in a helper the commands import is
+  therefore found by `build` and `package` and not by `check`, with the same
+  line. Pinned by `a template that cannot be compiled` in
+  `test/build-command.test.ts`, which asserts no frame on either stream.
+
 - **The count is reported, because "no parser shipped" and "no templates" look
   identical from outside.** `sigil build` says `1 command and 1 template into
   ...`, and omits the clause entirely at zero rather than saying "0 templates" --
@@ -2070,33 +2116,77 @@ other is refused with numbers.
   is correct output rather than a miss: the shaken sheet is a _subset_, so the
   two disagree only about rules the evidence says nothing can match.
 
-  What the walk must not read is a **previous build's output**, whose text is
-  evidence for rules the app never names -- the whole sheet when it was built
-  `--no-shake`, and a few dozen more besides when it was shaken. The output
-  directory is excluded, and that exclusion is the whole of the guard: since
-  SIG-350 `clean()` empties it only once the bundle's graph has been read, which
-  is after this walk, so a previous bundle is still on disk while it runs. So the
-  exclusion is compared by **physical path**, through `landsAt()`, because the
-  build's `out` and the walk's `join()` are two spellings of one directory --
-  `/tmp` for `/private/tmp`, a symlinked `--out`, `DIST` on a volume that folds
-  case -- and a spelling that missed kept 52 of 383 rules, then 58, where the app
-  names 25 (found by review once the clean had moved; `clean()` emptying it
-  first had hidden it). `sigil package` writes its bundle to a staging directory
-  and its binaries to `--out`, so it passes `--out` as well
-  (`BundleOptions.exclude`), or a `sigil build` into that directory is evidence
-  too. The exclusion never applies to the **app root** itself: under
-  `--out . --no-clean` the root _is_ `out`, and excluding it skipped every source
-  file, so the build shook all 383 rules down to the safelist and reported
-  success -- too little, the one direction this walk must not err in. A previous
-  bundle written beside the source is then read as evidence, which keeps more,
-  never less (`--out . --no-clean shakes to what a separate --out keeps`, found in
-  review). A _second_, stale output directory elsewhere in the app is the case that
-  gets through, and its failure is the safe one: more is kept than the app
-  names, never less, and the count in the summary is higher than it should be
-  rather than silent. That is what the count is for, and it is why the summary
-  says nothing at all when no module called `utilitySheet()` -- `383 of 383`
-  about an app with no utility sheet in its bundle would describe a sheet that
-  is not there.
+  What the walk must not read is a **previous build's output**, which holds the
+  whole sheet as a string and is therefore evidence for every rule it kept. So it
+  leaves out the **configured build output** as well as the directory being
+  written: `build.out` from `sigil.json`, `dist` by default, through
+  `buildOutDir()` in `_inspect.ts`, which both commands pass as
+  `BundleOptions.outputs` beside `bundleApp()`'s own `out`. Excluding only `out` was SIG-354: it was
+  right for `sigil build` into its configured directory, and wrong for everything else -- `sigil package` bundles into a
+  staging directory under `node_modules/.sigil`, which the walk never entered, and
+  `sigil build --out dist2` excluded `dist2`. Either way the `dist/` an earlier
+  `sigil build` left was parsed as source, which is the ordinary state of an app
+  that ran `build` before `package`, and of a JSX app whose scaffolded `dev`
+  script rebuilds `dist/`. Measured on `test/fixtures/styled/` through
+  `build --out dist2`: **25** of 383 with no `dist/`, **58** with a shaken one and
+  **383** with an unshaken one, for an app whose source names 25 (52 with a shaken
+  one through `package`). The package summary printed no count, so nobody saw
+  it; it prints one now, through `utilityRules()`, the same phrase `build` uses.
+  An earlier version of this entry called this "a second, stale output directory
+  elsewhere in the app" and the safe failure, which was true of the count's
+  direction and wrong about how rare it was.
+
+  Both are compared by **physical path**, through `landsAt()`, and the exclusion
+  is the whole of the guard: since SIG-350 `clean()` empties `out` only once the
+  bundle's graph has been read, which is after this walk, so a previous bundle is
+  still on disk while it runs. The build's `out` and the walk's `join()` are two
+  spellings of one directory -- `/tmp` for `/private/tmp`, a symlinked `--out`,
+  `DIST` on a volume that folds case -- and a spelling that missed kept 52 of 383
+  rules, then 58, where the app names 25. The exclusion never applies to the **app
+  root** itself: under `--out . --no-clean` the root _is_ `out`, and excluding it
+  skipped every source file, so the build shook all 383 rules down to the
+  safelist and reported success -- too little, the one direction this walk must
+  not err in (`--out . --no-clean shakes to what a separate --out keeps`).
+
+  **The build's directory and nobody else's**, and the first version of the fix
+  got that wrong in the unsafe direction. It excluded `package.out` and the
+  binaries' `--out` too, on the reading that every output directory is a
+  previous build's output -- and `release/` holds **binaries**, which no
+  `MODULE_RE` matches and no walk reads as evidence, while `compile.ts` stages its
+  own work in a temp directory. So excluding it protected nothing and could only
+  lose evidence: `release` is an ordinary name for a directory of source, nothing
+  cleans it for an app that never packages, and an app keeping
+  `'justify-around underline'` in `release/extra.ts` was built with both rules
+  dropped (**25** of 383, against **27** with the same file under `lib/`). Found
+  by review; pinned by `should still read source in release/, which a build never
+  writes`. SIG-350 had `sigil package` exclude its binaries' `--out` as well, as
+  `BundleOptions.exclude`, for a `sigil build` into that directory; the two met
+  in a merge, and that field is gone for the same reason. The default build
+  directory is in `outputs` already, which is the case its test pins
+  (`should not read the build it is about to replace as evidence for a class`).
+
+  What still gets through is a stale bundle directory **nobody configured** --
+  one written by hand, by another tool, or by a `sigil build --out` that is not
+  the one this run names and is not in `sigil.json`. Its failure is the safe
+  one: rules are kept rather than dropped, and the summary says so with its
+  count. The configured build directory holding source would be read as output
+  and its evidence lost, which is the unsafe direction, and is not guarded:
+  `clean()` empties that directory on every `sigil build`, so it cannot hold
+  source for long.
+
+  The count is what makes any of this visible, and it is why the summary says
+  nothing at all when no module called `utilitySheet()` -- `383 of 383` about an
+  app with no utility sheet in its bundle would describe a sheet that is not
+  there. Pinned by `a previous dist/ read as class evidence` in
+  `test/build-command.test.ts` (no `dist/`, shaken, unshaken, a renamed
+  `build.out`, and source under `release/`), by `the utility sheet it embeds` in
+  `test/package-command.test.ts`, which needs Bun or a Node that can build a
+  single executable and so does not run on CI, and by two that need neither:
+  `the class evidence a bundle into a staging directory reads` in
+  `test/build/bundle.test.ts`, which asks `bundleApp()` with `buildOutDir()`, and
+  `test/package-wiring.test.ts`, which mocks `bundleApp()` behind a stub `node`
+  and asserts the `outputs` `sigil package` hands it -- the line that is
+  otherwise pinned only where a compiler is installed.
 
 - **The count describes the sheet the build produced, which is narrower than
   "what is in the bundle".** Two things part them and neither is detectable from

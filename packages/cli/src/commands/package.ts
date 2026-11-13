@@ -68,12 +68,15 @@ import {
   assertCleanable,
   binName,
   buildReads,
+  bundleFailure,
   clean,
   commandsFound,
+  buildOutDir,
   failure,
   inspect,
   reportDiagnostics,
   resolveOut,
+  utilityRules,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
@@ -263,12 +266,15 @@ const pkg: AnyCommand = command({
         app: found.app,
         binName: name,
         defaultLocale: sigilConfig.locale,
-        // the binaries' directory, which the bundle is not written to: a
-        // previous `sigil build` there is a bundle the shaker must not read
-        exclude: [out],
         external,
         form: runtime === 'node' ? 'cjs' : 'esm',
         out: staging,
+        // the staging directory is under `node_modules`, which the style
+        // shake never reads anyway -- so without this the `dist/` an earlier
+        // build left was read as source, and its copy of the utility sheet
+        // kept every rule it held. Not the binaries' own directory: see
+        // `buildOutDir()` for why that would only lose evidence
+        outputs: [buildOutDir(found.app.root, sigilConfig)],
         safelist: build.safelist,
         shake: argv.shake !== false && build.shake !== false,
         // a sourcemap is embedded in nothing and read by nobody once the bundle
@@ -284,6 +290,8 @@ const pkg: AnyCommand = command({
           config: sigilConfig,
           packageName: found.app.manifest.name,
         }),
+      }).catch((e: unknown) => {
+        throw bundleFailure(found, counts, e);
       });
 
       // the first moment there is an answer: whether the update check is in
@@ -330,7 +338,12 @@ const pkg: AnyCommand = command({
           ...appRuns(found.app),
           `${commandsFound(found)} into`,
           `${compiled.length} ${runtime} binar${compiled.length === 1 ? 'y' : 'ies'},`,
-          `${displayPath(relative(found.app.root, out) || out)}${counts.warnings ? ',' : ''}`,
+          `${displayPath(relative(found.app.root, out) || out)}${
+            result.styles || counts.warnings ? ',' : ''
+          }`,
+          // what `build` says, for its reason: the count is what makes a shake
+          // visible, and here is where a sheet kept whole went unseen
+          ...(result.styles ? [`${utilityRules(result.styles)}${counts.warnings ? ',' : ''}`] : []),
           ...(counts.warnings
             ? [
                 {

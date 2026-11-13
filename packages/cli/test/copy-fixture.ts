@@ -1,5 +1,10 @@
-import { cpSync } from 'node:fs';
-import { relative, sep } from 'node:path';
+import { tempDir } from './temp.js';
+import { cpSync, mkdirSync, symlinkSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** `@ttylabs/sigil` in this workspace, which every linked fixture resolves to. */
+const SIGIL = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'sigil');
 
 /**
  * Copies a fixture app to `to`, leaving out every `node_modules` inside it.
@@ -37,4 +42,31 @@ export function copyFixture(from: string, to: string): void {
     filter: (path) => !relative(from, path).split(sep).includes('node_modules'),
     recursive: true,
   });
+}
+
+/**
+ * Copies a fixture app into a fresh temp directory and links `@ttylabs/sigil`
+ * into it, so that the copy builds as the fixture does in place.
+ *
+ * A copy outside the workspace resolves nothing by walking up, which is the
+ * point of a plain `copyFixture()` for a test about an import nothing can
+ * resolve -- and is in the way of a test that wants to change what sits beside
+ * the app (an earlier build's `dist/`, a broken module) without touching the
+ * shared fixture other workers are building. A junction rather than a symlink,
+ * because Windows creates one without privileges and it is the same thing to
+ * node's resolver.
+ *
+ * @param from - The fixture's directory.
+ * @param prefix - What the temp directory's name starts with.
+ * @returns The copy's root, removed when the test file finishes.
+ */
+export function linkedFixture(from: string, prefix: string): string {
+  const app = tempDir(prefix);
+  copyFixture(from, app);
+
+  const scope = join(app, 'node_modules', '@ttylabs');
+  mkdirSync(scope, { recursive: true });
+  symlinkSync(SIGIL, join(scope, 'sigil'), 'junction');
+
+  return app;
 }

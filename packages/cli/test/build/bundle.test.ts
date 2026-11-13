@@ -5,12 +5,14 @@ import {
   inlinedPackages,
   rawJsxIn,
   undo,
+  WORK_DIR,
 } from '../../src/build/bundle.js';
 import { discoverApp, readAppCommands } from '../../src/build/discover.js';
 import { parseModule } from '../../src/build/parse-module.js';
 import { resolveCommandTree } from '../../src/build/tree.js';
+import { buildOutDir } from '../../src/commands/_inspect.ts';
 import { readSigilConfig } from '../../src/config.js';
-import { copyFixture } from '../copy-fixture.ts';
+import { copyFixture, linkedFixture } from '../copy-fixture.ts';
 import { tempDir } from '../temp.js';
 import { spawnSync } from 'node:child_process';
 import {
@@ -1243,4 +1245,40 @@ describe('the inlined packages', () => {
 
     expect(found.map(({ name }) => name)).toEqual(['big', 'B', 'a', 'a-b', 'a_b']);
   });
+});
+
+describe('the class evidence a bundle into a staging directory reads', () => {
+  it('should not read the dist/ an earlier build left, as sigil package bundles', async () => {
+    // SIG-354, at the seam `sigil package` uses: its bundle goes into a staging
+    // directory under `node_modules/.sigil`, so the `out` the walk excluded was
+    // never `dist/`, and an earlier unshaken build there kept all 383 rules.
+    // `buildOutDir()` is what the command passes, so it is what is asked here;
+    // that the command passes it is `package-wiring.test.ts`'s, and both run
+    // where no compiler is installed
+    const root = linkedFixture(resolve(__dirname, '../fixtures/styled'), 'sigil-stage-evidence-');
+    const found = discoverApp(root);
+    const tree = resolveCommandTree(join(root, 'src', 'commands'));
+    const outputs = [buildOutDir(root, readSigilConfig(root))];
+    const staging = (n: number) => join(root, WORK_DIR, `${n}-package`);
+
+    const clean = await bundleApp({
+      app: found,
+      binName: 'styled',
+      out: staging(1),
+      outputs,
+      tree,
+    });
+
+    await bundleApp({ app: found, binName: 'styled', out: join(root, 'dist'), shake: false, tree });
+    const stale = await bundleApp({
+      app: found,
+      binName: 'styled',
+      out: staging(2),
+      outputs,
+      tree,
+    });
+
+    expect(clean.styles?.kept).toBeLessThan(383);
+    expect(stale.styles).toStrictEqual(clean.styles);
+  }, 60_000);
 });

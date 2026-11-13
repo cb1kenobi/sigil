@@ -25,6 +25,8 @@ import {
   appKeys,
   checkCatalogs,
   checkMainSettings,
+  compileTemplates,
+  DiagnosticError,
   discoverApp,
   displayPath,
   forgetParsedModules,
@@ -34,20 +36,23 @@ import {
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
+  TemplateCompileError,
+  templateDiagnostics,
   typeCheck,
   walkTree,
   type AppCatalogs,
   type Diagnostic,
   type DiscoveredApp,
   type ResolvedCommand,
+  type ShakenStyles,
   type TypeCheckResult,
 } from '../build/index.ts';
-import { CONFIG_FILES } from '../config.ts';
+import { CONFIG_FILES, type SigilConfig } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
-import { existsSync, lstatSync, rmSync, statSync, type BigIntStats } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, rmSync, statSync, type BigIntStats } from 'node:fs';
 import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 /** What reading an app turned up. */
@@ -128,6 +133,8 @@ export function inspect(options: InspectOptions): Inspection {
   // calls `main({ schema })` itself -- so say so, where the app has not moved it
   diagnostics.push(...checkMainSettings(app));
 
+  diagnostics.push(...checkTemplates(app, found.commands));
+
   return {
     app,
     catalogFiles: catalogs.files,
@@ -137,6 +144,47 @@ export function inspect(options: InspectOptions): Inspection {
     root: found.root,
     types,
   };
+}
+
+/**
+ * The `ui` templates in the modules this pass already reads that cannot be
+ * compiled.
+ *
+ * The entry and every command module, which is what `check` has always read --
+ * not every module in the app, which only the bundler knows: a template in a
+ * helper the commands import is found by `bundleApp()`'s transform instead,
+ * through the same `templateDiagnostics()`, so `build` and `package` say the
+ * same line about it that `check` says about one here. Walking the app's tree
+ * to close that gap was not taken, because a tree holds fixtures and tests
+ * nobody bundles, and refusing an app over a template in a file nothing
+ * imports is a refusal the build would not have made.
+ *
+ * A module that does not read or does not parse contributes nothing here:
+ * reading its commands has already said so, and the bundler says so again.
+ *
+ * @param app - The app.
+ * @param commands - Its resolved commands.
+ * @returns An error per template that cannot be compiled.
+ */
+function checkTemplates(app: DiscoveredApp, commands: readonly ResolvedCommand[]): Diagnostic[] {
+  const modules = new Set([app.entry]);
+  for (const { command } of walkTree(commands)) {
+    if (command.module) {
+      modules.add(command.module);
+    }
+  }
+
+  const found: Diagnostic[] = [];
+  for (const file of modules) {
+    try {
+      compileTemplates(file, readFileSync(file, 'utf-8'));
+    } catch (e: unknown) {
+      if (e instanceof TemplateCompileError) {
+        found.push(...templateDiagnostics(e));
+      }
+    }
+  }
+  return found;
 }
 
 /**
@@ -328,14 +376,7 @@ export function reportDiagnostics(found: Inspection): {
   const { app, diagnostics, types } = found;
   const stream = process.stderr;
 
-  // relative to the app, because an absolute path per line is mostly the same
-  // prefix repeated and the interesting part is at the end of it. Which form it
-  // takes is `report.ts`'s: a terminal is laid out for, a pipe gets the one-line
-  // form every compiler writes
-  writeDiagnostics(diagnostics, {
-    relativeTo: (file) => relative(app.root, file) || '.',
-    stream,
-  });
+  writeDiagnostics(diagnostics, { relativeTo: relativeTo(app), stream });
 
   if (!types.checked && types.skipped) {
     // a note rather than a diagnostic: nothing is wrong with an app that has no
@@ -350,6 +391,71 @@ export function reportDiagnostics(found: Inspection): {
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
 
   return { errors, fatal: isFatal(diagnostics), warnings: diagnostics.length - errors };
+}
+
+/**
+ * How a report spells a file: relative to the app.
+ *
+ * Because an absolute path per line is mostly the same prefix repeated and the
+ * interesting part is at the end of it. Which form the line takes is
+ * `report.ts`'s: a terminal is laid out for, a pipe gets the one-line form
+ * every compiler writes. One function for `reportDiagnostics()` and
+ * `bundleFailure()`, so a diagnostic found before the bundle and one found
+ * inside it name their file the same way.
+ *
+ * @param app - The app.
+ * @returns The mapping `writeDiagnostics()` takes.
+ */
+function relativeTo(app: DiscoveredApp): (file: string) => string {
+  return (file) => relative(app.root, file) || '.';
+}
+
+/**
+ * What to throw when bundling an app that checked out failed.
+ *
+ * A `DiagnosticError` -- a template the bundle reached that cannot be
+ * compiled -- is written the way `reportDiagnostics()` writes what the read
+ * found, and the build then fails with the same `failure()` sentence a type
+ * error gets, counting it. Anything else is passed through untouched, since it
+ * is already a sentence `main()` knows how to print.
+ *
+ * @param found - What reading the app turned up.
+ * @param counts - What `reportDiagnostics()` counted.
+ * @param error - What bundling threw.
+ * @returns The error to throw.
+ */
+export function bundleFailure(
+  found: Inspection,
+  counts: { errors: number; warnings: number },
+  error: unknown
+): unknown {
+  if (!(error instanceof DiagnosticError)) {
+    return error;
+  }
+
+  writeDiagnostics(error.diagnostics, {
+    relativeTo: relativeTo(found.app),
+    stream: process.stderr,
+  });
+
+  return failure(found, {
+    errors: counts.errors + error.diagnostics.length,
+    warnings: counts.warnings,
+  });
+}
+
+/**
+ * What a summary says about the utility sheet a bundle carries.
+ *
+ * Shared because `build` and `package` both shake and both say what it came to:
+ * the count is what makes a shake visible, and a package summary without it
+ * was where a sheet kept whole by a stale `dist/` went unseen.
+ *
+ * @param styles - What shaking came to.
+ * @returns The phrase, with no punctuation of its own.
+ */
+export function utilityRules(styles: ShakenStyles): string {
+  return `${styles.kept} of ${styles.total} utility rules`;
 }
 
 /**
@@ -430,6 +536,34 @@ export function commandsFound(found: Inspection): string {
 
   const total = countCommands(found.commands);
   return `${total} command${total === 1 ? '' : 's'}`;
+}
+
+/** Where a build goes when neither a flag nor `sigil.json` says. */
+export const DEFAULT_BUILD_OUT = 'dist';
+
+/**
+ * The directory `sigil.json` sends a build to, the default included, resolved.
+ *
+ * What the class-evidence walk leaves out besides the directory being written,
+ * because it holds a previous build's bundle -- the utility sheet as a string --
+ * and reading that as source keeps every rule it kept. Both commands pass it:
+ * `package` bundles into a staging directory under `node_modules` and so never
+ * excluded `dist/`, and `build --out dist2` excluded `dist2` and not the `dist/`
+ * an earlier `build` left.
+ *
+ * The build's directory and nobody else's. `package.out` holds binaries, which
+ * no module pattern matches and no walk reads as evidence, while a `release/`
+ * an app keeps source in -- it is an ordinary name, and nothing cleans it for an
+ * app that never packages -- would lose that source's evidence, which is the
+ * direction this analysis does not trade in. The binaries' `--out` is the same
+ * case, and `compile.ts` stages its own work in a temp directory.
+ *
+ * @param root - The app's root.
+ * @param config - Its `sigil.json`.
+ * @returns The build's output directory.
+ */
+export function buildOutDir(root: string, config: SigilConfig): string {
+  return resolveOut(root, config.build?.out ?? DEFAULT_BUILD_OUT);
 }
 
 /**

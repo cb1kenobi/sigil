@@ -2,7 +2,7 @@ import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile
 import { displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
-import { copyFixture } from './copy-fixture.ts';
+import { copyFixture, linkedFixture } from './copy-fixture.ts';
 import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -1020,6 +1020,45 @@ describe('sigil package', () => {
         expect(stdout.match(/linux-x64/g)).toHaveLength(1);
         // one target after deduplication, so it keeps the unsuffixed name
         expect(existsSync(join(out, BINARY))).toBe(true);
+      },
+      300_000
+    );
+  });
+
+  describe('the utility sheet it embeds', () => {
+    // either compiler proves it, and both are skipped where neither can run, as
+    // the rest of this file's compiling tests are: CI installs no Bun, and
+    // `bundle.test.ts` asks the same question of `bundleApp()` everywhere
+    it.skipIf(!hasBun && !hasBuildSea)(
+      'should count the same utility rules with no dist/, a shaken one and an unshaken one',
+      async () => {
+        // SIG-354. The package's bundle goes into a staging directory under
+        // `node_modules/.sigil`, so the only directory the style shake left out
+        // was one it would never have entered -- and the `dist/` an earlier
+        // `sigil build` left was read as source. Its copy of the utility sheet
+        // is evidence for every rule it kept, so what went into the binary
+        // depended on whether `build` had run first, with no count printed to
+        // show it
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-stale-dist-');
+        const runtime = hasBun ? 'bun' : 'node';
+        const count = async (): Promise<string | undefined> => {
+          const { err } = await sigil('package', app, '--out', out, '--runtime', runtime);
+          return /(\d+) of 383 utility rules/.exec(err)?.[1];
+        };
+
+        const none = await count();
+
+        await sigil('build', app);
+        expect(existsSync(join(app, 'dist', 'styled.mjs'))).toBe(true);
+        const shaken = await count();
+
+        await sigil('build', app, '--no-shake');
+        const unshaken = await count();
+
+        // the summary says it at all, which it did not before
+        expect(none).toBeDefined();
+        expect(Number(none)).toBeLessThan(383);
+        expect([shaken, unshaken]).toStrictEqual([none, none]);
       },
       300_000
     );
