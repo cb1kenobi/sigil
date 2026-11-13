@@ -817,6 +817,43 @@ it exits 1. One project at a time, so that a leak is charged to the package that
 made it. The measurements and the sabotage passes are in
 [docs/history/the-suite-removes-every-directory-it-makes.md](../../../../docs/history/the-suite-removes-every-directory-it-makes.md).
 
+**A spawned tool's compile cache is the leak no test writes (SIG-422).**
+`pnpm test:leaks @ttylabs/cli` reported one `node-compile-cache` left behind,
+and no test in the repository makes one. The suite spawns package managers:
+`cli.test.ts` runs `pnpm pack --dry-run` in each package, and `new-tui.test.ts`
+runs `npm run dev` and `pnpm run dev`. pnpm runs `pnpm install` before each of
+those. pnpm 12 (`bin/pnpm.mjs`) and npm 11 (`lib/cli.js`) both call
+`module.enableCompileCache()` on startup, and with no directory that is
+`join(os.tmpdir(), 'node-compile-cache')`. So any child that runs a modern node
+CLI writes into the tmpdir. In an ordinary run that is the machine's shared
+cache, which the outer `pnpm test` has already made. Under `test:leaks` it is a
+new directory nobody removes. tsdown, rolldown and vite make the same call, and
+`packages/sigil`'s two tests that run `pnpm build` when `dist/` is missing reach
+tsdown through it.
+
+- **The fix is `NODE_DISABLE_COMPILE_CACHE=1` in `test.env`, in the vitest
+  config of each package whose tests spawn anything.** That is `sigil` and
+  `cli`. The other three spawn nothing. It reaches every process a test spawns
+  that inherits `process.env`, and the package managers' own call then returns
+  `DISABLED`. A spawn site that builds its env from nothing has to add it
+  itself. vitest makes the same choice for the v8 coverage provider, "in
+  workers and any process they spawn", so a `pnpm coverage` run already had
+  the cache off.
+- **Disabling was chosen over redirecting.** `NODE_COMPILE_CACHE=<a tempDir()>`
+  would also keep the directory inside one the suite removes. But that variable
+  turns the cache **on** for every node process that reads it, including the
+  scaffolded app's own `node` and the built bins the suite spawns, which never
+  asked for one. Disabling changes only the processes that opted in, and the
+  cache changes only how fast they start. Measured on node 24.18: `pnpm pack
+  --dry-run` went from 216 to 270 ms with a warm cache and with none, and
+  `npm --version` from 51 to 54 ms, across the dozen or so such spawns in a
+  run.
+- **`compile-cache.test.ts` in each of the two packages is the regression
+  test.** CI does not run `test:leaks`, so without it the config line could go
+  missing with nothing failing. Its child makes the call pnpm makes, with its
+  tmpdir pointed at a `tempDir()`. Removing the line fails it, which was checked
+  in both packages.
+
 ### What each entry loads at import, and what it only asks for (SIG-328)
 
 SIG-326 put the PNG codec, and `node:zlib` with it, on `@ttylabs/sigil/components`
