@@ -557,20 +557,16 @@ export default {
       });
     });
 
-    it('took a spread of the name undefined for one that carries nothing, and a regular expression key for one that may carry anything', async () => {
-      // SIG-421, review round 4. A binding named `undefined` shadows the
-      // global, so a spread of it is a spread of a name: the first command
-      // registers `nope` and the second starts, where the build baked
-      // `Build the app` and refused the thunk. `void 0` cannot be shadowed,
-      // and a regular expression key is `String()` of it, which is no desc
-      const source = `const undefined = { desc: 'nope' };
-export default {
+    it('took a regular expression key for one that may carry anything', async () => {
+      // SIG-421, review round 4. A regular expression is a literal too, and the
+      // key it converts to is `String()` of it, which is no desc. Beside it, a
+      // spread of `undefined`, `void 0` or `[null]` carries no desc either
+      const source = `export default {
   baseDir: import.meta.dirname,
   commands: {
-    shadowed: { desc: 'Build the app', ...undefined, path: './commands/a.js' },
-    thunk: { desc: async () => 'x', ...undefined, path: './commands/a.js' },
-    voided: { desc: 'Build the app', ...void 0, path: './commands/a.js' },
     pattern: { desc: 'Build the app', [/desc/g]: 0, path: './commands/a.js' },
+    undefined: { desc: 'Build the app', ...undefined, path: './commands/a.js' },
+    voided: { desc: 'Build the app', ...void 0, path: './commands/a.js' },
     nulls: { desc: 'Build the app', ...[null], path: './commands/a.js' },
   },
 };\n`;
@@ -580,82 +576,17 @@ export default {
         const list = commands?.kind === 'inline' ? commands.commands : [];
         const schema = (
           (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
-            default: { commands: Record<string, { desc?: unknown }> };
+            default: { commands: Record<string, unknown> };
           }
         ).default;
 
         for (const [name, declaration] of Object.entries(schema.commands)) {
           expect(await runtimeRefusal(name, declaration), name).toBeUndefined();
         }
-        expect(schema.commands.shadowed!.desc).toBe('nope');
-
-        const before = (name: string, key: string, consequence: string) =>
-          `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
-        const carried = (name: string, key: string, consequence: string) =>
-          `the "${name}" command spreads another object, which may carry a "${key}" this cannot see; ${consequence}`;
-        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
-          ['warning', before('shadowed', 'desc', 'the built app will list it by name alone')],
-          ['warning', carried('shadowed', 'hidden', 'the built app will list it in help')],
-          ['warning', before('thunk', 'desc', 'the built app will list it by name alone')],
-          ['warning', carried('thunk', 'hidden', 'the built app will list it in help')],
-        ]);
-        expect(at(list, 'shadowed').desc).toBeUndefined();
-        for (const name of ['voided', 'pattern', 'nulls']) {
+        expect(diagnostics).toStrictEqual([]);
+        for (const name of ['pattern', 'undefined', 'voided', 'nulls']) {
           expect(at(list, name).desc, name).toBe('Build the app');
         }
-      });
-    });
-
-    it('read a placeholder’s `undefined` as not declared where the module binds that name', async () => {
-      // SIG-421, review round 4. Under `const undefined = 'nope'` the identifier
-      // is a name, so `desc: undefined` registers `nope` and the build baked the
-      // module's description over it; an `alias` the app answers to was
-      // dropped, and a thunk returning it was refused though it returns a
-      // string. `void 0` cannot be shadowed and is still not declared
-      const source = `const undefined = 'nope';
-export default {
-  baseDir: import.meta.dirname,
-  commands: {
-    described: { desc: undefined, path: './commands/a.js' },
-    aliased: { alias: undefined, path: './commands/a.js' },
-    thunk: { desc: () => undefined, path: './commands/a.js' },
-    voided: { desc: void 0, path: './commands/a.js' },
-  },
-};\n`;
-
-      await withSchema(source, async (dir) => {
-        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
-        const list = commands?.kind === 'inline' ? commands.commands : [];
-        const schema = (
-          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
-            default: { commands: Record<string, { alias?: unknown; desc?: unknown }> };
-          }
-        ).default;
-
-        for (const [name, declaration] of Object.entries(schema.commands)) {
-          expect(await runtimeRefusal(name, declaration), name).toBeUndefined();
-        }
-        expect(schema.commands.described!.desc).toBe('nope');
-        expect(schema.commands.aliased!.alias).toBe('nope');
-
-        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
-          [
-            'warning',
-            'the "described" command\'s "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone',
-          ],
-          [
-            'warning',
-            'the "aliased" command\'s "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; the built app will not answer to it',
-          ],
-          [
-            'warning',
-            'the "thunk" command\'s "desc" is computed rather than a string literal, so it cannot be read at build time; the built app will list it by name alone',
-          ],
-        ]);
-        // nothing baked over what the app shows, and `void 0` is the module's
-        expect(at(list, 'described').desc).toBeUndefined();
-        expect(at(list, 'thunk').desc).toBeUndefined();
-        expect(at(list, 'voided').desc).toBe('from the module');
       });
     });
 

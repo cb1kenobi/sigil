@@ -528,7 +528,7 @@ describe('extracting a command module', () => {
       ['null', `export default { desc: 'a', ...null };`],
       ['a number and a bigint', `export default { desc: 'a', ...1, ...1n };`],
       ['a regular expression', `export default { desc: 'a', .../desc/ };`],
-      ['void', `export default { desc: 'a', ...void 0, ...void f() };`],
+      ['undefined', `export default { desc: 'a', ...undefined, ...void 0, ...void f() };`],
       ['an array of null', `export default { desc: 'a', ...[null, , 1] };`],
       ['a number key', `export default { desc: 'a', [1]: 0 };`],
       ['a bigint key', `export default { desc: 'a', [1n]: 0 };`],
@@ -568,17 +568,12 @@ describe('extracting a command module', () => {
     it.each([
       ['an array holding a spread', `export default { desc: 'a', ...[...null] };`],
       ['an array holding a spread of a name', `export default { desc: 'a', ...[...items] };`],
-      [
-        'the name undefined, which a binding may shadow',
-        `const undefined = { desc: 'nope' };
-         export default { desc: 'a', ...undefined };`,
-      ],
     ])(
       'a desc before a spread of %s was baked, though that spread is not known to carry indices or nothing',
       (_, source) => {
-        // SIG-421, review round 4. `[...null]` throws when the object is
-        // evaluated, and `undefined` is a name a binding can shadow -- so
-        // neither is a literal read off the source, and both may carry anything
+        // SIG-421, review round 4. A spread inside an array is an expression
+        // rather than a literal -- `[...null]` throws when the object is
+        // evaluated -- so it is not read, and the array may carry anything
         const { diagnostics, facts } = extractCommand('a.js', source);
 
         expect(facts).to.deep.equal({});

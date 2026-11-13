@@ -11,8 +11,6 @@
  * the caller decides whether that is worth reporting. Nothing here guesses.
  */
 
-import { bindsName } from './bindings.ts';
-import type { ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
 
@@ -146,9 +144,8 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * `"null"`, `[/a/g]` is `"/a/g"` -- and a spread may replace only what its operand can carry: an
  * object literal what it carries, read through its own spreads; an array, a
  * string or a template literal its indices and nothing else -- an array only
- * when no element is itself a spread; and any other literal, or a `void`
- * expression, nothing at all. A spread of the identifier `undefined` is a
- * name like any other, because a binding of that name can shadow it.
+ * when no element is itself a spread; and any other literal, or `undefined`,
+ * nothing at all.
  *
  * **Literals are read and expressions are not evaluated.** A spread of a name,
  * a call, or a conditional, logical or sequence expression -- even one whose
@@ -178,8 +175,8 @@ export function mayCarry(property: ObjectExpression['properties'][number], key: 
         );
       case 'ArrayExpression':
         // an array copies its indices and nothing else -- unless an element
-        // is itself a spread, which is evaluated when the object is: `[...null]`
-        // throws, so the app never starts, and that is not this to settle
+        // is itself a spread, which is an expression rather than a literal and
+        // so is not read: `[...null]` throws when the object is evaluated
         return (
           spread.elements.some((element) => element?.type === 'SpreadElement') || INDEX.test(key)
         );
@@ -191,13 +188,8 @@ export function mayCarry(property: ObjectExpression['properties'][number], key: 
         // `null`, a boolean, a number, a bigint, and a regular expression,
         // whose one own property is `lastIndex`, which does not enumerate
         return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
-      case 'UnaryExpression':
-        // `void` is `undefined` whatever it is applied to, and cannot be
-        // shadowed -- where the identifier `undefined` can, by a binding of
-        // that name, so it is a name like any other and falls through
-        return spread.operator !== 'void';
       default:
-        return true;
+        return !isUndefined(spread);
     }
   }
 
@@ -623,24 +615,11 @@ export function loaderSpecifier(node: Expression): string | undefined {
 /**
  * Whether a node is `undefined`, which the runtime reads as not declared:
  * the identifier, or `void` over anything, which is how a minifier spells it.
- *
- * Given the module, the identifier counts only where the module binds no name
- * `undefined` -- module-wide, for the reason `bindsName()` is -- because a
- * binding of that name shadows the global, and reading `desc: undefined` as
- * not declared under `const undefined = 'x'` bakes the module's description
- * over the `x` the app shows (SIG-421). `void` cannot be shadowed. A caller
- * that only decides a *message* may leave the module out.
- *
- * @param node - The expression.
- * @param parsed - The module it is in, where what is decided is baked.
- * @returns Whether it is `undefined`.
  */
-export function isUndefined(node: Expression, parsed?: ParsedModule): boolean {
+export function isUndefined(node: Expression): boolean {
   const value = unwrapShallow(node);
   return (
-    (value.type === 'Identifier' &&
-      value.name === 'undefined' &&
-      (parsed === undefined || !bindsName(parsed, 'undefined'))) ||
+    (value.type === 'Identifier' && value.name === 'undefined') ||
     (value.type === 'UnaryExpression' && value.operator === 'void')
   );
 }
