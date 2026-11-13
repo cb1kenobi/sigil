@@ -1744,7 +1744,9 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   `autocomplete()` (twice), the palette's slot check, `tree()` (twice),
   `TreeListView()`, the toolchain's `discover.ts`, the i18n catalog loader's debug
   line, the update check's three debug lines and `main()`'s own, the YAML store's
-  `toJSON` refusal, and two demos. The i18n and update-check sites were the same
+  `toJSON` refusal, two demos, and `render()`'s aggregate when a teardown and
+  `onError` both threw after a failed mount (SIG-427: SIG-348 added it while this change
+  was in review, so the sweep missed it). The i18n and update-check sites were the same
   defect in a sharper form: `String(err)` and `(err as Error).message` throw
   inside their own `catch` for an object with no prototype, or for `null`, so a
   locale loader that rejected with one failed `main()` with `Cannot convert
