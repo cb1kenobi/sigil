@@ -14,6 +14,8 @@
  * `effect()`'s job, and further up it is the frame loop's.
  */
 
+import { raise } from './raise.js';
+
 /** Nothing upstream changed; the cache stands. */
 const CLEAN = 0;
 
@@ -455,26 +457,6 @@ function propagateDeep(producer: Producer, errors: unknown[]): void {
     }
   } finally {
     sinkWalks.length = base;
-  }
-}
-
-/**
- * Rethrows what a walk collected, having finished the walk first.
- *
- * One callback must not take the rest of a graph mutation with it -- a sink left
- * unmarked keeps serving a value from before the write, and a source left
- * unswept keeps an edge nothing reads -- so the errors are gathered and raised
- * once the structure is consistent again.
- *
- * @param errors - What was caught along the way.
- * @param message - What to call the aggregate, when there is more than one.
- */
-function raise(errors: unknown[], message: string): void {
-  if (errors.length === 1) {
-    throw errors[0];
-  }
-  if (errors.length > 1) {
-    throw new AggregateError(errors, message);
   }
 }
 

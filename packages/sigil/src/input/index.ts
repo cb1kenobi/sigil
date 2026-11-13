@@ -59,6 +59,7 @@ import type { Element } from '../element/index.js';
 // the barrel would put the layout engine and the cascade behind this module
 import { scrollIntoView } from '../element/scroll.js';
 import { State, untrack } from '../signals/index.js';
+import { raise } from '../signals/raise.js';
 import {
   PASTE_END,
   PASTE_START,
@@ -2393,11 +2394,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         thrown.push(caught);
       }
     }
-    if (thrown.length > 0) {
-      throw thrown.length === 1
-        ? thrown[0]
-        : new AggregateError(thrown, 'Errors in onEnd() handlers');
-    }
+    raise(thrown, 'Errors in onEnd() handlers');
   };
 
   const onStreamEnd = (): void => ended();

@@ -616,6 +616,279 @@ describe('context', () => {
   });
 });
 
+describe('provideContext() inside an effect body', () => {
+  it('should dispose the scope a run opened when the body runs again', () => {
+    // the scope was a child of the component and `runWithOwner()` detached what
+    // was built in it from the run, so after five writes to `mode` there were
+    // six live inner effects -- six runs and six sinks for one write to `tick`
+    // -- and not one of the five stale scopes' cleanups had run. A plain nested
+    // `createEffect()` gives 1, 1 and 5, and so does this now
+    const theme = createContext('plain');
+    const mode = new State('a');
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        provideContext(theme, mode.get(), () => {
+          createEffect(() => {
+            tick.get();
+            runs++;
+          });
+          onCleanup(() => cleanups++);
+        });
+      });
+    }, effects.effect);
+
+    for (let i = 0; i < 5; i++) {
+      mode.set(`m${i}`);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
+  });
+
+  it('should undo the scope in the order the run built it', () => {
+    const order: string[] = [];
+    const theme = createContext('plain');
+    const mode = new State(0);
+
+    createRoot(() => {
+      createEffect(() => {
+        mode.get();
+        onCleanup(() => order.push('before'));
+        provideContext(theme, 'dark', () => {
+          onCleanup(() => order.push('inside'));
+        });
+        onCleanup(() => order.push('after'));
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+
+    expect(order).toEqual(['after', 'inside', 'before']);
+  });
+
+  it('should report what a cleanup in the scope threw, as the run reports its own', () => {
+    const thrown: unknown[] = [];
+    effects.setErrorHandler((error) => void thrown.push(error));
+    const theme = createContext('plain');
+    const mode = new State(0);
+    let before = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        mode.get();
+        onCleanup(() => before++);
+        provideContext(theme, 'dark', () => {
+          onCleanup(() => {
+            throw new Error('unsubscribe failed');
+          });
+        });
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+
+    expect(thrown.map((e) => (e as Error).message)).toEqual(['unsubscribe failed']);
+    expect(before).toBe(1);
+  });
+
+  it('should dispose the scope a run opened when the run then throws', () => {
+    // a run that failed handed the signals layer no cleanup, so the scope's
+    // disposer went out of scope with the run's list: three odd writes left
+    // three scopes live, four runs and four sinks for one write to `tick`,
+    // where a plain nested `createEffect()` gives one and one
+    const errors: unknown[] = [];
+    effects.setErrorHandler((error) => void errors.push(error));
+    const theme = createContext(0);
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        const m = mode.get();
+        provideContext(theme, m, () => {
+          createEffect(() => {
+            tick.get();
+            runs++;
+          });
+          onCleanup(() => cleanups++);
+        });
+        if (m % 2) {
+          throw new Error('odd');
+        }
+      });
+    }, effects.effect);
+
+    for (let i = 1; i <= 6; i++) {
+      mode.set(i);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(6);
+    expect(errors.map((e) => (e as Error).message)).toEqual(['odd', 'odd', 'odd']);
+  });
+
+  it('should dispose the scope with the run when what it built threw and the body caught it', () => {
+    // why the disposer is registered before `fn` runs rather than after: the
+    // throw would skip a registration that came after it, and the body that
+    // caught the throw goes on to finish the run normally
+    const theme = createContext(0);
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        try {
+          provideContext(theme, mode.get(), () => {
+            createEffect(() => {
+              tick.get();
+              runs++;
+            });
+            onCleanup(() => cleanups++);
+            throw new Error('caught');
+          });
+        } catch {
+          // the body recovers, which is the case
+        }
+      });
+    }, effects.effect);
+
+    for (let i = 1; i <= 5; i++) {
+      mode.set(i);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
+  });
+
+  it('should leave a scope opened in a component body to the component', () => {
+    // the other half of the rule: outside a run there is no run to belong to,
+    // and the scope lives until the component goes
+    const theme = createContext('plain');
+    const tick = new State(0);
+    let runs = 0;
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      provideContext(theme, 'dark', () => {
+        createEffect(() => {
+          tick.get();
+          runs++;
+        });
+      });
+    }, effects.effect);
+
+    tick.set(1);
+    effects.flush();
+    expect(runs).toBe(2);
+
+    dispose();
+    expect(sinkCount(tick)).toBe(0);
+  });
+});
+
+describe('an owned effect stopped by hand', () => {
+  /**
+   * How many cleanups an owner holds, which is where a stopped effect stayed.
+   *
+   * @param owner - The owner.
+   * @returns The length of its cleanup list.
+   */
+  function held(owner: ReturnType<typeof getOwner>): number {
+    return (owner as unknown as { cleanups: unknown[] }).cleanups.length;
+  }
+
+  it('should no longer be held by its owner', () => {
+    // the disposer was pushed onto the owner's cleanups and never taken back
+    // out, so a long-lived owner -- the app root, borrowed by a handler through
+    // `runWithOwner()` -- kept every effect it had ever started, closure and
+    // all: +218 MB of heap over 200,000 cycles, given back only when the root
+    // went
+    const count = new State(0);
+    let owner: ReturnType<typeof getOwner>;
+    createRoot(() => {
+      owner = getOwner();
+      onCleanup(() => {});
+    }, effects.effect);
+    const before = held(owner);
+
+    for (let i = 0; i < 100; i++) {
+      runWithOwner(owner, () => createEffect(() => void count.get()))();
+    }
+
+    expect(before).toBe(1);
+    expect(held(owner)).toBe(before);
+    expect(sinkCount(count)).toBe(0);
+  });
+
+  it('should leave the rest of the teardown in the order it was built', () => {
+    const order: string[] = [];
+    let stopFirst = (): void => {};
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      onCleanup(() => order.push('a'));
+      stopFirst = createEffect(() => () => order.push('first'));
+      onCleanup(() => order.push('b'));
+      createEffect(() => () => order.push('second'));
+      onCleanup(() => order.push('c'));
+    }, effects.effect);
+
+    stopFirst();
+    expect(order).toEqual(['first']);
+
+    dispose();
+    expect(order).toEqual(['first', 'c', 'second', 'b', 'a']);
+  });
+
+  it('should run every cleanup once when one stops a sibling during the teardown', () => {
+    // the teardown walks the list by index, so an effect stopped from inside it
+    // must not take itself out and move the entries under the walk
+    const order: string[] = [];
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      onCleanup(() => order.push('a'));
+      const stop = createEffect(() => () => order.push('effect'));
+      onCleanup(() => order.push('b'));
+      onCleanup(() => {
+        order.push('stop');
+        stop();
+      });
+    }, effects.effect);
+
+    dispose();
+    expect(order).toEqual(['stop', 'effect', 'b', 'a']);
+  });
+});
+
 describe('Show', () => {
   it('should close a branch whose own effect cleared the condition', () => {
     // the branch is built inside `Show`'s effect, so the write landed on a run
@@ -2485,6 +2758,160 @@ describe('cleanups inside an effect body', () => {
     effects.flush();
 
     expect(thrown.map((e) => (e as Error).message)).toContain('unsubscribe failed');
+  });
+
+  it('should run what a run registered before it threw', () => {
+    // the cleanup list of a run that threw was never handed to anybody, so an
+    // unsubscribe written above the throw never ran -- not on the next run and
+    // not at unmount: two of three ran here, one per run that returned
+    effects.setErrorHandler(() => {});
+    const mode = new State(0);
+    let cleanups = 0;
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      createEffect(() => {
+        const m = mode.get();
+        onCleanup(() => cleanups++);
+        if (m === 1) {
+          throw new Error('x');
+        }
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    expect(cleanups).toBe(2);
+    mode.set(2);
+    effects.flush();
+    dispose();
+
+    expect(cleanups).toBe(3);
+  });
+
+  it('should report what the run threw as itself, and with what its cleanups threw', () => {
+    const thrown: unknown[] = [];
+    effects.setErrorHandler((error) => void thrown.push(error));
+    const mode = new State(0);
+    const run = new Error('run failed');
+    const cleanup = new Error('unsubscribe failed');
+
+    createRoot(() => {
+      createEffect(() => {
+        const m = mode.get();
+        if (m === 1) {
+          throw run;
+        }
+        if (m === 2) {
+          onCleanup(() => {
+            throw cleanup;
+          });
+          throw run;
+        }
+      });
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    expect(thrown).toEqual([run]);
+
+    mode.set(2);
+    effects.flush();
+    expect(thrown).toHaveLength(2);
+    const aggregate = thrown[1] as AggregateError;
+    expect(aggregate).toBeInstanceOf(AggregateError);
+    expect(aggregate.message).toBe('Errors in a failed effect run and its cleanups');
+    expect(aggregate.errors).toEqual([run, cleanup]);
+  });
+
+  it('should run once what an async body registered before its first await, on the first run', () => {
+    // the refusal is made after the body has returned, so whatever it registered
+    // before the await is already on the run's list -- and the refusal throws
+    // past the composite that would have carried it
+    let cleanups = 0;
+    let dispose = (): void => {};
+    const body = (async () => {
+      onCleanup(() => cleanups++);
+      await Promise.resolve();
+    }) as unknown as () => void;
+
+    createRoot((d) => {
+      dispose = d;
+      expect(() => createEffect(body)).toThrow(
+        new TypeError(
+          'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
+        )
+      );
+    }, effects.effect);
+    expect(cleanups).toBe(1);
+
+    dispose();
+    expect(cleanups).toBe(1);
+  });
+
+  it('should run once what an async body registered before its first await, on a re-run', () => {
+    const thrown: unknown[] = [];
+    effects.setErrorHandler((error) => void thrown.push(error));
+    const mode = new State(0);
+    let cleanups = 0;
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      createEffect((() => {
+        const m = mode.get();
+        onCleanup(() => cleanups++);
+        // only the second run is async, so the first can hand over a cleanup
+        // the ordinary way and the refusal is the re-run's
+        return m === 1 ? Promise.resolve() : undefined;
+      }) as () => void);
+    }, effects.effect);
+
+    mode.set(1);
+    effects.flush();
+    // the first run's, before the re-run, and the re-run's own, after its refusal
+    expect(cleanups).toBe(2);
+    expect(thrown).toHaveLength(1);
+    expect(thrown[0]).toBeInstanceOf(TypeError);
+    expect((thrown[0] as Error).message).toBe(
+      'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
+    );
+
+    mode.set(2);
+    effects.flush();
+    dispose();
+    expect(cleanups).toBe(3);
+  });
+
+  it('should put the owner back before a failed run cleans up, so what a cleanup registers is kept', () => {
+    // the failed run's list is being walked when its cleanups run, so a cleanup
+    // that registers another while that run is still current puts it into the
+    // list behind the walk, where nothing ever runs it. With the owner put back
+    // it goes where the effect was created, here the component, and runs when
+    // that goes
+    const order: string[] = [];
+    let dispose = (): void => {};
+
+    createRoot((d) => {
+      dispose = d;
+      try {
+        createEffect(() => {
+          onCleanup(() => {
+            order.push('cleanup');
+            onCleanup(() => order.push('registered by the cleanup'));
+          });
+          throw new Error('failed');
+        });
+      } catch {
+        // the component recovers from the effect that failed to start
+      }
+    }, effects.effect);
+
+    expect(order).toEqual(['cleanup']);
+
+    dispose();
+    expect(order).toEqual(['cleanup', 'registered by the cleanup']);
   });
 });
 
