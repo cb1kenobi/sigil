@@ -44,6 +44,7 @@ import {
   promptAnswerSlot,
   promptAsLines,
   promptChoice,
+  promptCountComplaint,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
@@ -532,11 +533,9 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
     /** The ticks as the answer, or why they are refused. */
     async function finish(): Promise<PromptLineReply<T | T[]>> {
       const wanted = multi as Multi;
-      if (ticked.size < wanted.min) {
-        return wanted.min === 1 ? __`Choose at least one` : __`Choose at least ${wanted.min}`;
-      }
-      if (ticked.size > wanted.max) {
-        return __`Choose at most ${wanted.max}`;
+      const wrong = promptCountComplaint(ticked.size, wanted.min, wanted.max);
+      if (wrong) {
+        return wrong;
       }
       const values = ticks().map((choice) => promptValue(choice));
       const failed = await opts.validate?.(values as never);
@@ -599,14 +598,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
         async () => {
           // the answer is what is ticked, which a lookup in flight cannot change,
           // so unlike the single prompt there is nothing here to wait for
-          const wrong =
-            ticked.size < multi.min
-              ? multi.min === 1
-                ? __`Choose at least one`
-                : __`Choose at least ${multi.min}`
-              : ticked.size > multi.max
-                ? __`Choose at most ${multi.max}`
-                : undefined;
+          const wrong = promptCountComplaint(ticked.size, multi.min, multi.max);
           if (wrong) {
             complaint = wrong;
             draw();

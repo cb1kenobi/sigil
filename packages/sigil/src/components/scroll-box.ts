@@ -77,6 +77,7 @@ import {
   type Element,
   type ElementProps,
   type ElementPropsWithout,
+  noSize,
   raw,
   type RawPaint,
   scrollBy,
@@ -561,11 +562,6 @@ export function rowWindow(count: number, height: number, offset: number, view: n
   // looking at, which `should hold every row a viewport can see, at every
   // offset` is what asks
   return { first, length: last - first + 1 };
-}
-
-/** A `raw` element's measure, for one whose size is its four insets. */
-function noSize(): { height: number; width: number } {
-  return { height: 0, width: 0 };
 }
 
 /**

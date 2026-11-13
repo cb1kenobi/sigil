@@ -1,4 +1,4 @@
-import { hasAnsi, strip } from '../../src/ansi/strip.js';
+import { hasAnsi, hasIntroducer, strip } from '../../src/ansi/strip.js';
 import { describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
@@ -107,5 +107,31 @@ describe('hasAnsi()', () => {
     expect(hasAnsi(str)).toBe(true);
     expect(hasAnsi(str)).toBe(true);
     expect(hasAnsi(str)).toBe(true);
+  });
+});
+
+describe('hasIntroducer()', () => {
+  it('should be false for the other controls, which strip() leaves alone', () => {
+    const plain = 'a\tb\nc\r\nd\u0000e\u007ff';
+    expect(hasIntroducer(plain)).toBe(false);
+    expect(strip(plain)).toBe(plain);
+  });
+
+  it('should be true for an ESC and for every C1 character', () => {
+    expect(hasIntroducer(`a${ESC}`)).toBe(true);
+    for (let code = 0x80; code <= 0x9f; code++) {
+      expect(hasIntroducer(`a${String.fromCharCode(code)}b`), code.toString(16)).toBe(true);
+    }
+    expect(hasIntroducer(' ')).toBe(false);
+  });
+
+  // what it is for: a whole string can hold no sequence while a slice of it
+  // does, so hasAnsi() of the whole says nothing about its slices
+  it('should answer for every slice, where hasAnsi() answers for the whole', () => {
+    const csi = String.fromCharCode(0x9b);
+    const whole = `${csi}12中`;
+    expect(hasAnsi(whole)).toBe(false);
+    expect(strip(whole.slice(0, 3))).toBe('');
+    expect(hasIntroducer(whole)).toBe(true);
   });
 });

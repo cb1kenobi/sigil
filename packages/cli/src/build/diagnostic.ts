@@ -8,6 +8,8 @@
  * to disagree about whether something was fatal.
  */
 
+import { byCodeUnit } from '@ttylabs/sigil/reference';
+
 /** How much a diagnostic means. */
 export type Severity = 'error' | 'warning';
 
@@ -23,6 +25,27 @@ export interface Diagnostic {
   readonly message: string;
   /** Whether the build can carry on. */
   readonly severity: Severity;
+}
+
+/**
+ * A refusal that arrived as diagnostics rather than as a sentence.
+ *
+ * What a pass deep inside the bundle throws when what it found is located in
+ * the app's source -- a template that cannot be compiled -- so the command that
+ * called it can hand the diagnostics to the same writer `sigil check` uses,
+ * rather than letting `main()` print one long message. The message is the
+ * one-line form of each, so a caller that does not know about this class still
+ * says something true, and still says it without a stack.
+ */
+export class DiagnosticError extends Error {
+  /** What was found, every one of them fatal. */
+  readonly diagnostics: readonly Diagnostic[];
+
+  constructor(diagnostics: readonly Diagnostic[]) {
+    super(diagnostics.map((diagnostic) => formatDiagnostic(diagnostic)).join('\n'));
+    this.name = 'DiagnosticError';
+    this.diagnostics = diagnostics;
+  }
 }
 
 /**
@@ -88,6 +111,30 @@ export function diagnosticLocation(diagnostic: Diagnostic): string {
   const shown = displayPath(file);
 
   return line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
+}
+
+/**
+ * Orders two diagnostics by where they are: file, then line, then column.
+ *
+ * For a pass whose findings arrive in an order nobody chose -- rolldown
+ * transforms modules concurrently -- so that two runs over one app print the
+ * same report. Files compare by code unit rather than by locale, for the reason
+ * `byCodeUnit()` exists: an order that moves with the machine's language is not
+ * an order.
+ *
+ * @param one - A diagnostic.
+ * @param other - Another.
+ * @returns Negative, zero or positive, as `sort()` wants.
+ */
+export function byLocation(
+  one: Pick<Diagnostic, 'column' | 'file' | 'line'>,
+  other: Pick<Diagnostic, 'column' | 'file' | 'line'>
+): number {
+  return (
+    byCodeUnit(one.file, other.file) ||
+    (one.line ?? 0) - (other.line ?? 0) ||
+    (one.column ?? 0) - (other.column ?? 0)
+  );
 }
 
 /**

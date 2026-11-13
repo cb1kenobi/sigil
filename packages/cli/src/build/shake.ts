@@ -192,7 +192,7 @@ const SKIPPED = new Set(['node_modules']);
 
 /** What to scan, and what to keep regardless. */
 export interface ScanOptions {
-  /** Absolute directories to leave out -- the output directory, normally. */
+  /** Directories to leave out: the one being written and the build's own. */
   readonly exclude?: readonly string[];
   /** Class names kept whatever the source says. */
   readonly safelist?: readonly string[];
@@ -231,13 +231,17 @@ export interface ScanOptions {
  *
  * What it must not read is a *previous build's output*, whose text is evidence
  * for rules the app never names -- the whole sheet when it was built
- * `--no-shake`, a few dozen more when it was shaken. The output directory is
- * excluded for that reason, compared by physical path, and the exclusion is
- * the whole of the guard: a build empties it only once the bundle has read its
- * graph, which is after this walk. A **second**, stale output directory
- * somewhere else in the app is the case that gets through, and the failure is
- * the safe one: more is kept than the app names, never less, and the count in
- * the summary shows it.
+ * `--no-shake`, a few dozen more when it was shaken. So the caller excludes the
+ * configured build directory as well as the one being written -- `bundleApp()`
+ * passes its own `out` and the `outputs` both commands hand it -- which is what
+ * let `sigil package`, bundling under `node_modules`, read the `dist/` a
+ * `sigil build` had left (SIG-354). They are compared by physical path, and the
+ * exclusion is the whole of the guard: a build empties its output only once the
+ * bundle has read its graph, which is after this walk. Nothing else: a
+ * directory excluded here is evidence lost if it holds source, so one that holds
+ * no bundle is not worth the risk. A stale bundle nobody configured still gets
+ * through, and its failure is the safe one: more is kept than the app names,
+ * never less, and the summary's count says so.
  *
  * @param root - The app root.
  * @param options - What to leave out, and what to keep regardless.

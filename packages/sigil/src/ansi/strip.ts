@@ -83,7 +83,25 @@ export function matcher(): RegExp {
  * @returns The string with no escape sequences left in it.
  */
 export function strip(str: string): string {
-  return str.includes(ESC) || hasC1(str) ? str.replace(matcher(), '') : str;
+  return hasIntroducer(str) ? str.replace(matcher(), '') : str;
+}
+
+/**
+ * Whether a string holds anything `strip()` acts on: an `ESC`, or a single-byte
+ * C1 character (U+0080 to U+009F).
+ *
+ * This is not `hasAnsi()`. That asks whether a whole sequence is there, and the
+ * answer can change when the string is cut: `\u009b12` is a sequence and
+ * `\u009b12中` is not, so a slice of a string with no sequence in it can still
+ * have one. Every sequence starts with one of these characters, so a string
+ * without one is a string that `strip()` leaves alone, and so is every slice of
+ * it. That is what a caller measuring a string piece by piece needs to know.
+ *
+ * @param str - The string to test.
+ * @returns `true` when `strip()` may remove something from it or a slice of it.
+ */
+export function hasIntroducer(str: string): boolean {
+  return str.includes(ESC) || hasC1(str);
 }
 
 /**

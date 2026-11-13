@@ -49,6 +49,7 @@ import { refuseOwnedHooks } from './owned-hooks.js';
 import type { SelectRowColumn } from './select-row.js';
 import {
   cellOrder,
+  DIGIT_COLUMNS,
   type TableCell,
   tableCell,
   type TableCellView,
@@ -233,9 +234,6 @@ const ARROWS = {
   ascii: { ascending: '^', descending: 'v' },
   unicode: { ascending: '▲', descending: '▼' },
 } as const;
-
-/** How many columns a digit can reach. */
-const DIGITS = 9;
 
 /**
  * Fits columns into a width: which are shown, and how wide each is.
@@ -540,7 +538,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       return false;
     }
     layout = { shown, widths };
-    digits.set(shown.filter((i) => i < DIGITS && (list[i] as Spec<T>).sortable));
+    digits.set(shown.filter((i) => i < DIGIT_COLUMNS && (list[i] as Spec<T>).sortable));
     drawHead();
     built?.refresh();
     return true;

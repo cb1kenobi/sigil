@@ -36,6 +36,8 @@
  */
 
 export {
+  byLocation,
+  DiagnosticError,
   displayPath,
   diagnosticLocation,
   formatDiagnostic,
@@ -135,6 +137,12 @@ export {
   type ShakenModule,
   type ShakenSheet,
 } from './shake.ts';
+export {
+  compileTemplates,
+  TemplateCompileError,
+  templateDiagnostics,
+  type TemplateFailure,
+} from './compile-templates.ts';
 export {
   findTemplates,
   templatesIn,

@@ -1404,6 +1404,21 @@ export function raw(options: RawOptions, props: ElementProps = {}): Element {
 }
 
 /**
+ * A `raw` element's measure, for one that takes no room of its own.
+ *
+ * What the scroll box's track and thumb and the pane's edge are: `position:
+ * absolute` with the rectangle given by the insets, so what it would measure to
+ * is never asked for a size. Both components had written it (SIG-366); it is
+ * here beside `raw()` because both already import this module, so neither
+ * they nor an ejected copy of either loads anything more for it.
+ *
+ * @returns No width and no height.
+ */
+export function noSize(): { height: number; width: number } {
+  return { height: 0, width: 0 };
+}
+
+/**
  * What an element's style is until the cascade has resolved one.
  *
  * Shared and frozen: the initial style is the same fifty-odd values for every

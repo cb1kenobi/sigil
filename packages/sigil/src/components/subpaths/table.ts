@@ -3,6 +3,7 @@ export {
   cellOrder,
   type Column,
   compareCells,
+  DIGIT_COLUMNS,
   isTableCellView,
   table,
   type TableCell,

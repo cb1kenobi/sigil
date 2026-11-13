@@ -32,6 +32,7 @@ import {
   promptAnswerSlot,
   promptAsLines,
   promptChoice,
+  promptCountComplaint,
   promptFooter,
   promptHeadLine,
   promptHeadWidths,
@@ -40,6 +41,7 @@ import {
   type PromptOptions,
   PromptError,
   promptSameValue,
+  promptSeek,
   promptValue,
   runPrompt,
   separator,
@@ -233,32 +235,6 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     return n === 0 ? 'none' : n === members.length ? 'all' : 'some';
   }
 
-  function complaint(): string | undefined {
-    if (ticked.size < min) {
-      return min === 1 ? __`Choose at least one` : __`Choose at least ${min}`;
-    }
-    if (ticked.size > max) {
-      return __`Choose at most ${max}`;
-    }
-    return undefined;
-  }
-
-  /** The nearest row on offer one way from `from`, or `from` if there is none. */
-  function seek(from: number, direction: 1 | -1): number {
-    for (let step = 1; step <= rows.length; step++) {
-      let at = from + direction * step;
-      if (loop) {
-        at = ((at % rows.length) + rows.length) % rows.length;
-      } else if (at < 0 || at >= rows.length) {
-        break;
-      }
-      if (rows[at].offered) {
-        return at;
-      }
-    }
-    return from;
-  }
-
   /** Ticks every choice, or none if they all are already. */
   function all(): void {
     // a group is the sum of its choices and has nothing of its own to tick
@@ -354,8 +330,8 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     // gesture differently. Home and End are this prompt's own and, like the
     // arrows, are answered without being listed
     const keys = promptKeys<{ value: T[] } | void>();
-    keys.on('up', () => void (active = seek(active, -1)));
-    keys.on('down', () => void (active = seek(active, 1)));
+    keys.on('up', () => void (active = promptSeek(rows, active, -1, loop)));
+    keys.on('down', () => void (active = promptSeek(rows, active, 1, loop)));
     keys.on('home', () => void (active = offeredRows[0] as number));
     keys.on('end', () => void (active = offeredRows.at(-1) as number));
     keys.on(
@@ -386,7 +362,7 @@ export function groupMultiselect<T = string>(opts: GroupMultiselectOptions<T>): 
     keys.on(
       'enter',
       () => {
-        error = complaint();
+        error = promptCountComplaint(ticked.size, min, max);
         return error ? undefined : { value: chosen() };
       },
       { description: __`confirm`, priority: 3 }

@@ -55,22 +55,23 @@ import {
   appRuns,
   binName,
   assertCleanable,
+  buildOutDir,
   buildReads,
+  bundleFailure,
   bundleWrites,
   clean,
   commandsFound,
+  DEFAULT_BUILD_OUT,
   failure,
   inspect,
   reportDiagnostics,
   resolveOut,
+  utilityRules,
   type Inspection,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components/table';
 import { relative, resolve } from 'node:path';
-
-/** Where a build goes when nobody says otherwise. */
-const DEFAULT_OUT = 'dist';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
 const build: AnyCommand = command({
@@ -103,7 +104,7 @@ const build: AnyCommand = command({
       desc: 'Skip the sourcemaps, which are several times the size of the code',
     },
     '--out [dir]': {
-      default: DEFAULT_OUT,
+      default: DEFAULT_BUILD_OUT,
       desc: 'Where the bundle goes, relative to the app',
     },
   },
@@ -142,7 +143,7 @@ const build: AnyCommand = command({
     const config = sigilConfig.build ?? {};
     const out = resolveOut(
       found.app.root,
-      String(argv.out === DEFAULT_OUT ? (config.out ?? DEFAULT_OUT) : argv.out)
+      String(argv.out === DEFAULT_BUILD_OUT ? (config.out ?? DEFAULT_BUILD_OUT) : argv.out)
     );
 
     const name = binName(found, (argv.name as string | undefined) ?? config.name);
@@ -167,6 +168,9 @@ const build: AnyCommand = command({
       defaultLocale: sigilConfig.locale,
       external: (argv.external as string[] | undefined) ?? config.external ?? [],
       out,
+      // what `sigil.json` says this app builds into, which the style shake
+      // must not read as source whatever `--out` is this time
+      outputs: [buildOutDir(found.app.root, sigilConfig)],
       safelist: config.safelist,
       shake: argv.shake !== false && config.shake !== false,
       sourcemap: argv.sourcemap !== false && config.sourcemap !== false,
@@ -179,6 +183,8 @@ const build: AnyCommand = command({
         config: sigilConfig,
         packageName: found.app.manifest.name,
       }),
+    }).catch((e: unknown) => {
+      throw bundleFailure(found, counts, e);
     });
 
     // the two tables are what the summary says at greater length -- what was
@@ -212,13 +218,7 @@ const build: AnyCommand = command({
         // called `utilitySheet()`: saying nothing is the right answer for an
         // app with no utility sheet in its bundle, and `383 of 383` would be
         // a sentence about a sheet that is not there
-        ...(result.styles
-          ? [
-              `${result.styles.kept} of ${result.styles.total} utility rules${
-                counts.warnings ? ',' : ''
-              }`,
-            ]
-          : []),
+        ...(result.styles ? [`${utilityRules(result.styles)}${counts.warnings ? ',' : ''}`] : []),
         ...(counts.warnings
           ? [
               {

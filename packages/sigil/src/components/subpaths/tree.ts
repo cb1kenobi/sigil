@@ -6,6 +6,7 @@ export {
   selectTree,
   type SelectTreeOptions,
   tree,
+  TREE_FIXED,
   type TreeChildren,
   type TreeChoice,
   type TreeChoiceItem,

@@ -41,7 +41,11 @@ export interface ProgressOptions extends MountOptions, ProgressStatsOptions {
   text?: string;
   /** How wide the bar itself is. Defaults to a third of the terminal, 10-40. */
   barWidth?: number;
-  /** How often a plain log line is written when there is no terminal, in percent. Defaults to 10. */
+  /**
+   * How often a plain log line is written when there is no terminal, in percent.
+   * Defaults to 10. A whole number of percent: a fraction is rounded, and below 1
+   * is every percent.
+   */
   step?: number;
   /** How many units of work there are. Defaults to 100. */
   total?: number;
@@ -82,10 +86,50 @@ export function renderBar(ratio: number, width: number, filled: string, empty: s
   const per = Math.max(1, stringWidth(filled), stringWidth(empty));
   const cells = Math.max(1, Math.floor(columns / per));
 
-  const clamped = Math.min(1, Math.max(0, Number.isFinite(ratio) ? ratio : 0));
-  const done = Math.round(clamped * cells);
+  const done = Math.round(fraction(ratio) * cells);
 
   return filled.repeat(done) + empty.repeat(cells - done);
+}
+
+/** A ratio held between 0 and 1, and 0 when it is not a finite number. */
+function fraction(ratio: number): number {
+  return Math.min(1, Math.max(0, Number.isFinite(ratio) ? ratio : 0));
+}
+
+/**
+ * The step a bar's plain form moves in: a whole number of percent, at least 1,
+ * and 10 when what was given is not a positive, finite number.
+ *
+ * Whole because the percentage is, so a step of `0.3` -- which wrote `49.8%` --
+ * is every percent, and `7.5` is `8`. Finite because `Math.floor(whole /
+ * Infinity) * Infinity` is `0 * Infinity`, which is `NaN%`.
+ *
+ * @param step - The step asked for.
+ * @returns The step to use.
+ */
+export function progressStep(step: number | undefined): number {
+  return step !== undefined && step > 0 && step < Infinity ? Math.max(1, Math.round(step)) : 10;
+}
+
+/**
+ * The whole percentage a bar shows: rounded down to `step`, except that a bar
+ * that finished says `100` whatever `step` divides into.
+ *
+ * One answer for the single bar, the group's rows and a `progressView()` over a
+ * state somebody built by hand. A ratio that is not finite is `0`, which is the
+ * bar's own reading in `renderBar()`, and the step goes through
+ * `progressStep()`, so neither can come out as `NaN%`. Stepping alone left
+ * `step: 30` ending its log at 90%, and a bar whose last word is 90% is one the
+ * reader cannot tell from a build that stopped there.
+ *
+ * @param ratio - How far along, 0 to 1.
+ * @param step - What to round down to, in percent: `1` for every percent.
+ * @returns The percentage, 0 to 100.
+ */
+export function progressPercent(ratio: number, step: number): number {
+  const whole = Math.floor(fraction(ratio) * 100);
+  const by = progressStep(step);
+  return whole === 100 ? whole : Math.floor(whole / by) * by;
 }
 
 /** What a progress bar's tree is driven by, and what the facade writes to. */
@@ -102,6 +146,20 @@ export interface ProgressState {
   readonly label: State<string>;
   /** How much work there is. */
   readonly total: State<number>;
+}
+
+/**
+ * How far along a bar's state is, 0 to 1 when it was kept by a facade: the
+ * value over the total, and `0` where there is no positive total to divide by.
+ * What the bar and the percentage are both drawn from, in the single bar and in
+ * a group's plain line alike.
+ *
+ * @param state - The state.
+ * @returns The ratio.
+ */
+export function progressRatio(state: ProgressState): number {
+  const total = state.total.get();
+  return total > 0 ? state.current.get() / total : 0;
 }
 
 /**
@@ -169,10 +227,7 @@ export function progressView(state: ProgressState, opts: ProgressViewOptions): E
     'margin-left': 1,
   });
 
-  const ratio = (): number => {
-    const total = state.total.get();
-    return total > 0 ? state.current.get() / total : 0;
-  };
+  const ratio = (): number => progressRatio(state);
 
   createEffect(() => {
     const text = state.label.get();
@@ -195,12 +250,7 @@ export function progressView(state: ProgressState, opts: ProgressViewOptions): E
   });
 
   createEffect(() => {
-    const whole = Math.floor(Math.min(1, Math.max(0, ratio())) * 100);
-    // a bar that finished says so, whatever `step` divides into: stepping alone
-    // left `step: 30` ending its log at 90%, and a bar whose last word is 90%
-    // is one the reader cannot tell from a build that stopped there
-    const shown = opts.live || whole === 100 ? whole : Math.floor(whole / opts.step) * opts.step;
-    percent.setText(`${shown}%`);
+    percent.setText(`${progressPercent(ratio(), opts.live ? 1 : opts.step)}%`);
   });
 
   // only where there is a bar to be beside: the plain form is a line in a log
@@ -456,6 +506,49 @@ export function trackProgress(state: ProgressState, opts: ProgressStatsOptions):
 }
 
 /**
+ * Where a bar's value lands: between nothing and the total, and nothing at all
+ * for a value that is not a finite number.
+ *
+ * `Math.min(total, Math.max(0, NaN))` is `NaN`, and a `NaN` stored as the value
+ * is a `NaN%` on screen and in a log -- the bar itself drew empty, because
+ * `renderBar()` reads a ratio that is not finite as `0`, and this is that rule
+ * one step earlier, so the bar and its percentage cannot disagree. `0` rather
+ * than the value before it, because that is the bar's own answer, and because
+ * a value that keeps whatever was last there is one a stray `done / total`
+ * over a zero total would silently freeze. `Infinity` is not finite either, so
+ * it is `0` too rather than the total: a bar does not say it finished because
+ * somebody divided by zero. One definition for both bars, which is what
+ * `createMultiProgress()` imports it for. A total that is not a positive,
+ * finite number holds nothing, so the value is `0` there too rather than the
+ * total handed back -- the bars only ever pass one `progressTotal()` kept.
+ *
+ * @param next - The value asked for.
+ * @param total - How much work there is.
+ * @returns The value to store.
+ */
+export function clampProgress(next: number, total: number): number {
+  return Number.isFinite(next) && total > 0 && total < Infinity
+    ? Math.min(total, Math.max(0, next))
+    : 0;
+}
+
+/**
+ * The total a bar keeps: what it was given if that is a positive, finite
+ * number, and `fallback` otherwise.
+ *
+ * A total of `Infinity` makes every value `0%` and a `done()` -- which sets the
+ * value to the total -- `Infinity / Infinity`, which is `NaN%`. So it is
+ * refused the way a total of zero or less always was, with the same fallback.
+ *
+ * @param next - The total asked for.
+ * @param fallback - What to keep instead.
+ * @returns The total to store.
+ */
+export function progressTotal(next: number | undefined, fallback: number): number {
+  return next !== undefined && next > 0 && next < Infinity ? next : fallback;
+}
+
+/**
  * A progress bar, for work whose length is known.
  *
  * Where there is no terminal the bar is not drawn at all: a CI log gets a line
@@ -468,8 +561,8 @@ export function trackProgress(state: ProgressState, opts: ProgressStatsOptions):
 export function createProgress(opts: ProgressOptions = {}): Progress {
   const filled = opts.filled ?? '█';
   const empty = opts.empty ?? '░';
-  const step = opts.step && opts.step > 0 ? opts.step : 10;
-  const state = progressState(opts.text ?? '', opts.total && opts.total > 0 ? opts.total : 100);
+  const step = progressStep(opts.step);
+  const state = progressState(opts.text ?? '', progressTotal(opts.total, 100));
   // resolved up front rather than off the backend, because `barWidth()` is read
   // by an effect during the very first render -- which happens inside
   // `mountLive()`, before there is a handle to ask
@@ -486,10 +579,6 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
     (level) => progressView(state, { barWidth, empty, filled, live: level === 'live', step }),
     { ...opts, terminal }
   );
-
-  function clamp(next: number): number {
-    return Math.min(state.total.get(), Math.max(0, next));
-  }
 
   /**
    * Settles the graph and paints, which is what every setter here owes.
@@ -526,7 +615,7 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 
     set current(next: number) {
       untrack(() => {
-        state.current.set(clamp(next));
+        state.current.set(clampProgress(next, state.total.get()));
         track.update();
         draw();
       });
@@ -587,8 +676,8 @@ export function createProgress(opts: ProgressOptions = {}): Progress {
 
     set total(next: number) {
       untrack(() => {
-        state.total.set(next > 0 ? next : 1);
-        state.current.set(clamp(state.current.get()));
+        state.total.set(progressTotal(next, 1));
+        state.current.set(clampProgress(state.current.get(), state.total.get()));
         track.update();
         draw();
       });

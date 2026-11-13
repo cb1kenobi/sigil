@@ -31,8 +31,12 @@
  * input and ignored by every repository already.
  */
 
-import { compileTemplates } from './compile-templates.ts';
-import { displayPath } from './diagnostic.ts';
+import {
+  compileTemplates,
+  TemplateCompileError,
+  templateDiagnostics,
+} from './compile-templates.ts';
+import { byLocation, DiagnosticError, displayPath, type Diagnostic } from './diagnostic.ts';
 import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
@@ -97,14 +101,6 @@ export interface BundleOptions {
    * exist until now. See `clean()` in `commands/_inspect.ts`.
    */
   readonly beforeWrite?: (modules: readonly string[]) => void;
-  /**
-   * Directories the style shaker's evidence walk leaves out besides `out`,
-   * which it always does. For a caller whose bundle is not its output --
-   * `sigil package` writes its bundle to a staging directory and its binaries
-   * to `--out`, and a previous `sigil build` into that directory holds the
-   * whole utility sheet as a string, which is evidence for every rule.
-   */
-  readonly exclude?: readonly string[];
   /** What the built executable is called, without an extension. */
   readonly binName: string;
   /**
@@ -154,6 +150,22 @@ export interface BundleOptions {
   readonly form?: 'cjs' | 'esm';
   /** Where the bundle goes. */
   readonly out: string;
+  /**
+   * Other directories holding a previous bundle of this app -- the configured
+   * build output, in practice -- which the class-evidence walk leaves out
+   * alongside `out`.
+   *
+   * `out` alone was the exclusion, and it is the wrong one for every caller but
+   * a `sigil build` into its configured directory: `sigil package` bundles into
+   * a staging directory under `node_modules`, and `sigil build --out dist2`
+   * into `dist2`, so an earlier build's `dist/` was walked as source -- and it
+   * holds the utility sheet as a string, so it is evidence for every rule it
+   * kept. Measured on the `styled` fixture: 25 of 383 with no `dist/`, 58 with
+   * a shaken one and 383 with an unshaken one, for an app whose source names
+   * 25. Whoever knows the app's configuration says what these are; this
+   * function only knows where it is writing.
+   */
+  readonly outputs?: readonly string[];
   /**
    * Utility classes the shake keeps whatever the app's source says.
    *
@@ -340,10 +352,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     bin,
     binName,
     defaultLocale,
-    exclude = [],
     external = [],
     form = 'esm',
     out,
+    outputs = [],
     safelist,
     shake = true,
     sourcemap = true,
@@ -386,6 +398,11 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   const input = bin ?? generated!.file;
 
   const unresolved: string[] = [];
+  // a template that cannot be compiled, collected rather than thrown out of the
+  // hook: rolldown folds a hook's throw into an aggregated message with the
+  // toolchain's own stack in it, and one throw stops at the first module where
+  // an app with three broken modules should hear about all three
+  const uncompiled: Diagnostic[] = [];
   let templates = 0;
   let usesUpdateCheck = false;
 
@@ -394,7 +411,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // and the sheet regenerates 383 rules, neither of which an app that has not
   // opted into utilities should pay for
   const shaker: Shaker | undefined = shake
-    ? createShaker(app.root, { exclude: [out, ...exclude], safelist })
+    ? createShaker(app.root, { exclude: [out, ...outputs], safelist })
     : undefined;
 
   const bundle = await rolldown({
@@ -508,7 +525,19 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             // fixture reaches this handler zero times and `templated` reaches
             // it exactly once, for the one module holding a template. A second
             // check would be a guard that reads as load-bearing and is not
-            const compiled = compileTemplates(id, code);
+            let compiled;
+            try {
+              compiled = compileTemplates(id, code);
+            } catch (e: unknown) {
+              if (!(e instanceof TemplateCompileError)) {
+                throw e;
+              }
+              // the module is left as it was, which is still JavaScript, so
+              // rolldown carries on and every other broken module is found
+              // too; the build is refused after the write, below
+              uncompiled.push(...templateDiagnostics(e));
+              return null;
+            }
             if (!compiled) {
               return null;
             }
@@ -736,6 +765,17 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
         // not rolldown's wrapping of it with six frames of its own stack
         throw refused === undefined ? e : new Error(refused);
       });
+
+    // a template that could not be compiled, asked first because it is about
+    // the app's own source and the gates below are about what the bundle came
+    // to -- and after the write for the reason the unresolved-import gate gives
+    // below: the transform has not run until then. Sorted, since rolldown
+    // transforms modules in whatever order it likes and a report that reorders
+    // itself between two runs of one app cannot be diffed
+    if (uncompiled.length) {
+      undo(out, written.output);
+      throw new DiagnosticError(uncompiled.toSorted(byLocation));
+    }
 
     // asked after the write, which reads backwards and is the only place the
     // answer exists. `rolldown()` builds nothing: rolldown's own documentation

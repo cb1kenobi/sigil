@@ -66,6 +66,7 @@ import {
   type Terminal,
   terminal as defaultTerminal,
 } from '../terminal/index.js';
+import { MAX_TIMER_DELAY } from '../util/timer.js';
 import {
   type CapabilityReply,
   isCapabilityResponse,
@@ -192,18 +193,6 @@ export const SEQUENCE_TIMEOUT: number = 500;
  * edge and `ListView`'s rows read it (SIG-280 moved it here from the pane).
  */
 export const DOUBLE_CLICK_MS: number = 400;
-
-/**
- * The longest delay `setTimeout` will hold.
- *
- * Node stores one as a signed 32-bit integer, so anything past this becomes
- * `1` -- which is the trap `Infinity` is already refused for, reached by a
- * finite number instead. A value past it is clamped rather than thrown away: a
- * caller who wrote one meant "as long as possible", and the longest delay there
- * is the nearest answer, where falling back to the default would be *shorter*
- * than what they asked for.
- */
-const MAX_DELAY = 2_147_483_647;
 
 /**
  * Reads the spec of a {@link InputRouter.fallback}, which is exactly one key.
@@ -1032,13 +1021,16 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * the typewriter's own rule: `Infinity >= 0` is true and node reads a delay
    * past 2^31-1 as 1, so honouring one asks for "never" and gets "at once". And
    * a *finite* number past that ceiling is the same trap one step along, so it
-   * is clamped rather than honoured -- `MAX_DELAY` has which way round and why.
+   * is clamped to `MAX_TIMER_DELAY` rather than thrown away: a caller who wrote
+   * one meant "as long as possible", and the longest delay there is the nearest
+   * answer, where falling back to the default would be *shorter* than what they
+   * asked for.
    */
   const waitFor =
     typeof opts.sequenceTimeout === 'number' &&
     Number.isFinite(opts.sequenceTimeout) &&
     opts.sequenceTimeout >= 0
-      ? Math.min(opts.sequenceTimeout, MAX_DELAY)
+      ? Math.min(opts.sequenceTimeout, MAX_TIMER_DELAY)
       : SEQUENCE_TIMEOUT;
 
   /**

@@ -1831,6 +1831,69 @@ decided once, for all of them. The runs and the sabotage passes are in
   flex items, and a wrapped first item leaves the other two beside its _box_
   rather than after its last line. Scrolling is what readline does and it keeps
   the caret on screen, which wrapping in a fixed grid would not.
+- **The window is one segmentation walked out from the caret, and the old loop is
+  its oracle (SIG-368).** `windowOf()` -- `promptWindow()` to the six components
+  that borrow it -- dropped a cluster from the front, measured everything left
+  with `stringWidth()`, and went round again, then did the same from the back:
+  quadratic in the value's length, on every draw, and a draw is every key. A
+  paste is flattened to one line, so one long paste made every later keystroke
+  slow. It now segments the value once, finds the caret's cluster in that, and
+  adds up cluster widths backward from the caret while they fit and then forward
+  with what is left, which is the same answer by construction: the backward walk
+  stops at the smallest run of dropped clusters, the forward one at the largest
+  run kept. What makes it the same answer _in fact_ is
+  `test/components/prompt-window.test.ts`, which keeps the old loop verbatim and
+  compares the two over seeded random values of CJK, emoji with skin tones and
+  joiners, flags and lone regional indicators, combining marks and zero-width
+  characters, at every kind of cursor and room -- on whichever ICU the runtime
+  has, because segmentation of new emoji moves between versions. 150,000 values
+  of up to ninety pieces agreed when it was written; the suite runs 4,000. Its
+  growth test counts code units handed to the width module rather than timing
+  anything, and asserts the oracle grows with the square so that the count can
+  tell.
+
+  Two things in it are not obvious. **A value holding an `ESC` or a C1
+  character takes the old loop**, because `stringWidth()` strips escape
+  sequences and what it strips from a slice depends on where the slice was cut
+  -- `ESC[31m` measured whole is nothing and with the `ESC` dropped is four
+  columns -- so no running sum reproduces it. The gate is `hasIntroducer()`
+  from `src/ansi/strip.ts`, which is the same test `strip()` itself makes
+  before doing anything, so the two cannot come to disagree about what gets
+  stripped. It is published on `@ttylabs/sigil/ansi`, which this file did not
+  choose lightly: `prompt` is a registry entry, an ejected copy may import only
+  what the package exports, and the generator refuses `../ansi/strip.js`. Any
+  other control character -- a tab, a line break, `NUL`, `DEL` -- is one
+  `strip()` leaves alone, so it takes the walk and measures what it always did.
+  The first version gated on `\p{Cc}`, which was correct and needlessly slow: a
+  2,001-character CJK value ending in one tab took 349ms a draw on the old loop
+  against 0.3ms walked. Typing and pasting refuse an `ESC` and a C1 character,
+  so what reaches the old loop is a value the app wrote, or a file name the
+  path prompt completed -- a POSIX name may hold either. And **a caret inside a
+  cluster, or past the end, segments its head separately**, since the text
+  before it is then not a run of the value's clusters and the old loop measured
+  that slice on its own. Where the caret is on a boundary the head's clusters
+  are the value's own, and segmenting it again is a second whole value's worth
+  of work: the growth test's ceiling of 1.5 code units measured per code unit of
+  value is what fails if that shortcut goes.
+
+  Measured as of SIG-368 on node 26.10, arm64 macOS, at a load average of 50 to
+  85 from other work, medians of five keys after a paste, both builds run back
+  to back: `promptWindow()` at the end of 1,000 / 2,000 / 4,000 CJK characters
+  in 40 columns went from **244 / 447 / 1,582ms to 0.11 / 0.16 / 0.24ms**, and of
+  16,000 ASCII from 144ms to 0.04ms. One typed key into `text()` after a CJK paste
+  of the same three sizes went from **93 / 370 / 1,452ms to 0.73 / 0.90 /
+  1.24ms**; a key and a frame of a `TextField` from **189 / 723 / 2,775ms to 1.39
+  / 2.12 / 3.55ms**, and at 16,000 ASCII from 286ms to 0.98ms. Read the before
+  column as a floor rather than a figure: the work it measures grows sixteenfold
+  from 1,000 to 4,000 characters and those runs grew less, which is the load
+  talking, and the review measured the 4,000-character `promptWindow()` at
+  **8,777ms** before against **0.42ms** after. What is left is
+  linear -- a 64,000-character CJK `TextField` is about 50ms a key -- and none of
+  it is here: a profile of that key is whole-value segmentation in the field's
+  `draw()`, which runs twice per key and asks `boundary()` and `stringWidth()` of
+  the whole head besides the window, in the edits' `snap()` and `boundary()`, and
+  in the layout's wrap and the canvas's write of a text holding the whole value.
+
 - **A spinner that settled or was stopped is mounted again when it is started.**
   A disposed renderer paints nothing ever again, so keeping the handle made
   `start()` after `succeed()` a call that set `spinning` to true and changed the
@@ -6602,7 +6665,8 @@ The demo is `demos/components/43-concurrent-tasks.js`.
 
 SIG-169. `src/components/group-multiselect.ts` is `multiselect()` over
 `{ group: choices }`. It is its own module built on the exports at the bottom of
-`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers), the way
+`prompt.ts` (`runPrompt()`, `listWindow()`, the head helpers, and since SIG-366
+`promptSeek()` and `promptCountComplaint()`, which it had copied), the way
 `autocomplete()` is, and `multiselect()` and `select()` are untouched: a group
 row is a third kind of row beside a choice and a separator, and teaching
 `choiceRows()` and `paintChoices()` about it would put a branch for a feature one
@@ -6646,7 +6710,9 @@ prompt has into the two functions all of them share.
   first, which the README says.
 - **Messages are `multiselect()`'s, so there are no new i18n keys.** The hint,
   `Choose at least ...`, `disabled` and `none` are the same strings through the
-  same tag.
+  same tag -- and `Choose at least ...` and `Choose at most ...` are the same
+  _call_ since SIG-366, `promptCountComplaint()`, where this sentence had been
+  true of the strings while the judgement around them was a copy.
 
 What is deliberately not done: nesting groups in groups; an `initial` row (the
 cursor starts on the first row on offer); descriptions on a group; a group-level
@@ -12157,3 +12223,106 @@ sabotage pass -- is in
   at 50,000 on a loaded machine), spread over grapheme segmentation of the block
   glyphs, the cascade, layout and garbage collection, with no one function
   holding most of it.
+
+### Helpers two components had each written, defined once (SIG-366)
+
+The root rule -- one definition per helper -- applied inside this directory,
+where eight had two or four copies. None was on the list of deliberate
+duplicates, and each pair was compared before it was folded.
+
+- **The progress bars' `clamp()` let `NaN` through, and that was the first
+  defect.** `Math.min(total, Math.max(0, NaN))` is `NaN`, so `current = NaN` was
+  stored and the percentage drew `NaN%` -- on a terminal and as a log line,
+  single bar and group alike -- while `renderBar()` beside it read the same ratio
+  as `0`. `clampProgress()` is that rule one step earlier: a value that is not
+  finite is `0`, which is the bar's own answer, rather than the value before it,
+  which would freeze a bar on a stray `done / total` over a zero total. `Infinity`
+  is not finite either, so it is `0` too where it used to clamp to the total --
+  a bar does not say it finished because somebody divided by zero. It is public,
+  so it guards its total as well: one that is not positive and finite holds
+  nothing, where `clampProgress(5, NaN)` was `NaN` and `clampProgress(5, -1)` was
+  `-1`. A total of `Infinity` is refused the way zero and below always were
+  (`progressTotal()`, with the same fallbacks of 100 and 1), because `done()`
+  writes the total as the value and `Infinity / Infinity` was the other `NaN%`.
+- **The percentage was a third copy, and its step was the second defect.** Both
+  bars rounded down to `step` with `Math.floor(whole / step) * step` behind a
+  guard of `step && step > 0`, which admits `Infinity` -- and `0 * Infinity` is
+  `NaN%` on both bars, piped and on a terminal -- and admits `0.3`, which wrote
+  `49.8%`. Found by review, after the first version of this entry said nothing
+  printed `NaN` any more. `progressStep()` is the one guard now: a whole number
+  of percent, at least 1, and 10 for anything that is not a positive, finite
+  number. `progressPercent(ratio, step)` is the one percentage, used by
+  `progressView()` and the group's plain line, and it reads a ratio that is not
+  finite as `0` and puts the step through `progressStep()` itself -- so a
+  `ProgressState` somebody built by hand and handed to the public `progressView()`
+  cannot show `NaN%` either. `progressRatio(state)` is the value over the total
+  both of them read. A fractional step above 1 moves: `7.5` was multiples of
+  `7.5`, which could be `47.5%`, and is `8` now. An integer step does not move.
+  Not touched: `Math.round` against `Math.floor` near 100% in the bar, which is
+  an open decision of its own.
+- **`seek()` was the same walk in both places, with one difference in what "on
+  offer" read.** `select()` and `multiselect()` asked `kind === 'choice' &&
+  offered`; `groupMultiselect()` asked `offered` alone, because a group heading
+  is a row that can be on offer. A separator has no `offered`, so `offered` alone
+  is both answers, and that is what `promptSeek()` reads.
+- **The count complaint is `promptCountComplaint()`, called from four sites:**
+  `multiselect()`, `groupMultiselect()`, and both forms of
+  `autocompleteMultiselect()`. The English is byte-identical, so `SIGIL_KEYS` is
+  unchanged -- regenerated to check, and it wrote the same 413 keys.
+- **`decimals()` was a regex in `number()` and a split in the slider, and the two
+  never disagreed** -- over two million values, random bit patterns among them,
+  exponent forms, negatives, integers, `NaN` and both infinities. `decimalPlaces()`
+  is the split. `MAX_DELAY` (the toast's and the clock's, the same `2^31 - 1` for
+  the same reason), `DIGITS` (the select row's and the data table's, both the
+  nine columns a digit sorts), `noSize()` (the pane's and the scroll box's
+  absolute `raw` elements) and the trees' `FIXED` run were each the same value
+  meaning the same thing. `TREE_FIXED` is frozen because it is exported, as
+  `PROMPT_SYMBOLS` is: a caller that wrote to it would change every tree.
+- **The timer limit had three more copies outside this directory**, the input
+  router's sequence timeout, the testing helpers' delay and the config watcher's
+  debounce, and all five read `src/util/timer.ts` now. The config entry gained
+  that 31-byte chunk as its eleventh module.
+- **Where each lives is decided by who would otherwise load whom, and by what an
+  ejected copy imports.** A component can be ejected, so a shared helper has to be
+  importable from a published subpath, and a facade may only re-export its own
+  module. The first version put `decimalPlaces()`, `MAX_TIMER_DELAY` and `noSize()`
+  in `src/util/` leaves re-exported by the slider, the clock and the scroll box,
+  and review found what that did to an ejected copy: `sigil add slider` imported
+  `decimalPlaces` from `@ttylabs/sigil/components/slider`, so the copy loaded the
+  built-in it replaced -- and the clock and the scroll box did the same. The rule
+  is now that a helper lives where its owner's ejected copy has it in hand:
+  - `noSize()` is `@ttylabs/sigil/element`'s, beside `raw()`, which the pane and
+    the scroll box both import already.
+  - `MAX_TIMER_DELAY` is a leaf, re-exported by `@ttylabs/sigil/renderer` --
+    the frame loop is the package's own timer, and the clock and the toast both
+    import it already. The input router, the testing helpers and the config
+    watcher import the leaf; the clock and the toast import it from the renderer,
+    in the same statement as the rest of what they take from there. Mapping the
+    leaf in `BARRELLED` was the first answer and review found what it did: an
+    ejected clock imported `@ttylabs/sigil/renderer` in two statements, which
+    `import/no-duplicates` flags in the app that ran `sigil add`. So the leaf is
+    not mapped, and a component that imports it is refused by the generator.
+    `should import each subpath once` in `test/registry.test.ts` holds every
+    entry to it, with `prompt`'s two imports of the input router -- on `main`
+    already, in a file being rewritten elsewhere -- listed as the one exception.
+  - `decimalPlaces()` is the slider's own, defined in `slider.ts`, and `number()`
+    imports it from there. No existing subpath both of them load has anything to
+    do with numbers, and a new one for one function is the exception the root
+    file says has to argue for itself. So the larger reader pays: the built-in and
+    an ejected `number()` reach the slider chunk and its two small siblings,
+    7,209 B over three modules on a graph of about 261 kB, while the slider loads
+    nothing for it.
+
+  `DIGIT_COLUMNS` is beside `compareCells()` in `table.ts`, which both of its
+  readers already imported; `TREE_FIXED` is `tree.ts`'s, which the tree list view
+  already imported; the progress helpers are `progress.ts`'s. `should not import
+  its own built-in subpath` in `test/registry.test.ts` holds every entry to it,
+  read off the code rather than the manifest's `imports`, since that list also
+  carries the usage example in a component's doc comment.
+
+- **Left alone, and why.** Nine inline `measure: () => ({ height: 0, width: 0 })`
+  closures in the prompts, the text area, the overlay and the decrypt effect
+  answer the same zero size unnamed; whether each means what `noSize()` means was
+  not audited, and three are in `prompt.ts` code another change is rewriting.
+  `test/components/shared-helpers.test.ts` pins each helper's behaviour and counts
+  the definitions across `src/`, so a copy that comes back fails there.

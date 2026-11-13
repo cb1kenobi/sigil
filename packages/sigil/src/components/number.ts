@@ -44,6 +44,7 @@ import {
   runPrompt,
   setPromptNote,
 } from './prompt.js';
+import { decimalPlaces } from './slider.js';
 
 export interface NumberOptions extends PromptOptions, AccessibleOptions {
   /** Returned when the answer is empty. Shown dimmed in the empty field. */
@@ -80,12 +81,6 @@ export interface NumberOptions extends PromptOptions, AccessibleOptions {
   validate?: (value: number) => string | undefined | false | Promise<string | undefined | false>;
 }
 
-/** How many digits follow the point when a number is written out. */
-function decimals(n: number): number {
-  const m = /^-?\d*(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(String(n));
-  return m ? Math.max(0, (m[1]?.length ?? 0) - Number(m[2] ?? 0)) : 0;
-}
-
 /**
  * A number as the field shows it, which is never in exponent form.
  *
@@ -95,7 +90,7 @@ function decimals(n: number): number {
  * says so.
  */
 function format(n: number): string | undefined {
-  const plain = String(n).includes('e') ? n.toFixed(Math.min(100, decimals(n))) : String(n);
+  const plain = String(n).includes('e') ? n.toFixed(Math.min(100, decimalPlaces(n))) : String(n);
   return plain.includes('e') ? undefined : plain;
 }
 
@@ -228,7 +223,7 @@ export function number(opts: NumberOptions): Promise<number> {
         // different from one that is wrong: the error belongs to Enter
         return;
       }
-      const places = Math.max(decimals(step), decimals(from));
+      const places = Math.max(decimalPlaces(step), decimalPlaces(from));
       next = Number((from + direction * step).toFixed(Math.min(places, 100)));
     }
 

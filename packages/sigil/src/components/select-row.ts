@@ -48,6 +48,7 @@ import {
 } from './prompt.js';
 import {
   cellOrder,
+  DIGIT_COLUMNS,
   type Column,
   type TableCell,
   tableCells,
@@ -127,9 +128,6 @@ export interface SelectRowOptions<R extends object = TableRow>
 /** The marks on a sorted heading. */
 const ARROW = { ascending: '▲', descending: '▼' } as const;
 
-/** How many columns a digit can reach. */
-const DIGITS = 9;
-
 /**
  * Asks for a row of a table.
  *
@@ -165,7 +163,7 @@ export function selectRow<R extends object = TableRow>(opts: SelectRowOptions<R>
   const sortable = columns.map((column, i) => {
     const { compare, sortable: asked } = column as SelectRowColumn;
     return (
-      i < DIGITS &&
+      i < DIGIT_COLUMNS &&
       (asked ??
         (compare !== undefined || cells.some((row) => (row[i] as TableCell).view === undefined)))
     );

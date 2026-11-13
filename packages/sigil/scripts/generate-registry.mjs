@@ -365,6 +365,13 @@ function entryMap() {
  * published from `@ttylabs/sigil/error-handler`, and lives in a leaf module so
  * that the signals graph can ask it without importing the error handler. The
  * components import the leaf, for the same reason the signals do.
+ *
+ * `src/util/timer.ts`, `MAX_TIMER_DELAY`, is deliberately **not** here (SIG-366).
+ * It is re-exported by `@ttylabs/sigil/renderer`, and the clock and the toast
+ * import it from there: mapped here, a component importing the leaf would have
+ * its ejected copy import the renderer twice, once per source line, which
+ * `import/no-duplicates` flags in the app that ran `sigil add`. Unmapped, a
+ * component that imports the leaf is refused below, naming it.
  */
 const BARRELLED = new Map([
   ['src/types.ts', 'index'],

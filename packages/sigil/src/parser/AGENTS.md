@@ -1773,7 +1773,8 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   `signals.mjs` went from 6,777 B over two modules to 7,088 B over three, and
   the root entry from 13,037 B over eight to 13,276 B over nine, which is the same code
   split into one more chunk plus the extra export. `config.mjs` reaches the leaf
-  through `i18n`, so it is 39,911 B over eleven modules; `dist.test.ts` pins the
+  through `i18n`, so it was 39,911 B over eleven modules, and 41,258 B over
+  twelve once merged with SIG-366's `timer` chunk; `dist.test.ts` pins the
   count.
 
 ### An option map is read by one function, and an array is not one
