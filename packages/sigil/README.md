@@ -1488,8 +1488,29 @@ which is the same asymmetry `version` already has.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
-fallback chain truncates at `-`, so `de-DE` is served by a `de` catalog and
-`zh-Hans-CN` by `zh-Hans` or `zh`.
+modifiers `@latin` and `@cyrillic` name a script and are read as one, so
+`sr_RS@latin` is `sr-Latn-RS`; every other modifier is dropped. The fallback
+chain truncates at `-`, so `de-DE` is served by a `de` catalog and `zh-Hans-CN`
+by `zh-Hans` or `zh`.
+
+A POSIX locale never spells a script, so before the bare language is tried the
+tag's likely script is: `zh_TW.UTF-8` is served by a `zh-TW` catalog if there is
+one, then by `zh-Hant`, and only then by `zh` — never by `zh-Hans`. What was
+asked for always wins when it is registered, so `LANG=zh` with `zh` and
+`zh-Hans` registered is served by `zh`. The likely form never changes the
+language or swaps one region for another, so `pt-BR` with `pt` and `pt-PT`
+registered is served by `pt`.
+
+| Asked for     | Registered           | Served by |
+| ------------- | -------------------- | --------- |
+| `zh`          | `zh`, `zh-Hans`      | `zh`      |
+| `zh-TW`       | `zh-Hant`, `zh`      | `zh-Hant` |
+| `zh-TW`       | `zh-TW`, `zh-Hant`   | `zh-TW`   |
+| `zh-TW`       | `zh`                 | `zh`      |
+| `zh-CN`       | `zh-Hans`, `zh-Hant` | `zh-Hans` |
+| `pt-BR`       | `pt`, `pt-PT`        | `pt`      |
+| `sr_RS@latin` | `sr-Latn`, `sr`      | `sr-Latn` |
+| `sr_RS`       | `sr-Latn`, `sr`      | `sr`      |
 
 There is no `--locale` flag, and that is a refusal rather than an omission: a
 parse can fail _before_ an option is read, so `mycli --porx --locale=de` throws
@@ -1504,6 +1525,10 @@ import { setLocale } from '@ttylabs/sigil/i18n';
 
 await setLocale(config.language); // after the app has read its config
 ```
+
+Two calls that overlap end with the **later** one in effect, however long each
+catalog takes to load; the earlier one resolves without changing anything, and
+the locale in effect stays so until the later one's catalog arrives.
 
 A string is translated **where it is built**, so a locale set here does not
 reach one already rendered. In practice that means a parse error and `--help`
