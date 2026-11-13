@@ -1,3 +1,4 @@
+import { errorMessage } from '../util/error-message.js';
 import { Computed, effectBody, outsideNotify, untrack, Watcher } from './graph.js';
 import { refuseAsync } from './raise.js';
 
@@ -107,12 +108,13 @@ const microtask: Scheduler = (fn) => queueMicrotask(fn);
  * the process, bypassing `main()`'s error handling, the `beforeError` hooks,
  * and any chance of putting the terminal back. This module cannot import the
  * error handler without inverting the layering, so it does the same thing by
- * hand and lets the renderer replace it with the real one.
+ * hand and lets the renderer replace it with the real one. The message is the
+ * handler's own `errorMessage()`, which lives in a leaf module for this reason.
  *
  * @param error - What the effect threw.
  */
 const report: EffectErrorHandler = (error) => {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   process.stderr.write(`Error in effect: ${message}\n`);
   process.exitCode ||= 1;
 };

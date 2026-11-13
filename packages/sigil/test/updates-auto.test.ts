@@ -438,6 +438,41 @@ describe('beginUpdateCheck', () => {
     expect(text).toBe('');
   });
 
+  it.each([null, undefined])(
+    'should not let a message that throws %s fail anything',
+    async (thrown) => {
+      // the catch read `(err as Error).message`, which is itself a TypeError for
+      // `null` and `undefined` -- thrown out of the catch, and so out of the
+      // `await` in `main()` after a command that had succeeded
+      seed(dir, 'mycli', '2.0.0');
+      const text = await notice({
+        name: 'mycli',
+        updateCheck: {
+          cacheDir: dir,
+          message: () => {
+            throw thrown;
+          },
+        },
+        version: '1.0.0',
+      });
+      expect(text).toBe('');
+    }
+  );
+
+  it('should not let a version that throws null fail anything', async () => {
+    const finish = await beginUpdateCheck(
+      {
+        name: 'mycli',
+        updateCheck: { cacheDir: dir },
+        version: () => {
+          throw null;
+        },
+      },
+      { env: {}, stderr: tty }
+    );
+    expect(finish).toBe(undefined);
+  });
+
   it('should not let a throwing version fail anything', async () => {
     const finish = await beginUpdateCheck(
       {

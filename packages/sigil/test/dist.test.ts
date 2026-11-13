@@ -349,13 +349,13 @@ describe('what importing the package costs', () => {
     }
   );
 
-  it('should reach exactly the eleven modules the measurement names', () => {
+  it('should reach exactly the twelve modules the measurement names', () => {
     // the markers say what it must not reach and this says it reaches nothing
     // else at all, which is the only form that catches a parser module arriving
     // as a chunk of its own under a name nothing here could have predicted.
-    // Eleven: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
-    // `env-value`, `mkdir-owner-sync`, `atomic`, `array-index`, `jsonc` and
-    // `timer` chunks --
+    // Twelve: the entry, `paths.mjs`, `i18n.mjs`, and the `transform`, `debug`,
+    // `env-value`, `mkdir-owner-sync`, `atomic`, `array-index`, `jsonc`,
+    // `timer` chunks, and `error-message` --
     // which is the module list the byte figure below is over, so the two
     // cannot come apart.
     // `mkdir-owner-sync` is the write half's: `save()` creates the directory it
@@ -386,8 +386,14 @@ describe('what importing the package costs', () => {
     // The eleventh is the same shape a fourth time, from SIG-366: the watcher's
     // debounce is clamped to `MAX_TIMER_DELAY`, which the input router, the
     // testing helpers, the clock and the toast share, so the 31-byte constant is
-    // a chunk of its own. Measured at 39,646 B over eleven after
-    expect([...staticGraph('config.mjs')].sort()).toHaveLength(11);
+    // a chunk of its own. Measured at 39,646 B over eleven after.
+    //
+    // The twelfth is the same shape a fifth time, from SIG-343: the i18n
+    // catalog loader logs what a loader rejected with through `errorMessage()`,
+    // a leaf the signals graph, the components and the error handler share, so
+    // it is split out rather than inlined. Measured at 41,258 B over twelve
+    // after, and the leaf is 296 B of it
+    expect([...staticGraph('config.mjs')].sort()).toHaveLength(12);
   });
 
   it('should cost a module rather than a component', () => {
@@ -421,9 +427,9 @@ describe('what importing the package costs', () => {
     // onto it does. The **measured** figure is here and in src/config/AGENTS.md
     // and nowhere else, for the reason the root entry's is: two comments
     // disagreeing about one measurement leave a later reader with no way to
-    // tell which was measured. The README carries a rounded "about 39 kB over
-    // eleven modules" for an app author deciding whether to import it, which is
-    // a different statement and names the same eleven
+    // tell which was measured. The README carries a rounded "about 41 kB over
+    // twelve modules" for an app author deciding whether to import it, which is
+    // a different statement and names the same twelve
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 

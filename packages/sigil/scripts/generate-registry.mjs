@@ -361,6 +361,11 @@ function entryMap() {
  * published beside `byCodeUnit()` for the toolchain, and the pager's literal
  * search imports the module itself for the same reason.
  *
+ * `src/util/error-message.ts` is that shape too: `errorMessage()` is
+ * published from `@ttylabs/sigil/error-handler`, and lives in a leaf module so
+ * that the signals graph can ask it without importing the error handler. The
+ * components import the leaf, for the same reason the signals do.
+ *
  * `src/util/timer.ts`, `MAX_TIMER_DELAY`, is deliberately **not** here (SIG-366).
  * It is re-exported by `@ttylabs/sigil/renderer`, and the clock and the toast
  * import it from there: mapped here, a component importing the leaf would have
@@ -372,6 +377,7 @@ const BARRELLED = new Map([
   ['src/types.ts', 'index'],
   ['src/util/by-code-unit.ts', 'reference'],
   ['src/util/escape-regexp.ts', 'reference'],
+  ['src/util/error-message.ts', 'error-handler'],
 ]);
 
 /**

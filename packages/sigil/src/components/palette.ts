@@ -32,6 +32,7 @@ import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import type { OptionDataType } from '../types.js';
 import { transformValue } from '../util/coerce.js';
+import { errorMessage } from '../util/error-message.js';
 import {
   type CatalogOptions,
   type CatalogTarget,
@@ -206,7 +207,7 @@ export function checkSlotValue(slot: PaletteSlot, value: string): string | undef
   try {
     coerced = transformValue(value, slot.type);
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }
 
   if (slot.choices && !slot.choices.includes(coerced)) {

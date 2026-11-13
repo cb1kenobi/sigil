@@ -1,5 +1,5 @@
 import debug from './debug/index.js';
-import { errorHandler } from './error-handler.js';
+import { errorHandler, errorMessage } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
@@ -18,7 +18,7 @@ import { trimTrailingNewlines } from './util/trim-trailing-newlines.js';
 export * from './types.js';
 export { command } from './command.js';
 export { options } from './options.js';
-export { errorExitCode, errorHandler, renderError } from './error-handler.js';
+export { errorExitCode, errorHandler, errorMessage, renderError } from './error-handler.js';
 
 const { log } = debug('sigil');
 
@@ -299,7 +299,7 @@ async function beginUpdates(schema: Schema): Promise<(() => Promise<void>) | und
     const { beginUpdateCheck } = await import('./updates/auto.js');
     return await beginUpdateCheck(schema);
   } catch (err) {
-    log(`Update check failed to start: ${(err as Error).message}`);
+    log(`Update check failed to start: ${errorMessage(err)}`);
     return undefined;
   }
 }

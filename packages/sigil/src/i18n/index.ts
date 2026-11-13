@@ -30,6 +30,7 @@
  */
 
 import debug from '../debug/index.js';
+import { errorMessage } from '../util/error-message.js';
 
 const { log } = debug('sigil:i18n');
 
@@ -879,7 +880,7 @@ async function use(tag: string | undefined): Promise<void> {
     answer = await found.loader();
   } catch (err) {
     if (generation === generations) {
-      log(`loader for ${found.tag} threw: ${String(err)}`);
+      log(`loader for ${found.tag} threw: ${errorMessage(err)}`);
       commit(undefined, tag);
     }
 

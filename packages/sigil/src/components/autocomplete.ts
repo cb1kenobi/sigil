@@ -31,6 +31,7 @@ import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { onCleanup } from '../renderer/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
+import { errorMessage } from '../util/error-message.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
 import { highlightRuns, rankBy } from './fuzzy.js';
 import {
@@ -416,7 +417,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
         }
         return offered;
       } catch (error) {
-        return error instanceof Error ? error.message : String(error);
+        return errorMessage(error);
       }
     }
 
@@ -787,7 +788,7 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
           // nothing to pick from: the list on screen answered a different term,
           // and leaving it up beside a refusal reads as though it were current
           offers = [];
-          failure = error instanceof Error ? error.message : String(error);
+          failure = errorMessage(error);
           draw();
         }
       );

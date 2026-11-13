@@ -32,6 +32,7 @@ import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
+import { errorMessage } from '../util/error-message.js';
 import {
   describeListView,
   type ListControl,
@@ -217,11 +218,6 @@ interface Model {
 /** Each tree's control, keyed by the host `TreeListView()` returned. */
 const MODELS = new WeakMap<Element, Model>();
 
-/** What a rejection says, as a line. */
-function messageOf(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 /** Whether a function's answer is a promise, or anything else with a `then`. */
 function isThenable(value: unknown): value is PromiseLike<unknown> {
   return (
@@ -342,7 +338,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         treeChoiceOf(item);
       }
     } catch (err) {
-      loads.set(value, { message: messageOf(err), state: 'failed' });
+      loads.set(value, { message: errorMessage(err), state: 'failed' });
       return;
     }
     loads.set(value, { items: items as readonly TreeChoiceItem<T>[], state: 'loaded' });
@@ -359,7 +355,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     try {
       result = fn();
     } catch (err) {
-      loads.set(value, { message: messageOf(err), state: 'failed' });
+      loads.set(value, { message: errorMessage(err), state: 'failed' });
       return;
     }
     if (!isThenable(result)) {
@@ -377,7 +373,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     };
     Promise.resolve(result).then(
       (items) => land(() => accept(value, items)),
-      (err: unknown) => land(() => loads.set(value, { message: messageOf(err), state: 'failed' }))
+      (err: unknown) =>
+        land(() => loads.set(value, { message: errorMessage(err), state: 'failed' }))
     );
   };
 

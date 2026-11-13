@@ -27,6 +27,7 @@
  * the same capabilities back through the public API, which is also what makes it
  * prove the API is usable from outside the package.
  */
+import { errorMessage } from '@ttylabs/sigil';
 import { supportsColor } from '@ttylabs/sigil/ansi';
 import { table } from '@ttylabs/sigil/components';
 import {
@@ -335,7 +336,7 @@ if (missing.length > 0) {
     // terminal that answers something this cannot read is a thing to say in one
     // line rather than a trace over the dump
     process.exitCode = 1;
-    console.error(`Could not finish probing: ${error instanceof Error ? error.message : error}`);
+    console.error(`Could not finish probing: ${errorMessage(error)}`);
   } finally {
     // put back what you attached: the router set raw mode and asked for the paste
     // markers, and a demo that leaves either on hands the shell back broken

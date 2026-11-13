@@ -1,4 +1,5 @@
 import { atPath, isArrayIndex, isPlainObject } from '@ttylabs/sigil/config';
+import { errorMessage } from '@ttylabs/sigil/error-handler';
 
 /**
  * What YAML cannot hold, asked before a write rather than discovered after one.
@@ -283,7 +284,7 @@ function look(
     try {
       said = (value as { toJSON: () => unknown }).toJSON();
     } catch (e: unknown) {
-      return at(`its own toJSON threw: ${(e as Error).message.split('\n')[0] as string}`);
+      return at(`its own toJSON threw: ${errorMessage(e).split('\n')[0] as string}`);
     }
     return look(said, where, seen, false);
   }

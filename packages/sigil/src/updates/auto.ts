@@ -11,6 +11,7 @@ import { __ } from '../i18n/index.js';
 import { cache } from '../paths.js';
 import { getQuiet } from '../style/output.js';
 import type { Schema } from '../types.js';
+import { errorMessage } from '../util/error-message.js';
 import { isChecker, isNewer, type UpdateChecker } from './checker.js';
 import { bakedConfig } from './host.js';
 import { check, type UpdateCheckOptions, type UpdateNotice } from './index.js';
@@ -163,8 +164,8 @@ export async function beginUpdateCheck(
       cacheDir,
       packageName,
       packageVersion: version,
-    }).catch((err: Error) => {
-      log(`Update check failed: ${err.message}`);
+    }).catch((err: unknown) => {
+      log(`Update check failed: ${errorMessage(err)}`);
       return undefined;
     });
     const stderr = environment.stderr ?? process.stderr;
@@ -185,11 +186,11 @@ export async function beginUpdateCheck(
           stderr.write(`\n${text}\n`);
         }
       } catch (err) {
-        log(`Update notice failed: ${(err as Error).message}`);
+        log(`Update notice failed: ${errorMessage(err)}`);
       }
     };
   } catch (err) {
-    log(`Update check failed: ${(err as Error).message}`);
+    log(`Update check failed: ${errorMessage(err)}`);
     return undefined;
   }
 }

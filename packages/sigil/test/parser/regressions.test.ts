@@ -1,5 +1,6 @@
 import { completionSpec } from '../../src/completion/spec.js';
 import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js';
+import { main } from '../../src/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
 import { initCommand } from '../../src/parser/command/init-command.js';
 import { loadCommand } from '../../src/parser/command/load-command.js';
@@ -2588,6 +2589,88 @@ describe('regressions', () => {
       const schema = { commands: { 'list, ls': { load } } };
       expect(await screen(schema, ['ls'])).toContain('Aliases: list, ls');
       expect((await parse({ argv: ['ls'], schema })).cmd?.name).to.equal('show');
+    });
+  });
+
+  describe('a command module that failed to load lost its original error', () => {
+    /**
+     * What `main()` rethrows with `errorHandler: false`, which is the one way a
+     * caller gets the error object rather than a rendered line.
+     *
+     * @param schema - The schema to run.
+     * @param argv - The arguments.
+     * @returns What was thrown.
+     */
+    async function thrown(schema: Schema, argv: string[]): Promise<Error> {
+      try {
+        await main({ argv, schema, settings: { errorHandler: false } });
+      } catch (err) {
+        return err as Error;
+      }
+      throw new Error('expected main() to throw');
+    }
+
+    it("should keep the module's own error as the cause, so its stack says where", async () => {
+      // the rethrow replaced the stack that names the module's line with one that
+      // names `load-command.ts`, and kept nothing else
+      const file = path.join(__dirname, 'fixtures', 'throws-on-load.js');
+      const err = await thrown({ commands: { boom: file } }, ['boom']);
+
+      expect(err.message).to.equal(
+        `Failed to load command module (${file}): Cannot read properties of null (reading 'boom')`
+      );
+      expect(err.cause).toBeInstanceOf(TypeError);
+      expect((err.cause as Error).stack).toContain(`${path.basename(file)}:3`);
+    });
+
+    it("should keep a loader's rejection as the cause, whatever it rejected with", async () => {
+      const reason = new Error('no chunk');
+      const err = await thrown({ commands: { build: { load: () => Promise.reject(reason) } } }, [
+        'build',
+      ]);
+
+      expect(err.message).to.equal(
+        `Failed to load command module (the "build" command's loader): no chunk`
+      );
+      expect(err.cause).to.equal(reason);
+    });
+
+    it('should say what a loader rejected with when it is not an Error', async () => {
+      // `(<Error>e).message` read `undefined` off anything that was not one
+      const err = await thrown(
+        { commands: { build: { load: () => Promise.reject('chunk 7 is missing') } } },
+        ['build']
+      );
+
+      expect(err.message).to.equal(
+        `Failed to load command module (the "build" command's loader): chunk 7 is missing`
+      );
+      expect(err.cause).to.equal('chunk 7 is missing');
+    });
+
+    it('should report a loader that rejected with a null-prototype object', async () => {
+      // `(<Error>e).message` read `undefined` off it, so the message ended in the
+      // word `undefined`; the other inline form, `String(e)`, would have thrown a
+      // TypeError from inside the catch, since an object with no prototype has
+      // no `toString`
+      const reason = Object.create(null) as object;
+      const err = await thrown({ commands: { build: { load: () => Promise.reject(reason) } } }, [
+        'build',
+      ]);
+
+      expect(err.message).to.equal(
+        `Failed to load command module (the "build" command's loader): Unknown error`
+      );
+      expect(err.cause).to.equal(reason);
+    });
+
+    it("should keep a package.json's parse error as the cause", async () => {
+      const dir = path.join(__dirname, 'fixtures', 'bad-pkg-json');
+      const err = await thrown({ commands: { foo: dir } }, ['foo']);
+
+      expect(err.message).toMatch(/^Failed to JSON parse .*package\.json: /u);
+      expect(err.cause).toBeInstanceOf(SyntaxError);
+      expect(err.message).toContain((err.cause as Error).message);
     });
   });
 
