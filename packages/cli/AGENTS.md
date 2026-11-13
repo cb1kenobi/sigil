@@ -572,11 +572,81 @@ makes it testable with a fixture directory and no bundler at all.
   computed one, because the value really is the running app's and "computed
   rather than a string literal" about a tag whose neighbour lifted fine names
   nothing the author can act on.
+- **...and the flag travels with the `desc` it was lifted beside, whichever
+  spelling reached the module.** SIG-352. `factsOf()` returns `descTranslated`
+  with the key, and a string path (`pathed: './commands/build.ts'`) spread the
+  facts and kept it, while the object form in `readCommand()` --
+  `{ load: () => import(...) }` and `{ path: ... }` -- rebuilt the command from
+  `desc`, `hidden` and `module` and dropped it. So one module listed as
+  `pathed  Die App bauen` beside `loaded  Build the app` in the same built help,
+  two spellings of one declaration disagreeing about whether help is translated.
+  The rule is the one `described()` in `tree.ts` already follows for a
+  `commands.json` entry: the flag is carried when the `desc` used is the
+  module's, and goes with the placeholder's own reading whenever the placeholder
+  declares one. `moduleFacts()` returns `CommandFacts` so the compiler sees the
+  field rather than it riding along untyped. Covered by `a translated desc was
+  baked as English ...` in `test/build/discover.test.ts` and
+  `test/build-command.test.ts`, the second over the
+  `discover/translated-placeholders` fixture, built and run from source.
+- **A placeholder that declares a `desc` or a `hidden` decides it, readable or
+  not.** SIG-352, from review. The runtime registers the placeholder as written
+  and merges the module in only where the placeholder left a key `undefined`, so
+  whatever the placeholder declares is what an unloaded command shows -- and the
+  build took only a plain literal, falling back to the module's answer for
+  anything else. So `{ desc: words, load }` listed the module's description built
+  where it listed `computed words` from source, and a `hidden: flag` that was
+  `false` was replaced by a module's `hidden: true`. `placeholderFacts()` in
+  `discover.ts` reads the declaration (the last spelling of the key, `undefined`
+  being not declared): a string literal is baked; a `__` tag is baked as
+  **prose**, without `descTranslated`, because the schema module is evaluated
+  before `main()` loads a catalog and from source that tag answers in English
+  (`DescThunk` in `@ttylabs/sigil`'s types); a thunk over a tag or a string,
+  `` () => __`...` ``, is evaluated after the catalog and is baked as the key with
+  the flag, so it is printed as the same thunk. A value it cannot read bakes
+  nothing and warns, naming the command, and a literal of a type the runtime
+  refuses fails the build in the runtime's own words -- `Expected desc for the
+  "x" command to be a string or a function`, `Expected hidden to be a boolean in
+  "x" command` -- the rule a placeholder's `alias` and `default` already follow.
+  Any declared `desc` silences the module's pre-load diagnostics, readable or
+  not, since the placeholder has answered the question they are about. Covered by
+  `a placeholder's ... were replaced by the module's` in
+  `test/build/discover.test.ts` and its built-against-source twin in
+  `test/build-command.test.ts`, over `discover/placeholder-decides`.
 - **A spread is the case that looks harmless.** `export default { ...base, hidden: true }`
   may well carry a `desc` inside `base` and nothing here can see it, so an absent
   `desc` beside a spread is _reported_ rather than taken as "there is none" --
   which is the difference between a description the build missed and one nobody
   wrote.
+- **...and a key written _before_ a spread is the same unknown, because order is
+  what the module runs with.** SIG-352. In `{ desc: 'early', hidden: false,
+  ...base }` both values are whatever `base` carries, and the build lifted
+  `early` and `false` with no warning -- so built help listed `spread  early`
+  for a command whose loaded `desc` is `from base` and which hides itself. A
+  lifted key written before the **last** spread is now reported, by name
+  (`"desc" is written before a spread, which may replace it when the module
+  runs ...`), and **nothing is baked for it**, which leaves the command where an
+  unbundled one is until its module loads -- the answer an absent `desc` beside a
+  spread already gets, and the reason the absent-key warning does not fire again
+  for a `desc` that was written early: one warning per key, naming what to move.
+  A key written after the last spread is read as before, and a key written on
+  both sides is silent, because the later spelling wins whatever the spread
+  carried. A key between two spreads is before the last one and so unknown.
+  A **computed key** counts as a spread here, because `[k]` may be `desc` as
+  easily as anything else -- the reason `keyedPackage()` refuses either -- so
+  the warning says `written before a spread or a computed key` and the last of
+  either is the line. Covered by `a desc or hidden written before a spread ...`
+  and `a desc written before a computed key ...` in `test/build/extract.test.ts`
+  and by `test/build-command.test.ts` over the `discover/spread-order` fixture,
+  built and run from source.
+- **...and a key written twice is its last spelling, whatever that turns out to
+  be.** SIG-352, from review. Each `desc` or `hidden` clears what an earlier one
+  lifted before it is read, so `{ desc: 'a', desc: f() }` bakes nothing and its
+  warning that help lists the command by name alone is true, where it used to
+  bake `a`; the same for a later accessor and a later computed `hidden`. And
+  ``{ desc: __`key`, desc: 'plain' }`` is prose, where the earlier tag's
+  `descTranslated` used to survive and print `plain` as a catalog key. A later
+  `undefined` is not declared, as the runtime reads it, so it leaves nothing and
+  says nothing.
 - **It looks through the wrappers that change nothing and stops at the one that
   might not.** `command()` is documented as the identity function and exists only
   so inference reaches a nested literal; `as` and `satisfies` are type syntax that
@@ -700,10 +770,10 @@ makes it testable with a fixture directory and no bundler at all.
   `import("./commands\build.js")` and fail at run time on the machine that
   produced it. Every specifier is written with forward slashes and carries an
   explicit `./`, since a bare `commands/build.js` is a _package_ specifier to
-  every resolver there is. A description is escaped with `JSON.stringify` and
-  then ` `/` ` on top, because those two are line terminators to a
-  JavaScript parser and JSON leaves them raw -- prose is somebody else's and may
-  hold a quote, a backslash or a newline.
+  every resolver there is. A description is quoted by `quote()` in `src/template/emit.ts`, the one
+  helper for every string the toolchain prints as source -- prose is somebody
+  else's and may hold a quote, a backslash or a newline. What it escapes, and
+  why, is the entry on it under the async schema.
 - **The app is discovered, not assumed, and `@ttylabs/sigil` in the manifest is
   what makes a directory one.** Asked before anything else, because every error
   after it would be a worse version of the same message -- "no `commands/`
@@ -844,6 +914,46 @@ makes it testable with a fixture directory and no bundler at all.
   was fatal. The type checker's paths are made absolute on the way in, because
   it is run with the app as its cwd and writes relative ones, and a report
   holding both spellings is one nobody can sort.
+- **The compiler's output is read with one line ending, and with no 1 MiB
+  ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
+  Ending it `\r\n` made `DIAGNOSTIC_RE`'s `.*$` miss every line, since `.` does
+  not match `\r`, so the build said `tsconfig.json: error: the type checker
+  exited 2 without reporting a diagnostic:` over the raw text and `1 error`
+  where it should have said `src/index.ts:3:5: error: TS2322: ...`. The output
+  is normalized to `\n` before it is read, which also keeps a `\r` out of the
+  unlocated dump, where a terminal would read it as a cursor movement. It is
+  load-bearing for an app on TypeScript 5 or 6 on Windows, by reading their
+  source rather than by running one there: `ts.sys.newLine` is `os.EOL`, and the
+  `--pretty false` reporter ends each diagnostic with `host.getNewLine()`, so
+  every such error used to collapse into the fallback -- the build still failed,
+  with no file or line. TypeScript 7.0.2 writes `\n`, which is why
+  `should report a type error, with the file and the position` already passed on
+  Windows CI. And `spawnSync()`'s default `maxBuffer` is 1 MiB, so 15,000 lines
+  (about 1.2 MiB) failed the build with `spawnSync .../node ENOBUFS` instead of
+  printing them -- an app mid-migration is exactly the one with that many.
+  `TSC_MAX_OUTPUT` is 128 MiB **per stream** -- `maxBuffer` counts stdout and
+  stderr apart, so the two together can reach twice that -- about a million and
+  a half diagnostics, and finite on purpose: `Infinity` works (checked) but leaves V8's longest string,
+  536,870,888 code units, as the real bound, which fails as
+  `ERR_STRING_TOO_LONG`. Past the limit the error says so in words and names
+  `tsc --noEmit -p <project>` rather than passing `ENOBUFS` through, and the
+  partial output is not parsed, because the compiler was killed and a prefix
+  of the diagnostics is not all of them. The `-p` it prints is relative to the
+  app's root, where `tsc` ran -- usually just `tsconfig.json` -- and goes
+  through `word()`: the first version printed the absolute path bare, so an app
+  under `app dir`, which a Windows profile directory often is, got a command a
+  shell splits in two. `word()` moved out of `commands/reference.ts` into
+  `src/shell.ts` for it rather than being copied. `maxOutput` exists for the
+  test, the way `tsc` does.
+- **A compiler stopped by a signal did not finish, and the report says so.**
+  Found by review of SIG-355, and older than it: a diagnostic followed by a
+  `SIGKILL` came back as that one diagnostic, reading as the whole report, and a
+  silent `SIGKILL` as `the type checker exited without a status`, which names
+  no cause. `run.signal` now adds an error naming the signal -- "may not be all
+  of them" when something was reported, the raw output when nothing was --
+  which is the `ENOBUFS` branch's own reasoning: a prefix is not the whole. The
+  test is skipped on Windows, where a process killing itself is
+  `TerminateProcess` and the parent sees an exit code rather than a signal.
 - **The type-check fixtures are excluded from the package's own tsconfig.**
   `test/fixtures/typecheck/broken/` holds a deliberate type error, and a suite
   that fails on its own fixture is a suite nobody can run. Same exclusion the JSX
@@ -858,8 +968,8 @@ makes it testable with a fixture directory and no bundler at all.
   compiler rather than a runtime -- nothing it emits imports it. rolldown rather
   than rollup because tsdown already builds this repo with it, so there is one
   bundler and not two, and because it embeds the same oxc the extraction pass
-  reads. `the toolchain's dependencies` in `packages/cli/test/cli.test.ts` writes
-  them out rather than counting them, so taking a new one is an edit somebody
+  reads. `should declare every dependency it has taken, and no more` in
+  `packages/cli/test/cli.test.ts` writes them out rather than counting them, so taking a new one is an edit somebody
   makes on purpose.
 - **The toolchain runs from its own source, and that is a different thing from
   building itself.** `node packages/cli/src/sigil.ts build ...` works with no
@@ -894,7 +1004,157 @@ makes it testable with a fixture directory and no bundler at all.
   options and hooks survives untouched. `commands` is the one property the build
   knows better than the app does. A schema export may be a function, because a
   schema that reads the environment has to be built rather than declared, and it
-  is called exactly where the app would have called it.
+  is called exactly where the app would have called it -- and awaited, which is
+  the entry below.
+- **A schema function is awaited, so an `async` one is a schema rather than a
+  Promise.** SIG-353. The entry called `declared()` and spread the result, so an
+  `async` schema spread a Promise: the built app said `Usage: app1.mjs`, with no
+  description and none of the root options, and the build reported success with
+  no warning. `sigil reference` already awaited the same export
+  (`schemaFrom()` in `src/reference/load.ts`), so two commands of one toolchain
+  disagreed about what a valid schema export is. The entry now awaits **what
+  the export resolves to**, a function's result or the export itself: awaiting a
+  plain object hands it straight back, a sync function returning a Promise is
+  an async schema too, and so is a Promise exported outright -- which
+  `await declared()` alone still spread into nothing, and which `sigil
+  reference` took only because an `async` function adopts a Promise it returns,
+  so its check for a schema was asked of the Promise. Both now say
+  `await (typeof declared === 'function' ? declared() : declared)`, and both
+  **refuse what that resolves to unless it is an object**, in one sentence,
+  `SCHEMA_EXPORT` in `generate.ts`: "the schema object, a function returning
+  one, or a Promise of one". A Promise of a _function_ is not called -- the
+  message first said "a Promise of either" while refusing exactly that -- and the
+  entry used to spread `null`, a string or a function into an app with no name
+  or options, which is this ticket's silent loss by another door. The build
+  cannot see that statically, so the generated entry refuses at startup, through
+  the handler below; `undefined`, an entry with neither export, is refused with
+  it, since reference refuses it and agreeing is the point. The `cjs` form `sigil package
+  --runtime node` bundles cannot hold a top-level `await`, so there the same
+  chain runs inside the async IIFE the call was already in, which is the same
+  code moved rather than a second rule. `test/async-schema.test.ts` runs the
+  fixture from source, built, and as the `cjs` bundle node would embed, through
+  one `describe.each`, and asserts the three print the same help; it builds a
+  Promise export and a throwing one from the same fixture with `--entry`; and
+  `tree.test.ts` pins both shapes of the entry.
+
+  **A schema that throws or rejects is rendered by `errorHandler()`, and only
+  the schema's failure is.** It was not a regression and it was the same line:
+  a schema function that threw reached Node's own uncaught report, with a stack
+  and the whole minified source line it sat on -- about 1.8 kB in the ESM entry
+  and 11 kB from line 1136 of the `cjs` bundle, measured -- where the rule
+  `main()` keeps is the message and never a stack. There is no `main()` yet to
+  catch it, so the entry resolves, composes and dispatches in one chain,
+  `Promise.resolve().then(resolve).then(compose).then((schema) => main({ schema
+  }), (err) => errorHandler(err))`, which renders `Error: schema threw` and sets
+  the exit code through `errorExitCode()` as anything `main()` catches is, an
+  `exitCode` on the error included. The built-in handler and no other, because
+  the settings that could name another are on the schema that failed to arrive.
+  It is the built-in handler's rendering and not quite `main()`'s: no catalog is
+  loaded this early, so the `Error:` prefix is the English one whatever the
+  locale. The **two-argument** `.then()` rather than a `.catch()` is the
+  decision: with `errorHandler: false` an app asks `main()` to reject, and a
+  `.catch()` after the call would render that rejection instead of leaving it to
+  the app -- `should leave a rejection main() was asked to make as a rejection`
+  fails against exactly that sabotage, and the render tests fail against
+  dropping the handler. The spread of `{ ...schema, commands }` is
+  **`compose()`, a step of its own**, for the same reason read the other way:
+  written inside the call it ran in the fulfilment handler whose sibling is
+  `errorHandler`, so a schema with a throwing enumerable getter escaped to
+  Node's report, where from source `main()` reads the getter and renders it
+  (review round 2; `should render a getter that throws when the schema is
+  spread` fails against moving it back). Nothing an app relies on moved: every
+  path that changed used to crash or lose the schema. One case the entry cannot
+  reach: an ESM schema module that exports a **rejected Promise** and then
+  awaits at top level has its rejection reported by Node before the entry has
+  attached a handler to it -- the same report a source runner gets, since the
+  module is still evaluating when it happens.
+
+  **Not settled here:** the dev runner `sigil new` scaffolds
+  (`src/scaffold/index.ts`) passes the export to `main()` as it stands, so an app
+  whose schema is a function or a Promise behaves the same from source and built
+  only if its own runner awaits it, as the fixture's `dev.mjs` does.
+
+  Every other place the toolchain reads the schema export was checked for the
+  same sync-only assumption, and none has it, because none runs the export:
+  `readAppCommands()` (`discover.ts`), `readAppCatalogs()` (`i18n.ts`) and
+  `readSchemaUpdateCheck()` (`update-check.ts`, which `sigil package` refuses on)
+  each look for the outermost object literal declaring a key **anywhere in the
+  module**, so a literal returned from an `async` arrow is found exactly as a
+  bare one is -- measured for `readAppCommands()` and `readSchemaUpdateCheck()`,
+  which give the same answer for a literal, a sync function and an async one,
+  and `readAppCatalogs()` is the same `outermostWith()` walk. `main-settings.ts` reads the default export
+  as a literal and gives up on a function of either kind, keeping the general
+  message, which is its recorded rule. `sigil check` is `inspect()`, which is
+  the static passes above.
+
+- **One `quote()` for every string the toolchain prints as source, and it
+  escapes the union of what the two copies did.** SIG-353. `generate.ts` and the
+  template emitter each had one: the first escaped the two line separators after
+  `JSON.stringify` "because they would end the string", the second escaped
+  nothing after it and said JSON "escapes every control character". Both
+  reasons were wrong. The separators have been legal in a string literal since
+  ES2019 and node parses one; they are escaped anyway because V8 still **counts
+  them as line breaks** -- measured, a raw U+2028 in a string on line 1 reports
+  a throw on line 2 as line 3 -- while editors and sourcemaps count `\n`, so a
+  raw one moves every line number after it. And JSON leaves `DEL` and the C1
+  controls raw, so the second claim was false of exactly the set the root
+  `AGENTS.md`'s escape rule adds to C0. The shipped bytes were never at risk --
+  the build's own escape pass runs after the minifier, which would fold any
+  escape back -- so escaping `\p{Cc}` here is about the generated module being
+  what its comment says, not about what ships. The regex names the separators
+  as `\p{Zl}` and `\p{Zp}` rather than spelling their escapes: an edit tool
+  turned a typed escape into the raw character on the way into the file,
+  which is a regex literal containing a line terminator. This file's own bullet
+  about specifiers held the two raw characters between backticks too, where it
+  meant to show their escapes; it says it in words now.
+  It lives in `src/template/emit.ts` and `generate.ts` imports it, because the
+  build already depends on the template emitter and not the other way round.
+  Its second step is `escapeUnseen()`, which `generate.ts`'s `backtick()` uses
+  too: a translated description is a `__` key printed as a template literal,
+  which JSON cannot quote, and it wrote `ESC`, `DEL` and C1 into the module raw
+  while the untranslated path escaped them. `\uXXXX` cooks back to the
+  character, so the key the tag looks up is unchanged. The other two places
+  that printed a string as source with a bare `JSON.stringify` use `quote()` as
+  well: the utility sheet `shake.ts` splices into a module, and the `define`
+  value `update-check.ts` hands the bundler -- each pinned by a test that fails
+  with the bare `JSON.stringify` put back.
+- **The build summary's `Loads` column reads rolldown's graph, not "is it the
+  entry".** SIG-353. Every chunk but the entry said `lazy`, and on a scaffolded
+  app the 0.8 kB entry statically imports about 12 kB more, so what `--help`
+  pays for was labelled as though a command had to ask for it -- which is the
+  opposite of what the column is there to say. `chunkLoads()` in `bundle.ts`
+  walks the static closure of the entry through each chunk's `imports` and calls
+  what it reaches `startup`; everything else is `dynamic`. Walked rather than
+  read off `isDynamicEntry`, which answers a different question: a chunk that is
+  an `import()` target and also statically imported by the entry loads at
+  startup, and one only a dynamic chunk imports statically is no dynamic entry
+  and is still reached only through an `import()`. `BuiltChunk.entry` became
+  `BuiltChunk.loads` rather than gaining a second boolean beside it, so there is
+  one answer to "when does this load". The labels are not translated, as nothing
+  else in that table is.
+
+  **The third label is `dynamic` and not `lazy`, because `lazy` claimed what
+  the graph cannot prove.** Review round 2 traced the loads of a built app: the
+  parser (31.8 kB) and the topic table load on **every** run, and `--help` adds
+  the theme (127 kB), help, output and label -- all of them labelled `lazy`,
+  because `main()` reaches them through its own `await import()`. That is the
+  mislabelling `startup` was introduced to fix, arriving through the runtime's
+  imports instead of the app's. Making `lazy` true would mean proving which of
+  the runtime's dynamic imports `main()` always reaches, which is a question
+  about its control flow over argv, asked of a minified bundle, and an answer
+  that moves whenever the runtime does. So the label says what the graph does
+  prove -- reached only through a dynamic `import()`, the runtime's own
+  included, which says how a chunk is reached and nothing about how often --
+  and `build-command.test.ts` asserts a `dynamic` row and no `lazy` one.
+
+- **A `sigil.json` error names the file that was read.** SIG-353. Every message
+  `config.ts` writes opened with `CONFIG_FILE`, which is `sigil.json`, so a
+  mistake in a `sigil.jsonc` sent its author to a file that was not there. The
+  readers now take the layer's own name, which is what the shared validator's
+  messages already used. `CONFIG_FILE` stays for what it says it is -- the name
+  `sigil new` writes and the one named where there is no file. Not fixed here
+  and worth knowing: `sigil package`'s `Using bun from sigil.json.` note has the
+  same shape, because `readSigilConfig()` does not report which file it read.
 - **The namespace is spread before it is read.** `app.default ?? app.schema` is
   a _static_ reference to a named export the module need not have, and a bundler
   resolves that at build time -- rolldown warns that it will always be
@@ -1202,6 +1462,49 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
+- **`parseModule()` keeps what it read, keyed by the path and checked against
+  the source.** SIG-355. Every pass with a question for a module parsed it
+  again to ask, so a comment in `extract.ts` saying the build "parses each
+  module once" was true inside one pass and false across them: counted by
+  wrapping `parseSync()` over a `sigil build`, the `styled` fixture was 12
+  parses of 4 files (`src/index.ts` 3, `panel.ts` 3, `tpl.ts` 4, `dev.ts` 2)
+  and `i18n` 5 of 2 (`index.ts` 3, `commands/build.ts` 2). After, 5 and 2: the
+  one repeat left is `tpl.ts`, parsed once as written and once as the template
+  compile left it for the utility rewrite, which is a different source and is
+  right. A synthetic 244-module, 2.8 MB copy of `styled` went from **852 parses
+  to 365** -- 244 plus its 121 templated modules -- with in-process parse time
+  at a median of about 590 ms against 330 ms and the build at 1,232 ms against
+  921 ms wall, interleaved, nine runs each, on a machine busy with other work
+  (so the absolutes are loose and the delta is the claim). The small fixtures,
+  `examples/hello` and the toolchain's own build moved by nothing measurable.
+  Output is byte-identical with and without it, `diff -r` over all three.
+
+  Three things were checked before sharing a tree, and each is why the cache is
+  the shape it is. **Nothing writes to one**: every tree was deep-frozen
+  (`Object.freeze` over the whole `ParsedModule`, ESM being strict so a write
+  throws) and the toolchain's suite (1,817 tests) and four real builds ran clean, and a
+  search for in-place writes and sorts over AST arrays found none. **The parse
+  options are the same everywhere**, because there are none: every caller goes
+  through `parseSync(file, source)`, which takes the language from the
+  extension, and the extension is in the key. **The key is the path and the
+  source, never the path alone** -- every caller already hands the source it
+  read, so a stale hit cannot happen, and the sabotage proves it is not
+  hypothetical: keyed by path alone, the `styled` build reads `tpl.ts`'s
+  pre-compile tree for the utility rewrite and the test fails.
+
+  What it costs is memory, and it is bounded twice. **One entry per path**, so a
+  changed source replaces its tree rather than sitting beside it, and
+  `forgetParsedModules()` empties the map where `inspect()` starts, so a process
+  that builds again -- `check`, `build` and `package` all start there -- holds one
+  build's trees. That call is pinned by two in-process builds in a row, the
+  second of a different app: without it the first app's trees are still there
+  after the second, since nothing in the second replaces their paths. Measured on the 244-module app, the heap left after a forced GC
+  at exit is 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
+  source**, and peak RSS about 40 MB higher (702–710 MB against 660–672 MB). A
+  one-shot `sigil build` pays that once; there is no watch loop in the toolchain
+  today, and one would get the right lifetime from `inspect()` for free. A failed
+  parse is not kept, so asking again throws again.
+
 - **The fixture differs from `jsx-dev/` by one tsconfig field, and it
   type-checks.** `preserve` still checks the JSX against the `JSX` namespace
   `jsxImportSource` names, so `test/fixtures/jsx-preserve/` is an app the build
@@ -1469,9 +1772,25 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   have been zero new dependencies -- and it is marked `@experimental`, which is
   not a thing to put on the critical path of every app's build when the
   alternative is the 10 kB library rollup and vite both use for exactly this, and
-  which rolldown already brings into the lockfile. `the toolchain's dependencies`
-  in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
+  which rolldown already brings into the lockfile. `should declare every
+  dependency it has taken, and no more` in `packages/cli/test/cli.test.ts` writes the list out so that taking one is an
   edit somebody makes on purpose; this is that edit.
+- **...and it is a `devDependency`, because the bundle inlines it (SIG-357).**
+  It sat in `dependencies` from the day it was taken, while `sigil.json`'s
+  `external` names only `@ttylabs/sigil`, `oxc-parser` and `rolldown` -- the
+  three that really are imports at run time, two of them for the native-binding
+  reason above. So `sigil build` inlines `magic-string` into the toolchain's own
+  bundle (no file under `dist/` imports the bare specifier, grepped), and every
+  install of `@ttylabs/cli` downloaded a package nothing loads. The list in
+  `should declare every dependency it has taken, and no more` is three names
+  now, and two tests hold the move from both sides:
+  `should not make an install download what the bundle already inlined` asserts
+  the manifest and that `external` does not name it, and `should inline
+  magic-string, which is why it is only a devDependency` reads the built chunks
+  for an import of it (none) and for its own warning text (present). Should it
+  ever join `external`, it has to go back to `dependencies`, and the first test
+  says so. Running from source (`node src/sigil.ts`) still finds it, since a
+  workspace install brings devDependencies.
 - **The prefix contract is the caller's, and `choosePrefix()` is the whole of
   it.** `compile()` puts a prefix on every name it generates and cannot check that
   the prefix is free, because it is handed IR rather than a file. It matters both
@@ -1803,8 +2122,7 @@ other is refused with numbers.
   written: `build.out` from `sigil.json`, `dist` by default, through
   `buildOutDir()` in `_inspect.ts`, which both commands pass as
   `BundleOptions.outputs` beside `bundleApp()`'s own `out`. Excluding only `out` was SIG-354: it was
-  right for `sigil build` into its configured directory, which `clean()` empties
-  first anyway, and wrong for everything else -- `sigil package` bundles into a
+  right for `sigil build` into its configured directory, and wrong for everything else -- `sigil package` bundles into a
   staging directory under `node_modules/.sigil`, which the walk never entered, and
   `sigil build --out dist2` excluded `dist2`. Either way the `dist/` an earlier
   `sigil build` left was parsed as source, which is the ordinary state of an app
@@ -1818,6 +2136,18 @@ other is refused with numbers.
   elsewhere in the app" and the safe failure, which was true of the count's
   direction and wrong about how rare it was.
 
+  Both are compared by **physical path**, through `landsAt()`, and the exclusion
+  is the whole of the guard: since SIG-350 `clean()` empties `out` only once the
+  bundle's graph has been read, which is after this walk, so a previous bundle is
+  still on disk while it runs. The build's `out` and the walk's `join()` are two
+  spellings of one directory -- `/tmp` for `/private/tmp`, a symlinked `--out`,
+  `DIST` on a volume that folds case -- and a spelling that missed kept 52 of 383
+  rules, then 58, where the app names 25. The exclusion never applies to the **app
+  root** itself: under `--out . --no-clean` the root _is_ `out`, and excluding it
+  skipped every source file, so the build shook all 383 rules down to the
+  safelist and reported success -- too little, the one direction this walk must
+  not err in (`--out . --no-clean shakes to what a separate --out keeps`).
+
   **The build's directory and nobody else's**, and the first version of the fix
   got that wrong in the unsafe direction. It excluded `package.out` and the
   binaries' `--out` too, on the reading that every output directory is a
@@ -1829,7 +2159,11 @@ other is refused with numbers.
   `'justify-around underline'` in `release/extra.ts` was built with both rules
   dropped (**25** of 383, against **27** with the same file under `lib/`). Found
   by review; pinned by `should still read source in release/, which a build never
-  writes`.
+  writes`. SIG-350 had `sigil package` exclude its binaries' `--out` as well, as
+  `BundleOptions.exclude`, for a `sigil build` into that directory; the two met
+  in a merge, and that field is gone for the same reason. The default build
+  directory is in `outputs` already, which is the case its test pins
+  (`should not read the build it is about to replace as evidence for a class`).
 
   What still gets through is a stale bundle directory **nobody configured** --
   one written by hand, by another tool, or by a `sigil build --out` that is not
@@ -2017,7 +2351,8 @@ other is refused with numbers.
   code went into the bundle is reported with its size, `@ttylabs/sigil` included
   -- what the runtime costs is exactly as worth knowing as what a dependency
   costs. It found something on the first run: `magic-string` is **46.3 kB** of
-  the toolchain's own bundle.
+  the toolchain's own bundle -- inlined, which is why it is a devDependency (see
+  "...and it is a `devDependency`" above).
 
   A module is the app's **own** when it is inside the app root _and_ under no
   `node_modules`, and a dependency's otherwise. Both halves are load-bearing and
@@ -2053,6 +2388,15 @@ other is refused with numbers.
   resolution rule and an origin for it, which is a feature rather than a
   co-location convention. Revisit it when an app has a sheet big enough to want
   its own file.
+
+- **The bundle's three literal patterns are `escapeRegExp()`'s (SIG-358).** An
+  `external` package name, `TAG_MODULE` and `STYLE_MODULE` each became a
+  pattern through the same inline `replaceAll()`, and the pager had a fourth.
+  The one helper is in `@ttylabs/sigil`, published from
+  `@ttylabs/sigil/reference` beside `byCodeUnit()`, which is where the toolchain
+  already reached for the runtime's string helpers; `RegExp.escape()` is not at
+  the Node 22.19 floor. The debug logger's escape is the one left alone on
+  purpose: it skips `*`, which is a `DEBUG` wildcard.
 
 ### Writing the CLI in sigil
 
@@ -2368,6 +2712,156 @@ other is refused with numbers.
   that file hands `clean()` the root, because a regression would make that
   removal real. The root only ever goes to the pure guard, and the one
   end-to-end case is a temp directory above a temp app.
+- **...and it refuses an `--out` that holds anything the build reads, because
+  "the one way" was not the only way.** SIG-350. `sigil build --out src` is
+  below the app rather than above it, so it passed, and `clean()` removed `src/`
+  after `inspect()` had read it and before rolldown went back for the entry --
+  so the build then failed with `Module not found` over a source tree it had
+  just deleted. Through `"build": { "out": "src" }` and through `sigil package`
+  equally. `buildReads()` is the list, and it is everything `inspect()` has
+  already read: the entry, every module the tree walk found, every file a
+  catalog loader on the entry names by a literal `import()`, the command
+  directory, `package.json`, `sigil.json`/`sigil.jsonc`, the root
+  `tsconfig.json` the type check uses, and a `--bin`. `assertCleanable()`
+  refuses an `out` that is or holds any of them and names the file -- `which
+  holds` the entry for `--out src`, `which is` the file for `--out sigil.json`.
+  Asked in a pre-flight, so `package` still refuses before a runtime is
+  fetched and nothing is removed first.
+
+  **A catalog is listed whether or not it read as one.** `AppCatalogs.files` is
+  every literal specifier `readAppCatalogs()` resolved to a file that exists,
+  recorded before the parse, because the bundle imports the file whatever it
+  holds. The first version kept the path only once the file parsed as a JSON
+  object, so a `.js` catalog, a JSON file with a byte-order mark, one that does
+  not parse and one that is not an object were each emptied by `--out locales`
+  (found by review). All four are pinned, and each fails against that first
+  check; the not-an-object row is a number, because the first check took an
+  array for an object and an array row passed against the code it was meant to
+  catch.
+
+  **The removal waits for the module graph, and refuses a directory holding any
+  module in it.** What `inspect()` read is not all the build reads: a helper the
+  entry imports, a vendored module, a catalog behind a loader that is not a
+  literal `import()` are known only to the bundle, and `--out vendor` with
+  `vendor/lib.mjs` imported by the entry was emptied and then failed on
+  `Module not found`. So `clean(out, guard, modules)` takes the physical path of
+  every module in the graph and refuses an `out` whose physical path is or holds
+  one, naming it -- `which holds` for a directory and `which is` for
+  `--out vendor/lib.mjs`, as `assertCleanable()` words the same two. `sigil build` calls it from `bundleApp()`'s `beforeWrite`,
+  which runs in `generateBundle` -- after rolldown has read every module and
+  before it writes anything -- and `sigil package` calls it with
+  `BundleResult.modules` after the bundle and before `compileAll()`. Emptying
+  before the bundle had been for a stale chunk a previous build left, which
+  could be read back, and a stale chunk the bundle reads is a module inside
+  `out`, which is now refused rather than removed. A normal build still empties
+  its output directory -- pinned by a stale file that has to be gone afterwards,
+  for `build` and for `package` -- and what moved is only when. The style
+  shaker's walk excludes `out` for the same reason it always did, and that
+  exclusion is now the whole of its guard against a previous bundle, since the
+  walk runs before the removal -- which is what exposed that it compared
+  spellings, and that `package` never passed its `--out` at all; see "What the
+  walk must not read" under the shaking entries. One consequence is a change of
+  answer rather than of safety: a failure rolldown raises while it reads the
+  graph -- a missing relative module, a parse error -- now leaves the previous
+  output where it was, where it used to have emptied it. The two gates that
+  refuse a build **after** the write are unchanged: an unresolved bare import,
+  which rolldown only warns about and externalizes, and raw JSX from
+  `jsx: "preserve"` both fail after `out` has been emptied and written, and
+  `undo()` takes back only what was written, so they still leave `out`
+  empty. An `out` that is itself a symlink is
+  unlinked rather than emptied, which is what `rmSync()` does with one, so
+  nothing behind it is asked about -- `--out outlink`, a link to `lib/` holding
+  a module the entry imports, builds and leaves `lib/tool.mjs` alone, and asking
+  the module check of the link would refuse a build that loses nothing.
+
+  **It is asked whether or not cleaning is.** `--out src --no-clean` removed
+  nothing and wrote the bundle over the source instead: an entry at
+  `src/<bin>.mjs` was replaced by the minified bundle, and the build reported
+  success. A directory of source is never an output directory, so the message
+  offers no `--no-clean`. The one place `--no-clean` still means something is
+  the app root and above, because that is the escape hatch the root refusal
+  names, and every such directory holds `package.json` -- refusing it outright
+  would take the hatch away. There, what is refused is a **write** that lands on
+  something the build reads: `OutputGuard.writes`, which is `bundleWrites()` for
+  a build (`<bin>.mjs`, `<bin>.cjs`, their maps, `chunks/`) and the binaries'
+  `outputName()`s for a package. Both commands are pinned to passing it, a
+  package by a binary named `package.json` built for Linux, which lands on a
+  read on every host. And a write that lands on a module only the graph knows
+  -- `src/index.mjs` importing `../tool.mjs` in a package called `tool`, built
+  `--out . --no-clean` -- is refused by `sigil:own-source` in
+  `build/bundle.ts`, in `generateBundle` too: any output whose physical path is
+  a module's fails the build, naming both.
+
+  It is asked two ways in `heldFile()`, and each catches what the other cannot.
+  By **spelling**, through `holds()` -- which `holdsApp()` now is, rather than a
+  second copy of the `relative()` rule -- so a relative `out`, a trailing
+  separator, `..` segments and Windows' case folding are settled by `resolve()`
+  and `win32.relative()` as before. And by **identity**: `out` is `lstat`ed,
+  which is what `rmSync()` decides by, and compared by device and inode with
+  every directory above each file, walked from the path the build reads and
+  from its physical path. That is what sees an `out` under a symlinked
+  directory (`rmSync()` follows every link on the way), a module that is a
+  symlink into the directory named, and `--out SRC` on a volume that folds case,
+  which macOS's default does and `relative()` cannot know. An `out` that **is**
+  a symlink to the source is allowed when it is to be cleaned, and correctly:
+  `rmSync()` does not follow the last link, so it removes the link and nothing
+  behind it -- measured, and pinned by a test that runs the removal. An `out`
+  that is a link the build reads _through_ is refused by spelling, since
+  removing it loses no data but breaks the read.
+
+  **A write follows the last link where a removal does not, so `--no-clean` is
+  also asked where the write lands.** `--out outlink --no-clean`, with `outlink`
+  a link to `src`, wrote the bundle into `src` and replaced the entry, with the
+  guard seeing only a link. So under `--no-clean` the out is asked about as
+  `landsAt()` lands it as well, and so is each write at the root, which catches
+  a `<bin>.mjs` that is itself a link to the entry. `landsAt()`, in
+  `build/discover.ts`, is `physicalPath()` from `@ttylabs/sigil/config` --
+  exported for this, the climb `writeAtomic()` already asks about its own
+  target, rather than a second copy of it in the toolchain -- with a failure to
+  resolve answered by the path as spelled, since the write or removal that
+  follows fails with the file system's own error a moment later. It does not
+  follow a dangling link at the end of a path, and need not: every file the
+  guards protect exists, so a link pointing at nothing cannot point at one.
+  `realPathOf()` beside it does follow one and was the other candidate; it
+  answers a path that does not exist yet as itself, without resolving the
+  directories above it, which is exactly the `outlink/<bin>.mjs` case. The root
+  test asks the physical path too, so a link to the root, and the root spelled
+  `APP` on a volume that folds case, are the escape hatch rather than a source
+  directory: the native `realpath` answers in the case the volume stores. With
+  cleaning, `APP` is still refused, as a directory holding the app's files
+  rather than with the root's message, which is the safe direction.
+
+  **A refusal from the bundle reaches the user as its sentence.** An error raised
+  in a rolldown hook comes back out of `write()` as `[plugin sigil:own-source]
+  RolldownError` with six frames of rolldown's own stack, and the root rule is
+  the message, never a stack. So what `generateBundle` refuses is kept in a
+  closure, and the `write()` rejection is replaced by `new Error()` of it.
+
+  **`out` is resolved once, and that path is what is checked, tested and
+  removed.** The first version asked `lstat` and `existsSync` about the raw
+  string and removed `resolve(out)`, and those are different directories when a
+  symlink is followed by `..`: `link/../alias/src` is the directory beside the
+  link's target to the kernel and `alias/src` to `resolve()`, so the check passed
+  and the removal took the source (found by review). A consequence worth
+  knowing: a symlink to the source spelled with a trailing separator was refused
+  before, because `lstat` of `link/` follows the link, and is allowed now, which
+  is right for the same reason the bare spelling is -- `resolve()` drops the
+  separator and the removal unlinks the link.
+
+  Sabotages each fail a test in `test/clean-source.test.ts`,
+  `build-command.test.ts` or `package-command.test.ts`: no spelling check, no
+  identity walk, no physical-path start, `stat` for `lstat`, no catalog files or
+  the first catalog check, the `--no-clean` out not asked where it lands, a
+  write not asked through a link, the root not asked by physical path, no
+  `sigil:own-source`, either command passing no `writes`, `clean()` not asking
+  the graph, `beforeWrite` never called, `package` cleaning without the graph,
+  and a refusal left wrapped.
+
+  Every other recursive delete in `src/` was audited with it and removes only a
+  directory this toolchain made for itself: the bundle's and `package`'s
+  scratch directories under `node_modules/.sigil/`, the SEA config's
+  `mkdtempSync()` directory, and a runtime download's `.partial-<pid>`.
+
 - **Sourcemaps are on by default and `--no-sourcemap` turns them off, because
   "costs nothing" was only true of run time.** They are several times the size
   of the minified code they describe -- 203 KB against 38 KB -- and a package
@@ -2654,7 +3148,10 @@ other is refused with numbers.
 
 - **The terminal is a spawned child that answers `isTTY`, not a pty.** Node has
   no pty and this repo has no pty dependency; taking one to read a boolean back is
-  the kind of decision `the toolchain's dependencies` exists to make deliberate.
+  the kind of decision `should declare every dependency it has taken, and no
+  more` exists to make deliberate.
+  SIG-288 measured the candidates and recorded which one a pty package would take,
+  in [docs/history/a-pty-package-outside-the-zero-dependency-core.md](../../docs/history/a-pty-package-outside-the-zero-dependency-core.md).
   What `report.ts` reads about a destination is `stream.isTTY` and
   `stream.columns` and nothing else -- `ReportStream` is those two fields -- so
   the child is the real binary with real pipes, preloaded with a module that
@@ -3488,8 +3985,8 @@ about what a valid app is would be the worse half of the feature.
   Windows job had reached a download. One `executable()` so the write and the
   lookup cannot disagree.
 
-- **`--out` is refused before a runtime is fetched, not after.** The check is
-  pure path arithmetic and sat inside `clean()`, which runs after
+- **`--out` is refused before a runtime is fetched, not after.** The check
+  needs only paths and a few stats of them, and sat inside `clean()`, which runs after
   `resolveExec()` -- so on CI `sigil package --out <the app root>` **downloaded a
   90 MB runtime** and then refused. `assertCleanable()` is the pre-flight half,
   and it deliberately does not take `clean()`'s `existsSync` guard with it: a
@@ -3535,6 +4032,42 @@ about what a valid app is would be the worse half of the feature.
   masking each other, which is the shape this file records for the JSX gate.
   All four parts are sabotage-checked -- the read, the age limit, the stale
   fallback and the write.
+
+- **A listing stamped in the future is stale, and so is one whose `ts` is not a
+  number (SIG-420).** Only "too old" was asked, `held.ts + within < Date.now()`,
+  so a listing written while the clock was ahead -- clock skew, a clock set back,
+  a cache directory restored from another machine -- was fresh until real time
+  caught up with it, and `sigil package` went on offering that listing for as
+  long as the clock had been wrong. Measured against the old expression: a stamp
+  a year ahead, `1e999` (Infinity), `"nope"`, `{}` and a string of digits
+  holding the current time were all **fresh** -- the last because
+  `"1762…" + 86400000` concatenates and then compares as a number twenty-odd
+  digits long, and the garbage strings because `NaN < now` is `false`.
+
+  Fresh is now `isFreshStamp()` from `@ttylabs/sigil/updates`: a finite number,
+  no more than a minute ahead and no more than a day behind. It is the update
+  check's rule (SIG-376) and one definition rather than two, which is the root
+  rule about helpers across packages; the subpath was already a dependency of
+  this package, through `update-check.ts`, so no new one was argued for. The
+  minute is for a clock NTP nudged back between two runs, which is jitter
+  rather than a wrong clock and should not cost a request per run.
+
+  The **failure path** does not ask the stamp anything but its type. `cached()`
+  with no `within` takes a listing however old or however far ahead it is,
+  because a future stamp says the clock was wrong and not the versions, and
+  offline the stale listing still beats nothing. A `ts` that is not a finite
+  number is refused on both paths, as a file this did not write, which is the
+  same answer as an unreadable one. That moves the offline answer both ways,
+  and both are fine: it now offers a listing stamped `ts: 0` or a negative
+  number, which `!held.ts` used to refuse at `0`, and refuses one stamped
+  `"nope"` or `{}`, which it used to offer. The releases in it still go through
+  `isVersion()` either way, so what reaches the picker is no less checked.
+
+  Tested in `test/runtimes-cache.test.ts` without a network: a year ahead,
+  65 s ahead, 30 s ahead, a digit string and eight stamps that are not finite
+  numbers, plus both fallback cases. Sabotage-checked four ways --
+  the old expression back, the helper's future clause dropped, its type guard
+  dropped, and the fallback given an age limit -- and each fails a test.
 
 - **One picker for the runtime and its version, because it is one choice.**
   `--runtime` takes `bun`, `node`, or either with an `@version`, and there is no
@@ -3589,8 +4122,10 @@ about what a valid app is would be the worse half of the feature.
   of a question that was written out twice before this needed it twice more:
   `undo()` and `isAppsOwn()` in `bundle.ts` ask it now instead of spelling the
   separator rule themselves. `assertCleanable()` asks the opposite question --
-  whether the output directory holds the app, not whether a path is under a
-  directory -- and is left as it is.
+  whether the output directory is or holds the app, or anything the build
+  reads, not whether a path is under a directory -- through `holds()`, which is
+  `isInside()` plus the path itself, and by identity on disk; see "...and it
+  refuses an `--out` that holds anything the build reads".
 
   Prereleases were already refused by `latestBun()` and are now refused when
   typed, too: `bun@1.3.14-canary.1` used to pass `parseSpec()` on the strength of
@@ -4147,15 +4682,62 @@ about what a valid app is would be the worse half of the feature.
   silent-drop defect, one layer below where it was fixed.
 
 - **A scaffolded workflow installs the package manager the runner does not
-  have.** npm ships with Node and pnpm is on the GitHub images; `vlt` is
-  neither, and the generated workflow ran `vlt install --frozen-lockfile` on a
-  runner where nothing had installed it -- so a vlt app's release failed at its
-  first step on its first tag. The drift guard beside it read `pnpm` and `npm`
-  only, and `vlt` is the ternary's fallthrough, so misspelling `vlt exec` as
-  `vlt x` would have passed the suite: the one manager whose spellings nobody
-  had verified was the one the test did not read. All three are asserted now,
-  and the spellings are verified against a real vlt 1.1.1 -- `install
-  --frozen-lockfile`, `exec <executable>` and `run <script>` are all real.
+  have.** npm ships with Node, and that is the only one of the three a runner
+  has. `vlt` was found missing first: the generated workflow ran `vlt install
+  --frozen-lockfile` on a runner where nothing had installed it -- so a vlt app's
+  release failed at its first step on its first tag. The drift guard beside it
+  read `pnpm` and `npm` only, and `vlt` is the ternary's fallthrough, so
+  misspelling `vlt exec` as `vlt x` would have passed the suite: the one manager
+  whose spellings nobody had verified was the one the test did not read. All
+  three are asserted now, and the spellings are verified against a real vlt
+  1.1.1 -- `install --frozen-lockfile`, `exec <executable>` and `run <script>`
+  are all real.
+
+  **pnpm was the same defect, behind a sentence nobody had checked.** This entry
+  and the code comment both said "pnpm is on the GitHub images", and it is not
+  (SIG-351). Read off `actions/runner-images` in November 2026: `macos-latest` is
+  the macOS 26 arm64 image, and its Package Management section lists Bundler,
+  Carthage, CocoaPods, Homebrew, NPM, Pip3, Pipx, RubyGems, Vcpkg and Yarn -- no
+  pnpm and no corepack, and the macOS 15 arm64 and x64 images say the same.
+  Corepack is not the way round it either: the workflow's `setup-node` installs
+  Node 26, which carries no corepack (measured on 26.10.0: no `corepack` bin
+  and none under `lib/node_modules`). The scaffold writes no
+  `packageManager` field, so nothing else would have fetched one. pnpm is the
+  default whenever it is installed, so the default app's release failed at
+  "Install dependencies" on its first tag -- and the suite asserted the opposite,
+  `not.toContain('--global')` for pnpm, because it encoded the sentence.
+
+  So pnpm gets vlt's step, `npm install --global pnpm@12`, pinned to a major
+  where vlt is not, because a major is where pnpm changes what a frozen install
+  accepts. Measured over the app `sigil new --pm pnpm` writes, a lockfile from
+  each of pnpm 9.15, 10.34, 11.28 and 12.18 (all `lockfileVersion: '9.0'`) and a
+  frozen install by each: 12.18 takes all four, and 9, 10 and 11 take 12's. 12
+  **refuses** pnpm 8's `6.0` lockfile (`ERR_PNPM_BROKEN_LOCKFILE`), which is the
+  case for not tracking `latest` -- a new major can stop reading what the
+  developer's pnpm wrote, on a tag. The other thing a major changes surfaced in
+  the same matrix: 11 and 12 hold a lockfile to a default minimum release age
+  that 9 and 10 never check, so a lockfile pnpm 9 resolved onto a package
+  published that morning failed 12's frozen install until the age was waived.
+  That is a policy about time rather than about format -- a lockfile 11 or 12
+  resolved has already passed it -- and is left as pnpm's message. `PNPM_MAJOR`
+  in `src/scaffold/index.ts` is the number, and `should install a pnpm this
+  repository uses` in `new.test.ts` fails when it parts from the root manifest's
+  `packageManager`, so moving this repository to a new pnpm major moves the
+  question with it. The install runs with npm 11's install scripts blocked (npm
+  warns), which is fine by pnpm's own design: its `install.js` swaps the
+  placeholder bins for the native binary, and the placeholders reach pnpm
+  through Node when it does not run.
+
+  What was run, and what was not. The steps from "Install pnpm" through
+  "Package" were run locally on a `PATH` with Node 26, npm and Bun and no pnpm
+  or corepack, over a scaffolded app whose `@ttylabs` packages were this
+  worktree's packs (the published 0.0.1 predates `sigil package` and
+  `@ttylabs/sigil/testing`, so the Test and Package steps fail against it for
+  every manager alike): pnpm 12.18.0 installed, the frozen install, the tests
+  and all five binaries passed. The workflow itself has **not** been run on a
+  GitHub runner. The step order is asserted -- an install appended after the
+  first use would satisfy a `toContain` -- and so is one blank line between
+  steps, which the empty step slot used to double for npm and pnpm.
 
 - **The Node version threshold is one constant, and the tests that guard on it
   read it rather than spelling it.** `NODE_BUILD_SEA` is exported and
@@ -4297,6 +4879,15 @@ that a pull request renaming a flag **fails** rather than silently breaking
 everybody's scripts. `src/reference/surface.ts` in the runtime is the walk,
 `packages/cli/src/reference/` is the two printers, and `sigil reference` is the
 command.
+
+- **A missing file is `isMissing()`'s answer (SIG-358).** `write.ts` asked
+  `code === 'ENOENT'` inline in three places under a comment naming
+  `isMissing()` from `@ttylabs/sigil/config`; it imports that now. The rule is
+  the same -- `ENOENT` alone, not `ENOTDIR` and not `EISDIR` -- and the one
+  difference between the spellings is unreachable: the inline copies read
+  `err?.code` and `isMissing()` reads `.code`, so only a thrown `null` or
+  `undefined` would tell them apart, and `readFileSync`, `statSync` and
+  `readdirSync` throw neither.
 
 #### Where the surface comes from, which the ticket did not ask and which decides everything else
 
@@ -4720,7 +5311,8 @@ hand-written page sits beside the generated ones -- so a stale page is
 **reported** and left, and a `--check` fails over it. Reporting costs the author
 one `rm`; deleting costs them a file they wrote, and the guard that would make
 deleting safe does not exist: `sigil build`'s own refusal is of the app root and
-above, and a destination typed one directory wrong is below it.
+above and of a directory holding what the build reads, and a docs destination
+typed one directory wrong is neither.
 
 Which forced a message per kind rather than one sentence with the kind
 interpolated: `sigil reference` writes a missing or an out-of-date file and does
@@ -4843,8 +5435,9 @@ measurements are in
 
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is
-  refused before a runtime is fetched because it is pure path arithmetic -- it
-  can be asked at any time, so it is asked first. This cannot: whether the
+  refused before a runtime is fetched because it needs only paths `inspect()`
+  already has and a few stats of them -- it can be asked at any time, so it is
+  asked first. This cannot: whether the
   check is in the app is a question about the **module graph**, and there is
   no graph until the bundle is built. So it is asked at the first moment there
   is an answer, which is still before `compileAll()` -- the download is a

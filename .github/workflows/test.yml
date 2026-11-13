@@ -11,6 +11,12 @@ concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.ref }}
 
+# Every job here reads the repository and nothing else: no job comments on a
+# pull request, pushes, or uploads anywhere. Saying so means the token is
+# read-only whatever the repository's default happens to be.
+permissions:
+  contents: read
+
 jobs:
   # Whether this run needs the nine-job package matrix below. A pull request
   # that changes only website files does not: no package imports the site, and
@@ -22,7 +28,9 @@ jobs:
   # 2 is all the history it needs. `--no-renames` lists both sides of a move, so
   # a file moved from `packages/` into `website/` still counts as a package
   # change. `shell: bash` turns on `pipefail`, so a failed diff fails this job
-  # rather than reading as an empty one.
+  # rather than reading as an empty one. The event name is read from the
+  # runner's own `GITHUB_EVENT_NAME` rather than written in as `${{ }}`, which
+  # would paste it into the script text before bash parses it.
   changes:
     name: Changes
     runs-on: ubuntu-latest
@@ -31,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
 
@@ -39,7 +47,7 @@ jobs:
         id: scope
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             git diff --name-only --no-renames HEAD^1 HEAD | node scripts/ci-scope.mjs >> "$GITHUB_OUTPUT"
           else
             echo "packages=true" >> "$GITHUB_OUTPUT"
@@ -69,15 +77,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Install dependencies
         run: pnpm install
@@ -116,15 +124,15 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Use Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Install dependencies
         run: pnpm install

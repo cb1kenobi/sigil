@@ -375,6 +375,54 @@ the entry it belongs to.
   keying exists to keep. An item that appears twice is two rows, so the
   bookkeeping is a queue per key: two equal primitives in a list are a list with
   two entries in it, not a bug to refuse.
+- **`For` moves only the rows off a longest run already in order, and reads each
+  key's queue through a cursor (SIG-345).** Placement used to walk the target
+  order and move every row not at its index, which is "out of place" by
+  _position_ -- and by that measure taking the first row to the end puts every
+  other row out of place, so it was n-1 `insertBefore` calls where one would do,
+  each a removal and an insertion that both search the host's children: quadratic
+  for a one-row move. `place()` reads where each kept row sits in the host now,
+  takes a longest increasing run of those positions with `longestIncreasing()` in
+  `src/util/`, leaves the rows on it alone, appends the rows after the last one
+  that stays in order, and moves the rest backwards from there, each in front of
+  the row that follows it. That is the fewest moves there are, and it is what
+  Inferno and Vue 3 do (Solid's reconcile does not use one). The tail is
+  appended rather than walked because a review round measured the walk: on a
+  first mount nothing stays, so every row went in front of the one after it --
+  index 0 of the children, a splice that shifts everything behind it -- and a
+  200,000-row mount went from 388ms to 4,781ms, 100,000 from 216ms to 1,244ms.
+  With the append it measured 351ms against 379ms for the old placement, and
+  `should never put a row in front of the first child` pins it by asking every
+  `insertBefore` whether it was handed the first child: 2,999 times of 3,000 on
+  the walk, and never now. Positions come off the host
+  rather than off the rows' previous indices, so what is placed against is what is
+  on screen. The queue per key is unchanged and so is which copy a key hands out --
+  the first one held -- but it is read through an index rather than `shift()`,
+  which was O(k) for a key held k times. Measured on `box(text, text)` rows, median
+  of seven, before and after (both timings on a loaded machine; the move counts
+  are the point):
+
+  | n      | first to end                  | swap ends                 | last to front         |
+  | ------ | ----------------------------- | ------------------------- | --------------------- |
+  | 1,000  | 999 moves, 1.27ms → 1, 1.24ms | 999, 0.95ms → 2, 0.54ms   | 1, 0.28ms → 1, 0.40ms |
+  | 4,000  | 3,999, 6.37ms → 1, 1.77ms     | 3,999, 6.88ms → 2, 1.79ms | 1, 0.94ms → 1, 1.80ms |
+  | 16,000 | 15,999, 857ms → 1, 12.8ms     | 15,999, 535ms → 2, 15.0ms | 1, 16.6ms → 1, 14.8ms |
+
+  A list of one repeated primitive reconciled against itself went from 146ms,
+  1,030ms and 3,054ms at 20,000, 40,000 and 80,000 to 22ms, 36ms and 43ms. What is
+  still quadratic is a reorder that really does move most rows -- a reverse is n-1
+  moves and must be -- because each `insertBefore` searches the children; that is
+  the element API's cost and not this one's. The tests count `insertBefore` and
+  never time anything: first to end, swap ends, last to front, a reverse, an
+  insert, and a seeded shuffle whose bound is exact (n minus the longest run,
+  computed the quadratic way). Run against the old placement, three of them fail
+  -- 99 moves where 1 and 2 belong. The cursor's test pins what a cursor has to
+  keep -- every copy kept, none built, moved or disposed, and a shrink letting go
+  of the copies past the end -- and, since `shift()` gave the same answers and
+  cost only time, also spies on `Array.prototype.shift` across the reconcile and
+  asserts it is never called: nothing else on that path shifts an array, and
+  putting `shift()` back fails it with 9,886 calls.
+
 - **Nothing dirty means no frame, and no frame means no timer.** The scheduler is
   asked for a frame by a signal write or by a tree mutation, sets one timer, and
   a frame that finds nothing to do sets no other -- so a CLI that prints one line
@@ -476,9 +524,9 @@ the entry it belongs to.
   and `backend.done()`, so a handler still has the whole tree to take its own
   part out of -- a modal puts the focus back on an element that is still mounted
   -- and `mounted` already reads `false`. It fires on the failure path too,
-  since a failed renderer is just as gone; what a handler throws there is
-  reported before the terminal is restored, which is where an owner cleanup's
-  throw on that path was already reported, and is left alone with it.
+  since a failed renderer is just as gone. What a handler throws is reported
+  once the screen is back, with what the owner cleanups threw -- see "An
+  `onError` that throws cannot keep the screen" below, which moved both.
 - **A handler given to a renderer that has gone is called at once.** The other
   answer was a no-op, and it is the wrong one for every caller there is: a toast
   raised from a promise that settles after the renderer went would keep its
@@ -498,6 +546,45 @@ the entry it belongs to.
   error handler. Stopping is the other half: a renderer that reported and carried
   on would throw the same frame away thirty times a second, so the first failure
   ends the loop and the report happens once.
+- **An `onError` that throws cannot keep the screen, and what it throws is
+  raised rather than dropped (SIG-348).** The teardown reported each dispose
+  handler's and each cleanup's throw from inside itself, ahead of
+  `backend.stop()` and `restore()`, so an `onError` that rethrew left the
+  renderer failed and unmounted on the alternate screen with the cursor hidden.
+  Its throw then came back through `runFrame()`'s catch to a `fail()` that had
+  already failed and returned, so `frame()` returned normally and nothing was
+  said. The mount catch and `dispose()` had the same shape. Now `teardown()`
+  collects what the app's code threw instead of reporting it, and what
+  `backend.done()` throws on a `dispose()` along with it. The failure path's
+  `release()` runs the teardown, `backend.stop()` and `restore()` each whatever
+  the others threw, the way `runApp()`'s `finish()` runs its steps. Every error
+  then goes to `onError`, the teardown's first and the failure last, each one
+  whatever `onError` did with the one before. What `onError` threw is raised from
+  the call that was reporting: `frame()`, `render()` for a first frame, or a
+  timer, which makes it an uncaught exception over a screen that is back.
+  One throw is raised as itself and several as an `AggregateError`. `runFrame()`
+  rethrows anything it catches once `failed` is set, since only `fail()`
+  reporting can produce that. The mount catch still hands the caller the body's
+  error, and wraps it in an `AggregateError` with `onError`'s throws only when
+  there are some. That aggregate carries the body's message in its own and the
+  body's error as its `cause`, because a writer that renders one line per error
+  shows only an aggregate's message. It does nothing more when a flush inside the body has already
+  been through `fail()`, so the terminal is restored once. `dispose()` reports
+  after `backend.done()` and raises from `dispose()`, so the order "screen back,
+  then say why" is now true of all three, and a handler's throw on `dispose()`
+  is reported after the region is finished rather than before. A throw from
+  `onError` does not cut the remaining reports short.
+
+  `runApp()` never lets a custom `onError`'s throw reach `render()`. Its wrapper
+  catches what the handler threw and reports it through the default writer. A
+  frame that failed on the frame timer would otherwise raise from the timer: an
+  uncaught exception that ends the process before `finish()`'s microtask runs.
+  The screen was back, but the router was never stopped and `exited` never
+  settled, which breaks "every route out ends the app the same way". The first
+  version of this change did exactly that and review caught it. The same catch
+  covers `finish()`'s own reports and a rejected `detect()`, so a throwing
+  `onError` under the runner is reported and the code stays what it was.
+
 - **A frame that failed stops being a frame.** An effect that throws is
   _reported_ by the scope's error handler rather than thrown through it, so the
   flush returns normally and the rest of the frame ran over a renderer that had
@@ -541,6 +628,91 @@ the entry it belongs to.
   raises at `dispose()`. Handing it the array swallowed the throw: an
   `onCleanup()` in an effect body, which is where an unsubscribe belongs, failed
   in silence, while the same call one line up in the component body was reported.
+- **A context scope opened inside an effect body belongs to that run (SIG-344).**
+  `provideContext()` makes a child owner of the component and builds under it
+  through `runWithOwner()`, which detaches what `fn` builds from the run at both
+  levels -- correctly, for `For` and `Show`, whose branches outlive a run. Here
+  nothing outlived it on purpose: every re-run left one more scope behind, its
+  effects live and its `onCleanup()`s waiting for the whole tree to go. Measured,
+  five writes to the outer effect's dependency left six inner effects -- six runs
+  and six sinks for one write -- and none of the five stale scopes' cleanups had
+  run, where a plain nested `createEffect()` gives one, one and five. So during
+  an effect run the scope's disposer is pushed onto that run's cleanups, and it
+  _throws_ what the scope's cleanups threw, which makes it reported exactly as
+  the run's own cleanups are: to the error handler on a re-run, out of
+  `dispose()` where somebody asked. Outside a run it is the component's, as
+  before. `runWithOwner()` itself is unchanged, because a borrowed owner is the
+  case where the caller means the lifetime to be the owner's.
+
+  It is pushed **before** `fn` runs, and the reason is a throw rather than order.
+  The first write-up said order, and order is the same either way: `fn` runs
+  inside `runWithOwner()`, which clears `runCleanups`, so nothing it does can
+  land in the run's list between the two -- moving the push after `fn` left every
+  test passing, which a review found. What it does guard is `fn` throwing into a
+  body that catches it: registered after, the throw skips the registration and
+  the scope, with whatever `fn` built before the throw, is a scope nobody holds.
+  `should dispose the scope with the run when what it built threw and the body
+  caught it` is that case.
+
+- **A run that throws still runs what it registered before the throw (SIG-344).**
+  A run's cleanups are handed to the signals layer as the composite the run
+  returns, and a run that throws returns nothing -- so its list went out of scope
+  with it. An `onCleanup()` written above the throw never ran, not on the next
+  run and not at unmount: an effect that threw on one of three runs ran two of
+  three cleanups. It predates the scope entry above and is the same leak through
+  it, which is how a review found it: a scope opened by `provideContext()` in a
+  run that then threw lived until the tree went, so six writes with every other
+  run throwing left four inner effects, four runs and four sinks for one write,
+  where a plain nested `createEffect()` gives one and one. So the run wrapper
+  catches what the body threw, runs the list then -- after the owner is put back,
+  so nothing a cleanup does registers into the run it is undoing -- and throws
+  on. What reaches the signals layer is unchanged in the case that existed before:
+  the body's own error, as itself. Where a cleanup throws too, it is an
+  `AggregateError` of the body's error first and then the cleanups',
+  `Errors in a failed effect run and its cleanups`, since dropping either would be
+  the silent failure the cleanup entry above was written against. What an app
+  sees changes only where a cleanup that never used to run now throws: an
+  `onError` that matched on the type of the run's own error is handed an
+  `AggregateError` there instead, with that error first in `errors`. A failure
+  nested inside another -- a cleanup whose own failed run is raised from it --
+  nests the aggregates the same way; `element/index.ts`'s focus write and
+  `app.ts`'s teardown report open one level and no more. The `async` refusal goes
+  through the same catch, because by the time it throws the body has registered
+  whatever it registered, and the cleanups run after the owner is put back, so a
+  cleanup that registers another sends it where the effect was created rather
+  than into the list being walked. Both are pinned: moving the refusal out of the
+  `try`, or running the list with the run still current, each fails its own test.
+- **An owned effect stopped by hand is taken off its owner (SIG-344).** The
+  disposer went onto `owner.cleanups` and stayed there after the caller had
+  called it -- a closure over the computed, the body and its cleanups -- so an
+  owner as long-lived as the app root, borrowed by a handler that starts and
+  stops effects, grew without bound: **+218 MB over 200,000 cycles and +655 MB
+  over 600,000** under `--expose-gc`, all of it given back when the root went,
+  and a flat line after. `createEffect()` now hands back a disposer that splices
+  its own entry out, searched from the end because the effect stopped is usually
+  the newest, and spliced rather than tombstoned so the list is exactly the
+  registration order and the teardown stays its reverse. A `Set` was refused for
+  the same reason: the list is shared with `onCleanup()`, whose entries must
+  keep their place between the effects, and a callback registered twice must
+  run twice. The one time it does not splice is while the owner is being
+  disposed: `runAll()` walks the list by index, and a cleanup stopping a sibling
+  must not move the entries under the walk; the list is cleared after the walk
+  anyway and the second call is a no-op. The structural test reads the length
+  of the list rather than a heap, which is what a regression would change.
+- **One definition each of "throw one error, or an `AggregateError` for several"
+  and of the refusal of an `async` effect body (SIG-344).** The first was written
+  seven times -- `signals/graph.ts`, `element/focus.ts`, `element/index.ts`'s
+  focus write, the router's `onEnd()` dispatch in `input/index.ts`, and three in
+  this directory's `owner.ts` -- and the second twice, in `signals/effect.ts` and
+  `owner.ts`, with the same messages. The ticket counted five; the last two were
+  found by a review's grep. They are `raise()` and `refuseAsync()` in
+  `src/signals/raise.ts`, which imports nothing and is not re-exported -- a module
+  of its own rather than `graph.ts` because `element/index.ts` and
+  `element/focus.ts` are on `@ttylabs/sigil/element`'s graph, and reaching them
+  through `graph.ts` would put the signals graph behind an entry that carries
+  none of it; the leaf was a 294 B chunk as of this change. Each site passes its
+  own message, byte for byte what it threw before. `components/tasks.ts` always
+  aggregates, even one error, so it is a different rule and is left alone.
 - **A frame does not start from inside a frame.** `frame()` called from an effect
   re-entered `settle()`, and the flush it runs is a no-op while one is already
   draining -- so what the inner frame actually did was take the outer frame's
@@ -1267,3 +1439,156 @@ it.
 - **Not done:** an `App` handle to a router the caller built, since the host is
   what makes the router exist at build time. Capturing `console.log()` while the
   app owns the screen was on this list until SIG-310 -- see the entry above.
+
+### A full-screen performance budget (SIG-290)
+
+Nothing measured a full-screen app that changes on every frame, which is what btop
+is: `benchmark-paint-cull.mjs` and `benchmark-virtual-list.mjs` each measure one
+layer, and `FrameStats` describes a frame without saying whether it was a good
+one. The workload is `examples/system-monitor/stress/`, the ceilings are
+`examples/system-monitor/test/stress.test.js`, and the runs, the profiles and the
+Ink and OpenTUI comparison are in
+[docs/history/a-full-screen-performance-budget.md](../../../../docs/history/a-full-screen-performance-budget.md).
+Run it with `pnpm build && node examples/system-monitor/stress/benchmark.js`.
+
+- **The workload is the monitor's screen built from the shipped components, fed by
+  a machine that does not exist.** 200 by 60. A `DataTable` of 1,000 processes
+  sorted by CPU, where every row is a new object on every reading and two
+  processes exit and two start, so the table re-sorts and re-keys on every frame.
+  The four live charts each take a sample a frame: a `Sparkline` fourteen rows
+  tall, a two-series `LineChart`, a vertical `BarChart` of sixteen cores, and a
+  `Gauge`. The machine is seeded, so a run is the same run every time.
+
+  It lives beside the system monitor rather than in `packages/sigil/scripts/`, for
+  three reasons. It imports `@ttylabs/sigil` by name, so it measures `dist/`, the
+  way the other benchmarks do on purpose, and the suite runs the same module with
+  no second copy. Its machine is shaped as the sampler's `Snapshot`, so the same
+  readings feed the monitor's own `App` through `SystemContext`, the seam the
+  monitor's tests already replace. That puts the stand-ins and the components they
+  wait for side by side on one input. And it reuses the monitor's `formatBytes()`
+  rather than writing a second one.
+
+- **"At 30 and at 60" is the renderer's own clock, and the frame's cost is measured
+  without it.** `measurePaced()` runs the app with `frameMs` at the rate and feeds a
+  reading at the same rate, which answers whether the loop keeps up.
+  `measureFrames()` steps and paints frame after frame with nothing in between,
+  which gives the frame's own time, bytes and allocation. That number does not
+  move with the rate: a frame at 60 does the same work as one at 30, and only the
+  room around it differs. The output goes to a terminal that adds up the bytes and
+  drops them. A test terminal would parse every byte into its screen model inside
+  the frame that wrote it, and the parse would be timed as the frame's.
+
+- **The figures, as of this change.** Taken on node 26.10.0 on an Apple M5 Pro
+  (18 cores, macOS), with a load average of 18 to 25 from five other agents'
+  builds and suites running beside it. So these are a busy machine's figures,
+  each was taken at least three times, and the spread is given.
+
+  | stress, after the fix below | figure                                                          |
+  | --------------------------- | --------------------------------------------------------------- |
+  | frame, p50                  | 9.56 to 10.31 ms over seven runs                                |
+  | frame, p99                  | 13.62 to 16.27 ms                                               |
+  | bytes a frame               | 3.9 KiB at p50 and 4.3 KiB at most; 16.3 KiB for the mount      |
+  | allocated a frame           | 21.4 to 21.5 MiB; the GC is 10 to 11% of the frames' time       |
+  | tree                        | about 1,060 elements, about 900 changed and restyled each frame |
+  | style table                 | 7 styles after the mount, 7 after 331 readings, no sweep        |
+  | paced at 30                 | 28.3 to 28.6 frames a second, event loop 29 to 31% busy         |
+  | paced at 60                 | 55.0 to 57.4 frames a second, event loop 60 to 68% busy         |
+
+  Before the fix, interleaved with it, the frame was 11.49 to 12.01 ms at p50 and
+  16.63 to 17.93 ms at p99. So 30 frames a second has room to spare. At 60 the
+  p50 holds with about 6 ms to spare, and the p99 is within a few milliseconds of
+  the 16.7 ms budget. Paced p99 at 60 ran from 11.92 to 14.62 ms in three runs and
+  was 23.67 ms in the fourth. That is the rate a CI machine slower than this one
+  would not hold. Both rates painted within a frame or two a second of the
+  readings that arrived. The shortfall from 30 and 60 is `setInterval` drifting
+  under load, since fewer readings arrived than the rate asked for, and not frames
+  dropped for being slow.
+
+  The monitor as written, stand-ins and all, on the same machine: 3.44 to 3.97 ms
+  at p50, 6.0 KiB a frame, 7.0 to 7.1 MiB allocated, and 251 elements with 92
+  changed. It is a third of the stress frame because its stand-ins rewrite text in
+  place where the components build elements. Its p99 was 5.0 to 5.8 ms in three
+  runs and 20.6 ms in a fourth, which shows the load more than the code.
+
+- **The suite holds counts, about twice over, and no time.** Six ceilings at
+  about twice what was measured, the `dist.test.ts` rule:
+
+  - the bytes of the mount, which paints all 12,000 cells;
+  - the bytes of each frame, where a frame that repainted the screen is about
+    17 KiB;
+  - the cells painted each frame;
+  - the elements, where a table that stopped windowing is about 11,600;
+  - the style table's size, with no sweep;
+  - the table's `format` calls each frame.
+
+  The last is the one that says a 1,000-row table costs what its window costs. It
+  was 123 a frame, three formatted columns for 41 rows, and formatting every new
+  row instead is about 3,100.
+
+  Each is a count, and each is the same count everywhere. The machine is seeded,
+  the glyphs are fixed with `ascii: false`, so a Windows runner that draws ASCII
+  measures the same screen, and the colour level is fixed at 3. The counts were
+  identical on node 24.18.0 and 26.10.0, and a test asserts that two runs write
+  the same bytes, because a count that moved between runs would make its ceiling
+  a guess.
+
+  The number of elements restyled has no ceiling. About 88% of the tree is
+  restyled every frame already, so twice that would allow a full re-match.
+
+  **There is no time ceiling.** The suite runs its projects in parallel, CI runs on
+  nine machines slower than this one, and the layout fuzzer already times out only
+  under that load. A wall-clock ceiling loose enough to hold there would let a
+  five-fold regression through, so it would not be a budget. The counts catch a
+  change in kind, and the benchmark is for a change in degree.
+
+  **Allocation is not in the suite either.** It is measured with V8's
+  `total_allocated_bytes`, which node 26.10.0 reports and 24.18.0 does not, so the
+  benchmark prints `n/a` there. Where it is reported, the figure is V8's and moves
+  with the engine.
+
+  The sabotage pass was six breaks, all caught. A canvas that always repaints
+  everything failed the frame bytes. A table that formats every new row failed
+  the format count. A window that holds every row failed the element count. A
+  segment background that varies by length failed the style table and nothing
+  else. A segment colour from a module counter failed the bytes and the
+  repeatability test. An unseeded machine failed the repeatability test alone.
+
+- **Ink and OpenTUI, in a throwaway project and in no manifest.** The same seeded
+  machine and the same sort, at 200 by 60. Each draws the rows that fit, since
+  neither has a windowed table, and the charts are sigil's own string charts set
+  in a text node. The cpu chart there is the one-row `sparkline()`, against the
+  stress workload's fourteen rows. Run interleaved with the stress workload, three
+  times each:
+
+  | renderer, version                       | frame p50         | bytes a frame | allocated |
+  | --------------------------------------- | ----------------- | ------------- | --------- |
+  | sigil, stress workload                  | 9.75 to 10.31 ms  | 3.9 KiB       | 21.5 MiB  |
+  | sigil, the monitor's stand-ins          | 3.44 to 3.65 ms   | 6.0 KiB       | 7.0 MiB   |
+  | Ink 8.0.0, React 19.3.1                 | 12.53 to 12.95 ms | 15.6 KiB      | 41.4 MiB  |
+  | Ink 8.0.0, `incrementalRendering`       | 15.15 to 16.02 ms | 11.0 KiB      | 46.7 MiB  |
+  | OpenTUI `@opentui/core` 0.8.3, node FFI | 5.30 to 5.43 ms   | 16.0 KiB      | 9.0 MiB   |
+
+  So sigil's components are about 20% faster than Ink's frame, write a quarter of
+  its bytes and allocate half as much. They take about twice OpenTUI's time. OpenTUI's
+  rows are a pool rewritten in place, the shape of the monitor's stand-ins, and
+  the stand-ins, on their own screen, measured faster still. What separates the components
+  from the stand-ins is building elements, not painting them, and SIG-378 and
+  SIG-379 are filed against exactly that. sigil writes the fewest bytes of the
+  four, which is the cost this file's frame pacing was written to keep down.
+
+- **What the measurement found.** One fix was small and clearly correct, so it
+  was made. The rest are tickets.
+  - **Every border cell was split by `Intl.Segmenter`.** `paintBorder()` paints
+    an edge one cell at a time, and `graphemes()` sent each box-drawing character
+    to the segmenter. A string of one code unit is one cluster now, without
+    asking. That took 1.5 to 2 ms off the p50, about 16%, with the bytes
+    unchanged. See "One code unit is one cluster" in `src/width`.
+  - **A live `DataTable` rebuilds every row on screen on every update** (SIG-378),
+    because a replaced item rebuilds its row. The table alone was 6.8 ms of the
+    frame.
+  - **A live chart builds a new element for every segment of every row on every
+    sample** (SIG-379). The charts alone were 6.2 ms.
+  - **A frame allocated 21.5 MiB**, most of it in restyling and laying out what
+    the two above built (SIG-381).
+  - **Porting the monitor onto the components waits for SIG-378 and SIG-379**
+    (SIG-383). Today the port would make it about three times slower per frame.

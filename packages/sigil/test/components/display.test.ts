@@ -1,8 +1,8 @@
 import { mountLive } from '../../src/components/mount.js';
 import { createProgress, renderBar } from '../../src/components/progress.js';
 import { createSpinner, DOTS, LINE } from '../../src/components/spinner.js';
-import { table } from '../../src/components/table.js';
-import { box, text } from '../../src/element/index.js';
+import { table, tableView, tableWidths } from '../../src/components/table.js';
+import { box, renderToString, text } from '../../src/element/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { runsOf, sourcesOf } from '../runs-of.js';
 import { screenSetup, setup } from './helpers.js';
@@ -555,6 +555,41 @@ describe('table()', () => {
 
   it('should return nothing for no rows', () => {
     expect(table([])).to.equal('');
+  });
+});
+
+describe('tableView()', () => {
+  // it read the columns off the first row with `Object.keys(rows[0])`, so no rows
+  // and no `columns` threw `TypeError: Cannot convert undefined or null to object`
+  // where `table([])` had always answered `''`
+  it('should build an empty table for no rows rather than throwing', () => {
+    const { element, width } = tableView([]);
+
+    expect(element.classes).to.include('sigil-table');
+    expect(element.children).to.have.length(0);
+    expect(width).to.equal(1);
+    expect(renderToString(element, { width })).to.equal(table([]));
+  });
+
+  it('should still draw the headings of the columns it was given for no rows', () => {
+    const { element, width } = tableView([], { columns: ['a', 'b'] });
+
+    expect(renderToString(element, { width })).to.equal('a  b');
+  });
+
+  // a column's width was `Math.max(heading, ...cells)`, which puts every row on
+  // the stack as an argument and threw `RangeError: Maximum call stack size
+  // exceeded` past about 125,000 rows on a main thread. A million, because a
+  // vitest worker has four times that stack; the whole of `tableView()` is run at
+  // 200,000 on a real main thread in `data-sized.test.ts`
+  it('should measure a column over more rows than a call has room for arguments', () => {
+    const cells = Array.from({ length: 1_000_000 }, (_, i) => [
+      { text: '', width: i === 123_456 ? 9 : 1 },
+    ]);
+
+    expect(tableWidths(['heading'], cells, [{}], true)).to.deep.equal([9]);
+    expect(tableWidths(['heading'], cells, [{}], false)).to.deep.equal([9]);
+    expect(tableWidths(['a much longer heading'], cells, [{}], true)).to.deep.equal([21]);
   });
 });
 

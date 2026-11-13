@@ -1,3 +1,4 @@
+import { hexChannels } from '../ansi/hex.js';
 import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
 
 /**
@@ -189,7 +190,6 @@ const NAMED: Record<string, number> = {
   brightwhite: 15,
 } as unknown as Record<string, number>;
 
-const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const RGB_FN = /^rgb\(\s*(-?\d+)[\s,]+(-?\d+)[\s,]+(-?\d+)\s*\)$/i;
 const PALETTE_FN = /^(?:ansi|palette)\(\s*(\d+)\s*\)$/i;
 
@@ -214,20 +214,12 @@ export function parseColor(input: string): Color {
     return palette(NAMED[lower]);
   }
 
-  if (HEX.test(text)) {
-    const hex = text.slice(1);
-    const full =
-      hex.length === 3
-        ? hex
-            .split('')
-            .map((c) => c + c)
-            .join('')
-        : hex;
-    return rgb(
-      Number.parseInt(full.slice(0, 2), 16),
-      Number.parseInt(full.slice(2, 4), 16),
-      Number.parseInt(full.slice(4, 6), 16)
-    );
+  // the `#` is required in a stylesheet, which is this caller's rule; the
+  // digits are `hexChannels()`'s, and anything they are not falls through to
+  // the other forms and then to `Invalid colour`
+  const hex = text.startsWith('#') ? hexChannels(text.slice(1)) : undefined;
+  if (hex) {
+    return rgb(...hex);
   }
 
   const fn = RGB_FN.exec(text);

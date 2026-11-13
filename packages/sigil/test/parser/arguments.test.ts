@@ -365,6 +365,23 @@ describe('arguments', () => {
         a: now,
       });
     });
+
+    it('should keep a transform result that is not an array', async () => {
+      const cfg = { a: 1 };
+      const when = new Date(0);
+      const result = await parse({
+        argv: ['x', 'y', 'z'],
+        schema: {
+          args: [
+            { name: '<cfg>', transform: async () => cfg },
+            { name: 'rest...', transform: async () => when },
+          ],
+        },
+      });
+      expect(result.argv.cfg).to.equal(cfg);
+      expect(result.argv.rest).to.deep.equal([when]);
+      expect(result._).to.deep.equal([cfg, when]);
+    });
   });
 
   describe('type', () => {

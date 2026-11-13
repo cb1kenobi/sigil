@@ -536,6 +536,17 @@ describe('selecting a format', () => {
       'a,b\nc,d\n'
     );
   });
+
+  // SIG-342: the trim was an unanchored `/[\r\n]+$/`, quadratic in an interior
+  // run of newlines -- which a serializer's output can hold as easily as an error
+  it('should not stall on output holding a long run of newlines', async () => {
+    const gap = '\n'.repeat(200_000);
+    const rows: OutputFormat = () => `a${gap}b\r\n\n`;
+
+    expect((await run(['list', '--format', 'csv'], app(true, { csv: rows }))).out).toBe(
+      `a${gap}b\n`
+    );
+  });
 });
 
 describe('the format registry', () => {

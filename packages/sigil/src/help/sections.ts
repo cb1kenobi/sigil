@@ -1,5 +1,6 @@
 import { initArgs, normalizeArgs } from '../parser/argument/init-args.js';
 import { initOption } from '../parser/option/init-option.js';
+import { optionDeclarations } from '../parser/option/option-map.js';
 import { OptionRegistry } from '../parser/option/option-registry.js';
 import {
   type HelpSection,
@@ -70,22 +71,10 @@ export function createSections(): HelpSections & { list: BuiltSection[] } {
       const added: InternalOption[] = [];
 
       if (options !== undefined) {
-        if (!options || typeof options !== 'object') {
-          throw new TypeError(`Expected help section "${title}" options to be an object`);
-        }
-
-        // the same reading of a declaration the schema gets: a string is the
-        // description, `null` and `undefined` are a format and nothing else
-        for (const [format, value] of Object.entries(options)) {
-          if (value === null || value === undefined) {
-            added.push(await initOption({ format }));
-          } else if (typeof value === 'string') {
-            added.push(await initOption({ desc: value, format }));
-          } else if (typeof value === 'object') {
-            added.push(await initOption({ ...value, format: value.format ?? format }));
-          } else {
-            throw new TypeError(`Expected help section "${title}" option to be an object`);
-          }
+        // the same reading of a declaration the schema gets, through the same
+        // function -- a thunk description included
+        for (const opt of optionDeclarations(options, `help section "${title}" `)) {
+          added.push(await initOption(opt));
         }
       }
 

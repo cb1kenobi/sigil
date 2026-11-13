@@ -1,4 +1,5 @@
 import { Computed, effectBody, outsideNotify, untrack, Watcher } from './graph.js';
+import { refuseAsync } from './raise.js';
 
 /**
  * Runs the queued work. A scheduler decides *when* to call this.
@@ -42,15 +43,7 @@ function asCleanup(result: unknown): (() => void) | undefined {
     return result as () => void;
   }
 
-  if (
-    result !== null &&
-    typeof result === 'object' &&
-    typeof (result as { then?: unknown }).then === 'function'
-  ) {
-    throw new TypeError(
-      'An effect may not be async: tracking stops at the first await, so nothing read after it is a dependency'
-    );
-  }
+  refuseAsync(result);
 
   // anything else is ignored rather than refused. `effect(() => count.set(n.get()))`
   // is how this reads at its best, and a concise arrow body returns whatever the

@@ -47,9 +47,10 @@ import type { ColorLevel } from '../ansi/color-support.js';
 import type { Painter } from '../canvas/index.js';
 import type { KeyHandler, MouseHandler, PasteHandler } from '../input/index.js';
 import type { Box, LayoutNode, Measurement } from '../layout/index.js';
+import { raise } from '../signals/raise.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { wrap } from '../wrap/index.js';
 import { announceFocus, checkFocusWrite } from './focus.js';
 
@@ -638,16 +639,39 @@ export class Element implements LayoutNode {
     if (this.type !== 'box') {
       throw new Error(`A ${this.type} element cannot have children`);
     }
+    // every check is made before anything is detached, so a call that throws
+    // leaves the tree as it found it -- the child taken out of its old parent
+    // and then refused was a child in neither. The brand check keeps a `null`
+    // or a foreign object on this message rather than a raw `TypeError`
+    if (
+      before !== undefined &&
+      !(
+        typeof before === 'object' &&
+        before !== null &&
+        #parent in before &&
+        before.#parent === this
+      )
+    ) {
+      throw new Error('The element to insert before is not a child of this element');
+    }
+    // already where it was asked to go: this ends where the DOM's does, without
+    // recording the removal and re-insertion the DOM would
+    if (before === child) {
+      return this;
+    }
 
     // moved rather than duplicated: a child already somewhere else is taken
-    // from there first, which is what makes `insertBefore` a move
+    // from there first, which is what makes `insertBefore` a move -- and the
+    // index is read after it, because taking it out can shift `before`
     child.#parent?.removeChild(child);
 
     const at = before === undefined ? this.#children.length : this.#children.indexOf(before);
     if (at === -1) {
+      // unreachable while `#parent` and `#children` agree, which the checks
+      // above rely on; kept so a broken invariant throws instead of splicing
+      // at -1 and putting the child in the wrong place without a word
       throw new Error('The element to insert before is not a child of this element');
     }
-
     this.#children.splice(at, 0, child);
     child.#parent = this;
     child.#adopt(this.#tree);
@@ -801,12 +825,7 @@ export class Element implements LayoutNode {
       }
       errors.push(...(error instanceof AggregateError ? error.errors : [error]));
     }
-    if (errors.length === 1) {
-      throw errors[0];
-    }
-    if (errors.length > 1) {
-      throw new AggregateError(errors, 'Errors in onFocusChange');
-    }
+    raise(errors, 'Errors in onFocusChange');
     return this;
   }
 
@@ -1250,7 +1269,7 @@ export class Element implements LayoutNode {
         ? content.split('\n')
         : wrap(content, { width: availableWidth }).split('\n');
     const widths = lines.map((line) => stringWidth(line));
-    const widest = Math.max(0, ...widths);
+    const widest = maxOf(widths, 0);
 
     const result: WrappedText = {
       lines,

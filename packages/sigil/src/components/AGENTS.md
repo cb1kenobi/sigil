@@ -1862,6 +1862,44 @@ decided once, for all of them. The runs and the sabotage passes are in
   highlight and is recomputed from it, so there is no scroll state to keep in
   agreement: the only thing that has to be true is that the active row is on
   screen.
+- **And only the window's rows exist (SIG-369).** `select()` and `multiselect()`
+  built five elements for every choice and kept the ones off screen in the tree
+  as `display: none`, and `paintChoices()` wrote props on every one of them on
+  every key -- so a key cost the length of the list, where `sort()` and
+  `selectRow()`, which build their window and nothing else, stayed flat. Now
+  `choiceRows()` starts an empty list and `paintChoices()` takes out the rows that
+  left the window and builds the ones that entered it, in place, keeping the rest.
+  A 60x12 terminal, mean of five Downs, against the built package:
+
+  | prompt                      | 1,000 choices | 4,000    | 16,000   |
+  | --------------------------- | ------------- | -------- | -------- |
+  | `select()` per Down, before | 30.9 ms       | 113.6 ms | 458.6 ms |
+  | `select()` per Down, after  | 0.9 ms        | 0.8 ms   | 0.8 ms   |
+  | `multiselect()` before      | 28.9 ms       | 125.2 ms | 494.4 ms |
+  | `multiselect()` after       | 0.8 ms        | 0.9 ms   | 0.7 ms   |
+  | `select()` build, before    | 21 ms         | 99 ms    | 399 ms   |
+  | `select()` build, after     | 1 ms          | 1 ms     | 2 ms     |
+
+  A Down that scrolls costs the same as one that does not, on both sides.
+  Nothing could be lost by it, which was checked rather than argued: every byte
+  both prompts wrote, over sixteen scripted key sequences (headings, disabled
+  rows, hints that wrap, descriptions, `loop`, Home and End, an initial `value`
+  far down the list, ticks, `a`, `i`, `min` and `max` refusals, a resize, the
+  answered line) at six terminal sizes and colour levels 0 and 3, is identical
+  before and after. The list's width was never measured from its widest choice
+  -- a `display: none` row has a zero box -- so a wide label off screen moved
+  nothing then and moves nothing now. Every drawn row still gets `display: flex`
+  written, as it did when an off-screen one got `none`, so that what a row
+  resolves to is what it was. The one thing a theme could see is a structural
+  selector over the rows: `:first-child`, `:last-child`, `:nth-child()` and the
+  sibling combinators `+` and `~` on `.sigil-choice` now match among the rows of
+  the window rather than among every row of the list -- `.sigil-choice:first-child`
+  was choice 0 even when it had scrolled away as a `display: none` row, and is the
+  top visible row now. Nothing in the framework sheet uses any of them, and it is
+  what `sort()`'s rows have always done. Pinned as counts of element
+  writes at fifty choices and at five thousand in `choice-window.test.ts`,
+  never as time; the old code fails them by a factor of a hundred.
+
 - **A choice list reserves the cursor's column on every row, and a blank cannot
   do it.** The inactive rows drew a `' '` where the active one drew `❯`, which
   looks like the same one column and is not: `white-space: normal` collapses a run
@@ -3625,7 +3663,9 @@ again. The new tests are `test/components/multiline-extras.test.ts`.
 
 What is deliberately out: a bundled grammar (the hard constraint); an async
 `highlight`, which would need a frame to show while it is pending and nothing has
-asked for one; a count without a limit; and a limit in any unit but clusters.
+asked for one; a count without a limit; and a limit in any unit but clusters. SIG-289 shipped a highlighter in core
+anyway -- a lexer, not a grammar, which is what the constraint allows -- and
+`highlight` now also takes a `lang`; see "Syntax highlighting" below.
 
 #### A QR code: the encoder, and the two forms a module can be square in
 
@@ -4656,7 +4696,9 @@ how the two come to disagree." It is decided, and the answer is no.
   combining mark, so an NFD paste of `café` arrived as `cafe`. What is inserted
   is the sequence rather than the name, so the two can never disagree, and a C1
   control is refused there because `decodeKeys()` already names every C0 one as
-  Enter, Tab, Backspace, or Ctrl with a letter. The cursor is an offset into the
+  Enter, Tab, Backspace, Escape, or Ctrl with the key that sends it -- a letter,
+  or since SIG-361 `\`, `]`, `^` or `_` for 0x1c to 0x1f, and a backtick for
+  NUL. The cursor is an offset into the
   value rather than an index into its clusters -- inserting and slicing stay
   ordinary string work -- and it only ever lands on a boundary `graphemes()`
   agrees with: `cursor ± 1` walks UTF-16 code units, so a backspace over an emoji
@@ -4730,6 +4772,14 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+- **Ctrl-`\` `]` `^` `_`, a lone Alt-`[`, and the Linux console's F1 to F5 are
+  recorded with the binding grammar, not here (SIG-361).** Three readings
+  `decodeKeys()` got wrong, each a key a spec could name and nothing could
+  fire: 0x1c to 0x1f are their keys plus 0x40, a flushed `ESC [` or `ESC O` is
+  the Alt key it was (`DecodeOptions.final`), and `ESC [ [ A` to `E` are
+  `f1` to `f5`. The decisions, and what each one costs, are under "Three keys
+  the decoder misnamed" in `src/input/AGENTS.md`, because the bindings are the
+  reader that made them matter.
 
 ### A number prompt: the parser's reading of a number, in a text field
 
@@ -5570,6 +5620,28 @@ field.
   it is not given back on the way forward -- the date prompt's rule for stepping
   the month segment, so the grid and the field agree. The year stays inside
   0-9999.
+- **A day and a week stay inside 0-9999 too, and they did not until SIG-365.**
+  `addMonths()` clamped and `addDays()`, which the four arrow keys go through,
+  did not: Right on 9999-12-31 answered a `Date` in year 10000 under a head of
+  `10000-01-01`, and Left on 0000-01-01 one in year -1 under `00-1-12-31` --
+  neither of which the line form's `\d{4}` or the parser's `date` type can say.
+  The clamp is in `addDays()` rather than in the picker's `bounded()`, because
+  `bounded()` is `min` and `max` and `addMonths()` already held its own range;
+  both read one `FIRST_YEAR`/`LAST_YEAR` pair, so the range is written once in
+  `calendar.ts`. A day or week move past an end stops on 0000-01-01 or
+  9999-12-31, and Page Up and Page Down stop in the first or last month, keeping
+  the day -- so it is the years that win over a `min` or `max` set outside them,
+  not the option. Home and End never leave the month and were never affected;
+  `date()` was not either, since its year segment wraps inside `[0, 9999]` and
+  its page keys are `addMonths()`. That `[0, 9999]` is `date.ts`'s own, and
+  stays so: an ejected `date` imports every value it takes from `calendar.ts`
+  through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
+  two new names on that subpath for good. What was left alone: an
+  `initial`, `min` or `max` that is itself outside 0-9999 is still drawn as
+  given (`10000-06-15`, and Enter answers it, in the drawn form and the line
+  form), because it neither throws nor hangs; the first arrow or page key pulls
+  it into the range. And year 0's title reads `January 1`, since `Intl` writes
+  1 BC there -- the title is `Intl`'s, as the entry above says.
 - **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
   Enter.** The date prompt keeps an explicit `initial` out of range so that the
   person is told rather than handed another date, and it has an error line to tell
@@ -6133,6 +6205,21 @@ come out, and the answer is the entry you land on.
   `directory` mode that is a list holding only `.`. It reuses the key `path()`
   already has rather than a new one, because the list can be empty from the
   filter as well as from the directory.
+- **A directory state is filtered and sorted once, not once per ask (SIG-364).**
+  A key asks for the listing, and so does each of `redraw()`'s two draws, and
+  every ask was `candidatesOf()` over the whole directory: three filter-and-sorts
+  an arrow key, measured at 19 sorts for six keys and about 0.25s a key at 200,000
+  entries. `candidateCache()` in `path.ts` keeps the last answer and hands it back
+  while its inputs stand still: the entries array by identity (a new directory, or
+  a directory read again, is a new array), the segment, `directory`, whether
+  `hidden` is `true`, and `extensions` by identity. `path()`'s completer had the
+  same three asks per typed key and uses the same cache, so it is one definition
+  for both. It is published from `components/path` because an ejected picker
+  imports it from there. The second draw in `redraw()` stays: it is the one that
+  shows a directory whose read had not landed at the first, and with the cache it
+  costs the visible rows and no sort. The tests count `toSorted()` on `{ dir,
+  name }` arrays (`countEntrySorts()` in the test helpers), since a spy on the
+  export cannot see calls made inside `path.ts`.
 
 What is deliberately not done: typing to filter (that is `path()` and
 `autocomplete()`); a drive list; a `~` or Home key; showing sizes or types;
@@ -7872,6 +7959,17 @@ does.
   It runs on Enter, not per keystroke: an incremental search would run every
   prefix of a pattern, half of which do not compile, and would pay the hazard
   once per key rather than once.
+- **A literal query is escaped by `escapeRegExp()`, which does not escape `/`,
+  and that changes nothing (SIG-358).** The pager had its own class with a `/` in
+  it, beside three copies without one in `sigil build`. The pattern is
+  built in `searchPattern()` with `new RegExp()` and `gu` (plus `i` for smart
+  case), so `searchLines()` and every other reader of a query get the one
+  escape. There `/` is no delimiter and needs no
+  escape, and `\/` and `/` are both legal under `u` -- so the two compile to the
+  same matcher. `should take %j as itself` runs every syntax character, `/` and
+  `-` through the search one at a time, before and after. The import is
+  `../util/escape-regexp.js`, which the registry rewrites to
+  `@ttylabs/sigil/reference` through `BARRELLED`, the `byCodeUnit()` precedent.
 - **A zero-length match counts once per line, and only on a line with no other
   match.** So `^$` steps through the blank lines, as it does in `less`, and `a*`
   -- which matches empty at every column -- steps line by line rather than column
@@ -7990,6 +8088,18 @@ does.
   claim-only-where-it-scrolls rule, `q` without `onQuit`, a key the field does not
   want, the page size, the trailing newline, tabs by column, a straddling wide
   character, and the piped write.
+- **`searchPattern()` is the reading of a query, published on its own
+  (SIG-295).** The log browser's log is a `ListView` rather than a pager (the
+  pager reads its document once, and SIG-387 has the rest). It still had to read
+  `/` and `&` the way the pager does, literal and smart case. That rule was four
+  lines inside `searchLines()`, and copying them is the drift the one-definition
+  rule exists for. So they are `searchPattern(query, mode)`, which
+  `searchLines()` now calls and the example imports. It throws where
+  `searchLines()` reports: a function that hands back a `RegExp` has nowhere
+  else to put the complaint. The flags are `gu`, plus `i` where the query has no
+  capital. `String.search()` and `matchAll()` are the readers that ignore the
+  global flag's `lastIndex`, so the doc names them. The pager's own suite
+  passes unchanged, and `searchPattern()` has two tests of its own.
 - **Not done:** carrying the input's colour through; incremental search; `-F`
   (quit when it fits on one screen); a follow mode that tails a growing input --
   the content is read once, which is now the whole of the reason: the count that
@@ -9019,7 +9129,8 @@ exported beside them as pure functions.
   same.** `diff()` of two equal texts is `''`, like `table([])`, with no
   "no differences" line: that sentence is the caller's to choose and translate.
 
-What is deliberately not done: a grammar or a highlighter; a hunk-level fold
+What is deliberately not done: a grammar or a highlighter (SIG-289 has since
+added `highlightCode()`, and the language each side is handed); a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
 multi-file patch; a patch writer; a character-level pass; and a stateful view that
 scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
@@ -9408,6 +9519,9 @@ field joins like anything else focusable.
   row for one because a prompt is the whole question; a field is one part of a
   form, and where the error goes, when it is checked and what blocks a submit are
   the form's to say. `onChange` and `onSubmit` are where a caller checks.
+  Where it went, in an app: `examples/settings` keeps it in a form of its own
+  (`examples/AGENTS.md`, "A settings screen and a login form"), and publishing
+  that form is SIG-338.
 - **A focused field claims a paste, and that took a change to the router's
   order.** A router's `onPaste()` handlers ran before anything in the tree saw the
   paste, so an app-wide handler registered at startup took a paste meant for a
@@ -10177,12 +10291,11 @@ is recorded in that directory's file.
   the rule of three, no link inside a link. So an unterminated `*` is an `*`,
   `snake_case_name` is one word, `*foo**bar*` is one emphasis, and `***x***` is
   strong inside emphasis -- each pinned. The openers a closer has failed against
-  are remembered by the token it stopped at, so a long run of unmatched
-  delimiters is not searched per closer. **What is not bounded** is a long run of
-  `](` with no space in it, where every `]` scans to the end for a destination:
-  measured at about a second for 32 KB of `[a](`. The input is the app's own
-  document rather than somebody else's, which is why it is written down rather
-  than paid for with a limit that would refuse a long `data:` image.
+  are remembered, so a long run of unmatched delimiters is not searched per
+  closer. A long run of `](` with no space in it, where every `]` scanned to the
+  end for a destination, was left unbounded here on the ground that the input is
+  the app's own document; SIG-362 bounded it, by depth rather than by length, so
+  a long `data:` image is still read whole. That entry is below.
 - **The simplifications are uniform rather than case by case.** A tab is expanded
   to the next stop of four everywhere before anything is read -- CommonMark expands
   only where a column is being decided, and a tab counted two ways in one line is
@@ -10410,6 +10523,156 @@ read. All four are on by default and there is no switch.
   `-` fallback. Each one is pinned now, including the right alignment of every
   line of a wrapped cell. There are still no vertical borders, for `table()`'s
   reason.
+
+### Markdown nobody here wrote: linear time and a bounded depth (SIG-362)
+
+`markdown()` renders model output, fetched READMEs and release notes, so
+`parseMarkdown()` is fed text an attacker or a confused model can shape. It was
+linear on prose and quadratic or worse on a dozen malformed shapes, and three
+kilobytes of list markers overflowed the stack. Tests are in
+`test/components/markdown-malformed.test.ts`, each named after its defect. None of
+them asserts a time. Each reads a document and one eight times its size, and
+requires the second to cost less than 24 times the first: linear is 8, and every
+shape here was 60 or more. Each side is the best of seven runs, and the two sizes
+take turns, so a garbage collection or a busy core costs one sample rather than all
+of one side's. Two earlier versions failed in the full suite while passing on their
+own. One compared 4 times the size against a limit of 10. The other took the best
+of three for one size and then the other, and measured `_*` 27 times slower at 8
+times the size, where on its own it is 3.5.
+Every test named for a defect fails against `origin/main`'s parser. The rest pin
+behaviour that must not change. The heading-with-a-separator case is measured
+from 512 bytes to 4 KB rather than from 2 KB to 16 KB. The old parser was cubic
+there, and a synchronous parse cannot be timed out: at 16 KB a regression would
+hang CI for hours instead of failing. At 4 KB the old parser takes about 16 seconds a run
+against 145 ms at 512 bytes, so the test still fails on it.
+
+- **Containers nest 100 deep, and past that a line that would open one is
+  paragraph text.** `blocks()` and `readList()` carry the depth; at
+  `MAX_NESTING` a `>`, a list marker or a footnote definition is not opened, so it
+  reads as the characters it is. The number is the renderer's, not the parser's:
+  measured with a bare stack, `markdown()` of hand-built blocks overflows at about
+  **420** nested lists and **660** nested quotes, so 100 leaves room for the
+  stack an app already has under the call, and is what cmark and markdown-it use.
+  A document a dozen deep is read exactly as before.
+
+  Three consequences, each pinned. A footnote definition at the limit is read as
+  paragraph text before the link-definition check, because `[^n]: url` is also a
+  link definition of the label `^n`. Read as a link definition, the line vanished
+  and every `[^n]` became a link to the note's words. Second, the paragraph is
+  still cut by `interrupts()`. That still breaks on `>` and on list markers, so a
+  run of `> a` lines at the limit is one paragraph per line rather than one
+  paragraph. Third, the renderer can draw such a document but cannot show much of
+  it. Each level costs two or three columns of room, so at a width of 60 no text
+  appears past about 29 levels of list. The cost of drawing also grows with the
+  square of the depth. The test draws at a width of 400 and requires the innermost
+  words to come out at the end of the line. That is what the renderer guarantees,
+  where a returned string proves nothing.
+
+- **Inline runs are walked with an explicit stack.** Emphasis nests as deep as
+  its delimiters go, and nothing bounds that without changing what CommonMark
+  matches -- `*` twenty thousand times round a word is ten thousand nested strongs.
+  `markdownText()` and the renderer's `words()` recursed per level and overflowed
+  on it, in the parser too, through an image's alt text. Both keep their output.
+  What is **not** fixed is that the renderer's class list grows by a class per
+  level, so a word ten thousand levels deep carries ten thousand classes, and
+  `*a ` written a thousand times round a word drew in about 300ms. Bounding that
+  means dropping repeated classes from an element's class list, which changes
+  `markdownView()`'s tree for ordinary `*a *b* c*`; it was left for a ticket that
+  can decide that.
+- **A link destination's parentheses nest 32 deep, cmark's limit.** A `(` that
+  never closes kept the destination scan running to the end of the text, once per
+  `](`. CommonMark lets an implementation limit the nesting and requires three.
+  Depth rather than length is bounded, so a long `data:` image is still read
+  whole, which is what SIG-197 refused a limit for. Past 32 the link is its text.
+  This is the one change a differential check over 130,319 documents found: the 8
+  of them with 33 to 40 levels of parentheses. The cap still lets each `](` scan
+  up to 32 levels of the text, so the per-character test matters: the scan used a
+  Unicode-property pattern to find white space or a control character, and calling
+  it on every character made the test for this shape take 11 seconds on CI's
+  runners, past vitest's 10. Printable ASCII is now ruled out by its code unit and
+  only the rest goes to the pattern. That made the test nine times faster.
+- **A title that runs off the end is remembered.** A later title starting at or
+  after one that ran off the end runs off it too, because its start is a token
+  boundary of the first scan: the character before it is the opening mark, never
+  a backslash.
+- **A `]` costs the same however much came before it.** `closeBracket()` walked
+  back over every token for its `[`, and a closed link walked over every token to
+  put out the brackets before it. The open brackets are a stack of indices, and
+  "no link in a link" is a watermark: a `[` below it is inactive. An image does
+  not put out brackets, but it truncates the tokens above its own `[`, so the
+  watermark comes down to it; `![x [a](u)](i)[b](v)` is the pin.
+- **A label is not normalized when it cannot match.** Nested brackets hold one
+  another, so each `]` normalized a label as long as everything inside it.
+  Normalizing never shortens a label (white space collapses to one space, and no
+  code point lowercases to fewer UTF-16 units, checked over all of them), so a
+  label with more non-space characters than the longest definition's is skipped
+  by a prefix count. That is exact, unlike cmark's 999-character cap, which would
+  refuse a shortcut whose spaces collapse to a defined label.
+- **Emphasis builds a new list rather than splicing the old one.** A splice in
+  the middle moved every unread token, once per match. The openers' floor is now
+  an index, brought down to the new node after a match; before, it was a token
+  that a match could swallow, and then every search with that key went back to
+  the bottom. The key is cmark's `openers_bottom` key: the character, whether the
+  closer can open, and its length modulo three.
+- **Trailing spaces are counted backwards.** `/ {2,}$/`, `/ +$/` and the ATX
+  closing-hash pattern are tried from every position and run to the end of a
+  space run from each. The ATX pattern's lazy `(.*?)[ \t]*$` was worse, and the
+  table delimiter row's `[ \t]*\|?[ \t]*$` had the same shape. All are counted by
+  index now, and the delimiter row is tested with its trailing spaces removed.
+- **A line holding U+2028 or U+2029 is refused before a `.*$` pattern sees it.**
+  `.` refuses both, so `ATX`, `FENCE`, `ITEM` and `FOOTNOTE` never match such a
+  line, but each found that out by backtracking over every space before the
+  separator. `#`, four thousand spaces and a separator took fifteen seconds.
+  Asking first gives the same answer at once. That such a line is never a heading
+  or a list item is kept, and pinned, because changing it is not this ticket.
+- **`footnotes()` walks each map once** instead of copying its keys for every
+  note.
+- **Backtick runs are not memoized, and a memo was written and taken out.** It
+  remembered a length that found no closer, so that a later run of that length
+  would not look again. But a length that found no closer has no later run of
+  that length, or the first run would have found it, so the memo could never be
+  used. Runs of every length from one up, none closed, still read the rest of the
+  text once per run. That is n to the power 1.5, measured at 66ms for 256 KB, and
+  it is left alone.
+
+Before and after, `parseMarkdown()` alone, on a machine with other agents running
+on it. The before is `origin/main`'s build, the after this one's. The ticket's
+shapes:
+
+| input                                    | size        | before            | after        |
+| ---------------------------------------- | ----------- | ----------------- | ------------ |
+| `'a' + ' '.repeat(n) + 'b\nc'`           | 64 / 128 KB | 4,099 / 21,462 ms | 3.6 / 3.7 ms |
+| `'# a' + ' '.repeat(n) + 'b'`            | 64 / 128 KB | 4,521 / 15,703 ms | 1.3 / 3.8 ms |
+| `'[]('.repeat(n)`                        | 24 / 48 KB  | 986 / 4,730 ms    | 17 / 26 ms   |
+| `'[a]('.repeat(n)`                       | 40 / 80 KB  | 3,239 / 14,168 ms | 24 / 38 ms   |
+| `'![a]('.repeat(n)`                      | 40 / 80 KB  | 3,450 / 20,284 ms | 23 / 37 ms   |
+| `'[a](b'.repeat(n)`                      | 40 / 80 KB  | 2,323 / 17,059 ms | 24 / 43 ms   |
+| `']'.repeat(n)`                          | 64 / 128 KB | 4,301 / 16,999 ms | 2.7 / 3.5 ms |
+| `']('.repeat(n)`                         | 40 / 80 KB  | 519 / 1,722 ms    | 2.6 / 2.1 ms |
+| `'_*'.repeat(n)`                         | 40 / 80 KB  | 415 / 1,723 ms    | 26 / 38 ms   |
+| `'*a*_b_'.repeat(n)`                     | 40 / 80 KB  | 121 / 401 ms      | 8.5 / 15 ms  |
+| `'a*'.repeat(n)`                         | 40 / 80 KB  | 70 / 293 ms       | 7.9 / 14 ms  |
+| `'- '.repeat(1600) + 'a'`, and `>`, `* ` | 2.5 to 4 KB | `RangeError`      | under 3 ms   |
+
+And the ones found by reading the parser:
+
+| input                                    | size        | before                       | after        |
+| ---------------------------------------- | ----------- | ---------------------------- | ------------ |
+| `'a\|b\n---' + ' '.repeat(n) + 'x'`      | 16 / 32 KB  | 163 / 908 ms                 | 2.5 / 2.4 ms |
+| `'#' + ' '.repeat(n) + 'a' + U+2028`     | 2 / 4 KB    | 2,249 / 15,064 ms            | 0.0 / 0.1 ms |
+| `'- '`, ``'`'``, `'[^a]: '` the same way | 16 / 32 KB  | 185 to 227 / 814 to 1,113 ms | under 2 ms   |
+| `'[a](b ('.repeat(n)`                    | 32 / 64 KB  | 208 / 605 ms                 | 7.9 / 7.8 ms |
+| `'['.repeat(n) + ']'.repeat(n)`          | 16 / 32 KB  | 147 / 565 ms                 | 7.2 / 5.6 ms |
+| `'a_ b*'.repeat(n)`                      | 40 / 80 KB  | 515 / 3,079 ms               | 8 / 25 ms    |
+| `'[a](b) '.repeat(n)`                    | 64 / 128 KB | 124 / 608 ms                 | 7.5 / 19 ms  |
+
+The differential check parsed 319 hand-written documents and 130,000 seeded
+random ones with both builds and compared the trees, and drew the 319 with
+`markdown()`. The hand-written ones cover nested emphasis, reference and
+collapsed links, destinations nested 0 to 40 deep, hard breaks, closing hashes,
+footnotes, task lists, tables, and quotes and lists twelve deep. The random ones
+are built from markdown's significant characters, and a third of them include
+definitions. Everything matched except the 8 destinations past 32 levels.
 
 ### Line forms that list, browse, sort and search (SIG-228)
 
@@ -11586,6 +11849,115 @@ was reached, the measurements and the sabotage pass are in
   for an app to move the caret or read the selection; and `multiline()` onto the
   element.
 
+### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)
+
+`src/components/highlight.ts`, published as `@ttylabs/sigil/components/highlight`:
+`highlightCode(code, lang)`, `codeLanguage()` and `CODE_LANGUAGES`. The seam's type
+is `Highlighter`, in `prompt.ts` beside `HighlightSpan`, and the token-to-role table
+is `TOKEN_ROLE`, which moved to `src/theme` -- its entry there says why. The
+measurements, the review findings and the sabotage pass are in
+[docs/history/syntax-highlighting-a-lexer-per-language.md](../../../../docs/history/syntax-highlighting-a-lexer-per-language.md).
+
+- **A lexer in core, and tree-sitter is a package of its own if it is ever
+  anything.** The ticket asked "tree-sitter, or a small lexer? Both?", and the
+  constraint answers half of it: `web-tree-sitter` is a WASM runtime plus a grammar
+  per language, which is a dependency, so it can only be what `config-xml` is -- a
+  package an app installs to get it, at no cost to an app that does not. The other
+  half is that nothing in core has to wait for it. A tree-sitter highlighter is a
+  function of the `Highlighter` shape, exactly as an app's own already is, so the
+  package needs no change here to exist, and it is a follow-up (SIG-380) rather
+  than a reason to hold this. What the lexer gives up is what a grammar knows --
+  scope, what an expression means, a regular expression told from a division by
+  parsing rather than by guessing -- and what it buys is 14 kB, nothing imported at
+  run time, and a synchronous answer. That last one is not a convenience: every seam
+  is synchronous and "Textarea extras" refused an async `highlight`, because it
+  needs a frame to draw while the answer is pending, and tree-sitter's WASM load is
+  asynchronous.
+- **Six languages, the ticket's: JavaScript and TypeScript, JSON, shell, YAML,
+  Markdown and a diff.** They are what a CLI shows -- its own config, its scripts,
+  its README, its changes -- and each is one forward pass. `codeLanguage()` maps
+  every name a language goes by (a fence word, an extension, `typescript`) to one of
+  seven, case aside, and answers `undefined` for anything else, so
+  `highlightCode()` marks nothing in a language it does not read rather than
+  guessing. Markdown's "a block the hook marked nothing in is drawn as it was" is
+  what makes that the right answer: a `python` block next to a `ts` one stays the
+  accent instead of turning plain.
+- **One seam, `(code, lang?) => spans`, and every component hands it what it knows
+  of the language.** The four seams already shared `HighlightSpan`, `tokensOf()`
+  and the roles; what differed was the arity, because markdown's took a `lang` and
+  the other three did not -- so the one highlighter that reads several languages
+  could be handed to markdown and to nothing else without a wrapper. `Highlighter`
+  is the one type now, and `lang` comes from wherever the component learns it:
+  markdown's fence word, as before; `diff()`'s `lang` option, or else the extension
+  of each side's file name, with a `/dev/null` side taking the other side's -- so
+  each file of a `git diff` is read in its own language; and a `lang` option on
+  `TextArea()` and `multiline()`. An extension is handed over as written rather than
+  mapped to a language here, for the reason the fence word is: the highlighter is
+  what knows which names it reads.
+
+  **Backward compatible both ways, and checked rather than assumed.** A hook an app
+  already wrote as `(value) => spans` assigns to `Highlighter`, since fewer
+  parameters always do, and markdown's `(code, lang: string | undefined)` assigns
+  too, since TypeScript treats an optional and a required parameter as
+  interchangeable in an assignment. Every existing seam test passed unedited, which
+  is the check that nothing an app had moved. What an existing hook does see that it
+  did not is a second argument: `undefined` from a prompt or an area with no `lang`,
+  and a diff's extension where the input names a file. A hook that takes one
+  parameter cannot tell.
+
+- **No component highlights by default.** Every seam is still off until an app hands
+  it a highlighter. Turning it on would change how every markdown code block draws --
+  the accent becomes tokens and plain text -- and would put the lexers on every
+  subpath with a seam, which is four components' worth of apps paying for a feature
+  most of them do not use. Opting in is one property.
+- **The module imports a type and no value**, so the subpath is the facade and the
+  lexers, 14,145 B when it landed, and nothing it feeds: a pager or a log viewer
+  that wants spans does not load a prompt. `should keep the highlight subpath to the
+  lexers, with nothing they feed behind them` in `test/dist.test.ts` holds it there,
+  because `TOKEN_ROLE` imported as a value from `prompt.ts` -- the obvious slip --
+  would put the whole component stack behind it.
+- **Linear by construction, and timed against what a lexer is classically quadratic
+  on.** Every scan either consumes what it read or remembers that it failed: a
+  regular expression that does not close on its line is not looked for again on
+  that line; a search for a closing delimiter is a `finder()` that remembers where
+  it found the next one, or that there is none, for searches that only move
+  forward; a line's backtick runs are read once and a code span's closer found by a
+  cursor per run length; and Markdown's searches are made once per document rather
+  than per line. That last one was a review finding before any test ran: per line,
+  a `[` with no `]` after it scanned to the end of the document from every line
+  that had one. `linear time` in `test/components/highlight.test.ts` gives thirty
+  pathological inputs of a million characters a two-second deadline -- a quadratic
+  scan of that is seconds at the least and a linear one tens of milliseconds, so
+  an absolute deadline tells them apart on a loaded machine where a ratio of two
+  timings would not.
+- **Spans come out in order and never overlap, and two of one token that touch are
+  one.** The order is what the text area's filing assumes ("a highlighter emits its
+  spans in order, so that is almost always a step or two"), and the merge is why an
+  invalid run in JSON is one span rather than one per character.
+- **Measured, as of this change, on node 26.10 on arm64 macOS.** 1.93 MB of this
+  repository's TypeScript, 52,603 lines, in about 28 ms; this file, 844 kB of
+  Markdown, in about 16 ms. So over the text area's 50,000 lines a keystroke costs
+  what the regex highlighter its entry measured costs, about 20 ms, and an
+  incremental highlight -- the lines that changed and the state at the start of
+  them -- is still the way under that. It is a follow-up (SIG-382): the lexers carry
+  their state in locals today, and lifting it into something a line can resume from
+  changes every one of them.
+- **What each language does not read**, written on its lexer rather than repeated
+  here: JSX tags, the command inside a backquoted shell substitution, a YAML scalar
+  quoted over several lines, an indented Markdown code block. Each is drawn as
+  plainer than it is.
+- **Sabotage: seventeen, all caught**, every one type-checking. Thirteen are
+  readings -- the regular-expression memo, a template hole's depth, a member after
+  a spread, a fence's language, a substitution inside a string, a `case` pattern, a
+  JSON key's colon, a block scalar, a patch header's pair, a token's role, a diff
+  side's file name, and the `lang` a text area and a prompt hand over -- and each
+  fails a named test. Four are linearity guards, and two of those **survived the
+  first pass**: the shell's `${` search and Markdown's per-document searches went
+  back to `indexOf()` per call and finished inside the deadline, because a
+  quadratic made of `indexOf()` runs at memory speed and 200,000 characters was not
+  enough. The inputs are a million characters now and all four fail by seconds,
+  while the guarded lexers take at most 44 ms.
+
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 
 `src/components/button.ts`, `checkbox.ts`, `radio-set.ts`, `switch.ts`, and
@@ -11725,4 +12097,63 @@ sabotage pass -- is in
 - **Not done:** the prompts moved onto these elements; the dropdown select, which
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
-  validation; and `:disabled` on `TextField`.
+  validation, which `examples/settings` writes for itself and SIG-338 would
+  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
+  `TextField`.
+
+### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
+
+- **A min or a max over a list as long as the caller's data goes through
+  `maxOf()` or `minOf()`, never through a spread.** `Math.max(...values)` puts
+  every element on the call stack as an argument, and past about 125,000 of them
+  a main thread throws `RangeError: Maximum call stack size exceeded` -- which is
+  the line chart of a long series, the bar chart of many bars and the table of
+  many rows that SIG-363 reported, with `tableView()` throwing at 100,000 one-cell
+  rows while 50,000 drew in 98 ms. The figure moves with the Node version, the
+  platform and how deep the call already is, so there is no safe length to
+  document. `maxOf()` and `minOf()` are `src/util/extent.ts`, published from
+  `@ttylabs/sigil/width` beside `stringWidth()` so that an ejected component
+  imports them from a subpath it already imports. A spread over a list whose
+  length the component decides -- a font's height, a mask's slots, a command's
+  options -- is fine and is left alone, which is why the rule is about the
+  caller's data rather than about spreads.
+- **This is a rule about a min or a max, not yet about every spread, and the
+  `box(props, ...rows)` sites are the reason.** Spreading children into `box()`
+  fails the same way, and SIG-363 appended them one at a time only where its own
+  subjects needed it: `chart.ts`'s `viewOf()` and live rows, `tableView()`, and
+  the layout engine's per-line measures that a long `table()` or bar chart
+  reaches. Several more remain, each throwing at 200,000 entries on a main thread
+  -- `outlineView()`, `logView()`, a markdown list, a markdown table, a document
+  of 200,000 paragraphs, and `diff()` -- including where this ticket moved the
+  component's width measurement onto `maxOf()`. That move is correct and keeps the
+  answer exactly, and it does not make those components safe at that size: their
+  `box(...children)` throws first. Whether `box()` should take an array, or every
+  such site should append, is SIG-417's decision.
+- **`maxOf(values, floor)` is exactly `Math.max(floor, ...values)`, odd inputs
+  included.** It is `Math.max` asked one element at a time, and `Math.max` is
+  associative and commutative over every number: a `NaN` anywhere is `NaN`, `-0`
+  against `0` is `0`, and nothing at all is the floor, `-Infinity` by default as
+  `Math.max()` of nothing is. So no call site's answer moved, and
+  `test/width/extent.test.ts` holds the two to `Object.is` over the inputs that
+  answer oddly. The charts' own scale over an empty series, one value, equal
+  values, negatives, `NaN` and the two infinities is pinned in
+  `the scale of an unusual series`, which passed before the change and after it.
+- **The size that fails an app does not fail a test, so the tests are bigger or
+  are not on the test's own thread.** vitest runs a file in a worker, whose stack
+  is four times a main thread's: a worker spreads 300,000 arguments and fails at
+  500,000. So a regression test written at 200,000 passed against the code it was
+  written for. The cheap ones run in-process at a million; the bar chart and the
+  table, which cost seconds of elements at that size, run at 200,000 in a spawned
+  node in `test/components/data-sized.test.ts`, which is where an app runs them.
+- **`tableView([])` is an empty table, which is what `table([])` already drew.**
+  The columns were read off the first row, so no rows and no `columns` reached
+  `Object.keys(undefined)`. A missing first row is no columns now: the element is
+  a `sigil-table` box with no children, and it renders `''`. Columns given with
+  no rows still draw their headings from `tableView()` while `table([])` returns
+  `''` whatever it was given, and `tableView([], { head: true })` holds one empty
+  heading row -- both as they were before, and left alone here.
+- **What a bar chart of 50,000 bars costs is not a quadratic, and is left.**
+  Profiled: about 70 µs a bar and linear (0.8 s at 12,500, 1.8 s at 25,000, 3.9 s
+  at 50,000 on a loaded machine), spread over grapheme segmentation of the block
+  glyphs, the cascade, layout and garbage collection, with no one function
+  holding most of it.

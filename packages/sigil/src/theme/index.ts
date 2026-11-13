@@ -133,9 +133,13 @@ export const FRAMEWORK_CSS = `
  *   .sigil-prompt-number  .sigil-prompt-keys
  *   .sigil-prompt-gutter  .sigil-prompt-gutter-active  .sigil-prompt-count
  *   .sigil-token  and a .sigil-token-NAME per token a highlight names, of which
- *   .sigil-token-comment  .sigil-token-function  .sigil-token-invalid
- *   .sigil-token-keyword  .sigil-token-number  .sigil-token-string
- *   .sigil-token-type  also carry a role
+ *   the names in TOKEN_ROLE also carry a role: .sigil-token-comment
+ *   .sigil-token-function  .sigil-token-invalid  .sigil-token-keyword
+ *   .sigil-token-number  .sigil-token-string  .sigil-token-type
+ *   .sigil-token-code  .sigil-token-constant  .sigil-token-deleted
+ *   .sigil-token-heading  .sigil-token-hunk  .sigil-token-inserted
+ *   .sigil-token-link  .sigil-token-meta  .sigil-token-property
+ *   .sigil-token-regexp  .sigil-token-variable
  *   .sigil-choice  .sigil-choice-pointer  .sigil-choice-mark  .sigil-choice-hint
  *   .sigil-choice-heading  .sigil-choice-separator  .sigil-choice-description
  *   .sigil-choice-group
@@ -502,6 +506,53 @@ export function frameworkSheet(): Stylesheet {
   framework ??= parseStylesheet(FRAMEWORK_CSS, { origin: 'framework' });
   return framework;
 }
+
+/**
+ * The role a syntax token draws in, which is how a theme colours code without a
+ * highlighter knowing a single colour.
+ *
+ * A highlighter names tokens and a component puts each on its cells as the class
+ * `sigil-token-<token>` -- and, for the names here, the role beside it. **A role
+ * rather than a declaration**, which is the rule the framework sheet keeps
+ * everywhere: a declaration two built-ins share lives on a role, and the component
+ * class beside it is the narrower hook. So a keyword is the accent because a theme
+ * that recoloured the accent meant it, `.sigil-token-keyword` is there for a sheet
+ * that wants keywords alone, and nothing here is a rule in `FRAMEWORK_CSS`.
+ *
+ * Seven are the names every highlighter emits under one spelling or another, each
+ * in the role that reads right for it -- de-emphasis for a comment, the error role
+ * for what the highlighter could not parse. The rest are what `highlightCode()`
+ * emits beyond them, each in the role of the thing it is most like: a `constant` and
+ * a `number` are both literal values, a `regexp` is a string, a `property` and a
+ * `link` are names to look at, `code` is drawn as markdown draws code, `heading`
+ * and `meta` are bold, and a patch's lines are the diff view's own roles -- added,
+ * removed, and a hunk header. Anything else, Markdown's `emphasis` and `strong`
+ * among them, is a hook with no default.
+ *
+ * A `Map`, for the reason a registry's lookup table is null-prototype: a token
+ * is a name an app chose, and `constructor` reads back truthy off a plain object.
+ */
+export const TOKEN_ROLE: ReadonlyMap<string, string> = new Map([
+  ['comment', 'sigil-muted'],
+  ['function', 'sigil-heading'],
+  ['invalid', 'sigil-error'],
+  ['keyword', 'sigil-accent'],
+  ['number', 'sigil-info'],
+  ['string', 'sigil-success'],
+  ['type', 'sigil-warn'],
+  // what highlightCode() emits beyond the seven
+  ['code', 'sigil-accent'],
+  ['constant', 'sigil-info'],
+  ['deleted', 'sigil-error'],
+  ['heading', 'sigil-heading'],
+  ['hunk', 'sigil-info'],
+  ['inserted', 'sigil-success'],
+  ['link', 'sigil-accent'],
+  ['meta', 'sigil-heading'],
+  ['property', 'sigil-accent'],
+  ['regexp', 'sigil-success'],
+  ['variable', 'sigil-warn'],
+]);
 
 /**
  * A theme, from its source.

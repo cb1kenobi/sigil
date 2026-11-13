@@ -673,8 +673,8 @@ the absence here is settled rather than pending.
   for a plain character -- Shift-A arrives as `A` with the flag clear -- so it is a
   binding that can never fire; `shift+tab` is kept, because that is the one place a
   terminal really does report it. And `ctrl+X` is **normalized** to `ctrl+x` rather
-  than refused, because the byte is the same one either way and `readOne()` names it
-  from `code + 0x60`: the two spellings are one key press, so normalizing is what
+  than refused, because the byte is the same one either way and `readOne()` names a
+  letter from `code + 0x60`: the two spellings are one key press, so normalizing is what
   they mean rather than a rewrite of what was asked for.
 
   What it cannot check is whether a terminal can _send_ what a spec names.
@@ -684,10 +684,65 @@ the absence here is settled rather than pending.
   something this grammar can enumerate, so it is written down rather than
   pretended about.
 
-- **`KEY_NAMES` is derived from the decoder's own two tables.** The rule
+- **Three keys the decoder misnamed, and what each reading is now (SIG-361).**
+  Each made a key a spec could name and nothing could fire.
+
+  - **0x1c to 0x1f are Ctrl-`\`, Ctrl-`]`, Ctrl-`^` and Ctrl-`_`.** `code + 0x60`
+    is right for 0x01 to 0x1a, the letters, and for NUL's backtick; past ESC the
+    keys are their characters plus 0x40, and from 0x60 they came out as `|`, `}`,
+    `~` and DEL. So `ctrl+\` and readline's `ctrl+_` undo parsed, normalized and
+    never matched. The spec side needed nothing: lower-casing leaves the four
+    alone. 0x1b is untouched because it never reaches that branch -- it is ESC.
+    **The old names now never fire, and nothing says so.** `ctrl+|`, `ctrl+}`
+    and `ctrl+~` still parse -- each is a character with Ctrl, which the grammar
+    cannot refuse without knowing what a terminal can send -- but no byte decodes
+    to them any more, so an app that bound one because it was what 0x1c to 0x1e
+    used to arrive as has a binding that silently stopped. That is the price of
+    the decoder saying what the key is; the binding to write is the key's own
+    name, `ctrl+\`, `ctrl+]` or `ctrl+^`.
+  - **A held `ESC [` or `ESC O` that nothing followed is Alt-`[` or Alt-Shift-`O`.**
+    The router holds either as the start of a CSI or SS3, which is what lets a
+    split `ESC [` + `A` become Up, and its `expire()` flushed it as `unknown`,
+    while `ESC ]` and `ESC P` -- introducers too -- came out as their Alt keys.
+    `DecodeOptions.final` is how `expire()` says nothing more is coming, and it
+    changes exactly that one reading: a longer unfinished sequence such as
+    `ESC [ 1 ;` is still `unknown`, because it stopped arriving rather than being
+    pressed. `keys()` never passes it, so the hold is what it was, and a held
+    control string is not touched -- that is `readString()`'s, asked first, and its
+    wait still belongs to the query (`src/terminal`). What it costs is **any**
+    CSI split right after its `ESC [` and stalled past `ESCAPE_TIMEOUT` -- a
+    reply, a mouse report, a bracketed paste's start marker -- whose introducer
+    now dispatches as Alt-`[` where it was an inert `unknown`, with the rest then
+    arriving as keys exactly as before. Neither is a key a text prompt inserts,
+    but Alt-`[` is one a binding can match where `unknown` was not; the stall
+    itself is the cost "`ESCAPE_TIMEOUT` still owns a half-arrived CSI" already
+    accepts. A run of ESC bytes is decoded the way it was -- the outer ESC is Alt
+    over whatever the inner read is -- so `ESC ESC [` flushed is now Alt-`[` and
+    `ESC ESC [ [ A` is Alt-F1. How consecutive ESCs nest is SIG-408's question,
+    and a late capability reply split mid-payload is SIG-403's; both will
+    interact with this reading rather than being settled by it.
+  - **`ESC [ [ A` to `ESC [ [ E` are the Linux console's F1 to F5.** The CSI
+    reader takes the second `[` as a final byte, so F1 was an unknown sequence and
+    a literal `A` typed into the field. `readEscape()` reads one more byte after
+    `ESC [ [` and names A to E from `LINUX_CONSOLE`, a table beside `SEQUENCES`
+    that `KEY_NAMES` also reads (its names were already there). With nothing after
+    the second `[` yet, the sequence is pending, so a split read holds it like any
+    other; flushed, it is the `unknown` it always was. `ESC [ [` and any other
+    byte keeps today's reading, an unknown `ESC [ [` and then that byte. Holding
+    it has one interaction with a paste, which belongs with the paste work
+    (SIG-402) rather than this entry: a held tail survives across a bracketed paste and joins what follows
+    it, so `x ESC [ [` then a paste then `A` within `ESCAPE_TIMEOUT` reads `x`,
+    the paste, `f1` where it read `x`, `unknown`, the paste, `A`. A held `ESC [`
+    already had that shape.
+
+  Pinned in `test/components/keys.test.ts` and, through the router, in "keys the
+  decoder misnamed" in `test/input/sequence.test.ts`.
+
+- **`KEY_NAMES` is derived from the decoder's own three tables.** The rule
   `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
-  `SEQUENCES` and `CONTROLS` is a second list to keep in agreement, and a name
-  added to one without the other is a key no spec can bind with nothing to say so.
+  `SEQUENCES`, `LINUX_CONSOLE` and `CONTROLS` is a second list to keep in
+  agreement, and a name added to a table without the list is a key no spec can
+  bind with nothing to say so.
   Filtered to the names of more than one character, because `CONTROLS` maps
   Ctrl-C's byte to `'c'`, which is the letter rather than a name -- a one-character
   name and a character are the same answer reached two ways. A single token is a

@@ -1,6 +1,6 @@
 import { json, createConfigSync } from '../../src/config/index.js';
 import { parseJsonc, scanJsonc } from '../../src/config/jsonc.js';
-import { lineAt } from '../../src/config/spans.js';
+import { lineCounter } from '../../src/config/spans.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -170,11 +170,12 @@ describe('the scan', () => {
     expect(read('c.json', source, true)).to.deep.equal({ a: 1 });
   });
 
-  it('should count a line only when something needs one', () => {
-    expect(lineAt('a\nb\nc', 0)).to.equal(1);
-    expect(lineAt('a\nb\nc', 2)).to.equal(2);
-    expect(lineAt('a\nb\nc', 4)).to.equal(3);
-    expect(lineAt('a', 99)).to.equal(1);
+  it('should count a line from the start, and put an offset past the end on the last', () => {
+    const lineOf = lineCounter('a\nb\nc');
+    expect(lineOf(0)).to.equal(1);
+    expect(lineOf(2)).to.equal(2);
+    expect(lineOf(4)).to.equal(3);
+    expect(lineCounter('a')(99)).to.equal(1);
   });
 });
 

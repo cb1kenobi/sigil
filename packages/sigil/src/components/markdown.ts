@@ -26,7 +26,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
+import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import {
@@ -37,7 +37,7 @@ import {
   markdownText,
 } from './markdown-parse.js';
 import { unicodeSupported } from './note.js';
-import { type HighlightSpan, TOKEN_ROLE, tokensOf } from './prompt.js';
+import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
 import { type Column, tableRowView, tableWidths } from './table.js';
 
@@ -52,8 +52,9 @@ export interface MarkdownOptions extends StyledOptions {
   env?: Record<string, string | undefined>;
   /**
    * Says which stretches of a code block are which tokens, for syntax
-   * highlighting -- the hook `diff()` and `multiline()` take, with the block's
-   * language beside the code.
+   * highlighting -- the hook `diff()`, `multiline()` and `TextArea()` take, with
+   * the block's language beside the code. `highlightCode()` from
+   * `@ttylabs/sigil/components/highlight` is one, for the languages it names.
    *
    * Called once per fenced or indented code block, with the whole block and the
    * first word of its info string (`ts` for a fence opened with three backticks
@@ -64,7 +65,7 @@ export interface MarkdownOptions extends StyledOptions {
    * it does not know -- is drawn as it would be without it. Inline code spans are
    * never handed to it: they have no language to say what they are in.
    */
-  highlight?: (code: string, lang: string | undefined) => readonly HighlightSpan[];
+  highlight?: Highlighter;
   /**
    * Whether a link is an OSC 8 hyperlink, with its URL out of sight, or its words
    * with the URL after them. Defaults to `supportsHyperlinks()` for `stream`, and
@@ -479,7 +480,10 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
         ? bullets[ctx.depth % bullets.length]
         : glyph(index)
   );
-  const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  const markerWidth = maxOf(
+    markers.map((marker) => stringWidth(marker)),
+    1
+  );
   // a numbered list's boxes are a column of their own, after the numbers
   const boxed = block.ordered && block.checked !== undefined;
   const boxWidth = stringWidth(boxes.off);
@@ -550,7 +554,10 @@ function taskClasses(done: boolean): string {
  */
 function footnotes(block: Extract<MarkdownBlock, { type: 'footnotes' }>, ctx: Context): Element {
   const markers = block.notes.map((note) => `[${note.index}]`);
-  const markerWidth = Math.max(...markers.map((marker) => stringWidth(marker)), 1);
+  const markerWidth = maxOf(
+    markers.map((marker) => stringWidth(marker)),
+    1
+  );
   const inner: Context = { ...ctx, room: Math.max(1, ctx.room - markerWidth - 1) };
   // spaced as a list is: a blank line between notes once any note is more than
   // one block, or a two-paragraph note would read as two notes
@@ -736,53 +743,75 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
     }
   };
 
-  const walk = (items: readonly MarkdownInline[], classes: string, href: string): void => {
-    for (const run of items) {
-      switch (run.type) {
-        case 'text': {
-          emit(run.text, classes, href);
-          break;
-        }
-        case 'code': {
-          emit(run.text, join(classes, 'sigil-markdown-code sigil-accent'), href);
-          break;
-        }
-        case 'emphasis': {
-          walk(run.children, join(classes, 'sigil-markdown-em'), href);
-          break;
-        }
-        case 'strong': {
-          walk(run.children, join(classes, 'sigil-markdown-strong'), href);
-          break;
-        }
-        case 'strikethrough': {
-          // the tildes stay, on every terminal and at every colour level: the
-          // line through the words is an attribute nothing can ask a terminal
-          // whether it drew, and struck-out words with no mark on them say the
-          // opposite of what their author wrote. Muted, so they read as markup:
-          // a struck `--flag` puts the line through its dashes, and in the text's
-          // own colour the tildes beside that read as a third pair. Not inside a
-          // link, for the image's reason: muted and the accent both set a colour
-          const marker = join(
-            classes,
-            classes.includes('sigil-markdown-link')
-              ? 'sigil-markdown-strike-marker'
-              : 'sigil-markdown-strike-marker sigil-muted'
-          );
-          emit(STRIKE_MARKER, marker, href);
-          walk(run.children, join(classes, 'sigil-markdown-strike'), href);
-          emit(STRIKE_MARKER, marker, href);
-          break;
-        }
-        case 'footnote': {
-          // its own classes only: it is not part of a link or an emphasis it
-          // sits inside, and one element carries one role
-          emit(`[${run.index}]`, 'sigil-markdown-footnote-ref sigil-muted', '');
-          break;
-        }
-        case 'link': {
-          const target = linkTarget(run.href, ctx);
-          walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href);
+  // the runs nest as deep as the emphasis in them, which nothing bounds, so they
+  // are walked with a stack of their own rather than the call stack: each frame
+  // is a list of runs part read, and what to emit once it is read to the end
+  const stack: InlineFrame[] = [];
+  const walk = (
+    items: readonly MarkdownInline[],
+    classes: string,
+    href: string,
+    after?: () => void
+  ): void => {
+    stack.push({ after, at: 0, classes, href, items });
+  };
+
+  walk(runs, '', '');
+  while (stack.length > 0) {
+    const frame = stack.at(-1)!;
+    if (frame.at === frame.items.length) {
+      stack.pop();
+      frame.after?.();
+      continue;
+    }
+    const run = frame.items[frame.at++];
+    const { classes, href } = frame;
+    switch (run.type) {
+      case 'text': {
+        emit(run.text, classes, href);
+        break;
+      }
+      case 'code': {
+        emit(run.text, join(classes, 'sigil-markdown-code sigil-accent'), href);
+        break;
+      }
+      case 'emphasis': {
+        walk(run.children, join(classes, 'sigil-markdown-em'), href);
+        break;
+      }
+      case 'strong': {
+        walk(run.children, join(classes, 'sigil-markdown-strong'), href);
+        break;
+      }
+      case 'strikethrough': {
+        // the tildes stay, on every terminal and at every colour level: the
+        // line through the words is an attribute nothing can ask a terminal
+        // whether it drew, and struck-out words with no mark on them say the
+        // opposite of what their author wrote. Muted, so they read as markup:
+        // a struck `--flag` puts the line through its dashes, and in the text's
+        // own colour the tildes beside that read as a third pair. Not inside a
+        // link, for the image's reason: muted and the accent both set a colour
+        const marker = join(
+          classes,
+          classes.includes('sigil-markdown-link')
+            ? 'sigil-markdown-strike-marker'
+            : 'sigil-markdown-strike-marker sigil-muted'
+        );
+        emit(STRIKE_MARKER, marker, href);
+        walk(run.children, join(classes, 'sigil-markdown-strike'), href, () =>
+          emit(STRIKE_MARKER, marker, href)
+        );
+        break;
+      }
+      case 'footnote': {
+        // its own classes only: it is not part of a link or an emphasis it
+        // sits inside, and one element carries one role
+        emit(`[${run.index}]`, 'sigil-markdown-footnote-ref sigil-muted', '');
+        break;
+      }
+      case 'link': {
+        const target = linkTarget(run.href, ctx);
+        walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href, () => {
           const said = markdownText(run.children).trim();
           if (target.shown !== '' && target.shown !== said) {
             // its own word, after a space, so the URL breaks onto a line of its
@@ -790,37 +819,45 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
             end();
             emit(`(${target.shown})`, 'sigil-markdown-url sigil-muted', '');
           }
-          break;
+        });
+        break;
+      }
+      case 'image': {
+        // a terminal cannot show the picture, so its description stands in
+        // for it -- linked to the picture where a link can be drawn, and in the
+        // link's own style where the image is what a link is made of, which is
+        // how a README's row of badges reads
+        const alt = run.alt.trim() === '' ? 'image' : run.alt;
+        if (href !== '' || classes.includes('sigil-markdown-link')) {
+          emit(alt, classes, href);
+        } else {
+          emit(
+            alt,
+            join(classes, 'sigil-markdown-image sigil-muted'),
+            linkTarget(run.src, ctx).href
+          );
         }
-        case 'image': {
-          // a terminal cannot show the picture, so its description stands in
-          // for it -- linked to the picture where a link can be drawn, and in the
-          // link's own style where the image is what a link is made of, which is
-          // how a README's row of badges reads
-          const alt = run.alt.trim() === '' ? 'image' : run.alt;
-          if (href !== '' || classes.includes('sigil-markdown-link')) {
-            emit(alt, classes, href);
-          } else {
-            emit(
-              alt,
-              join(classes, 'sigil-markdown-image sigil-muted'),
-              linkTarget(run.src, ctx).href
-            );
-          }
-          break;
-        }
-        case 'break': {
-          end();
-          lines.push([]);
-          break;
-        }
+        break;
+      }
+      case 'break': {
+        end();
+        lines.push([]);
+        break;
       }
     }
-  };
+  }
 
-  walk(runs, '', '');
   end();
   return lines;
+}
+
+/** A list of runs part walked, the classes and link they are drawn with, and what follows them. */
+interface InlineFrame {
+  readonly after: (() => void) | undefined;
+  at: number;
+  readonly classes: string;
+  readonly href: string;
+  readonly items: readonly MarkdownInline[];
 }
 
 /** Two class lists as one. */

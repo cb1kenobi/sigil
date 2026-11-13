@@ -7,6 +7,7 @@ import {
   type PagerOptions,
   pagerLines,
   searchLines,
+  searchPattern,
   softWrap,
 } from '../../src/components/pager.js';
 import { scrollControl } from '../../src/components/scroll-box.js';
@@ -199,6 +200,17 @@ describe('searchLines()', () => {
     ).to.have.length(1);
   });
 
+  // one at a time, beside a line it must not match, so that a character the
+  // escape leaves out is caught by name -- a `/` included, which the pager's
+  // own class once escaped and `escapeRegExp()` does not need to under `u`
+  it.each([...'\\^$.*+?()[]{}|/-'])('should take %j as itself', (char) => {
+    const lines = ['xyz', `x${char}y`, `${char}${char}`];
+    const { error, matches } = searchLines(lines, `x${char}y`);
+    expect(error).to.equal(undefined);
+    expect(matches).to.deep.equal([{ end: 3, line: 1, start: 0 }]);
+    expect(searchLines(lines, char).matches.map((it) => it.line)).to.deep.equal([1, 2, 2]);
+  });
+
   it('should match either case unless the query has a capital in it', () => {
     expect(searchLines(['Alpha', 'alpha'], 'alpha').matches).to.have.length(2);
     expect(searchLines(['Alpha', 'alpha'], 'Alpha').matches).to.deep.equal([
@@ -260,6 +272,24 @@ describe('searchLines()', () => {
 
   it('should find nothing for an empty query', () => {
     expect(searchLines(['a'], '')).to.deep.equal({ matches: [], truncated: false });
+  });
+});
+
+describe('searchPattern()', () => {
+  it('should be the reading searchLines() makes of a query, for a view that holds its own lines', () => {
+    // literal, so the punctuation in a path or a version is itself
+    expect('a.c abc'.search(searchPattern('b'))).to.equal(5);
+    expect('abc'.search(searchPattern('a.c'))).to.equal(-1);
+    // smart case, and an escape is not a capital somebody typed
+    expect(searchPattern('alpha').flags).to.equal('giu');
+    expect(searchPattern('Alpha').flags).to.equal('gu');
+    expect(searchPattern('\\Sl', 'regex').flags).to.equal('giu');
+    expect(searchPattern('v\\d+$', 'regex').test('v10')).to.equal(true);
+  });
+
+  it('should throw what a regular expression that does not compile says', () => {
+    expect(() => searchPattern('a(', 'regex')).to.throw(SyntaxError);
+    expect(searchLines(['a(b'], 'a(', 'regex').error).to.be.a('string');
   });
 });
 

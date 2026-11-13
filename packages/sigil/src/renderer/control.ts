@@ -21,6 +21,7 @@
 
 import { box, type Element, type ElementProps } from '../element/index.js';
 import { State, untrack } from '../signals/index.js';
+import { longestIncreasing } from '../util/longest-increasing.js';
 import { createBranch, createEffect, type Owner, runWithOwner } from './owner.js';
 
 /** Whatever `when` produced, where it counts as present. */
@@ -170,6 +171,10 @@ interface Row<T> {
  * queue per key rather than one entry: two equal primitives in a list are a list
  * with two entries in it, not a bug to refuse.
  *
+ * A reorder moves the fewest rows it can: the kept rows on a longest run that is
+ * already in order stay where they are and only the rest are moved, so taking
+ * the first row to the end is one move and swapping the two ends is two.
+ *
  * @param props - The list, the row builder, and the wrapper's props.
  * @returns The wrapper element.
  */
@@ -181,13 +186,16 @@ export function For<T>(props: ForProps<T>): Element {
   createEffect(() => {
     const items = props.each();
 
-    const spare = new Map<T, Row<T>[]>();
+    // a queue per key, read through a cursor rather than by `shift()`: that is
+    // O(k) for a key held k times, so a list of one repeated primitive was
+    // quadratic to reconcile against itself
+    const spare = new Map<T, { next: number; rows: Row<T>[] }>();
     for (const row of rows) {
       const held = spare.get(row.item);
       if (held) {
-        held.push(row);
+        held.rows.push(row);
       } else {
-        spare.set(row.item, [row]);
+        spare.set(row.item, { next: 0, rows: [row] });
       }
     }
 
@@ -198,7 +206,8 @@ export function For<T>(props: ForProps<T>): Element {
     try {
       const next: Row<T>[] = [];
       for (const [at, item] of items.entries()) {
-        const kept = spare.get(item)?.shift();
+        const held = spare.get(item);
+        const kept = held && held.next < held.rows.length ? held.rows[held.next++] : undefined;
         if (kept) {
           // the same row, possibly somewhere else: tell it where, and leave
           // everything it built alone
@@ -219,8 +228,8 @@ export function For<T>(props: ForProps<T>): Element {
         next.push({ dispose: branch.dispose, element, index, item });
       }
 
-      for (const left of spare.values()) {
-        for (const row of left) {
+      for (const held of spare.values()) {
+        for (const row of held.rows.slice(held.next)) {
           row.element.remove();
           row.dispose();
         }
@@ -232,14 +241,7 @@ export function For<T>(props: ForProps<T>): Element {
         fallback = undefined;
       }
 
-      // placed by walking the target order and moving only what is out of
-      // place, because `insertBefore` marks the parent's children dirty and a
-      // list that re-inserts every row restyles every sibling of every row
-      for (const [at, row] of next.entries()) {
-        if (host.children[at] !== row.element) {
-          host.insertBefore(row.element, host.children[at]);
-        }
-      }
+      place(host, next);
 
       rows = next;
 
@@ -269,4 +271,72 @@ export function For<T>(props: ForProps<T>): Element {
   });
 
   return host;
+}
+
+/**
+ * Puts `rows`' elements into `host` in order, moving as few of them as it can.
+ *
+ * Moving only what is out of place matters twice over: `insertBefore` marks the
+ * parent's children dirty, so a list that re-inserts every row restyles every
+ * sibling of every row, and each one is a removal and an insertion that both
+ * search the children, so a move costs the length of the list. The first answer
+ * walked the target order and moved every row not already at its index -- which
+ * is "out of place" by position, and by that measure taking the first row to the
+ * end puts every other row out of place: n-1 moves, each O(n), for what is one
+ * move. So the question is asked by order instead. The rows already in `host`
+ * that lie on a longest increasing run of their current positions are in order
+ * relative to one another and stay. The rows after the last one that stays are
+ * appended in order, and every other row before it, the new ones among them, is
+ * moved in front of the row that follows it, walking backwards so that the row it
+ * goes in front of is already where it belongs. Appending the tail is what keeps
+ * a first mount linear: nothing stays, so it is all tail.
+ *
+ * Positions are read off `host` rather than off the rows' previous indices, so
+ * what is on screen is what is placed against, whatever put it there.
+ *
+ * @param host - The wrapper the rows belong in.
+ * @param rows - The rows, in the order they are wanted.
+ */
+function place(host: Element, rows: readonly { element: Element }[]): void {
+  const now = new Map<Element, number>();
+  for (const [at, child] of host.children.entries()) {
+    now.set(child, at);
+  }
+
+  /** Which of `rows` are in `host` already, and where each of those sits. */
+  const present: number[] = [];
+  const from: number[] = [];
+  for (const [at, row] of rows.entries()) {
+    const was = now.get(row.element);
+    if (was !== undefined) {
+      present.push(at);
+      from.push(was);
+    }
+  }
+
+  const stays = new Uint8Array(rows.length);
+  for (const k of longestIncreasing(from)) {
+    stays[present[k]] = 1;
+  }
+
+  // the rows after the last one that stays go on the end, in order. Putting them
+  // in front of one another from the end puts each at index 0 of a host they are
+  // not in yet, and a splice there shifts every child behind it -- which made a
+  // first mount, where nothing stays, quadratic
+  let last = rows.length - 1;
+  while (last >= 0 && !stays[last]) {
+    last--;
+  }
+  for (let at = last + 1; at < rows.length; at++) {
+    host.append(rows[at].element);
+  }
+
+  let before: Element | undefined = rows[last + 1]?.element;
+  for (let at = last; at >= 0; at--) {
+    const { element } = rows[at];
+    if (!stays[at]) {
+      host.insertBefore(element, before);
+    }
+    before = element;
+  }
 }

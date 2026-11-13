@@ -123,6 +123,12 @@ class Parser {
   readonly #values: readonly unknown[];
   #si = 0;
   #ci = 0;
+  /** How far `loc()` has counted, as a string index and an offset into it. */
+  #seenSi = 0;
+  #seenCi = 0;
+  /** The line and column at that point. */
+  #line = 1;
+  #column = 1;
 
   constructor(strings: readonly string[], values: readonly unknown[]) {
     this.#strings = strings;
@@ -232,16 +238,51 @@ class Parser {
    * to name -- a tagged template is an expression inside a module the reader is
    * already looking at, and the line is the line within the template.
    *
+   * Counted from where the last call left off rather than from the start of the
+   * template, which is sound because the cursor only ever moves forward. It
+   * used to join and split the whole consumed prefix on every call, and it is
+   * called once per element and per text run, so a template of k nodes cost
+   * O(k²) (SIG-349). Only `\n` ends a line and the column counts UTF-16 code
+   * units, exactly as that split did -- so a `\r` is a column, and so is each
+   * half of an astral character.
+   *
    * @returns The position.
    */
   loc(): SourceLocation {
-    let source = '';
-    for (let i = 0; i < this.#si; i += 1) {
-      source += this.#strings[i];
+    while (this.#seenSi < this.#si) {
+      const string = this.#strings[this.#seenSi]!;
+      this.#see(string, this.#seenCi, string.length);
+      this.#seenSi += 1;
+      this.#seenCi = 0;
     }
-    source += this.#strings[this.#si]!.slice(0, this.#ci);
-    const lines = source.split('\n');
-    return { column: lines[lines.length - 1]!.length + 1, line: lines.length };
+    const string = this.#strings[this.#si]!;
+    const to = Math.min(this.#ci, string.length);
+    this.#see(string, this.#seenCi, to);
+    this.#seenCi = to;
+    return { column: this.#column, line: this.#line };
+  }
+
+  /**
+   * Advances the running line and column over part of one static string.
+   *
+   * Reads exactly `from` to `to` and nothing past it. `indexOf('\n', from)`
+   * cannot be bounded and runs on to the next newline, so on a template written
+   * on one line every call scanned to the end of it and the parse was
+   * quadratic again; `lastIndexOf('\n', to - 1)` has the same fault backwards.
+   *
+   * @param string - The static string.
+   * @param from - Where the last measurement stopped.
+   * @param to - Where this one stops.
+   */
+  #see(string: string, from: number, to: number): void {
+    let last = -1;
+    for (let at = from; at < to; at += 1) {
+      if (string.charCodeAt(at) === 10) {
+        this.#line += 1;
+        last = at;
+      }
+    }
+    this.#column = last === -1 ? this.#column + (to - from) : to - last;
   }
 
   /** Throws unless everything has been read. */

@@ -1488,8 +1488,29 @@ which is the same asymmetry `version` already has.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
-fallback chain truncates at `-`, so `de-DE` is served by a `de` catalog and
-`zh-Hans-CN` by `zh-Hans` or `zh`.
+modifiers `@latin` and `@cyrillic` name a script and are read as one, so
+`sr_RS@latin` is `sr-Latn-RS`; every other modifier is dropped. The fallback
+chain truncates at `-`, so `de-DE` is served by a `de` catalog and `zh-Hans-CN`
+by `zh-Hans` or `zh`.
+
+A POSIX locale never spells a script, so before the bare language is tried the
+tag's likely script is: `zh_TW.UTF-8` is served by a `zh-TW` catalog if there is
+one, then by `zh-Hant`, and only then by `zh` — never by `zh-Hans`. What was
+asked for always wins when it is registered, so `LANG=zh` with `zh` and
+`zh-Hans` registered is served by `zh`. The likely form never changes the
+language or swaps one region for another, so `pt-BR` with `pt` and `pt-PT`
+registered is served by `pt`.
+
+| Asked for     | Registered           | Served by |
+| ------------- | -------------------- | --------- |
+| `zh`          | `zh`, `zh-Hans`      | `zh`      |
+| `zh-TW`       | `zh-Hant`, `zh`      | `zh-Hant` |
+| `zh-TW`       | `zh-TW`, `zh-Hant`   | `zh-TW`   |
+| `zh-TW`       | `zh`                 | `zh`      |
+| `zh-CN`       | `zh-Hans`, `zh-Hant` | `zh-Hans` |
+| `pt-BR`       | `pt`, `pt-PT`        | `pt`      |
+| `sr_RS@latin` | `sr-Latn`, `sr`      | `sr-Latn` |
+| `sr_RS`       | `sr-Latn`, `sr`      | `sr`      |
 
 There is no `--locale` flag, and that is a refusal rather than an omission: a
 parse can fail _before_ an option is read, so `mycli --porx --locale=de` throws
@@ -1504,6 +1525,10 @@ import { setLocale } from '@ttylabs/sigil/i18n';
 
 await setLocale(config.language); // after the app has read its config
 ```
+
+Two calls that overlap end with the **later** one in effect, however long each
+catalog takes to load; the earlier one resolves without changing anything, and
+the locale in effect stays so until the later one's catalog arrives.
 
 A string is translated **where it is built**, so a locale set here does not
 reach one already rendered. In practice that means a parse error and `--help`
@@ -2409,6 +2434,23 @@ Color support is detected from `TERM`, `COLORTERM`, `FORCE_COLOR`, `NO_COLOR`,
 CI variables, and whether the stream is a TTY. `strip()` removes SGR, OSC, DCS,
 and CSI sequences, not just colors.
 
+`hexChannels(digits)` is the hex reader `ansi.hex()` is built on, without the
+`#` and without the throw: three or six hex digits in either case become
+`[r, g, b]` on 0-255, with `abc` read as `aabbcc`, and anything else is
+`undefined`. Four and eight digits are not hex here, since nothing in the
+package has an alpha channel to put the fourth in. Whether a `#` is required,
+whether the text is trimmed, and what to say when it is wrong are the caller's:
+`ansi.hex()` takes the `#` or not, while a stylesheet colour requires it.
+
+```js
+import { hexChannels } from '@ttylabs/sigil/ansi';
+
+hexChannels('5f87af'); // [95, 135, 175]
+hexChannels('#5f87af'.slice(1)); // the same
+hexChannels('f00'); // [255, 0, 0]
+hexChannels('ff00'); // undefined
+```
+
 ### `sigil/wrap`
 
 ```js
@@ -2446,6 +2488,24 @@ stringWidth('🇯🇵'); // 2  — regional indicator pair
 stringWidth('👨‍👩‍👧‍👦'); // 2  — one ZWJ cluster
 graphemes('á日🇯🇵'); // ['á', '日', '🇯🇵']
 unicodeVersion; // '17.0.0'
+```
+
+`maxOf(values, floor)` and `minOf(values, ceiling)` are the largest and the
+smallest of a list of numbers, for a list of any length. `Math.max(...values)`
+puts every element on the call stack, so past about 125,000 of them it throws
+`RangeError: Maximum call stack size exceeded`; these walk the list instead. The
+answer is exactly `Math.max(floor, ...values)` and `Math.min(ceiling, ...values)`,
+`NaN` and an empty list included, and `floor` and `ceiling` default to
+`-Infinity` and `Infinity`.
+
+```js
+import { maxOf, minOf, stringWidth } from '@ttylabs/sigil/width';
+
+maxOf(
+  lines.map((line) => stringWidth(line)),
+  0
+); // the widest line, or 0 for none
+minOf(values); // Infinity for an empty list, as Math.min() is
 ```
 
 ### `sigil/element`
@@ -2969,7 +3029,9 @@ and End to the first and last day of the month, and Enter takes the day under th
 cursor. It returns a `Date` at local midnight. `min` and `max` are inclusive and
 every move lands on the nearest bound rather than past it, `initial` outside them
 is moved to the nearer one, and `highlight`, `locale` and `weekStart` are as above.
-The grid keeps six rows while it is open, so the lines under it do not move as the
+No move leaves the years 0000-9999 that the parser's `date` type reads: a day or a
+week stops on 0000-01-01 or 9999-12-31, and a month in the first or last month of
+that range. The grid keeps six rows while it is open, so the lines under it do not move as the
 month changes.
 
 **`date({ calendar })`** shows the same grid under the date prompt's field, with
@@ -3137,25 +3199,15 @@ The field can number its lines, draw a gutter mark, cap how much it takes, and
 highlight what it holds:
 
 ```js
-const KEYWORDS = /\b(?:const|let|return|function|if|else)\b/g;
+import { highlightCode } from '@ttylabs/sigil/components/highlight';
 
 const snippet = await multiline({
   message: 'Transform',
   lineNumbers: true,
   gutter: '│ ',
   charLimit: 500,
-  highlight: (value) => [
-    ...[...value.matchAll(KEYWORDS)].map((m) => ({
-      start: m.index,
-      end: m.index + m[0].length,
-      token: 'keyword',
-    })),
-    ...[...value.matchAll(/\/\*[^]*?\*\/|\/\/.*/g)].map((m) => ({
-      start: m.index,
-      end: m.index + m[0].length,
-      token: 'comment',
-    })),
-  ],
+  highlight: highlightCode,
+  lang: 'js',
 });
 ```
 
@@ -3173,21 +3225,24 @@ warning colour when it is full. An `initial` over the limit is refused; a `value
 over it is dropped for `initial`, the way every prompt drops a `value` it cannot
 show.
 
-`highlight` is a seam rather than a grammar: there are no dependencies to bring
-one in, so the field asks the app. It is handed the **whole value** whenever it
-changes and returns spans of offsets into it, so a block comment or a string can
-run over a line break. Each span's `token` becomes the class `sigil-token-<token>`
-on the cells it covers; `comment`, `function`, `invalid`, `keyword`, `number`,
-`string` and `type` also draw in a role — muted, bold, the error, accent, info,
-success and warning colours — so they are coloured with no stylesheet, and any
-other name is a hook for one. Where two spans overlap the later wins.
+`highlight` is a `Highlighter`, the one shape every highlight seam takes:
+`highlightCode()` (under [Syntax highlighting](#syntax-highlighting)) is one, and
+any function of the shape is another. It is handed the **whole value** and `lang`
+whenever the value changes and returns spans of offsets into it, so a block comment
+or a string can run over a line break. Each span's `token` becomes the class
+`sigil-token-<token>` on the cells it covers; `comment`, `function`, `invalid`,
+`keyword`, `number`, `string` and `type` -- and the rest of `TOKEN_ROLE` -- also
+draw in a role: muted, bold, the error, accent, info, success and warning colours,
+so they are coloured with no stylesheet, and any other name is a hook for one.
+Where two spans overlap the later wins.
 
-| Option        | Meaning                                                                 |
-| ------------- | ----------------------------------------------------------------------- |
-| `lineNumbers` | Number each line down the left of the field                             |
-| `gutter`      | A mark drawn at the start of every row, after the number                |
-| `charLimit`   | The most characters the answer may hold, counted as clusters            |
-| `highlight`   | `(value) => [{ start, end, token }]`, called whenever the value changes |
+| Option        | Meaning                                                                       |
+| ------------- | ----------------------------------------------------------------------------- |
+| `lineNumbers` | Number each line down the left of the field                                   |
+| `gutter`      | A mark drawn at the start of every row, after the number                      |
+| `charLimit`   | The most characters the answer may hold, counted as clusters                  |
+| `highlight`   | `(value, lang) => [{ start, end, token }]`, called whenever the value changes |
+| `lang`        | The value's language, handed to `highlight`                                   |
 
 #### An answer written in the editor
 
@@ -4389,14 +4444,15 @@ word moved and not only that the line did. `diff()` returns a string and the
 caller does the writing, like `rule()`, so it ignores `--quiet`; `diffView()` is
 the element tree behind it, and also says which layout it ended up with.
 
-| Option        | Meaning                                                        |
-| ------------- | -------------------------------------------------------------- |
-| `layout`      | `unified` (default) or `side-by-side`                          |
-| `width`       | How many columns it spans. Defaults to `terminalWidth()`       |
-| `lineNumbers` | Number the lines. Defaults to `true`                           |
-| `context`     | Lines kept around a change when given two texts. Defaults to 3 |
-| `intraline`   | Set the edited words apart. Defaults to `true`                 |
-| `highlight`   | `(text) => HighlightSpan[]`, the same hook `multiline()` takes |
+| Option        | Meaning                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `layout`      | `unified` (default) or `side-by-side`                           |
+| `width`       | How many columns it spans. Defaults to `terminalWidth()`        |
+| `lineNumbers` | Number the lines. Defaults to `true`                            |
+| `context`     | Lines kept around a change when given two texts. Defaults to 3  |
+| `intraline`   | Set the edited words apart. Defaults to `true`                  |
+| `highlight`   | `(text, lang) => HighlightSpan[]`, the hook `multiline()` takes |
+| `lang`        | The texts' language. Defaults to each file name's extension     |
 
 Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
 below it, so the same call is safe in a narrow terminal. A line wider than its room
@@ -4410,13 +4466,15 @@ changed words of two lines. Past about two thousand edits `diffSequence()` stops
 searching and reports the middle as replaced, which is a correct script and not the
 shortest one.
 
-There is no grammar in the package. `highlight` is the seam an app fills with
-whatever highlighter it already has: it is called with a whole side of the diff --
-the old text and the new text, or the two sides of a hunk when the input is a patch
--- so a span can run across lines, and the tokens it names become the classes
-`sigil-token-<name>` on the cells they cover. On an added or removed line a token
-is drawn in its own role (`keyword`, `string`, `comment` and the rest of
-`multiline()`'s seven); on a context line it stays muted. The theme reaches the
+`highlight` is the seam every component shares, so `highlight: highlightCode` is
+enough. It is called with a whole side of the diff -- the old text and the new
+text, or the two sides of a hunk when the input is a patch -- so a span can run
+across lines, and with the side's language: `lang`, or else the extension of the
+file's name, so each file of a `git diff` is read in its own language and a new
+file's `/dev/null` side takes the other side's. The tokens it names become the
+classes `sigil-token-<name>` on the cells they cover. On an added or removed line a
+token is drawn in its own role (`keyword`, `string`, `comment` and the rest of
+`TOKEN_ROLE`); on a context line it stays muted. The theme reaches the
 view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
 `.sigil-diff-context`, `.sigil-diff-change`, `.sigil-diff-number`,
 `.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
@@ -4507,20 +4565,13 @@ tildes are muted, so a struck flag's own dashes are not read as a third pair. An
 app that knows its terminal draws the line can hide the tildes with
 `.sigil-markdown-strike-marker { display: none }`.
 
-There is no grammar in the package, so **a code block is highlighted by the app**,
-through the hook `diff()` and `multiline()` take:
+**A code block is highlighted through the hook `diff()` and `multiline()` take**,
+and `highlightCode()` is one:
 
 ```js
-markdown(source, {
-  highlight: (code, lang) =>
-    lang === 'js'
-      ? [...code.matchAll(/\b(?:const|let|return)\b/g)].map((m) => ({
-          start: m.index,
-          end: m.index + m[0].length,
-          token: 'keyword',
-        }))
-      : [],
-});
+import { highlightCode } from '@ttylabs/sigil/components/highlight';
+
+markdown(source, { highlight: highlightCode });
 ```
 
 It is called once per fenced or indented block, with the whole block and the first
@@ -4528,9 +4579,8 @@ word of the fence's info string (`js` for a fence opened with three backticks an
 `js`), or `undefined` where the fence names none. Spans are offsets into the whole
 block, so a comment can run over several lines, and they are cut with the lines
 and the folds. The tokens are `diff()`'s: each becomes `sigil-token-<token>`, and
-`keyword`, `string`, `comment`, `number`, `type`, `function` and `invalid` also
-draw in a role, so one theme colours a diff's tokens and a document's the same
-way. In a block the hook marks anything in, what it did not mark is the plain
+`keyword`, `string`, `comment` and the rest of `TOKEN_ROLE` also draw in a role,
+so one theme colours a diff's tokens and a document's the same way. In a block the hook marks anything in, what it did not mark is the plain
 foreground, since the accent is the keyword's colour; a block it marks nothing in,
 a language it does not know, is drawn in the accent as before. A span past the end
 is clipped, a token no class can carry is refused, and a hook that throws throws
@@ -4564,6 +4614,56 @@ plain tree of `heading`, `paragraph`, `code`, `quote`, `list`, `table`, `rule` a
 without its formatting, except that a strikethrough keeps its tildes.
 `text()` from `@ttylabs/sigil/element` takes an `href` for the same OSC 8 link on
 anything else.
+
+#### Syntax highlighting
+
+```js
+import { highlightCode } from '@ttylabs/sigil/components/highlight';
+
+markdown(readme, { highlight: highlightCode });
+diff({ patch }, { highlight: highlightCode });
+TextArea({ highlight: highlightCode, lang: 'ts' });
+await multiline({ message: 'Config', highlight: highlightCode, lang: 'yaml' });
+
+highlightCode('const n = 1;', 'ts');
+// [ { start: 0, end: 5, token: 'keyword' }, { start: 10, end: 11, token: 'number' } ]
+```
+
+A small lexer per language, for the four components that take a highlighter:
+JavaScript and TypeScript (`js`, `ts`, and `mjs`, `cjs`, `mts`, `cts`, `jsx` and
+`tsx` as names for them), JSON with JSONC's comments, shell (`sh`, `bash`, `zsh`),
+YAML, Markdown and a unified diff (`diff`, `patch`). `codeLanguage(name)` says which
+language a name means, case aside, and `CODE_LANGUAGES` lists them. A name it does
+not know answers with no spans rather than a guess, which every seam draws as code
+nobody highlighted.
+
+Every seam takes the same `Highlighter`, `(code, lang) => spans`, and hands it what
+it knows of the language: `markdown()` the fence's first word, `diff()` each file's
+extension, `TextArea()` and `multiline()` the `lang` the app gave. So the same
+function is the answer everywhere, and an app's own highlighter -- a grammar it
+already has, a language this does not read -- is a function of that shape.
+
+It is a lexer and not a grammar: one pass that knows what a comment, a string, a
+number, a keyword, a key and a command look like, and that guesses where every
+quick highlighter guesses -- a `/` after an operand divides, a capitalized name is a
+type, the first word of a shell command is what runs. A fenced block in Markdown is
+highlighted in its own language. Every language reads in **linear time** whatever
+it is handed, unclosed strings and comments included, since a highlighter runs on
+every keystroke of a text area.
+
+**The highlighter names tokens and the theme colours them.** A token is the class
+`.sigil-token-<token>`, and `TOKEN_ROLE` from `@ttylabs/sigil/theme` maps the ones
+it emits to roles: `keyword`, `property`, `link` and `code` are the accent;
+`string`, `regexp` and `inserted` success; `number`, `constant` and `hunk` info;
+`type` and `variable` warning; `function`, `heading` and `meta` the heading role;
+`comment` muted; and `invalid` and `deleted` the error role. A theme that recolours
+the accent recolours keywords with it, and `.sigil-token-keyword` is the narrower
+hook for keywords alone. Markdown's `emphasis` and `strong` have no role and are
+there for a sheet.
+
+The module imports nothing at run time, so `@ttylabs/sigil/components/highlight`
+costs its own 14 kB and no component behind it -- a pager or a log viewer that only
+wants spans pays for spans.
 
 #### Outline
 
@@ -5662,12 +5762,13 @@ gives it.
 
 `lineNumbers` numbers each line, two digits at the least, with the caret's line
 the one not muted; `gutter: '│ '` draws a mark after them. The gutter is never
-copied with the text. `highlight(value)` is `multiline()`'s hook, unchanged: it is
-handed the whole value whenever it changes and returns spans of offsets into it,
-each naming a token, which is a class -- `.sigil-token-<token>` -- and for
-`comment`, `function`, `invalid`, `keyword`, `number`, `string` and `type` a role
-as well, so a theme colours a text area, a prompt, a diff and a markdown code block
-with one sheet. The framework carries no grammar; the app brings one.
+copied with the text. `highlight(value, lang)` is `multiline()`'s hook, unchanged:
+it is handed the whole value and `lang` whenever the value changes and returns
+spans of offsets into it, each naming a token, which is a class --
+`.sigil-token-<token>` -- and for the names in `TOKEN_ROLE` a role as well, so a
+theme colours a text area, a prompt, a diff and a markdown code block with one
+sheet. `TextArea({ highlight: highlightCode, lang: 'ts' })` is an editor for
+TypeScript; see [Syntax highlighting](#syntax-highlighting).
 
 The keys are the prompt's: Enter is a newline, Left and Right move by a character
 and with Ctrl or Alt by a word, Up and Down by a line keeping the column they aim
@@ -7397,6 +7498,14 @@ swallows, `isMissing` is `ENOENT` and nothing else, `overlay` is the whole of
 of those is a recorded review finding, and it costs 102 bytes, because `json()`
 already uses four of the six and what is added is the export statements.
 
+`physicalPath(path)` is the path the kernel would resolve `path` to -- every
+symlink on the way followed, a `..` after a symlinked directory read the way
+the kernel reads it rather than collapsed lexically -- for a path that need not
+exist yet: the deepest ancestor that does is resolved and the rest is joined
+back on. It is what `writeAtomic` asks about its own target, and what
+`sigil build` asks before it empties or writes an output directory. A
+resolution that fails for any reason but something not being there throws.
+
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
 holds, or `undefined` where it is not there; `claim(theirs, value, paths,
@@ -7473,6 +7582,16 @@ one space, then every control character gone, then trimmed. It is what the
 completion script and the markdown reference both print a `desc` with, since a
 description is one line wherever it is printed and a raw escape in a file is a
 sequence waiting for something to print it.
+
+`escapeRegExp(text)` is a string as a pattern that matches exactly it: every
+character the pattern grammar reads as syntax gets a backslash, so
+`new RegExp(escapeRegExp('a.b'))` matches `a.b` and not `axb`. It is the stand-in
+for `RegExp.escape()`, which the Node floor this package supports does not have,
+and it is what `sigil build` and the pager's literal search both escape with. The
+result is pattern source for `new RegExp()`, so a `/` is left alone -- it only
+delimits the literal syntax. It is safe only outside a character class:
+``new RegExp(`[${escapeRegExp('a-z')}]`)`` is still a range, and under the `v`
+flag a `--` or `&&` inside a class is an operator.
 
 ### `sigil/which`
 
@@ -7803,6 +7922,25 @@ The checker alone can also live in `sigil.json`, where the build bakes it in (a
 `npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
+
+#### When a cache is fresh
+
+The cache is answered from for `checkInterval` after it was written, and a cache
+whose stamp is more than a minute **ahead** of the clock is stale too: one
+written while the clock was wrong would otherwise go unchecked until real time
+caught up with it. A stamp that is not a finite number is stale as well.
+
+`isFreshStamp(ts, maxAge, now?)` is that rule, exported for an app that keeps a
+stamped cache of its own. `sigil package` uses it for its runtime listings.
+
+```js
+import { isFreshStamp } from '@ttylabs/sigil/updates';
+
+const held = JSON.parse(readFileSync(file, 'utf-8'));
+if (!isFreshStamp(held.ts, 86_400_000)) {
+  // refetch
+}
+```
 
 #### In a compiled binary
 

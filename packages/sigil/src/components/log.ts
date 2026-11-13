@@ -21,7 +21,7 @@ import { box, type Element, renderToLines, text as textNode } from '../element/i
 import { resolveOutput } from '../style/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { colorLevelOf } from './color-level.js';
 import { createStreamWrapper } from './log-stream.js';
 import { PROMPT_SYMBOLS } from './prompt.js';
@@ -447,7 +447,7 @@ export function createLog(opts: LogOptions = {}): Log {
     // limit -- always has them there
     const beside = fields ? stringWidth(fields) + 1 : 0;
     const last = rows.length - 1;
-    const widest = Math.max(...rows.slice(0, last), (rows[last] ?? 0) + beside);
+    const widest = maxOf(rows.slice(0, last), (rows[last] ?? 0) + beside);
     const width = columns ?? widest + gutter + 1;
     const view = logView(message, symbol, level && ROLE[level], {
       fields,

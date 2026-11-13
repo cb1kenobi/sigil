@@ -9,6 +9,7 @@
  */
 
 import { displayPath } from '../build/diagnostic.ts';
+import { isMissing } from '@ttylabs/sigil/config';
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -61,9 +62,10 @@ function same(a: string, b: string): boolean {
 /**
  * Reads a file, or nothing where there is none.
  *
- * `ENOENT` alone is nothing, which is the rule `isMissing()` keeps one package
- * along: reading every error as absence is how a file that exists and cannot be
- * read comes to be reported as a file to write.
+ * `ENOENT` alone is nothing, which is `isMissing()`'s rule, imported from
+ * `@ttylabs/sigil/config` rather than spelled again: reading every error as
+ * absence is how a file that exists and cannot be read comes to be reported as
+ * a file to write.
  *
  * @param path - The file.
  * @returns Its content, or `undefined`.
@@ -73,7 +75,7 @@ function read(path: string): string | undefined {
   try {
     return readFileSync(path, 'utf-8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    if (isMissing(err)) {
       return undefined;
     }
     throw err;
@@ -148,7 +150,7 @@ function identity(path: string): string | undefined {
     const it = statSync(path, { bigint: true });
     return `${it.dev}:${it.ino}`;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    if (isMissing(err)) {
       return undefined;
     }
     throw err;
@@ -188,7 +190,7 @@ function stale(dir: string, ours: readonly ReferenceFile[]): Change[] {
       .filter((it) => it.isFile() && it.name.endsWith('.md'))
       .map((it) => it.name);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+    if (isMissing(err)) {
       return [];
     }
     throw err;
@@ -223,8 +225,8 @@ export interface SyncOptions {
  * stale page is **reported** and left, and a `--check` fails over it. Reporting
  * costs the author one `rm`; deleting costs them a file they wrote, and the
  * guard that would make deleting safe does not exist: `sigil build`'s own
- * refusal is of the app root and above, and a destination typed one directory
- * wrong is below it.
+ * refusal is of the app root and above and of a directory holding what the
+ * build reads, and a docs destination typed one directory wrong is neither.
  *
  * @param dir - The destination directory, or the file's own directory.
  * @param files - What the reference comes to.

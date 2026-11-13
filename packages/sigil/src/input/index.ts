@@ -59,6 +59,7 @@ import type { Element } from '../element/index.js';
 // the barrel would put the layout engine and the cascade behind this module
 import { scrollIntoView } from '../element/scroll.js';
 import { State, untrack } from '../signals/index.js';
+import { raise } from '../signals/raise.js';
 import {
   PASTE_END,
   PASTE_START,
@@ -2163,7 +2164,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     timer = undefined;
     const rest = held;
     held = '';
-    for (const key of decodeKeys(rest, decoding())) {
+    // `final`, because this is the one reading that knows nothing followed: a
+    // held `ESC [` or `ESC O` is the Alt key it was rather than `unknown`. Only
+    // here -- `keys()` reads with more possibly on its way, which is what holds
+    // a split arrow key long enough to become one
+    for (const key of decodeKeys(rest, { ...decoding(), final: true })) {
       if (stopped) {
         return;
       }
@@ -2389,11 +2394,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         thrown.push(caught);
       }
     }
-    if (thrown.length > 0) {
-      throw thrown.length === 1
-        ? thrown[0]
-        : new AggregateError(thrown, 'Errors in onEnd() handlers');
-    }
+    raise(thrown, 'Errors in onEnd() handlers');
   };
 
   const onStreamEnd = (): void => ended();

@@ -898,6 +898,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
   ],
   'Matching, ranking and searching': [
     'MAX_MATCHES',
+    'candidateCache',
     'candidatesOf',
     'cellOrder',
     'compareCells',
@@ -909,6 +910,12 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'pathFoldCase',
     'rankBy',
     'searchLines',
+    'searchPattern',
+  ],
+  'Syntax highlighting, for the highlight seams': [
+    'CODE_LANGUAGES',
+    'codeLanguage',
+    'highlightCode',
   ],
   'Reading and encoding what a component draws': [
     'MASK_SLOTS',
