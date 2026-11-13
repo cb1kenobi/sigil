@@ -10280,12 +10280,11 @@ is recorded in that directory's file.
   the rule of three, no link inside a link. So an unterminated `*` is an `*`,
   `snake_case_name` is one word, `*foo**bar*` is one emphasis, and `***x***` is
   strong inside emphasis -- each pinned. The openers a closer has failed against
-  are remembered by the token it stopped at, so a long run of unmatched
-  delimiters is not searched per closer. **What is not bounded** is a long run of
-  `](` with no space in it, where every `]` scans to the end for a destination:
-  measured at about a second for 32 KB of `[a](`. The input is the app's own
-  document rather than somebody else's, which is why it is written down rather
-  than paid for with a limit that would refuse a long `data:` image.
+  are remembered, so a long run of unmatched delimiters is not searched per
+  closer. A long run of `](` with no space in it, where every `]` scanned to the
+  end for a destination, was left unbounded here on the ground that the input is
+  the app's own document; SIG-362 bounded it, by depth rather than by length, so
+  a long `data:` image is still read whole. That entry is below.
 - **The simplifications are uniform rather than case by case.** A tab is expanded
   to the next stop of four everywhere before anything is read -- CommonMark expands
   only where a column is being decided, and a tab counted two ways in one line is
@@ -10513,6 +10512,156 @@ read. All four are on by default and there is no switch.
   `-` fallback. Each one is pinned now, including the right alignment of every
   line of a wrapped cell. There are still no vertical borders, for `table()`'s
   reason.
+
+### Markdown nobody here wrote: linear time and a bounded depth (SIG-362)
+
+`markdown()` renders model output, fetched READMEs and release notes, so
+`parseMarkdown()` is fed text an attacker or a confused model can shape. It was
+linear on prose and quadratic or worse on a dozen malformed shapes, and three
+kilobytes of list markers overflowed the stack. Tests are in
+`test/components/markdown-malformed.test.ts`, each named after its defect. None of
+them asserts a time. Each reads a document and one eight times its size, and
+requires the second to cost less than 24 times the first: linear is 8, and every
+shape here was 60 or more. Each side is the best of seven runs, and the two sizes
+take turns, so a garbage collection or a busy core costs one sample rather than all
+of one side's. Two earlier versions failed in the full suite while passing on their
+own. One compared 4 times the size against a limit of 10. The other took the best
+of three for one size and then the other, and measured `_*` 27 times slower at 8
+times the size, where on its own it is 3.5.
+Every test named for a defect fails against `origin/main`'s parser. The rest pin
+behaviour that must not change. The heading-with-a-separator case is measured
+from 512 bytes to 4 KB rather than from 2 KB to 16 KB. The old parser was cubic
+there, and a synchronous parse cannot be timed out: at 16 KB a regression would
+hang CI for hours instead of failing. At 4 KB the old parser takes about 16 seconds a run
+against 145 ms at 512 bytes, so the test still fails on it.
+
+- **Containers nest 100 deep, and past that a line that would open one is
+  paragraph text.** `blocks()` and `readList()` carry the depth; at
+  `MAX_NESTING` a `>`, a list marker or a footnote definition is not opened, so it
+  reads as the characters it is. The number is the renderer's, not the parser's:
+  measured with a bare stack, `markdown()` of hand-built blocks overflows at about
+  **420** nested lists and **660** nested quotes, so 100 leaves room for the
+  stack an app already has under the call, and is what cmark and markdown-it use.
+  A document a dozen deep is read exactly as before.
+
+  Three consequences, each pinned. A footnote definition at the limit is read as
+  paragraph text before the link-definition check, because `[^n]: url` is also a
+  link definition of the label `^n`. Read as a link definition, the line vanished
+  and every `[^n]` became a link to the note's words. Second, the paragraph is
+  still cut by `interrupts()`. That still breaks on `>` and on list markers, so a
+  run of `> a` lines at the limit is one paragraph per line rather than one
+  paragraph. Third, the renderer can draw such a document but cannot show much of
+  it. Each level costs two or three columns of room, so at a width of 60 no text
+  appears past about 29 levels of list. The cost of drawing also grows with the
+  square of the depth. The test draws at a width of 400 and requires the innermost
+  words to come out at the end of the line. That is what the renderer guarantees,
+  where a returned string proves nothing.
+
+- **Inline runs are walked with an explicit stack.** Emphasis nests as deep as
+  its delimiters go, and nothing bounds that without changing what CommonMark
+  matches -- `*` twenty thousand times round a word is ten thousand nested strongs.
+  `markdownText()` and the renderer's `words()` recursed per level and overflowed
+  on it, in the parser too, through an image's alt text. Both keep their output.
+  What is **not** fixed is that the renderer's class list grows by a class per
+  level, so a word ten thousand levels deep carries ten thousand classes, and
+  `*a ` written a thousand times round a word drew in about 300ms. Bounding that
+  means dropping repeated classes from an element's class list, which changes
+  `markdownView()`'s tree for ordinary `*a *b* c*`; it was left for a ticket that
+  can decide that.
+- **A link destination's parentheses nest 32 deep, cmark's limit.** A `(` that
+  never closes kept the destination scan running to the end of the text, once per
+  `](`. CommonMark lets an implementation limit the nesting and requires three.
+  Depth rather than length is bounded, so a long `data:` image is still read
+  whole, which is what SIG-197 refused a limit for. Past 32 the link is its text.
+  This is the one change a differential check over 130,319 documents found: the 8
+  of them with 33 to 40 levels of parentheses. The cap still lets each `](` scan
+  up to 32 levels of the text, so the per-character test matters: the scan used a
+  Unicode-property pattern to find white space or a control character, and calling
+  it on every character made the test for this shape take 11 seconds on CI's
+  runners, past vitest's 10. Printable ASCII is now ruled out by its code unit and
+  only the rest goes to the pattern. That made the test nine times faster.
+- **A title that runs off the end is remembered.** A later title starting at or
+  after one that ran off the end runs off it too, because its start is a token
+  boundary of the first scan: the character before it is the opening mark, never
+  a backslash.
+- **A `]` costs the same however much came before it.** `closeBracket()` walked
+  back over every token for its `[`, and a closed link walked over every token to
+  put out the brackets before it. The open brackets are a stack of indices, and
+  "no link in a link" is a watermark: a `[` below it is inactive. An image does
+  not put out brackets, but it truncates the tokens above its own `[`, so the
+  watermark comes down to it; `![x [a](u)](i)[b](v)` is the pin.
+- **A label is not normalized when it cannot match.** Nested brackets hold one
+  another, so each `]` normalized a label as long as everything inside it.
+  Normalizing never shortens a label (white space collapses to one space, and no
+  code point lowercases to fewer UTF-16 units, checked over all of them), so a
+  label with more non-space characters than the longest definition's is skipped
+  by a prefix count. That is exact, unlike cmark's 999-character cap, which would
+  refuse a shortcut whose spaces collapse to a defined label.
+- **Emphasis builds a new list rather than splicing the old one.** A splice in
+  the middle moved every unread token, once per match. The openers' floor is now
+  an index, brought down to the new node after a match; before, it was a token
+  that a match could swallow, and then every search with that key went back to
+  the bottom. The key is cmark's `openers_bottom` key: the character, whether the
+  closer can open, and its length modulo three.
+- **Trailing spaces are counted backwards.** `/ {2,}$/`, `/ +$/` and the ATX
+  closing-hash pattern are tried from every position and run to the end of a
+  space run from each. The ATX pattern's lazy `(.*?)[ \t]*$` was worse, and the
+  table delimiter row's `[ \t]*\|?[ \t]*$` had the same shape. All are counted by
+  index now, and the delimiter row is tested with its trailing spaces removed.
+- **A line holding U+2028 or U+2029 is refused before a `.*$` pattern sees it.**
+  `.` refuses both, so `ATX`, `FENCE`, `ITEM` and `FOOTNOTE` never match such a
+  line, but each found that out by backtracking over every space before the
+  separator. `#`, four thousand spaces and a separator took fifteen seconds.
+  Asking first gives the same answer at once. That such a line is never a heading
+  or a list item is kept, and pinned, because changing it is not this ticket.
+- **`footnotes()` walks each map once** instead of copying its keys for every
+  note.
+- **Backtick runs are not memoized, and a memo was written and taken out.** It
+  remembered a length that found no closer, so that a later run of that length
+  would not look again. But a length that found no closer has no later run of
+  that length, or the first run would have found it, so the memo could never be
+  used. Runs of every length from one up, none closed, still read the rest of the
+  text once per run. That is n to the power 1.5, measured at 66ms for 256 KB, and
+  it is left alone.
+
+Before and after, `parseMarkdown()` alone, on a machine with other agents running
+on it. The before is `origin/main`'s build, the after this one's. The ticket's
+shapes:
+
+| input                                    | size        | before            | after        |
+| ---------------------------------------- | ----------- | ----------------- | ------------ |
+| `'a' + ' '.repeat(n) + 'b\nc'`           | 64 / 128 KB | 4,099 / 21,462 ms | 3.6 / 3.7 ms |
+| `'# a' + ' '.repeat(n) + 'b'`            | 64 / 128 KB | 4,521 / 15,703 ms | 1.3 / 3.8 ms |
+| `'[]('.repeat(n)`                        | 24 / 48 KB  | 986 / 4,730 ms    | 17 / 26 ms   |
+| `'[a]('.repeat(n)`                       | 40 / 80 KB  | 3,239 / 14,168 ms | 24 / 38 ms   |
+| `'![a]('.repeat(n)`                      | 40 / 80 KB  | 3,450 / 20,284 ms | 23 / 37 ms   |
+| `'[a](b'.repeat(n)`                      | 40 / 80 KB  | 2,323 / 17,059 ms | 24 / 43 ms   |
+| `']'.repeat(n)`                          | 64 / 128 KB | 4,301 / 16,999 ms | 2.7 / 3.5 ms |
+| `']('.repeat(n)`                         | 40 / 80 KB  | 519 / 1,722 ms    | 2.6 / 2.1 ms |
+| `'_*'.repeat(n)`                         | 40 / 80 KB  | 415 / 1,723 ms    | 26 / 38 ms   |
+| `'*a*_b_'.repeat(n)`                     | 40 / 80 KB  | 121 / 401 ms      | 8.5 / 15 ms  |
+| `'a*'.repeat(n)`                         | 40 / 80 KB  | 70 / 293 ms       | 7.9 / 14 ms  |
+| `'- '.repeat(1600) + 'a'`, and `>`, `* ` | 2.5 to 4 KB | `RangeError`      | under 3 ms   |
+
+And the ones found by reading the parser:
+
+| input                                    | size        | before                       | after        |
+| ---------------------------------------- | ----------- | ---------------------------- | ------------ |
+| `'a\|b\n---' + ' '.repeat(n) + 'x'`      | 16 / 32 KB  | 163 / 908 ms                 | 2.5 / 2.4 ms |
+| `'#' + ' '.repeat(n) + 'a' + U+2028`     | 2 / 4 KB    | 2,249 / 15,064 ms            | 0.0 / 0.1 ms |
+| `'- '`, ``'`'``, `'[^a]: '` the same way | 16 / 32 KB  | 185 to 227 / 814 to 1,113 ms | under 2 ms   |
+| `'[a](b ('.repeat(n)`                    | 32 / 64 KB  | 208 / 605 ms                 | 7.9 / 7.8 ms |
+| `'['.repeat(n) + ']'.repeat(n)`          | 16 / 32 KB  | 147 / 565 ms                 | 7.2 / 5.6 ms |
+| `'a_ b*'.repeat(n)`                      | 40 / 80 KB  | 515 / 3,079 ms               | 8 / 25 ms    |
+| `'[a](b) '.repeat(n)`                    | 64 / 128 KB | 124 / 608 ms                 | 7.5 / 19 ms  |
+
+The differential check parsed 319 hand-written documents and 130,000 seeded
+random ones with both builds and compared the trees, and drew the 319 with
+`markdown()`. The hand-written ones cover nested emphasis, reference and
+collapsed links, destinations nested 0 to 40 deep, hard breaks, closing hashes,
+footnotes, task lists, tables, and quotes and lists twelve deep. The random ones
+are built from markdown's significant characters, and a third of them include
+definitions. Everything matched except the 8 destinations past 32 levels.
 
 ### Line forms that list, browse, sort and search (SIG-228)
 
