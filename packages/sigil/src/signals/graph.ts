@@ -84,7 +84,7 @@ interface Consumer {
    * The outermost read (see `read`) in which this one's last run started and
    * never finished -- abandoned for a chain too deep, or cut short by the stack
    * running out in the graph's own code -- and `0` once a run has finished. Such
-   * a node is `DIRTY`, which ordinarily says its subgraph has already been told,
+   * a node is `DIRTY` or `CHECK`, which ordinarily says its subgraph has been told,
    * and here nothing has: what read it was handed an error, not a write. So the
    * next write to reach it passes through it once (see `invalidate()`), and
    * within the read it failed in it is not run again (see `#run()`).
@@ -364,22 +364,19 @@ function invalidate(sink: Consumer, state: NodeState, errors: unknown[]): boolea
     return true;
   }
 
-  if (sink.state >= state) {
-    // already at least this invalidated, so its subgraph has been told -- unless
-    // its last run never finished, when what read it was handed an error rather
-    // than a write, and an effect that let it through would otherwise never hear
-    // of the chain again. Passed through once, which is what keeps this linear
-    if (sink.incomplete === 0) {
-      return false;
-    }
-    sink.incomplete = 0;
-    return true;
+  // only a node that was clean has a subgraph that has not heard yet -- or one
+  // whose last run never finished, when what read it was handed an error rather
+  // than a write, and an effect that let it through would otherwise never hear
+  // of the chain again. That holds whether this write finds it already as
+  // invalidated or raises it: a CHECK derivation left incomplete is raised to
+  // DIRTY by a write to a source it reads directly, and stopping there kept its
+  // effect on the cached error. Passed through once, which keeps this linear
+  const passes = sink.state === CLEAN || sink.incomplete !== 0;
+  if (sink.state < state) {
+    sink.state = state;
   }
-
-  // only a node that was clean has a subgraph that has not heard yet
-  const wasClean = sink.state === CLEAN;
-  sink.state = state;
-  return wasClean;
+  sink.incomplete = 0;
+  return passes;
 }
 
 /**

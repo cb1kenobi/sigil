@@ -532,6 +532,54 @@ describe('a deep computed chain', () => {
     }
   });
 
+  it('should tell the effect behind a CHECK derivation left incomplete when one of its own sources is written', () => {
+    // `mid` reads a state directly as well as the chain. Settling it runs out of
+    // stack, so it is left CHECK and incomplete and the effect caches the error.
+    // A write to that state raises it to DIRTY rather than passing through it,
+    // and a node that was not clean used to stop the walk there -- so the
+    // effect kept showing the error with a readable `mid` in front of it
+    const own = createEffects();
+    own.setScheduler(() => {});
+    own.setErrorHandler(() => {});
+    const flag = new State(0);
+    // every link reads `height` itself, so a write dirties every one of them and
+    // settling the tail reruns every body, nested -- which is what runs out
+    const height = new State(1);
+    const links: Computed<number>[] = [];
+    for (let i = 0; i < DEEP; i++) {
+      const above = links[i - 1];
+      links.push(new Computed(() => (above ? above.get() : 0) + height.get()));
+      links[i].get();
+    }
+    const tail = links[DEEP - 1];
+    const mid = new Computed(() => flag.get() + tail.get());
+    // the effect reads `trigger` so that it is dirtied directly and its own body
+    // runs and catches; CHECK, the error would come out of asking its sources
+    const trigger = new State(0);
+    const seen: (number | string)[] = [];
+    own.effect(() => {
+      trigger.get();
+      try {
+        seen.push(mid.get());
+      } catch {
+        seen.push('failed');
+      }
+    });
+
+    // every link dirty, and settling `mid` runs out
+    height.set(2);
+    trigger.set(1);
+    own.flush();
+    // the chain read in steps from the top level, then `mid`'s own source written
+    for (const link of links) {
+      link.get();
+    }
+    flag.set(1);
+    own.flush();
+
+    expect(seen).toEqual([DEEP, 'failed', 1 + 2 * DEEP]);
+  });
+
   it('should refuse a read in steps inside the body that caught the error, and take one from outside', () => {
     // the error says to read the chain in steps from the bottom up, and inside
     // the body that caught it that is refused: every link on the path that

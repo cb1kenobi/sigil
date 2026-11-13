@@ -306,7 +306,10 @@ the entry it belongs to.
     nothing has: what read it was handed an error, not a write. Without this an
     effect that read through such a node never heard of the chain again however
     readable it became. A derivation whose sources ran out while it was only
-    asking them is `CHECK` and never ran, so the failed read marks it too. The
+    asking them is `CHECK` and never ran, so the failed read marks it too -- and
+    a write passes through it whether it finds it `CHECK` or raises it to
+    `DIRTY`: one to a source it reads directly does the second, and stopping
+    there left its effect on the cached error (found in review). The
     read is still recorded on the way out, so the reader has an edge to what it
     could not read -- at version `-1`, one nothing is ever at, because the
     reader's answer came from a read that never finished: recorded at the
