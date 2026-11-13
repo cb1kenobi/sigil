@@ -105,6 +105,25 @@ flow: {x: 1, y: 2}
       ]);
     });
 
+    it('should diff a list of a million changed elements, which threw RangeError', () => {
+      // each level returned its own list and its parent spread it into `push()`,
+      // which puts every edit on the call stack as an argument: an app's main
+      // thread threw past about 125,000. A million, because this file runs in a
+      // worker whose stack is four times as large and passed at 200,000
+      const n = 1_000_000;
+      const edits = editsFor(
+        { a: { list: Array.from({ length: n }, () => 0) } },
+        { a: { list: Array.from({ length: n }, () => 1) } }
+      );
+      expect(edits).toHaveLength(n);
+      expect(edits[0]).toStrictEqual({ at: ['a', 'list', '0'], drop: false, value: 1 });
+      expect(edits[n - 1]).toStrictEqual({
+        at: ['a', 'list', String(n - 1)],
+        drop: false,
+        value: 1,
+      });
+    });
+
     it('should append to a sequence rather than rewriting it', () => {
       expect(editsFor({ a: [1] }, { a: [1, 2] })).toStrictEqual([
         { at: ['a', '1'], drop: false, value: 2 },
