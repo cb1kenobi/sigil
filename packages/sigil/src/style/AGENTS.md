@@ -893,6 +893,43 @@ toolchain's one reader.
   keeping in proportion: browsers optimize this hard because they have ten
   thousand elements and ten thousand rules, and a terminal UI has a couple of
   hundred of each. Naive may simply be the permanent answer; see SIG-65.
+- **`~` finds an element's place once and walks the list from there (SIG-360).**
+  It used to step back through `previousSibling()`, which is an `indexOf()` per
+  step, so one element cost O(n^2) and a list of n siblings O(n^3) whenever the
+  left side rarely matched -- and `touchClasses()` restyles every sibling on a
+  class or state change, so a hover in such a list paid all of it. Resolving
+  every child of one parent against `.heading ~ row`, on a loaded machine:
+
+  | rows  | before    | after   |
+  | ----- | --------- | ------- |
+  | 250   | 2.5 ms    | 1.5 ms  |
+  | 500   | 8.1 ms    | 2.5 ms  |
+  | 1,000 | 45.8 ms   | 7.7 ms  |
+  | 2,000 | 298.2 ms  | 25.7 ms |
+  | 4,000 | 2442.7 ms | 95.9 ms |
+
+  That is quadratic over the list, as `+` and `:nth-child()` are, and it is
+  **not** their cost: what is left is the backward walk itself, which tests the
+  left compound against every earlier sibling until one matches, and when none
+  does that is the whole list. It dominates the one `indexOf()` per element by
+  far -- 135.5ms for `~` at 4,000 rows in a re-run beside 15.8ms for `row + row`
+  and 14.1ms for `row:nth-child(odd)`, and a review measured 55.7ms against
+  1.4ms, so the constant is roughly ten to forty times theirs. It is inherent
+  to `~`, since any of those siblings could be the one that matches, and it is
+  the argument against an **index cache**: a cache would remove only the
+  `indexOf()`, which is the small part, and a cache keyed on a children array
+  has to be cleared by every write to that array, which the element tree makes
+  in place. `should find its siblings once per element, not once per step back`
+  counts the entries `indexOf()` reads rather than timing anything: doubling the
+  list is 8x the reads before and 4x after, and the bound is 6x.
+
+  A **chain** of `~` steps is still cubic. `.a ~ row ~ row` with no `.a`
+  backtracks the inner step from every `row` the outer one finds, the way a
+  chain of descendant steps does, and the review measured 2.3, 20.1 and 155.6ms
+  at 125, 250 and 500 rows, against 5.3, 59.4 and 768.8ms before. That is the
+  matcher's shape rather than this defect, and a memo of which siblings matched
+  the inner step would be the fix if a sheet ever needs one.
+
 - **A cascade can take a sheet out and put another in its place, and a change to
   it restyles on its own (SIG-307).** `remove(sheet)` answers whether it was
   there; `replace(old, next)` puts `next` in `old`'s turn in source order and
