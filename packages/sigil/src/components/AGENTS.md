@@ -12100,3 +12100,60 @@ sabotage pass -- is in
   validation, which `examples/settings` writes for itself and SIG-338 would
   publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
   `TextField`.
+
+### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
+
+- **A min or a max over a list as long as the caller's data goes through
+  `maxOf()` or `minOf()`, never through a spread.** `Math.max(...values)` puts
+  every element on the call stack as an argument, and past about 125,000 of them
+  a main thread throws `RangeError: Maximum call stack size exceeded` -- which is
+  the line chart of a long series, the bar chart of many bars and the table of
+  many rows that SIG-363 reported, with `tableView()` throwing at 100,000 one-cell
+  rows while 50,000 drew in 98 ms. The figure moves with the Node version, the
+  platform and how deep the call already is, so there is no safe length to
+  document. `maxOf()` and `minOf()` are `src/util/extent.ts`, published from
+  `@ttylabs/sigil/width` beside `stringWidth()` so that an ejected component
+  imports them from a subpath it already imports. A spread over a list whose
+  length the component decides -- a font's height, a mask's slots, a command's
+  options -- is fine and is left alone, which is why the rule is about the
+  caller's data rather than about spreads.
+- **This is a rule about a min or a max, not yet about every spread, and the
+  `box(props, ...rows)` sites are the reason.** Spreading children into `box()`
+  fails the same way, and SIG-363 appended them one at a time only where its own
+  subjects needed it: `chart.ts`'s `viewOf()` and live rows, `tableView()`, and
+  the layout engine's per-line measures that a long `table()` or bar chart
+  reaches. Several more remain, each throwing at 200,000 entries on a main thread
+  -- `outlineView()`, `logView()`, a markdown list, a markdown table, a document
+  of 200,000 paragraphs, and `diff()` -- including where this ticket moved the
+  component's width measurement onto `maxOf()`. That move is correct and keeps the
+  answer exactly, and it does not make those components safe at that size: their
+  `box(...children)` throws first. Whether `box()` should take an array, or every
+  such site should append, is SIG-417's decision.
+- **`maxOf(values, floor)` is exactly `Math.max(floor, ...values)`, odd inputs
+  included.** It is `Math.max` asked one element at a time, and `Math.max` is
+  associative and commutative over every number: a `NaN` anywhere is `NaN`, `-0`
+  against `0` is `0`, and nothing at all is the floor, `-Infinity` by default as
+  `Math.max()` of nothing is. So no call site's answer moved, and
+  `test/width/extent.test.ts` holds the two to `Object.is` over the inputs that
+  answer oddly. The charts' own scale over an empty series, one value, equal
+  values, negatives, `NaN` and the two infinities is pinned in
+  `the scale of an unusual series`, which passed before the change and after it.
+- **The size that fails an app does not fail a test, so the tests are bigger or
+  are not on the test's own thread.** vitest runs a file in a worker, whose stack
+  is four times a main thread's: a worker spreads 300,000 arguments and fails at
+  500,000. So a regression test written at 200,000 passed against the code it was
+  written for. The cheap ones run in-process at a million; the bar chart and the
+  table, which cost seconds of elements at that size, run at 200,000 in a spawned
+  node in `test/components/data-sized.test.ts`, which is where an app runs them.
+- **`tableView([])` is an empty table, which is what `table([])` already drew.**
+  The columns were read off the first row, so no rows and no `columns` reached
+  `Object.keys(undefined)`. A missing first row is no columns now: the element is
+  a `sigil-table` box with no children, and it renders `''`. Columns given with
+  no rows still draw their headings from `tableView()` while `table([])` returns
+  `''` whatever it was given, and `tableView([], { head: true })` holds one empty
+  heading row -- both as they were before, and left alone here.
+- **What a bar chart of 50,000 bars costs is not a quadratic, and is left.**
+  Profiled: about 70 µs a bar and linear (0.8 s at 12,500, 1.8 s at 25,000, 3.9 s
+  at 50,000 on a loaded machine), spread over grapheme segmentation of the block
+  glyphs, the cascade, layout and garbage collection, with no one function
+  holding most of it.

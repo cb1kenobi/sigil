@@ -26,7 +26,7 @@ import { sgr } from '../ansi/codes.js';
 import { assertColorLevel, type ColorLevel, getColorLevel } from '../ansi/color-support.js';
 import { matcher } from '../ansi/strip.js';
 import { type Color, colorParams, DEFAULT_COLOR } from '../canvas/style.js';
-import { graphemes, graphemeWidth, stringWidth } from '../width/index.js';
+import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
 import { degradeColor, mixColors } from './degrade.js';
 import { parseColor } from './value.js';
 
@@ -254,7 +254,7 @@ export function gradient(
   }
 
   const lines = text.split('\n');
-  const span = Math.max(...lines.map((line) => stringWidth(line)));
+  const span = maxOf(lines.map((line) => stringWidth(line)));
   const at = ramp(colors, level);
 
   return lines.map((line) => rampLine(line, span, at)).join('\n');
@@ -341,7 +341,7 @@ export function gradientBox(
 
   const [topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left] = set;
   const lines = text.split('\n');
-  const inner = Math.max(...lines.map((line) => stringWidth(line))) + padding * 2;
+  const inner = maxOf(lines.map((line) => stringWidth(line))) + padding * 2;
   const total = inner + 2;
   const at = ramp(colors, level);
 

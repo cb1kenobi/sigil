@@ -388,6 +388,116 @@ describe('lineChart()', () => {
   });
 });
 
+/**
+ * The scale used to be read with `Math.min(...values)` and `Math.max(...values)`,
+ * which put every value on the stack as an argument and threw `RangeError:
+ * Maximum call stack size exceeded` -- past about 125,000 values on a main
+ * thread, which is where an app runs. A vitest worker has four times the stack
+ * and survives 300,000, so a million is what fails here; the bar chart and the
+ * table, which cost seconds of elements at that size, are run at 200,000 on a
+ * real main thread in `data-sized.test.ts`.
+ */
+describe('a series longer than a call has room for arguments', () => {
+  it('should draw a line chart of it, scaled to its least and greatest value', () => {
+    const LONG = 1_000_000;
+    const values = Array.from({ length: LONG }, (_, i) => (i === LONG - 1 ? 10 : i % 7));
+
+    const rows = line(values);
+
+    expect(rows[0]).to.match(/^10 ┤/);
+    expect(rows[3]).to.match(/^ 0 ┤/);
+  });
+});
+
+/**
+ * What the scale reads off a series that is not an ordinary one. Written down
+ * when the spread above became a loop, and passing before and after it: a loop
+ * that read `NaN` or an empty list differently from `Math.min()` would move one
+ * of these.
+ */
+describe('the scale of an unusual series', () => {
+  const cases: Record<string, number[]> = {
+    empty: [],
+    equal: [3, 3, 3],
+    infinite: [1, Infinity, -Infinity, 3],
+    nan: [1, NaN, 3],
+    negative: [-2, -1, -5],
+    one: [5],
+  };
+  const labelled = (values: number[]) => values.map((value, i) => ({ label: `v${i}`, value }));
+
+  it('should draw the same line chart of each', () => {
+    const drawn = Object.fromEntries(
+      Object.entries(cases).map(([name, values]) => [name, line(values)])
+    );
+
+    expect(drawn).to.deep.equal({
+      empty: ['1 ┤', '  │', '  │', '0 ┤', '  └─────────────────'],
+      equal: ['3 ┤', '  │', '  │⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉', '3 ┤', '  └─────────────────'],
+      infinite: ['3 ┤                ⠈', '  │', '  │', '1 ┤⡀', '  └─────────────────'],
+      nan: ['3 ┤                ⠈', '  │', '  │', '1 ┤⡀', '  └─────────────────'],
+      negative: [
+        '-1 ┤ ⣀⣀⠤⠤⠒⠒⠉⠑⢄',
+        '   │⠉         ⠑⢄',
+        '   │            ⠑⢄',
+        '-5 ┤              ⠑⢄',
+        '   └────────────────',
+      ],
+      one: ['5 ┤', '  │', '  │        ⠈', '5 ┤', '  └─────────────────'],
+    });
+  });
+
+  it('should draw the same horizontal bar chart of each', () => {
+    const drawn = Object.fromEntries(
+      Object.entries(cases).map(([name, values]) => [name, bars(labelled(values))])
+    );
+
+    expect(drawn).to.deep.equal({
+      empty: [''],
+      equal: [
+        'v0 █████████████████████████ 3',
+        'v1 █████████████████████████ 3',
+        'v2 █████████████████████████ 3',
+      ],
+      infinite: [
+        'v0 ████████▍                 1',
+        'v1                           -',
+        'v2                           -',
+        'v3 █████████████████████████ 3',
+      ],
+      nan: [
+        'v0 ████████▍                 1',
+        'v1                           -',
+        'v2 █████████████████████████ 3',
+      ],
+      negative: [
+        'v0 ██████████████████       -2',
+        'v1 ████████████████████████ -1',
+        'v2                          -5',
+      ],
+      one: ['v0 █████████████████████████ 5'],
+    });
+  });
+
+  it('should draw the same vertical bar chart of each', () => {
+    const drawn = Object.fromEntries(
+      Object.entries(cases).map(([name, values]) => [
+        name,
+        bars(labelled(values), { direction: 'vertical', height: 3 }),
+      ])
+    );
+
+    expect(drawn).to.deep.equal({
+      empty: [''],
+      equal: ['██ ██ ██', '██ ██ ██', '██ ██ ██', '3  3  3', 'v0 v1 v2'],
+      infinite: ['         ██', '         ██', '██       ██', '1  -  -  3', 'v0 v1 v2 v3'],
+      nan: ['      ██', '      ██', '██    ██', '1  -  3', 'v0 v1 v2'],
+      negative: ['▂▂ ██', '██ ██', '██ ██', '-2 -1 -5', 'v0 v1 v2'],
+      one: ['██', '██', '██', '5', 'v0'],
+    });
+  });
+});
+
 describe('gauge()', () => {
   it('should draw a bar filled to the ratio and the percentage after it', () => {
     expect(meter(0.5, { width: 10 })).to.equal('█████░░░░░ 50%');

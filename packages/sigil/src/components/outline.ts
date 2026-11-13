@@ -26,7 +26,7 @@ import { For } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { type Mounted, type MountOptions, mountLevel, mountLive } from './mount.js';
@@ -306,7 +306,10 @@ export function outlineMarkers(
     }
     return strip(marker).replaceAll(/\s*[\n\r]+\s*/g, ' ');
   });
-  const column = Math.max(0, ...drawn.map((marker) => stringWidth(marker)));
+  const column = maxOf(
+    drawn.map((marker) => stringWidth(marker)),
+    0
+  );
   return {
     column,
     drawn: drawn.map((marker) => ' '.repeat(column - stringWidth(marker)) + marker),
