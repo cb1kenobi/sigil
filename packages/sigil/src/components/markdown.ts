@@ -89,6 +89,21 @@ export interface MarkdownView {
 /** The narrowest a document is laid out at; a list three deep needs this much. */
 const MIN_WIDTH = 10;
 
+/**
+ * The fewest columns nesting leaves a block's text, or a third of the document's
+ * width where that is fewer (SIG-423).
+ *
+ * Every list and quote takes its marker's columns from the room inside it, so a
+ * document nested deep enough left its innermost words no room at all: at a width
+ * of 60 a list past about 29 levels drew its bullets and none of its text. So a
+ * list or quote that would leave its blocks less than this is drawn without
+ * indenting them, and the words keep the room they had. Twenty is three or four
+ * words a line. The third is for a narrow document, where twenty would flatten
+ * an ordinary list: at `MIN_WIDTH` it is three, so a list three deep still
+ * indents, with the four columns it has always had there.
+ */
+const MIN_TEXT = 20;
+
 /** The columns between one table column and the next, as `table()` has them. */
 const TABLE_GAP = 2;
 
@@ -113,6 +128,8 @@ interface Context {
   readonly baseUrl: string | undefined;
   readonly depth: number;
   readonly env: Record<string, string | undefined> | undefined;
+  /** The fewest columns a list or quote may leave its blocks by indenting them. */
+  readonly floor: number;
   readonly highlight: MarkdownOptions['highlight'];
   readonly hyperlinks: boolean;
   readonly platform: string | undefined;
@@ -157,6 +174,7 @@ export function markdownView(
     baseUrl: opts.baseUrl,
     depth: 0,
     env: opts.env,
+    floor: Math.min(MIN_TEXT, Math.floor(width / 3)),
     highlight: opts.highlight,
     // level 0 is "write no escape sequences", and an OSC 8 is one -- so the URL
     // goes beside the words whatever the terminal could have done with it
@@ -173,7 +191,7 @@ export function markdownView(
   };
 
   return {
-    element: column(document, ctx, true, 'sigil-markdown'),
+    element: column(document, ctx, true, 'sigil-markdown', false),
     width,
   };
 }
@@ -212,13 +230,24 @@ export function markdown(
  * @param spaced - Whether a blank line goes between them, which a tight list
  *   item is the one thing to say no to.
  * @param classes - What the column carries.
+ * @param bounded - Whether the column is held to `ctx.room`, which every one
+ *   but the document's own is. A list item's or a quote's body is placed at
+ *   exactly that width, so the bound never binds there. What it changes is the
+ *   *measure*: a row measures a flexible child at the whole row's width before
+ *   it flexes and again at the width it got, so with nothing to stop it the
+ *   body inside a body was measured at one more width per level, and so was
+ *   everything in it: the innermost paragraph of a deep list at every width the
+ *   levels above it had, so drawing deep nesting cost the square of its depth.
+ *   Bounded, a body is measured at its own room whatever it is offered, and
+ *   what is inside it at one width (SIG-423).
  * @returns The column.
  */
 function column(
   blocks: readonly MarkdownBlock[],
   ctx: Context,
   spaced: boolean,
-  classes: string
+  classes: string,
+  bounded = true
 ): Element {
   return box(
     {
@@ -226,6 +255,7 @@ function column(
       'flex-direction': 'column',
       'flex-grow': 1,
       'flex-shrink': 1,
+      ...(bounded ? { 'max-width': ctx.room } : {}),
       'min-width': 0,
       'row-gap': spaced ? 1 : 0,
     },
@@ -424,11 +454,23 @@ function fold(line: string, room: number): string[] {
  * came to, which is the one thing a text cannot do: it would have to know the
  * height before the layout had worked it out.
  *
+ * Where the bar would leave the blocks less than `ctx.floor`, there is no bar:
+ * the blocks are drawn at the room the quote has, so the words of a quote nested
+ * past what the width can indent are still drawn. The bars of the quotes around
+ * it are still there to say it is quoted.
+ *
  * @param blocks - What is quoted.
  * @param ctx - The room.
  * @returns Its tree.
  */
 function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
+  if (ctx.room - 2 < ctx.floor) {
+    return box(
+      { class: 'sigil-markdown-quote', 'flex-direction': 'column' },
+      column(blocks, ctx, true, 'sigil-markdown-quote-body')
+    );
+  }
+
   const glyph = ctx.unicode ? '│' : '|';
   const bar = raw(
     {
@@ -447,7 +489,7 @@ function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
   return box(
     { class: 'sigil-markdown-quote', 'column-gap': 1, 'flex-direction': 'row' },
     bar,
-    column(blocks, { ...ctx, room: Math.max(1, ctx.room - 2) }, true, 'sigil-markdown-quote-body')
+    column(blocks, { ...ctx, room: ctx.room - 2 }, true, 'sigil-markdown-quote-body')
   );
 }
 
@@ -463,6 +505,15 @@ function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
  * of a numbered one, since the number may be what the steps are referred to by.
  * In a numbered list holding a task, an item that is not one keeps the box's
  * column empty, so every item's text still starts in one column.
+ *
+ * Where the markers would leave the items less than `ctx.floor`, the list stops
+ * indenting. An item's blocks stay beside its marker up to the first list or
+ * quote in it, which would indent again, and that one and everything after it
+ * goes under the marker at the room the list has; where the room beside the
+ * marker is under half the floor, everything goes under it. So a list nested
+ * deeper than the width can indent keeps its words, its bullets still say which
+ * item is which, and the room never shrinks past that point however much deeper
+ * it goes.
  *
  * @param block - The list.
  * @param ctx - The room and the depth.
@@ -487,11 +538,10 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
   // a numbered list's boxes are a column of their own, after the numbers
   const boxed = block.ordered && block.checked !== undefined;
   const boxWidth = stringWidth(boxes.off);
-  const inner: Context = {
-    ...ctx,
-    depth: ctx.depth + 1,
-    room: Math.max(1, ctx.room - markerWidth - 1 - (boxed ? boxWidth + 1 : 0)),
-  };
+  // what is left beside the markers, and whether that is too little to indent by
+  const indented = ctx.room - markerWidth - 1 - (boxed ? boxWidth + 1 : 0);
+  const flat = indented < ctx.floor;
+  const inner: Context = { ...ctx, depth: ctx.depth + 1, room: flat ? ctx.room : indented };
   const fixed = { 'flex-shrink': 0, 'white-space': 'pre' } as const;
 
   return box(
@@ -506,8 +556,7 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
         state === undefined || block.ordered
           ? 'sigil-markdown-marker sigil-muted'
           : `sigil-markdown-marker ${taskClasses(state)}`;
-      return box(
-        { class: 'sigil-markdown-item', 'column-gap': 1, 'flex-direction': 'row' },
+      const head = [
         // numbers line up on their right; a bullet and a box on their left, which
         // only differs where an ASCII box is three columns and a bullet one
         textNode(markers[index], {
@@ -523,7 +572,47 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
                 : textNode(glyph(index), { ...fixed, class: taskClasses(state), width: boxWidth }),
             ]
           : []),
-        column(item, inner, !block.tight, 'sigil-markdown-item-body')
+      ];
+      const row = { 'column-gap': 1, 'flex-direction': 'row' } as const;
+
+      if (!flat) {
+        return box(
+          { ...row, class: 'sigil-markdown-item' },
+          ...head,
+          column(item, inner, !block.tight, 'sigil-markdown-item-body')
+        );
+      }
+
+      // a list or a quote beside the marker would indent again, which is what
+      // this item cannot afford; what comes before the first of them is as wide
+      // as it is going to get, and keeps its place while that leaves it some room
+      const nested = item.findIndex((it) => it.type === 'list' || it.type === 'quote');
+      const split = indented < ctx.floor / 2 ? 0 : nested === -1 ? item.length : nested;
+      const beside = item.slice(0, split);
+      const under = item.slice(split);
+      return box(
+        {
+          class: 'sigil-markdown-item',
+          'flex-direction': 'column',
+          'row-gap': block.tight ? 0 : 1,
+        },
+        box(
+          row,
+          ...head,
+          ...(beside.length > 0
+            ? [
+                column(
+                  beside,
+                  { ...inner, room: indented },
+                  !block.tight,
+                  'sigil-markdown-item-body'
+                ),
+              ]
+            : [])
+        ),
+        ...(under.length > 0
+          ? [column(under, inner, !block.tight, 'sigil-markdown-item-body')]
+          : [])
       );
     })
   );

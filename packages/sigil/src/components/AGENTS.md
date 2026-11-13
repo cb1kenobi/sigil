@@ -10643,12 +10643,12 @@ against 145 ms at 512 bytes, so the test still fails on it.
   and every `[^n]` became a link to the note's words. Second, the paragraph is
   still cut by `interrupts()`. That still breaks on `>` and on list markers, so a
   run of `> a` lines at the limit is one paragraph per line rather than one
-  paragraph. Third, the renderer can draw such a document but cannot show much of
-  it. Each level costs two or three columns of room, so at a width of 60 no text
-  appears past about 29 levels of list. The cost of drawing also grows with the
-  square of the depth. The test draws at a width of 400 and requires the innermost
-  words to come out at the end of the line. That is what the renderer guarantees,
-  where a returned string proves nothing.
+  paragraph. Third, the renderer could draw such a document but could not show
+  much of it. Each level cost two or three columns of room, so at a width of 60 no
+  text appeared past about 29 levels of list, and the cost of drawing grew with the
+  square of the depth. The test drew at a width of 400 and required the innermost
+  words to come out at the end of the line. SIG-423, the entry below, fixed both,
+  and the test now asks for the words at 60 as well.
 
 - **Inline runs are walked with an explicit stack.** Emphasis nests as deep as
   its delimiters go, and nothing bounds that without changing what CommonMark
@@ -10755,6 +10755,102 @@ collapsed links, destinations nested 0 to 40 deep, hard breaks, closing hashes,
 footnotes, task lists, tables, and quotes and lists twelve deep. The random ones
 are built from markdown's significant characters, and a third of them include
 definitions. Everything matched except the 8 destinations past 32 levels.
+
+### Markdown nested past what the width can indent (SIG-423)
+
+SIG-362 bounded the parser at 100 levels and left two things in the renderer, both
+pinned in `test/components/markdown-malformed.test.ts` by tests that fail without
+the change.
+
+- **A list or a quote stops indenting where its blocks would have fewer than 20
+  columns, or a third of the document's width where that is fewer.** Every level
+  took its marker's columns out of the room inside it, so at a width of 60 a list
+  past about 29 levels drew its bullets and none of its words, a quote past about
+  28 the same, and a numbered list past about 18, with nothing on screen to say
+  the words were gone. That is the failure SIG-197's rule exists to prevent, so the
+  rule is the same: never drop content silently. Past the floor, a quote has no bar
+  and its blocks keep the room the quote has; the bars of the quotes around it
+  still say it is quoted. A list item's blocks stay beside its marker up to the
+  first list or quote in the item, since that one would indent again, and it and
+  everything after it go under the marker at the room the list has. The bullets
+  still cycle, so they still say which level an item is. Where the room beside a
+  marker is under half the floor -- a `10.` three levels into a ten-column
+  document -- the whole item goes under its marker, because beside it the words
+  had none.
+
+  Twenty is three or four words a line, which reads as text. The third is for a
+  narrow document, where twenty would flatten an ordinary quote or list: with a
+  floor of 20 alone, SIG-197's quote at a width of 12 lost its bar and its ASCII
+  list at 10 stopped indenting, and both of their tests failed. A third of
+  `MIN_WIDTH` is three, so a list three deep at the narrowest width still indents,
+  with the four columns it has always had there. Half was tried instead of a
+  third, and fails that test. What
+  this changes is rendering that was already short of room. Over the corpus below,
+  1,192 of 138,732 renders differ from before. The shallowest hand-made document
+  among them was 22 levels deep at a width of 60, 11 at 40 and 3 at 10, and the
+  random ones that moved had words drawn a column or two wide, or not at all.
+  No Markdown file in the repository moved at any width.
+
+- **A nested body is held to its room with `max-width`, which made drawing deep
+  nesting linear in the depth.** It was the layout, and not the renderer's own
+  walk. A row measures a flexible child at the whole row's width before it flexes
+  and again at the width the child got. The body beside a list marker or a quote bar is that child, and
+  inside it is the next level's row, so the body inside a body was measured at one
+  more width per level, and so was everything inside it. The layout's cache is
+  keyed by width and could not help: at a width of 60 the innermost paragraph of a
+  list 80 deep was measured under 68 keys, and one `markdown()` of it took 17,247
+  measures. `src/layout` records this shape as "one new width per level", which
+  was right for the screens it named and is the square of the depth for a
+  document.
+
+  Bounding the body at `ctx.room`, the width it is placed at, makes it measure at
+  that width whatever it is offered, so what is inside it is measured at one width
+  per pass. The same document now takes 1,929 measures and no node more than 8.
+  The bound never binds where the document is drawn at the width it was built for,
+  because each body is placed at exactly that width. That was checked over a
+  corpus rather than argued: every Markdown file under 60 KB in the repository,
+  3,000 seeded random documents built from markdown's block and inline markers,
+  and hand-made lists, quotes and mixtures 1 to 12 deep, each at eleven widths from
+  10 to 120, with and without box drawing and at color levels 0 and 3. With the
+  bound alone, and no depth rule, all 138,732 renders were byte-identical to the
+  build before it. The document's own column is not bounded, so an app that lays
+  `markdownView()`'s tree out wider than the width it was built for still gets its
+  top-level paragraphs at that width; its nested bodies do not, which they never
+  had room for in the arithmetic `words()` and `fold()` use anyway.
+
+  Fixing the layout instead was the other option and was not taken. Measuring a
+  flexible child at the room left after its fixed siblings changes what a row
+  reports as its own width, which `src/layout` records a dozen decisions about and
+  checks with a fuzzer, and that is not a change to make inside a markdown ticket.
+
+Before and after, `markdown()` on `origin/main`'s build and this one's, best of
+five, on a machine with other agents running on it:
+
+| input                                                    | before   | after   |
+| -------------------------------------------------------- | -------- | ------- |
+| `('- '.repeat(100) + 'a\n\n').repeat(16)`, width 60      | 206 ms   | 59 ms   |
+| the same `.repeat(128)`, 25 KB                           | 1,612 ms | 489 ms  |
+| `('- '.repeat(d) + 'a\n\n').repeat(16)`, width 400, d=12 | 8.3 ms   | 5.3 ms  |
+| the same, d=25                                           | 27.1 ms  | 11.0 ms |
+| the same, d=50                                           | 98.1 ms  | 23.3 ms |
+| the same, d=96                                           | 336.6 ms | 49.6 ms |
+| 99 `>` and 16 KB of lazy lines, drawing alone            | 918 ms   | 73 ms   |
+| 99 `>` and 64 KB of lazy lines, drawing alone            | 4,442 ms | 313 ms  |
+
+So a paragraph a hundred deep went from 12.9 ms to 3.7 ms, and from depth 12 to
+96 the cost grew 40-fold before and 9-fold after. The growth test reads 12 and 96
+deep at a width of 400, where every level indents, so it measures the bound and
+not the depth rule; it measured about 35 before against a limit of 24, and 9
+after. The lazy lines are measured against the same paragraph unquoted, about 40
+times before and 2.4 after, against a limit of 10. What is left there is the bars,
+which are drawn on every line.
+
+- **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
+  left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
+  under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
+  every lazy line, so the parse is linear in the lines with a factor of the depth,
+  which `MAX_NESTING` bounds at 100. That is the shape of the block algorithm
+  rather than the renderer's measure, and it is not this change.
 
 ### Line forms that list, browse, sort and search (SIG-228)
 
