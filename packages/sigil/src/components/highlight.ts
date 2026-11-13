@@ -27,8 +27,8 @@
  * it read or remembers that it failed: a regular expression that does not close on
  * its line is not looked for again on that line, a search for a closing delimiter
  * that found none is not repeated, and no pattern here can backtrack over more than
- * the token it is matching. `test/components/highlight.test.ts` gives thirty
- * pathological inputs a deadline rather than trusting this sentence.
+ * the token it is matching. `test/components/highlight.test.ts` reads thirty
+ * pathological inputs at two sizes rather than trusting this sentence.
  *
  * **Spans come out in order and never overlap**, which is what lets a text area file
  * them by line with a step or two rather than a search.

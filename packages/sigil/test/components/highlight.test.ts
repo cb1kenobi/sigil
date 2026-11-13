@@ -501,20 +501,45 @@ describe('highlightCode()', () => {
   });
 
   describe('linear time', () => {
-    // A quadratic scan over these is tens of seconds at this size and a linear one
-    // a few milliseconds, so a generous absolute deadline tells them apart however
-    // loaded the machine is -- a ratio of two timings would not. A million, because
-    // a quadratic made of `indexOf()` calls runs at memory speed: at 200,000 the
-    // sabotage pass had two of them finish inside the deadline.
-    const SIZE = 1_000_000;
-    const DEADLINE = 2_000;
+    // Each shape is read at one size and at eight times it, and the larger must
+    // cost less than three times eight, where linear is eight and quadratic
+    // sixty-four. This was a 2-second deadline on a million characters, and no
+    // deadline works everywhere (SIG-429): under CI's coverage the linear `(/[`
+    // read took 1.7 s and 2.3 s on macOS runners, while a quadratic made of one
+    // `indexOf()` per opener, which runs at memory speed, read the same million in
+    // 2.4 s on a laptop without coverage. Coverage and a slow runner scale both
+    // sides of a ratio alike. Best of seven, the sides taking turns, for the
+    // reasons `markdown-malformed.test.ts` gives.
+    const SIZE = 32 * 1024;
 
-    const repeat = (unit: string): string => unit.repeat(Math.ceil(SIZE / unit.length));
+    /** How much more a document `factor` times the size costs to highlight. */
+    const growth = (lang: string, make: (size: number) => string, factor: number): number => {
+      const small = make(SIZE);
+      const large = make(SIZE * factor);
+      const time = (code: string): number => {
+        const start = performance.now();
+        highlightCode(code, lang);
+        return performance.now() - start;
+      };
+      let bestSmall = Infinity;
+      let bestLarge = Infinity;
+      for (let run = 0; run < 7; run++) {
+        bestSmall = Math.min(bestSmall, time(small));
+        bestLarge = Math.min(bestLarge, time(large));
+      }
+      return Math.max(bestLarge, 2) / Math.max(bestSmall, 2);
+    };
 
-    const PATHOLOGICAL: [string, string][] = [
-      ['js', `/*${'a'.repeat(SIZE)}`],
-      ['js', `'${'a'.repeat(SIZE)}`],
-      ['js', `\`${'a'.repeat(SIZE)}`],
+    const repeat =
+      (unit: string) =>
+      (size: number): string =>
+        unit.repeat(Math.ceil(size / unit.length));
+    const opened = (opener: string) => (size: number) => `${opener}${'a'.repeat(size)}`;
+
+    const PATHOLOGICAL: [string, (size: number) => string, number?][] = [
+      ['js', opened('/*')],
+      ['js', opened("'")],
+      ['js', opened('`')],
       ['js', repeat('(/[')],
       ['js', repeat('`${')],
       ['js', repeat('a / ')],
@@ -540,18 +565,28 @@ describe('highlightCode()', () => {
       ['markdown', repeat('[a\n')],
       ['markdown', repeat('*a\n')],
       ['markdown', repeat('x\n')],
-      // a run of each length, so every opener is unclosed: a search per opener
-      // is two thousand scans of a line two million long
-      ['markdown', Array.from({ length: 2000 }, (_, i) => '`'.repeat(i + 1)).join('a')],
+      // a run of each length, so every opener is unclosed and a search per opener
+      // is a scan of the rest of the line. There are only a square root of the
+      // size of them, so that search is n^1.5, which grows 23-fold at eight times
+      // the size and passes; at sixty-four times it grows 512-fold
+      [
+        'markdown',
+        (size) => {
+          const runs: string[] = [];
+          for (let length = 1, total = 0; total < size; total += length + 1, length++) {
+            runs.push('`'.repeat(length));
+          }
+          return runs.join('a');
+        },
+        64,
+      ],
       ['diff', repeat('--- a\n')],
     ];
 
-    it.each(PATHOLOGICAL)('should read %s %#  in linear time', (lang, code) => {
-      const started = performance.now();
-      const spans = highlightCode(code, lang);
-      const took = performance.now() - started;
-      expect(took, `${lang}: ${code.slice(0, 12)}...`).toBeLessThan(DEADLINE);
-      expect(Array.isArray(spans)).toBe(true);
+    it.each(PATHOLOGICAL)('should read %s %#  in linear time', (lang, make, factor = 8) => {
+      expect(growth(lang, make, factor), `${lang}: ${make(12).slice(0, 12)}...`).toBeLessThan(
+        3 * factor
+      );
     });
   });
 });

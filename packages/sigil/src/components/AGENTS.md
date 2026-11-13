@@ -11991,11 +11991,17 @@ measurements, the review findings and the sabotage pass are in
   cursor per run length; and Markdown's searches are made once per document rather
   than per line. That last one was a review finding before any test ran: per line,
   a `[` with no `]` after it scanned to the end of the document from every line
-  that had one. `linear time` in `test/components/highlight.test.ts` gives thirty
-  pathological inputs of a million characters a two-second deadline -- a quadratic
-  scan of that is seconds at the least and a linear one tens of milliseconds, so
-  an absolute deadline tells them apart on a loaded machine where a ratio of two
-  timings would not.
+  that had one. `linear time` in `test/components/highlight.test.ts` reads thirty
+  pathological inputs at 32K characters and at eight times that, best of seven
+  with the sizes taking turns, and asks that the larger cost less than three times
+  eight -- linear is eight and quadratic sixty-four. The backtick runs are read at
+  sixty-four times instead: runs of distinct lengths number only the square root
+  of the size, so a search per run is n^1.5, which grows 23-fold at eight times and
+  passed. It began as a two-second deadline on a million characters, and SIG-429
+  replaced it: under CI's coverage the linear `(/[` read took 1.7 s and 2.3 s on
+  macOS runners, while a quadratic made of one `indexOf()` per opener reads the
+  same million in 2.4 s on a laptop without coverage. No deadline separates two
+  ranges that overlap, and a ratio is what coverage and a slow runner leave alone.
 - **Spans come out in order and never overlap, and two of one token that touch are
   one.** The order is what the text area's filing assumes ("a highlighter emits its
   spans in order, so that is almost always a step or two"), and the merge is why an
@@ -12021,8 +12027,11 @@ measurements, the review findings and the sabotage pass are in
   first pass**: the shell's `${` search and Markdown's per-document searches went
   back to `indexOf()` per call and finished inside the deadline, because a
   quadratic made of `indexOf()` runs at memory speed and 200,000 characters was not
-  enough. The inputs are a million characters now and all four fail by seconds,
-  while the guarded lexers take at most 44 ms.
+  enough. SIG-429 ran the guards again against the growth test, with and without
+  coverage: the regular-expression memo, `finder()`'s memo, Markdown's closers made
+  per line, and a backtick search per run all fail it, at 34 to 66 times for the
+  first three against 24 and 509 times for the last against 192, while the guarded
+  lexers grow at most 8.6 times.
 
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 
