@@ -1404,4 +1404,32 @@ describe('markdownView()', () => {
     const view = markdownView('# a\n\n- b', { env: {}, hyperlinks: false, width: 20 });
     expect(view.element.classes).to.include('sigil-markdown');
   });
+
+  it('should reflow every body to the width it is laid out at, not only the top level', () => {
+    // a tree is built for a width and laid out at whatever the app gives it. A
+    // `max-width` on each nested body, tried for SIG-423's measure, held a list
+    // item's words to the twelve columns it was built for while the paragraph
+    // above it took all forty
+    const plain = {
+      colorLevel: 0,
+      env: {},
+      hyperlinks: false,
+      platform: 'linux',
+      width: 12,
+    } as const;
+    const view = markdownView(
+      'a top-level paragraph to fill the line\n\n- hello world from a nested body\n\n> quoted words that go on\n\n- one\n  - two three four five six',
+      plain
+    );
+    expect(renderToString(view.element, { colorLevel: 0, width: 40 }).split('\n')).to.deep.equal([
+      'a top-level paragraph to fill the line',
+      '',
+      '• hello world from a nested body',
+      '',
+      '│ quoted words that go on',
+      '',
+      '• one',
+      '  ◦ two three four five six',
+    ]);
+  });
 });

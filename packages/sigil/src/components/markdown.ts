@@ -89,6 +89,30 @@ export interface MarkdownView {
 /** The narrowest a document is laid out at; a list three deep needs this much. */
 const MIN_WIDTH = 10;
 
+/**
+ * The fewest columns nesting leaves a block's text, or a third of the document's
+ * width where that is fewer, but never fewer than `MIN_TEXT_NARROW` (SIG-423).
+ *
+ * Every list and quote takes its marker's columns from the room inside it, so a
+ * document nested deep enough left its innermost words no room at all: at a width
+ * of 60 a list past about 29 levels drew its bullets and none of its text. So a
+ * list or quote that would leave its blocks less than this is drawn without
+ * indenting them, and the words keep the room they had. Twenty is three or four
+ * words a line. The third is for a narrow document, where twenty would flatten
+ * an ordinary quote or list.
+ */
+const MIN_TEXT = 20;
+
+/**
+ * The floor under `MIN_TEXT`'s third, which only a document narrower than twelve
+ * columns reaches. Four is what a table of two columns needs, one each and the
+ * gap between them, which is more than a code block's padding and a column of its
+ * code -- so a block put under a marker has room to draw something. It is also
+ * exactly what a list three deep keeps at `MIN_WIDTH`, so that list still
+ * indents.
+ */
+const MIN_TEXT_NARROW = 4;
+
 /** The columns between one table column and the next, as `table()` has them. */
 const TABLE_GAP = 2;
 
@@ -113,6 +137,8 @@ interface Context {
   readonly baseUrl: string | undefined;
   readonly depth: number;
   readonly env: Record<string, string | undefined> | undefined;
+  /** The fewest columns a list or quote may leave its blocks by indenting them. */
+  readonly floor: number;
   readonly highlight: MarkdownOptions['highlight'];
   readonly hyperlinks: boolean;
   readonly platform: string | undefined;
@@ -157,6 +183,7 @@ export function markdownView(
     baseUrl: opts.baseUrl,
     depth: 0,
     env: opts.env,
+    floor: Math.min(MIN_TEXT, Math.max(MIN_TEXT_NARROW, Math.floor(width / 3))),
     highlight: opts.highlight,
     // level 0 is "write no escape sequences", and an OSC 8 is one -- so the URL
     // goes beside the words whatever the terminal could have done with it
@@ -424,11 +451,23 @@ function fold(line: string, room: number): string[] {
  * came to, which is the one thing a text cannot do: it would have to know the
  * height before the layout had worked it out.
  *
+ * Where the bar would leave the blocks less than `ctx.floor`, there is no bar:
+ * the blocks are drawn at the room the quote has, so the words of a quote nested
+ * past what the width can indent are still drawn. The bars of the quotes around
+ * it are still there to say it is quoted.
+ *
  * @param blocks - What is quoted.
  * @param ctx - The room.
  * @returns Its tree.
  */
 function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
+  if (ctx.room - 2 < ctx.floor) {
+    return box(
+      { class: 'sigil-markdown-quote', 'flex-direction': 'column' },
+      column(blocks, ctx, true, 'sigil-markdown-quote-body')
+    );
+  }
+
   const glyph = ctx.unicode ? '│' : '|';
   const bar = raw(
     {
@@ -441,14 +480,67 @@ function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
         }
       },
     },
-    { class: 'sigil-markdown-quote-bar sigil-muted', 'flex-shrink': 0, width: 1 }
+    { ...hung(0, true), class: 'sigil-markdown-quote-bar sigil-muted', width: 1 }
   );
 
-  return box(
-    { class: 'sigil-markdown-quote', 'column-gap': 1, 'flex-direction': 'row' },
-    bar,
-    column(blocks, { ...ctx, room: Math.max(1, ctx.room - 2) }, true, 'sigil-markdown-quote-body')
+  return hanging(
+    'sigil-markdown-quote',
+    2,
+    [bar],
+    column(blocks, { ...ctx, room: ctx.room - 2 }, true, 'sigil-markdown-quote-body')
   );
+}
+
+/**
+ * A body with something hung in the columns to the left of it: a quote's bar, or
+ * a list item's marker and box.
+ *
+ * The body is indented by padding and what hangs beside it is placed out of the
+ * flow, rather than the two being a row. They used to be a row, and a row is
+ * what made drawing deep nesting cost the square of its depth (SIG-423). The
+ * layout measures a row's flexible child at the whole row's width before it
+ * flexes and again at the width it got, so the body inside a body was measured
+ * at one more width per level, and so was everything in it: the innermost
+ * paragraph of a deep list at every width the levels above it had. A column
+ * measures its child once, at its own content width, which is the width the
+ * body is placed at -- so each level is measured at one width, and the body
+ * still takes whatever width the layout gives it.
+ *
+ * At least a row tall, which the row was by way of the marker: an empty item is
+ * still its marker, and an empty quote still its bar.
+ *
+ * @param classes - What the box carries.
+ * @param inset - The columns what hangs takes, the gap after it included.
+ * @param aside - What hangs, each placed with `hung()`.
+ * @param body - What is indented, if there is anything.
+ * @returns The box.
+ */
+function hanging(
+  classes: string | undefined,
+  inset: number,
+  aside: readonly Element[],
+  body: Element | undefined
+): Element {
+  return box(
+    {
+      ...(classes === undefined ? {} : { class: classes }),
+      'flex-direction': 'column',
+      'min-height': 1,
+      'padding-left': inset,
+      position: 'relative',
+    },
+    ...aside,
+    ...(body === undefined ? [] : [body])
+  );
+}
+
+/**
+ * Where something hung beside a body sits: out of the flow, `left` columns into
+ * the box, from its top. `down` stretches it to the box's height, which is what
+ * a quote's bar paints.
+ */
+function hung(left: number, down = false): Record<string, number | string> {
+  return { left, position: 'absolute', top: 0, ...(down ? { bottom: 0 } : {}) };
 }
 
 /**
@@ -463,6 +555,15 @@ function quote(blocks: readonly MarkdownBlock[], ctx: Context): Element {
  * of a numbered one, since the number may be what the steps are referred to by.
  * In a numbered list holding a task, an item that is not one keeps the box's
  * column empty, so every item's text still starts in one column.
+ *
+ * Where the markers would leave the items less than `ctx.floor`, the list stops
+ * indenting. An item's blocks stay beside its marker up to the first list or
+ * quote in it, which would indent again, or the first block too wide to draw any
+ * of itself there, and that one and everything after it goes under the marker at
+ * the room the list has; where the room beside the marker is under half the
+ * floor, everything goes under it. So a list nested deeper than the width can
+ * indent keeps its words, its bullets still say which item is which, and the room
+ * never shrinks past that point however much deeper it goes.
  *
  * @param block - The list.
  * @param ctx - The room and the depth.
@@ -487,12 +588,13 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
   // a numbered list's boxes are a column of their own, after the numbers
   const boxed = block.ordered && block.checked !== undefined;
   const boxWidth = stringWidth(boxes.off);
-  const inner: Context = {
-    ...ctx,
-    depth: ctx.depth + 1,
-    room: Math.max(1, ctx.room - markerWidth - 1 - (boxed ? boxWidth + 1 : 0)),
-  };
-  const fixed = { 'flex-shrink': 0, 'white-space': 'pre' } as const;
+  // what the markers take, what that leaves beside them, and whether it is too
+  // little to indent by
+  const inset = markerWidth + 1 + (boxed ? boxWidth + 1 : 0);
+  const indented = ctx.room - inset;
+  const flat = indented < ctx.floor;
+  const inner: Context = { ...ctx, depth: ctx.depth + 1, room: flat ? ctx.room : indented };
+  const fixed = { 'white-space': 'pre' } as const;
 
   return box(
     {
@@ -506,12 +608,12 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
         state === undefined || block.ordered
           ? 'sigil-markdown-marker sigil-muted'
           : `sigil-markdown-marker ${taskClasses(state)}`;
-      return box(
-        { class: 'sigil-markdown-item', 'column-gap': 1, 'flex-direction': 'row' },
+      const head = [
         // numbers line up on their right; a bullet and a box on their left, which
         // only differs where an ASCII box is three columns and a bullet one
         textNode(markers[index], {
           ...fixed,
+          ...hung(0),
           class: marker,
           'text-align': block.ordered ? 'right' : 'left',
           width: markerWidth,
@@ -519,14 +621,81 @@ function list(block: Extract<MarkdownBlock, { type: 'list' }>, ctx: Context): El
         ...(boxed
           ? [
               state === undefined
-                ? textNode('', { ...fixed, width: boxWidth })
-                : textNode(glyph(index), { ...fixed, class: taskClasses(state), width: boxWidth }),
+                ? textNode('', { ...fixed, ...hung(markerWidth + 1), width: boxWidth })
+                : textNode(glyph(index), {
+                    ...fixed,
+                    ...hung(markerWidth + 1),
+                    class: taskClasses(state),
+                    width: boxWidth,
+                  }),
             ]
           : []),
-        column(item, inner, !block.tight, 'sigil-markdown-item-body')
+      ];
+
+      if (!flat) {
+        return hanging(
+          'sigil-markdown-item',
+          inset,
+          head,
+          column(item, inner, !block.tight, 'sigil-markdown-item-body')
+        );
+      }
+
+      // a list or a quote beside the marker would indent again, which is what
+      // this item cannot afford; what comes before the first of them is as wide
+      // as it is going to get, and keeps its place while each block still has
+      // the room it needs to draw any of itself, and the run as a whole half
+      // the floor. The first block that does not goes under the marker, with
+      // everything after it, so the order is kept
+      const split =
+        indented < ctx.floor / 2
+          ? 0
+          : item.findIndex(
+              (it) => it.type === 'list' || it.type === 'quote' || narrowest(it) > indented
+            );
+      const beside = split === -1 ? item : item.slice(0, split);
+      const under = split === -1 ? [] : item.slice(split);
+      return box(
+        {
+          class: 'sigil-markdown-item',
+          'flex-direction': 'column',
+          'row-gap': block.tight ? 0 : 1,
+        },
+        hanging(
+          undefined,
+          inset,
+          head,
+          beside.length > 0
+            ? column(beside, { ...inner, room: indented }, !block.tight, 'sigil-markdown-item-body')
+            : undefined
+        ),
+        ...(under.length > 0
+          ? [column(under, inner, !block.tight, 'sigil-markdown-item-body')]
+          : [])
       );
     })
   );
+}
+
+/**
+ * The fewest columns a block needs to draw any of what it holds.
+ *
+ * A code block is two columns in, so it needs a third for its code, and a table
+ * a column for each of its columns and the gap between each two -- `fit()` never
+ * narrows a column below one, so a table in less draws past the edge and loses
+ * the columns that went there. Everything else wraps down to a column.
+ *
+ * @param block - The block.
+ * @returns The columns.
+ */
+function narrowest(block: MarkdownBlock): number {
+  if (block.type === 'code') {
+    return 3;
+  }
+  if (block.type === 'table') {
+    return block.align.length + TABLE_GAP * Math.max(0, block.align.length - 1);
+  }
+  return 1;
 }
 
 /**

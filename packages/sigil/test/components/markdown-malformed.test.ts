@@ -25,13 +25,23 @@ import { describe, expect, it } from 'vitest';
  * A side under two milliseconds counts as two, which is what the timer can say.
  */
 
-/** How much more a document eight times the size costs to read. */
-function growth(make: (size: number) => string, size: number): number {
-  const small = make(size);
-  const large = make(size * 8);
+/**
+ * How much more a document eight times the size costs to read, or to do `work`
+ * with: drawing, for the renderer's half (SIG-423).
+ */
+function growth(
+  make: (size: number) => string,
+  size: number,
+  work: (source: string) => unknown = parseMarkdown
+): number {
+  return costRatio(make(size), make(size * 8), work);
+}
+
+/** How much more `large` costs than `small`, each the best of seven taken in turns. */
+function costRatio(small: string, large: string, work: (source: string) => unknown): number {
   const time = (source: string): number => {
     const start = performance.now();
-    parseMarkdown(source);
+    work(source);
     return performance.now() - start;
   };
   let bestSmall = Infinity;
@@ -78,6 +88,21 @@ function innermost(blocks: readonly MarkdownBlock[]): readonly MarkdownBlock[] {
 }
 
 const plain = { colorLevel: 0, env: {}, hyperlinks: false, width: 60 } as const;
+
+/** `plain`, with the box-drawing markers, which no source here writes. */
+const glyphs = { ...plain, platform: 'linux' } as const;
+
+/**
+ * What a drawing says once its bullets, boxes and quote bars are taken out: its
+ * words, one space between each. The bars are on every line of a quote, so they
+ * fall between the words of a paragraph that wraps.
+ */
+function wordsOf(drawn: string): string {
+  return drawn
+    .split(/\s+/)
+    .filter((it) => it !== '' && !/^[•◦▪│☐☒]$/u.test(it))
+    .join(' ');
+}
 const LINE_SEPARATOR = String.fromCharCode(0x2028);
 const K = 1024;
 
@@ -260,7 +285,180 @@ describe('parseMarkdown() on malformed input', () => {
         const drawn = markdown(source, { ...plain, width: 400 }).split('\n');
         expect(drawn).to.have.length(1);
         expect(drawn[0].trimEnd().endsWith(rest)).to.equal(true);
+        // and at sixty, where a hundred levels cannot all be indented, the same
+        // words are the last thing drawn: they used to be the one thing that was
+        // not (SIG-423)
+        expect(wordsOf(markdown(source, glyphs)).endsWith(rest)).to.equal(true);
       }
+    });
+
+    it('should draw the words of a list nested deeper than the width can indent, which it dropped', () => {
+      // each level of list took two or three columns of the room inside it, so
+      // at sixty a list past about 29 levels drew its bullets and none of its
+      // words, with nothing to say they were gone (SIG-423)
+      const words = 'alpha bravo charlie delta echo foxtrot golf';
+      for (const depth of [20, 30, 50, 100]) {
+        for (const marker of ['- ', '1. ', '- [ ] ', '1. [x] ', '- > ']) {
+          const source = `${marker.repeat(depth)}${words}`;
+          const drawn = markdown(source, glyphs);
+          expect(wordsOf(drawn).endsWith(words), `${depth} of '${marker}'`).to.equal(true);
+          // and in room for more than a word a line
+          expect(drawn, `${depth} of '${marker}'`).to.include('alpha bravo');
+        }
+      }
+    });
+
+    it('should draw the words of a quote nested deeper than the width can indent', () => {
+      const words = 'alpha bravo charlie delta echo foxtrot golf';
+      for (const depth of [20, 30, 50, 100]) {
+        const drawn = markdown(`${'> '.repeat(depth)}${words}`, glyphs);
+        expect(wordsOf(drawn).endsWith(words), `${depth}`).to.equal(true);
+        expect(drawn, `${depth}`).to.include('alpha bravo');
+      }
+    });
+
+    it('should stop indenting where the text would have less than twenty columns', () => {
+      // twenty levels of list take forty columns, which leaves the twentieth
+      // level's words twenty; the twenty-first lines up with the twentieth's
+      // words rather than indenting past them, and so does every level after it
+      const source = Array.from(
+        { length: 23 },
+        (_, level) => `${'  '.repeat(level)}- level ${level + 1}`
+      ).join('\n');
+      const drawn = markdown(source, glyphs).split('\n');
+      expect(drawn.slice(18)).to.deep.equal([
+        `${' '.repeat(36)}• level 19`,
+        `${' '.repeat(38)}◦ level 20`,
+        `${' '.repeat(40)}▪ level 21`,
+        `${' '.repeat(40)}• level 22`,
+        `${' '.repeat(40)}◦ level 23`,
+      ]);
+    });
+
+    it('should keep what comes before a nested list beside the marker, past where indenting stops', () => {
+      // the twenty-first level cannot indent: its paragraphs stay beside the
+      // marker, and the list inside it goes under the marker rather than beside,
+      // where it would have indented again. An empty item is its marker alone,
+      // with no blank line under it that a loose list would put above a block
+      const pad = '  '.repeat(21);
+      const source = [
+        `${'- '.repeat(21)}one`,
+        '',
+        `${pad}two, a second paragraph`,
+        '',
+        `${pad}-`,
+        '',
+        `${pad}- three`,
+      ].join('\n');
+      expect(markdown(source, glyphs).split('\n')).to.deep.equal([
+        `${'• ◦ ▪ '.repeat(7)}one`,
+        '',
+        `${' '.repeat(42)}two, a second`,
+        `${' '.repeat(42)}paragraph`,
+        '',
+        `${' '.repeat(40)}•`,
+        '',
+        `${' '.repeat(40)}• three`,
+      ]);
+    });
+
+    it('should put the words of an item under its marker where there is no room beside it', () => {
+      // three levels leave four columns at the narrowest width, and a marker
+      // `10.` takes all four: beside it the words had none, and were not drawn
+      const items = Array.from({ length: 10 }, (_, i) => `      ${i + 1}. w${i + 1}`);
+      const drawn = markdown(['- a', '  - b', '    - c', ...items].join('\n'), {
+        ...glyphs,
+        width: 10,
+      }).split('\n');
+      expect(drawn.slice(3, 7)).to.deep.equal(['       1.', '      w1', '       2.', '      w2']);
+      expect(drawn.slice(-2)).to.deep.equal(['      10.', '      w10']);
+    });
+
+    it('should draw a block too wide for the room beside a marker under it, not off the grid', () => {
+      // six levels leave two columns beside the innermost marker at ten, twelve
+      // and fourteen columns. A paragraph wraps into two, but a code block is two
+      // columns in and a table needs a column each and the gap: beside the marker
+      // they were drawn past the edge, and the bullet was all that was on screen
+      const blocks = {
+        code: ['```', 'secret', '```'],
+        table: ['| a | b |', '| - | - |', '| x | y |'],
+      };
+      for (const width of [10, 12, 14]) {
+        for (const [kind, lines] of Object.entries(blocks)) {
+          const levels = Array.from({ length: 5 }, (_, i) => `${'  '.repeat(i)}- l${i + 1}`);
+          const block = lines.map((line, i) => (i === 0 ? '- ' : '  ') + line);
+          const source = [...levels, ...block.map((line) => `${'  '.repeat(5)}${line}`)];
+          const drawn = markdown(source.join('\n'), { ...glyphs, width }).split('\n');
+          const label = `${kind} at ${width}`;
+          expect(Math.max(...drawn.map((line) => line.trimEnd().length)), label).to.be.at.most(
+            width
+          );
+          if (kind === 'code') {
+            expect(drawn.join('').replaceAll(/\s/g, ''), label).to.include('secret');
+          } else {
+            expect(
+              drawn.map((line) => line.trim()),
+              label
+            ).to.include.members(['a  b', 'x  y']);
+          }
+        }
+      }
+    });
+
+    it('should draw the code under an ASCII task box, which takes three columns', () => {
+      // `[ ]` is three columns where a bullet is one, so a task list runs out of
+      // room a level sooner: the code after an item's words went beside them, in
+      // two columns, and was drawn off the grid
+      for (const width of [10, 12, 14]) {
+        const source = '- [ ] a\n  - [ ] b\n    - [ ] c\n      ```\n      secret\n      ```\n';
+        const drawn = markdown(source, { ...plain, platform: 'win32', width }).split('\n');
+        expect(Math.max(...drawn.map((line) => line.trimEnd().length))).to.be.at.most(width);
+        expect(drawn.join('').replaceAll(/\s/g, ''), `at ${width}`).to.include('secret');
+      }
+    });
+
+    it('should keep four columns of a narrow document for the text, so a list three deep still indents', () => {
+      // twenty columns is more than a narrow document has to give: at the
+      // narrowest, ten, a list three deep keeps the four columns it has always
+      // had there. The fourth level stops indenting, and its one-letter word is
+      // the one kind of block that two columns beside the marker can draw
+      const drawn = markdown('- a\n  - b\n    - c d\n      - e', { ...glyphs, width: 10 });
+      expect(drawn.split('\n')).to.deep.equal(['• a', '  ◦ b', '    ▪ c d', '      • e']);
+      // and never fewer than four, which a table of two columns needs: a third
+      // of ten is three, and a list that left three indented a table into them
+      const table = ['- a', '  1. b', '     - c', '', '       | a | b |', '       | - | - |'];
+      expect(markdown(table.join('\n'), { ...glyphs, width: 10 }).split('\n')).to.deep.equal([
+        '• a',
+        '  1. b',
+        '     ▪ c',
+        '',
+        '     a  b',
+        '     ─  ─',
+      ]);
+    });
+
+    it('should draw deep nesting in time linear in its depth, not in its square', () => {
+      // a row measures a flexible child at the whole row's width and then at the
+      // width it got, so the body inside each list item was measured at one more
+      // width per level, and so was everything in it: at sixty a paragraph a
+      // hundred deep took about 13ms to draw, and twelve deep about half of one.
+      // Drawn at a width that indents every level, so this is the measure alone
+      // and not the depth rule above
+      const wide = { ...plain, width: 400 };
+      const draw = (source: string): string => markdown(source, wide);
+      expect(growth((depth) => `${'- '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
+      expect(growth((depth) => `${'> '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
+      expect(growth((depth) => `${'1. '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
+    });
+
+    it('should measure the words of a paragraph under deep quotes once, not once per quote', () => {
+      // linear in its lines and always was, but every word was measured at one
+      // more width per quote around it: the paragraph under 99 quotes cost about
+      // forty times what it does unquoted. What is left is the bars, which are
+      // drawn on every line, and is about two and a half
+      const draw = (source: string): string => markdown(source, { ...plain, width: 400 });
+      const lines = `a\n${'b\n'.repeat(2000)}`;
+      expect(costRatio(lines, `${'> '.repeat(99)}${lines}`, draw)).toBeLessThan(10);
     });
 
     it('should read a footnote definition at the limit as text, not as a link definition', () => {
