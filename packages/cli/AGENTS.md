@@ -4072,6 +4072,47 @@ people's software and will move.
   lists what the registry does have, and the second says the registry is wrong,
   because the user never typed that name and telling them it is unavailable
   would be blaming them for somebody else's manifest.
+- **An entry is looked up by `registryEntry()`, which answers for own
+  properties only, and what it finds is checked before the plan reads it
+  (SIG-435).** `entries` is a parsed object, so `entries['constructor']` is
+  `Object` and `entries['toString']` a function -- truthy, no `registryDeps` --
+  and `sigil add constructor` printed `Error: entry.registryDeps is not
+  iterable` where `sigil add nope` listed what the registry has. The same lookup
+  reads an entry's own `registryDeps`, so a registry naming `constructor` as a
+  dependency got that message instead of the "bug in the registry" one. It is
+  one function that `planAdd()` and the `classes` read in `commands/add.ts`
+  both call.
+
+  `Object.hasOwn()` was chosen over the other valid shape, a null-prototype
+  table built at load, which is what the parser's registries are. A
+  null-prototype copy keeps `__proto__` as an own key too -- there is no
+  inherited accessor to hit, so assignment and `Object.assign()` both create it
+  -- and so does `JSON.parse`'s own result; only a copy into a **plain** `{}`
+  loses it, and that copy would not fix the bug either. The parser's registries
+  are null-prototype because they are built by assignment from names argv and
+  declarations supply; this one is handed a finished object, and `Object.hasOwn()`
+  leaves it untouched and needs no copy to keep in agreement with it.
+
+  What the lookup finds is not yet an entry, so `checkedEntry()` in
+  `planAdd()` refuses one that is not a non-null, non-array object whose
+  `registryDeps` and `files` are arrays, whose `registryDeps` are all strings
+  and whose files are objects, with the
+  wording `confine()` already uses for a path: a bug in the registry, naming the
+  entry, nothing written. A **present** `null` is that and not a missing name,
+  since "has no x. It has: x" contradicts itself; a string `registryDeps` is
+  refused because it iterates one character at a time, and a `registryDeps`
+  item that is not a string because `['x']` is the key `x` to `Object.hasOwn()`
+  while the `seen` set holds the array, which planned the asked-for entry twice
+  and called it "also needed". What is in a file item is
+  still `confine()`'s to say. At load, a `registry.json` that is `null`, whose
+  `entries` is `null`, an array or has no keys is refused with the sentence for
+  no entries -- an empty table answered `has no "x". It has: ` with nothing
+  after the colon, and nothing ships one: the generator writes one per component
+  and the suite's fixtures all carry at least one. A number or a string was
+  never a crash: reading a property off one is `undefined`. None of these was a
+  `TypeError` a user saw as such: `main()` renders `Error: <message>`, so what
+  they saw was the toolchain's own variable names.
+
 - **`sigil add` copies TypeScript, whatever the app is written in, and that is a
   deferral rather than an answer.** Emitting JavaScript means stripping types,
   and neither `oxc-parser` nor `rolldown` -- the two the toolchain already has --

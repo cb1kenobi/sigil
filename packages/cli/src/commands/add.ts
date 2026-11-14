@@ -38,6 +38,7 @@ import {
   type Plan,
   planAdd,
   readConfig,
+  registryEntry,
   type Registry,
 } from '../registry/index.ts';
 import { isQuiet, writeNote } from '../report.ts';
@@ -115,7 +116,7 @@ function describe(plan: Plan, registry: Registry, target: string): void {
   }
 
   const classes = plan.entries
-    .flatMap((name) => registry.manifest.entries[name]?.classes ?? [])
+    .flatMap((name) => registryEntry(registry, name)?.classes ?? [])
     .sort();
 
   if (classes.length > 0) {
