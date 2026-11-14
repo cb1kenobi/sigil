@@ -764,7 +764,17 @@ pre-commit hook and every local run.
   parent pid. POSIX has no such call, so `endTree()` reads the tree from `ps`
   and walks it: each process found is sent SIGSTOP before the next look, so
   none can start another in between, and once a look finds nothing new every
-  one of them gets SIGKILL. Timing out all twelve variants at 250, 350, 450 and
+  one of them gets SIGKILL. The SIGKILL is in a `finally`, so a look that
+  fails still kills everything already stopped; a stopped process would hold
+  its directory and never close. A look that fails -- `ps` missing, exiting
+  non-zero, killed by its 5-second timeout, or listing nothing -- throws
+  naming `ps` rather than reading as a tree with no descendants, which would
+  kill the root alone and leave its workers in the directory. That error is
+  what the child's promise rejects with, and the hook fails the test with it
+  once the directory is removed. `ending a process tree` pins both halves with
+  a real root and child, failing the first look and the second; taking the
+  `finally` out leaves the root stopped, and taking the checks out leaves
+  nothing thrown, and each fails it. Timing out all twelve variants at 250, 350, 450 and
   550 ms left no directory and no process in one, and from 350 ms up every
   abort was a nested vitest's. The first version, which passed the signal to
   `spawn()`, left an orphaned worker at 350 and at 400 ms. A child that never

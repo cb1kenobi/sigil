@@ -1616,8 +1616,19 @@ function materialize(
   const app = tempDir('sigil-tui-app-');
   const children: Promise<Ran>[] = [];
   onTestFinished(async () => {
-    await Promise.allSettled(children);
+    const settled = await Promise.allSettled(children);
     await removeTempDir(app);
+    // a child that failed while the test was still waiting on it has already
+    // failed the test; one that failed after a timeout, ending its tree, has
+    // no test left to fail but this hook
+    const failed = signal.aborted
+      ? settled.flatMap((each) =>
+          each.status === 'rejected' && each.reason !== signal.reason ? [each.reason] : []
+        )
+      : [];
+    if (failed.length > 0) {
+      throw new AggregateError(failed, 'Could not end every child this test started');
+    }
   }, REMOVAL_TIMEOUT);
   const manifest = JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf-8')) as {
     devDependencies: Record<string, string>;
@@ -1668,46 +1679,79 @@ function materialize(
  *
  * @param pid - The process at the root of the tree.
  */
-function endTree(pid: number): void {
+function endTree(pid: number, list: () => string = listProcesses): void {
   if (process.platform === 'win32') {
     spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
     return;
   }
+  // everything stopped is killed whatever happens below, `list()` throwing
+  // included: a process left stopped holds its directory and never closes
   const tried = new Set<number>();
-  for (let found = [pid]; found.length > 0;) {
-    for (const each of found) {
-      tried.add(each);
+  try {
+    for (let found = [pid]; found.length > 0;) {
+      for (const each of found) {
+        tried.add(each);
+        try {
+          process.kill(each, 'SIGSTOP');
+        } catch {
+          // it has already gone
+        }
+      }
+      const below = new Map<number, number[]>();
+      for (const line of list().trim().split('\n')) {
+        const [child, parent] = line.trim().split(/\s+/).map(Number);
+        if (child !== undefined && parent !== undefined) {
+          below.set(parent, [...(below.get(parent) ?? []), child]);
+        }
+      }
+      const tree: number[] = [];
+      for (const queue = [pid]; queue.length > 0;) {
+        for (const child of below.get(queue.shift()!) ?? []) {
+          tree.push(child);
+          queue.push(child);
+        }
+      }
+      found = tree.filter((each) => !tried.has(each));
+    }
+  } finally {
+    for (const each of tried) {
       try {
-        process.kill(each, 'SIGSTOP');
+        process.kill(each, 'SIGKILL');
       } catch {
         // it has already gone
       }
     }
-    const below = new Map<number, number[]>();
-    for (const line of spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf-8' })
-      .stdout.trim()
-      .split('\n')) {
-      const [child, parent] = line.trim().split(/\s+/).map(Number);
-      if (child !== undefined && parent !== undefined) {
-        below.set(parent, [...(below.get(parent) ?? []), child]);
-      }
-    }
-    const tree: number[] = [];
-    for (const queue = [pid]; queue.length > 0;) {
-      for (const child of below.get(queue.shift()!) ?? []) {
-        tree.push(child);
-        queue.push(child);
-      }
-    }
-    found = tree.filter((each) => !tried.has(each));
   }
-  for (const each of tried) {
-    try {
-      process.kill(each, 'SIGKILL');
-    } catch {
-      // it has already gone
-    }
+}
+
+/**
+ * Every process on the machine as `pid ppid` lines, from `ps`.
+ *
+ * A look that fails throws, naming `ps`, rather than answering with nothing: an
+ * empty answer would read as a tree with no descendants, and `endTree()` would
+ * kill the root alone and leave its workers running in the directory that is
+ * about to be removed. Bounded, since it runs while a test is being torn down.
+ *
+ * @param command - What to run, which is `ps` except in the test that makes it fail.
+ * @returns The listing.
+ */
+function listProcesses(command = 'ps'): string {
+  const ran = spawnSync(command, ['-A', '-o', 'pid=,ppid='], { encoding: 'utf-8', timeout: 5000 });
+  const why =
+    ran.error?.message ??
+    (ran.signal !== null
+      ? `it was killed by ${ran.signal}`
+      : ran.status !== 0
+        ? `it exited ${ran.status}${ran.stderr.trim() ? `: ${ran.stderr.trim()}` : ''}`
+        : ran.stdout.trim() === ''
+          ? 'it listed nothing'
+          : undefined);
+  if (why !== undefined) {
+    throw new Error(`Could not end a child's process tree, because ps failed: ${why}`, {
+      cause: ran.error,
+    });
   }
+  return ran.stdout;
 }
 
 /**
@@ -1730,9 +1774,16 @@ function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): P
       env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // a failure to end the tree is what the child's promise rejects with, so
+    // that `materialize()`'s hook can fail the test with it once it has closed
+    let failure: unknown;
     const end = (): void => {
       if (child.pid !== undefined) {
-        endTree(child.pid);
+        try {
+          endTree(child.pid);
+        } catch (err) {
+          failure = err;
+        }
       }
     };
     signal.addEventListener('abort', end, { once: true });
@@ -1749,7 +1800,9 @@ function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): P
     });
     child.on('close', (code) => {
       signal.removeEventListener('abort', end);
-      if (signal.aborted) {
+      if (failure !== undefined) {
+        fail(failure);
+      } else if (signal.aborted) {
         fail(signal.reason);
       } else {
         settle({ code, out: out.replaceAll('\r\n', '\n') });
@@ -1757,6 +1810,72 @@ function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): P
     });
   });
 }
+
+describe('ending a process tree', () => {
+  /** Whether a process is still there, which a signal of 0 asks without sending one. */
+  function running(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // POSIX only: Windows is `taskkill /T`, which reads no listing
+  it.skipIf(process.platform === 'win32').for([
+    { command: 'sigil-no-such-ps', failing: 1, why: /ENOENT/ },
+    { command: 'false', failing: 2, why: /exited 1/ },
+  ])(
+    'should kill everything it stopped, and say ps failed, when look $failing fails ($command)',
+    async ({ command, failing, why }) => {
+      // a node that starts a node, says its pid, and waits: a root and a child
+      const root = spawn(
+        process.execPath,
+        [
+          '-e',
+          "const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); console.log(c.pid); setInterval(() => {}, 1000);",
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      const exited = new Promise<NodeJS.Signals | null>((settle) =>
+        root.once('exit', (_code, signal) => settle(signal))
+      );
+      const child = Number(
+        await new Promise<string>((settle) =>
+          root.stdout.once('data', (data) => settle(String(data)))
+        )
+      );
+      let looks = 0;
+
+      try {
+        expect(() =>
+          endTree(root.pid!, () => listProcesses(++looks === failing ? command : 'ps'))
+        ).toThrow(new RegExp(`because ps failed: .*${why.source}`));
+
+        // the root is stopped before the first look, so it is killed whichever
+        // look fails, and the child only once a look has found it. Raced, so a
+        // root left stopped fails here and reaches the `finally` that kills it
+        const late = new Promise<string>((settle) => setTimeout(() => settle('still there'), 5000));
+        expect(await Promise.race([exited, late])).toBe('SIGKILL');
+        if (failing === 2) {
+          for (let wait = 0; running(child) && wait < 100; wait++) {
+            await new Promise((settle) => setTimeout(settle, 20));
+          }
+          expect(running(child)).toBe(false);
+        }
+      } finally {
+        for (const pid of [root.pid!, child]) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // it has already gone
+          }
+        }
+      }
+    }
+  );
+});
 
 /** What `runApp()` says when there is no terminal, which is the app's own refusal and not ours. */
 const REFUSAL = 'not a terminal';
