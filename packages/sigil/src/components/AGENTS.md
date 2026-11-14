@@ -4888,20 +4888,24 @@ how the two come to disagree." It is decided, and the answer is no.
   (SIG-408).** Every `ESC` in front of a key is Alt held over it, so `ESC ESC x`
   is one Alt-`x` whose sequence holds all three bytes, and `readEscape()` used
   to say so by reading the next `ESC` through `readOne()` and wrapping what came
-  back -- one stack frame and one slice of the input per byte. `decodeKeys('\x1b'
-  .repeat(8000) + 'a')` threw `Maximum call stack size exceeded`, and only
+  back -- one stack frame and one slice of the input per byte. A chunk of 8,000
+  `ESC` bytes and an `a` threw `Maximum call stack size exceeded`, and only
   garbage on stdin reaches it, such as binary data written into a raw-mode
   terminal. The run is stepped over to its last `ESC`, that one is read once by
-  `readEscapeAt()`, and the Alt wrap is applied once: it sets `meta` and the
-  sequence and carries everything else, so one application is the answer the
-  recursion gave after however many. The decision is that **nothing that decoded
-  before decodes differently** -- a robustness fix, not a new reading of
-  `ESC ESC` -- which is why the doubled Alt is still just Alt rather than
-  something a binding could name, and why a trailing `ESC ESC` is still an
-  Alt-Escape that `pendingLength()` holds. `src/input` has no copy of this: it
-  reads keys through `decodeKeys()` and `pendingLength()`, and
-  `parseMouseReport()` and `parseCapabilityResponse()` match one whole sequence
-  with a pattern. See `test/components/keys.test.ts`.
+  `readEscapeAt()`, and the Alt wrap is applied once: N wraps give what one wrap
+  over the full slice gives, since each sets `meta` and writes the sequence from
+  its own `ESC` and the outermost writes it last. The decision is that **nothing
+  that decoded before decodes differently** -- a robustness fix, not a new
+  reading of `ESC ESC` -- which is why the doubled Alt is still just Alt rather
+  than something a binding could name, and why a trailing `ESC ESC` is still an
+  Alt-Escape that `pendingLength()` holds. The decoder is linear in the run now,
+  but `createInput()` is not for a run that arrives over many reads: it holds the
+  tail and calls `pendingLength()` over all of it on each read, which is
+  quadratic in the run and uncapped, and is SIG-439's rather than this entry's.
+  `src/input` has no second copy of the reader: it reads keys through
+  `decodeKeys()` and `pendingLength()`, and `parseMouseReport()` and
+  `parseCapabilityResponse()` match one whole sequence with a pattern. See
+  `test/components/keys.test.ts`.
 - **Ctrl-`\` `]` `^` `_`, a lone Alt-`[`, and the Linux console's F1 to F5 are
   recorded with the binding grammar, not here (SIG-361).** Three readings
   `decodeKeys()` got wrong, each a key a spec could name and nothing could

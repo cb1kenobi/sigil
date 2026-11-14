@@ -124,7 +124,7 @@ const CONTROLS: Record<string, string> = {
  * Filtered to the names of more than one character, because `CONTROLS` maps
  * Ctrl-C's byte to `'c'`, which is the letter rather than a name -- a one
  * character name and a character are the same answer reached two ways.
- * `escape` is written out because `readEscape()` produces it inline rather
+ * `escape` is written out because `readEscapeAt()` produces it inline rather
  * than from a table.
  */
 export const KEY_NAMES: ReadonlySet<string> = new Set(
@@ -301,7 +301,7 @@ function readString(input: string, start: number, opts: DecodeOptions): Read | u
   const found = stringEnd(input, start + 2);
   if (!found) {
     // take the tail rather than leaving it to be read as keys, which is what
-    // `readEscape()` already does with an unfinished CSI and for its reason: the
+    // `readEscapeAt()` already does with an unfinished CSI and for its reason: the
     // alternative puts the payload in somebody's answer
     const sequence = input.slice(start);
     return {
@@ -332,9 +332,10 @@ function readString(input: string, start: number, opts: DecodeOptions): Read | u
  * the input at every level: 8,000 of them overflowed the stack, and what came
  * back below that was quadratic. The run is counted in a loop and the last `ESC`
  * of it read once, which is the one reading every level above it was wrapping,
- * and the wrap is applied once rather than once per byte. A wrap is idempotent
- * -- it sets `meta` and the sequence and carries the rest -- so one application
- * is the same answer as however many there were.
+ * and the wrap is applied once rather than once per byte. Each wrap sets `meta`,
+ * writes the sequence from its own `ESC` to the end of the key, and carries the
+ * rest, so N wraps give exactly what one wrap over the full slice gives: the
+ * outermost one wrote the sequence last and the others only set `meta` again.
  *
  * @param input - The whole chunk.
  * @param start - The index of the `ESC`.

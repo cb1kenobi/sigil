@@ -341,7 +341,7 @@ describe('a key spec', () => {
     // the set contains, so the set is what has to be checked. The content is the
     // values of `SEQUENCES`, `LINUX_CONSOLE` and `CONTROLS` with the
     // one-character ones dropped,
-    // plus the `escape` `readEscape()` produces inline
+    // plus the `escape` `readEscapeAt()` produces inline
     expect([...KEY_NAMES].sort()).to.deep.equal([
       'backspace',
       'delete',
