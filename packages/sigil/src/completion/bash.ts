@@ -20,6 +20,15 @@
  * quoted `"$cur"` is literal and the trailing `*` is the only glob -- which is
  * `compgen`'s job done with no subshell and no quoting left to go wrong.
  *
+ * ## What is inserted is quoted, and what was typed is unquoted
+ *
+ * readline inserts a `COMPREPLY` entry as it stands, so `__x_put` stores each
+ * candidate the way it has to be typed -- `printf %q`, or what an open quote
+ * needs -- and `__x_keep` takes the user's own quoting off every word before
+ * anything is compared, so `two\ w` is a prefix of `two words` and `it\'s` is
+ * the command `it's`. The rule and its measurements are in this directory's
+ * `AGENTS.md`.
+ *
  * ## The data appears once per question
  *
  * `__x_known` is the set of command paths and is what the walk tests against,
@@ -221,32 +230,164 @@ ${pre}_add() {
   # attached value, empty otherwise -- so \`$1$c\` is the whole word the shell
   # would end up with. \`$2\` is the whole word as typed, which is what a
   # candidate is filtered by, and \`$3\` is the part of it readline will *not*
-  # replace, which is what has to come back off the front of what is inserted
+  # replace, which is what has to come back off the front of what is inserted.
+  # Both have had the user's quoting taken off by \`_keep\`, so a candidate is
+  # compared as the value it is rather than as somebody spelled it
   local __pre="$1" __cur="$2" __keep="$3" __c __w
   shift 3
   for __c in "$@"; do
     __w="$__pre$__c"
     case "$__w" in
-      "$__cur"*) COMPREPLY[\${#COMPREPLY[@]}]="\${__w#"$__keep"}" ;;
+      "$__cur"*) ${pre}_put "\${__w#"$__keep"}" ;;
     esac
   done
 }
 
-# how much of a word readline keeps: everything up to and including the last
-# character of it that is in \`$COMP_WORDBREAKS\`. readline replaces only what
-# follows that, so a candidate carrying any of it is inserted twice --
-# \`--mode=--mode=fast\`, measured in bash 3.2. The membership test quotes the
-# character, so a \`*\` or a \`[\` in \`$COMP_WORDBREAKS\` is matched literally
-${pre}_keep() {
-  ${pre}_pre=''
-  local __w="$1" __i=\${#1} __c
-  while [ "$__i" -gt 0 ]; do
-    __c="\${__w:__i-1:1}"
-    case "$COMP_WORDBREAKS" in
-      *"$__c"*) ${pre}_pre="\${__w:0:__i}"; return ;;
+# every \`~\` that \`%q\` left bare in \`__o\` takes a backslash: bash expands one
+# at the start of a word and after an \`=\` or a \`:\` in one, and bash 3.2's
+# \`%q\` escapes none of them. A \`$'...'\` answer has quoted all of itself
+${pre}_tilde() {
+  case "$__o" in "$'"*) return ;; esac
+  local __t='' __j=0 __d
+  while [ "$__j" -lt \${#__o} ]; do
+    __d="\${__o:__j:1}"
+    __j=$((__j + 1))
+    case "$__d" in
+      '\\')
+        __t="$__t$__d\${__o:__j:1}"
+        __j=$((__j + 1))
+        ;;
+      '~') __t="$__t\\\\~" ;;
+      *) __t="$__t$__d" ;;
     esac
-    __i=$((__i - 1))
   done
+  __o="$__t"
+}
+
+# a candidate as it has to be typed, because readline inserts \`COMPREPLY\` as
+# it stands -- it quotes only under \`-o filenames\` -- so \`two words\` would
+# arrive as two arguments and \`it's\` as an open quote. Outside a quote that is
+# \`printf %q\` of anything holding a character a shell could read as something
+# else. Inside a quote the user opened, readline closes it, so only what that
+# quote cannot hold is said. A \`~\` takes its backslash in \`_tilde\`, because
+# bash 3.2's \`%q\` leaves it bare, and bare it is a home directory
+${pre}_put() {
+  local __v="$1" __o='' __c __i=0
+  case "$${pre}_quote" in
+    "'")
+      # nothing is special inside single quotes but the quote itself, which
+      # is closed, escaped and reopened
+      while [ "$__i" -lt \${#__v} ]; do
+        __c="\${__v:__i:1}"
+        if [ "$__c" = "'" ]; then __o="$__o'\\''"; else __o="$__o$__c"; fi
+        __i=$((__i + 1))
+      done
+      ;;
+    '"')
+      # four characters take a backslash inside double quotes. A \`!\` is
+      # history expansion there however it is escaped, so it steps outside
+      while [ "$__i" -lt \${#__v} ]; do
+        __c="\${__v:__i:1}"
+        case "$__c" in
+          '$' | '\`' | '"' | '\\') __o="$__o\\\\$__c" ;;
+          '!') __o="$__o"'"\\!"' ;;
+          *) __o="$__o$__c" ;;
+        esac
+        __i=$((__i + 1))
+      done
+      ;;
+    *)
+      case "$__v" in
+        *[![:alnum:]_@%+=:,./-]*)
+          printf -v __o '%q' "$__v"
+          ${pre}_tilde
+          ;;
+        *) __o="$__v" ;;
+      esac
+      ;;
+  esac
+  # readline closes the quote the user opened only when the character before
+  # the cursor is not that quote already, so a replacement ending in one -- an
+  # escaped quote, or the quote \`"\\!"\` reopens -- was left open. Every one of
+  # them ends with the quote open, so it is closed here instead
+  case "$${pre}_quote" in
+    "'" | '"')
+      case "$__o" in *"$${pre}_quote") __o="$__o$${pre}_quote" ;; esac
+      ;;
+  esac
+  # readline will not double an opening quote: a replacement that starts with
+  # the quote the user opened is written over it, which turns the first quote
+  # of \`'\\''\` or \`"\\!"\` from a close into an open. One more in front puts
+  # back the quote readline takes away
+  case "$${pre}_quote" in
+    "'" | '"')
+      case "$__o" in "$${pre}_quote"*) __o="$${pre}_quote$__o" ;; esac
+      ;;
+  esac
+  COMPREPLY[\${#COMPREPLY[@]}]="$__o"
+}
+
+# what a word means and how much of it readline keeps, read the way the shell
+# and readline read it. Sets \`_cur\` to the word with its quoting taken off,
+# \`_pre\` to the same for the part readline will not replace, \`_q\` to the
+# quote still open at the end, and \`_end\` to 1 when the last character is a
+# break character nothing quoted.
+#
+# readline replaces from just after a quote that is still open, and otherwise
+# from just after the last character in \`$COMP_WORDBREAKS\` that is not quoted
+# -- an escaped space, or a \`:\` inside quotes, is part of the word. A
+# candidate carrying what readline keeps is inserted twice:
+# \`--mode=--mode=fast\`, measured in bash 3.2. Nothing is expanded, so \`$H\` is
+# those two characters, because what is being matched is a value. The
+# membership test quotes the character, so a \`*\` or a \`[\` in
+# \`$COMP_WORDBREAKS\` is matched literally
+${pre}_keep() {
+  ${pre}_cur=''
+  ${pre}_pre=''
+  ${pre}_q=''
+  ${pre}_end=0
+  local __w="$1" __i=0 __c __u='' __q='' __brk='' __open=''
+  while [ "$__i" -lt \${#__w} ]; do
+    __c="\${__w:__i:1}"
+    __i=$((__i + 1))
+    ${pre}_end=0
+    if [ "$__q" = "'" ]; then
+      if [ "$__c" = "'" ]; then __q=''; else __u="$__u$__c"; fi
+      continue
+    fi
+    if [ "$__c" = '\\' ]; then
+      __c="\${__w:__i:1}"
+      # inside double quotes a backslash quotes only these four, and is
+      # otherwise itself
+      if [ "$__q" = '"' ]; then
+        case "$__c" in
+          '$' | '\`' | '"' | '\\') ;;
+          *) __u="$__u\\\\"; continue ;;
+        esac
+      fi
+      __u="$__u$__c"
+      __i=$((__i + 1))
+      continue
+    fi
+    if [ -n "$__q" ]; then
+      if [ "$__c" = '"' ]; then __q=''; else __u="$__u$__c"; fi
+      continue
+    fi
+    case "$__c" in
+      "'" | '"')
+        __q="$__c"
+        __open="$__u"
+        continue
+        ;;
+    esac
+    __u="$__u$__c"
+    case "$COMP_WORDBREAKS" in
+      *"$__c"*) __brk="$__u"; ${pre}_end=1 ;;
+    esac
+  done
+  ${pre}_cur="$__u"
+  ${pre}_q="$__q"
+  if [ -n "$__q" ]; then ${pre}_pre="$__open"; else ${pre}_pre="$__brk"; fi
 }
 
 # bash 4 and later split the line \`as readline would split it, using
@@ -276,12 +417,19 @@ ${pre}_join() {
 }
 
 # whether a word is made only of break characters, and whether one ends in a
-# break character -- the two questions \`_join\` asks per word
+# break character -- the two questions \`_join\` asks per word. A quote is in
+# the default \`$COMP_WORDBREAKS\` and is never split off as one, because bash
+# 4 and later honour quoting when they split: \`''\` is an empty argument and
+# \`it\\'\` ends in a quote nothing breaks at, and neither is glued to the word
+# beside it
 ${pre}_allbreak() {
   local __w="$1" __i=0 __c
   [ -n "$__w" ] || return 1
   while [ "$__i" -lt \${#__w} ]; do
     __c="\${__w:__i:1}"
+    case "$__c" in
+      "'" | '"' | '\\') return 1 ;;
+    esac
     case "$COMP_WORDBREAKS" in
       *"$__c"*) ;;
       *) return 1 ;;
@@ -292,13 +440,8 @@ ${pre}_allbreak() {
 }
 
 ${pre}_endsbreak() {
-  local __w="$1" __c
-  [ -n "$__w" ] || return 1
-  __c="\${__w:\${#__w}-1:1}"
-  case "$COMP_WORDBREAKS" in
-    *"$__c"*) return 0 ;;
-  esac
-  return 1
+  ${pre}_keep "$1"
+  [ "$${pre}_end" = 1 ]
 }
 
 # which path a word takes you to, by its name or by any alias it answers to.
@@ -349,18 +492,26 @@ ${fn}() {
   # the rejoined words, the cursor's index into them, and the kept prefix
   local -a ${pre}_w
   local ${pre}_c=0
-  local ${pre}_pre=''
+  # what \`_keep\` answers, and the two answers about the current word that
+  # outlive the next time it is asked
+  local ${pre}_cur='' ${pre}_pre='' ${pre}_q='' ${pre}_end=0
+  local ${pre}_kept='' ${pre}_quote=''
 
   COMPREPLY=()
   ${pre}_join
-  cur="\${${pre}_w[${pre}_c]}"
+  # every word is read as the value it spells, which is what argv will hold:
+  # \`it\\'s\` is the command \`it's\`, and \`two\\ w\` is a prefix of \`two words\`.
+  # For the current word, what readline will keep is what every candidate has
+  # to come back off the front of, and an open quote says how to insert one
+  ${pre}_keep "\${${pre}_w[${pre}_c]}"
+  cur="$${pre}_cur"
+  ${pre}_kept="$${pre}_pre"
+  ${pre}_quote="$${pre}_q"
   prev=''
   if [ "$${pre}_c" -gt 0 ]; then
-    prev="\${${pre}_w[${pre}_c-1]}"
+    ${pre}_keep "\${${pre}_w[${pre}_c-1]}"
+    prev="$${pre}_cur"
   fi
-  # what readline will keep of the current word, which every candidate has to
-  # come back off the front of
-  ${pre}_keep "$cur"
 
   # the command path, read off the words before the cursor. A word that
   # resolves to no command leaves the path where it was -- which is also what
@@ -368,7 +519,8 @@ ${fn}() {
   skip=0
   i=1
   while [ "$i" -lt "$${pre}_c" ]; do
-    word="\${${pre}_w[i]}"
+    ${pre}_keep "\${${pre}_w[i]}"
+    word="$${pre}_cur"
     i=$((i + 1))
     if [ "$skip" = 1 ]; then
       skip=0
@@ -397,7 +549,7 @@ ${fn}() {
       ${pre}_optval "$${pre}_path" "\${cur%%=*}"
       if [ "$${pre}_takes" = 1 ]; then
         if [ \${#${pre}_vals[@]} -gt 0 ]; then
-          ${pre}_add "\${cur%%=*}=" "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"
+          ${pre}_add "\${cur%%=*}=" "$cur" "$${pre}_kept" "\${${pre}_vals[@]}"
         fi
         return 0
       fi
@@ -406,7 +558,7 @@ ${fn}() {
 
   case "$cur" in
     -*)
-      ${pre}_opts "$${pre}_path" "$cur" "$${pre}_pre"
+      ${pre}_opts "$${pre}_path" "$cur" "$${pre}_kept"
       return 0
       ;;
   esac
@@ -415,14 +567,14 @@ ${fn}() {
     -*)
       ${pre}_optval "$${pre}_path" "$prev"
       if [ "$${pre}_takes" = 1 ]; then
-        if [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "$${pre}_pre" "\${${pre}_vals[@]}"; fi
+        if [ \${#${pre}_vals[@]} -gt 0 ]; then ${pre}_add '' "$cur" "$${pre}_kept" "\${${pre}_vals[@]}"; fi
         return 0
       fi
       ;;
   esac
 
-  ${pre}_subs "$${pre}_path" "$cur" "$${pre}_pre"
-  ${pre}_args "$${pre}_path" "$cur" "$${pre}_pre"
+  ${pre}_subs "$${pre}_path" "$cur" "$${pre}_kept"
+  ${pre}_args "$${pre}_path" "$cur" "$${pre}_kept"
   return 0
 }
 

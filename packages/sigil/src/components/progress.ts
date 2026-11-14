@@ -71,6 +71,9 @@ export interface Progress {
 /**
  * Renders the bar itself.
  *
+ * A cell is filled once the ratio has reached it, so the bar is full only at
+ * `1` and a cell's worth of work short of it draws nothing in that cell.
+ *
  * @param ratio - How far along, 0 to 1.
  * @param width - How many columns the bar occupies.
  * @param filled - The character for the part done.
@@ -86,7 +89,11 @@ export function renderBar(ratio: number, width: number, filled: string, empty: s
   const per = Math.max(1, stringWidth(filled), stringWidth(empty));
   const cells = Math.max(1, Math.floor(columns / per));
 
-  const done = Math.round(fraction(ratio) * cells);
+  // rounded down, like the percentage beside it: a cell is filled once the work
+  // has reached it, so the last one fills only when the work is done. Rounding
+  // drew 13 cells of 13 from 96.2% while the figure still said 96%. `1 * cells`
+  // is exactly `cells`, so a finished bar is full whatever the total was
+  const done = Math.floor(fraction(ratio) * cells);
 
   return filled.repeat(done) + empty.repeat(cells - done);
 }

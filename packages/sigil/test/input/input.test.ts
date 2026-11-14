@@ -6,11 +6,19 @@ import {
   resolveStyles,
   text,
 } from '../../src/element/index.js';
-import { canReadKeys, createInput, InputError, type KeyEvent } from '../../src/input/index.js';
+import {
+  canReadKeys,
+  createInput,
+  ESCAPE_TIMEOUT,
+  InputError,
+  type KeyEvent,
+  PASTE_LIMIT,
+  PASTE_TIMEOUT,
+} from '../../src/input/index.js';
 import { Cascade, parseStylesheet, Restyler } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { createTestTerminal, tick } from '../../src/testing/index.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * The key router and the focus ring.
@@ -1570,6 +1578,685 @@ describe('paste', () => {
       feed('\u0003');
       expect(keys).toEqual(['ctrl-c']);
       stop();
+    });
+  });
+
+  describe('a paste whose end marker never arrives', () => {
+    // a tmux detach or a dropped ssh session mid-paste loses the end marker, and
+    // a stray `ESC [ 200 ~` on stdin has none to lose: either way every later
+    // byte, Ctrl-C included, was content for the life of the process, held
+    // without bound
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router on a fake clock that records each paste and each key. */
+    function recording(opts: { whole?: boolean } = {}): {
+      feed: (chunk: string) => void;
+      keys: string[];
+      pasted: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const keys: string[] = [];
+      const pasted: string[] = [];
+      input.onPaste((event) => {
+        pasted.push(event.text);
+        if (opts.whole !== false) {
+          event.stop();
+        }
+      });
+      input.bind((event) => {
+        const name = event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name;
+        keys.push(event.paste ? `pasted:${name}` : name);
+      });
+      return { feed, keys, pasted, stop: () => input.stop() };
+    }
+
+    it('should route a Ctrl-C after a paste whose end marker never came', () => {
+      // the ticket's repro: the start marker and some content, then Ctrl-C 20ms
+      // later, and no handler ever heard it
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording({ whole: false });
+
+        feed(`${start}abc`);
+        vi.advanceTimersByTime(20);
+        feed('\u0003');
+        expect(keys).toEqual([]);
+
+        // the idle timeout delivers what was held, and nobody took it whole, so it
+        // is typed in -- the Ctrl-C with it, which a function binding sees
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(pasted).toEqual(['abc\u0003']);
+        expect(keys).toEqual(['pasted:a', 'pasted:b', 'pasted:c', 'pasted:ctrl-c']);
+
+        // and what follows is a key again
+        feed('\u0003');
+        expect(keys.at(-1)).toBe('ctrl-c');
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should hand over what it held as a paste, and route the bytes after it as keys', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording();
+
+        feed(`a${start}one\ntwo`);
+        vi.advanceTimersByTime(PASTE_TIMEOUT - 1);
+        expect(pasted).toEqual([]);
+        vi.advanceTimersByTime(1);
+        expect(pasted).toEqual(['one\ntwo']);
+
+        // the end marker turning up late is an inert key, and nothing pastes again
+        feed(`b${end}\u0003`);
+        expect(keys).toEqual(['a', 'b', 'unknown', 'ctrl-c']);
+        expect(pasted).toEqual(['one\ntwo']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should release a start marker that nothing followed', () => {
+      // the chunk ends at the marker, so no content arrives to start the wait --
+      // the marker has to
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording();
+
+        feed(start);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(pasted).toEqual(['']);
+        feed('\u0003');
+        expect(keys).toEqual(['ctrl-c']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should route a key fed from the handler a released paste reaches', () => {
+      // the paste is over before it is handed over, so what a handler feeds is
+      // read as keys rather than held as more of a paste that has already gone
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const keys: string[] = [];
+        input.onPaste((event) => {
+          event.stop();
+          feed('\u0003');
+        });
+        input.bind((event) => void keys.push(event.key.name));
+
+        feed(`${start}abc`);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(keys).toEqual(['c']);
+        expect(vi.getTimerCount(), 'the fed key armed a paste timer').toBe(0);
+        input.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not cut a paste whose reads are each closer together than the idle timeout', () => {
+      // the timeout is idle time rather than a deadline from the start, so a
+      // large paste over a slow link, arriving for longer than the timeout in
+      // all, is still one paste
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording();
+
+        feed(`${start}0`);
+        for (let i = 1; i < 10; i++) {
+          vi.advanceTimersByTime(PASTE_TIMEOUT - 1);
+          feed(String(i));
+        }
+        feed(end);
+        expect(pasted).toEqual(['0123456789']);
+        expect(vi.getTimerCount(), 'the idle timer outlived the paste').toBe(0);
+        feed('\u0003');
+        expect(keys).toEqual(['ctrl-c']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should hand over what it held at the size cap, and route the bytes after it as keys', () => {
+      // a stream that keeps arriving never goes idle, so the timeout alone would
+      // hold it without bound
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording();
+        const chunk = 'x'.repeat(1024 * 1024);
+        const reads = Math.ceil(PASTE_LIMIT / chunk.length);
+
+        feed(start);
+        for (let i = 0; i < reads - 1; i++) {
+          feed(chunk);
+        }
+        expect(pasted).toEqual([]);
+        feed(chunk);
+        expect(pasted.map((text) => text.length)).toEqual([reads * chunk.length]);
+
+        feed('\u0003');
+        expect(keys).toEqual(['ctrl-c']);
+        expect(vi.getTimerCount(), 'the idle timer outlived the paste').toBe(0);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should leave no idle timer behind a router that stopped mid-paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, keys, pasted, stop } = recording();
+
+        feed(`${start}abc`);
+        stop();
+        expect(vi.getTimerCount(), 'the idle timer outlived the router').toBe(0);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(pasted).toEqual([]);
+        expect(keys).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a paste a handler feeds while a paste is beginning', () => {
+    // the start marker flushes a held key, and a handler for that key can feed a
+    // paste of its own that does not finish -- which the outer paste then began
+    // over, keeping that paste's timer and its tail
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose Escape handler feeds `fed` once, recording pastes and keys. */
+    function feeding(fed: string): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      let fired = false;
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        const name = event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name;
+        order.push(name);
+        if (name === 'escape' && !fired) {
+          fired = true;
+          feed(fed);
+        }
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should deliver an unfinished paste a handler fed, and not let its timer cut the next', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding(`${start}INNER`);
+
+        feed('\u001b');
+        feed(`${start}OUTER`);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+
+        vi.advanceTimersByTime(500);
+        feed('MORE');
+        // the inner paste's timer would have fired here, a second after it began
+        vi.advanceTimersByTime(PASTE_TIMEOUT - 1);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+
+        feed(`TAIL${end}\u0003`);
+        expect(order).toEqual(['escape', 'paste:INNER', 'paste:OUTERMORETAIL', 'ctrl-c']);
+        expect(vi.getTimerCount(), 'a paste timer outlived its paste').toBe(0);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should fire no paste timer into a router stopped after one', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding(`${start}INNER`);
+
+        feed('\u001b');
+        feed(`${start}OUTER`);
+        stop();
+        expect(vi.getTimerCount(), 'a paste timer outlived the router').toBe(0);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not finish an end marker with the tail of a paste a handler fed', () => {
+      vi.useFakeTimers();
+      try {
+        // the fed paste ends on the first five bytes of an end marker, and the
+        // outer paste begins with the sixth
+        const { feed, order, stop } = feeding(`${start}xx${end.slice(0, 5)}`);
+
+        feed('\u001b');
+        feed(`${start}~hello`);
+        feed(`${end}Z`);
+        expect(order).toEqual(['escape', `paste:xx${end.slice(0, 5)}`, 'paste:~hello', 'Z']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should route a key a handler feeds when a paste ends', () => {
+      // the paste is over before it is handed over, on the end marker's path as
+      // on a release, so what a handler feeds is not added to a paste already gone
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const keys: string[] = [];
+      input.onPaste((event) => {
+        event.stop();
+        feed('\u0003');
+      });
+      input.bind((event) => void keys.push(event.key.name));
+
+      feed(`${start}abc${end}`);
+      expect(keys).toEqual(['c']);
+      input.stop();
+    });
+  });
+
+  describe('what a handler feeds while a paste ends', () => {
+    // the end marker's paste handler can `feed()`, which runs before the bytes
+    // after the marker are read -- and a paste it left unfinished took those
+    // bytes as its own content, Ctrl-C included, while a key it left held joined
+    // them into a key nobody pressed
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose paste handler feeds what `fed` maps the paste's text to. */
+    function feeding(fed: Record<string, string>): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+        const more = fed[event.text];
+        if (more !== undefined) {
+          feed(more);
+        }
+      });
+      input.bind((event) => {
+        const name = event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name;
+        order.push(event.key.meta ? `alt-${name}` : name);
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should not let an unfinished paste a handler fed take the bytes after the end marker', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}IN` });
+
+        feed(`${start}hello${end}Z\u0003`);
+        expect(order).toEqual(['paste:hello', 'paste:IN', 'Z', 'ctrl-c']);
+        expect(vi.getTimerCount(), 'a paste timer outlived its paste').toBe(0);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not let the tail of a paste a handler fed complete an end marker', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}xx${end.slice(0, 5)}` });
+
+        feed(`${start}hello${end}~MORE`);
+        expect(order).toEqual([
+          'paste:hello',
+          `paste:xx${end.slice(0, 5)}`,
+          '~',
+          'M',
+          'O',
+          'R',
+          'E',
+        ]);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should begin a paste after the end marker as its own, not as content of a fed one', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}IN` });
+
+        feed(`${start}hello${end}${start}world${end}`);
+        expect(order).toEqual(['paste:hello', 'paste:IN', 'paste:world']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should release each of a nest of unfinished pastes fed from each other', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ B: `${start}Q`, hello: `${start}B` });
+
+        feed(`${start}hello${end}Z`);
+        expect(order).toEqual(['paste:hello', 'paste:B', 'paste:Q', 'Z']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not join a key a handler fed when a paste ended to the bytes after it', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: '\u001b[' });
+
+        feed(`${start}hello${end}A`);
+        expect(order).toEqual(['paste:hello', 'alt-[', 'A']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a key a handler feeds while a paste begins', () => {
+    // the start marker flushes a held key once, and a key a handler fed after
+    // that flush was still held when the bytes after the paste were read
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    it('should not join a key fed by the flushed key’s handler to the bytes after the paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const order: string[] = [];
+        input.onPaste((event) => {
+          order.push(`paste:${event.text}`);
+          event.stop();
+        });
+        let fired = false;
+        input.bind((event) => {
+          order.push(event.key.meta ? `alt-${event.key.name}` : event.key.name);
+          if (event.key.name === 'escape' && !fired) {
+            fired = true;
+            feed('\u001b[');
+          }
+        });
+
+        feed('\u001b');
+        feed(`${start}hi${end}A`);
+        expect(order).toEqual(['escape', 'alt-[', 'paste:hi', 'A']);
+        input.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not join a key fed by a released paste’s handler to the bytes after the paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const order: string[] = [];
+        input.onPaste((event) => {
+          order.push(`paste:${event.text}`);
+          event.stop();
+          if (event.text === 'IN') {
+            feed('\u001b[');
+          }
+        });
+        let fired = false;
+        input.bind((event) => {
+          order.push(event.key.meta ? `alt-${event.key.name}` : event.key.name);
+          if (event.key.name === 'escape' && !fired) {
+            fired = true;
+            feed(`${start}IN`);
+          }
+        });
+
+        feed('\u001b');
+        feed(`${start}hi${end}A`);
+        expect(order).toEqual(['escape', 'paste:IN', 'alt-[', 'paste:hi', 'A']);
+        input.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a key a handler feeds from the bytes before a start marker', () => {
+    // the bytes before a start marker in the same read are complete -- the marker
+    // proves it -- but their unfinished tail used to be held while the keys ahead
+    // of it were routed, so a handler among those keys that fed anything had its
+    // bytes joined to that tail. A fed key is routed before the rest of the chunk,
+    // which is the order `sequence.test.ts` pins, so it comes before the tail
+    // rather than inside it
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose `x` binding feeds `fed` once, recording pastes and keys. */
+    function feeding(fed: string): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      let fired = false;
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        const name = event.key.shift ? `shift-${event.key.name}` : event.key.name;
+        order.push(event.key.meta ? `alt-${name}` : name);
+        if (event.key.name === 'x' && !fired) {
+          fired = true;
+          feed(fed);
+        }
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should not make an Alt key of a held Escape and a key a handler fed', () => {
+      const { feed, order, stop } = feeding('A');
+
+      feed(`x\u001b${start}hi${end}Z`);
+      expect(order).toEqual(['x', 'A', 'escape', 'paste:hi', 'Z']);
+      stop();
+    });
+
+    it('should not make a CSI key of a held ESC [ and a key a handler fed', () => {
+      const { feed, order, stop } = feeding('Z');
+
+      feed(`x\u001b[${start}hi${end}Q`);
+      expect(order).toEqual(['x', 'Z', 'alt-[', 'paste:hi', 'Q']);
+      stop();
+    });
+
+    it('should not make a start marker of a held ESC [ and bytes a handler fed', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding('200~IN');
+
+        feed(`x\u001b[${start}hi${end}Q`);
+        expect(order).toEqual(['x', '2', '0', '0', '~', 'I', 'N', 'alt-[', 'paste:hi', 'Q']);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(order.filter((it) => it.startsWith('paste:'))).toEqual(['paste:hi']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a start marker with bracketed paste off', () => {
+    // the terminal brackets a paste only when asked to, so a marker on a stdin
+    // nobody asked is not one -- and honoring it is how a stray `ESC [ 200 ~`
+    // swallowed every later key
+    it('should read a start marker as a key when the app never turned bracketed paste on', () => {
+      const { feed, terminal } = harness();
+      const input = createInput({ paste: false, root: box({}), terminal });
+      const keys: string[] = [];
+      const pasted: string[] = [];
+      input.onPaste((event) => void pasted.push(event.text));
+      input.bind((event) => {
+        keys.push(event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name);
+      });
+
+      feed('\u001b[200~ab\u0003');
+      expect(pasted).toEqual([]);
+      expect(keys).toEqual(['unknown', 'a', 'b', 'ctrl-c']);
+      input.stop();
+    });
+
+    it('should honor the markers when bracketed paste is on, whoever turned it on', () => {
+      // the question is whether the terminal is bracketing, which is the
+      // terminal's state rather than this router's: a router told not to ask
+      // still reads a paste something else asked for
+      const { feed, terminal } = harness();
+      expect(terminal.enableBracketedPaste()).toBe(true);
+      const input = createInput({ paste: false, root: box({}), terminal });
+      const pasted: string[] = [];
+      input.onPaste((event) => {
+        pasted.push(event.text);
+        event.stop();
+      });
+
+      feed('\u001b[200~ab\u001b[201~');
+      expect(pasted).toEqual(['ab']);
+      input.stop();
+      expect(terminal.bracketedPaste, 'a router that did not turn it on turned it off').toBe(true);
+    });
+
+    it('should read a start marker as a key once the mode has been turned off', () => {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const keys: string[] = [];
+      input.bind((event) => void keys.push(event.key.name));
+
+      terminal.disableBracketedPaste();
+      feed('\u001b[200~ab');
+      expect(keys).toEqual(['unknown', 'a', 'b']);
+      input.stop();
+    });
+  });
+
+  describe('a key held when a paste begins', () => {
+    // a key that might still be the start of a longer one is held for
+    // `ESCAPE_TIMEOUT`, and a paste beginning inside that window kept it held
+    // across the paste -- so it joined whatever followed the paste and became a
+    // key nobody pressed, after the paste rather than before it
+    function recording(): { feed: (chunk: string) => void; order: string[]; stop: () => void } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        order.push(event.key.meta ? `alt-${event.key.name}` : event.key.name);
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should not make an F1 out of a held ESC [ [ and the key after a paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = recording();
+
+        feed('x\u001b[[');
+        feed('\u001b[200~hi\u001b[201~A');
+        expect(order).toEqual(['x', 'unknown', 'paste:hi', 'A']);
+        vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+        expect(order).toEqual(['x', 'unknown', 'paste:hi', 'A']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not make an Up out of a held ESC [ and the key after a paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = recording();
+
+        feed('\u001b[');
+        feed('\u001b[200~hi\u001b[201~A');
+        expect(order).toEqual(['alt-[', 'paste:hi', 'A']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should begin no paste after a held key that stopped the router', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const pasted: string[] = [];
+        input.onPaste((event) => void pasted.push(event.text));
+        input.bind((event) => {
+          if (event.key.name === 'escape') {
+            input.stop();
+          }
+        });
+
+        feed('\u001b');
+        feed('\u001b[200~hi');
+        expect(vi.getTimerCount(), 'a timer outlived the router').toBe(0);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(pasted).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should keep an Escape pressed just before a paste, in front of it', () => {
+      // why the held key is flushed rather than dropped: it is a key somebody
+      // pressed, and the start marker is the proof nothing more of it is coming
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = recording();
+
+        feed('\u001b');
+        feed('\u001b[200~hi\u001b[201~a');
+        expect(order).toEqual(['escape', 'paste:hi', 'a']);
+        vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+        expect(order).toEqual(['escape', 'paste:hi', 'a']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

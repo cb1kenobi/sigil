@@ -420,13 +420,13 @@ describe('Gauge', () => {
   it('should give the bar the width its label and its figure leave', () => {
     expect(
       picture(column(undefined, Gauge({ ascii: false, label: 'mem', value: 0.5 })), 20)
-    ).toEqual(['mem ██████░░░░░  50%']);
+    ).toEqual(['mem █████░░░░░░  50%']);
   });
 
   it('should keep the bar where it is as the percentage gains a digit', async () => {
     const value = new State(0.09);
     const root = column(undefined, Gauge({ ascii: false, value }));
-    expect(picture(root, 15)).toEqual(['█░░░░░░░░░   9%']);
+    expect(picture(root, 15)).toEqual(['░░░░░░░░░░   9%']);
 
     value.set(0.1);
     await flush();

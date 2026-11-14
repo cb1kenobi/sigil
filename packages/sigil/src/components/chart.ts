@@ -38,7 +38,7 @@ import { terminalWidth, truncate } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { labelLine, unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
-import { renderBar } from './progress.js';
+import { progressPercent, renderBar } from './progress.js';
 
 /** Which role a chart takes its colour from. `none` is the terminal's own foreground. */
 export type ChartRole = 'accent' | 'error' | 'info' | 'none' | 'success' | 'warn';
@@ -1267,11 +1267,13 @@ function gaugeDrawing(value: number, opts: GaugeOptions, percentWidth = 0): Draw
   }
   const figure =
     opts.detail === undefined
-      ? pad(`${Math.round(ratio * 100)}%`, percentWidth, 'right')
+      ? pad(`${progressPercent(ratio, 1)}%`, percentWidth, 'right')
       : labelLine(opts.detail);
   // the bar's own arithmetic, asked of each half: `renderBar()` with one of the
   // two characters empty draws only the other, so the cell count and the rounding
-  // are the progress bar's rather than a second copy
+  // are the progress bar's rather than a second copy. The figure is the progress
+  // bar's too, rounded down like the bar, so a gauge is never drawn short of full
+  // beside a figure that says 100%
   row.push(
     { role, text: renderBar(ratio, width, filled, '') },
     { role: 'sigil-muted', text: renderBar(ratio, width, '', empty) },
