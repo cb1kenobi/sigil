@@ -812,6 +812,31 @@ the absence here is settled rather than pending.
   on that key stops the paste too: it is never begun, so no idle timer is armed
   into a router with no listeners.
 
+  **And a handler for that key can feed a paste of its own, which is the one
+  re-entrant shape this opens** (found by review round 1). A finished one is gone
+  before the outer paste begins and was always fine. An unfinished one was begun
+  over: the start path set a fresh list and a fresh timer and reset nothing else,
+  so the inner paste's text was dropped, its timer stayed armed -- cutting the
+  outer paste short a second after the _inner_ one began, and firing after
+  `stop()`, which cleared only the newer id -- and its tail stayed behind, so five
+  bytes of an end marker it held completed a false one with the outer paste's
+  first byte. Each measured before the fix. `beginPaste()` is now the one way a
+  paste starts: it releases a paste a handler left open as its own paste, since
+  held text is delivered, and the release goes through `endPaste()` -- the one
+  function that ends a paste, and so the one that resets the timer, the tail and
+  the length together. A second reset in `beginPaste()` was written and deleted:
+  with every end going through `endPaste()` it survived its sabotage, so it was
+  dead. The end
+  marker's path ends the paste _before_ handing it over, as a release already
+  did, so a key a handler feeds there is a key rather than bytes added to a paste
+  already delivered and then thrown away. `releasePaste()` asks `stopped` as
+  well, which is a fourth place beside the three "There is no fourth place"
+  names, for the paste's own timer rather than the sequence's. It is
+  **unreachable today** and survives its sabotage for that reason; it is kept,
+  where the reset above was not, because the failure it stands against -- a
+  timer outliving its paste -- is the one this paragraph records actually
+  happening. Pinned in "a paste a handler feeds while a paste is beginning".
+
 - **`KEY_NAMES` is derived from the decoder's own three tables.** The rule
   `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
   `SEQUENCES`, `LINUX_CONSOLE` and `CONTROLS` is a second list to keep in

@@ -1770,6 +1770,113 @@ describe('paste', () => {
     });
   });
 
+  describe('a paste a handler feeds while a paste is beginning', () => {
+    // the start marker flushes a held key, and a handler for that key can feed a
+    // paste of its own that does not finish -- which the outer paste then began
+    // over, keeping that paste's timer and its tail
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose Escape handler feeds `fed` once, recording pastes and keys. */
+    function feeding(fed: string): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      let fired = false;
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        const name = event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name;
+        order.push(name);
+        if (name === 'escape' && !fired) {
+          fired = true;
+          feed(fed);
+        }
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should deliver an unfinished paste a handler fed, and not let its timer cut the next', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding(`${start}INNER`);
+
+        feed('\u001b');
+        feed(`${start}OUTER`);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+
+        vi.advanceTimersByTime(500);
+        feed('MORE');
+        // the inner paste's timer would have fired here, a second after it began
+        vi.advanceTimersByTime(PASTE_TIMEOUT - 1);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+
+        feed(`TAIL${end}\u0003`);
+        expect(order).toEqual(['escape', 'paste:INNER', 'paste:OUTERMORETAIL', 'ctrl-c']);
+        expect(vi.getTimerCount(), 'a paste timer outlived its paste').toBe(0);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should fire no paste timer into a router stopped after one', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding(`${start}INNER`);
+
+        feed('\u001b');
+        feed(`${start}OUTER`);
+        stop();
+        expect(vi.getTimerCount(), 'a paste timer outlived the router').toBe(0);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(order).toEqual(['escape', 'paste:INNER']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not finish an end marker with the tail of a paste a handler fed', () => {
+      vi.useFakeTimers();
+      try {
+        // the fed paste ends on the first five bytes of an end marker, and the
+        // outer paste begins with the sixth
+        const { feed, order, stop } = feeding(`${start}xx${end.slice(0, 5)}`);
+
+        feed('\u001b');
+        feed(`${start}~hello`);
+        feed(`${end}Z`);
+        expect(order).toEqual(['escape', `paste:xx${end.slice(0, 5)}`, 'paste:~hello', 'Z']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should route a key a handler feeds when a paste ends', () => {
+      // the paste is over before it is handed over, on the end marker's path as
+      // on a release, so what a handler feeds is not added to a paste already gone
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const keys: string[] = [];
+      input.onPaste((event) => {
+        event.stop();
+        feed('\u0003');
+      });
+      input.bind((event) => void keys.push(event.key.name));
+
+      feed(`${start}abc${end}`);
+      expect(keys).toEqual(['c']);
+      input.stop();
+    });
+  });
+
   describe('a start marker with bracketed paste off', () => {
     // the terminal brackets a paste only when asked to, so a marker on a stdin
     // nobody asked is not one -- and honoring it is how a stray `ESC [ 200 ~`

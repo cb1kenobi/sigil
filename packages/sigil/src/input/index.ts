@@ -2046,7 +2046,13 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     }
   }
 
-  /** Ends the paste being held, without a flush: what it held is the caller's. */
+  /**
+   * Ends the paste being held, without a flush: what it held is the caller's.
+   *
+   * Every path in and out of a paste goes through this, so the timer, the tail and
+   * the length are reset together or not at all: a path that reset two of them left
+   * the third to the next paste.
+   */
   function endPaste(): void {
     clearTimeout(pasteTimer);
     pasteTimer = undefined;
@@ -2065,9 +2071,45 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * sequence like any other, and decodes as an inert `unknown`.
    */
   function releasePaste(): void {
+    // unreachable today, and kept rather than dropped: `stop()` clears the timer
+    // through `endPaste()` and every synchronous caller has asked already. A timer
+    // that outlived its paste is the defect review round 1 found, and the day one
+    // does again this is what keeps it from flushing into a stopped router
+    if (stopped) {
+      return;
+    }
     const text = pasting?.join('') ?? '';
     endPaste();
     flushPaste(text);
+  }
+
+  /**
+   * Begins a paste, after handing over any paste a handler began first.
+   *
+   * The start marker flushes a held key before the paste begins, and a handler for
+   * that key can `feed()` a paste of its own. A finished one is gone by the time
+   * this runs; an unfinished one is held text, and held text is delivered -- so it
+   * is released as its own paste rather than begun over, which kept its timer
+   * armed to cut this one short and its tail to complete a false end marker.
+   *
+   * @returns Whether the paste began: a handler reached from a release may stop
+   *   the router, and a paste begun after that would arm a timer nobody clears.
+   */
+  function beginPaste(): boolean {
+    while (pasting !== undefined && !stopped) {
+      releasePaste();
+    }
+    if (stopped) {
+      return false;
+    }
+    // nothing to reset here: a paste ends only through `endPaste()`, which clears
+    // the timer, the tail and the length with it, so with `pasting` undefined the
+    // rest of the state already is
+    pasting = [];
+    // the wait starts at the marker rather than at the first content, because a
+    // read that ends on the marker brings nothing else to start it
+    pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
+    return true;
   }
 
   function consume(input: string): void {
@@ -2120,9 +2162,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         }
         // the marker cannot lie wholly inside the tail, which is shorter than it,
         // so it ends in this chunk and what follows it is this chunk's
+        // and over before it is handed over, as a release is, so what a handler
+        // feeds is read as keys rather than added to a paste already delivered
         const content = pasting.join('') + rest;
-        flushPaste(content.slice(0, content.length - (window.length - end)));
         endPaste();
+        flushPaste(content.slice(0, content.length - (window.length - end)));
         rest = window.slice(end + PASTE_END.length);
         continue;
       }
@@ -2163,16 +2207,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         clearTimeout(timer);
         expire();
       }
-      // either of those may have reached a handler that stopped the router, and
-      // a paste begun after that would arm a timer into a router with no listeners
-      if (stopped) {
+      // either of those may have reached a handler that stopped the router, or
+      // that fed a paste of its own, and `beginPaste()` answers for both
+      if (!beginPaste()) {
         return;
       }
-      pasting = [];
       rest = joined.slice(start + PASTE_START.length);
-      // the wait starts at the marker rather than at the first content, because
-      // a read that ends on the marker brings nothing else to start it
-      pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {
