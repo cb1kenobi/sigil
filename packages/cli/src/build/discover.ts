@@ -42,6 +42,7 @@ import { type Diagnostic, displayPath } from './diagnostic.ts';
 import { type CommandFacts, factsOf, type RoutedBy } from './extract.ts';
 import { translatedKey } from './i18n.ts';
 import {
+  flatten,
   isUndefined,
   isWrongType,
   lastReplacing,
@@ -680,9 +681,8 @@ function readCommand(
     return { commands: [], kind: 'inline', name };
   }
 
-  const specifier = moduleSpecifier(object);
+  const { name: named, specifier } = placeholderIdentity(object, parsed, diagnostics, name);
   const nested = plainProperty(object, 'commands');
-  const named = placeholderName(object, parsed, diagnostics, name);
   const own = placeholderFacts(object, parsed, diagnostics, named);
   const routing = placeholderRouting(object, parsed, diagnostics, named);
   warnUnbaked(object, parsed, diagnostics, named);
@@ -900,36 +900,107 @@ function placeholderFacts(
  * `undefined`, and never reads a module's `alias` or `default` for routing --
  * so it is unknown, and nothing else is baked in its place.
  *
- * One function for the four keys the baked tree takes off a placeholder, so
- * what help lists and what routes cannot come to disagree about which spelling
- * runs (SIG-430).
+ * One function for the seven keys the baked tree takes off a placeholder, so
+ * what help lists, what routes and which module is bundled cannot come to
+ * disagree about which spelling runs (SIG-430, SIG-433, SIG-434). It reads
+ * `flatten()`'s list rather than the source's: a spread of an object literal is
+ * what the literal holds, and `['path']` is `path`, so `{ ...{ alias: 'x' } }`
+ * is an `alias` and is baked where it used to be unknown. What stays unknown is
+ * what is not a literal, and the callers decide what that costs.
  *
  * @param object - The command literal.
  * @param key - The key in question.
+ * @param computed - Whether a computed key that may be `key` is a carrier as
+ *   well as a spread, which `name`, `path` and `load` ask and the rest do not.
  * @returns The spelling that runs, `undefined` where the key is not declared;
  *   whether a later property may replace it; and a spread that may carry a key
  *   spelled nowhere.
  */
 function placeholderSpelling(
   object: ObjectExpression,
-  key: string
-): { carrier: SpreadElement | undefined; declared: ObjectProperty | undefined; replaced: boolean } {
+  key: string,
+  computed = false
+): {
+  carrier: SpreadElement | ObjectProperty | undefined;
+  declared: ObjectProperty | undefined;
+  replaced: boolean;
+} {
+  // the members the object evaluates to, which is what the runtime registers:
+  // a spread of a literal is what it holds and `['path']` is `path`
+  const members = flatten(object);
   let found: ObjectProperty | undefined;
-  for (const property of object.properties) {
+  for (const property of members) {
     if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
       found = property;
     }
   }
 
-  const replaced =
-    found !== undefined && object.properties.indexOf(found) < lastReplacing(object, key);
+  const replaced = found !== undefined && members.indexOf(found) < lastReplacing(members, key);
 
   // `undefined` is what the runtime reads as not declared
   const declared =
     found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
       ? undefined
       : found;
-  return { carrier: unspelledCarrier(object, key), declared, replaced };
+  return { carrier: unspelledCarrier(members, key, computed), declared, replaced };
+}
+
+/**
+ * The spelling of a key a placeholder registers, where the source says which it
+ * is, and a report where it does not.
+ *
+ * `placeholderSpelling()` answers what is known; this is what every read of a
+ * placeholder's key does with the answer that it is *not* known -- a spelling a
+ * later spread or computed key may replace, or a key a spread may carry that is
+ * spelled nowhere -- so the sentence it says is one definition, whatever the
+ * key. `alias` and `default` bake nothing and warn, or fail the build for a
+ * package, which is the caller's to say. The three keys that decide which command
+ * a built app routes to and which module it holds are `placeholderIdentity()`'s,
+ * and a wrong answer there is refused (SIG-433, SIG-434).
+ *
+ * @param object - The command literal.
+ * @param key - The key in question.
+ * @param report - Where and how to say it is not known.
+ * @param report.consequence - What the built app does without it.
+ * @param report.diagnostics - Where to report.
+ * @param report.name - The command's name, for the message.
+ * @param report.parsed - The module, for positions.
+ * @param report.severity - How serious it is.
+ * @returns The spelling that runs, or `undefined` where the key is not declared
+ *   or is not known.
+ */
+function readSpelled(
+  object: ObjectExpression,
+  key: string,
+  report: {
+    consequence: string;
+    diagnostics: Diagnostic[];
+    name: string;
+    parsed: ParsedModule;
+    severity: Diagnostic['severity'];
+  }
+): ObjectProperty | undefined {
+  const { consequence, diagnostics, name, parsed, severity } = report;
+  const { carrier, declared, replaced } = placeholderSpelling(object, key);
+  if (declared && replaced) {
+    diagnostics.push({
+      ...locate(parsed, declared.start),
+      message: replacedMessage(name, key, consequence),
+      severity,
+    });
+    return undefined;
+  }
+
+  if (carrier) {
+    diagnostics.push({
+      ...locate(parsed, carrier.start),
+      message: carriedMessage(name, key, consequence),
+      severity,
+    });
+    return undefined;
+  }
+
+  return declared;
 }
 
 /**
@@ -1129,26 +1200,14 @@ function placeholderRouting(
   // runs is unknown, so nothing is baked and nothing is refused (SIG-430). A
   // package's export never gets that far, since `keyedPackage()` refuses any
   // spread or computed key in it first
-  const unknown = (key: string, consequence: string) => {
-    const { carrier, declared, replaced } = placeholderSpelling(object, key);
-    if (declared && replaced) {
-      diagnostics.push({
-        ...locate(parsed, declared.start),
-        message: replacedMessage(name, key, refusal ?? consequence),
-        severity: refusal ? 'error' : 'warning',
-      });
-    } else if (carrier) {
-      diagnostics.push({
-        ...locate(parsed, carrier.start),
-        message: carriedMessage(name, key, refusal ?? consequence),
-        severity: refusal ? 'error' : 'warning',
-      });
-    } else {
-      return declared;
-    }
-
-    return undefined;
-  };
+  const unknown = (key: string, consequence: string) =>
+    readSpelled(object, key, {
+      consequence: refusal ?? consequence,
+      diagnostics,
+      name,
+      parsed,
+      severity: refusal ? 'error' : 'warning',
+    });
   // an accessor's value is whatever it returns when the runtime reads it, which
   // is not in the source; a method is a function, which neither key takes
   const value = (property: ObjectProperty) =>
@@ -1201,11 +1260,13 @@ function placeholderRouting(
 }
 
 /**
- * The name string a placeholder is registered under.
+ * The name string a placeholder is registered under, and the module it is
+ * reached by: the two things a build has to read exactly, because a built app
+ * that guessed is a different app.
  *
- * A `name` the declaration carries **wins over the key** it was written under:
- * the runtime only fills the key in when `name` is `undefined`. So
- * `remove: { name: 'remove, rm', ... }` is registered as `remove, rm` and the
+ * **The name.** A `name` the declaration carries **wins over the key** it was
+ * written under: the runtime only fills the key in when `name` is `undefined`.
+ * So `remove: { name: 'remove, rm', ... }` is registered as `remove, rm` and the
  * key is never consulted -- the extra labels route, `!` hides, `@` makes an
  * alias, and the first bare label is the name, all through the one parser the
  * runtime owns. The build does not parse any of that: the tree is keyed by the
@@ -1213,25 +1274,174 @@ function placeholderRouting(
  * built app's own `initCommand()` does the reading. Doing it here too would be
  * a second reading of rules that have to stay one.
  *
- * A literal that is not a non-empty string throws from source (`Expected
- * command name to be a non-empty string`), so it fails the build in those
- * words; a computed one is a warning and leaves the key as the name.
+ * **The module.** `load: () => import('./x.js')` and `path: './x.js'` are the
+ * same statement -- the module *is* the command -- said as a function and as a
+ * file. One that is spelled and that nothing replaces decides, and the other key
+ * beside it needs no say.
+ *
+ * **Which spelling is the runtime's: the last**, through `placeholderSpelling()`
+ * as for the other keys the tree takes off a placeholder (SIG-433, SIG-434), and
+ * read off `flatten()`'s list, so `...{ path: './a.js' }` and `['name']: 'a'`
+ * are what they spell. Where it is not known, or is known and cannot be read,
+ * the build is **refused** rather than warned, as an `alias` is: the name is
+ * what argv is matched against and a module the build cannot see is not
+ * bundled, so a built app that guessed answers to one name where the app
+ * answers to another, or matches the command and prints help with exit 0 --
+ * under a build that said it succeeded. Said once per placeholder, for
+ * everything a spread or a computed key blocks, and what to write is always the
+ * same: the key, literally, after the last of them.
+ *
+ * What cannot be read: a `name` that is not a string literal, an accessor for
+ * either key, a `path` that is not a string literal, and a `load` that is not an
+ * arrow returning a literal `import()` -- a block body, a function expression
+ * and a method are not. A `path` and a `load` together are the runtime's own
+ * refusal, said in its words. A name that is a literal and is not a non-empty
+ * string throws from source (`Expected command name to be a non-empty string`),
+ * so it fails the build in those words.
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
  * @param diagnostics - Where to report.
  * @param key - What the command was written under, which is its name when it
  *   declares none.
- * @returns The name string to register it under.
+ * @returns The name string to register it under, and the specifier of its
+ *   module where it declares one that can be read.
  */
-function placeholderName(
+function placeholderIdentity(
   object: ObjectExpression,
   parsed: ParsedModule,
   diagnostics: Diagnostic[],
   key: string
+): { name: string; specifier: string | undefined } {
+  const error = (at: { start: number }, message: string) =>
+    diagnostics.push({ ...locate(parsed, at.start), message, severity: 'error' });
+  const spell = (property: 'load' | 'name' | 'path') => ({
+    key: property,
+    ...placeholderSpelling(object, property, true),
+  });
+  const name = spell('name');
+  const path = spell('path');
+  const load = spell('load');
+  type Spelling = typeof name;
+  // spelled, and nothing after it may replace it
+  const known = (spelling: Spelling) => spelling.declared !== undefined && !spelling.replaced;
+  const isReplaced = (spelling: Spelling) => spelling.declared !== undefined && spelling.replaced;
+
+  // the name first, since every other message calls the command by it: as the
+  // facts about the same placeholder do, and not by the key it was written under
+  // where it declared another
+  const nameBlocked = isReplaced(name) || name.carrier !== undefined;
+  const resolved = !nameBlocked && name.declared ? readName(name.declared, key, error) : key;
+  const command = commandName(resolved).name;
+
+  // both is the runtime's to refuse, in its words, whatever else is unknown
+  const both = path.declared !== undefined && load.declared !== undefined;
+  if (both) {
+    error(
+      load.declared!,
+      `Cannot combine "load" with "path" in the "${command}" command: both name the module that is the command, so only one of them can be it`
+    );
+  }
+
+  // what a spread or a computed key blocks: a module is unknown only where
+  // neither key is known to decide
+  const moduleBlocked = !both && !known(path) && !known(load);
+  const blocked = [...(nameBlocked ? [name] : []), ...(moduleBlocked ? [path, load] : [])].filter(
+    (spelling) => isReplaced(spelling) || spelling.carrier
+  );
+  if (blocked.length) {
+    const replaced = blocked.filter(isReplaced);
+    const carried = blocked.filter((spelling) => !isReplaced(spelling));
+    const quoted = (spellings: readonly Spelling[], word: string) => {
+      const list = spellings.map((spelling) => `"${spelling.key}"`);
+      return list.length > 1 ? `${list.slice(0, -1).join(', ')} ${word} ${list.at(-1)}` : list[0]!;
+    };
+    const carriers = carried.map((spelling) => spelling.carrier!);
+    const how = carriers.every((carrier) => carrier.type === 'SpreadElement')
+      ? 'spreads another object, which may carry'
+      : carriers.every((carrier) => carrier.type !== 'SpreadElement')
+        ? 'has a computed key, which may be'
+        : 'has a spread or a computed key, which may carry';
+    const parts = [
+      ...(replaced.length
+        ? [
+            `writes ${quoted(replaced, 'and')} before a spread or a computed key, which may replace ${replaced.length > 1 ? 'them' : 'it'} when the app runs`,
+          ]
+        : []),
+      ...(carried.length ? [`${how} its ${quoted(carried, 'or')}`] : []),
+    ];
+    const aboutName = blocked.includes(name);
+    const aboutModule = blocked.includes(path) || blocked.includes(load);
+    const effects =
+      aboutName && aboutModule
+        ? 'which name the command answers to or which module to bundle for it, and a built app that guessed would route by the wrong name, or match the command and print help rather than run it'
+        : aboutName
+          ? 'which name the command answers to, and a built app that guessed would route by one name where the app routes by another'
+          : 'which module to bundle for the command, and a built app without it matches the command and prints help rather than running it';
+    // never both `path` and `load`, which is the one thing refused above
+    const fix = [
+      ...(aboutName ? ['"name"'] : []),
+      ...(aboutModule ? ['one of "path" or "load"'] : []),
+    ].join(' and ');
+    const at = [...replaced.map((spelling) => spelling.declared!), ...carriers].reduce((a, b) =>
+      b.start < a.start ? b : a
+    );
+    error(
+      at,
+      `the "${command}" command ${parts.join(', and ')}; the build cannot tell ${effects}; spell ${fix} literally, after the last spread or computed key`
+    );
+  }
+
+  let specifier: string | undefined;
+  const decider =
+    !both && !moduleBlocked ? (known(path) ? path : known(load) ? load : undefined) : undefined;
+  if (decider) {
+    const declared = decider.declared!;
+    // an accessor or a method is not a value this reads
+    const value = declared.kind === 'init' && !declared.method ? declared.value : undefined;
+    specifier = value
+      ? decider.key === 'path'
+        ? literalString(value)
+        : loaderSpecifier(value)
+      : undefined;
+    if (specifier === undefined) {
+      const why = !value
+        ? 'an accessor or a method rather than a value'
+        : decider.key === 'path'
+          ? 'not a string literal'
+          : 'not an arrow function returning a literal import()';
+      error(
+        value ?? declared,
+        `the "${command}" command's "${decider.key}" is ${why}, so it cannot be read at build time; the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it. It can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import(), as in \`path: './build.js'\` or \`load: () => import('./build.js')\``
+      );
+    }
+  }
+
+  return { name: resolved, specifier };
+}
+
+/**
+ * The name string a placeholder's last, unreplaced `name` is, or the key where
+ * it cannot be read, with an error said.
+ *
+ * @param declared - The `name` property.
+ * @param key - What the command was written under.
+ * @param error - Reports an error at a node.
+ * @returns The name string to register it under.
+ */
+function readName(
+  declared: ObjectProperty,
+  key: string,
+  error: (at: { start: number }, message: string) => void
 ): string {
-  const declared = plainProperty(object, 'name');
-  if (!declared || isUndefined(declared.value)) {
+  const command = commandName(key).name;
+  // an accessor is whatever it returns when the runtime reads it, which is not
+  // in the source. A method is a function, which the runtime refuses for a name
+  if (declared.kind !== 'init') {
+    error(
+      declared,
+      `the "${command}" command's "name" is an accessor rather than a string literal, so it cannot be read at build time; ${NAME_UNREADABLE}`
+    );
     return key;
   }
 
@@ -1240,22 +1450,24 @@ function placeholderName(
     return text;
   }
 
-  if (text === '' || isWrongType(declared.value, 'string')) {
-    diagnostics.push({
-      ...locate(parsed, declared.value.start),
-      message: `Expected command name to be a non-empty string in the "${key}" command`,
-      severity: 'error',
-    });
+  if (text === '' || declared.method || isWrongType(declared.value, 'string')) {
+    error(declared.value, `Expected command name to be a non-empty string in the "${key}" command`);
   } else {
-    diagnostics.push({
-      ...locate(parsed, declared.value.start),
-      message: `the "${key}" command's "name" is computed rather than a string literal, so it cannot be read at build time; the built app will name it "${key}", and any other spelling it declares will not answer`,
-      severity: 'warning',
-    });
+    // as `keyedPackage()` refuses a package's computed name: from source it
+    // answers to whatever the expression gives, and the built app would answer
+    // to the key
+    error(
+      declared.value,
+      `the "${command}" command's "name" is computed rather than a string literal, so it cannot be read at build time; ${NAME_UNREADABLE}`
+    );
   }
 
   return key;
 }
+
+/** Why a `name` the build cannot read fails it, and what to write instead. */
+const NAME_UNREADABLE =
+  'the build cannot tell which name the command answers to, and a built app that guessed would route by one name where the app routes by another; write "name" as a string literal';
 
 /**
  * What a placeholder declares that a built app does not carry.
@@ -1273,9 +1485,10 @@ function placeholderName(
  * (the lift), `alias`, `default` and `name` (routing), `path` and `load` (the
  * module), and `commands` when it is an object literal.
  *
- * Properties only. A spread or a computed key can carry anything, and is
- * reported here for nothing -- the reads above report it only for the `desc`,
- * `hidden`, `alias` and `default` it may carry.
+ * Properties only, of what the literal spells (`flatten()`). A spread or a
+ * computed key that is not a literal can carry anything, and is reported here for nothing -- the reads above report it only for the `desc`,
+ * `hidden`, `alias`, `default`, `name`, `path` and `load` it may carry, the last
+ * three as errors.
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
@@ -1290,7 +1503,10 @@ function warnUnbaked(
 ): void {
   const { name } = commandName(nameString);
 
-  for (const property of object.properties) {
+  // what the object spells, as the build reads it: an unbaked key inside a
+  // literal spread or under a computed key written as a string is as unbaked as
+  // one written plainly
+  for (const property of flatten(object)) {
     if (property.type === 'SpreadElement') {
       continue;
     }
@@ -1364,32 +1580,6 @@ const BAKED: ReadonlySet<string> = new Set([
   'name',
   'path',
 ]);
-
-/**
- * The specifier a command declares its module by, whichever way it declares it.
- *
- * `load: () => import('./x.js')` and `path: './x.js'` are the same statement --
- * the module *is* the command -- said as a function and as a file.
- *
- * @param object - The command literal.
- * @returns The specifier, or `undefined`.
- */
-function moduleSpecifier(object: ObjectExpression): string | undefined {
-  const path = plainProperty(object, 'path');
-  if (path) {
-    return literalString(path.value);
-  }
-
-  const load = plainProperty(object, 'load');
-  if (!load) {
-    return undefined;
-  }
-
-  // the one shape a bundler can see and this can read: an arrow whose body is
-  // a dynamic import of a literal. Shared with the catalog check, which reads
-  // `Schema.locales` the same way
-  return loaderSpecifier(load.value);
-}
 
 /**
  * How a placeholder reaches its module, for the warning about what a module

@@ -233,12 +233,18 @@ describe('extracting a command module', () => {
       expect(diagnostics[0]!.message).to.contain('"desc" is computed');
     });
 
-    it('should report a computed key even when it happens to hold a string', () => {
-      // `['desc']` and `[key]` are the same syntax and only one of them is
-      // readable; a pass that reads the easy half is worse than one that skips
-      // both, because the half it skipped is silent
-      const { facts } = extractCommand('a.js', `export default { ['desc']: 'sneaky' };`);
-      expect(facts.desc).to.equal(undefined);
+    it('should read a computed key that is a string, and not one that is a name', () => {
+      // `['desc']` is `desc` and `[key]` may be anything, and they used to be
+      // the same thing here: a pass that reads one half of a construct it can tell
+      // apart is no worse than one that reads both. `[key]` stays unread, and
+      // beside an absent `desc` it is not reported, as it never was
+      // (SIG-433, SIG-434)
+      const read = extractCommand('a.js', `export default { ['desc']: 'sneaky' };`);
+      expect(read.facts.desc).to.equal('sneaky');
+      expect(read.diagnostics).to.deep.equal([]);
+
+      const unread = extractCommand('a.js', `export default { [key]: 'sneaky' };`);
+      expect(unread.facts.desc).to.equal(undefined);
     });
 
     it('should report an accessor', () => {
@@ -499,6 +505,18 @@ describe('extracting a command module', () => {
     it.each([
       ['a spread of a literal that carries it', `export default { desc: 'a', ...{ desc: 'b' } };`],
       ['a nested one', `export default { desc: 'a', ...{ ...{ desc: 'b' } } };`],
+      ['a string computed key', `export default { desc: 'a', ['desc']: 'b' };`],
+    ])('should read the desc a literal puts after it, not the one before %s', (_, source) => {
+      // SIG-433, SIG-434. The lift reads what the literal spells, as a
+      // placeholder does -- `flatten()`'s list -- so a spread of an object
+      // literal is what it holds and `['desc']` is `desc`. Read, not evaluated
+      const { diagnostics, facts } = extractCommand('a.js', source);
+
+      expect(facts.desc).to.equal('b');
+      expect(diagnostics).to.deep.equal([]);
+    });
+
+    it.each([
       ['a spread of a call', `export default { desc: 'a', ...wrap({ run() {} }) };`],
       ['a key computed from a name', `export default { desc: 'a', [key]: 'b' };`],
     ])('should still read a desc before %s as unknown', (_, source) => {
@@ -530,6 +548,25 @@ describe('extracting a command module', () => {
       ['a regular expression', `export default { desc: 'a', .../desc/ };`],
       ['undefined', `export default { desc: 'a', ...undefined, ...void 0, ...void f() };`],
       ['an array of null', `export default { desc: 'a', ...[null, , 1] };`],
+      // what a conditional or a logical expression may carry is what its arms
+      // may carry, so arms that hold no desc hold none (SIG-433)
+      [
+        'a conditional of two literals without one',
+        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+      ],
+      [
+        'a conditional of a literal and nothing',
+        `export default { desc: 'a', ...(flag ? { run() {} } : null) };`,
+      ],
+      ['a logical and of a literal', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      [
+        'a logical or of two literals',
+        `export default { desc: 'a', ...({ hidden: true } || { run() {} }) };`,
+      ],
+      [
+        'a symbol key',
+        `export default { desc: 'a', [Symbol.for('desc')]: 0, [Symbol.iterator]: 0 };`,
+      ],
       ['a number key', `export default { desc: 'a', [1]: 0 };`],
       ['a bigint key', `export default { desc: 'a', [1n]: 0 };`],
       ['a boolean key', `export default { desc: 'a', [true]: 0 };`],
@@ -550,10 +587,18 @@ describe('extracting a command module', () => {
     it.each([
       ['a key built by an expression', `export default { desc: 'a', ['de' + 'sc']: 'b' };`],
       [
-        'a conditional of two literals',
-        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+        'a conditional with a literal arm that holds one',
+        `export default { desc: 'a', ...(flag ? { desc: 'b' } : { run() {} }) };`,
       ],
-      ['a logical expression', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      [
+        'a conditional with an arm that is a name',
+        `export default { desc: 'a', ...(flag ? { run() {} } : base) };`,
+      ],
+      [
+        'a logical and of a literal that holds one',
+        `export default { desc: 'a', ...(flag && { desc: 'b' }) };`,
+      ],
+      ['a logical or with a name', `export default { desc: 'a', ...(base || { run() {} }) };`],
       ['a sequence', `export default { desc: 'a', ...(0, { run() {} }) };`],
     ])('should read a desc before %s as unknown, because nothing is evaluated', (_, source) => {
       // the rule is that literals are read and expressions are not evaluated,
@@ -610,7 +655,6 @@ describe('extracting a command module', () => {
 
     it.each([
       ['an identifier', `const k = 'desc'; export default { desc: 'early', [k]: 'late' };`],
-      ['a string', `export default { desc: 'early', ['desc']: 'late' };`],
       ['a key after a spread', `export default { ...base, desc: 'early', [k]: 'late' };`],
     ])(
       'a desc written before a computed key holding %s was lifted, though the computed key may replace it',

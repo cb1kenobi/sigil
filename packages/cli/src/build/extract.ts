@@ -67,6 +67,7 @@ import type { Diagnostic } from './diagnostic.ts';
 import { translatedKey } from './i18n.ts';
 import {
   isUndefined,
+  flatten,
   lastReplacing,
   literalBoolean,
   literalString,
@@ -212,8 +213,12 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // them that *may carry it* is a value that may be overwritten, so it is
   // unknown rather than read; `['path']` or `...{ run }` cannot carry it, and
   // is not asked about (see `mayCarry()`)
+  // read off `flatten()`'s list, as a placeholder is: a spread of an object
+  // literal is what it holds and `['desc']` is `desc`, so one definition says
+  // what a literal spells wherever it is asked (SIG-433, SIG-434)
+  const members = flatten(object);
   const replacing: Record<string, number> = Object.fromEntries(
-    LIFTED.map((key) => [key, lastReplacing(object, key)])
+    LIFTED.map((key) => [key, lastReplacing(members, key)])
   );
 
   // and a key written twice is its last spelling, so only that one is read:
@@ -221,14 +226,14 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // says nothing about the module -- `{ desc: f(), desc: 'a' }` is `a`, and
   // "listed by name alone" about it is false (SIG-421)
   const last = new Map<string, number>();
-  for (const [index, property] of object.properties.entries()) {
+  for (const [index, property] of members.entries()) {
     const key = property.type === 'SpreadElement' ? undefined : propertyKey(property);
     if (key && (LIFTED as readonly string[]).includes(key)) {
       last.set(key, index);
     }
   }
 
-  for (const [index, property] of object.properties.entries()) {
+  for (const [index, property] of members.entries()) {
     if (property.type === 'SpreadElement') {
       continue;
     }
@@ -317,7 +322,7 @@ export function factsOf(parsed: ParsedModule, routedBy?: RoutedBy): Extracted {
   // rather than absent -- which is the whole difference between a description
   // the build missed and one nobody wrote. A `desc` written anywhere has been
   // read or reported already, by name
-  const carrier = unspelledCarrier(object, 'desc');
+  const carrier = unspelledCarrier(members, 'desc');
   if (carrier) {
     diagnostics.push({
       ...at(carrier.start),
