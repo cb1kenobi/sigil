@@ -93,6 +93,11 @@ let running = false;
  * `process.argv.slice(2)`, which under a test runner is the runner's own
  * arguments -- so a run that left it out would parse `--reporter=dot`.
  *
+ * `importModule` is the one a test passes and a bin never does. `main()` imports
+ * a command module with node's own `import()`, which cannot load a `.tsx` or
+ * `.jsx` component the command imports; `(url) => import(url)`, written in the
+ * test file, is the runner's import instead, and vitest compiles JSX (SIG-431).
+ *
  * @param opts - What to run, as `main()` takes it.
  * @returns What it wrote, how it exited, and what it parsed.
  * @throws Whatever `main()` throws, which is only ever the error a

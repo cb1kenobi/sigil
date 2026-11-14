@@ -24,15 +24,16 @@ const vitest = dirname(require.resolve('vitest/package.json'));
  *   `github-actions` on top of it on CI. The first time a guide ran on CI it got
  *   a different reporter, in colour, where it had been neither on the machine it
  *   was written on, so the transcript's summary lines matched nothing.
- * - **`--testTimeout=30000`**, because these apps link `@ttylabs/sigil` by
- *   junction to the workspace and vitest then transforms every module of the
- *   runtime itself, where an installed app hands it to node: 72 ms against 14
- *   for the same test, and on a Windows runner with sixteen apps at once a
- *   scaffold's first test went past vitest's 5-second default (SIG-426). The
- *   cost is ours, so the budget is raised here and not in every new app. Thirty
- *   seconds is six times the default. The measurements, and why the link is not
- *   a copy, are "The scaffolded tests keep vitest's 5-second default" and the
- *   known defect after it, under `sigil new` in `packages/cli/AGENTS.md`.
+ * - **`--testTimeout=30000`**, because on a Windows runner with sixteen apps at
+ *   once a scaffold's first test went past vitest's 5-second default (SIG-426).
+ *   These apps linked `@ttylabs/sigil` to the workspace then, and vitest
+ *   transformed every module of the runtime itself: 72 ms against 14 for the
+ *   same test, and `transform 64%` in the Windows log. They get an installed copy
+ *   now (`installSigil()`, SIG-431), which takes the transform away, and the
+ *   budget stays until a Windows run shows the default is enough: it costs a
+ *   passing run nothing, and it is ours to pay rather than every new app's. The
+ *   measurements are "The scaffolded tests keep vitest's 5-second default" under
+ *   `sigil new` in `packages/cli/AGENTS.md`.
  */
 export const OWN_SUITE: readonly string[] = [
   join(

@@ -8,6 +8,7 @@ import {
   type Syntax,
   type Tui,
 } from '../src/scaffold/index.ts';
+import { installSigil } from './installed-sigil.ts';
 import { OWN_SUITE } from './own-suite.ts';
 import { REMOVAL_TIMEOUT, removeTempDir, tempDir } from './temp.ts';
 import { ttyPreload, typeKeys } from './tty-child.ts';
@@ -44,7 +45,8 @@ import { describe, expect, it, type TestContext } from 'vitest';
  *   the half that is not a claim about text, and it is the one that found the
  *   scaffolded app's layout was wrong the first time it was drawn.
  *
- * Nothing here installs: a directory that links the packages this one resolves
+ * Nothing here installs: a directory that links the packages this one resolves,
+ * with `@ttylabs/sigil` copied under a `node_modules` the way a publish ships it,
  * is the app a package manager would have made, minus a network.
  */
 
@@ -353,6 +355,27 @@ describe('a scaffold with a full-screen app', () => {
         }
       }
     });
+
+    it.each(
+      PLACEMENTS.flatMap(({ layout, name, tui }) =>
+        SYNTAXES.flatMap((syntax) =>
+          LANGUAGES.map((language) => ({ language, layout, name, syntax, tui }))
+        )
+      )
+    )(
+      "should hand runCommand() the test's own import only for JSX behind a command: $name, $syntax, $language",
+      ({ language, layout, syntax, tui }) => {
+        // `main()` imports a command module with node's `import()`, which refused
+        // the `.tsx` the command imports, so the installed app failed its own
+        // test (SIG-431). Everywhere else node's import already works, and an
+        // option that changes nothing is one more line for the author to wonder at
+        const test = file(files({ language, layout, syntax, tui }), `test/tui.test.${language}`);
+
+        expect(test.includes('importModule: (url) => import(url)')).toBe(
+          tui.at === 'command' && syntax === 'jsx'
+        );
+      }
+    );
 
     it('should open the right command in the refusal test', () => {
       expect(file(files({ tui: { at: 'root' } }), 'test/tui.test.ts')).toContain('argv: []');
@@ -1557,12 +1580,29 @@ describe('the questions', () => {
   });
 });
 
-/** Links the packages an app needs into it, as an install would have. */
+/** The copy of `@ttylabs/sigil` every app in this file links to, made once. */
+let installed: string | undefined;
+
+/**
+ * Links the packages an app needs into it, as an install would have.
+ *
+ * `@ttylabs/sigil` is a link to a **copy** under a `node_modules`, made once for
+ * the file, and never a link to the workspace (SIG-431). Where the runtime
+ * resolves to is what decides whether vitest transforms it, and a runtime vitest
+ * transformed imported a command module with vite's `import()`, which compiled
+ * the `.tsx` that node's refuses -- so the two JSX apps launched from a command
+ * passed here and failed once installed. A link into a `node_modules` is how
+ * pnpm installs every package, so this is an install's layout, and one copy
+ * rather than sixteen keeps what each test leaves for a Windows runner to remove
+ * to what it left before. The other three are links to this package's own, which
+ * already resolve under a `node_modules`.
+ */
 function link(app: string): void {
   mkdirSync(join(app, 'node_modules', '@ttylabs'), { recursive: true });
   mkdirSync(join(app, 'node_modules', '@types'), { recursive: true });
+  installed ??= installSigil(join(tempDir('sigil-installed-'), 'node_modules'));
   const dirs: [string, string][] = [
-    [join('@ttylabs', 'sigil'), dirname(require.resolve('@ttylabs/sigil/package.json'))],
+    [join('@ttylabs', 'sigil'), installed],
     [join('@types', 'node'), dirname(require.resolve('@types/node/package.json'))],
     ['typescript', dirname(require.resolve('typescript/package.json'))],
     ['vitest', dirname(require.resolve('vitest/package.json'))],

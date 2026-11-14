@@ -1795,6 +1795,57 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   twelve once merged with SIG-366's `timer` chunk; `dist.test.ts` pins the
   count.
 
+### `importModule`: one call's way of importing what the app declared
+
+SIG-431. `main()` imported every module an app declared with node's own
+`import()`, so `runCommand()` could not load a command whose module imports a
+`.tsx` or `.jsx` component: node strips types and does not compile JSX. The fix
+the user settled on is an option the test passes, `(url) => import(url)`, which
+written in a vitest file is vite's import. What it took on this side:
+
+- **It is an `AppOptions` key, not a setting and not a `ParseOptions` key.**
+  `settings` is what a build bakes into the schema (see "Settings on the
+  schema"), and how a test's runner imports modules is not a fact about the app.
+  `argv` and `locale` are the precedent: things the caller of one `main()` knows.
+  `runCommand()` takes `main()`'s options unchanged, so it has the option with
+  no code of its own. `parse()` was left without one, because no caller needs
+  it: a bare `parse()` inside a `main()` reads that call's importer, and one
+  outside any `main()` uses node's.
+- **It is read through async context, by one function.** A module the app
+  declared is imported in two places: `fetchModule()` in `load-command.ts`, for
+  a command's `path`, a routed directory's modules and a directory's `index`,
+  and `registerCommandPackage()` in `init-command.ts`, for a package a
+  declaration points at, which is imported while the schema is built. Those are
+  reached from the parse, from help, from the `:` topic walk, from completion and
+  from `initCommand()` itself, which is public and called by hooks. A parameter
+  would have to run down each chain, and the one it missed would quietly use
+  node's import, which is exactly the failure being fixed. So both sites call
+  `importModule()` in `command/import-module.ts`, and `main()` runs its body in an
+  `AsyncLocalStorage` slot that the option fills. `node:async_hooks` is loaded by
+  node at bootstrap (checked with `process.moduleLoadList`), so importing it from
+  the root entry costs nothing at load.
+- **Each `main()` opens a fresh slot.** Two calls at once each read their own,
+  and a nested `main()` that was not given an importer uses node's rather than
+  inheriting the outer call's, which is the rule `settings` follows. Sabotaged:
+  reusing an enclosing slot fails the nested-call test.
+- **It is handed the `file:` URL**, which is what node's `import()` needs on
+  Windows, where a path starts with a drive letter the ESM loader reads as a
+  scheme. vite takes the URL as it is, measured in the installed-copy repro. What
+  it resolves with is read for a `default`, as an imported module is.
+- **A value that is not a function is refused through `main()`'s error path**,
+  with `Expected importModule to be a function`, so the `beforeError` hooks see
+  it like any other bad option. That is why the slot is opened outside the `try`
+  and filled inside it.
+- **A package's entry is asked for twice**, once to name the command and once
+  when argv matches it. That was already so, and node's module cache made it one
+  evaluation; vite's cache does the same. The test asserts the set of URLs, and
+  pins the first import by a name only the importer's module carries.
+
+Covered by `test/parser/import-module.test.ts`; each import site and the fresh
+slot were sabotaged once and each failed it. The end-to-end proof is
+`new-tui.test.ts` in `@ttylabs/cli`, which runs the scaffold's own test against an
+installed copy of this package.
+
 ### An option map is read by one function, and an array is not one
 
 - **`optionDeclarations()` in `option/option-map.ts` is the one reading of

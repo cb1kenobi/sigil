@@ -3765,32 +3765,71 @@ people's software and will move.
 - **The scaffolded tests keep vitest's 5-second default, and `new-tui.test.ts`
   gives its own runs of them 30 (SIG-426).** A Windows runner once timed out the
   scaffold's `describes itself` at 5 seconds, and the time was the harness's.
-  `link()` makes `@ttylabs/sigil` a junction to the workspace, vite follows it to
-  a path with no `node_modules` in it, and vitest transforms whatever is not under
-  one -- so every module of the runtime went through vite, in every app. Measured
-  over the same app: with the junction `describes itself` took 72 ms and half the
-  run was transform, and node's own loader received none of the runtime's
-  modules; with `@ttylabs/sigil` copied under a `node_modules`, as an install puts
-  it, node loaded all 73 and the test took 14 ms. The Windows log said
-  `transform 64%`. So the budget is raised where the cost is, as
+  `link()` made `@ttylabs/sigil` a junction to the workspace then, vite followed
+  it to a path with no `node_modules` in it, and vitest transforms whatever is not
+  under one -- so every module of the runtime went through vite, in every app.
+  Measured over the same app: with the junction `describes itself` took 72 ms and
+  half the run was transform, and node's own loader received none of the
+  runtime's modules; with `@ttylabs/sigil` copied under a `node_modules`, as an
+  install puts it, node loaded all 73 and the test took 14 ms. The Windows log
+  said `transform 64%`. So the budget was raised where the cost is, as
   `--testTimeout=30000` in `OWN_SUITE` (`test/own-suite.ts`), the argv both
   `new-tui.test.ts` and the guides' `$ npm test` steps run an app's suite with,
-  and a new app gets no
-  timeout it does not need. Thirty is six times the default and inside the 180
-  seconds the variant test gives the whole app. Raising it in the scaffold
-  instead would put a number in every new app to pay for how this repository
-  links them.
-- **Known defect: a JSX component behind a command fails its app's own `refuses
-  without a terminal` once the app is installed, and the harness cannot see it.**
-  Found by SIG-426 trying the faithful fix above, a copy under a `node_modules`:
-  the two JSX variants at a command failed with `Unknown file extension ".tsx"`
-  and `.jsx`. With the runtime left to node, `runCommand()` routes to
-  `src/commands/<name>` through node's own `import()`, which loads the command
-  and then cannot load the component the command imports. Inlined, vite
-  made that `import()` its own and transformed the `.tsx`, so the harness passes
-  a test an installed app fails. The root placement is not affected, because the
-  test imports `src/index` directly and vite transforms it. Not fixed in SIG-426,
-  which is about CI timing; it is why `link()` still makes a junction.
+  and a new app gets no timeout it does not need. Thirty is six times the default
+  and inside the 180 seconds the variant test gives the whole app. Raising it in
+  the scaffold instead would put a number in every new app to pay for how this
+  repository links them. SIG-431 replaced the junction with an installed copy
+  (below), which takes the transform away; the budget was left where it is,
+  because it costs a passing run nothing and no Windows run has yet shown the
+  default is enough without it.
+- **A JSX component behind a command is loaded by the test's own import, and the
+  harness runs every app against an installed copy of `@ttylabs/sigil`
+  (SIG-431).** SIG-426 found it trying the copy above: the two JSX variants at a
+  command failed their own `refuses without a terminal` with `Unknown file
+  extension ".tsx"` and `.jsx`, once the runtime was under a `node_modules`.
+  `runCommand()` runs the real `main()`, which routes to `src/commands/<name>`
+  through `import()`, and with the runtime left to node that is node's: it strips
+  the command's types, loads it, and then cannot load the component the command
+  imports, because node does not compile JSX. With the junction, vite had made
+  that `import()` its own and compiled the `.tsx`, so the harness passed a test
+  every installed app failed. The root placement was never affected, because its
+  test imports `src/index` directly and vite compiles what that imports.
+
+  The fix is the option the user settled on: `main()` and so `runCommand()` take
+  `importModule`, and the scaffolded `tui.test` for a JSX component at a command
+  passes `importModule: (url) => import(url)`. Written in the test file, that
+  `import()` is vitest's, so the command module and everything it imports go
+  through vite. Measured, not assumed: a variable specifier in a vite-transformed
+  file is vite's import, and it takes the `file:` URL the parser hands it, in the
+  installed-copy repro and in `new-tui.test.ts`. The parser side is "`importModule`:
+  one call's way of importing what the app declared" in
+  `packages/sigil/src/parser/AGENTS.md`.
+
+  **Only that variant passes it.** The root placement's component is imported by
+  `src/index`, which the test imports, so vite already compiles it; a `ui`-tag
+  component is a module node imports as it is, which is that syntax's whole
+  point. Passing it there too would be an option that changes nothing in a file
+  an author copies, and the comment it needs ("this is for JSX") would be false.
+  `should hand runCommand() the test's own import only for JSX behind a command`
+  pins all twelve variants of the text.
+
+  **The harness installs.** `installSigil()` (`test/installed-sigil.ts`) copies
+  `@ttylabs/sigil`'s `package.json` and everything its `files` names under a
+  `node_modules`, and both readers use it: `new-tui.test.ts` makes one copy per
+  file and links every app's `node_modules/@ttylabs/sigil` to it, and the guides'
+  apps (`guides.ts`) each get a copy of their own. A link to a copy under a
+  `node_modules` is how pnpm installs every package, and it is what decides the
+  question: vite resolves the link and finds `node_modules` in the path, so node
+  loads the runtime as it does for a user. One copy for the file rather than one
+  per app because an app is about a hundred entries when its test ends and a copy
+  is about five hundred more, every one new to a Windows runner's scanner, which
+  is the removal SIG-426 had to budget for; a link costs the removal one entry.
+  The guides are two apps, so the simpler per-app copy costs nothing there. Every
+  variant runs against the copy, since nothing a junction exercised is a thing an
+  installed app does. **Sabotage:** with `importModule` taken out of the
+  template, the full variant test fails on exactly the two JSX-at-a-command apps,
+  with `Unknown file extension ".tsx"` and `".jsx"`; with the junction, it passed.
+
 - **The two prompts that take typed text refuse what they cannot use, at the
   prompt, and suggest nothing.** Enter on an empty project name used to submit,
   fail, and end the run; the TUI command's name was pre-filled with `dashboard`

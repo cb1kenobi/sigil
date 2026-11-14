@@ -7,6 +7,23 @@ import type { UpdateCheckOptions, UpdateChecker } from './updates/index.js';
 export type AppOptions = {
   argv?: string[];
   /**
+   * Imports a module the app declared, in place of node's own `import()`.
+   *
+   * Handed the module's `file:` URL: a command's `path`, a module in a routed
+   * directory, or a package's entry once its `exports` has been resolved. What
+   * it resolves with is read for a `default` the way an imported module is.
+   * Every module this call imports goes through it, from the parse, from help
+   * and from completion alike, and nothing else does: a nested `main()` uses
+   * node's unless it is given one too.
+   *
+   * A run a user starts never needs it. It is for a test whose runner compiles
+   * what node cannot: under vitest, `(url) => import(url)` written in the test
+   * file is vite's import, so a command that imports a `.tsx` or `.jsx`
+   * component loads, where node's import refuses the component with `Unknown
+   * file extension`.
+   */
+  importModule?: (url: string) => Promise<unknown>;
+  /**
    * The locale to render the framework's own messages in, which outranks
    * every environment variable.
    *

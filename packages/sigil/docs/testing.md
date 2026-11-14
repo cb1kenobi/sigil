@@ -767,6 +767,27 @@ Use the in-process test for the app's behaviour, since it is faster and
 `frame()` makes it exact, and a spawned one for what only the whole program
 does: its parse, its own `main()`, and a real stdin.
 
+**A component in JSX, behind a command.** The counter is written with the `ui`
+tag, so Node imports `src/commands/counter.ts` and the component with nothing
+compiled. A `.tsx` or `.jsx` component is different. Node strips types but does
+not compile JSX, and `main()` imports a command module with Node's own
+`import()`, so `runCommand({ argv: ['counter'], schema })` loads the command and
+then fails on the component it imports, with `Unknown file extension ".tsx"`.
+Pass `importModule`, written in the test file:
+
+```ts
+const ran = await runCommand({ argv: ['counter'], importModule: (url) => import(url), schema });
+```
+
+An `import()` written in a test file is vitest's, and vitest compiles JSX. So
+the command module is loaded by vitest, and so is everything it imports.
+`main()` hands `importModule` each module's `file:` URL, for every module the
+app declared: a command's `path`, a routed directory's modules, and a package's
+entry. The in-process test above does not need it, because it imports the
+component itself. The test that `sigil new --tui-command <name> --syntax jsx`
+writes passes it, and the repository runs that test against an installed copy
+of `@ttylabs/sigil`.
+
 [Building a full-screen app](full-screen-apps.md) builds a larger app and
 tests it the same way.
 
