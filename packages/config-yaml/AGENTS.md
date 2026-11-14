@@ -138,6 +138,18 @@ reimplemented.
   second: `parseDocument('# c')` is a document whose value is `null`, so without
   a null branch it is refused by the must-hold-a-mapping check rather than read
   as empty.
+- **What the parser says is escaped before it is quoted, and so is an alias's
+  name (SIG-412).** `yaml` quotes the source in some of its first lines:
+  `Invalid escape sequence \<ESC>`, `Block scalar header includes extra
+  characters: |2<ESC>]0;…` and `Unresolved tag: tag:x<ESC>` each reached stderr
+  live through `Failed to parse …`. Most of its messages carry a line and a
+  column and no source at all, which is why it took a probe to find these. An
+  anchor may hold a control character too, so this store's own walk quoted one
+  in `the alias *… refers to itself`, which was measured. `… comes before the
+  anchor` reads the same field and is escaped with it, but was not measured. All
+  four sites use `escapeControls()` from `@ttylabs/sigil/error-handler`. The other
+  read-time messages quote an integer that matched a number pattern, or a tag
+  that resolved, so they need nothing.
 
 #### `toJS()` shares an anchored value with its aliases, which was a real defect
 

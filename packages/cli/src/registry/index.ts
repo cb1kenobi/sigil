@@ -31,6 +31,7 @@
 
 import { displayPath, isFile, isInside } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
+import { errorMessage, escapeControls } from '@ttylabs/sigil/error-handler';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -179,7 +180,7 @@ export function parseSpec(spec: string): { entry: string; pkg: string } {
   const take = spec.startsWith('@') ? 2 : 1;
 
   if (parts.length <= take) {
-    throw new Error(`"${spec}" names a package but no entry inside it`);
+    throw new Error(`"${escapeControls(spec)}" names a package but no entry inside it`);
   }
 
   return { entry: parts.slice(take).join('/'), pkg: parts.slice(0, take).join('/') };
@@ -206,7 +207,7 @@ export function loadRegistry(root: string, pkg: string): Registry {
     manifestPath = require.resolve(`${pkg}/package.json`);
   } catch {
     throw new Error(
-      `${pkg} is not installed in ${displayPath(root)}. ` +
+      `${escapeControls(pkg)} is not installed in ${displayPath(root)}. ` +
         `A registry is an ordinary dependency, so install it first.`
     );
   }
@@ -215,13 +216,29 @@ export function loadRegistry(root: string, pkg: string): Registry {
   const path = join(dir, 'registry.json');
 
   if (!isFile(path)) {
-    throw new Error(`${pkg} is installed but ships no registry, so it has nothing to add`);
+    throw new Error(
+      `${escapeControls(pkg)} is installed but ships no registry, so it has nothing to add`
+    );
   }
 
-  const manifest = JSON.parse(readFileSync(path, 'utf-8')) as RegistryManifest;
+  // read outside the `try`, so that a file that cannot be read is not reported
+  // as one that is not JSON
+  const text = readFileSync(path, 'utf-8');
+  let manifest: RegistryManifest;
+  try {
+    manifest = JSON.parse(text) as RegistryManifest;
+  } catch (err) {
+    // V8's message quotes the text it failed on, and a registry is somebody
+    // else's package rather than the app's own file, so it is escaped the way
+    // every other value `add` echoes from one is
+    throw new Error(
+      `${escapeControls(pkg)} ships a registry.json that is not valid JSON: ${escapeControls(errorMessage(err))}`,
+      { cause: err }
+    );
+  }
 
   if (!manifest.entries || typeof manifest.entries !== 'object') {
-    throw new Error(`${pkg} ships a registry with no entries in it`);
+    throw new Error(`${escapeControls(pkg)} ships a registry with no entries in it`);
   }
 
   return { dir, manifest, pkg };
@@ -293,7 +310,7 @@ export function planAdd(
         missing.push(name);
       } else {
         throw new Error(
-          `${registry.pkg} says "${name}" is needed but does not have it, which is a bug in the registry`
+          `${escapeControls(registry.pkg)} says "${escapeControls(name)}" is needed but does not have it, which is a bug in the registry`
         );
       }
       return;
@@ -384,7 +401,7 @@ function confine(
   const where = field === 'from' ? 'its registry directory' : 'the components directory';
 
   throw new Error(
-    `${registry.pkg}'s "${name}" has a file whose ${field} is ${JSON.stringify(path)}, which is not a path inside ${where}. ` +
+    `${escapeControls(registry.pkg)}'s "${escapeControls(name)}" has a file whose ${field} is ${escapeControls(JSON.stringify(path))}, which is not a path inside ${where}. ` +
       `That is a bug in the registry, and nothing was written.`
   );
 }

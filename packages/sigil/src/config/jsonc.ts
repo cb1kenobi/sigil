@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { LINE_END, lineCounter } from './spans.js';
 
 /**
@@ -257,7 +258,8 @@ export function parseJsonc(
   } catch (e: unknown) {
     // the outer frame is a key and the inner half is V8's own English, which is
     // the split `Invalid JSON: {0}` already takes: a translator gets the
-    // sentence and the engine's message arrives as data
-    throw new Error(__`Failed to parse ${what}: ${(e as Error).message}`);
+    // sentence and the engine's message arrives as data. Escaped, because that
+    // message quotes the text it failed on, which is the file's rather than ours
+    throw new Error(__`Failed to parse ${what}: ${escapeControls((e as Error).message)}`);
   }
 }

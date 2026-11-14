@@ -162,6 +162,32 @@ try {
 }
 ```
 
+The parser quotes argv and environment values in its messages —
+`Unexpected argument "…"`, `Invalid integer: …`, `Invalid value "…" for option
+--mode` — and argv is not always typed by the person reading the error: a glob
+over a hostile file name, a wrapper forwarding a branch name, or an environment
+variable set from a file can all put an escape sequence there. So every value
+the framework echoes has its control characters written out as `\xNN`, and
+`mycli $'bu\e]0;PWNED\aild'` reports `Unexpected argument "bu\x1B]0;PWNED\x07ild"`
+rather than renaming the terminal's window. Every `\p{Cc}` is escaped, which is
+C0, `DEL` and C1, and that includes a tab and a newline: inside a quoted value a
+newline would let argv print a second `Error:` line of its own. Only the echoed
+value is escaped, never the message around it, so an error your own code throws
+keeps its colors.
+
+`escapeControls()` from `@ttylabs/sigil/error-handler` is that function. Use it
+when a message of your own quotes something your program did not write:
+
+```js
+import { escapeControls } from '@ttylabs/sigil/error-handler';
+
+throw new Error(`No branch called "${escapeControls(argv.branch)}"`);
+```
+
+It takes any value and turns it into a string first. It leaves the backslash
+alone, so `\x1B` typed literally and an escape character read the same, and
+nothing in either reaches the terminal as a sequence.
+
 A command module that fails to load is reported as `Failed to load command
 module (…): <message>`, and the error it failed with is that error's `cause`, so
 its stack still says which line of the module threw.
@@ -7619,12 +7645,12 @@ import { createConfigSync, json, object } from '@ttylabs/sigil/config';
 ```
 
 It imports no parser module at all, which makes it usable from an app that does
-not use sigil's parser. The subpath is about 41 kB over twelve modules — `paths`,
+not use sigil's parser. The subpath is about 42 kB over thirteen modules — `paths`,
 the type coercion, i18n, the debug logger, the environment-variable rule the
 parser shares, the directory creation the update cache shares, the atomic write
 the completion installer shares, the array-index rule the output formats share,
 the JSONC reader a routed directory's `commands.json` shares, the timer limit
-the input router shares, `errorMessage()`, and the module itself — which is a module
+the input router shares, `errorMessage()`, `escapeControls()`, and the module itself — which is a module
 rather than anything like `sigil/components`.
 
 ### `sigil/testing`

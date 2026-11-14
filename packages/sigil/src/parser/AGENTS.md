@@ -1069,6 +1069,122 @@ where something did not resolve, and `settings.suggestions: false` is the opt-ou
 - **An `Extra arguments` suggestion.** What follows `--` goes through whole, which
   is a recorded decision, so there is nothing it was meant to be.
 
+### A value an error echoes is escaped where it is thrown (SIG-412)
+
+The parser's and the coercions' messages quote argv and environment values, and
+they quoted them with their control characters intact. `errorHandler()` writes a
+message to stderr as it is, so `main()` printed
+`Error: Unexpected argument "bu<ESC>]0;PWNED<BEL>ild"` with a live OSC in it, and
+`Invalid value "<ESC>[2J<ESC>]52;c;…" for option --mode` cleared the screen and
+set the clipboard. Everything drawn through the canvas was already stripped, so
+the error path was the one way out that nothing guarded. argv is not always typed
+by the person reading the error: a `mycli *` over a hostile file name, a wrapper
+forwarding a branch name or a URL, or a variable set from a file all reach these
+messages.
+
+- **Escaped at the framework's own throw sites, not at the sink.**
+  `escapeControls()` (`src/util/escape-controls.ts`, published from
+  `@ttylabs/sigil/error-handler`) is applied to the echoed value and to nothing
+  else. `errorHandler()` is unchanged on purpose: an app's own error message may
+  carry SGR it chose, and escaping at the sink would turn its colors into
+  `\x1B[31m` text. The cost is that an app quoting argv in a message of its own
+  has to escape it itself, which is why the helper is published and documented.
+- **The set is `\p{Cc}`, which is C0, `DEL` and C1, and it includes `\t`, `\n`
+  and `\r`.** It is the set the build's escape pass names, written the way that
+  pass writes it: `\xNN`, two upper-case hex digits, which is also how
+  `util.inspect` prints them. Every `\p{Cc}` is below U+0100, so two digits
+  always suffice, and U+009B, the one-character CSI, is `\x9B`. The build pass
+  exempts the three whitespace controls because they are the file's own
+  formatting. Inside a quoted value they are the value's content, and a newline
+  there is the most dangerous of the set: `--n $'1\nError: something else'`
+  printed a second `Error:` line the program never wrote.
+- **The backslash is not escaped.** So a value holding the literal text `\x1B`
+  reads the same as one holding `ESC`. Doubling every backslash would make a
+  mistyped Windows path harder to read, and what reaches the terminal is inert
+  either way. This is a display rule and not an encoding.
+- **What a suggestion offers is the schema's and is left alone.**
+  `Did you mean "build"?` quotes a command or option the app declared. Only the
+  token the user typed is escaped. The match itself is still made on the raw
+  token, so escaping cannot change which suggestion is offered.
+- **The `json` error format was not entirely safe, though the ticket said it
+  was.** `JSON.stringify` escapes C0 and leaves `DEL` and C1 as raw characters.
+  Because the escaping happens where the message is built, the serialized form
+  now carries the escaped text too.
+
+The sites changed, each covered in `test/parser/echoed-control-characters.test.ts`
+through `main()`'s stderr:
+
+| Site                            | Message                                                     | What is echoed                                                                                                              |
+| ------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `suggest.ts`                    | `Unexpected argument "…"`                                   | an argv token                                                                                                               |
+| `suggest.ts`                    | `Unknown command "…"`                                       | the name after `help`                                                                                                       |
+| `suggest.ts`                    | `Unknown option "…"`                                        | an argv token                                                                                                               |
+| `parse.ts`                      | `Extra arguments are not allowed: …`                        | what follows `--`                                                                                                           |
+| `util/transform.ts`             | `Invalid boolean`, `date`, `integer`, `count`, `number`     | an argv, environment or `default` value                                                                                     |
+| `util/transform.ts`             | `Invalid JSON: …`                                           | V8's message, which quotes the text it failed on                                                                            |
+| `util/transform.ts`             | `Invalid value "…" for …`                                   | a value `choices` refused                                                                                                   |
+| `util/transform.ts`             | `show()`, for `checkValue()`                                | a config value: JSON escapes C0 but not `DEL` or C1, and `String()` of a function or a `Symbol.toStringTag` escapes nothing |
+| `format.ts`, `parser/format.ts` | `Unknown output format "…"`, `… so "…" cannot be asked for` | the `--format` value                                                                                                        |
+| `config/jsonc.ts`               | `Failed to parse …: …`                                      | V8's message, quoting the config file                                                                                       |
+| `png/image.ts`                  | the encoder's shape errors                                  | was a private copy of the same function, and now uses the shared one; its hex is now upper case                             |
+
+`Unknown option` is escaped although no control character can reach it. That
+message is only thrown for a spelling that matched `\w[\w-]*`, so a dash-led
+token with a control character in it is an `Unexpected argument` instead. It is
+escaped anyway so that every argv echo follows one rule, and so that the rule
+does not depend on a pattern in another file.
+
+The sites judged not to need it, with the reason:
+
+- **`Missing value for option …`, `Missing required arguments`, `Missing required
+  options`, and the label in `Invalid value "…" for option --mode`.** Each quotes
+  a name the schema declared, not anything the user supplied.
+- **`Integer is too large to be exact: …`.** The value has already matched
+  `^-?\d+$` or `^0x[A-Fa-f0-9]+$` to get there, or it is a number.
+- **Config dotted paths** (`"…" in … is not an object`, `Invalid config path
+  "…"`, `Cannot delete "…"`). `dotted.ts` already records that a path is what the
+  **app** hands a mutator. An app that forwards argv into `config.set()` is
+  quoting argv in a message of its own, which is the case the published helper
+  is for.
+- **`Unsafe config key "…"`.** It is thrown only for the exact names
+  `__proto__`, `constructor` and `prototype`.
+- **`Unknown shell "…"` in `completionScript()`.** The parse refuses an unknown
+  shell first through the argument's `choices`, which is escaped. This guard is
+  reached only by an app calling the function directly.
+- **Messages about the schema, a command module, or a route on disk.** These are
+  bug reports in the app's own declaration, in English and not translated, which
+  is the line the i18n work already draws.
+- **A `.env` reader.** The framework has none. An environment value reaches a
+  message only through `transformValue()`, and that is escaped.
+
+`@ttylabs/config-xml` and `@ttylabs/config-yaml` pass their parser's first error
+into `Failed to parse …`, and both parsers quote the source in some of those
+messages, so both stores escape it with the published helper. Each package's
+`AGENTS.md` records which messages it measured.
+
+Two other parse errors have the same V8 shape and are left alone on purpose:
+`routes.ts` reading a route package's `package.json`, and the toolchain's
+`discover.ts` reading the app's manifest. Both are the app's own files, so
+they are bug reports in the app's code, like the schema messages above.
+
+`sigil add` follows the same rule (see `packages/cli/src/commands/add.ts`). A
+registry's `registry.json` is **not** the app's own file: it comes from a package
+somebody installed, so everything `add` echoes from it is escaped. That covers:
+
+- the plan printed before "Write these files?": the registry's paths, entry
+  names and version, plus argv's package name and `--dir`, all written raw to
+  stdout;
+- the heading `add` prints when it lists a registry: the package and the
+  version;
+- V8's message when `registry.json` is not valid JSON, which quotes the file
+  (`<pkg> ships a registry.json that is not valid JSON: …`);
+- the registry- and argv-supplied names in its other errors.
+
+Each uses the same function, imported from the published subpath and not
+copied. The entry names and descriptions in the listing, and the notes, are
+drawn by `table()` and `writeNote()` on a canvas, which already strips control
+characters.
+
 ### `:` as a topic separator, a tokenizer alias and nothing more
 
 oclif's default is `my:awesome:command`, and Heroku, Salesforce and dokku all
