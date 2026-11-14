@@ -2869,8 +2869,22 @@ it is a component rather than the frame effect SIG-103 is.
   room for the word's first character, `placeCells()` follows, and with that
   difference gone the comparison is byte for byte. The indentation dropped is
   only the spaces and tabs `wrap()` breaks at; any other blank stays, and `should
-  drop only the indentation the wrapper drops` holds that, outside the grid
-  because the cells break at every blank and `wrap()` does not.
+  drop only the indentation the wrapper drops` holds that.
+
+  **The blanks it breaks at are `wrap()`'s, asked of one function (SIG-438).** The
+  cells broke at any `\s`, so a no-break, figure, narrow no-break or ideographic
+  space split a line and was thrown away as a gap: `10 kg` stayed together in a
+  `text` and came apart in a decrypt. `isBreakSpace()` in `src/wrap/index.ts` is
+  U+0020 and a tab, `wrap()` breaks on it, and `cellRuns()` and the indentation
+  rule read the same call, so the two cannot come to disagree about which blanks
+  those are. Every other blank is part of the word beside it, which is also why a
+  run of them wider than the line is cut at the edge as a word is. What stays on
+  `\s` is the hidden-cluster check, which asks whether a cluster draws anything
+  and not where a line may break. The leading-blanks half of the ticket did not
+  reproduce: SIG-405's rule already holds for spaces and tabs, and the only
+  indentation that ran past the width was made of those other blanks, which are
+  words now. `should break only at the blanks the wrapper breaks at` and the
+  seeded walk beside it compare the two layers byte for byte.
 
   Which **break opportunities** there are is asked of the plan rather than of what
   is drawn -- a hidden cell is never whitespace, so `hidden` settles it before the

@@ -2,6 +2,7 @@ import { ansi } from '../../src/ansi/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import {
   DEFAULT_WIDTH,
+  isBreakSpace,
   MAX_WIDTH,
   terminalWidth,
   tokenize,
@@ -524,5 +525,22 @@ describe('tokenize()', () => {
           .join('')
       ).toBe(text);
     }
+  });
+});
+
+describe('isBreakSpace()', () => {
+  // the one list of where `wrap()` breaks, which a caller wrapping cells of its
+  // own asks rather than writing again: it is U+0020 and a tab and nothing else
+  it('should say yes to a space and a tab only', () => {
+    expect(isBreakSpace(' ')).toBe(true);
+    expect(isBreakSpace('\t')).toBe(true);
+    for (const text of ['', 'a', '  ', '\n', '\u00a0', '\u2007', '\u202f', '\u3000', '\u2003']) {
+      expect(isBreakSpace(text), JSON.stringify(text)).toBe(false);
+    }
+  });
+
+  it('should be what wrap() breaks at', () => {
+    expect(wrap('10\u00a0kg', 3)).toBe('10\u00a0\nkg');
+    expect(wrap('10 kg', 3)).toBe('10\nkg');
   });
 });

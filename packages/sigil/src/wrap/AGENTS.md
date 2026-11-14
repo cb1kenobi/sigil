@@ -51,13 +51,10 @@ reopen travelling with its word.
   hide exactly this difference. Its indentation is `wrap()`'s too, which is the
   part that is easy to get wrong: `wrap()` breaks only at U+0020 and a tab, so
   those are all it can drop, while a non-breaking, ideographic or em space is an
-  ordinary character there and stays. `placeCells()` groups every blank `\s`
-  matches into one gap, so it drops only the spaces and tabs at the gap's front,
-  and `should drop only the indentation the wrapper drops` pins the difference.
-  Those cases are pairs rather than part of the grid, because two older
-  differences keep other blanks out of it: `placeCells()` breaks at any blank
-  where `wrap()` breaks only at those two, and it does not split a run of other
-  blanks wider than the line. Both predate this entry and are left alone.
+  ordinary character there and stays. `placeCells()` breaks at those two blanks
+  as well, through `isBreakSpace()`, which is the one definition of them
+  (SIG-438): it used to group every blank `\s` matches into one gap, and
+  `should drop only the indentation the wrapper drops` pins the difference.
 
 - **A width that is `NaN`, zero or negative wraps to the empty string, the way
   `truncate()` cuts to it.** `NaN` fails every comparison, so it walked straight

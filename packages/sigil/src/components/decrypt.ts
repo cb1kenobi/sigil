@@ -43,7 +43,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
-import { cutAt, type TruncateMode } from '../wrap/index.js';
+import { cutAt, isBreakSpace, type TruncateMode } from '../wrap/index.js';
 import { type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
 
 /** How long the jumble lasts before anything resolves, in milliseconds. */
@@ -546,7 +546,7 @@ function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
   let width = 0;
 
   for (const cell of cells) {
-    const blank = !cell.hidden && WHITESPACE.test(cell.text);
+    const blank = !cell.hidden && isBreakSpace(cell.text);
     if (current.length > 0 && blank !== space) {
       runs.push({ cells: current, space, width });
       current = [];
@@ -563,39 +563,26 @@ function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
   return runs;
 }
 
-/** What `wrap()` reads as indentation: a space or a tab, and no other blank. */
-const INDENT = /^[ \t]$/;
-
 /**
  * The cells of a gap at the start of a line that are drawn, which is all of them
  * unless its indentation leaves no room.
  *
- * `wrap()`'s rule, asked the way `wrap()` asks it. Its indentation is the spaces
- * and tabs it breaks at, so that is the only part of the gap that can go: a
- * non-breaking space, an ideographic space or an em space is an ordinary
- * character to `wrap()`, kept like one, and here too. What has to fit beside the
- * indentation is the first cell after it, which is the gap's own next cell when
- * the gap holds one of those, and the word's first when it does not.
+ * `wrap()`'s rule, asked the way `wrap()` asks it. A gap is made only of the
+ * blanks `wrap()` breaks at, so all of it is indentation and it goes or stays
+ * whole: it is dropped when the first cell of the word after it does not fit
+ * beside it, and any other blank, being part of that word, is what has to fit.
  *
- * @param gap - The gap's cells.
+ * @param gap - The gap's run.
  * @param word - The cells of the word after it.
  * @param limit - The width to wrap at.
  * @returns The cells to place.
  */
 function indented(
-  gap: readonly DecryptFrameCell[],
+  gap: CellRun,
   word: readonly DecryptFrameCell[],
   limit: number
 ): readonly DecryptFrameCell[] {
-  let end = 0;
-  let width = 0;
-  while (end < gap.length && INDENT.test((gap[end] as DecryptFrameCell).text)) {
-    width += (gap[end] as DecryptFrameCell).width;
-    end++;
-  }
-
-  const after = gap[end] ?? word[0];
-  return end > 0 && width + (after?.width ?? 0) > limit ? gap.slice(end) : gap;
+  return gap.width + (word[0]?.width ?? 0) > limit ? [] : gap.cells;
 }
 
 /**
@@ -654,7 +641,7 @@ function placeCells(
       if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
         next();
       } else if (gap) {
-        for (const cell of x > 0 ? gap.cells : indented(gap.cells, run.cells, limit)) {
+        for (const cell of x > 0 ? gap.cells : indented(gap, run.cells, limit)) {
           place(cell);
         }
       }

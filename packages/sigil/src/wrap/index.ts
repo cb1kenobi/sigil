@@ -5,6 +5,23 @@ import { type Token, tokenize } from './tokens.js';
 export { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 export { type Token, tokenize } from './tokens.js';
 
+/**
+ * Whether a cluster is where a line may break: U+0020 and a tab, and no other
+ * blank.
+ *
+ * A non-breaking, figure, narrow no-break or ideographic space is an ordinary
+ * character here, part of the word beside it -- which is the point of the ones
+ * that say they do not break. It is asked in one place so that `wrap()` and
+ * whatever wraps cells of its own, which a decrypt has to, cannot come to
+ * disagree about which blanks those are.
+ *
+ * @param text - A cluster's text.
+ * @returns Whether `wrap()` breaks at it.
+ */
+export function isBreakSpace(text: string): boolean {
+  return text === ' ' || text === '\t';
+}
+
 /** What a terminal is assumed to be when there is no terminal to ask. */
 export const DEFAULT_WIDTH = 80;
 
@@ -360,7 +377,7 @@ function wrapLine(
       continue;
     }
 
-    if (token.text === ' ' || token.text === '\t') {
+    if (isBreakSpace(token.text)) {
       placeWord();
       // a tab counts as one space and is written as one, so that what was
       // measured is what comes out
