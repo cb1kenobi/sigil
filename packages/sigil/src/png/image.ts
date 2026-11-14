@@ -1,3 +1,5 @@
+import { escapeControls } from '../util/escape-controls.js';
+
 /**
  * An image as the codec hands it over and takes it back: 8-bit RGBA, row-major,
  * top row first, four bytes per pixel and no padding between rows -- so
@@ -57,7 +59,7 @@ export function assertRgbaImage(
     Number.isInteger(n) && (n as number) >= min && (n as number) <= MAX_DIMENSION;
   if (!dimension(width) || !dimension(height)) {
     throw new TypeError(
-      `${name} expects a width and height that are whole numbers from ${min} to ${MAX_DIMENSION}, got ${quote(width)}x${quote(height)}`
+      `${name} expects a width and height that are whole numbers from ${min} to ${MAX_DIMENSION}, got ${escapeControls(width)}x${escapeControls(height)}`
     );
   }
   if (!(input instanceof Uint8Array || input instanceof Uint8ClampedArray)) {
@@ -81,21 +83,8 @@ export function assertRgbaImage(
  */
 export const MAX_DIMENSION = 0x7fffffff;
 
-/**
- * A value as an error message may quote it. The caller wrote it, but a CLI's
- * error handler prints it, so a control character in it -- a string width, a
- * `Symbol.toStringTag` -- is escaped the way the decoder names a chunk type in
- * hex: `ESC [ 2 J` in a message clears the terminal of whoever reads it.
- */
-function quote(value: unknown): string {
-  return String(value).replaceAll(
-    /\p{Cc}/gu,
-    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`
-  );
-}
-
 function describe(value: unknown): string {
-  return quote(
+  return escapeControls(
     typeof value === 'object' ? Object.prototype.toString.call(value).slice(8, -1) : typeof value
   );
 }

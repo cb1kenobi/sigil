@@ -291,7 +291,7 @@ describe('encodePng()', () => {
           encodePng(input as unknown as RgbaImage);
         } catch (err) {
           expect((err as Error).message).not.toMatch(/\p{Cc}/u);
-          expect((err as Error).message).toContain('\\x1b');
+          expect((err as Error).message).toContain('\\x1B');
         }
       }
     });

@@ -477,6 +477,41 @@ describe('the command, end to end', () => {
     expect(existsSync(join(root, 'components'))).toBe(false);
   });
 
+  it('should not print a control character from a registry before asking to write', () => {
+    // SIG-412. The plan is printed raw to stdout just before "Write these
+    // files?", and every path and the version on it are the registry's text.
+    // No `--yes`, so nothing is written on any platform -- a file name holding
+    // ESC is not one Windows can create, and the plan is printed either way
+    const pkg = join(root, 'node_modules', 'evil');
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'evil', version: '1.0.0' }));
+    writeFileSync(join(pkg, 'registry', 'pwn.ts'), 'export {};\n');
+    writeFileSync(
+      join(pkg, 'registry', 'registry.json'),
+      JSON.stringify({
+        entries: {
+          pwn: {
+            classes: [],
+            desc: 'pwn',
+            files: [{ from: 'pwn.ts', to: 'pwn\u001b]0;PWNED\u0007.ts' }],
+            imports: [],
+            registryDeps: [],
+          },
+        },
+        name: 'evil',
+        version: '1.0.0\u001b[2J',
+      })
+    );
+
+    const result = run('add', 'evil/pwn');
+
+    expect(result.stdout).toContain('From evil 1.0.0\\x1B[2J into');
+    expect(result.stdout).toContain('pwn\\x1B]0;PWNED\\x07.ts');
+    expect(result.stdout.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+    expect(result.stderr.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+    expect(existsSync(join(root, 'components'))).toBe(false);
+  });
+
   it('should copy something that then runs', () => {
     // the claim the whole ticket rests on: what lands is a working component,
     // not a file that merely looks like one

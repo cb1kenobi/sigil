@@ -17,6 +17,7 @@ import {
 } from '../types.js';
 import { camelCase } from '../util/camel-case.js';
 import { envValue } from '../util/env-value.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
 import { assertChoices, transformValue } from '../util/transform.js';
 import { initCommand } from './command/init-command.js';
@@ -1115,7 +1116,9 @@ export async function processArgs(state: ParseState): Promise<void> {
       if (state.settings?.allowExtraArguments) {
         append(state._, inputs);
       } else {
-        throw new Error(__`Extra arguments are not allowed: ${inputs.join(' ')}`);
+        throw new Error(
+          __`Extra arguments are not allowed: ${inputs.map(escapeControls).join(' ')}`
+        );
       }
     } else if (parsedType === 'Option') {
       const { option, value } = parsed as ParsedOption;
