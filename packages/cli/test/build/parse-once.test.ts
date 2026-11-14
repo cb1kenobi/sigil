@@ -125,13 +125,20 @@ describe('a build', () => {
     parseModule(file, source);
     const compiled = compileTemplates(file, source);
     expect(compiled).not.to.equal(undefined);
-    expect(shakeStyles(file, compiled?.code ?? '', () => createShaker(app).sheet())).not.to.equal(
-      undefined
-    );
+    const shaker = createShaker(app);
+    expect(shakeStyles(file, compiled?.code ?? '', () => shaker.sheet())).not.to.equal(undefined);
 
     const ours = parsed.filter((one) => one.file === file);
     // not vacuous: the original, and what the template compile left of it
     expect(new Set(ours.map((one) => one.source)).size).to.equal(2);
+    // ...and the scan really did read `tpl.ts`. On the fixed code its read is a
+    // cache hit and leaves no record above, so a scan that stopped walking
+    // `src/commands` would pass everything else here. `gap-1` and `dim` are
+    // classes only `tpl.ts` names -- `panel.ts` has neither -- so they survive
+    // the shake only if the scan read that file
+    const css = shaker.result()?.css ?? '';
+    expect(css).to.contain('.gap-1');
+    expect(css).to.contain('.dim');
     expect(repeats(ours)).to.deep.equal([]);
   });
 

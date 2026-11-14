@@ -73,7 +73,7 @@ export interface Position {
 }
 
 /**
- * Every module read so far, one entry per path.
+ * Every module read so far: for each path, a tree per source it was read as.
  *
  * A build reads one module from several passes -- discovery, the static lift,
  * the settings and update-check reads, the tree, the i18n scan, the utility
@@ -99,8 +99,10 @@ export interface Position {
  * a rewrite is not fixed, and one entry per path made the second order parse
  * the original again. `forgetParsedModules()` empties it at the start of each
  * build, so what a long-lived process holds is one app's trees, never every
- * version of every app it has built. A path has more than one only where the
- * build rewrote it.
+ * version of every app it has built. In a build a path has a second source only
+ * where a pass hands this a rewrite of it, which is `shakeStyles()` alone; a
+ * caller outside a build that hands one path several sources keeps all of them
+ * until the next `forgetParsedModules()`.
  *
  * Sharing a tree is sound only because no reader writes to one. That was
  * checked rather than assumed: every tree was deep-frozen and the toolchain's

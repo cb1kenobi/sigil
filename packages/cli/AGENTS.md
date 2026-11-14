@@ -1613,8 +1613,8 @@ makes it testable with a fixture directory and no bundler at all.
   `check`, `build` and `package` all start there -- holds one build's trees. That
   call is pinned by two in-process builds in a row, the second of a different app:
   without it the first app's trees are still there after the second, since nothing
-  in the second reads their paths. Measured on the 244-module app, the heap left after a forced GC
-  at exit is 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
+  in the second reads their paths. Measured on the 244-module app as of SIG-355, the heap left after a forced GC
+  at exit was 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
   source**, and peak RSS about 40 MB higher (702–710 MB against 660–672 MB). A
   one-shot `sigil build` pays that once; there is no watch loop in the toolchain
   today, and one would get the right lifetime from `inspect()` for free. A failed
@@ -1642,17 +1642,26 @@ makes it testable with a fixture directory and no bundler at all.
   which transform runs first, and a build that is correct only in one of the
   orders is the one that flakes.
 
-  What that costs is one more tree for each module the build rewrote, since a
-  path has more than one only where a pass handed `parseModule()` a source the
-  disk does not hold: the 121 templated modules of the synthetic app, and nothing
-  for the 123 that were not. Not measured as a heap figure: it is at most the
-  trees of the compiled sources, which the old cache also built and then
-  dropped. The lookup is a linear
+  What that costs is one more tree for each module whose rewritten source
+  reaches the style pass. The template rewrite alone adds none, because
+  `compileTemplates()` parses the source it was handed and returns text; only
+  `shakeStyles()` parses a rewrite, and its filter needs the code to contain
+  `@ttylabs/sigil/style`. So a templated module that never asks for the sheet
+  keeps one source -- the `templated` fixture's `greet.ts` records `[706]` -- and
+  `styled`'s `tpl.ts` keeps `[1001, 1405]`. A build has at most those two sources
+  of a path, since every other caller hands the disk's. Not measured as a heap
+  figure, and not an addition of work: in the usual order, with `panel.ts` first,
+  the old cache kept the compiled tree and dropped the original, and the fixed
+  one keeps both. The lookup is a linear
   `find()` over a list of one or two. `should parse a module once when the utility
   scan comes after its template rewrite` forces the order that flaked, with the
   real passes called in sequence rather than through rolldown, so it
   fails every time without the fix and needs no load; `should keep a path's
-  earlier source when a changed one is read` is the cache's own half of it.
+  earlier source when a changed one is read` is the cache's own half of it. The
+  first also asserts that the shaken sheet names `gap-1` and `dim`, which only
+  `tpl.ts` does: on the fixed code the scan's read of it is a cache hit and
+  leaves no record, so without that a scan that stopped walking
+  `src/commands` would still pass.
 
 - **The fixture differs from `jsx-dev/` by one tsconfig field, and it
   type-checks.** `preserve` still checks the JSX against the `JSX` namespace
