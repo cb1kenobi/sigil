@@ -364,9 +364,8 @@ const membersOf = (members: Members): readonly Member[] =>
  * object-literal order is what the module runs with and that property may
  * replace it. One function for the module lift and the placeholder read, so
  * the two cannot come to disagree about which spelling is the one that runs.
- * The placeholder read hands it `flatten()`'s list and the module lift hands it
- * the literal, which is the more cautious of the two and says no more than a
- * warning.
+ * Both hand it `flatten()`'s list, so a spread of an object literal is what it
+ * holds wherever it is asked.
  *
  * @param object - The object literal, or its flattened members.
  * @param key - The key in question.

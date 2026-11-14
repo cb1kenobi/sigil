@@ -1378,12 +1378,17 @@ function placeholderIdentity(
         : aboutName
           ? 'which name the command answers to, and a built app that guessed would route by one name where the app routes by another'
           : 'which module to bundle for the command, and a built app without it matches the command and prints help rather than running it';
+    // never both `path` and `load`, which is the one thing refused above
+    const fix = [
+      ...(aboutName ? ['"name"'] : []),
+      ...(aboutModule ? ['one of "path" or "load"'] : []),
+    ].join(' and ');
     const at = [...replaced.map((spelling) => spelling.declared!), ...carriers].reduce((a, b) =>
       b.start < a.start ? b : a
     );
     error(
       at,
-      `the "${command}" command ${parts.join(', and ')}; the build cannot tell ${effects}; spell ${quoted(blocked, 'and')} literally, after the last spread or computed key`
+      `the "${command}" command ${parts.join(', and ')}; the build cannot tell ${effects}; spell ${fix} literally, after the last spread or computed key`
     );
   }
 
@@ -1480,8 +1485,8 @@ const NAME_UNREADABLE =
  * (the lift), `alias`, `default` and `name` (routing), `path` and `load` (the
  * module), and `commands` when it is an object literal.
  *
- * Properties only. A spread or a computed key can carry anything, and is
- * reported here for nothing -- the reads above report it only for the `desc`,
+ * Properties only, of what the literal spells (`flatten()`). A spread or a
+ * computed key that is not a literal can carry anything, and is reported here for nothing -- the reads above report it only for the `desc`,
  * `hidden`, `alias`, `default`, `name`, `path` and `load` it may carry, the last
  * three as errors.
  *
@@ -1498,7 +1503,10 @@ function warnUnbaked(
 ): void {
   const { name } = commandName(nameString);
 
-  for (const property of object.properties) {
+  // what the object spells, as the build reads it: an unbaked key inside a
+  // literal spread or under a computed key written as a string is as unbaked as
+  // one written plainly
+  for (const property of flatten(object)) {
     if (property.type === 'SpreadElement') {
       continue;
     }

@@ -781,6 +781,18 @@ describe('sigil build', () => {
     for (const line of errors) {
       expect(line).toContain('literally, after the last spread or computed key');
     }
+    // ...and never asks for a `path` and a `load` together, which is itself
+    // refused (`Cannot combine`): one of them, and the name as well where it is
+    // blocked
+    expect(only('carried')).toContain(
+      'spell "name" and one of "path" or "load" literally, after the last spread or computed key'
+    );
+    expect(only('carriedname')).toContain(
+      'spell "name" literally, after the last spread or computed key'
+    );
+    for (const line of errors) {
+      expect(line).not.toContain('"path" and "load"');
+    }
     // the file and line, which is where to write it
     expect(errors[0]).toMatch(/src[\\/]index\.js:\d+:\d+: error: /);
     // and the advice that cannot be followed is not given: the name is already

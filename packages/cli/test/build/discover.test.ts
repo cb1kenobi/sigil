@@ -990,6 +990,53 @@ export default {
       expect(diagnostics.filter((d) => d.message.includes('"negated"'))).toStrictEqual([]);
     });
 
+    it('should warn about a property it does not bake inside a literal spread or under a string computed key', async () => {
+      // SIG-433, SIG-434. Read off what the literal spells, as the rest of a
+      // placeholder is: an inline `run` in a spread of an object literal, or
+      // under `['run']`, is as absent from the built app as one written plainly
+      // -- built prints help where source runs it
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    direct: { run() {}, path: './commands/a.js' },
+    spread: { ...{ run() {} }, path: './commands/a.js' },
+    quoted: { ['run']() {}, path: './commands/a.js' },
+    nested: { ...{ ...{ options: { '--force': 'f' } } }, path: './commands/a.js' },
+    baked: { ...{ desc: 'baked' }, ['hidden']: true, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { diagnostics } = readAppCommands(discoverApp(dir));
+        const warned = diagnostics
+          .map((d) => /the "(\w+)" command declares "(\w+)"/.exec(d.message)?.slice(1).join('.'))
+          .filter(Boolean);
+
+        expect(warned).toStrictEqual(['direct.run', 'spread.run', 'quoted.run', 'nested.options']);
+      });
+    });
+
+    it('should lift the desc of a command module that spreads a literal, and not say it cannot see it', async () => {
+      // SIG-433, SIG-434. A placeholder's literal spread is baked and a module's
+      // was reported as one that "may carry a desc this cannot see", which was
+      // false -- the build can see it, and it is what help lists
+      const source = `export default {
+  baseDir: import.meta.dirname,
+  commands: { lit: { path: './commands/lit.js' } },
+};\n`;
+      const module = `export default { ...{ desc: 'Module desc' }, ['hidden']: false, run() {} };\n`;
+
+      await withSchema(source, (dir) => {
+        writeFileSync(join(dir, 'src', 'commands', 'lit.js'), module);
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+
+        expect(diagnostics).toStrictEqual([]);
+        expect(at(list, 'lit').desc).toBe('Module desc');
+        expect(at(list, 'lit').hidden).toBe(false);
+      });
+    });
+
     it('should warn about every property of a placeholder it does not bake', () => {
       const app = discoverApp(join(apps, 'unbaked'));
       const { diagnostics } = readAppCommands(app);

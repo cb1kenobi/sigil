@@ -500,8 +500,14 @@ makes it testable with a fixture directory and no bundler at all.
   - A conditional or a logical expression is what its arms can carry, so
     `...(on && { hidden: true })` and `...(on ? { hidden: false } : {})` carry
     `hidden` and nothing else, and `[Symbol.for('meta')]` is never a string key.
-    `mayCarry()` says which keys; the module lift asks it too, of the literal
-    rather than of `flatten()`'s list, so it stays the more cautious of the two.
+    `mayCarry()` says which keys.
+  - What a command **module** spells is read the same way: `factsOf()` lifts a
+    `desc` and a `hidden` off `flatten()`'s list too, so `export default {
+    ...{ desc: 'x' }, run() {} }` lifts `x` and no longer reports a spread "that
+    may carry a desc this cannot see". `warnUnbaked()` reads it as well, so an
+    inline `run` inside `...{ }` or under `['run']` warns as one written plainly
+    does. One definition of what an object literal spells, asked wherever it is
+    asked.
   - A `path` that is a string literal, and a `load` that is an arrow returning a
     literal `import()` -- `async` or not.
 
@@ -510,9 +516,10 @@ makes it testable with a fixture directory and no bundler at all.
 
   - An **identifier, a call, a member or an import** spread, or a computed key
     that is not a string, where it may carry a key the placeholder does not spell
-    after it, or may replace one it does: spell `name`, `path` and `load`
-    literally, after the last spread or computed key. One error per placeholder,
-    naming every key the spread blocks. Nothing here resolves a name to the
+    after it, or may replace one it does: spell `name`, and one of `path` or
+    `load`, literally, after the last spread or computed key -- never both of the
+    last two, which is refused below. One error per placeholder, naming every key
+    the spread blocks. Nothing here resolves a name to the
     literal it was declared as -- that wants a guard against a mutation between
     the declaration and the spread, and is **SIG-440** -- so `...base` is refused
     even where `base` is a `const` of plain keys.
@@ -531,9 +538,13 @@ makes it testable with a fixture directory and no bundler at all.
   A module that is spelled, that nothing replaces and that reads decides, and the
   other key beside it is not asked about: `{ ...base, name: 'x', path: './a.js' }`
   builds although `base` may carry a `load`. That is a divergence left on
-  purpose -- from source it fails to start if `base` does carry one, loudly, which
-  is not the silent kind this is for, and refusing every spread beside a spelled
-  module would refuse the commonest shape there is. Said once, here, since
+  purpose. From source the runtime refuses the pair (`Cannot combine "load" with
+  "path"`) wherever `base` carries a `load`, which is loud and is not the silent
+  kind this is for -- but only wherever: a `base` that carries `load` on one code
+  path, `lazy(process.argv.includes('--lazy'))`, starts fine for `x` and fails
+  only for `x --lazy`, while the built app runs the `path` for both. Refusing
+  every spread beside a spelled module would refuse the commonest shape there
+  is, and the decision stands. Said once, here, since
   `p-settled-after-load-spread` in the review of the ticket was the case that
   asked.
 
