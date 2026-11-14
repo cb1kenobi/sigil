@@ -1846,6 +1846,75 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   main thread's and spreads about 494,000 arguments, so a test at 200,000 passed
   against the code that failed an app.
 
+### An environment variable on a negated flag is read through the negation
+
+- **`NO_COLOR=1` on `'--no-color': { env: 'NO_COLOR' }` is `color: false`.**
+  SIG-390. The variable is spelled the way the flag is, so it is read through
+  the negation the way argv's value is: `--no-color=1` is `color: false` and
+  `--no-color=0` is `color: true`, and so are `NO_COLOR=1` and `NO_COLOR=0`. `processOptions()` used
+  to hand the variable to `applyFallback()` like any other, which coerced it as a
+  `bool` and wrote it to the destination as it stood -- so `NO_COLOR=1` turned
+  color **on**, and `NO_COLOR=0` turned it off. The tests that pinned that
+  reading said `NO_CHEESE: 'false'` gives `cheese: false`, which is the defect
+  written down as a rule; they say `'true'` now and still expect `false`.
+  `applyFallback()` takes a `negated` flag and inverts after coercion, so
+  everything else about the fallback is unchanged: an empty variable is still
+  unset and falls through to `default`, a value `bool` rejects still throws
+  `Invalid boolean`, a destination argv already filled is still left alone and
+  its variable is never coerced, and a `multiple` flag wraps the inverted value.
+- **This is a behavior change for apps, and it is one direction only.** An app
+  that declared `env` on a negated flag and documented the variable's literal
+  reading -- `NO_COLOR=false` to turn color off -- now gets the opposite. No such
+  declaration exists in this repository: sigil's own `NO_COLOR` handling is the
+  color level in `src/ansi/`, which never went through the parser.
+- **The variable inverts exactly when argv would invert the same value, and
+  one function says when.** `readsInverted()` in `parse.ts` is asked by argv with
+  the token as typed and by the environment with the option's `label`, which is
+  its first long spelling, or its short spelling when it has no long one
+  (`init-option.ts`). That is neither the first word of the format nor the
+  spelling help leads with: help lists short spellings first and drops the
+  positive `--name` of a negated flag, so `'-C, --color': { negate: true }` leads
+  with `-C` in help while its label is `--color`, and `'-c'` with an `alias` of
+  `--no-color` has the alias as its label. It is `isNegated()` behind
+  two conditions that were already argv's branch structure: only a flag inverts,
+  and a counter given a value is set to it. The first version of the fix asked
+  `opt.negate === true && opt.type === 'bool'` instead, a parallel condition that
+  review round 1 broke three ways, each with argv disagreeing:
+  `'--color <on>': { negate: true, type: 'bool' }` takes a value, so argv reads
+  `--color=1` literally; `'--no-color': { hint: 'when', negate: true, type:
+  'bool' }` is made valued by its hint and lands on `noColor`; and
+  `'--color': { negate: true }` registers only `--color`, which `isNegated()`
+  reads as the positive spelling. All three now read their variable literally,
+  and each test asserts the variable against argv. Bare `color: { negate: true }`
+  still inverts, because the key registers `--no-color` as its only long
+  spelling. A declaration listing both a positive and a negated long spelling is
+  decided by whichever long spelling comes first: `'--color, --no-color'` has
+  the label `--color`, so it reads its variable literally while `--no-color` on
+  argv still turns it off, and `'--no-color, --color'` inverts.
+- **Only the variable is inverted, and only the inversion is shared.** A
+  `default` on the flag is already a value for the destination -- a lone negated
+  flag's implied one is `true` -- so it is written as it stands, and
+  `default: false` on `--no-cheese` is still `cheese: false`. A negated counter
+  reads its variable literally, because a counter given a value is set to it,
+  which is what argv does with `--no-quiet=2`. `negate: false` is not a negation:
+  the `no-` is part of the name, so `NO_COLOR=1` there is `noColor: true`. And
+  `transform` still runs on argv values only, as it does for every fallback, so
+  `transform: (v) => !v` on the flag makes `NO_COLOR=1` `color: false` while
+  `--no-color=1` is `true`. Making the environment run `transform` is a separate
+  rule about every fallback and was not taken here.
+- **Beside a valued twin, the flag still writes and the flag still validates.**
+  `'--cheese [type]'` plus `'--no-cheese': { env: 'NO_CHEESE' }` is one
+  destination, the valued twin's variables are read first, and `NO_CHEESE=1` is
+  `cheese: false`. `NO_CHEESE=0` is `cheese: true`, which is what `--no-cheese=0`
+  has always produced there. Either way the value was produced by the flag, so
+  "a value is validated by whoever wrote it" puts it under the flag's `choices`
+  and not the twin's: `choices: ['brie']` on `--cheese` does not reject the
+  `true`, the same as it does not reject `--no-cheese=0`.
+- **Inference needed nothing.** `src/infer.ts` types a `bool` flag's value as
+  `boolean` and says nothing about `env`, and the variable still produces a
+  `boolean` -- only which one changed -- so no type moved. Pinned in `test/parser/options.test.ts` under
+  `environment on a negated flag`.
+
 ### A command module that fails to load keeps what it failed with
 
 - **The rethrow carries the original as its `cause`.** SIG-343.

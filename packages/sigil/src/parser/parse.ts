@@ -404,6 +404,32 @@ function isNegated(option: InternalOption, subject?: string): boolean {
 }
 
 /**
+ * Decides whether a value given to an option through one of its spellings
+ * means the opposite of what it coerces to.
+ *
+ * The one rule for both places a value can be given that way. argv asks it with
+ * the token as typed, so `--no-color=1` is off and `--color=1` is on. The
+ * environment asks it with the option's `label` -- its first long spelling, or
+ * its short one when it has no long one -- because a variable declared on
+ * `--no-color` is spelled through that name. A declaration listing both a
+ * positive and a negated long spelling is decided by whichever comes first.
+ * Only a flag inverts: an option that takes a value reads it literally whatever
+ * its name or `negate` say, and a counter given a value is set to it.
+ *
+ * @param option - The declared option the value was given to.
+ * @param subject - The spelling the value was given through.
+ * @param explicit - Whether a value was given at all, rather than the flag
+ * being named bare.
+ * @returns `true` when the value is to be inverted.
+ */
+function readsInverted(option: InternalOption, subject: string, explicit: boolean): boolean {
+  if (!option[Internal].isFlag || (option.type === 'count' && explicit)) {
+    return false;
+  }
+  return isNegated(option, subject);
+}
+
+/**
  * Decides whether the next unresolved token may be taken as the value of a
  * declared option.
  *
@@ -584,14 +610,24 @@ function validates(
  * makes this declaration the one that produced what is on it, and so the one whose
  * `choices` the value answers to.
  *
+ * A string read through a negated flag's name is inverted once it is coerced,
+ * which is what `negated` asks for: `NO_COLOR=1` on `--no-color` says "no color",
+ * so it is `color: false`, the same as `--no-color=1` -- and not the `true` the
+ * variable's bare value spells. Only an environment variable is read this way. A
+ * `default` is already a value for the destination, which is why a lone negated
+ * flag's implied one is `true`, so it is never inverted.
+ *
  * @param state - The parse state.
  * @param it - The option or argument being filled.
  * @param value - The fallback value, if there is one.
+ * @param negated - Whether a string value was spelled through a negated flag's
+ * name, and so means the opposite of what it coerces to.
  */
 function applyFallback(
   state: ParseState,
   it: InternalOption | InternalArgument,
-  value: unknown
+  value: unknown,
+  negated = false
 ): void {
   const { dest } = it[Internal];
   const { multiple, type } = it;
@@ -608,6 +644,9 @@ function applyFallback(
 
   if (typeof value === 'string') {
     value = transformValue(value, type);
+    if (negated) {
+      value = !value;
+    }
   } else if (Array.isArray(value)) {
     // an array `default` belongs to the caller; handing it straight to
     // `argv` would let a consumer's `push` reach back into the schema and
@@ -905,8 +944,9 @@ async function parseArgv(state: ParseState): Promise<void> {
         } else if (isFlag) {
           // `--foo` is true and `--no-foo` is false, but an explicit
           // `--foo=false` beats the name it was reached by
-          const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-          value = isNegated(option, subject) ? !bool : bool;
+          const explicit = inputs.length > 1;
+          const bool = explicit ? transformValue(`${inputs[1]}`, 'bool') : true;
+          value = readsInverted(option, `${subject}`, explicit) ? !bool : bool;
         } else {
           const next = peek();
 
@@ -1260,10 +1300,16 @@ export async function processOptions(state: ParseState): Promise<void> {
   // option and its negated twin — keeps the same argv, then environment, then
   // default precedence a lone option has, and is not reported missing just
   // because the option that fills it comes second
+  //
+  // a variable declared on a negated flag is read through the negation, by the
+  // rule argv's value is: `NO_COLOR=1` on `--no-color` is `color: false`, as
+  // `--no-color=1` is. `readsInverted()` is asked with the option's label, so
+  // the variable inverts exactly when argv would invert the same value through
+  // that spelling
   for (const opt of all) {
-    const { envs, parserOwned } = opt[Internal];
+    const { envs, label, parserOwned } = opt[Internal];
     if (!parserOwned) {
-      applyFallback(state, opt, envValue(state.env, envs));
+      applyFallback(state, opt, envValue(state.env, envs), readsInverted(opt, label, true));
     }
   }
 

@@ -936,6 +936,38 @@ Every other name a negated flag answers to turns the destination off, the same
 as `--no-color` does. Given `-C, --no-color`, `-C` is `color: false`. Only the
 positive spelling the flag registers for itself — `--color` — turns it on.
 
+An environment variable declared on a negated flag is read through the negation
+too, because it is spelled the way the flag is. Given
+`'--no-color': { env: 'NO_COLOR' }`, the variable is inverted the way a value
+given to `--no-color=` is:
+
+| Environment  | Result         |
+| ------------ | -------------- |
+| _(unset)_    | `color: true`  |
+| `NO_COLOR=`  | `color: true`  |
+| `NO_COLOR=1` | `color: false` |
+| `NO_COLOR=0` | `color: true`  |
+
+The variable inverts exactly when argv would invert the same value given through
+the option's first long spelling, or its short spelling when it has no long
+one. So it takes a flag, and a flag whose first long spelling is the negated
+one. A declaration listing both a positive and a negated long spelling is
+decided by whichever long spelling comes first, so `'--no-color, --color'`
+inverts and `'--color, --no-color'` does not. `'--color': { negate: true }`
+registers only `--color`, which turns it on, so its variable reads literally,
+and an option that takes a value is never inverted whatever `negate` and `type`
+say, because argv reads `--color=1` on it literally too. `negate: false` is not
+a negation either, so `NO_COLOR=1` on that flag is `noColor: true`.
+
+The inversion is all the variable shares with argv. `transform` still runs on
+argv values only, as it does for every fallback, so a `transform` on the flag
+can make `--no-color=1` and `NO_COLOR=1` disagree. An empty variable is unset,
+as it is everywhere, and a value `bool` rejects still throws. Only the variable
+is inverted: a `default` declared on the flag is already a value for `color` —
+which is why the implied one is `true` — and is written as it stands. A counter
+given a value is set to it, from the environment as from argv, so a negated
+`count` reads its variable literally.
+
 #### Declaring both a value and its negation
 
 A valued option and a negated flag of the same name may be declared together.
@@ -963,7 +995,9 @@ negated flag would imply is dropped: the pair above starts out undefined, and
 `'mozzarella'`. A `default` declared on the flag itself is still honored when
 the valued twin declares none. Precedence over the shared destination is the
 usual one: argv, then an environment variable declared on either twin — the
-valued twin's are read first — then a default.
+valued twin's are read first — then a default. A variable on the flag is read
+through the negation, so `NO_CHEESE=1` is `cheese: false` and `NO_CHEESE=0` is
+`cheese: true`, the same as `--no-cheese=0`.
 
 Because `<type>` makes the option required, anything that fills the shared
 destination satisfies it — `--cheese <value>`, `--no-cheese`, or a `default`

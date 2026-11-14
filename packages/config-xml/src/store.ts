@@ -1,4 +1,5 @@
 import { lossesOf } from './fidelity.js';
+import { PROCESSING_INSTRUCTION_NODE, type XmlNode } from './names.js';
 import { readDocument, type ReadShape } from './read.js';
 import { nameable, xmlCanHold } from './represent.js';
 import { FRESH, reshape, type Shape, shapeOf } from './shape.js';
@@ -25,6 +26,35 @@ import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 /** Enough of a DOM document for this store: a root, and something to serialize. */
 interface XmlDocument {
   readonly documentElement: XmlEl;
+}
+
+/** What the parser hands back, before it is known to have a root. */
+interface ParsedDocument {
+  readonly documentElement?: XmlEl | null;
+  readonly firstChild?: XmlNode | null;
+}
+
+/**
+ * The encoding a document's XML declaration names, or nothing where it names
+ * none or has no declaration.
+ *
+ * Read off the parsed declaration rather than the text, because the parser has
+ * already decided whether there is one: a declaration is legal only at the very
+ * start of the document and `@xmldom/xmldom` throws on one anywhere else, so
+ * the first child being an `xml` processing instruction is the whole test. Its
+ * data is the pseudo-attributes, and only `version`, `encoding` and
+ * `standalone` can be there, none of whose values can hold `encoding=`.
+ *
+ * @param doc - The parsed document.
+ * @returns The declared name, as written.
+ */
+function declaredEncoding(doc: ParsedDocument): string | undefined {
+  const first = doc.firstChild;
+  if (first?.nodeType !== PROCESSING_INSTRUCTION_NODE || first.nodeName !== 'xml') {
+    return undefined;
+  }
+
+  return /\bencoding\s*=\s*(["'])(.*?)\1/.exec(first.data ?? '')?.[2];
 }
 
 /**
@@ -187,11 +217,12 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // message, which names neither the file nor anything a user can act on:
     // `Opening and ending tag mismatch: "a" != "config"` is the whole of what
     // reached a caller, untranslated, with the path nowhere in it
-    let doc: { documentElement?: XmlEl | null };
+    let doc: ParsedDocument;
     try {
-      doc = new DOMParser({ onError }).parseFromString(xmlText, 'text/xml') as unknown as {
-        documentElement?: XmlEl | null;
-      };
+      doc = new DOMParser({ onError }).parseFromString(
+        xmlText,
+        'text/xml'
+      ) as unknown as ParsedDocument;
     } catch (e: unknown) {
       // the collected message in preference to the thrown one: they are the
       // same sentence, and a parser that reported before it threw has already
@@ -214,6 +245,22 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // where every read of it would be a `TypeError` three frames in
     if (!doc.documentElement) {
       throw new Error(__`Failed to parse ${source}: it has no root element`);
+    }
+
+    // a declaration naming any encoding but UTF-8 is refused even over bytes
+    // that decoded, which can then only be ASCII and mean the same thing in
+    // either. What the store cannot do is keep the declaration's promise: a
+    // write puts UTF-8 into the text and the declaration goes back out as it
+    // was, so an `e` with an acute accent set under `encoding="ISO-8859-1"`
+    // lands as two bytes that every other XML reader takes for two Latin-1
+    // characters -- the corruption SIG-413 is about, reached from the other
+    // side. Every write parses through here, so a refused file is never
+    // written either
+    const encoding = declaredEncoding(doc);
+    if (encoding !== undefined && encoding.toLowerCase() !== 'utf-8') {
+      throw new Error(
+        __`Failed to read ${source}: it declares the encoding "${encoding}", and only UTF-8 is read`
+      );
     }
 
     // the **document** rather than its root element, which is what carries the

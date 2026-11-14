@@ -567,6 +567,39 @@ five things core had deliberately not published, which is the entry below.
   attribute need nothing: XML refuses a control character in a name as a parse
   error first, so none can reach them.
 
+#### A declared encoding is refused unless it is UTF-8, even over ASCII
+
+- **Core refuses bytes that are not UTF-8 (SIG-413), and this store refuses a
+  declaration that names anything else.** The ticket's file was
+  `<?xml version="1.0" encoding="ISO-8859-1"?>` over a Latin-1 `e9`: `get('a')`
+  answered `caf` and U+FFFD, and a save wrote the replacement character's UTF-8
+  bytes under the declaration that was still there. Core's fatal decode is what
+  refuses that file now. What it cannot see is the same declaration over bytes
+  that happen to be ASCII, which decode identically either way -- so reading
+  that file was possible and was refused anyway, deliberately.
+
+- **Because the store cannot keep the declaration's promise, and the write is
+  where it breaks.** A write puts UTF-8 into the text and the serializer puts the
+  declaration back as it was, so a value with an accented letter set under
+  `encoding="ISO-8859-1"` lands as two bytes every other XML reader takes for two
+  Latin-1 characters -- the corruption this ticket is about, reached from the
+  other direction, and silent. Accepting the read and refusing only a write of a
+  non-ASCII value was the other shape and it is the worse one: a file that reads
+  fine and then cannot take a value it was handed is a refusal in the wrong
+  place, and it is an exit handler's `save()` that would meet it. Rewriting the
+  declaration to `UTF-8` on the way out was not considered either, because
+  changing a line nobody asked about is the one thing this store does not do.
+
+- **Read off the parsed declaration, compared without case.** `@xmldom/xmldom`
+  hands the declaration back as a processing instruction named `xml` and throws
+  on one anywhere but the start of the document, so the first child is the
+  whole test and there is no regex over the source to fool with a comment.
+  Encoding names are case-insensitive by the spec, so `utf-8` and `Utf-8` are
+  read; `UTF8`, which is not an IANA name, is refused with the rest. The check
+  sits in the store's one `parse()`, which every read and every write goes
+  through, so a refused file is never written. The message is translated and is
+  therefore one more orphan for `sigil check`, which the entry below records.
+
 #### A sibling package's translated messages have no key registration
 
 - **Everything a user's file can provoke is translated, and `sigil check` reports

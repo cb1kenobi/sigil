@@ -92,11 +92,11 @@
   "views": {
     "narrow": {
       "columns": 40,
-      "output": "react installed \u001b[36m█████████████\u001b[0m 100%\ntypescript      \u001b[36m██████████░░░\u001b[0m  80%\nesbuild         \u001b[36m██████████░░░\u001b[0m  75%"
+      "output": "react installed \u001b[36m█████████████\u001b[0m 100%\ntypescript      \u001b[36m██████████░░░\u001b[0m  80%\nesbuild         \u001b[36m█████████░░░░\u001b[0m  75%"
     },
     "rendered": {
       "columns": 80,
-      "output": "react installed \u001b[36m██████████████████████████\u001b[0m 100%\ntypescript      \u001b[36m█████████████████████░░░░░\u001b[0m  80%\nesbuild         \u001b[36m████████████████████░░░░░░\u001b[0m  75%"
+      "output": "react installed \u001b[36m██████████████████████████\u001b[0m 100%\ntypescript      \u001b[36m████████████████████░░░░░░\u001b[0m  80%\nesbuild         \u001b[36m███████████████████░░░░░░░\u001b[0m  75%"
     }
   }
 }

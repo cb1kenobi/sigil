@@ -127,6 +127,15 @@ export interface LiveClaim {
 
 export interface Terminal {
   /**
+   * Whether the terminal is wrapping a paste in markers, whoever asked it to.
+   *
+   * What the input router asks before it reads `ESC [ 200 ~` as the start of a
+   * paste: a terminal brackets a paste only once it has been told to, so a
+   * marker on a stdin nobody told is a key sequence like any other rather than
+   * an instruction to hold everything after it.
+   */
+  readonly bracketedPaste: boolean;
+  /**
    * The colour level the terminal was built with, or `undefined` when nobody said.
    *
    * `undefined` is the real terminal's answer: it does not know, and the renderer
@@ -579,6 +588,10 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
       claim = it;
       syncRestore();
       return it;
+    },
+
+    get bracketedPaste() {
+      return bracketedPaste;
     },
 
     get closed() {

@@ -8,7 +8,15 @@ import { parse } from '../src/parser/parse.js';
 import { Internal, type ParseState, type Schema } from '../src/types.js';
 import { whichSync } from '../src/which.js';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1454,6 +1462,11 @@ describe('the scripts as shell programs', () => {
       'web',
       'native',
     ]);
+    // a break character that is quoted is no break: readline replaces the
+    // whole word, from just after a quote left open or from its start
+    expect(drive('bash32', ['mycli', 'build', '--tag', 'host\\:po'])).toEqual(['host:port']);
+    expect(drive('bash32', ['mycli', 'build', '--tag', "'host:po"])).toEqual(['host:port']);
+    expect(drive('bash32', ['mycli', 'build', '--tag', '"a:'])).toEqual(['a:b']);
 
     // bash 4 and later, where the same lines arrive split
     expect(drive('bash5', ['mycli', 'build', '--mode', '=', ''])).toEqual(['fast', 'slow']);
@@ -1764,7 +1777,7 @@ describe('the scripts as shell programs', () => {
     const cases: [string[], string[]][] = [
       [
         ['mycli', ''],
-        ['build', 'completion', 'db', 'help', "it's", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
       ],
       [['mycli', 'b'], ['build']],
       [['mycli', 'db', ''], ['migrate']],
@@ -1801,7 +1814,7 @@ describe('the scripts as shell programs', () => {
       // the path stays at the root and the root's commands are what is offered
       [
         ['mycli', '--config', 'build', ''],
-        ['build', 'completion', 'db', 'help', "it's", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
       ],
       // nothing at all after the terminator, which is where extra arguments go
       [['mycli', 'build', '--', ''], []],
@@ -1812,7 +1825,9 @@ describe('the scripts as shell programs', () => {
       // its own guard and each guard needs its own case
       [['mycli', 'build', '--out', ''], []],
       [['mycli', 'build', '--out', '=', ''], []],
-      [['mycli', 'i'], ["it's"]],
+      // `COMPREPLY` is what readline inserts, so a name a shell would read as
+      // something else is there as it has to be typed
+      [['mycli', 'i'], ["it\\'s"]],
       [
         ['mycli', 'r'],
         ['remove', 'rm'],
@@ -1835,14 +1850,28 @@ describe('the scripts as shell programs', () => {
       // still to come, so the skip has to survive it
       [
         ['mycli', '--config', '=', 'build', ''],
-        ['build', 'completion', 'db', 'help', "it's", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
       ],
       // a word that extends no known path is not a command, so the path stays
       // where it was rather than moving somewhere nothing is offered
       [
         ['mycli', 'nope', ''],
-        ['build', 'completion', 'db', 'help', "it's", 'remove', 'rm'],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
       ],
+      // a quote is in the default `COMP_WORDBREAKS`, and a word that is one,
+      // or ends in one, is not a word the line was split at: `''` is an empty
+      // value and `a\'` a value ending in a quote, and gluing either to its
+      // neighbour took the path with it
+      [
+        ['mycli', '--config', "''", ''],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+      ],
+      [
+        ['mycli', '--config', "a\\'", ''],
+        ['build', 'completion', 'db', 'help', "it\\'s", 'remove', 'rm'],
+      ],
+      // a word is read as the value it spells, so a quoted command is one
+      [['mycli', "'remove'", '--f'], ['--force']],
     ];
 
     for (const [words, expected] of cases) {
@@ -1860,5 +1889,313 @@ describe('the scripts as shell programs', () => {
 
       expect(got, words.join(' ')).toEqual(expected);
     }
+  });
+});
+
+describe('a candidate inserted by a real interactive bash', () => {
+  // `COMPREPLY` is inserted as it stands -- bash quotes a candidate only under
+  // `-o filenames`, which this script does not ask for -- so a value holding a
+  // space, a quote, a `$`, a backtick, a `*`, a `\` or a `!` used to reach argv
+  // as something other than the value offered: `two words` as two arguments,
+  // `it's` as an unterminated quote and a continuation prompt, `$HOME` as the
+  // home directory, `*` as whatever was in the directory. The drivers above
+  // read `COMPREPLY` back, which was right all along, so the defect was only
+  // visible past readline -- which is where this reads it: an interactive bash
+  // on a pty, the line typed, TAB, Enter, and the argv the command received.
+  //
+  // Python's `pty` is the terminal because nothing in node opens one and this
+  // package takes no dependency to get one. No sleeps: readline handles the
+  // TAB completely before it reads the Enter behind it, so the keys go in one
+  // write and the only waiting is for output, under a deadline that fails
+  // rather than one that paces.
+  const bash = whichSync('bash');
+  const python = whichSync('python3');
+  // every bash this machine has, by what it resolves to: on a Mac `/bin/bash`
+  // is 3.2 and a `bash` on `PATH` may be a 5 from Homebrew, and both are
+  // somebody's shell
+  const bashes = [
+    ...new Set(
+      [bash, process.platform === 'darwin' ? '/bin/bash' : undefined]
+        .filter((it): it is string => typeof it === 'string' && existsSync(it))
+        .map((it) => realpathSync(it))
+    ),
+  ];
+  const skip = process.platform === 'win32' || !python || bashes.length === 0;
+
+  const DRIVER = [
+    'import json, os, pty, select, sys, time',
+    'bash, rcfile, cwd, cases = sys.argv[1], sys.argv[2], sys.argv[3], json.loads(sys.argv[4])',
+    'pid, fd = pty.fork()',
+    'if pid == 0:',
+    '    os.chdir(cwd)',
+    "    env = {'HOME': cwd, 'PATH': '/usr/bin:/bin', 'TERM': 'dumb', 'INPUTRC': os.devnull}",
+    "    os.execve(bash, [bash, '--noprofile', '--rcfile', rcfile, '-i'], env)",
+    "buf = b''",
+    'def until(marks):',
+    '    global buf',
+    '    deadline = time.monotonic() + 15',
+    '    while True:',
+    '        hits = sorted((buf.find(m), m) for m in marks if buf.find(m) >= 0)',
+    '        if hits:',
+    '            at, mark = hits[0]',
+    '            out, buf = buf[:at], buf[at + len(mark):]',
+    '            return mark, out',
+    '        left = deadline - time.monotonic()',
+    '        if not select.select([fd], [], [], max(left, 0))[0]:',
+    "            sys.exit('waited for %r and got %r' % (marks, buf))",
+    '        try:',
+    '            chunk = os.read(fd, 4096)',
+    '        except OSError:',
+    "            chunk = b''",
+    '        if not chunk:',
+    "            sys.exit('bash exited: %r' % buf)",
+    '        buf += chunk',
+    "until([b'READY> '])",
+    'results = []',
+    'for typed in cases:',
+    // TAB then Enter, as codes rather than escapes
+    '    os.write(fd, typed.encode() + bytes([9, 13]))',
+    "    mark, out = until([b'ARGV:', b'CONT> ', b'READY> '])",
+    // a prompt with no argv before it is a line bash refused to run, such as
+    // a history expansion that found no event, so what it said is the answer
+    "    if mark == b'READY> ':",
+    "        results.append('not run: ' + out.decode('utf8', 'replace').strip())",
+    '        continue',
+    "    if mark == b'CONT> ':",
+    // a continuation prompt is an unterminated quote; Ctrl-C abandons the line
+    '        os.write(fd, bytes([3]))',
+    '        results.append(None)',
+    '    else:',
+    "        results.append(until([b':END'])[1].decode())",
+    "    until([b'READY> '])",
+    "os.write(fd, b'exit' + bytes([13]))",
+    'print(json.dumps(results))',
+  ].join('\n');
+
+  const app: Schema = {
+    commands: {
+      "it's": { options: { '--force': 'force' }, run(): void {} },
+    },
+    completion: false,
+    help: false,
+    name: 'mycli',
+    options: {
+      '--level [level]': {
+        choices: [
+          'two words',
+          "it's",
+          '$HOME',
+          '*',
+          'back\\slash',
+          'back`tick',
+          'a!b',
+          // `~/x` rather than `~x`, whose expansion names a user nobody has and
+          // so comes back unchanged
+          '~/x',
+          'plain',
+        ],
+      },
+      '--out [file]': 'where',
+      // values that end in a quote character, or are nothing else, each on an
+      // option of its own so that a prefix picks exactly one
+      '--endq [v]': { choices: ['trail"', 'say "hi"', 'bang!'] },
+      '--endsq [v]': { choices: ["end'"] },
+      '--onlyq [v]': { choices: ['"'] },
+      '--onlysq [v]': { choices: ["'"] },
+      // a `~` after `=` or `:` is expanded too, which bash 3.2's `%q` leaves bare
+      '--tilde [v]': { choices: ['foo=~/x', 'bar=~/x:~/y'] },
+    },
+    quiet: false,
+  };
+
+  let dir: string;
+
+  afterAll(() => {
+    if (dir) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  /**
+   * Types each line into one interactive bash, presses TAB and then Enter.
+   *
+   * @param shell - The bash to run.
+   * @param lines - What is typed before the TAB.
+   * @returns The argv `mycli` received for each line, as `[arg]` per argument,
+   *   or `null` where bash asked for more because a quote was left open.
+   */
+  async function typed(shell: string, lines: string[]): Promise<(string | null)[]> {
+    dir ??= mkdtempSync(join(tmpdir(), 'sigil-completion-pty-'));
+    const box = mkdtempSync(join(dir, 'case-'));
+    // a file the `-o default` fallback can find, and something for an
+    // unquoted `*` to have globbed into
+    const cwd = join(box, 'cwd');
+    mkdirSync(cwd);
+    writeFileSync(join(cwd, 'two words.txt'), '');
+
+    const script = join(box, 'completion.bash');
+    writeFileSync(script, await completionScript(await state(app), 'bash'));
+    const rcfile = join(box, 'rc.bash');
+    writeFileSync(
+      rcfile,
+      [
+        "PS1='READY> '",
+        "PS2='CONT> '",
+        // a function rather than a program, so argv is all there is to read
+        `mycli() { printf 'ARGV:'; printf '[%s]' "$@"; printf ':END\\n'; }`,
+        `source ${bashQuote(script)}`,
+      ].join('\n')
+    );
+    const driver = join(box, 'drive.py');
+    writeFileSync(driver, DRIVER);
+
+    const out = execFileSync(python!, [driver, shell, rcfile, cwd, JSON.stringify(lines)], {
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    return JSON.parse(out) as (string | null)[];
+  }
+
+  // `.each()` over nothing is an error rather than a skip
+  describe.skipIf(skip).each(bashes.length > 0 ? bashes : ['bash'])('%s', (shell) => {
+    it('should insert a value so that argv receives the value offered', async () => {
+      const cases: [string, string | null][] = [
+        ['mycli --level tw', '[--level][two words]'],
+        ['mycli --level it', "[--level][it's]"],
+        ['mycli --level $H', '[--level][$HOME]'],
+        ['mycli --level back\\\\', '[--level][back\\slash]'],
+        ['mycli --level back\\`', '[--level][back`tick]'],
+        ['mycli --level a', '[--level][a!b]'],
+        ['mycli --level ~', '[--level][~/x]'],
+        ['mycli --level pl', '[--level][plain]'],
+        // the only candidate for a lone `*` is `*`, which has to arrive
+        // unglobbed in a directory that has a file in it
+        ['mycli --level *', '[--level][*]'],
+        // an attached value, where readline keeps the `--level=`
+        ['mycli --level=tw', '[--level=two words]'],
+        ['mycli --level=it', "[--level=it's]"],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should match what was typed with its quoting taken off', async () => {
+      const cases: [string, string | null][] = [
+        // an escaped space is one word, and `two w` is a prefix of the value
+        ['mycli --level two\\ w', '[--level][two words]'],
+        ["mycli --level it\\'", "[--level][it's]"],
+        ['mycli --level \\$H', '[--level][$HOME]'],
+        // inside a quote the user opened, bash closes it and nothing is
+        // escaped but what that quote needs
+        ["mycli --level 'tw", '[--level][two words]'],
+        ['mycli --level "tw', '[--level][two words]'],
+        ["mycli --level 'it", "[--level][it's]"],
+        ['mycli --level "it', "[--level][it's]"],
+        ['mycli --level "$H', '[--level][$HOME]'],
+        ['mycli --level "back\\\\', '[--level][back\\slash]'],
+        ['mycli --level "back\\`', '[--level][back`tick]'],
+        ['mycli --level "a', '[--level][a!b]'],
+        ["mycli --level 'a", '[--level][a!b]'],
+        ["mycli --level='it", "[--level=it's]"],
+        ['mycli --level="two w', '[--level=two words]'],
+        // a quote opened part way through a word: readline replaces only what
+        // follows it, so that is all that may be inserted
+        ["mycli --level it'", "[--level][it's]"],
+        ["mycli --level=it'", "[--level=it's]"],
+        ['mycli --level a"', '[--level][a!b]'],
+        ["mycli --level a'", '[--level][a!b]'],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should close an open quote when the value ends in that quote', async () => {
+      // readline appends the closing quote only when the character before the
+      // cursor is not already one, so a replacement ending in an escaped quote
+      // -- or in the quote `"\!"` reopens -- was left open, at the
+      // continuation prompt
+      const cases: [string, string | null][] = [
+        ['mycli --endq "t', '[--endq][trail"]'],
+        ['mycli --endq "s', '[--endq][say "hi"]'],
+        ['mycli --endq "b', '[--endq][bang!]'],
+        ["mycli --endq 't", '[--endq][trail"]'],
+        ['mycli --endq t', '[--endq][trail"]'],
+        ["mycli --endsq 'e", "[--endsq][end']"],
+        ['mycli --endsq "e', "[--endsq][end']"],
+        ['mycli --endsq e', "[--endsq][end']"],
+        // a value that is only the quote, typed from the quote alone
+        ['mycli --onlyq "', '[--onlyq]["]'],
+        ["mycli --onlyq '", '[--onlyq]["]'],
+        ["mycli --onlysq '", "[--onlysq][']"],
+        ['mycli --onlysq "', "[--onlysq][']"],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should not let a tilde after = or : expand', async () => {
+      const cases: [string, string | null][] = [
+        ['mycli --tilde f', '[--tilde][foo=~/x]'],
+        ['mycli --tilde foo\\=', '[--tilde][foo=~/x]'],
+        ['mycli --tilde foo=', '[--tilde][foo=~/x]'],
+        ['mycli --tilde b', '[--tilde][bar=~/x:~/y]'],
+        // readline keeps what precedes the `:`, so the first `~` is the one
+        // the user typed and has to escape; what is inserted is the second
+        ['mycli --tilde bar=\\~/x:', '[--tilde][bar=~/x:~/y]'],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should resolve a command whose inserted name was quoted', async () => {
+      const cases: [string, string | null][] = [
+        ['mycli it', "[it's]"],
+        // what the line holds once `it's` was inserted, which the walk has to
+        // read as the command before `--force` is one of its options
+        ["mycli it\\'s --f", "[it's][--force]"],
+        ['mycli "it\'s" --f', "[it's][--force]"],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should leave a file to `-o default`, which quotes it itself', async () => {
+      const cases: [string, string | null][] = [
+        ['mycli --out tw', '[--out][two words.txt]'],
+        ["mycli --out 'tw", '[--out][two words.txt]'],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
   });
 });

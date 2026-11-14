@@ -66,9 +66,14 @@ export interface ConfigDocument {
  * parser rather than one wrapping the other:
  *
  * ```ts
- * async read() { return this.#parse(await readFile(this.#path, 'utf8')); }
- * readSync()   { return this.#parse(readFileSync(this.#path, 'utf8')); }
+ * async read() { return this.#parse(await readText(this.#path)); }
+ * readSync()   { return this.#parse(readTextSync(this.#path)); }
  * ```
+ *
+ * `readText()` and `readTextSync()` rather than `readFile(path, 'utf8')`, for a
+ * file store: that decoding reads every byte that is not UTF-8 as U+FFFD, so a
+ * store that writes what it read back destroys them. The two refuse such a file
+ * instead, and read a missing one as `undefined`.
  *
  * Two earlier shapes of this were wrong in opposite directions. Making `read()`
  * required and having a synchronous store write

@@ -424,6 +424,203 @@ describe('options', () => {
   });
 
   /**
+   * A variable declared on a negated flag is spelled through the flag's name, so
+   * it is read through the negation the way `--no-color=1` is: `NO_COLOR=1` means
+   * no color. It used to be coerced and written to the destination as it stood,
+   * which turned color on.
+   */
+  describe('environment on a negated flag', () => {
+    const lone = { '--no-color': { env: 'NO_COLOR' } };
+
+    it('should not turn color on when NO_COLOR=1', async () => {
+      const result = await parse({ env: { NO_COLOR: '1' }, schema: { options: lone } });
+      expect(result.argv.color).to.equal(false);
+    });
+
+    it('should not turn color off when NO_COLOR=0', async () => {
+      const result = await parse({ env: { NO_COLOR: '0' }, schema: { options: lone } });
+      expect(result.argv.color).to.equal(true);
+    });
+
+    it.each([
+      ['true', false],
+      ['YES', false],
+      ['on', false],
+      ['false', true],
+      ['no', true],
+      ['off', true],
+    ])('should read NO_COLOR=%s through the negation', async (value, color) => {
+      const result = await parse({ env: { NO_COLOR: value }, schema: { options: lone } });
+      expect(result.argv.color).to.equal(color);
+    });
+
+    it('should read the same as argv given the same value', async () => {
+      for (const value of ['1', '0']) {
+        const fromEnv = await parse({ env: { NO_COLOR: value }, schema: { options: lone } });
+        const fromArgv = await parse({ argv: [`--no-color=${value}`], schema: { options: lone } });
+        expect(fromEnv.argv.color).to.equal(fromArgv.argv.color);
+      }
+    });
+
+    it('should read through the negation from every variable the flag names', async () => {
+      const options = { '--no-color': { env: ['APP_NO_COLOR', 'NO_COLOR'] } };
+      const result = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      expect(result.argv.color).to.equal(false);
+    });
+
+    it('should read through the negation on a flag declared with negate: true', async () => {
+      const options = { color: { env: 'NO_COLOR', negate: true } };
+      const result = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      expect(result.argv.color).to.equal(false);
+    });
+
+    it('should still read an empty NO_COLOR as unset', async () => {
+      const result = await parse({ env: { NO_COLOR: '' }, schema: { options: lone } });
+      expect(result.argv.color).to.equal(true);
+    });
+
+    it('should still reject a value the bool type rejects', async () => {
+      await expect(
+        parse({ env: { NO_COLOR: 'please' }, schema: { options: lone } })
+      ).rejects.toThrow('Invalid boolean: "please"');
+    });
+
+    it('should let argv beat NO_COLOR', async () => {
+      const result = await parse({
+        argv: ['--color'],
+        env: { NO_COLOR: '1' },
+        schema: { options: lone },
+      });
+      expect(result.argv.color).to.equal(true);
+    });
+
+    it('should not invert a default declared on the negated flag', async () => {
+      // a default is already a value for the destination -- a lone negated
+      // flag's implied one is `true` -- so it is never read through the name
+      const options = { '--no-color': { default: 'yes', env: 'NO_COLOR' } };
+      const result = await parse({ env: {}, schema: { options } });
+      expect(result.argv.color).to.equal(true);
+    });
+
+    it('should read the variable literally on a flag that opted out with negate: false', async () => {
+      const options = { '--no-color': { env: 'NO_COLOR', negate: false } };
+      expect((await parse({ env: { NO_COLOR: '1' }, schema: { options } })).argv.noColor).to.equal(
+        true
+      );
+      expect((await parse({ env: { NO_COLOR: '0' }, schema: { options } })).argv.noColor).to.equal(
+        false
+      );
+    });
+
+    it('should set a negated counter to the value rather than invert it', async () => {
+      // the same as argv, where a counter reached with a value is set to it
+      const options = { '--no-quiet': { env: 'NO_QUIET', type: 'count' } } as const;
+      const result = await parse({ env: { NO_QUIET: '2' }, schema: { options } });
+      expect(result.argv.quiet).to.equal(2);
+    });
+
+    // `negate: true` alone does not make a variable invert: argv inverts only a
+    // flag reached through its negated spelling, and the variable follows argv
+    it.each([
+      [
+        'a valued bool',
+        { '--color <on>': { env: 'COLOR', negate: true, type: 'bool' } },
+        'COLOR',
+        '--color=1',
+        'color',
+      ],
+      [
+        'a bool made valued by its hint',
+        { '--no-color': { env: 'NO_COLOR', hint: 'when', negate: true, type: 'bool' } },
+        'NO_COLOR',
+        '--no-color=1',
+        'noColor',
+      ],
+      [
+        'a flag whose only spelling is the positive one',
+        { '--color': { env: 'NO_COLOR', negate: true } },
+        'NO_COLOR',
+        '--color=1',
+        'color',
+      ],
+    ] as [string, Record<string, Option>, string, string, string][])(
+      'should not invert the variable on %s, since argv does not invert its value',
+      async (_label, options, name, token, dest) => {
+        const fromEnv = await parse({ env: { [name]: '1' }, schema: { options } });
+        const fromArgv = await parse({ argv: [token], schema: { options } });
+        expect(fromArgv.argv[dest]).to.equal(true);
+        expect(fromEnv.argv[dest]).to.equal(true);
+      }
+    );
+
+    it('should invert the variable on a short-aliased negated flag as argv does', async () => {
+      const options = { '-C, --no-color': { env: 'NO_COLOR' } };
+      const fromEnv = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      const fromArgv = await parse({ argv: ['-C=1'], schema: { options } });
+      expect(fromArgv.argv.color).to.equal(false);
+      expect(fromEnv.argv.color).to.equal(false);
+    });
+
+    it('should still run transform on argv only, not on NO_COLOR', async () => {
+      // the fallback never runs `transform`, which is its own rule; the variable
+      // is read through the negation, and that is all it shares with argv
+      const options = { '--no-color': { env: 'NO_COLOR', transform: async (v: unknown) => !v } };
+      const fromEnv = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      const fromArgv = await parse({ argv: ['--no-color=1'], schema: { options } });
+      expect(fromEnv.argv.color).to.equal(false);
+      expect(fromArgv.argv.color).to.equal(true);
+    });
+
+    type Pair = [string, Record<string, Option>];
+
+    const pairs: Pair[] = [
+      ['valued first', { '--cheese [type]': {}, '--no-cheese': { env: 'NO_CHEESE' } }],
+      ['negated first', { '--no-cheese': { env: 'NO_CHEESE' }, '--cheese [type]': {} }],
+    ];
+
+    it.each(pairs)(
+      'should not turn cheese on when NO_CHEESE=1 beside a valued twin, %s',
+      async (_label, options) => {
+        const result = await parse({ env: { NO_CHEESE: '1' }, schema: { options } });
+        expect(result.argv.cheese).to.equal(false);
+      }
+    );
+
+    it.each(pairs)(
+      'should read NO_CHEESE=0 beside a valued twin as --no-cheese=0 does, %s',
+      async (_label, options) => {
+        const fromEnv = await parse({ env: { NO_CHEESE: '0' }, schema: { options } });
+        const fromArgv = await parse({ argv: ['--no-cheese=0'], schema: { options } });
+        expect(fromEnv.argv.cheese).to.equal(true);
+        expect(fromArgv.argv.cheese).to.equal(true);
+      }
+    );
+
+    it.each([
+      [
+        'valued first',
+        { '--cheese [type]': { choices: ['brie'] }, '--no-cheese': { env: 'NO_CHEESE' } },
+      ],
+      [
+        'negated first',
+        { '--no-cheese': { env: 'NO_CHEESE' }, '--cheese [type]': { choices: ['brie'] } },
+      ],
+    ] as Pair[])(
+      'should leave the valued twin choices out of what NO_CHEESE wrote, %s',
+      async (_label, options) => {
+        // the flag wrote the destination, so the value answers to the flag
+        for (const [value, cheese] of [
+          ['1', false],
+          ['0', true],
+        ] as const) {
+          const result = await parse({ env: { NO_CHEESE: value }, schema: { options } });
+          expect(result.argv.cheese).to.equal(cheese);
+        }
+      }
+    );
+  });
+
+  /**
    * A valued option and its negated flag declared separately — Commander's
    * "dual options" — resolve to the same name and the same destination. They
    * are two options keyed apart in the registry, so both survive in either
@@ -571,7 +768,7 @@ describe('options', () => {
     ] as Order[])(
       'should let the environment on the flag satisfy the requirement, %s',
       async (_label, options) => {
-        const result = await parse({ env: { NO_CHEESE: 'false' }, schema: { options } });
+        const result = await parse({ env: { NO_CHEESE: 'true' }, schema: { options } });
         expect(result.argv.cheese).to.equal(false);
       }
     );
@@ -603,7 +800,7 @@ describe('options', () => {
     ] as Order[])(
       'should let the environment on either twin beat a default on the other, %s',
       async (_label, options) => {
-        const result = await parse({ env: { NO_CHEESE: 'false' }, schema: { options } });
+        const result = await parse({ env: { NO_CHEESE: 'true' }, schema: { options } });
         expect(result.argv.cheese).to.equal(false);
       }
     );

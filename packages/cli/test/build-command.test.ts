@@ -646,6 +646,47 @@ describe('sigil build', () => {
     expect(built('help', 'early').stdout).toContain('from base');
   }, 60_000);
 
+  it("a placeholder's alias and default were read from their first spelling, so the build refused an app that starts and baked what a spread replaces", async () => {
+    // SIG-430. `{ default: 'yes', default: true }` and `{ alias: 42, alias:
+    // 'rm' }` start from source and failed the build; `{ alias: 'del', ...base }`
+    // and `{ default: true, ...off }` baked `del` and `true`, so the built app
+    // answered to a spelling and ran a default the app does not
+    const app = join(fixtures, 'discover', 'placeholder-spellings');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).not.toContain('error:');
+    expect(err).toContain(
+      'the "purge" command\'s "alias" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not answer to the alias the app runs with'
+    );
+    expect(err).toContain(
+      'the "stage" command\'s "default" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will not run it when argv names no command'
+    );
+    expect(process.exitCode).toBeFalsy();
+
+    const spawn = (file: string, argv: string[]) => {
+      const { status, stderr, stdout } = spawnSync(process.execPath, [file, ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+      return { status, stderr, stdout };
+    };
+    const built = (...argv: string[]) => spawn(join(out, 'placeholder-spellings.mjs'), argv);
+    const source = (...argv: string[]) => spawn(join(app, 'dev.ts'), argv);
+
+    // the last spelling routes, and `del` is replaced by the spread both ways
+    for (const argv of [[], ['rm'], ['del'], ['stage']]) {
+      expect(built(...argv), argv.join(' ')).toStrictEqual(source(...argv));
+    }
+    expect(source().stdout).toBe('ship ran\n');
+    expect(source('rm').stdout).toBe('remove ran\n');
+    expect(source('del').stderr).toContain('Unexpected argument "del"');
+
+    // what the spread carries is not read, so the built app does not answer to
+    // it -- the one difference, and the one the warning names
+    expect(source('erase').stdout).toBe('purge ran\n');
+    expect(built('erase').stderr).toContain('Unexpected argument "erase"');
+  }, 60_000);
+
   it('should refuse a package the schema points at whose names it cannot read', async () => {
     // SIG-332. From source such a package answers to whatever its module
     // computes, so a build that baked the key, or guessed, would route the built
