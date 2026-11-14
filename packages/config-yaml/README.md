@@ -212,7 +212,10 @@ item nothing touched stays where it is.
 
 ### Your file's own shape is kept
 
-A byte order mark, CRLF line endings and the exact run of newlines the file ends
+The file is read as UTF-8 and nothing else: one that is not -- Latin-1, or
+UTF-16 with its byte order mark -- is refused at the read, naming it, rather than
+decoded with every unreadable byte replaced and then written back that way. A
+UTF-8 byte order mark, CRLF line endings and the exact run of newlines the file ends
 with are detected at read and reapplied at write, so none of them is a loss. So
 is the **layout**: `yaml` renders indentation from options rather than from the
 source, so the store reads the file's own and renders with it. Measured, that

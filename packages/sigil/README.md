@@ -7600,7 +7600,10 @@ resolution that fails for any reason but something not being there throws.
 
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
-holds, or `undefined` where it is not there; `claim(theirs, value, paths,
+holds, or `undefined` where it is not there -- and they refuse a file that is not
+UTF-8, naming it and the offset of the first bad byte, rather than reading every
+such byte as U+FFFD for a write to put back; a UTF-8 byte order mark is kept as
+U+FEFF, and a UTF-16 one is refused by name; `claim(theirs, value, paths,
 source)` is what a write with `WriteOptions.paths` should leave in the file; and
 `rewrite(source, render, value, opts)` and `rewriteSync()` read the file, hand
 its text to your store's `render` -- a `RenderText` -- and write the result back
