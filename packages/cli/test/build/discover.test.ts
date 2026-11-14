@@ -38,13 +38,32 @@ async function withSchema<T>(
 }
 
 /**
- * What a placeholder is refused for when a spread or a computed key may carry its
- * `name`, `path` or `load` (SIG-433, SIG-434), left out of a test about another
- * key. Those placeholders spread an object to show what happens to `desc` or
- * `alias`, and the tests about the refusal are the ones that assert it.
+ * The one refusal a placeholder gets for a spread that may carry its `name`,
+ * `path` or `load` (SIG-433, SIG-434), left out of a test about another key.
+ *
+ * Those placeholders spread a name -- `...base` -- to show what happens to `desc`
+ * or `alias`, and a spread of a name is the shape the build refuses; the tests
+ * about the refusal are the ones that assert it. Exactly one error per command
+ * named is removed and none else, and one that is not there fails the test, so
+ * this cannot swallow a refusal nobody expected.
  */
-function withoutPlacement<T extends { message: string }>(diagnostics: readonly T[]): T[] {
-  return diagnostics.filter((d) => !/the build cannot tell which (?:name|module)/.test(d.message));
+function withoutPlacement<T extends { message: string; severity: string }>(
+  diagnostics: readonly T[],
+  commands: readonly string[]
+): T[] {
+  const rest = [...diagnostics];
+  for (const command of commands) {
+    const index = rest.findIndex(
+      (d) =>
+        d.severity === 'error' &&
+        d.message.startsWith(`the "${command}" command `) &&
+        d.message.includes('the build cannot tell which')
+    );
+    expect(index, `a refusal for "${command}"`).toBeGreaterThanOrEqual(0);
+    rest.splice(index, 1);
+  }
+
+  return rest;
 }
 
 /**
@@ -410,7 +429,9 @@ export default {
           `the "${name}" command spreads another object, which may carry ${key === 'alias' ? 'an' : 'a'} "${key}" this cannot see; ${consequence}`;
         const alias = 'the built app will not answer to the alias the app runs with';
         const isDefault = 'the built app will not run it when argv names no command';
-        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(
+          withoutPlacement(diagnostics, ['async', 'number']).map((d) => [d.severity, d.message])
+        ).toStrictEqual([
           ['warning', before('async', 'desc', 'the built app will list it by name alone')],
           // `base` is a name, so it may carry a `hidden` too, and the two keys
           // that route (SIG-430)
@@ -421,14 +442,16 @@ export default {
           ['warning', carried('number', 'hidden', 'the built app will list it in help')],
           ['warning', carried('number', 'alias', alias)],
           ['warning', carried('number', 'default', isDefault)],
-          ['warning', before('method', 'hidden', 'the built app will list it in help')],
-          ['warning', before('computed', 'desc', 'the built app will list it by name alone')],
         ]);
         // ...and nothing baked, `x` least of all
-        for (const name of ['async', 'number', 'computed']) {
+        for (const name of ['async', 'number']) {
           expect(at(list, name).desc).toBeUndefined();
         }
-        expect(at(list, 'method').hidden).toBeUndefined();
+        // a spread of a literal is what it holds and `['desc']` is `desc`, so
+        // what replaces the method and the thunk is read rather than unknown
+        // (SIG-433, SIG-434)
+        expect(at(list, 'method').hidden).toBe(false);
+        expect(at(list, 'computed').desc).toBe('Build the app');
       });
     });
 
@@ -473,13 +496,11 @@ export default {
           '!quiet': undefined,
         });
 
-        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(
+          withoutPlacement(diagnostics, ['quiet']).map((d) => [d.severity, d.message])
+        ).toStrictEqual([
           ['error', runtime.refused],
           ['error', runtime['!secret']],
-          [
-            'warning',
-            'the "spread" command\'s "desc" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will list it by name alone',
-          ],
           [
             'warning',
             'the "quiet" command spreads another object, which may carry a "desc" this cannot see; the built app will list it by name alone',
@@ -501,8 +522,8 @@ export default {
         expect(at(list, 'keyed').desc).toBe('Build the app');
         expect(at(list, 'shown').hidden).toBe(true);
         // the runtime shows `from spread` before the module loads, and the
-        // module's own words are not baked in its place
-        expect(at(list, 'spread').desc).toBeUndefined();
+        // spread is a literal, so that is what is baked (SIG-433, SIG-434)
+        expect(at(list, 'spread').desc).toBe('from spread');
         expect(at(list, '!quiet').hidden).toBeUndefined();
       });
     });
@@ -559,27 +580,18 @@ export default {
         expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
           ['error', runtime.nulled],
           ['error', runtime.zero],
-          [
-            'warning',
-            'the "absent" command spreads another object, which may carry a "desc" this cannot see; the built app will list it by name alone',
-          ],
-          [
-            'warning',
-            'the "absent" command spreads another object, which may carry a "hidden" this cannot see; the built app will list it in help',
-          ],
-          [
-            'warning',
-            'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is neither a boolean nor undefined, which the app refuses',
-          ],
         ]);
         for (const name of ['array', 'string', 'keyed']) {
           expect(at(list, name).desc, name).toBe('Build the app');
         }
         expect(at(list, 'off').hidden).toBe(true);
         expect(at(list, 'second').desc).toBe('second');
-        // the placeholder's spread decides both, so the module's are not baked
-        expect(at(list, 'absent').desc).toBeUndefined();
-        expect(at(list, 'absent').hidden).toBeUndefined();
+        // the placeholder's spread decides both, so the module's are not baked --
+        // and it is a literal, so what it holds is (SIG-433, SIG-434)
+        expect(at(list, 'absent').desc).toBe('from the placeholder');
+        expect(at(list, 'absent').hidden).toBe(true);
+        // a `hidden: undefined` that a literal spread puts last is not declared
+        expect(at(list, '!quiet').hidden).toBeUndefined();
       });
     });
 
@@ -634,7 +646,9 @@ export default {
         await expect(import(pathToFileURL(join(dir, 'src', 'index.js')).href)).rejects.toThrow(
           TypeError
         );
-        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(
+          withoutPlacement(diagnostics, ['spread']).map((d) => [d.severity, d.message])
+        ).toStrictEqual([
           [
             'warning',
             'the "spread" command\'s "desc" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will list it by name alone',
@@ -657,15 +671,16 @@ export default {
       });
     });
 
-    it('should read a key built by an expression, or a spread of a conditional, as one that may carry anything', async () => {
+    it('should read a key built by an expression, or a spread of a conditional with an arm that is not a literal, as one that may carry anything', async () => {
       // literals are read and expressions are not evaluated, which can only
       // turn a bake into a warning and never bake a wrong value
       const source = `const flag = false;
+const other = { other: 2 };
 export default {
   baseDir: import.meta.dirname,
   commands: {
     joined: { desc: 'Build the app', ['de' + 'sc']: 'Joined', path: './commands/a.js' },
-    either: { desc: 'Build the app', ...(flag ? { path: './commands/a.js' } : { path: './commands/a.js' }) },
+    either: { desc: 'Build the app', ...(flag ? { other: 1 } : other), path: './commands/a.js' },
   },
 };\n`;
 
@@ -1029,6 +1044,8 @@ export default {
     purge: { alias: 'del', ...base },
     stage: { default: true, ...off },
     keyed: { alias: 'del', ['alias']: 'erase', path: './commands/a.js' },
+    // a spread of a literal is what it holds, and is read, not unknown
+    literal: { alias: 'del', ...{ alias: 'rm', default: true }, path: './commands/a.js' },
     carried: { ...base },
   },
 };\n`;
@@ -1059,6 +1076,7 @@ export default {
           purge: undefined,
           stage: undefined,
           keyed: undefined,
+          literal: 'Command module not found: ./commands/a.js',
           carried: undefined,
         });
 
@@ -1069,7 +1087,7 @@ export default {
         const alias = 'the built app will not answer to the alias the app runs with';
         const isDefault = 'the built app will not run it when argv names no command';
         expect(
-          withoutPlacement(diagnostics)
+          withoutPlacement(diagnostics, ['purge', 'stage', 'carried'])
             // `desc` and `hidden` say what they always said about a spread
             .filter((d) => !/"(?:desc|hidden)"/.test(d.message))
             .map((d) => [d.severity, d.message])
@@ -1085,7 +1103,6 @@ export default {
           ['warning', carried('purge', 'default', isDefault)],
           ['warning', carried('stage', 'alias', alias)],
           ['warning', before('stage', 'default', isDefault)],
-          ['warning', before('keyed', 'alias', alias)],
           ['warning', carried('carried', 'alias', alias)],
           ['warning', carried('carried', 'default', isDefault)],
         ]);
@@ -1097,16 +1114,21 @@ export default {
         expect(at(list, 'unset').alias).toBeUndefined();
         expect(at(list, 'unset').default).toBeUndefined();
         // ...and nothing earlier is baked in place of what may replace it
-        for (const name of ['late', 'getter', 'purge', 'keyed', 'carried']) {
+        for (const name of ['late', 'getter', 'purge', 'carried']) {
           expect(at(list, name).alias, name).toBeUndefined();
         }
+        // ...while a computed key written as a string, and a spread of a
+        // literal, are the keys they spell (SIG-433, SIG-434)
+        expect(at(list, 'keyed').alias).toStrictEqual(['erase']);
+        expect(at(list, 'literal').alias).toStrictEqual(['rm']);
+        expect(at(list, 'literal').default).toBe(true);
         for (const name of ['method', 'stage', 'purge', 'carried']) {
           expect(at(list, name).default, name).toBeUndefined();
         }
       });
     });
 
-    it("read a placeholder's name from its last spelling, and refused one a spread or a computed key may carry or replace", async () => {
+    it("read a placeholder's name from its last spelling, and refused one the build cannot read", async () => {
       // SIG-433. The runtime registers the object a placeholder ends up as, and
       // the build keyed its tree by the first `name` it found: `first` where the
       // app answers to `second`. A name nothing here can read is refused rather
@@ -1114,18 +1136,29 @@ export default {
       // command that is simply not there
       const source = `const named = { name: 'later' };
 const key = 'name';
+const prefix = 'pre';
+const nm = () => 'got';
+const on = true;
 export default {
   baseDir: import.meta.dirname,
   commands: {
     twice: { name: 'first', name: 'second', path: './commands/a.js' },
     unset: { name: 'gone', name: undefined, path: './commands/a.js' },
     settled: { name: 'early', ...named, name: 'final', path: './commands/a.js' },
-    before: { name: 'early', ...named, path: './commands/a.js' },
     inside: { name: 'early', ...{ other: 1 }, path: './commands/a.js' },
+    spreadLiteral: { name: 'early', ...{ name: 'literal' }, path: './commands/a.js' },
+    quoted: { ['name']: 'quoted', path: './commands/a.js' },
+    quotedLast: { name: 'early', ['name']: 'quotedLast', path: './commands/a.js' },
+    symbols: { [Symbol.for('name')]: 1, name: 'symbols', path: './commands/a.js' },
+    unrelated: { ...(on && { hidden: true }), path: './commands/a.js' },
+    before: { name: 'early', ...named, path: './commands/a.js' },
     carried: { ...named, path: './commands/a.js' },
     keyed: { name: 'early', [key]: 'later', path: './commands/a.js' },
     only: { [key]: 'later', path: './commands/a.js' },
-    quoted: { ['name']: 'later', path: './commands/a.js' },
+    conditional: { ...(on && { name: 'cond' }), path: './commands/a.js' },
+    template: { name: \`\${prefix}-x\`, path: './commands/a.js' },
+    call: { name: nm(), path: './commands/a.js' },
+    ident: { name: prefix, path: './commands/a.js' },
     getter: { get name() { return 'got'; }, path: './commands/a.js' },
     method: { name() {}, path: './commands/a.js' },
   },
@@ -1135,63 +1168,79 @@ export default {
         const { commands, diagnostics } = readAppCommands(discoverApp(dir));
         const list = commands?.kind === 'inline' ? commands.commands : [];
         const names = list.map((command) => command.name);
-        const text = (command: string, key: string) =>
-          diagnostics.filter(
-            (d) => d.message.includes(`the "${command}" command`) && d.message.includes(`"${key}"`)
-          );
+        const errors = (command: string) =>
+          diagnostics
+            .filter((d) => d.severity === 'error' && d.message.includes(`"${command}" command`))
+            .map((d) => d.message);
 
         // the last spelling, and `undefined` is not declared
         expect(names).toContain('second');
         expect(names).not.toContain('first');
         expect(names).toContain('unset');
-        // spelled after the spread, so nothing replaces it, and a spread that
-        // cannot carry one is no reason to refuse
+        // spelled after the spread, so nothing replaces it; a spread that cannot
+        // carry one is no reason to refuse; and what a literal holds is read
         expect(names).toContain('final');
         expect(names).toContain('early');
-        for (const command of ['twice', 'unset', 'settled', 'inside']) {
-          expect(
-            text(command, 'name').filter((d) => d.severity === 'error'),
-            command
-          ).toEqual([]);
+        expect(names).toContain('literal');
+        // ...as is a computed key that is a string, and a symbol is not a name
+        expect(names).toContain('quoted');
+        expect(names).toContain('quotedLast');
+        expect(names).toContain('symbols');
+        expect(names).toContain('unrelated');
+        for (const command of [
+          'twice',
+          'unset',
+          'settled',
+          'inside',
+          'spreadLiteral',
+          'quoted',
+          'quotedLast',
+          'symbols',
+          'unrelated',
+        ]) {
+          expect(errors(command), command).toEqual([]);
         }
 
-        // each of these is refused, and says which command and what to write
-        const refused = (command: string, how: string) => {
-          const [one, ...rest] = text(command, 'name').filter((d) => d.severity === 'error');
+        // each of these is refused once, and says what to write instead
+        const blocked = (command: string, how: string) => {
+          const [one, ...rest] = errors(command);
           expect(rest, command).toEqual([]);
-          expect(one?.message, command).toContain(how);
-          expect(one?.message, command).toContain(
-            'spell "name" literally, after any spread or computed key'
-          );
+          expect(one, command).toContain(how);
+          expect(one, command).toContain('spell "name" literally, after the last spread');
         };
-        refused('before', 'is written before a spread or a computed key');
-        refused('carried', 'spreads another object, which may carry a "name"');
-        refused('keyed', 'is written before a spread or a computed key');
-        refused('only', 'has a computed key, which may be a "name"');
-        refused('quoted', 'has a computed key, which may be a "name"');
+        blocked('before', 'writes "name" before a spread or a computed key, which may replace it');
+        blocked('carried', 'spreads another object, which may carry its "name"');
+        blocked('keyed', 'writes "name" before a spread or a computed key');
+        blocked('only', 'has a computed key, which may be its "name"');
+        blocked('conditional', 'spreads another object, which may carry its "name"');
 
-        // an accessor is read as a computed name is, and a method is refused as
-        // the runtime refuses a function for one
-        expect(names).toContain('getter');
-        expect(
-          diagnostics.some(
-            (d) =>
-              d.severity === 'error' &&
-              d.message === 'Expected command name to be a non-empty string in the "method" command'
-          )
-        ).toBe(true);
+        // a name that is written and cannot be read is refused in its own words
+        for (const command of ['template', 'call', 'ident']) {
+          const [one, ...rest] = errors(command);
+          expect(rest, command).toEqual([]);
+          expect(one, command).toContain('"name" is computed rather than a string literal');
+          expect(one, command).toContain('write "name" as a string literal');
+        }
+        expect(errors('getter')[0]).toContain('"name" is an accessor rather than a string literal');
+        expect(errors('getter')).toHaveLength(1);
+        // ...and a method is what the runtime refuses for a name
+        expect(errors('method')).toEqual([
+          'Expected command name to be a non-empty string in the "method" command',
+        ]);
       });
     });
 
-    it("read a placeholder's path and load from their last spelling, and refused a module a spread or a computed key may carry or replace", async () => {
+    it("read a placeholder's path and load from their last spelling, and refused a module the build cannot read", async () => {
       // SIG-434. A `path` the build cannot see is a module it does not bundle,
       // and the built app then matches the command and has nothing to run. The
-      // refusal is only for a module that is not known: one that is spelled and
-      // that nothing replaces decides, and `load` beside it is the runtime's to
-      // refuse
-      const source = `const pathed = { path: './commands/a.js' };
+      // refusal is for a module that is not known, or known and unreadable: one
+      // that is spelled, that nothing replaces and that is a literal decides
+      const source = `import { join } from 'node:path';
+const pathed = { path: './commands/a.js' };
 const loaded = { load: () => import('./commands/a.js') };
 const key = 'path';
+const path = './commands/a.js';
+const on = true;
 export default {
   baseDir: import.meta.dirname,
   commands: {
@@ -1201,12 +1250,28 @@ export default {
     settled: { ...pathed, path: './commands/b.js' },
     beside: { ...loaded, path: './commands/b.js' },
     literal: { path: './commands/b.js', ...{ other: 1 } },
+    spreadLiteral: { desc: 'literal', ...{ path: './commands/b.js' } },
+    spreadLoad: { ...{ load: () => import('./commands/b.js') } },
+    quoted: { ['path']: './commands/b.js' },
+    quotedLoad: { ['load']: () => import('./commands/b.js') },
+    quotedLast: { path: './commands/a.js', ['path']: './commands/b.js' },
+    symbols: { [Symbol('x')]: 1, path: './commands/b.js' },
+    asyncLoad: { load: async () => import('./commands/b.js') },
+    conditional: { ...(on && { hidden: true }), path: './commands/b.js' },
     carried: { desc: 'carried', ...pathed },
     replaced: { path: './commands/a.js', ...pathed },
     loadCarried: { desc: 'carried', ...loaded },
     loadReplaced: { load: () => import('./commands/a.js'), ...loaded },
     keyed: { [key]: './commands/a.js' },
-    quoted: { ['load']: () => import('./commands/a.js') },
+    conditionalLoad: { ...(on && { load: () => import('./commands/a.js') }) },
+    joined: { path: join(import.meta.dirname, 'commands', 'a.js') },
+    shorthand: { path },
+    named: { path: path },
+    template: { path: \`./commands/\${key}.js\` },
+    getter: { get path() { return './commands/a.js'; } },
+    block: { load: () => { return import('./commands/a.js'); } },
+    method: { load() { return import('./commands/a.js'); } },
+    both: { path: './commands/a.js', load: () => import('./commands/b.js') },
   },
 };\n`;
 
@@ -1215,37 +1280,84 @@ export default {
         const { commands, diagnostics } = readAppCommands(discoverApp(dir));
         const list = commands?.kind === 'inline' ? commands.commands : [];
         const module = (name: string) => at(list, name).module?.split(/[\\/]/).at(-1);
+        // what is said about a module: a spread beside a `path` also says it
+        // cannot tell the name, which the name test is about
         const errors = (command: string) =>
-          diagnostics.filter(
-            (d) =>
-              d.severity === 'error' &&
-              d.message.includes(`the "${command}" command`) &&
-              d.message.includes('which module to bundle')
-          );
+          diagnostics
+            .filter(
+              (d) =>
+                d.severity === 'error' &&
+                d.message.includes(`"${command}" command`) &&
+                /which module to bundle|^Cannot combine/.test(d.message)
+            )
+            .map((d) => d.message);
 
-        // the last spelling is the module, and one that is known needs no say
-        // from a key a spread may carry beside it
-        for (const command of ['twice', 'twiceLoad', 'unset', 'settled', 'beside', 'literal']) {
+        // the last spelling is the module, what a literal holds is read, and a
+        // key a spread may carry beside one that is known needs no say
+        for (const command of [
+          'twice',
+          'twiceLoad',
+          'unset',
+          'settled',
+          'beside',
+          'literal',
+          'spreadLiteral',
+          'spreadLoad',
+          'quoted',
+          'quotedLoad',
+          'quotedLast',
+          'symbols',
+          'asyncLoad',
+          'conditional',
+        ]) {
           expect(module(command), command).toBe('b.js');
           expect(errors(command), command).toEqual([]);
         }
 
-        // the rest are refused, once each, with what to write instead
-        const refused = (command: string, how: string) => {
+        // not known: refused once, naming every key blocked, and what to write
+        const blocked = (command: string, how: string) => {
           const [one, ...rest] = errors(command);
           expect(rest, command).toEqual([]);
-          expect(one?.message, command).toContain(how);
-          expect(one?.message, command).toContain(
-            'spell "path" or "load" literally, after any spread or computed key'
+          expect(one, command).toContain(how);
+          expect(one).toMatch(/which module to bundle for (?:the command|it)/);
+          expect(one, command).toContain('literally, after the last spread or computed key');
+          expect(module(command), command).toBeUndefined();
+        };
+        blocked('carried', 'spreads another object, which may carry its "name", "path" or "load"');
+        blocked(
+          'loadCarried',
+          'spreads another object, which may carry its "name", "path" or "load"'
+        );
+        blocked('keyed', 'has a computed key, which may be its "name", "path" or "load"');
+        blocked(
+          'replaced',
+          'writes "path" before a spread or a computed key, which may replace it'
+        );
+        blocked('loadReplaced', 'writes "load" before a spread or a computed key');
+        // a conditional is what its arms carry, so only `load` is in question
+        blocked('conditionalLoad', 'spreads another object, which may carry its "load"');
+
+        // known and unreadable: refused, and what the build can bundle is said
+        const unreadable = (command: string, why: string) => {
+          const [one, ...rest] = errors(command);
+          expect(rest, command).toEqual([]);
+          expect(one, command).toContain(why);
+          expect(one, command).toContain(
+            'can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import()'
           );
           expect(module(command), command).toBeUndefined();
         };
-        refused('carried', 'spreads another object, which may carry a "path"');
-        refused('loadCarried', 'spreads another object, which may carry a "path"');
-        refused('keyed', 'has a computed key, which may be a "path"');
-        refused('quoted', 'has a computed key, which may be a "load"');
-        refused('replaced', 'the "replaced" command\'s "path" is written before a spread');
-        refused('loadReplaced', 'the "loadReplaced" command\'s "load" is written before a spread');
+        for (const command of ['joined', 'shorthand', 'named', 'template']) {
+          unreadable(command, `"path" is not a string literal`);
+        }
+        unreadable('getter', '"path" is an accessor or a method rather than a value');
+        unreadable('block', '"load" is not an arrow function returning a literal import()');
+        unreadable('method', '"load" is an accessor or a method rather than a value');
+
+        // and both is the runtime's own refusal, in its words
+        expect(errors('both')).toEqual([
+          'Cannot combine "load" with "path" in the "both" command: both name the module that is the command, so only one of them can be it',
+        ]);
       });
     });
 
@@ -1262,19 +1374,25 @@ export default {
       expect(at(list, 'ship').default).toBeUndefined();
 
       const warnings = diagnostics.filter((d) => d.severity === 'warning').map((d) => d.message);
-      expect(warnings).toHaveLength(6);
+      expect(warnings).toHaveLength(4);
       expect(warnings.every((message) => message.includes('is computed'))).toBe(true);
       expect(warnings[0]).toContain('"remove" command\'s "alias"');
       expect(warnings[1]).toContain('"list" command\'s "alias"');
       expect(warnings[2]).toContain('"ship" command\'s "default"');
-      // a computed name leaves the key as the name, and says so
-      expect(warnings[3]).toContain('"push" command\'s "name"');
-      expect(warnings[3]).toContain('will name it "push"');
       // the right type with a value the source does not hold is computed rather
-      // than wrong: `!x` is a boolean, and a template is a string
-      expect(warnings[4]).toContain('"armed" command\'s "default"');
-      expect(warnings[5]).toContain('"tagged" command\'s "name"');
-      expect(diagnostics.some((d) => d.severity === 'error')).toBe(false);
+      // than wrong: `!x` is a boolean
+      expect(warnings[3]).toContain('"armed" command\'s "default"');
+
+      // a computed name is not a warning, since from source it answers to what
+      // the expression gives and the built app would answer to the key
+      // (SIG-433), as a package's does (SIG-332)
+      const errors = diagnostics.filter((d) => d.severity === 'error').map((d) => d.message);
+      expect(errors).toHaveLength(2);
+      expect(errors[0]).toContain('the "push" command\'s "name" is computed');
+      expect(errors[1]).toContain('the "tagged" command\'s "name" is computed');
+      for (const message of errors) {
+        expect(message).toContain('write "name" as a string literal');
+      }
     });
 
     it('should report a module that does not resolve as an error', () => {

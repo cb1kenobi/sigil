@@ -530,6 +530,25 @@ describe('extracting a command module', () => {
       ['a regular expression', `export default { desc: 'a', .../desc/ };`],
       ['undefined', `export default { desc: 'a', ...undefined, ...void 0, ...void f() };`],
       ['an array of null', `export default { desc: 'a', ...[null, , 1] };`],
+      // what a conditional or a logical expression may carry is what its arms
+      // may carry, so arms that hold no desc hold none (SIG-433)
+      [
+        'a conditional of two literals without one',
+        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+      ],
+      [
+        'a conditional of a literal and nothing',
+        `export default { desc: 'a', ...(flag ? { run() {} } : null) };`,
+      ],
+      ['a logical and of a literal', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      [
+        'a logical or of two literals',
+        `export default { desc: 'a', ...({ hidden: true } || { run() {} }) };`,
+      ],
+      [
+        'a symbol key',
+        `export default { desc: 'a', [Symbol.for('desc')]: 0, [Symbol.iterator]: 0 };`,
+      ],
       ['a number key', `export default { desc: 'a', [1]: 0 };`],
       ['a bigint key', `export default { desc: 'a', [1n]: 0 };`],
       ['a boolean key', `export default { desc: 'a', [true]: 0 };`],
@@ -550,10 +569,18 @@ describe('extracting a command module', () => {
     it.each([
       ['a key built by an expression', `export default { desc: 'a', ['de' + 'sc']: 'b' };`],
       [
-        'a conditional of two literals',
-        `export default { desc: 'a', ...(flag ? { run() {} } : { run() {} }) };`,
+        'a conditional with a literal arm that holds one',
+        `export default { desc: 'a', ...(flag ? { desc: 'b' } : { run() {} }) };`,
       ],
-      ['a logical expression', `export default { desc: 'a', ...(flag && { run() {} }) };`],
+      [
+        'a conditional with an arm that is a name',
+        `export default { desc: 'a', ...(flag ? { run() {} } : base) };`,
+      ],
+      [
+        'a logical and of a literal that holds one',
+        `export default { desc: 'a', ...(flag && { desc: 'b' }) };`,
+      ],
+      ['a logical or with a name', `export default { desc: 'a', ...(base || { run() {} }) };`],
       ['a sequence', `export default { desc: 'a', ...(0, { run() {} }) };`],
     ])('should read a desc before %s as unknown, because nothing is evaluated', (_, source) => {
       // the rule is that literals are read and expressions are not evaluated,
