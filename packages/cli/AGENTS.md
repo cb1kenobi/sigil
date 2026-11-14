@@ -1608,18 +1608,60 @@ makes it testable with a fixture directory and no bundler at all.
   hypothetical: keyed by path alone, the `styled` build reads `tpl.ts`'s
   pre-compile tree for the utility rewrite and the test fails.
 
-  What it costs is memory, and it is bounded twice. **One entry per path**, so a
-  changed source replaces its tree rather than sitting beside it, and
-  `forgetParsedModules()` empties the map where `inspect()` starts, so a process
-  that builds again -- `check`, `build` and `package` all start there -- holds one
-  build's trees. That call is pinned by two in-process builds in a row, the
-  second of a different app: without it the first app's trees are still there
-  after the second, since nothing in the second replaces their paths. Measured on the 244-module app, the heap left after a forced GC
-  at exit is 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
+  What it costs is memory, and it is bounded by the build. **`forgetParsedModules()`
+  empties the map where `inspect()` starts**, so a process that builds again --
+  `check`, `build` and `package` all start there -- holds one build's trees. That
+  call is pinned by two in-process builds in a row, the second of a different app:
+  without it the first app's trees are still there after the second, since nothing
+  in the second reads their paths. Measured on the 244-module app as of SIG-355, the heap left after a forced GC
+  at exit was 77.5 MB against 24.4 MB, so about **53 MB of trees for 2.8 MB of
   source**, and peak RSS about 40 MB higher (702–710 MB against 660–672 MB). A
   one-shot `sigil build` pays that once; there is no watch loop in the toolchain
   today, and one would get the right lifetime from `inspect()` for free. A failed
   parse is not kept, so asking again throws again.
+
+  **A path keeps every source it was read as, for the build, and it was one
+  entry per path until SIG-436.** The old bound was "a changed source replaces
+  the tree it had", and it made the build's parse count depend on the order
+  rolldown ran things in. `tpl.ts` in `styled` is read as two sources: as
+  written, by discovery and the tree, and as the template compile left it, by
+  the utility pass -- and then as written again by the utility scan, which
+  reads every file off the disk. Transforms run concurrently, so
+  which module asks for the sheet first is not fixed. If `panel.ts` does, the scan
+  runs before `tpl.ts` is rewritten and the entry is still the original. If
+  `tpl.ts` does, its pass has parsed the compiled source first and replaced the
+  entry, and the scan then read the original again: one source, two parses,
+  `expected [ Array(1) ] to deeply equal []` on `parse-once.test.ts` once in CI
+  (node 22, ubuntu, run 43565499629) and never in 300 local runs under load.
+  Forced, it is not rare at all: an `async` transform ahead of the template pass
+  that waits on `panel.ts` made the build fail the test on the first run, and the
+  stacks of the three parses were `tree.ts` (original), `shakeStyles()` (compiled),
+  and `readFile()` inside the scan `shakeStyles()` had just asked for (original
+  again). The cause is the replacement and not the ordering, which is why the
+  fix is in the cache and the order is left alone: nothing a build does can fix
+  which transform runs first, and a build that is correct only in one of the
+  orders is the one that flakes.
+
+  What that costs is one more tree for each module whose rewritten source
+  reaches the style pass. The template rewrite alone adds none, because
+  `compileTemplates()` parses the source it was handed and returns text; only
+  `shakeStyles()` parses a rewrite, and its filter needs the code to contain
+  `@ttylabs/sigil/style`. So a templated module that never asks for the sheet
+  keeps one source -- the `templated` fixture's `greet.ts` records `[706]` -- and
+  `styled`'s `tpl.ts` keeps `[1001, 1405]`. A build has at most those two sources
+  of a path, since every other caller hands the disk's. Not measured as a heap
+  figure, and not an addition of work: in the usual order, with `panel.ts` first,
+  the old cache kept the compiled tree and dropped the original, and the fixed
+  one keeps both. The lookup is a linear
+  `find()` over a list of one or two. `should parse a module once when the utility
+  scan comes after its template rewrite` forces the order that flaked, with the
+  real passes called in sequence rather than through rolldown, so it
+  fails every time without the fix and needs no load; `should keep a path's
+  earlier source when a changed one is read` is the cache's own half of it. The
+  first also asserts that the shaken sheet names `gap-1` and `dim`, which only
+  `tpl.ts` does: on the fixed code the scan's read of it is a cache hit and
+  leaves no record, so without that a scan that stopped walking
+  `src/commands` would still pass.
 
 - **The fixture differs from `jsx-dev/` by one tsconfig field, and it
   type-checks.** `preserve` still checks the JSX against the `JSX` namespace
