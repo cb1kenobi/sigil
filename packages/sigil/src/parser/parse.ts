@@ -403,6 +403,31 @@ function isNegated(option: InternalOption, subject?: string): boolean {
 }
 
 /**
+ * Decides whether a value given to an option through one of its spellings
+ * means the opposite of what it coerces to.
+ *
+ * The one rule for both places a value can be given that way. argv asks it with
+ * the token as typed, so `--no-color=1` is off and `--color=1` is on. The
+ * environment asks it with the option's label -- the spelling the declaration
+ * leads with, and the one help prints -- because a variable declared on
+ * `--no-color` is spelled through that name. Only a flag inverts: an option
+ * that takes a value reads it literally whatever its name or `negate` say, and
+ * a counter given a value is set to it.
+ *
+ * @param option - The declared option the value was given to.
+ * @param subject - The spelling the value was given through.
+ * @param explicit - Whether a value was given at all, rather than the flag
+ * being named bare.
+ * @returns `true` when the value is to be inverted.
+ */
+function readsInverted(option: InternalOption, subject: string, explicit: boolean): boolean {
+  if (!option[Internal].isFlag || (option.type === 'count' && explicit)) {
+    return false;
+  }
+  return isNegated(option, subject);
+}
+
+/**
  * Decides whether the next unresolved token may be taken as the value of a
  * declared option.
  *
@@ -917,8 +942,9 @@ async function parseArgv(state: ParseState): Promise<void> {
         } else if (isFlag) {
           // `--foo` is true and `--no-foo` is false, but an explicit
           // `--foo=false` beats the name it was reached by
-          const bool = inputs.length > 1 ? transformValue(`${inputs[1]}`, 'bool') : true;
-          value = isNegated(option, subject) ? !bool : bool;
+          const explicit = inputs.length > 1;
+          const bool = explicit ? transformValue(`${inputs[1]}`, 'bool') : true;
+          value = readsInverted(option, `${subject}`, explicit) ? !bool : bool;
         } else {
           const next = peek();
 
@@ -1271,19 +1297,15 @@ export async function processOptions(state: ParseState): Promise<void> {
   // default precedence a lone option has, and is not reported missing just
   // because the option that fills it comes second
   //
-  // a variable declared on a negated flag is read through the negation, the way
-  // argv reads `--no-color=1`: `NO_COLOR=1` is `color: false`. Only a `bool` is
-  // inverted -- a counter given a value is set to it, from argv as from here --
-  // and `negate: false` is not a negation, so its variable reads literally
+  // a variable declared on a negated flag is read through the negation, by the
+  // rule argv's value is: `NO_COLOR=1` on `--no-color` is `color: false`, as
+  // `--no-color=1` is. `readsInverted()` is asked with the option's label, so
+  // the variable inverts exactly when argv would invert the same value through
+  // that spelling
   for (const opt of all) {
-    const { envs, parserOwned } = opt[Internal];
+    const { envs, label, parserOwned } = opt[Internal];
     if (!parserOwned) {
-      applyFallback(
-        state,
-        opt,
-        envValue(state.env, envs),
-        opt.negate === true && opt.type === 'bool'
-      );
+      applyFallback(state, opt, envValue(state.env, envs), readsInverted(opt, label, true));
     }
   }
 

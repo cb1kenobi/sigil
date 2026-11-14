@@ -519,6 +519,58 @@ describe('options', () => {
       expect(result.argv.quiet).to.equal(2);
     });
 
+    // `negate: true` alone does not make a variable invert: argv inverts only a
+    // flag reached through its negated spelling, and the variable follows argv
+    it.each([
+      [
+        'a valued bool',
+        { '--color <on>': { env: 'COLOR', negate: true, type: 'bool' } },
+        'COLOR',
+        '--color=1',
+        'color',
+      ],
+      [
+        'a bool made valued by its hint',
+        { '--no-color': { env: 'NO_COLOR', hint: 'when', negate: true, type: 'bool' } },
+        'NO_COLOR',
+        '--no-color=1',
+        'noColor',
+      ],
+      [
+        'a flag whose only spelling is the positive one',
+        { '--color': { env: 'NO_COLOR', negate: true } },
+        'NO_COLOR',
+        '--color=1',
+        'color',
+      ],
+    ] as [string, Record<string, Option>, string, string, string][])(
+      'should not invert the variable on %s, since argv does not invert its value',
+      async (_label, options, name, token, dest) => {
+        const fromEnv = await parse({ env: { [name]: '1' }, schema: { options } });
+        const fromArgv = await parse({ argv: [token], schema: { options } });
+        expect(fromArgv.argv[dest]).to.equal(true);
+        expect(fromEnv.argv[dest]).to.equal(true);
+      }
+    );
+
+    it('should invert the variable on a short-aliased negated flag as argv does', async () => {
+      const options = { '-C, --no-color': { env: 'NO_COLOR' } };
+      const fromEnv = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      const fromArgv = await parse({ argv: ['-C=1'], schema: { options } });
+      expect(fromArgv.argv.color).to.equal(false);
+      expect(fromEnv.argv.color).to.equal(false);
+    });
+
+    it('should still run transform on argv only, not on NO_COLOR', async () => {
+      // the fallback never runs `transform`, which is its own rule; the variable
+      // is read through the negation, and that is all it shares with argv
+      const options = { '--no-color': { env: 'NO_COLOR', transform: async (v: unknown) => !v } };
+      const fromEnv = await parse({ env: { NO_COLOR: '1' }, schema: { options } });
+      const fromArgv = await parse({ argv: ['--no-color=1'], schema: { options } });
+      expect(fromEnv.argv.color).to.equal(false);
+      expect(fromArgv.argv.color).to.equal(true);
+    });
+
     type Pair = [string, Record<string, Option>];
 
     const pairs: Pair[] = [

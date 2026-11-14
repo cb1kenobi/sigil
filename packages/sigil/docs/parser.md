@@ -938,8 +938,8 @@ positive spelling the flag registers for itself — `--color` — turns it on.
 
 An environment variable declared on a negated flag is read through the negation
 too, because it is spelled the way the flag is. Given
-`'--no-color': { env: 'NO_COLOR' }`, the variable answers the question the
-flag's name asks, exactly as `--no-color=` followed by the same value would:
+`'--no-color': { env: 'NO_COLOR' }`, the variable is inverted the way a value
+given to `--no-color=` is:
 
 | Environment  | Result         |
 | ------------ | -------------- |
@@ -948,13 +948,22 @@ flag's name asks, exactly as `--no-color=` followed by the same value would:
 | `NO_COLOR=1` | `color: false` |
 | `NO_COLOR=0` | `color: true`  |
 
-An empty variable is unset, as it is everywhere, and a value `bool` rejects
-still throws. Only the variable is inverted: a `default` declared on the flag is
-already a value for `color` — which is why the implied one is `true` — and is
-written as it stands. A counter given a value is set to it, from the environment
-as from argv, so a negated `count` reads its variable literally. And
-`negate: false` is not a negation, so `NO_COLOR=1` on that flag is
-`noColor: true`.
+The variable inverts exactly when argv would invert a value given through the
+option's first spelling — the one help leads with. So it takes a flag, and a
+flag whose leading spelling is the negated one: `'--color': { negate: true }`
+registers only `--color`, which turns it on, so its variable reads literally,
+and an option that takes a value is never inverted whatever `negate` and `type`
+say, because argv reads `--color=1` on it literally too. `negate: false` is not
+a negation either, so `NO_COLOR=1` on that flag is `noColor: true`.
+
+The inversion is all the variable shares with argv. `transform` still runs on
+argv values only, as it does for every fallback, so a `transform` on the flag
+can make `--no-color=1` and `NO_COLOR=1` disagree. An empty variable is unset,
+as it is everywhere, and a value `bool` rejects still throws. Only the variable
+is inverted: a `default` declared on the flag is already a value for `color` —
+which is why the implied one is `true` — and is written as it stands. A counter
+given a value is set to it, from the environment as from argv, so a negated
+`count` reads its variable literally.
 
 #### Declaring both a value and its negation
 
