@@ -680,7 +680,7 @@ function readCommand(
     return { commands: [], kind: 'inline', name };
   }
 
-  const specifier = moduleSpecifier(object);
+  const specifier = moduleSpecifier(object, parsed, diagnostics, name);
   const nested = plainProperty(object, 'commands');
   const named = placeholderName(object, parsed, diagnostics, name);
   const own = placeholderFacts(object, parsed, diagnostics, named);
@@ -906,14 +906,21 @@ function placeholderFacts(
  *
  * @param object - The command literal.
  * @param key - The key in question.
+ * @param computed - Whether a computed key that may be `key` is a carrier as
+ *   well as a spread, which `name`, `path` and `load` ask and the rest do not.
  * @returns The spelling that runs, `undefined` where the key is not declared;
  *   whether a later property may replace it; and a spread that may carry a key
  *   spelled nowhere.
  */
 function placeholderSpelling(
   object: ObjectExpression,
-  key: string
-): { carrier: SpreadElement | undefined; declared: ObjectProperty | undefined; replaced: boolean } {
+  key: string,
+  computed = false
+): {
+  carrier: SpreadElement | ObjectProperty | undefined;
+  declared: ObjectProperty | undefined;
+  replaced: boolean;
+} {
   let found: ObjectProperty | undefined;
   for (const property of object.properties) {
     if (property.type !== 'SpreadElement' && propertyKey(property) === key) {
@@ -929,7 +936,68 @@ function placeholderSpelling(
     found?.kind === 'init' && !found.method && isUndefined(found.value) && !replaced
       ? undefined
       : found;
-  return { carrier: unspelledCarrier(object, key), declared, replaced };
+  return { carrier: unspelledCarrier(object, key, computed), declared, replaced };
+}
+
+/**
+ * The spelling of a key a placeholder registers, where the source says which it
+ * is, and a report where it does not.
+ *
+ * `placeholderSpelling()` answers what is known; this is what every read of a
+ * placeholder's key does with the answer that it is *not* known -- a spelling a
+ * later spread or computed key may replace, or a key a spread may carry that is
+ * spelled nowhere -- so the sentence it says is one definition, whatever the
+ * key. The severity is the caller's: `alias` and `default` bake nothing and
+ * warn, while a `name`, a `path` and a `load` decide which command a built app
+ * routes to and which module it holds, and a wrong answer there is refused
+ * (SIG-433, SIG-434).
+ *
+ * @param object - The command literal.
+ * @param key - The key in question.
+ * @param report - Where and how to say it is not known.
+ * @param report.computed - Whether a computed key may carry it, as well as a
+ *   spread.
+ * @param report.consequence - What the built app does without it.
+ * @param report.diagnostics - Where to report.
+ * @param report.name - The command's name, for the message.
+ * @param report.parsed - The module, for positions.
+ * @param report.severity - How serious it is.
+ * @returns The spelling that runs, or `undefined` where the key is not declared
+ *   or is not known.
+ */
+function readSpelled(
+  object: ObjectExpression,
+  key: string,
+  report: {
+    computed?: boolean;
+    consequence: string;
+    diagnostics: Diagnostic[];
+    name: string;
+    parsed: ParsedModule;
+    severity: Diagnostic['severity'];
+  }
+): ObjectProperty | undefined {
+  const { computed, consequence, diagnostics, name, parsed, severity } = report;
+  const { carrier, declared, replaced } = placeholderSpelling(object, key, computed);
+  if (declared && replaced) {
+    diagnostics.push({
+      ...locate(parsed, declared.start),
+      message: replacedMessage(name, key, consequence),
+      severity,
+    });
+    return undefined;
+  }
+
+  if (carrier) {
+    diagnostics.push({
+      ...locate(parsed, carrier.start),
+      message: carriedMessage(name, key, consequence, carrier),
+      severity,
+    });
+    return undefined;
+  }
+
+  return declared;
 }
 
 /**
@@ -946,16 +1014,28 @@ function replacedMessage(name: string, key: string, consequence: string): string
 }
 
 /**
- * The warning for a key a placeholder spells nowhere that a spread may carry.
+ * The warning for a key a placeholder spells nowhere that a spread, or a computed
+ * key where that is asked, may carry.
  *
  * @param name - The command's name, as the runtime parses it.
  * @param key - The key.
  * @param consequence - What the built app does without it.
+ * @param carrier - What may carry it, where that is not a spread.
  * @returns The message.
  */
-function carriedMessage(name: string, key: string, consequence: string): string {
+function carriedMessage(
+  name: string,
+  key: string,
+  consequence: string,
+  carrier?: { type: string }
+): string {
   const article = /^[aeiou]/.test(key) ? 'an' : 'a';
-  return `the "${name}" command spreads another object, which may carry ${article} "${key}" this cannot see; ${consequence}`;
+  // a computed key is the other thing that may carry one, where it is asked
+  const by =
+    carrier && carrier.type !== 'SpreadElement'
+      ? 'has a computed key, which may be'
+      : 'spreads another object, which may carry';
+  return `the "${name}" command ${by} ${article} "${key}" this cannot see; ${consequence}`;
 }
 
 /**
@@ -1129,26 +1209,14 @@ function placeholderRouting(
   // runs is unknown, so nothing is baked and nothing is refused (SIG-430). A
   // package's export never gets that far, since `keyedPackage()` refuses any
   // spread or computed key in it first
-  const unknown = (key: string, consequence: string) => {
-    const { carrier, declared, replaced } = placeholderSpelling(object, key);
-    if (declared && replaced) {
-      diagnostics.push({
-        ...locate(parsed, declared.start),
-        message: replacedMessage(name, key, refusal ?? consequence),
-        severity: refusal ? 'error' : 'warning',
-      });
-    } else if (carrier) {
-      diagnostics.push({
-        ...locate(parsed, carrier.start),
-        message: carriedMessage(name, key, refusal ?? consequence),
-        severity: refusal ? 'error' : 'warning',
-      });
-    } else {
-      return declared;
-    }
-
-    return undefined;
-  };
+  const unknown = (key: string, consequence: string) =>
+    readSpelled(object, key, {
+      consequence: refusal ?? consequence,
+      diagnostics,
+      name,
+      parsed,
+      severity: refusal ? 'error' : 'warning',
+    });
   // an accessor's value is whatever it returns when the runtime reads it, which
   // is not in the source; a method is a function, which neither key takes
   const value = (property: ObjectProperty) =>
@@ -1200,6 +1268,16 @@ function placeholderRouting(
   return routing;
 }
 
+/** What a placeholder's name that cannot be read costs, and what to write instead. */
+const NAME_UNKNOWN =
+  'the build cannot tell which name the command answers to, and a built app that guessed would route by one name where the app routes by another; ' +
+  'spell "name" literally, after any spread or computed key, or leave it out so the key names the command';
+
+/** What a placeholder's module that cannot be read costs, and what to write instead. */
+const MODULE_UNKNOWN =
+  'the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it; ' +
+  'spell "path" or "load" literally, after any spread or computed key';
+
 /**
  * The name string a placeholder is registered under.
  *
@@ -1212,6 +1290,16 @@ function placeholderRouting(
  * name string, as it already is for a key written `'hello, hi'`, and the
  * built app's own `initCommand()` does the reading. Doing it here too would be
  * a second reading of rules that have to stay one.
+ *
+ * Which spelling is the runtime's: the **last**, through
+ * `placeholderSpelling()` as for the other keys the tree takes off a
+ * placeholder (SIG-433). It used to be the first, so `{ name: 'first', name:
+ * 'second' }` was routed by `first` where the app answers to `second`. A
+ * spelling a later spread or computed key may replace, and a spread that may
+ * carry a `name` the placeholder never spells, are **refused** rather than
+ * warned about like an `alias` -- the name is what argv is matched against, so a
+ * built app that guessed answers to one spelling where the app answers to
+ * another, and nobody can debug a command that is simply not there.
  *
  * A literal that is not a non-empty string throws from source (`Expected
  * command name to be a non-empty string`), so it fails the build in those
@@ -1230,8 +1318,17 @@ function placeholderName(
   diagnostics: Diagnostic[],
   key: string
 ): string {
-  const declared = plainProperty(object, 'name');
-  if (!declared || isUndefined(declared.value)) {
+  const declared = readSpelled(object, 'name', {
+    computed: true,
+    consequence: NAME_UNKNOWN,
+    diagnostics,
+    name: key,
+    parsed,
+    severity: 'error',
+  });
+  // an accessor is what it returns when the runtime reads it, which is not in
+  // the source, and is a name this cannot read like a computed one
+  if (!declared || declared.kind !== 'init' || isUndefined(declared.value)) {
     return key;
   }
 
@@ -1275,7 +1372,8 @@ function placeholderName(
  *
  * Properties only. A spread or a computed key can carry anything, and is
  * reported here for nothing -- the reads above report it only for the `desc`,
- * `hidden`, `alias` and `default` it may carry.
+ * `hidden`, `alias`, `default`, `name`, `path` and `load` it may carry, the last
+ * three as errors.
  *
  * @param object - The command literal.
  * @param parsed - The module, for positions.
@@ -1371,24 +1469,61 @@ const BAKED: ReadonlySet<string> = new Set([
  * `load: () => import('./x.js')` and `path: './x.js'` are the same statement --
  * the module *is* the command -- said as a function and as a file.
  *
+ * Read by the last spelling, as the runtime registers it, through
+ * `placeholderSpelling()`. A module that is spelled and that nothing replaces
+ * decides, and the other key beside it needs no say, since a declaration with
+ * both is one the runtime refuses. Where neither is known -- a spread or a
+ * computed key may carry or replace them -- the build is **refused**: a module
+ * it cannot see is not bundled, and the built app then matches the command and
+ * prints help rather than running anything, under a build that said it
+ * succeeded (SIG-434).
+ *
  * @param object - The command literal.
+ * @param parsed - The module, for positions.
+ * @param diagnostics - Where to report.
+ * @param key - What the command was written under, for the messages.
  * @returns The specifier, or `undefined`.
  */
-function moduleSpecifier(object: ObjectExpression): string | undefined {
-  const path = plainProperty(object, 'path');
-  if (path) {
-    return literalString(path.value);
+function moduleSpecifier(
+  object: ObjectExpression,
+  parsed: ParsedModule,
+  diagnostics: Diagnostic[],
+  key: string
+): string | undefined {
+  // the last spelling of each, as the runtime registers it (SIG-434)
+  const spellings = (['path', 'load'] as const).map((name) => ({
+    name,
+    ...placeholderSpelling(object, name, true),
+  }));
+
+  // one that is known to run decides, `path` first as it always has. The other
+  // key needs no say: the runtime refuses a declaration with both, so whatever
+  // a spread carries beside it is either an error from source or nothing
+  for (const { declared, name, replaced } of spellings) {
+    // an accessor or a method is not a value this reads, as it never was
+    if (declared?.kind === 'init' && !declared.method && !replaced) {
+      return name === 'path' ? literalString(declared.value) : loaderSpecifier(declared.value);
+    }
   }
 
-  const load = plainProperty(object, 'load');
-  if (!load) {
-    return undefined;
+  // neither is: a module the build cannot see is not bundled, and the built
+  // app then matches the command and has nothing to run. One report, for the
+  // spelling that is written before a spread if there is one, since that is the
+  // line to move
+  const unknown =
+    spellings.find((s) => s.declared && s.replaced) ?? spellings.find((s) => s.carrier);
+  if (unknown) {
+    readSpelled(object, unknown.name, {
+      computed: true,
+      consequence: MODULE_UNKNOWN,
+      diagnostics,
+      name: key,
+      parsed,
+      severity: 'error',
+    });
   }
 
-  // the one shape a bundler can see and this can read: an arrow whose body is
-  // a dynamic import of a literal. Shared with the catalog check, which reads
-  // `Schema.locales` the same way
-  return loaderSpecifier(load.value);
+  return undefined;
 }
 
 /**

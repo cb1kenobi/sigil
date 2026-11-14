@@ -38,6 +38,16 @@ async function withSchema<T>(
 }
 
 /**
+ * What a placeholder is refused for when a spread or a computed key may carry its
+ * `name`, `path` or `load` (SIG-433, SIG-434), left out of a test about another
+ * key. Those placeholders spread an object to show what happens to `desc` or
+ * `alias`, and the tests about the refusal are the ones that assert it.
+ */
+function withoutPlacement<T extends { message: string }>(diagnostics: readonly T[]): T[] {
+  return diagnostics.filter((d) => !/the build cannot tell which (?:name|module)/.test(d.message));
+}
+
+/**
  * What the runtime throws registering one command of a schema, which is the
  * wording a build that refuses the same declaration has to match.
  */
@@ -400,7 +410,7 @@ export default {
           `the "${name}" command spreads another object, which may carry ${key === 'alias' ? 'an' : 'a'} "${key}" this cannot see; ${consequence}`;
         const alias = 'the built app will not answer to the alias the app runs with';
         const isDefault = 'the built app will not run it when argv names no command';
-        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
           ['warning', before('async', 'desc', 'the built app will list it by name alone')],
           // `base` is a name, so it may carry a `hidden` too, and the two keys
           // that route (SIG-430)
@@ -463,7 +473,7 @@ export default {
           '!quiet': undefined,
         });
 
-        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
           ['error', runtime.refused],
           ['error', runtime['!secret']],
           [
@@ -624,7 +634,7 @@ export default {
         await expect(import(pathToFileURL(join(dir, 'src', 'index.js')).href)).rejects.toThrow(
           TypeError
         );
-        expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
+        expect(withoutPlacement(diagnostics).map((d) => [d.severity, d.message])).toStrictEqual([
           [
             'warning',
             'the "spread" command\'s "desc" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the built app will list it by name alone',
@@ -1059,7 +1069,7 @@ export default {
         const alias = 'the built app will not answer to the alias the app runs with';
         const isDefault = 'the built app will not run it when argv names no command';
         expect(
-          diagnostics
+          withoutPlacement(diagnostics)
             // `desc` and `hidden` say what they always said about a spread
             .filter((d) => !/"(?:desc|hidden)"/.test(d.message))
             .map((d) => [d.severity, d.message])
@@ -1093,6 +1103,149 @@ export default {
         for (const name of ['method', 'stage', 'purge', 'carried']) {
           expect(at(list, name).default, name).toBeUndefined();
         }
+      });
+    });
+
+    it("read a placeholder's name from its last spelling, and refused one a spread or a computed key may carry or replace", async () => {
+      // SIG-433. The runtime registers the object a placeholder ends up as, and
+      // the build keyed its tree by the first `name` it found: `first` where the
+      // app answers to `second`. A name nothing here can read is refused rather
+      // than warned about, because a built app routed by the wrong one is a
+      // command that is simply not there
+      const source = `const named = { name: 'later' };
+const key = 'name';
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    twice: { name: 'first', name: 'second', path: './commands/a.js' },
+    unset: { name: 'gone', name: undefined, path: './commands/a.js' },
+    settled: { name: 'early', ...named, name: 'final', path: './commands/a.js' },
+    before: { name: 'early', ...named, path: './commands/a.js' },
+    inside: { name: 'early', ...{ other: 1 }, path: './commands/a.js' },
+    carried: { ...named, path: './commands/a.js' },
+    keyed: { name: 'early', [key]: 'later', path: './commands/a.js' },
+    only: { [key]: 'later', path: './commands/a.js' },
+    quoted: { ['name']: 'later', path: './commands/a.js' },
+    getter: { get name() { return 'got'; }, path: './commands/a.js' },
+    method: { name() {}, path: './commands/a.js' },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const names = list.map((command) => command.name);
+        const text = (command: string, key: string) =>
+          diagnostics.filter(
+            (d) => d.message.includes(`the "${command}" command`) && d.message.includes(`"${key}"`)
+          );
+
+        // the last spelling, and `undefined` is not declared
+        expect(names).toContain('second');
+        expect(names).not.toContain('first');
+        expect(names).toContain('unset');
+        // spelled after the spread, so nothing replaces it, and a spread that
+        // cannot carry one is no reason to refuse
+        expect(names).toContain('final');
+        expect(names).toContain('early');
+        for (const command of ['twice', 'unset', 'settled', 'inside']) {
+          expect(
+            text(command, 'name').filter((d) => d.severity === 'error'),
+            command
+          ).toEqual([]);
+        }
+
+        // each of these is refused, and says which command and what to write
+        const refused = (command: string, how: string) => {
+          const [one, ...rest] = text(command, 'name').filter((d) => d.severity === 'error');
+          expect(rest, command).toEqual([]);
+          expect(one?.message, command).toContain(how);
+          expect(one?.message, command).toContain(
+            'spell "name" literally, after any spread or computed key'
+          );
+        };
+        refused('before', 'is written before a spread or a computed key');
+        refused('carried', 'spreads another object, which may carry a "name"');
+        refused('keyed', 'is written before a spread or a computed key');
+        refused('only', 'has a computed key, which may be a "name"');
+        refused('quoted', 'has a computed key, which may be a "name"');
+
+        // an accessor is read as a computed name is, and a method is refused as
+        // the runtime refuses a function for one
+        expect(names).toContain('getter');
+        expect(
+          diagnostics.some(
+            (d) =>
+              d.severity === 'error' &&
+              d.message === 'Expected command name to be a non-empty string in the "method" command'
+          )
+        ).toBe(true);
+      });
+    });
+
+    it("read a placeholder's path and load from their last spelling, and refused a module a spread or a computed key may carry or replace", async () => {
+      // SIG-434. A `path` the build cannot see is a module it does not bundle,
+      // and the built app then matches the command and has nothing to run. The
+      // refusal is only for a module that is not known: one that is spelled and
+      // that nothing replaces decides, and `load` beside it is the runtime's to
+      // refuse
+      const source = `const pathed = { path: './commands/a.js' };
+const loaded = { load: () => import('./commands/a.js') };
+const key = 'path';
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    twice: { path: './commands/a.js', path: './commands/b.js' },
+    twiceLoad: { load: () => import('./commands/a.js'), load: () => import('./commands/b.js') },
+    unset: { path: './commands/a.js', path: undefined, load: () => import('./commands/b.js') },
+    settled: { ...pathed, path: './commands/b.js' },
+    beside: { ...loaded, path: './commands/b.js' },
+    literal: { path: './commands/b.js', ...{ other: 1 } },
+    carried: { desc: 'carried', ...pathed },
+    replaced: { path: './commands/a.js', ...pathed },
+    loadCarried: { desc: 'carried', ...loaded },
+    loadReplaced: { load: () => import('./commands/a.js'), ...loaded },
+    keyed: { [key]: './commands/a.js' },
+    quoted: { ['load']: () => import('./commands/a.js') },
+  },
+};\n`;
+
+      await withSchema(source, (dir) => {
+        writeFileSync(join(dir, 'src', 'commands', 'b.js'), 'export default { run() {} };\n');
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const module = (name: string) => at(list, name).module?.split(/[\\/]/).at(-1);
+        const errors = (command: string) =>
+          diagnostics.filter(
+            (d) =>
+              d.severity === 'error' &&
+              d.message.includes(`the "${command}" command`) &&
+              d.message.includes('which module to bundle')
+          );
+
+        // the last spelling is the module, and one that is known needs no say
+        // from a key a spread may carry beside it
+        for (const command of ['twice', 'twiceLoad', 'unset', 'settled', 'beside', 'literal']) {
+          expect(module(command), command).toBe('b.js');
+          expect(errors(command), command).toEqual([]);
+        }
+
+        // the rest are refused, once each, with what to write instead
+        const refused = (command: string, how: string) => {
+          const [one, ...rest] = errors(command);
+          expect(rest, command).toEqual([]);
+          expect(one?.message, command).toContain(how);
+          expect(one?.message, command).toContain(
+            'spell "path" or "load" literally, after any spread or computed key'
+          );
+          expect(module(command), command).toBeUndefined();
+        };
+        refused('carried', 'spreads another object, which may carry a "path"');
+        refused('loadCarried', 'spreads another object, which may carry a "path"');
+        refused('keyed', 'has a computed key, which may be a "path"');
+        refused('quoted', 'has a computed key, which may be a "load"');
+        refused('replaced', 'the "replaced" command\'s "path" is written before a spread');
+        refused('loadReplaced', 'the "loadReplaced" command\'s "load" is written before a spread');
       });
     });
 

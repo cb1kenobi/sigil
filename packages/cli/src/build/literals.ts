@@ -257,14 +257,26 @@ export function lastReplacing(object: ObjectExpression, key: string): number {
  * `desc` beside one is reported, and on a placeholder a key a spread may carry
  * is the placeholder's rather than the module's, since the runtime merges the
  * module in only where the placeholder's key is `undefined` (SIG-421). Spreads
- * only: a computed key beside an absent key is not reported, as it never was.
+ * only, unless asked: a computed key beside an absent key is not reported, as it
+ * never was.
+ *
+ * `computed` is for a caller that cannot let a key go unseen: a computed key
+ * beside an absent key counts too (SIG-433, SIG-434). The three keys that route
+ * a placeholder and hold its module are asked that way, because a built app
+ * that missed one is not listed wrongly but answers to a different name or runs
+ * nothing at all.
  *
  * @param object - The object literal.
  * @param key - The key in question.
- * @returns The first such spread, or `undefined` where the key is spelled or
- *   nothing may carry it.
+ * @param computed - Whether a computed key that may be `key` counts as well.
+ * @returns The first such spread, or computed key when asked for them, or
+ *   `undefined` where the key is spelled or nothing may carry it.
  */
-export function unspelledCarrier(object: ObjectExpression, key: string): SpreadElement | undefined {
+export function unspelledCarrier(
+  object: ObjectExpression,
+  key: string,
+  computed = false
+): SpreadElement | ObjectProperty | undefined {
   if (
     object.properties.some(
       (property) => property.type !== 'SpreadElement' && propertyKey(property) === key
@@ -274,8 +286,9 @@ export function unspelledCarrier(object: ObjectExpression, key: string): SpreadE
   }
 
   return object.properties.find(
-    (property): property is SpreadElement =>
-      property.type === 'SpreadElement' && mayCarry(property, key)
+    (property): property is SpreadElement | ObjectProperty =>
+      (property.type === 'SpreadElement' || (computed && property.computed)) &&
+      mayCarry(property, key)
   );
 }
 

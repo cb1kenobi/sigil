@@ -1,0 +1,7 @@
+{
+  "name": "placeholder-names",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

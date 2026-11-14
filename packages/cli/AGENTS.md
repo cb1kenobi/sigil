@@ -395,6 +395,34 @@ makes it testable with a fixture directory and no bundler at all.
   `args`, `examples`, `format`, `help`, `hooks` -- and wrong for anything that
   routes, since a name or an alias declared inside a module does not route.
 
+  Which spelling of `name` is read is the runtime's, the **last** (SIG-433), and
+  a `name` nothing here can read is **refused**, where an `alias` or a `default`
+  in the same position is a warning. `placeholderName()` called
+  `plainProperty()`, which answers with the first plain spelling and skips
+  spreads, so `{ name: 'first', name: 'second' }` was keyed `first` where the app
+  answers to `second`, and `{ name: 'early', ...named }` was keyed `early` where
+  `named` says `later` -- built, `later` was `Unexpected argument` and `early`
+  ran, under a build that reported success and warned about every key but this
+  one. It reads through `placeholderSpelling()` now, like the other keys the
+  tree takes off a placeholder. The severity is the difference: an `alias` the
+  build does not bake leaves a spelling unreachable and says so, which is the
+  built app being less than the app, and a `name` it guesses is the built app
+  being a **different** app, with the command it routes to under another name.
+  Nobody can debug that, because nothing fails: the command is simply not there.
+  So a `name` written before a spread or a computed key that may replace it, a
+  spread that may carry one the placeholder never spells, and a computed key that
+  may be one, fail the build with the command's key, the line, and what to write
+  -- spell `name` literally after any spread or computed key, or leave it out so
+  the key names the command. A computed key beside an absent key is asked about
+  for these three keys and for none of the others (`unspelledCarrier()` takes
+  `computed`), since a missed `desc` is listed wrongly and a missed `name`,
+  `path` or `load` is not listed at all. An accessor `name` is read as a computed
+  one is, and a method is refused as the runtime refuses a function. Covered by
+  `read a placeholder's name from its last spelling ...` in
+  `test/build/discover.test.ts` and, built against source, by
+  `test/build-command.test.ts` over `discover/placeholder-names` and
+  `discover/placeholder-refused`.
+
   A literal of the **wrong type** is not that case and fails the build:
   `alias: 42`, `['del', 42]`, `alias: null` and `default: 'yes'` throw
   `Expected alias in "remove" command to be a string or list of strings` (and the
@@ -450,6 +478,46 @@ makes it testable with a fixture directory and no bundler at all.
   first spelling ...` in `test/build/discover.test.ts`, which asks `main()` what
   it refuses over the same schema, and by its built-against-source twin in
   `test/build-command.test.ts` over `discover/placeholder-spellings`.
+
+  **A module the build cannot see is refused, rather than bundled as nothing.**
+  SIG-434. A placeholder's `path` or `load` is read from its last spelling
+  through `placeholderSpelling()`, and where neither is known to run -- a
+  spelling a later spread or computed key may replace, or a key a spread or a
+  computed key may carry that the placeholder spells nowhere -- `sigil build`
+  fails. `{ desc: 'carried', ...pathed }` with `const pathed = { path:
+  './commands/three.js' }` runs `three.js` from source, and `moduleSpecifier()`
+  asked `plainProperty()`, which skips spreads, so no module was bundled for it:
+  the built app matched the command, found nothing to run, printed help and
+  exited 0, and the build said it succeeded. `load` has the same exposure and was
+  confirmed the same way, with `{ ...loaded }` and a `load` written before a
+  spread. Refused where an `alias` is only warned about because there is no
+  partial answer to bake: a command with no module is not a command listed less
+  well but one that does nothing, and the failure that follows is the one the
+  build refuses everywhere else it can see it coming. A double-spelled `path` or
+  `load` with no spread is not that case and builds, by its last spelling, as
+  the runtime registers it: the first used to be bundled, so `{ path: './a.js',
+  path: './b.js' }` ran `a.js` built and `b.js` from source.
+
+  A module that **is** spelled and that nothing replaces decides, and a key a
+  spread may carry beside it is not asked about: a declaration with both a `path`
+  and a `load` is refused by the runtime, so whatever the spread carries is
+  either an error from source or nothing. Only one report is made when neither is
+  known, naming the spelling written before a spread where there is one -- that is
+  the line to move -- and otherwise the first carrier. A spread of an object
+  literal is a spread: nothing here evaluates, so `...{ path: './a.js' }` is
+  refused as `...pathed` is, and the fix is the same for both -- spell the key
+  literally, after the spread. An accessor or a method in either key is not read,
+  as it never was.
+
+  What the refusal newly turned up is every placeholder with a spread or a
+  computed key that does not spell its `name`, `path` and `load` after it, which
+  includes four tests of `desc`, `hidden`, `alias` and `default` whose
+  placeholders spread an object to show what happens to those. They leave these
+  refusals out of what they assert (`withoutPlacement()` in
+  `test/build/discover.test.ts`) rather than each spelling three more keys, and
+  `discover/placeholder-spellings` spells `name` after its spreads. No example,
+  no demo and no command of the toolchain itself is refused: `pnpm build` and a
+  build of each example under `examples/` were run against it.
 
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder

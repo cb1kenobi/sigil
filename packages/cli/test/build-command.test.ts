@@ -687,6 +687,89 @@ describe('sigil build', () => {
     expect(built('erase').stderr).toContain('Unexpected argument "erase"');
   }, 60_000);
 
+  it("a placeholder's name, path and load were read from their first spelling, so the built app routed by a name and ran a module the app does not", async () => {
+    // SIG-433, SIG-434. The runtime registers the last spelling of a key, and
+    // the build read the first: `{ name: 'first', name: 'second' }` answered to
+    // `first` built and to `second` from source, and a doubled `path` or `load`
+    // bundled the module the app never runs
+    const app = join(fixtures, 'discover', 'placeholder-names');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).not.toContain('error:');
+    expect(process.exitCode).toBeFalsy();
+
+    const spawn = (file: string, argv: string[]) => {
+      const { status, stderr, stdout } = spawnSync(process.execPath, [file, ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+      return { status, stderr, stdout };
+    };
+    const built = (...argv: string[]) => spawn(join(out, 'placeholder-names.mjs'), argv);
+    const source = (...argv: string[]) => spawn(join(app, 'dev.ts'), argv);
+
+    for (const argv of [['first'], ['second'], ['final'], ['later'], ['pathed'], ['loaded']]) {
+      expect(built(...argv), argv.join(' ')).toStrictEqual(source(...argv));
+    }
+
+    // the last spelling routes and the first does not, from source and built
+    expect(source('second').stdout).toBe('first ran\n');
+    expect(source('first').stderr).toContain('Unexpected argument "first"');
+    expect(source('final').stdout).toBe('second ran\n');
+    // and the module that runs is the last one named
+    expect(source('pathed').stdout).toBe('b ran\n');
+    expect(source('loaded').stdout).toBe('b ran\n');
+  }, 60_000);
+
+  it('should refuse a placeholder whose name, path or load a spread or a computed key may carry or replace', async () => {
+    // SIG-433, SIG-434. Each of these runs from source. A built app that guessed
+    // answered to `early` where the app answers to `later`, or matched a command
+    // whose module it never bundled and printed help with exit 0 -- under a
+    // build that reported success
+    const app = join(fixtures, 'discover', 'placeholder-refused');
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    const name = (command: string, how: string) =>
+      `the "${command}" command ${how} "name" this cannot see; the build cannot tell which name the command answers to`;
+    const module = (command: string, how: string, key: string) =>
+      `the "${command}" command ${how} "${key}" this cannot see; the build cannot tell which module to bundle for the command`;
+    const spreads = 'spreads another object, which may carry a';
+    const computed = 'has a computed key, which may be a';
+
+    expect(err).toContain(
+      'the "spreadname" command\'s "name" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the build cannot tell which name the command answers to'
+    );
+    expect(err).toContain(name('carriedname', spreads));
+    expect(err).toContain(name('computed', computed));
+    expect(err).toContain(module('carried', spreads, 'path'));
+    expect(err).toContain(module('loadcarried', spreads, 'path'));
+    expect(err).toContain(module('computed', computed, 'path'));
+    expect(err).toContain(
+      'the "replaced" command\'s "path" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the build cannot tell which module to bundle for the command'
+    );
+    expect(err).toContain(
+      'the "loadreplaced" command\'s "load" is written before a spread or a computed key'
+    );
+    // what to write instead, which is the same for each
+    expect(err).toContain('spell "path" or "load" literally, after any spread or computed key');
+    expect(err).toContain('spell "name" literally, after any spread or computed key');
+    // and the file and line, which is where to write it
+    expect(err).toMatch(/src[\\/]index\.js:\d+:\d+: error: the "carried" command/);
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'placeholder-refused.mjs'))).toBe(false);
+
+    // each one runs from source, which is what the refusal is for
+    const source = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(app, 'dev.ts'), ...argv], {
+        cwd: tmpdir(),
+        encoding: 'utf-8',
+      });
+    expect(source('later').stdout).toBe('two ran\n');
+    expect(source('carried').stdout).toBe('three ran\n');
+    expect(source('loadcarried').stdout).toBe('four ran\n');
+    expect(source('computed').stdout).toBe('seven ran\n');
+  }, 60_000);
+
   it('should refuse a package the schema points at whose names it cannot read', async () => {
     // SIG-332. From source such a package answers to whatever its module
     // computes, so a build that baked the key, or guessed, would route the built
