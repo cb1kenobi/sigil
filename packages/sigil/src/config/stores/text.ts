@@ -24,7 +24,7 @@ import { readFile } from 'node:fs/promises';
  * `fatal`, because the `'utf8'` a `readFile()` takes is the lossy one: it reads
  * every invalid sequence as U+FFFD, and a store splices its edits into what it
  * decoded and writes the whole text back -- so `set()` of one unrelated key
- * rewrote a Latin-1 `é` in a comment as `ef bf bd`, permanently, in a file the
+ * rewrote a Latin-1 `e9` in a comment as `ef bf bd`, permanently, in a file the
  * span writer exists to leave alone. A file that is not UTF-8 is refused at the
  * read instead, which is before anything can be written over it.
  *

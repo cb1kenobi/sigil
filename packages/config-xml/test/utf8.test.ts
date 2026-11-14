@@ -37,8 +37,8 @@ describe('a file that is not UTF-8', () => {
   });
 
   it.each([
-    ['little-endian', Buffer.from('﻿<config><a>1</a></config>', 'utf16le')],
-    ['big-endian', Buffer.from('﻿<config><a>1</a></config>', 'utf16le').swap16()],
+    ['little-endian', Buffer.from('\uFEFF<config><a>1</a></config>', 'utf16le')],
+    ['big-endian', Buffer.from('\uFEFF<config><a>1</a></config>', 'utf16le').swap16()],
   ])('should refuse UTF-16 %s with a BOM as UTF-16, not as a parse error', (_, utf16) => {
     const path = file(utf16);
     expect(() => xml(path).readSync()).toThrow(
@@ -49,14 +49,14 @@ describe('a file that is not UTF-8', () => {
   });
 
   it('should still read a UTF-8 BOM, and keep it on a save', async () => {
-    const path = file('﻿<config><a>café</a></config>\n');
+    const path = file('\uFEFF<config><a>caf\u00e9</a></config>\n');
     const config = await createConfig({ layers: [{ name: 'user', store: xml(path) }] });
-    expect(config.get('a')).toBe('café');
+    expect(config.get('a')).toBe('caf\u00e9');
 
     config.set('b', '2');
     await config.save();
 
-    expect(readFileSync(path, 'utf8')).toBe('﻿<config><a>café</a><b>2</b></config>\n');
+    expect(readFileSync(path, 'utf8')).toBe('\uFEFF<config><a>caf\u00e9</a><b>2</b></config>\n');
   });
 });
 
@@ -71,15 +71,15 @@ describe('a declared encoding', () => {
       /^Failed to read .*config\.xml: it declares the encoding "ISO-8859-1", and only UTF-8 is read$/;
 
     expect(() => xml(path).readSync()).toThrow(refusal);
-    expect(() => xml(path).writeSync({ b: 'café' }, { paths: ['b'] })).toThrow(refusal);
+    expect(() => xml(path).writeSync({ b: 'caf\u00e9' }, { paths: ['b'] })).toThrow(refusal);
     expect(readFileSync(path, 'utf8')).toBe(text);
   });
 
   it.each([`encoding="UTF-8"`, `encoding='utf-8'`, `encoding = "Utf-8"`, `standalone="yes"`])(
     'should read a declaration of %s',
     (decl) => {
-      const path = file(`<?xml version="1.0" ${decl}?>\n<config><a>café</a></config>\n`);
-      expect(xml(path).readSync().value).toStrictEqual({ a: 'café' });
+      const path = file(`<?xml version="1.0" ${decl}?>\n<config><a>caf\u00e9</a></config>\n`);
+      expect(xml(path).readSync().value).toStrictEqual({ a: 'caf\u00e9' });
     }
   );
 });

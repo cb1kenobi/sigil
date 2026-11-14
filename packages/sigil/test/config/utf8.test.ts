@@ -97,16 +97,16 @@ describe('a config file that is not UTF-8', () => {
   });
 
   it('should still read a UTF-8 BOM, and keep it on a save', () => {
-    const path = file('config.json', bytes([0xef, 0xbb, 0xbf], '{\n  "a": "café"\n}\n'));
+    const path = file('config.json', bytes([0xef, 0xbb, 0xbf], '{\n  "a": "caf\u00e9"\n}\n'));
     const config = createConfigSync({ layers: [{ name: 'user', store: json(path) }] });
-    expect(config.get('a')).toBe('café');
+    expect(config.get('a')).toBe('caf\u00e9');
 
     config.set('b', 2);
     config.saveSync();
 
     const after = readFileSync(path);
     expect([...after.subarray(0, 3)]).toStrictEqual([0xef, 0xbb, 0xbf]);
-    expect(after.subarray(3).toString()).toBe('{\n  "a": "café",\n  "b": 2\n}\n');
+    expect(after.subarray(3).toString()).toBe('{\n  "a": "caf\u00e9",\n  "b": 2\n}\n');
   });
 
   it('should keep the last good value when a watched file stops being UTF-8', () => {
@@ -150,7 +150,7 @@ describe('invalidUtf8At()', () => {
   };
 
   it('should find nothing in valid UTF-8', () => {
-    expect(invalidUtf8At(Buffer.from('aé€\u{1f600}﻿'))).toBe(-1);
+    expect(invalidUtf8At(Buffer.from('a\u00e9\u20ac\u{1f600}\uFEFF'))).toBe(-1);
   });
 
   it.each([

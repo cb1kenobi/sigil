@@ -37,8 +37,8 @@ describe('a file that is not UTF-8', () => {
   });
 
   it.each([
-    ['little-endian', Buffer.from('﻿a: 1\n', 'utf16le')],
-    ['big-endian', Buffer.from('﻿a: 1\n', 'utf16le').swap16()],
+    ['little-endian', Buffer.from('\uFEFFa: 1\n', 'utf16le')],
+    ['big-endian', Buffer.from('\uFEFFa: 1\n', 'utf16le').swap16()],
   ])('should refuse UTF-16 %s with a BOM as UTF-16, not as a parse error', (_, utf16) => {
     const path = file(utf16);
     expect(() => yaml(path).readSync()).toThrow(
@@ -49,13 +49,13 @@ describe('a file that is not UTF-8', () => {
   });
 
   it('should still read a UTF-8 BOM, and keep it on a save', async () => {
-    const path = file('﻿# café\na: 1\n');
+    const path = file('\uFEFF# caf\u00e9\na: 1\n');
     const config = await createConfig({ layers: [{ name: 'user', store: yaml(path) }] });
     expect(config.get('a')).toBe(1);
 
     config.set('b', 2);
     await config.save();
 
-    expect(readFileSync(path, 'utf8')).toBe('﻿# café\na: 1\nb: 2\n');
+    expect(readFileSync(path, 'utf8')).toBe('\uFEFF# caf\u00e9\na: 1\nb: 2\n');
   });
 });
