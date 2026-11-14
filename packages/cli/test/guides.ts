@@ -1,4 +1,5 @@
 import { scaffold } from '../src/scaffold/index.ts';
+import { installSigil } from './installed-sigil.ts';
 import { OWN_SUITE } from './own-suite.ts';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -28,9 +29,6 @@ export const root: string = resolve(dirname(fileURLToPath(import.meta.url)), '..
 export const docs: string = resolve(root, 'packages/sigil/docs');
 
 const require = createRequire(import.meta.url);
-
-/** `@ttylabs/sigil`'s package directory, as this package resolves it. */
-const sigil = dirname(require.resolve('@ttylabs/sigil/package.json'));
 
 /**
  * vitest's package directory, as this package resolves it -- the version the
@@ -294,7 +292,7 @@ export function readGuide(file: string): string {
 
 /**
  * Writes the app `sigil new` would have scaffolded for a guide into `dir`, with
- * `@ttylabs/sigil` linked in as this package resolves it.
+ * `@ttylabs/sigil` installed as a copy, as a publish ships it (`installSigil()`).
  *
  * @param dir - An empty directory.
  * @param guide - The guide.
@@ -317,11 +315,10 @@ export function prepare(dir: string, guide: Guide): void {
     mkdirSync(dirname(join(dir, file.path)), { recursive: true });
     writeFileSync(join(dir, file.path), file.contents);
   }
-  mkdirSync(join(dir, 'node_modules', '@ttylabs'), { recursive: true });
-  // a junction, which Windows makes without the privilege a symlink needs
-  // and every other platform reads as an ordinary directory link
-  symlinkSync(sigil, join(dir, 'node_modules', '@ttylabs', 'sigil'), 'junction');
-  // and the test runner the scaffold names, for a `$ npm test` step
+  installSigil(join(dir, 'node_modules'));
+  // and the test runner the scaffold names, for a `$ npm test` step: a junction,
+  // which Windows makes without the privilege a symlink needs and every other
+  // platform reads as an ordinary directory link
   symlinkSync(vitest, join(dir, 'node_modules', 'vitest'), 'junction');
 }
 

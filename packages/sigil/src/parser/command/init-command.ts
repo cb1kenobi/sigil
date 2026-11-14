@@ -21,6 +21,7 @@ import {
   type ParsedName,
   parseName,
 } from './declaration.js';
+import { importModule } from './import-module.js';
 import {
   moduleName,
   readDirectory,
@@ -690,8 +691,12 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
   const { description, entryFile, name } = pkg;
 
   // the file URL rather than the path: an absolute path on Windows starts with
-  // a drive letter, which the ESM loader reads as a scheme it does not know
-  const { default: cmd } = await import(pathToFileURL(entryFile).href);
+  // a drive letter, which the ESM loader reads as a scheme it does not know.
+  // Through `importModule()`, for the reason `loadCommand()` is: a caller of
+  // `main()` may have said how modules are imported
+  const { default: cmd } = (await importModule(pathToFileURL(entryFile).href)) as {
+    default?: Command;
+  };
 
   if (!cmd || typeof cmd !== 'object') {
     throw new TypeError(`Expected command package to default export an object: ${entryFile}`);

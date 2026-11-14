@@ -111,6 +111,13 @@ describe('copying a fixture', () => {
       count: 1,
       why: 'the helper itself, whose one call is the filtered one',
     },
+    'packages/cli/test/installed-sigil.ts': {
+      count: 1,
+      why:
+        "copies the paths `@ttylabs/sigil`'s `files` names, out of the built " +
+        'package rather than a fixture, so no build writes a scratch directory ' +
+        'under what it copies (SIG-431)',
+    },
     'packages/cli/test/update-check.test.ts': {
       count: 2,
       why:

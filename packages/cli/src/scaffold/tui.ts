@@ -432,6 +432,25 @@ export function tuiTest(opts: TuiTestOptions): string {
   const typed = language === 'ts';
   const component = `../${componentPath(language, syntax)}`;
   const argv = tui.at === 'command' ? `['${tui.command}']` : '[]';
+  // a command module is imported by `main()`, with node's own `import()`, and
+  // node cannot import a JSX component (SIG-431). So the test hands
+  // `runCommand()` vitest's import where both are true and nowhere else: the
+  // root placement's component is imported by `src/index`, which this file
+  // imports and vitest compiles, and a `ui`-tag component is a module node
+  // imports as it is -- an option that changed nothing would be one more line
+  // for the author to wonder about
+  const importer = tui.at === 'command' && syntax === 'jsx';
+  const run = importer
+    ? `runCommand({ argv: ${argv}, importModule: (url) => import(url), schema })`
+    : `runCommand({ argv: ${argv}, schema })`;
+  const why = importer
+    ? `
+    //
+    // \`main()\` imports the command's module with node's own \`import()\`, and node
+    // strips types but does not compile JSX, so the component the command imports
+    // would fail to load. \`importModule\` is written here, in the test file, so
+    // the \`import()\` in it is vitest's, which compiles the component`
+    : '';
 
   return `// A full-screen app, tested without a screen.
 //
@@ -557,12 +576,12 @@ describe('${name} full-screen app', () => {
     // A test runner's streams are pipes, which is what makes this refuse, and a
     // runner that hands its own terminal down would open the real app instead and
     // wait for a key nobody is going to press. So the one thing \`runApp()\` asks of
-    // stdin is pinned rather than assumed
+    // stdin is pinned rather than assumed${why}
     const was = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
     Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
 
     try {
-      const ran = await runCommand({ argv: ${argv}, schema });
+      const ran = await ${run};
 
       expect(ran.code).toBe(1);
       expect(ran.out).toBe('');

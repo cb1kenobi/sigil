@@ -3,6 +3,7 @@ import { errorHandler, errorMessage } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
+import { useModuleImporter, withModuleImports } from './parser/command/import-module.js';
 import { resolveSettings, salvagedErrorHandler } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
 import {
@@ -47,7 +48,20 @@ get cwd(): string {
  * returned nothing or no command ran, or `undefined` when an error was
  * handled.
  */
-export async function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
+export function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
+  // in a slot of its own, so that every module this call imports for the app --
+  // from the parse, from help, from completion -- reads the `importModule` this
+  // call was given, and a nested call reads its own. See `import-module.ts`
+  return withModuleImports(() => runMain(opts));
+}
+
+/**
+ * The body of `main()`, inside its call's module-import slot.
+ *
+ * @param opts - The app options.
+ * @returns What `main()` resolves with.
+ */
+async function runMain(opts: AppOptions): Promise<ParseState | unknown> {
   let state: ParseState | undefined;
   let hooksFired = false;
   /** What the process-wide quiet request was before this run, if it moved. */
@@ -60,6 +74,10 @@ export async function main(opts: AppOptions = {}): Promise<ParseState | unknown>
     // some of them. `parse()` merges again, which changes nothing -- laying a
     // result over its own base is the result
     const settings = resolveSettings(opts.schema, opts.settings);
+
+    // read here rather than where the slot is opened, so that a value that is
+    // not a function is refused through the error path like any other option
+    useModuleImporter(opts.importModule);
 
     if (settings.assertCwd !== false) {
       assertCwd();

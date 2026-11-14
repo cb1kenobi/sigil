@@ -99,11 +99,19 @@ await main({
   argv?: string[],      // defaults to process.argv.slice(2)
   schema?: Schema,
   settings?: Settings,
+  importModule?: (url: string) => Promise<unknown>, // defaults to node's import()
 });
 ```
 
 Resolves with the command's return value; with the `ParseState` when no command
 ran or the command returned nothing; with `undefined` when an error was handled.
+
+`importModule` is for tests, and an app's own bin never passes it. It imports
+every module the app declared — a command's `path`, a routed directory's
+modules, a package's entry — and is handed the module's `file:` URL. Under
+vitest, `(url) => import(url)` written in the test file is vite's import, which
+compiles a `.tsx` or `.jsx` component a command imports where node's refuses it.
+The [Testing guide](docs/testing.md#a-full-screen-app) has the recipe.
 
 ### `errorHandler`, `renderError`, `errorExitCode`, `errorMessage`
 
@@ -1753,7 +1761,8 @@ code, an error, a prompt, and a full-screen app. Every example in it is run by
 the repository's own suite.
 
 - `runCommand()` runs a schema through the real `main()` and hands back the exit
-  code, stdout, stderr, the parsed values and the error.
+  code, stdout, stderr, the parsed values and the error. Its `importModule`
+  option, `(url) => import(url)`, lets vitest load a command that imports JSX.
 - `runOnTerminal()` runs a program in a child process whose streams claim to be
   a terminal, because a test runner's streams are pipes. With `stdin: true` it
   types into the child and waits for what it draws.

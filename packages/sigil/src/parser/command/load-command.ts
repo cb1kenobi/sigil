@@ -1,6 +1,7 @@
 import debug from '../../debug/index.js';
 import { Command, Internal, InternalCommand } from '../../types.js';
 import { errorMessage } from '../../util/error-message.js';
+import { importModule } from './import-module.js';
 import { initCommand, loadCommandDir } from './init-command.js';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -81,8 +82,11 @@ async function fetchModule(
       // the URL is for the loader and goes no further: everything else here
       // answers questions about the file system -- where the module sits, and
       // so what the paths it declares are relative to -- and `file:///a/b.js`
-      // is not a directory anything can be resolved against
-      const def = (await import(pathToFileURL(internal.path).href)).default;
+      // is not a directory anything can be resolved against. `importModule()`
+      // is node's `import()` unless the caller of `main()` handed it another,
+      // which is how a test lets vite load a command that imports JSX
+      const def = ((await importModule(pathToFileURL(internal.path).href)) as { default?: unknown })
+        .default;
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
       throw new Error(`Failed to load command module (${internal.path}): ${errorMessage(e)}`, {
