@@ -3875,7 +3875,9 @@ bar.done('Copied');
 ```
 
 The bar sizes itself to a third of the terminal, between 10 and 40 columns,
-unless given a `barWidth`.
+unless given a `barWidth`. A cell fills once the work has reached it, so the bar
+is full only when the work is done, and it agrees with the percentage, which
+also rounds down.
 
 Pass `rate: true`, `eta: true` or both for the pace and the time remaining beside
 the percentage -- `10 files/s  ETA 9s`, with `unit: 'files'` naming the unit. Both
@@ -4908,7 +4910,8 @@ not a view built again every tick.
   draws a thin bar, and `thresholds: { warn: 0.7, error: 0.9 }` draws the bar in
   the `warn` and `error` roles from those ratios up. It is not `progress()`: that
   is live, moves, and falls back to a percentage where there is no terminal; a
-  gauge is printed once. They share the bar arithmetic and nothing else.
+  gauge is printed once. They share the bar arithmetic and the percentage, both
+  rounded down, and nothing else.
 
 Every chart takes `role` (`accent` by default, `none` for the terminal's own
 foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,

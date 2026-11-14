@@ -277,7 +277,10 @@ culling is two lines in passes that already existed.
   row is still above it says the list is at its start when it is not -- so offset
   zero is the only thing that draws at the start, the maximum the only thing that
   draws at the end, and everything between is interpolated across the cells in the
-  middle. That is the same rule the progress bar keeps for saying it finished.
+  middle. The progress bar keeps the second half of that rule for saying it
+  finished: `renderBar()` rounds its fill down, so the last cell fills only at a
+  ratio of 1 (SIG-409). It does not keep the first half -- a bar has no minimum
+  cell, and a small ratio draws nothing, the way its percentage says `0%`.
 - **The framework sheet gains two classes and no light half.**
   `.sigil-scroll-track` is `gray` and `.sigil-scroll-thumb` is `cyan`, which are
   palette indices -- so they are whatever the user's own theme renders, and index 8
@@ -7025,7 +7028,10 @@ to a string, each with a `*View()` returning `{ element, width }`, and the split
   printed once and can be coloured by how bad the reading is. It calls
   `renderBar()` once per half -- the filled character with an empty `empty`, and
   the reverse -- so the cell count and the rounding are the progress bar's and the
-  two halves can take different roles without a second copy of the maths.
+  two halves can take different roles without a second copy of the maths. Its
+  figure is `progressPercent(ratio, 1)` for the same reason: the bar rounds down
+  since SIG-409, and a figure that still rounded to nearest drew nine cells of ten
+  beside `100%`.
 - **A value that is not a finite number is a gap, never the lowest mark.** In a
   sparkline it is a space, in a line chart it breaks the line instead of being
   bridged, and in a bar chart it is a dash with no bar. Zero and nothing are
@@ -7415,6 +7421,25 @@ is the group. SIG-184.
   give the terminal back, and a bar from before is a bar of a screen that no
   longer exists: a change to it paints nothing and writes nothing. The first
   `add()` afterwards mounts a fresh group, as a spinner remounts on `start()`.
+- **A bar is full only when the work is done.** `renderBar()` fills
+  `floor(ratio * cells)` cells, so the last one fills only at a ratio of 1
+  (SIG-409). It used `Math.round`, and with the default 13 cells anything from
+  about 96.2% drew 13 of 13 -- `total: 3` at `2.999` was a full bar beside `99%`,
+  because the percentage has always rounded down. A full bar is the one reading a
+  reader takes at its word, which is the scrollbar thumb's rule in the scroll box
+  section: it touches an end only at that end. There is no minimum of one cell
+  for a small nonzero ratio, so 5% of ten cells draws nothing, which is what a
+  `0%`-to-`9%` figure beside it already says. `1 * cells` is exactly `cells`, and
+  `current / total` is exactly `1` when the two are equal, so a finished bar is
+  full whatever the total -- pinned for awkward totals. What floating point can
+  still do is draw a cell short at an exact boundary mid-bar (`13 / 23` of 23
+  cells is `12.999999999999998`), which the percentage shares (`29 / 100` reads
+  `28%`) and which is left alone: it never draws more than the work. One
+  function, so `progress`, `multi-progress` and the gauge all follow it; the
+  gauge's figure moved to `progressPercent()` with it, under the charts section.
+  The chart's bars and sparkline round to the nearest eighth and are not
+  progress: a bar's length at 99.9% of the scale is a length, and nothing reads
+  it as finished.
 - **Not done:** a timer that counts the ETA down between ticks; an overall bar
   for the group; a bar that is indeterminate until its total is known; locale
   number formatting.
@@ -12459,8 +12484,9 @@ duplicates, and each pair was compared before it was folded.
   cannot show `NaN%` either. `progressRatio(state)` is the value over the total
   both of them read. A fractional step above 1 moves: `7.5` was multiples of
   `7.5`, which could be `47.5%`, and is `8` now. An integer step does not move.
-  Not touched: `Math.round` against `Math.floor` near 100% in the bar, which is
-  an open decision of its own.
+  Not touched: `Math.round` against `Math.floor` near 100% in the bar, which was
+  an open decision of its own and is settled under "A bar is full only when the
+  work is done", in the progress section.
 - **`seek()` was the same walk in both places, with one difference in what "on
   offer" read.** `select()` and `multiselect()` asked `kind === 'choice' &&
   offered`; `groupMultiselect()` asked `offered` alone, because a group heading
