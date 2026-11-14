@@ -759,18 +759,36 @@ pre-commit hook and every local run.
   the child still alive. And ending the child alone does not end what it
   started. A nested `vitest run` uses forked workers, and killing that vitest
   with SIGTERM or SIGKILL on macOS left its worker running under pid 1,
-  measured with `ps`. So on POSIX the child is spawned `detached`, which makes
-  it the leader of a process group its descendants join, and the abort kills
-  the group (`process.kill(-pid, 'SIGKILL')`). On Windows, where killing a
-  process kills only that process, it is `taskkill /pid <pid> /T /F`, which
-  walks the tree by parent pid. Timing out all twelve variants at 250, 350,
-  450 and 550 ms left no directory and no `forks.js` worker, and at 350 and
-  450 every abort was a nested vitest's. The first version, which passed the
-  signal to `spawn()`, left an orphaned worker at 350 and at 400 ms. A child that never closes holds the hook until
-  `REMOVAL_TIMEOUT`, which fails the test and leaves the directory to the
-  `afterAll`. One cost: a `detached` child is in no terminal's foreground
-  group, so a Ctrl-C of the suite does not reach it, and it runs until its
-  pipes close.
+  measured with `ps`. On Windows, where killing a process kills only that
+  process, the abort runs `taskkill /pid <pid> /T /F`, which walks the tree by
+  parent pid. POSIX has no such call, so `endTree()` reads the tree from `ps`
+  and walks it: each process found is sent SIGSTOP before the next look, so
+  none can start another in between, and once a look finds nothing new every
+  one of them gets SIGKILL. Timing out all twelve variants at 250, 350, 450 and
+  550 ms left no directory and no process in one, and from 350 ms up every
+  abort was a nested vitest's. The first version, which passed the signal to
+  `spawn()`, left an orphaned worker at 350 and at 400 ms. A child that never
+  closes holds the hook until `REMOVAL_TIMEOUT`, which fails the test and
+  leaves the directory to the `afterAll`.
+- **The children stay in the suite's own process group, so a Ctrl-C reaches
+  them.** Killing a group would be one call, and the second version did it: the
+  child spawned `detached` and `process.kill(-pid)` on an abort. Review found
+  what that cost. A terminal's Ctrl-C is SIGINT to its foreground group, and a
+  detached child is in a session of its own, so the SIGINT never reached it.
+  Nothing passed it on either. vitest's main process answers SIGINT by exiting
+  a millisecond later without stopping anything it spawned (the logger's
+  `addCleanupListeners()`). The `forks.js` workers install no handler at all.
+  `@ttylabs/cli` runs its tests in `threads`, and a worker thread is sent no
+  signal events: a `process.on('SIGINT')`, `SIGTERM`, `SIGHUP` or `exit` handler
+  in a test file never ran when the main process was interrupted, so there is
+  nowhere for a test to clean up from. Measured with a nested test that waits
+  two minutes, by sending SIGINT to the whole run's group as a terminal does:
+  with `detached`, ten processes (five nested vitests and their workers) were
+  still running five seconds later, in the app directories. In the suite's
+  group, none were. This is how the suite behaved before SIG-426, and a SIGTERM
+  sent to the vitest process alone still leaves its children running, as it
+  always has. Directories a Ctrl-C leaves behind are a separate thing: no
+  `afterAll` runs after one, with or without this.
 - **A directory removed early is checked again when the file ends.**
   `removeTempDir()` remembers what it removed, and `removeTempDirs()` fails the
   file over any of it that exists again, after removing it a second time. A

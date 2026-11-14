@@ -1645,19 +1645,77 @@ function materialize(
 }
 
 /**
+ * Ends a process and everything descended from it.
+ *
+ * The whole tree, because ending the process alone was measured to leave its
+ * descendants running: a nested `vitest run` uses forked workers, and killing
+ * that vitest with SIGTERM or SIGKILL on macOS left its worker running under
+ * pid 1, mid-test. Windows kills one process at a time, so it is
+ * `taskkill /T`, which walks the tree by parent pid. POSIX has no such call, so
+ * the tree is read from `ps` and walked here. Each process found is stopped
+ * before the next look, so none of them can start another in between, and
+ * only once a look finds nothing new is every one of them killed.
+ *
+ * A process group would be one call, and it was the first version: the child
+ * spawned `detached` and the group killed. It is not used, because a detached
+ * child is in no terminal's foreground group, so a Ctrl-C of the suite never
+ * reached it. vitest exits on SIGINT without stopping anything it spawned, a
+ * worker thread gets no signal events to clean up in, and so a nested suite
+ * kept running in the app directory after the run it belonged to had ended.
+ * Measured, with a nested test that waits two minutes: ten processes were
+ * still running five seconds after the Ctrl-C. Spawned in the suite's own
+ * group, the Ctrl-C reaches every one of them, as it did before SIG-426.
+ *
+ * @param pid - The process at the root of the tree.
+ */
+function endTree(pid: number): void {
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+    return;
+  }
+  const tried = new Set<number>();
+  for (let found = [pid]; found.length > 0;) {
+    for (const each of found) {
+      tried.add(each);
+      try {
+        process.kill(each, 'SIGSTOP');
+      } catch {
+        // it has already gone
+      }
+    }
+    const below = new Map<number, number[]>();
+    for (const line of spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf-8' })
+      .stdout.trim()
+      .split('\n')) {
+      const [child, parent] = line.trim().split(/\s+/).map(Number);
+      if (child !== undefined && parent !== undefined) {
+        below.set(parent, [...(below.get(parent) ?? []), child]);
+      }
+    }
+    const tree: number[] = [];
+    for (const queue = [pid]; queue.length > 0;) {
+      for (const child of below.get(queue.shift()!) ?? []) {
+        tree.push(child);
+        queue.push(child);
+      }
+    }
+    found = tree.filter((each) => !tried.has(each));
+  }
+  for (const each of tried) {
+    try {
+      process.kill(each, 'SIGKILL');
+    } catch {
+      // it has already gone
+    }
+  }
+}
+
+/**
  * Runs node in `cwd` with nothing on stdin and reads what it did, and ends the
  * child and everything it started if `signal` is aborted.
  *
  * It settles on `close` in every case, abort included: `spawn()`'s own `signal`
  * option rejects the moment the abort happens, while the child is still alive.
- *
- * What it ends is the whole tree, because ending the child alone was measured
- * to leave its descendants running. A nested `vitest run` uses forked workers,
- * and killing that vitest with SIGTERM or SIGKILL on macOS left its worker
- * running under pid 1, mid-test. On POSIX the child is spawned `detached`, which
- * makes it a process group leader that its descendants join, and the group is
- * killed. Windows has no process groups, and killing a process there kills that
- * process alone, so it is `taskkill /T`, which walks the tree by parent pid.
  *
  * @param cwd - The directory to run in.
  * @param signal - The test's, aborted when the test times out.
@@ -1669,25 +1727,12 @@ function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): P
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, argv, {
       cwd,
-      detached: process.platform !== 'win32',
       env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const end = (): void => {
-      if (child.pid === undefined) {
-        return;
-      }
-      if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' }).on(
-          'error',
-          () => {}
-        );
-      } else {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          // the group has already gone
-        }
+      if (child.pid !== undefined) {
+        endTree(child.pid);
       }
     };
     signal.addEventListener('abort', end, { once: true });
