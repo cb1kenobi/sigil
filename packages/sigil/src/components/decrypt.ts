@@ -578,8 +578,9 @@ function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
  * else from the rest of the library is a surprise nobody asked for. Measured
  * against it rather than assumed: a whitespace run is kept where the line carries
  * on and thrown away where it breaks, so indentation survives and a trailing run
- * does not; and a word that cannot fit a line of its own is broken at the edge
- * rather than left to run off it. `should wrap where the wrapper does` is what
+ * does not -- unless the indentation leaves no room for the first cell of the
+ * word after it, when it goes too; and a word that cannot fit a line of its own
+ * is broken at the edge rather than left to run off it. `should wrap where the wrapper does` is what
  * holds the two together.
  *
  * @param lines - The frame's cells, one list per line.
@@ -617,7 +618,10 @@ function placeCells(
 
       if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
         next();
-      } else if (gap) {
+      } else if (gap && (x > 0 || gap.width + (run.cells[0]?.width ?? 0) <= limit)) {
+        // a gap at the start of a row is the line's own indentation, which is
+        // dropped when it leaves no room for the word's first cell -- `wrap()`'s
+        // rule, so that it is not a row of nothing but blanks
         for (const cell of gap.cells) {
           place(cell);
         }

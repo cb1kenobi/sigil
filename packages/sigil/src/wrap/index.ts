@@ -119,7 +119,13 @@ export interface WrapOptions {
  * Trailing whitespace is dropped from every line, including a line that did not
  * need wrapping. A terminal draws nothing for it, it is what a break at a space
  * would leave behind anyway, and leaving it makes a measured line wider than
- * what anybody can see. Leading whitespace is kept: that is indentation.
+ * what anybody can see. Leading whitespace is kept: that is indentation. The
+ * one exception is indentation that leaves no room for the line's first
+ * character, which is dropped rather than written out as a line of nothing but
+ * spaces, wider than the width.
+ *
+ * A width that is `NaN`, zero or negative holds nothing, so the answer is the
+ * empty string, which is what `truncate()` answers too. `Infinity` wraps nothing.
  *
  * @param text - The text to wrap.
  * @param opts - The width to wrap at, or the options.
@@ -132,6 +138,15 @@ export function wrap(text: string, opts: WrapOptions | number = {}): string {
   const first = prefix(indent);
   const rest = first + prefix(hangingIndent);
   const limit = settings.width ?? terminalWidth();
+
+  // `NaN` fails every comparison below, so it walked straight through: the room
+  // came out as `NaN`, no word ever fit beside another, and none was ever too
+  // long to break -- one word a line, at no width at all. A width that is not a
+  // number is not a width, and nor is one that holds nothing, so both are
+  // answered the way `truncate()` answers them
+  if (!(limit > 0)) {
+    return '';
+  }
 
   // an indent as wide as the width leaves nowhere to put the text, and one
   // column is the least that can hold anything
@@ -277,6 +292,9 @@ function wrapLine(
     }
   };
 
+  /** The columns the word's first cluster takes, which is the least of it a line can hold. */
+  const firstWidth = (): number => word.find((token) => token.type === 'cluster')?.width ?? 0;
+
   const placeWord = () => {
     if (word.length === 0) {
       return;
@@ -296,10 +314,15 @@ function wrapLine(
       } else {
         emit(word);
       }
-    } else if (atLineStart && pendingWidth > 0) {
+    } else if (atLineStart && hard && pendingWidth > 0 && pendingWidth + firstWidth() <= room) {
       // the spaces in front of the first word of the input line are the text's
       // own indentation, so they are kept even though the word does not fit
-      // beside them
+      // beside them -- as long as some of it does. Indentation that leaves no
+      // room for the word's first cluster is dropped instead, by the branch
+      // below: written out, it was a line of nothing but spaces, wider than the
+      // width and ended at once by the break that followed it. A word that may
+      // not be broken is the unit that has to fit, and the branch above has
+      // already found that it does not
       emit(pending);
       pending = [];
       pendingWidth = 0;
@@ -309,8 +332,10 @@ function wrapLine(
         emit(word);
       }
     } else {
-      // already at the start of a line: no break will help, so the word is
-      // either split or allowed to run over
+      // already at the start of a line, or at the start of one whose own
+      // indentation left no room: no break will help, so the word is either
+      // split or allowed to run over. Dropping the indentation keeps the
+      // effect of any styling among it, as a break does
       emit(dropPending());
       if (hard && wordWidth > room) {
         emitBroken();

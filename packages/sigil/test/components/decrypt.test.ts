@@ -695,14 +695,7 @@ describe('decryptView()', () => {
       'trailing space ',
     ]) {
       for (const width of [1, 2, 4, 6, 8, 12, 20, 24, 40]) {
-        // a line's trailing blanks are dropped by the renderer, so they are
-        // dropped here too: `wrap()` leaves an indent on a line of its own where
-        // the word after it could not fit, and a row of spaces and an empty row
-        // are the same row on screen
-        const wrapped = wrap(text, { width })
-          .split('\n')
-          .map((line) => line.replace(/\s+$/u, ''))
-          .join('\n');
+        const wrapped = wrap(text, { width });
 
         expect(
           drawFrame(decryptedFrame(text), width),
