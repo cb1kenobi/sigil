@@ -1640,16 +1640,17 @@ failed to close.
 #### A file that is not UTF-8 is refused at the read, because the write is lossless only over what was read losslessly
 
 - **`readText()` and `readTextSync()` decode with a fatal `TextDecoder`, and a
-  file that is not UTF-8 fails naming itself (SIG-413).** They read with
+  file that is not UTF-8 fails naming itself (SIG-413).** They used to read with
   `readFile(source, 'utf8')`, which is the _lossy_ decoder: every invalid
-  sequence becomes U+FFFD. Every store splices its edits into that text and
-  writes the whole of it back, so `set()` of one unrelated key rewrote a Latin-1
-  `e9` in a comment as `ef bf bd` -- permanently, in a file the span writer exists
-  to leave alone, and in all three stores, because all three read through this
-  pair. Measured on `{\n  // caf\xe9 owner\n  "a": 1\n}\n` before the fix: the
-  comment came back `63 61 66 ef bf bd`. The span writer's guarantee is that it
-  cannot change what it was not asked to change, and it was being handed text
-  that was already changed.
+  sequence became U+FFFD. Every store spliced its edits into that decoded text
+  and wrote the whole of it back, so `set()` of one unrelated key rewrote a
+  Latin-1 `e9` in a comment as `ef bf bd` -- permanently, in a file the span
+  writer exists to leave alone, and in all three stores, because all three read
+  through this pair. Measured on `{\n  // caf\xe9 owner\n  "a": 1\n}\n` before
+  the fix: the comment came back `63 61 66 ef bf bd`. The span writer's guarantee
+  is that it cannot change what it was not asked to change, and it was being
+  handed text that was already changed. Now they read the bytes and decode them
+  with `TextDecoder('utf-8', { fatal: true, ignoreBOM: true })`.
 
 - **Refused rather than round-tripped, which was the user's call.** The other
   shape was a latin1-preserving decode, or carrying the raw bytes through the
@@ -1675,9 +1676,12 @@ failed to close.
   a byte nobody can see. UTF-16 used to fail as whatever the parser made of it --
   `Unexpected content outside root element` in XML, and `must hold an object` in
   YAML, which is wrong about the file. UTF-16 **without** a mark is not detected:
-  ASCII in UTF-16 is NUL bytes between letters, which is valid UTF-8, so it still
-  fails as a parse error, and a guess at it would be a heuristic rather than a
-  rule.
+  ASCII in UTF-16 is NUL bytes between letters, which is valid UTF-8, so it gets
+  past the decoder and fails later. In JSON and XML that is a parse error. In
+  YAML it is `must hold an object`, because `yaml` reads the bytes of `a: 1\n`
+  as a string with no errors and `rootOf()` refuses a scalar root. Measured: in
+  all three stores both the read and a write throw, and the file is never
+  written. A guess at UTF-16 without a mark would be a heuristic, not a rule.
 
 - **`ignoreBOM: true`, and it is the half that looks wrong.** The option's name
   reads as "skip the mark" and means the opposite: without it a `TextDecoder`
