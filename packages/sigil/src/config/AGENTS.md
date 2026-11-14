@@ -1637,6 +1637,56 @@ failed to close.
   stylesheet parser's `countLines()` is message-only, so it counts once per
   refusal rather than once per token.
 
+#### A file that is not UTF-8 is refused at the read, because the write is lossless only over what was read losslessly
+
+- **`readText()` and `readTextSync()` decode with a fatal `TextDecoder`, and a
+  file that is not UTF-8 fails naming itself (SIG-413).** They read with
+  `readFile(source, 'utf8')`, which is the _lossy_ decoder: every invalid
+  sequence becomes U+FFFD. Every store splices its edits into that text and
+  writes the whole of it back, so `set()` of one unrelated key rewrote a Latin-1
+  `e9` in a comment as `ef bf bd` -- permanently, in a file the span writer exists
+  to leave alone, and in all three stores, because all three read through this
+  pair. Measured on `{\n  // caf\xe9 owner\n  "a": 1\n}\n` before the fix: the
+  comment came back `63 61 66 ef bf bd`. The span writer's guarantee is that it
+  cannot change what it was not asked to change, and it was being handed text
+  that was already changed.
+
+- **Refused rather than round-tripped, which was the user's call.** The other
+  shape was a latin1-preserving decode, or carrying the raw bytes through the
+  splice, and both make every store responsible for an encoding it does not
+  parse in -- XML's declaration, YAML's spec, and JSON's RFC 8259 all either
+  require or default to UTF-8. A config file that is not UTF-8 is rare and is
+  better told about once than handled silently forever. `Failed to read <file>:`
+  is the prefix an unreadable file already gets, and a refused read is the same
+  failure as one in every caller: a load throws, a `save()` throws before it
+  writes -- `rewrite()` reads through the same function, so no write path can go
+  around it -- and a watcher reload keeps the last good value and reports to
+  `onError`, which is the rule a file that will not parse already follows.
+
+- **The message names the offset of the first bad byte, and a UTF-16 byte order
+  mark by name.** A `TextDecoder` says the data was invalid and not where, so
+  `invalidUtf8At()` scans for it -- only on the failure path, so a valid file
+  pays nothing for it. Its ranges are the Unicode well-formed table, which is
+  the one the WHATWG decoder implements, and `test/config/utf8.test.ts` holds it
+  to the decoder over every two-byte input and twenty thousand seeded longer
+  ones. `ff fe` and `fe ff` are never valid UTF-8, so naming them is a better
+  message for a file the decoder refuses anyway and never a second rule: that is
+  what Windows PowerShell 5's `Out-File` and `>` write, and "offset 0" points at
+  a byte nobody can see. UTF-16 used to fail as whatever the parser made of it --
+  `Unexpected content outside root element` in XML, and `must hold an object` in
+  YAML, which is wrong about the file. UTF-16 **without** a mark is not detected:
+  ASCII in UTF-16 is NUL bytes between letters, which is valid UTF-8, so it still
+  fails as a parse error, and a guess at it would be a heuristic rather than a
+  rule.
+
+- **`ignoreBOM: true`, and it is the half that looks wrong.** The option's name
+  reads as "skip the mark" and means the opposite: without it a `TextDecoder`
+  _strips_ a leading UTF-8 BOM, where `readFile(source, 'utf8')` kept it as
+  U+FEFF -- and every store writes back text made from what it decoded, so a
+  mark missing from that text is a mark missing from the file after a save.
+  Measured by dropping the option: five tests fail across the three stores, two
+  of which were already there.
+
 #### What the write half costs
 
 - **The config module's graph was 32,625 B over seven modules**, against 20,649 B
