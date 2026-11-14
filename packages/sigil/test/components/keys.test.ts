@@ -134,6 +134,71 @@ describe('decodeKeys()', () => {
       expect(k.sequence).to.equal('\u001bb');
     });
 
+    // SIG-408: `readEscape()` read the ESC after an ESC by calling itself, so a
+    // run of them recursed to its own length. Garbage on stdin is all that
+    // reaches it -- binary data written into a raw-mode terminal -- and 8,000 of
+    // them threw `Maximum call stack size exceeded`
+    it('should read a run of ESC bytes too long to recurse over, as one Alt key', () => {
+      const run = '\u001b'.repeat(100_000);
+
+      const k = one(`${run}a`);
+      expect(k).toMatchObject({ ctrl: false, meta: true, name: 'a', shift: false });
+      expect(k.sequence).to.equal(`${run}a`);
+
+      // and through a sequence, a held introducer and the end of the chunk
+      expect(one(`${run}[A`)).toMatchObject({ meta: true, name: 'up' });
+      expect(one(`${run}[A`).sequence).to.equal(`${run}[A`);
+      expect(one(run)).toMatchObject({ meta: true, name: 'escape', sequence: run });
+      expect(pendingLength(run)).to.equal(run.length);
+      expect(pendingLength(`${run}a`)).to.equal(0);
+    });
+
+    // the meaning of a run is unchanged by reading it in a loop: every ESC in
+    // front of a key is Alt held over it, and Alt held twice is still Alt
+    it('should read ESC ESC x as Alt-x with all three bytes in its sequence', () => {
+      expect(one('\u001b\u001bx')).toEqual({
+        ctrl: false,
+        meta: true,
+        name: 'x',
+        sequence: '\u001b\u001bx',
+        shift: false,
+      });
+      expect(one('\u001b\u001b\u001bx')).toEqual({
+        ctrl: false,
+        meta: true,
+        name: 'x',
+        sequence: '\u001b\u001b\u001bx',
+        shift: false,
+      });
+      expect(one('\u001b\u001b[A')).toMatchObject({
+        meta: true,
+        name: 'up',
+        sequence: '\u001b\u001b[A',
+      });
+      expect(one('\u001b\u001b\u001bOP')).toMatchObject({ meta: true, name: 'f1' });
+    });
+
+    it('should read a trailing ESC ESC as an Alt-Escape that is still held', () => {
+      expect(decodeKeys('\u001b\u001b')).toEqual([
+        { ctrl: false, meta: true, name: 'escape', sequence: '\u001b\u001b', shift: false },
+      ]);
+      expect(pendingLength('\u001b\u001b')).to.equal(2);
+      expect(pendingLength('a\u001b\u001b\u001b')).to.equal(3);
+    });
+
+    it('should leave the keys after a run of ESC bytes as the keys they are', () => {
+      expect(decodeKeys('\u001b\u001b[200~hi')).toMatchObject([
+        { meta: true, name: 'unknown', sequence: '\u001b\u001b[200~' },
+        { meta: false, name: 'h' },
+        { meta: false, name: 'i' },
+      ]);
+      expect(decodeKeys('a\u001b\u001bxb')).toMatchObject([
+        { name: 'a' },
+        { meta: true, name: 'x', sequence: '\u001b\u001bx' },
+        { name: 'b' },
+      ]);
+    });
+
     it('should not split an unfinished sequence into stray keys', () => {
       const k = one('\u001b[1;');
       expect(k.name).to.equal('unknown');
