@@ -163,9 +163,12 @@ describe('loading a registry', () => {
     ['null entries', '{"entries":null}'],
     ['string entries', '{"entries":"x"}'],
     ['array entries', '{"entries":[]}'],
+    ['an empty table of entries', '{"entries":{}}'],
   ])('should refuse a registry.json that is %s with the sentence for no entries', (_, text) => {
-    // SIG-435: `null` is valid JSON, and reading `.entries` off it was a
-    // TypeError with a stack; an array passed because `typeof [] === 'object'`
+    // SIG-435: `null` is valid JSON, and reading `.entries` off it was
+    // `Cannot read properties of null (reading 'entries')`; an array passed
+    // because `typeof [] === 'object'`, and `{}` ended in `has no "x". It has: `
+    // with nothing after the colon
     shipRegistry('odd', text);
     expect(() => loadRegistry(root, 'odd')).toThrow(/^odd ships a registry with no entries in it$/);
   });
@@ -276,8 +279,12 @@ describe('planning an add', () => {
       });
 
       it('should still be found when the registry really does declare it', () => {
-        // `JSON.parse` makes `__proto__` an own key, so an own-property lookup
-        // finds it where a copy made by assignment would have lost it
+        // `JSON.parse` makes `__proto__` an own data property, which shadows
+        // the inherited accessor, so this passed on the unfixed code as well
+        // and is not a regression test for it. It guards the other direction:
+        // a rewrite that copied `entries` into a plain `{}` would drop a
+        // `__proto__` key (assignment hits the accessor), and an own-property
+        // check alone would not notice.
         shipRegistry(
           'own',
           `{"entries":{${JSON.stringify(name)}:${leaf([])}},"name":"own","version":"1.0.0"}`
@@ -288,6 +295,64 @@ describe('planning an add', () => {
       });
     }
   );
+
+  describe('an entry that is not shaped like one', () => {
+    // SIG-435, review round 1. `registry.json` is somebody else's package, and
+    // each of these was a message about the plan's own variables
+    // (`entry.registryDeps is not iterable`) or a contradiction (`has no "x".
+    // It has: x`) rather than a statement about the registry
+    const file = { from: 'a.ts', to: 'a.ts' };
+    const bug = /"x" .*That is a bug in the registry, and nothing was written/;
+
+    it.each([
+      ['a string', 'str', /"x" is not an object/],
+      ['a number', 42, /"x" is not an object/],
+      ['an array', [], /"x" is not an object/],
+      ['null, which is present and so is not a missing name', null, /"x" is not an object/],
+      ['no registryDeps', { files: [file] }, /"x" has no registryDeps list/],
+      ['null registryDeps', { files: [file], registryDeps: null }, /"x" has no registryDeps list/],
+      ['object registryDeps', { files: [file], registryDeps: {} }, /"x" has no registryDeps list/],
+      // a string iterates, one character at a time: this reported "l" as needed
+      [
+        'string registryDeps',
+        { files: [file], registryDeps: 'leaf' },
+        /"x" has no registryDeps list/,
+      ],
+      ['no files', { registryDeps: [] }, /"x" has no files list/],
+      ['object files', { files: {}, registryDeps: [] }, /"x" has no files list/],
+      ['a null file', { files: [null], registryDeps: [] }, /"x" has a file that is not an object/],
+      ['a string file', { files: ['a'], registryDeps: [] }, /"x" has a file that is not an object/],
+      ['an array file', { files: [[]], registryDeps: [] }, /"x" has a file that is not an object/],
+    ])('should refuse an entry that is %s as a bug in the registry', (_, value, message) => {
+      shipRegistry(
+        'shaped',
+        JSON.stringify({ entries: { x: value }, name: 'shaped', version: '1' })
+      );
+      const attempt = () =>
+        planAdd(loadRegistry(root, 'shaped'), ['x'], join(root, 'components'), root);
+
+      expect(attempt).toThrow(message);
+      expect(attempt).toThrow(bug);
+    });
+
+    it('should refuse one a dependency reaches, the same way', () => {
+      const entries = { leaf: { files: [file], registryDeps: ['x'] }, x: null };
+      shipRegistry('shaped', JSON.stringify({ entries, name: 'shaped', version: '1' }));
+
+      expect(() =>
+        planAdd(loadRegistry(root, 'shaped'), ['leaf'], join(root, 'components'), root)
+      ).toThrow(/"x" is not an object. That is a bug in the registry/);
+    });
+
+    it('should leave a bad from to confine(), which says so about the path', () => {
+      const entries = { x: { files: [{ from: 42, to: 'a.ts' }], registryDeps: [] } };
+      shipRegistry('shaped', JSON.stringify({ entries, name: 'shaped', version: '1' }));
+
+      expect(() =>
+        planAdd(loadRegistry(root, 'shaped'), ['x'], join(root, 'components'), root)
+      ).toThrow(/has a file whose from is 42/);
+    });
+  });
 
   it('should refuse a registry that names a dependency it does not have', () => {
     const broken: Registry = {
@@ -620,23 +685,51 @@ describe('the command, end to end', () => {
   });
 
   it('should report an entry named after Object.prototype as missing, not as a crash', () => {
-    // SIG-435: this was `TypeError: entry.registryDeps is not iterable`
+    // SIG-435: this printed `Error: entry.registryDeps is not iterable`
     for (const name of ['constructor', 'toString', '__proto__']) {
       const result = run('add', name);
 
       expect(result.status).not.toBe(0);
       expect(result.stderr).toContain(`@ttylabs/sigil has no "${name}". It has:`);
-      expect(result.stderr).not.toMatch(/TypeError|\n\s+at /);
+      expect(result.stderr).not.toContain('is not iterable');
     }
   });
 
-  it('should refuse a registry.json of null with a sentence, not a stack', () => {
+  it('should refuse a registry.json of null with a sentence about the registry', () => {
+    // SIG-435: this printed `Error: Cannot read properties of null (reading
+    // 'entries')`, which is a statement about the toolchain's own variables
     shipRegistry('nullish', 'null');
     const result = run('add', 'nullish/anything');
 
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('nullish ships a registry with no entries in it');
-    expect(result.stderr).not.toMatch(/TypeError|\n\s+at /);
+    expect(result.stderr).not.toContain('Cannot read properties');
+  });
+
+  it('should refuse a table with nothing in it rather than listing nothing', () => {
+    // SIG-435: this printed `has no "anything". It has: ` and stopped
+    shipRegistry('hollow', '{"entries":{}}');
+    const result = run('add', 'hollow/anything');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('hollow ships a registry with no entries in it');
+    expect(result.stderr).not.toContain('It has:');
+  });
+
+  it('should refuse an entry that is not shaped like one with a sentence about the registry', () => {
+    // SIG-435: `null` here printed `has no "x". It has: x`, and the others
+    // `entry.registryDeps is not iterable`
+    for (const value of ['null', '"str"', '{"files":[]}', '{"registryDeps":[],"files":[null]}']) {
+      shipRegistry('shaped', `{"entries":{"x":${value}},"name":"shaped","version":"1"}`);
+      const result = run('add', 'shaped/x', '--yes');
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(`shaped's "x" `);
+      expect(result.stderr).toContain('That is a bug in the registry, and nothing was written.');
+      expect(result.stderr).not.toContain('is not iterable');
+      expect(result.stderr).not.toContain('Cannot read properties');
+      expect(result.stderr).not.toContain('It has:');
+    }
   });
 
   it('should copy something that then runs', () => {

@@ -4073,82 +4073,41 @@ people's software and will move.
   because the user never typed that name and telling them it is unavailable
   would be blaming them for somebody else's manifest.
 - **An entry is looked up by `registryEntry()`, which answers for own
-  properties only, and a `registry.json` that is not a table of entries is
-  refused with the sentence for no entries (SIG-435).** `entries` is a parsed
-  object, so `entries['constructor']` is `Object` and `entries['toString']` is a
-  function -- truthy, no `registryDeps` -- and `sigil add constructor` threw
-  `entry.registryDeps is not iterable` where `sigil add nope` listed what the
-  registry has. The same lookup reads an entry's own `registryDeps`, so a
-  registry naming `constructor` as a dependency crashed instead of getting the
-  "bug in the registry" message. It is one function that `planAdd()` and the
-  `classes` read in `commands/add.ts` both call, rather than a null-prototype
-  copy made at load: `Object.hasOwn()` leaves the parsed object as `JSON.parse`
-  made it, and a name `JSON.parse` really does produce as an own key --
-  `__proto__` is one -- stays an entry like any other, which a copy made by
-  assignment would lose. The load-time half is that `null` is valid JSON with no
-  `entries` to read, and an array is an `object` that is not a table of them, so
-  both are refused where a string or a missing key already were. A number or a
-  string was never a crash: reading a property off one is `undefined`.
-- **`sigil add` copies TypeScript, whatever the app is written in, and that is a
-  deferral rather than an answer.** Emitting JavaScript means stripping types,
-  and neither `oxc-parser` nor `rolldown` -- the two the toolchain already has --
-  transforms. Taking a dependency for it is a decision worth making on purpose
-  rather than as a side effect of a file copy, and it is affordable to wait
-  because `engines` requires node >=22.19.0, where type stripping is on by
-  default: a `.ts` component runs in a JavaScript app with nothing compiling it,
-  which is the rule a command module already follows. What it costs is an app
-  whose own tooling is JavaScript-only, and that is the case to revisit it for.
-- **An entry is one file, not one export.** `prompt.ts` holds all five prompts,
-  and splitting it into five entries means splitting the source -- a refactor of
-  the runtime rather than a decision about a registry. `index.ts`, `mount.ts`
-  and `keys.ts` are not entries at all: they are the barrel and the plumbing,
-  and what is listed is what somebody would want to _edit_.
-- **An entry lists the classes it draws with, so the rule it has to keep is
-  checkable.** A component styles itself with classes and never with colour
-  props, because a prop beats a sheet per property and a colour written into a
-  template is one a theme cannot reach without `!important`. The manifest naming
-  them is what tells whoever copied the component in what they may restyle, and
-  is what a lint over third-party entries would read.
-- **An app that ejects needs `lib: ["esnext"]` and `types: ["node"]`, and that
-  is a constraint on what `sigil new` scaffolds.** Found by ejecting into a bare
-  app and type-checking it: `lib.dom` declares `setInterval(): number`, which
-  shadows Node's `NodeJS.Timeout`, so `spinner.ts` failed with
-  `Property 'unref' does not exist on type 'number'` -- on a component whose
-  source already writes `timer.unref?.()`. Nothing about the component is wrong
-  and nothing about it can fix it. Left undiscovered it would have surfaced as a
-  confusing bug report from the first person to run `sigil add spinner`.
-- **The drift check compares the shipped entry against the component, with only
-  the specifier blanked.** Not by dropping import lines: the imported _names_ are
-  compared too, and an import may span several lines -- `table.ts` has one, which
-  is what caught the first version of this doing it by line. A registry entry is
-  `src/components/<name>.ts` with its imports rewritten and nothing else changed,
-  so an entry that has quietly become a stale fork fails in
-  `test/registry.test.ts` rather than shipping.
-- **A registry's `from` stays inside the registry and its `to` inside the
-  components directory, or the plan is refused (SIG-251).** `from` and `to` are
-  somebody else's data, joined with `join()`, which normalises -- so an entry with
-  `from: '../../../../etc/hosts'` and a `to` that climbed out planned a copy of
-  `/etc/hosts` to wherever the second one pointed, and `--yes` wrote it without
-  anybody reading the plan. Measured end to end before the fix: exit 0 and the
-  file copied. `confine()` in `planAdd()` refuses a path that is not a string, is
-  empty, is absolute, or resolves anywhere but strictly inside its directory, by
-  `isInside()` -- absolute is refused outright rather than joined, because on
-  POSIX `join(target, '/etc/hosts')` is a file under the target, which is a path
-  that means something other than what it says.
+  properties only, and what it finds is checked before the plan reads it
+  (SIG-435).** `entries` is a parsed object, so `entries['constructor']` is
+  `Object` and `entries['toString']` a function -- truthy, no `registryDeps` --
+  and `sigil add constructor` printed `Error: entry.registryDeps is not
+  iterable` where `sigil add nope` listed what the registry has. The same lookup
+  reads an entry's own `registryDeps`, so a registry naming `constructor` as a
+  dependency got that message instead of the "bug in the registry" one. It is
+  one function that `planAdd()` and the `classes` read in `commands/add.ts`
+  both call.
 
-  `to` is held to the **target** rather than to the app, and that is the reading
-  that works for both ways of naming one. It is what the manifest says `to` is
-  relative to; a registry knows nothing about an app's layout above that
-  directory; and `--dir ../outside` is the user naming a place outside the app on
-  purpose, where an "inside the app" rule would refuse every file it was asked
-  to write. So `--dir` is the user's and is left alone, and what the registry may
-  do is land inside whatever it was given. A subdirectory of the target is
-  inside, however deep.
+  `Object.hasOwn()` was chosen over the other valid shape, a null-prototype
+  table built at load, which is what the parser's registries are. A
+  null-prototype copy keeps `__proto__` as an own key too -- there is no
+  inherited accessor to hit, so assignment and `Object.assign()` both create it
+  -- and so does `JSON.parse`'s own result; only a copy into a **plain** `{}`
+  loses it, and that copy would not fix the bug either. The parser's registries
+  are null-prototype because they are built by assignment from names argv and
+  declarations supply; this one is handed a finished object, and `Object.hasOwn()`
+  leaves it untouched and needs no copy to keep in agreement with it.
 
-  Refused as the registry's bug, for the reason a missing `registryDep` is, and
-  refused for the whole plan rather than skipped per file: it is asked while
-  planning, so nothing has been written when it throws, and a registry that ships
-  one path like that is not one to take the other paths from.
+  What the lookup finds is not yet an entry, so `checkedEntry()` in
+  `planAdd()` refuses one that is not a non-null, non-array object whose
+  `registryDeps` and `files` are arrays and whose files are objects, with the
+  wording `confine()` already uses for a path: a bug in the registry, naming the
+  entry, nothing written. A **present** `null` is that and not a missing name,
+  since "has no x. It has: x" contradicts itself; a string `registryDeps` is
+  refused because it iterates one character at a time. What is in a file item is
+  still `confine()`'s to say. At load, a `registry.json` that is `null`, whose
+  `entries` is `null`, an array or has no keys is refused with the sentence for
+  no entries -- an empty table answered `has no "x". It has: ` with nothing
+  after the colon, and nothing ships one: the generator writes one per component
+  and the suite's fixtures all carry at least one. A number or a string was
+  never a crash: reading a property off one is `undefined`. None of these was a
+  `TypeError` a user saw as such: `main()` renders `Error: <message>`, so what
+  they saw was the toolchain's own variable names.
 
 ### `sigil package`: a binary, and which runtime is inside it
 

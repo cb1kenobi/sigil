@@ -237,14 +237,17 @@ export function loadRegistry(root: string, pkg: string): Registry {
     );
   }
 
-  // `null` is valid JSON and has no `entries` to read, and an array is an
-  // `object` that is not a table of entries by name
+  // `null` is valid JSON and has no `entries` to read, an array is an `object`
+  // that is not a table of entries by name, and a table with nothing in it is
+  // a registry with nothing to add -- which `add` would otherwise answer with
+  // `has no "x". It has: ` and nothing after the colon
   if (
     typeof manifest !== 'object' ||
     manifest === null ||
     typeof manifest.entries !== 'object' ||
     manifest.entries === null ||
-    Array.isArray(manifest.entries)
+    Array.isArray(manifest.entries) ||
+    Object.keys(manifest.entries).length === 0
   ) {
     throw new Error(`${escapeControls(pkg)} ships a registry with no entries in it`);
   }
@@ -259,16 +262,76 @@ export function loadRegistry(root: string, pkg: string): Registry {
  * answers with `Object`'s own constructor and `entries['toString']` with a
  * function -- both truthy, neither an entry, and either one threw
  * `entry.registryDeps is not iterable` where a name the registry does not have
- * is meant to be reported as missing. A name `JSON.parse` really does produce
- * as an own key, `__proto__` included, is an entry like any other.
+ * is meant to be reported as missing. `Object.hasOwn()` rather than a
+ * null-prototype copy made at load: it leaves the parsed object as `JSON.parse`
+ * made it and needs no copy at all, where the copy would be a second table to
+ * keep in agreement with the first.
+ *
+ * What it returns is what the registry holds, which is **not yet known to be an
+ * entry**: a name that is present with a `null` or a string for its value comes
+ * back as that, and `undefined` is only ever "the registry does not have it".
+ * {@link checkedEntry} is what says whether it is one.
  *
  * @param registry - The registry to look in.
  * @param name - The entry's name.
- * @returns The entry, or `undefined` when the registry does not have one by that name.
+ * @returns What the registry holds under that name, or `undefined` when it has nothing there.
  */
 export function registryEntry(registry: Registry, name: string): RegistryEntry | undefined {
   const { entries } = registry.manifest;
   return Object.hasOwn(entries, name) ? entries[name] : undefined;
+}
+
+/**
+ * What a registry holds under a name, refused unless it has the shape the plan
+ * reads.
+ *
+ * `registry.json` is somebody else's package, so `RegistryEntry` is what the
+ * type says and not what the file did: the plan iterates `registryDeps` and
+ * `files` and reads `from` off each, which for a `null`, a string, a missing
+ * array or a `null` file item arrived as `entry.registryDeps is not iterable`
+ * and `Cannot read properties of null (reading 'from')`. A string
+ * `registryDeps` is worse than those -- it iterates, one character at a time.
+ * The messages are the same kind `confine()` gives for a path, and for the same
+ * reason: a bug in the registry, not in what the user typed. What is in the
+ * file items is `confine()`'s to say and is not asked here.
+ *
+ * Present and `null` is a registry bug and not a missing name: the user typed
+ * something the registry lists, and "has no x. It has: x" contradicts itself.
+ *
+ * @param registry - The registry, for the message.
+ * @param name - The entry, for the message and for the lookup.
+ * @returns The entry, once it is known to be one.
+ * @throws If the registry holds something under the name that is not an entry.
+ */
+function checkedEntry(registry: Registry, name: string): RegistryEntry | undefined {
+  const entry: unknown = registryEntry(registry, name);
+
+  if (entry === undefined) {
+    return undefined;
+  }
+
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+  let why: string | undefined;
+
+  if (!isObject(entry)) {
+    why = 'is not an object';
+  } else if (!Array.isArray(entry.registryDeps)) {
+    why = 'has no registryDeps list';
+  } else if (!Array.isArray(entry.files)) {
+    why = 'has no files list';
+  } else if (!entry.files.every(isObject)) {
+    why = 'has a file that is not an object';
+  }
+
+  if (why !== undefined) {
+    throw new Error(
+      `${escapeControls(registry.pkg)}'s "${escapeControls(name)}" ${why}. ` +
+        `That is a bug in the registry, and nothing was written.`
+    );
+  }
+
+  return entry as unknown as RegistryEntry;
 }
 
 /** One file the plan will write. */
@@ -329,7 +392,7 @@ export function planAdd(
       return;
     }
 
-    const entry = registryEntry(registry, name);
+    const entry = checkedEntry(registry, name);
     if (!entry) {
       // only what the user actually typed is reported as missing; a broken
       // `registryDeps` is the registry's bug and says so separately
