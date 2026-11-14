@@ -7,6 +7,7 @@ import {
   terminalWidth,
   tokenize,
   truncate,
+  words,
   wrap,
 } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
@@ -539,8 +540,26 @@ describe('isBreakSpace()', () => {
     }
   });
 
-  it('should be what wrap() breaks at', () => {
+  it('should name the blanks wrap() breaks at and keeps a line at', () => {
     expect(wrap('10\u00a0kg', 3)).toBe('10\u00a0\nkg');
     expect(wrap('10 kg', 3)).toBe('10\nkg');
+  });
+});
+
+describe('words()', () => {
+  // the same characters as `isBreakSpace()`, written once: a no-break space is
+  // inside a word, a run of spaces and tabs is one gap, and a line break is a gap
+  it('should split at a line break and a run of break spaces only', () => {
+    expect(words('10\u00a0kg is  heavy')).toEqual(['10\u00a0kg', 'is', 'heavy']);
+    expect(words(' a\t\tb \r\nc\nd ')).toEqual(['a', 'b', 'c', 'd']);
+    expect(words('ab\u3000cd')).toEqual(['ab\u3000cd']);
+    expect(words('')).toEqual([]);
+    expect(words(' \t\n ')).toEqual([]);
+  });
+
+  it('should agree with isBreakSpace() over every blank', () => {
+    for (const blank of [' ', '\t', '\u00a0', '\u2007', '\u202f', '\u3000', '\u2003', '\u000b']) {
+      expect(words(`a${blank}b`).length === 2, JSON.stringify(blank)).toBe(isBreakSpace(blank));
+    }
   });
 });

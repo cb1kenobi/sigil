@@ -5,6 +5,12 @@ import { type Token, tokenize } from './tokens.js';
 export { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 export { type Token, tokenize } from './tokens.js';
 
+/** The characters `wrap()` breaks a line at, and the one place that says which. */
+const BREAK_SPACES = ' \t';
+
+/** Where a text falls into words: a line break, or a run of the break spaces. */
+const WORD_BREAK = new RegExp(`\\r?\\n|[${BREAK_SPACES}]+`);
+
 /**
  * Whether a cluster is where a line may break: U+0020 and a tab, and no other
  * blank.
@@ -19,7 +25,23 @@ export { type Token, tokenize } from './tokens.js';
  * @returns Whether `wrap()` breaks at it.
  */
 export function isBreakSpace(text: string): boolean {
-  return text === ' ' || text === '\t';
+  return text.length === 1 && BREAK_SPACES.includes(text);
+}
+
+/**
+ * A text's words, as `wrap()` finds them: split at a line break and at a run of
+ * the break spaces, with nothing empty left over.
+ *
+ * What a caller measuring or laying out words of its own asks, in place of
+ * splitting on `\s` -- which also splits at a no-break space, so a word `wrap()`
+ * keeps whole comes out as two. It is built from the same characters as
+ * `isBreakSpace()`, so there is one statement of which they are.
+ *
+ * @param text - The text to split.
+ * @returns The words, in order.
+ */
+export function words(text: string): string[] {
+  return text.split(WORD_BREAK).filter((word) => word !== '');
 }
 
 /** What a terminal is assumed to be when there is no terminal to ask. */

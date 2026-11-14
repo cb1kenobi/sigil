@@ -2875,16 +2875,34 @@ it is a component rather than the frame effect SIG-103 is.
   cells broke at any `\s`, so a no-break, figure, narrow no-break or ideographic
   space split a line and was thrown away as a gap: `10 kg` stayed together in a
   `text` and came apart in a decrypt. `isBreakSpace()` in `src/wrap/index.ts` is
-  U+0020 and a tab, `wrap()` breaks on it, and `cellRuns()` and the indentation
-  rule read the same call, so the two cannot come to disagree about which blanks
-  those are. Every other blank is part of the word beside it, which is also why a
-  run of them wider than the line is cut at the edge as a word is. What stays on
+  U+0020 and a tab, `wrap()` breaks on it, and `cellRuns()` reads the same call.
+  The indentation rule gets it through `cellRuns()`, since a gap is made only of
+  break spaces. Every other blank is part of the word beside it, which is also why
+  a run of them wider than the line is cut at the edge as a word is. What stays on
   `\s` is the hidden-cluster check, which asks whether a cluster draws anything
-  and not where a line may break. The leading-blanks half of the ticket did not
-  reproduce: SIG-405's rule already holds for spaces and tabs, and the only
-  indentation that ran past the width was made of those other blanks, which are
-  words now. `should break only at the blanks the wrapper breaks at` and the
-  seeded walk beside it compare the two layers byte for byte.
+  and not where a line may break.
+
+  The string-based splitters read it too, from `words()` in the same module, which
+  is built from the same characters: `longestWord()` in `src/element`, the narrowest
+  a `text` can be squeezed to, and `paragraph()`'s `wrappingRow()` both split on
+  `\s` and had the same defect. A decrypt's own measurement reads `cellRuns()`, so
+  with `longestWord()` on `\s` the two reported `5` and `2` for `10 kg is`. A split
+  helper rather than a call to the predicate per character, because a string is
+  split once and a cluster is asked once, and two spellings of one set is how they
+  come apart.
+
+  **The export is public because decrypt is a registry component.** `sigil add`
+  copies it into an app, and `rewrite()` in `scripts/generate-registry.mjs` throws
+  for any import that is not a published subpath. A private module under
+  `src/wrap/` would break the registry build, and the only alternative is a second
+  copy of the rule, which is the thing this entry exists to stop. That, more than
+  the `isSgr` precedent, is what decides it.
+
+  The leading-blanks half of the ticket did not reproduce: SIG-405's rule already
+  holds for spaces and tabs, and the only indentation that ran past the width was
+  made of those other blanks, which are words now. `should break only at the blanks
+  the wrapper breaks at` and the seeded walk beside it compare decrypt's rows
+  against `wrap()` byte for byte.
 
   Which **break opportunities** there are is asked of the plan rather than of what
   is drawn -- a hidden cell is never whitespace, so `hidden` settles it before the

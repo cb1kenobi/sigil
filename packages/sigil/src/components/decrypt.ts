@@ -520,17 +520,19 @@ interface PlacedCell {
 interface CellRun {
   /** The cells, in order. */
   readonly cells: readonly DecryptFrameCell[];
-  /** Whether it is whitespace, and therefore a place a line may break. */
+  /** Whether it is break space, and therefore a place a line may break. */
   readonly space: boolean;
   /** How many columns it occupies. */
   readonly width: number;
 }
 
 /**
- * One line's cells, split into words and the whitespace between them.
+ * One line's cells, split into words and the break space between them.
  *
- * Whether a cell is whitespace is asked of the **plan** rather than of what is
- * drawn -- a hidden cell is never whitespace, so `hidden` is what settles it
+ * Break space is the blanks `wrap()` breaks at (`isBreakSpace()`), and no other
+ * whitespace: a no-break space is part of a word. Whether a cell is one is asked of
+ * the **plan** rather than of what is drawn -- a hidden cell is never break space,
+ * so `hidden` is what settles it
  * before the text is looked at. That is what makes the break opportunities a
  * function of the plan alone, which is what the no-reflow rule needs: a caller
  * whose alphabet held a space would otherwise break a jumbling line in places the

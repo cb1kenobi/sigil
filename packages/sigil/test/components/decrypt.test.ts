@@ -787,6 +787,33 @@ describe('decryptView()', () => {
     }
   });
 
+  // a decrypt reports its widest word as what it can be squeezed to, which is what
+  // a text reports for the same string: both read the words `wrap()` finds, so a
+  // no-break space is inside one. They disagreed (5 against 2) while the text
+  // split its words at any `\s`
+  it('should be as narrow as a text of the same string can be', () => {
+    const narrowest = (el: Element): number | undefined => {
+      resolveStyles(el);
+      return el.measure?.(40).minWidth;
+    };
+
+    for (const content of [
+      '10\u00a0kg is',
+      'ab\u3000cd',
+      '10 kg is',
+      'a\u2007b c\u202fd',
+      'one two\nthree',
+    ]) {
+      const state = decryptState('');
+      state.frame.set(decryptedFrame(content));
+
+      expect(
+        narrowest(decryptView(state).children[0] as Element),
+        JSON.stringify(content)
+      ).to.equal(narrowest(textNode(content)));
+    }
+  });
+
   // the invariant the whole component rests on, read at the one place the
   // one-element view broke it: an ASCII substitute is two characters and a text
   // element could break *between* them, so a masked block wrapped into a different

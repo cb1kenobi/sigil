@@ -2552,6 +2552,19 @@ and `opts.stream` each override a step.
 Wrapping is ANSI-aware and grapheme-aware: a style open at a line break is
 closed and reopened, so a background color never bleeds into the margin.
 
+`isBreakSpace(text)` and `words(text)` say where `wrap()` breaks, for code that
+lays out words of its own. A line breaks at U+0020 and a tab and nowhere else, so
+a no-break, figure, narrow no-break or ideographic space belongs to the word beside
+it:
+
+```js
+import { isBreakSpace, words } from '@ttylabs/sigil/wrap';
+
+isBreakSpace(' '); // true
+isBreakSpace('\u00a0'); // false
+words('10\u00a0kg is  heavy'); // ['10\u00a0kg', 'is', 'heavy']
+```
+
 ### `sigil/width`
 
 ```js

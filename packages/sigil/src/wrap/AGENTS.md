@@ -53,8 +53,9 @@ reopen travelling with its word.
   those are all it can drop, while a non-breaking, ideographic or em space is an
   ordinary character there and stays. `placeCells()` breaks at those two blanks
   as well, through `isBreakSpace()`, which is the one definition of them
-  (SIG-438): it used to group every blank `\s` matches into one gap, and
-  `should drop only the indentation the wrapper drops` pins the difference.
+  (SIG-438): it used to group every blank `\s` matches into one gap, so it
+  dropped only the spaces and tabs at a gap's front. `should drop only the
+  indentation the wrapper drops` holds that a no-break run stays.
 
 - **A width that is `NaN`, zero or negative wraps to the empty string, the way
   `truncate()` cuts to it.** `NaN` fails every comparison, so it walked straight

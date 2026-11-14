@@ -6,9 +6,11 @@ import {
   raw,
   renderToLines,
   renderToString,
+  resolveStyles,
   text,
 } from '../../src/element/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
+import { wrap } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -567,5 +569,41 @@ describe('onLayout: asked after every layout, for a place another box decides', 
     renderToLines(tree, { height: 4, width: 8 });
     renderToLines(tree, { height: 4, width: 8 });
     expect(heard).toEqual(['resize', 'layout', 'layout']);
+  });
+});
+
+describe('where a paragraph and a text break', () => {
+  // `wrap()` breaks at U+0020 and a tab, so a no-break space joins the two words
+  // beside it. The paragraph split its words on `\s` and drew `ab 10` over `kg`,
+  // and an ideographic space was a break it then drew as a column-wide space
+  it('should keep a no-break space inside its word, as the wrapper does', () => {
+    for (const [content, width] of [
+      ['ab 10\u00a0kg', 6],
+      ['10\u00a0kg is heavy', 6],
+      ['ab\u3000cd', 6],
+      ['one\u2007two three', 8],
+      ['a\u202fb c', 3],
+    ] as const) {
+      expect(
+        renderToLines(paragraph([content]), { colorLevel: 0, width }).join('\n'),
+        `${JSON.stringify(content)} at ${width}`
+      ).to.equal(wrap(content, { width }));
+    }
+  });
+
+  // the narrowest a text can be squeezed to is its longest word, and a word is
+  // what `wrap()` does not break inside
+  it('should measure a text by the words the wrapper finds', () => {
+    const narrowest = (content: string): number | undefined => {
+      const el = text(content);
+      resolveStyles(el);
+      return el.measure?.(40).minWidth;
+    };
+
+    expect(narrowest('10\u00a0kg is')).to.equal(5);
+    expect(narrowest('ab\u3000cd')).to.equal(6);
+    expect(narrowest('10 kg is')).to.equal(2);
+    expect(narrowest('a\tbb\nccc')).to.equal(3);
+    expect(narrowest('  \n ')).to.equal(0);
   });
 });
