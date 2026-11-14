@@ -563,6 +563,41 @@ function cellRuns(cells: readonly DecryptFrameCell[]): CellRun[] {
   return runs;
 }
 
+/** What `wrap()` reads as indentation: a space or a tab, and no other blank. */
+const INDENT = /^[ \t]$/;
+
+/**
+ * The cells of a gap at the start of a line that are drawn, which is all of them
+ * unless its indentation leaves no room.
+ *
+ * `wrap()`'s rule, asked the way `wrap()` asks it. Its indentation is the spaces
+ * and tabs it breaks at, so that is the only part of the gap that can go: a
+ * non-breaking space, an ideographic space or an em space is an ordinary
+ * character to `wrap()`, kept like one, and here too. What has to fit beside the
+ * indentation is the first cell after it, which is the gap's own next cell when
+ * the gap holds one of those, and the word's first when it does not.
+ *
+ * @param gap - The gap's cells.
+ * @param word - The cells of the word after it.
+ * @param limit - The width to wrap at.
+ * @returns The cells to place.
+ */
+function indented(
+  gap: readonly DecryptFrameCell[],
+  word: readonly DecryptFrameCell[],
+  limit: number
+): readonly DecryptFrameCell[] {
+  let end = 0;
+  let width = 0;
+  while (end < gap.length && INDENT.test((gap[end] as DecryptFrameCell).text)) {
+    width += (gap[end] as DecryptFrameCell).width;
+    end++;
+  }
+
+  const after = gap[end] ?? word[0];
+  return end > 0 && width + (after?.width ?? 0) > limit ? gap.slice(end) : gap;
+}
+
 /**
  * Where every cell of a frame lands, wrapped at a width.
  *
@@ -618,11 +653,8 @@ function placeCells(
 
       if (x > 0 && x + (gap?.width ?? 0) + run.width > limit) {
         next();
-      } else if (gap && (x > 0 || gap.width + (run.cells[0]?.width ?? 0) <= limit)) {
-        // a gap at the start of a row is the line's own indentation, which is
-        // dropped when it leaves no room for the word's first cell -- `wrap()`'s
-        // rule, so that it is not a row of nothing but blanks
-        for (const cell of gap.cells) {
+      } else if (gap) {
+        for (const cell of x > 0 ? gap.cells : indented(gap.cells, run.cells, limit)) {
           place(cell);
         }
       }

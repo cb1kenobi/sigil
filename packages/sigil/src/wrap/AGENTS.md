@@ -48,7 +48,16 @@ reopen travelling with its word.
   have no room for that structure at all. `decrypt`'s `placeCells()` applies the
   same rule to its cells, and `should wrap where the wrapper does` now compares
   the two byte for byte, where it used to drop each line's trailing blanks to
-  hide exactly this difference.
+  hide exactly this difference. Its indentation is `wrap()`'s too, which is the
+  part that is easy to get wrong: `wrap()` breaks only at U+0020 and a tab, so
+  those are all it can drop, while a non-breaking, ideographic or em space is an
+  ordinary character there and stays. `placeCells()` groups every blank `\s`
+  matches into one gap, so it drops only the spaces and tabs at the gap's front,
+  and `should drop only the indentation the wrapper drops` pins the difference.
+  Those cases are pairs rather than part of the grid, because two older
+  differences keep other blanks out of it: `placeCells()` breaks at any blank
+  where `wrap()` breaks only at those two, and it does not split a run of other
+  blanks wider than the line. Both predate this entry and are left alone.
 
 - **A width that is `NaN`, zero or negative wraps to the empty string, the way
   `truncate()` cuts to it.** `NaN` fails every comparison, so it walked straight
@@ -64,8 +73,14 @@ reopen travelling with its word.
   prompts and the tree clamp to one -- so this moves only a caller that was
   getting a wrong answer.
 
-  What is not covered is a fractional width between zero and one, which both
-  functions still treat as one column. And `indent` is not part of the rule
-  above: an `indent` as wide as the width still leaves one column, as
-  `should leave one column when the indent takes the whole width` records,
-  because that is the caller's own prefix rather than the text's.
+  A fractional width between zero and one passes the guard, and the two
+  functions do not answer it alike. `wrap()` rounds the room up to one column,
+  so `wrap('hello', 0.5)` puts one character on each line. `truncate()` uses the
+  width as given: `truncate('hello', 0.5, 'clip')` keeps no column and is `''`,
+  where at a width of 1 it is `'h'`, and the three ellipsis modes give `'…'`, the
+  answer they give at 1. Neither is changed here.
+
+  And `indent` is not part of the rule above: an `indent` as wide as the width
+  still leaves one column, as `should leave one column when the indent takes the
+  whole width` records, because that is the caller's own prefix rather than the
+  text's.
