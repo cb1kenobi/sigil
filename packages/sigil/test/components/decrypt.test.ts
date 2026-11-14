@@ -695,20 +695,41 @@ describe('decryptView()', () => {
       'trailing space ',
     ]) {
       for (const width of [1, 2, 4, 6, 8, 12, 20, 24, 40]) {
-        // a line's trailing blanks are dropped by the renderer, so they are
-        // dropped here too: `wrap()` leaves an indent on a line of its own where
-        // the word after it could not fit, and a row of spaces and an empty row
-        // are the same row on screen
-        const wrapped = wrap(text, { width })
-          .split('\n')
-          .map((line) => line.replace(/\s+$/u, ''))
-          .join('\n');
+        const wrapped = wrap(text, { width });
 
         expect(
           drawFrame(decryptedFrame(text), width),
           `${JSON.stringify(text)} at ${width}`
         ).to.equal(wrapped);
       }
+    }
+  });
+
+  // `wrap()` drops indentation that leaves no room, and its indentation is what
+  // it breaks at: U+0020 and a tab. Every other space is an ordinary character
+  // there, kept like one, so the cells have to keep it too. Pairs rather than the
+  // grid above, because two differences older than this rule keep these texts out
+  // of it: the cells break at any blank where `wrap()` breaks only at those two,
+  // and they do not split a run of other blanks wider than the line
+  it('should drop only the indentation the wrapper drops', () => {
+    const IDEOGRAPHIC = '\u3000';
+    const NBSP = '\u00a0';
+    const EM = '\u2003';
+    for (const [text, width] of [
+      [`${IDEOGRAPHIC}${IDEOGRAPHIC}hello`, 4],
+      [`${EM}${EM}${EM}word`, 3],
+      [`${IDEOGRAPHIC}a`, 2],
+      [`${NBSP}${NBSP}${NBSP}${NBSP}word`, 4],
+      [`  ${NBSP}word`, 2],
+      [`   ${IDEOGRAPHIC}a`, 4],
+      [`    ${IDEOGRAPHIC}a`, 4],
+      ['    word', 4],
+      ['    word', 5],
+    ] as const) {
+      expect(
+        drawFrame(decryptedFrame(text), width),
+        `${JSON.stringify(text)} at ${width}`
+      ).to.equal(wrap(text, { width }));
     }
   });
 
