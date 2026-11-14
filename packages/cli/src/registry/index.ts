@@ -237,11 +237,38 @@ export function loadRegistry(root: string, pkg: string): Registry {
     );
   }
 
-  if (!manifest.entries || typeof manifest.entries !== 'object') {
+  // `null` is valid JSON and has no `entries` to read, and an array is an
+  // `object` that is not a table of entries by name
+  if (
+    typeof manifest !== 'object' ||
+    manifest === null ||
+    typeof manifest.entries !== 'object' ||
+    manifest.entries === null ||
+    Array.isArray(manifest.entries)
+  ) {
     throw new Error(`${escapeControls(pkg)} ships a registry with no entries in it`);
   }
 
   return { dir, manifest, pkg };
+}
+
+/**
+ * One entry of a registry, by name.
+ *
+ * Own properties only. `entries` is a parsed object, so `entries['constructor']`
+ * answers with `Object`'s own constructor and `entries['toString']` with a
+ * function -- both truthy, neither an entry, and either one threw
+ * `entry.registryDeps is not iterable` where a name the registry does not have
+ * is meant to be reported as missing. A name `JSON.parse` really does produce
+ * as an own key, `__proto__` included, is an entry like any other.
+ *
+ * @param registry - The registry to look in.
+ * @param name - The entry's name.
+ * @returns The entry, or `undefined` when the registry does not have one by that name.
+ */
+export function registryEntry(registry: Registry, name: string): RegistryEntry | undefined {
+  const { entries } = registry.manifest;
+  return Object.hasOwn(entries, name) ? entries[name] : undefined;
 }
 
 /** One file the plan will write. */
@@ -302,7 +329,7 @@ export function planAdd(
       return;
     }
 
-    const entry = registry.manifest.entries[name];
+    const entry = registryEntry(registry, name);
     if (!entry) {
       // only what the user actually typed is reported as missing; a broken
       // `registryDeps` is the registry's bug and says so separately

@@ -4072,6 +4072,23 @@ people's software and will move.
   lists what the registry does have, and the second says the registry is wrong,
   because the user never typed that name and telling them it is unavailable
   would be blaming them for somebody else's manifest.
+- **An entry is looked up by `registryEntry()`, which answers for own
+  properties only, and a `registry.json` that is not a table of entries is
+  refused with the sentence for no entries (SIG-435).** `entries` is a parsed
+  object, so `entries['constructor']` is `Object` and `entries['toString']` is a
+  function -- truthy, no `registryDeps` -- and `sigil add constructor` threw
+  `entry.registryDeps is not iterable` where `sigil add nope` listed what the
+  registry has. The same lookup reads an entry's own `registryDeps`, so a
+  registry naming `constructor` as a dependency crashed instead of getting the
+  "bug in the registry" message. It is one function that `planAdd()` and the
+  `classes` read in `commands/add.ts` both call, rather than a null-prototype
+  copy made at load: `Object.hasOwn()` leaves the parsed object as `JSON.parse`
+  made it, and a name `JSON.parse` really does produce as an own key --
+  `__proto__` is one -- stays an entry like any other, which a copy made by
+  assignment would lose. The load-time half is that `null` is valid JSON with no
+  `entries` to read, and an array is an `object` that is not a table of them, so
+  both are refused where a string or a missing key already were. A number or a
+  string was never a crash: reading a property off one is `undefined`.
 - **`sigil add` copies TypeScript, whatever the app is written in, and that is a
   deferral rather than an answer.** Emitting JavaScript means stripping types,
   and neither `oxc-parser` nor `rolldown` -- the two the toolchain already has --

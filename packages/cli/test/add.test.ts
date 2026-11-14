@@ -48,6 +48,20 @@ function registry(): Registry {
   return loadRegistry(root, DEFAULT_REGISTRY);
 }
 
+/**
+ * Writes a package carrying this text as its `registry.json`, verbatim, and
+ * returns its name. Text rather than an object, because the point is what
+ * `JSON.parse` makes of it: `null`, and a key of `__proto__`, cannot be
+ * written through an object literal.
+ */
+function shipRegistry(name: string, text: string): string {
+  const pkg = join(root, 'node_modules', name);
+  mkdirSync(join(pkg, 'registry'), { recursive: true });
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name, version: '1.0.0' }));
+  writeFileSync(join(pkg, 'registry', 'registry.json'), text);
+  return name;
+}
+
 describe('a registry spec', () => {
   it('should read a bare name as the default registry', () => {
     expect(parseSpec('spinner')).toStrictEqual({ entry: 'spinner', pkg: DEFAULT_REGISTRY });
@@ -140,6 +154,21 @@ describe('loading a registry', () => {
     writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'plain', version: '1.0.0' }));
     expect(() => loadRegistry(root, 'plain')).toThrow(/ships no registry/);
   });
+  it.each([
+    ['null', 'null'],
+    ['a number', '42'],
+    ['a string', '"x"'],
+    ['an array', '[]'],
+    ['no entries', '{}'],
+    ['null entries', '{"entries":null}'],
+    ['string entries', '{"entries":"x"}'],
+    ['array entries', '{"entries":[]}'],
+  ])('should refuse a registry.json that is %s with the sentence for no entries', (_, text) => {
+    // SIG-435: `null` is valid JSON, and reading `.entries` off it was a
+    // TypeError with a stack; an array passed because `typeof [] === 'object'`
+    shipRegistry('odd', text);
+    expect(() => loadRegistry(root, 'odd')).toThrow(/^odd ships a registry with no entries in it$/);
+  });
 });
 
 describe('planning an add', () => {
@@ -220,6 +249,45 @@ describe('planning an add', () => {
       'components/leaf.ts',
     ]);
   });
+
+  describe.each(['constructor', 'toString', 'hasOwnProperty', '__proto__'])(
+    'an entry named %s, which Object.prototype has too',
+    (name) => {
+      // SIG-435: `entries[name]` on a parsed object answers with what the
+      // prototype chain holds, which is truthy and has no `registryDeps`
+      const leaf = (deps: string[]) =>
+        JSON.stringify({ classes: [], desc: 'leaf', files: [], imports: [], registryDeps: deps });
+
+      it('should be reported missing when it is asked for and the registry does not have it', () => {
+        shipRegistry('plain', `{"entries":{"leaf":${leaf([])}},"name":"plain","version":"1.0.0"}`);
+        const plan = planAdd(loadRegistry(root, 'plain'), [name], join(root, 'components'), root);
+        expect(plan.missing).toStrictEqual([name]);
+        expect(plan.entries).toStrictEqual([]);
+      });
+
+      it("should be the registry's bug when an entry needs it and the registry does not have it", () => {
+        shipRegistry(
+          'needy',
+          `{"entries":{"leaf":${leaf([name])}},"name":"needy","version":"1.0.0"}`
+        );
+        expect(() =>
+          planAdd(loadRegistry(root, 'needy'), ['leaf'], join(root, 'components'), root)
+        ).toThrow(/is needed but does not have it, which is a bug in the registry/);
+      });
+
+      it('should still be found when the registry really does declare it', () => {
+        // `JSON.parse` makes `__proto__` an own key, so an own-property lookup
+        // finds it where a copy made by assignment would have lost it
+        shipRegistry(
+          'own',
+          `{"entries":{${JSON.stringify(name)}:${leaf([])}},"name":"own","version":"1.0.0"}`
+        );
+        const plan = planAdd(loadRegistry(root, 'own'), [name], join(root, 'components'), root);
+        expect(plan.missing).toStrictEqual([]);
+        expect(plan.entries).toStrictEqual([name]);
+      });
+    }
+  );
 
   it('should refuse a registry that names a dependency it does not have', () => {
     const broken: Registry = {
@@ -549,6 +617,26 @@ describe('the command, end to end', () => {
     expect(result.stderr).toContain('evil ships a registry.json that is not valid JSON');
     expect(result.stderr).toContain('\\x1B]0;PWNED\\x07');
     expect(result.stderr.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+  });
+
+  it('should report an entry named after Object.prototype as missing, not as a crash', () => {
+    // SIG-435: this was `TypeError: entry.registryDeps is not iterable`
+    for (const name of ['constructor', 'toString', '__proto__']) {
+      const result = run('add', name);
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(`@ttylabs/sigil has no "${name}". It has:`);
+      expect(result.stderr).not.toMatch(/TypeError|\n\s+at /);
+    }
+  });
+
+  it('should refuse a registry.json of null with a sentence, not a stack', () => {
+    shipRegistry('nullish', 'null');
+    const result = run('add', 'nullish/anything');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('nullish ships a registry with no entries in it');
+    expect(result.stderr).not.toMatch(/TypeError|\n\s+at /);
   });
 
   it('should copy something that then runs', () => {
