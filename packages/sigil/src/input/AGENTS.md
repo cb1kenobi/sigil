@@ -800,9 +800,10 @@ the absence here is settled rather than pending.
   read `x`, the paste, `f1`: an F1 nobody pressed, after the paste, where before
   the Linux console's F-keys it read `x`, `unknown`, the paste, `A`. A held `ESC [`
   made the `A` an Up the same way, and a held Escape made it Alt-A with the Escape
-  gone; all three measured before the fix. The start marker now flushes what is
-  held, through `expire()`, before the paste begins. **Flushed rather than
-  dropped**, because the marker is proof and not a guess: a terminal writes a
+  gone; all three measured before the fix. The bytes in front of a start marker
+  in the same read are now decoded as **final** -- `keys(input, true)`, which
+  holds nothing and reads an unfinished tail the way `expire()` does -- before
+  the paste begins. **Read rather than dropped**, because the marker is proof and not a guess: a terminal writes a
   paste whole and between its own sequences, so nothing more of the held key is
   coming, and the reading is the one `ESCAPE_TIMEOUT` would have reached fifty
   milliseconds later -- `ESC [ [` is `unknown`, `ESC [` Alt-`[`, a lone ESC Escape.
@@ -851,9 +852,34 @@ the absence here is settled rather than pending.
   place beside the three "There is no fourth place" names, for the paste's own
   timer; it is **unreachable today** and survives its sabotage for that reason,
   and is kept because a timer outliving its paste is what round 1 found
-  happening. Pinned in "a paste a handler feeds while a paste is beginning",
-  "what a handler feeds while a paste ends" and "a key a handler feeds while a
-  paste begins" in `test/input/input.test.ts`, and through `runApp()` in
+  happening.
+
+  **Final rather than flushed, because the hold itself was the opening** (review
+  round 3). The first version decoded the bytes before the marker as usual and
+  flushed what `keys()` held afterwards -- but `keys()` stores its tail in `held`
+  _before_ it routes the keys ahead of it, so a handler among those keys that fed
+  anything had its bytes joined to a tail the marker in the same read had
+  already proved finished: `x ESC` with the `x` binding feeding `A` read Alt-A,
+  `x ESC [` with it feeding `Z` read Shift-Tab, and feeding `200~IN` made the held
+  `ESC [` a start marker and `IN` a paste nobody bracketed. Each measured before
+  the fix. Reading those bytes as final decides the tail before anything is
+  routed, so nothing is held for a feed to join; it is one parameter at the one
+  site a marker proves the bytes whole, and a tail with no marker after it in the
+  same read still waits for `ESCAPE_TIMEOUT` as before. The order is the
+  synchronous one the pinned sequence test keeps: a key a handler feeds is routed
+  before the rest of the chunk, so `x ESC` and a fed `A` read `x`, `A`, Escape --
+  the Escape is behind the fed key, but it is an Escape. `closeOut()` is still
+  needed after it, for what a handler feeds rather than for the tail: its held
+  branch now catches only a partial key fed from a handler, and both branches
+  fail their sabotage. Outside a marker the router has always joined a fed key to
+  a tail held in front of it -- `x ESC` with no marker after it and a fed `A` is
+  Alt-A, on `main` as here -- because without the marker nothing proves the tail
+  finished; that is the ordinary pending-key rule and is left alone.
+
+  Pinned in "a paste a handler feeds while a paste is beginning", "what a handler
+  feeds while a paste ends", "a key a handler feeds while a paste begins" and "a
+  key a handler feeds from the bytes before a start marker" in
+  `test/input/input.test.ts`, and through `runApp()` in
   `test/renderer/app.test.ts`.
 
 - **`KEY_NAMES` is derived from the decoder's own three tables.** The rule

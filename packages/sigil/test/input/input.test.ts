@@ -2050,6 +2050,73 @@ describe('paste', () => {
     });
   });
 
+  describe('a key a handler feeds from the bytes before a start marker', () => {
+    // the bytes before a start marker in the same read are complete -- the marker
+    // proves it -- but their unfinished tail used to be held while the keys ahead
+    // of it were routed, so a handler among those keys that fed anything had its
+    // bytes joined to that tail. A fed key is routed before the rest of the chunk,
+    // which is the order `sequence.test.ts` pins, so it comes before the tail
+    // rather than inside it
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose `x` binding feeds `fed` once, recording pastes and keys. */
+    function feeding(fed: string): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      let fired = false;
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        const name = event.key.shift ? `shift-${event.key.name}` : event.key.name;
+        order.push(event.key.meta ? `alt-${name}` : name);
+        if (event.key.name === 'x' && !fired) {
+          fired = true;
+          feed(fed);
+        }
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should not make an Alt key of a held Escape and a key a handler fed', () => {
+      const { feed, order, stop } = feeding('A');
+
+      feed(`x\u001b${start}hi${end}Z`);
+      expect(order).toEqual(['x', 'A', 'escape', 'paste:hi', 'Z']);
+      stop();
+    });
+
+    it('should not make a CSI key of a held ESC [ and a key a handler fed', () => {
+      const { feed, order, stop } = feeding('Z');
+
+      feed(`x\u001b[${start}hi${end}Q`);
+      expect(order).toEqual(['x', 'Z', 'alt-[', 'paste:hi', 'Q']);
+      stop();
+    });
+
+    it('should not make a start marker of a held ESC [ and bytes a handler fed', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding('200~IN');
+
+        feed(`x\u001b[${start}hi${end}Q`);
+        expect(order).toEqual(['x', '2', '0', '0', '~', 'I', 'N', 'alt-[', 'paste:hi', 'Q']);
+        vi.advanceTimersByTime(PASTE_TIMEOUT);
+        expect(order.filter((it) => it.startsWith('paste:'))).toEqual(['paste:hi']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('a start marker with bracketed paste off', () => {
     // the terminal brackets a paste only when asked to, so a marker on a stdin
     // nobody asked is not one -- and honoring it is how a stray `ESC [ 200 ~`

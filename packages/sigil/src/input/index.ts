@@ -2194,16 +2194,16 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
 
       held = '';
-      keys(joined.slice(0, start));
-      // and what `keys()` holds back of that is not the start of anything any
-      // more: a terminal writes a paste whole and between its own sequences, so
-      // the marker is the proof that nothing more of the held key is coming --
-      // the answer `ESCAPE_TIMEOUT` would have reached, reached early. Held
-      // across the paste instead, it joined what followed it, so `ESC [ [`, a
-      // paste and `A` read as an F1 nobody pressed, after the paste. Flushed
+      // and read as final: an unfinished tail before the marker is not the start
+      // of anything any more. A terminal writes a paste whole and between its
+      // own sequences, so the marker is the proof that nothing more of the key is
+      // coming -- the answer `ESCAPE_TIMEOUT` would have reached, reached early.
+      // Held across the paste instead, it joined what followed it, so `ESC [ [`,
+      // a paste and `A` read as an F1 nobody pressed, after the paste. Read
       // rather than dropped, because it is a key somebody pressed: an Escape
-      // just before a paste is still an Escape, in front of the paste. And
-      // whatever a handler fed meanwhile is closed with it
+      // just before a paste is still an Escape, in front of the paste
+      keys(joined.slice(0, start), true);
+      // and whatever a handler fed while those keys were routed is closed too
       closeOut();
       // any of that may have reached a handler that stopped the router, and a
       // paste begun after that would arm a timer into a router with no listeners
@@ -2230,8 +2230,13 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * cannot disagree about where the last key begins. Held here rather than
    * inside the dispatch, because a second chunk landing while the first is being
    * handled would otherwise be joined to a stale remainder.
+   *
+   * @param input - The bytes.
+   * @param final - Whether these bytes are known to be whole, which a paste's
+   *   start marker after them in the same read proves: then nothing is held, and
+   *   an unfinished tail is read now the way `ESCAPE_TIMEOUT` would read it.
    */
-  function keys(input: string): void {
+  function keys(input: string, final = false): void {
     clearTimeout(timer);
     timer = undefined;
 
@@ -2239,9 +2244,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // exists: two readers of one chunk that disagree about where the last key
     // starts is the bug it was written against, and `strings` is a second way
     // for them to disagree
-    const opts = decoding();
+    const opts = final ? { ...decoding(), final: true } : decoding();
     const joined = held + input;
-    const length = pendingLength(joined, opts);
+    // and decided before anything is routed, because a handler among these keys
+    // can `feed()`: a tail held while it ran was joined to what it fed, so the
+    // bytes before a start marker, which the marker proves complete, made `ESC`
+    // and a fed `A` into Alt-A, and `ESC [` and a fed `200~` into a paste nobody
+    // bracketed (review round 3)
+    const length = final ? 0 : pendingLength(joined, opts);
     const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
     const tail = length === 0 ? '' : joined.slice(joined.length - length);
     held = tail;
