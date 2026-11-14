@@ -2064,11 +2064,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   /**
    * Hands over a paste whose end marker has not come, and reads what follows as keys.
    *
-   * Reached from the idle timeout and the size cap. What was held is delivered as
-   * the paste it was -- it was bracketed, so it is content however it ended -- and
-   * the paste is over *before* it is flushed, so a handler that feeds a key reaches
-   * the keys rather than the paste. An end marker that turns up late is then a key
-   * sequence like any other, and decodes as an inert `unknown`.
+   * Reached from the idle timeout, the size cap, and `closeOut()`. What was held
+   * is delivered as the paste it was -- it was bracketed, so it is content however
+   * it ended -- and the paste is over *before* it is flushed, so a handler that
+   * feeds a key reaches the keys rather than the paste. An end marker that turns up
+   * late is then a key sequence like any other, and decodes as an inert `unknown`.
    */
   function releasePaste(): void {
     // unreachable today, and kept rather than dropped: `stop()` clears the timer
@@ -2084,32 +2084,31 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   }
 
   /**
-   * Begins a paste, after handing over any paste a handler began first.
+   * Closes whatever is still open before the router reads past a paste marker.
    *
-   * The start marker flushes a held key before the paste begins, and a handler for
-   * that key can `feed()` a paste of its own. A finished one is gone by the time
-   * this runs; an unfinished one is held text, and held text is delivered -- so it
-   * is released as its own paste rather than begun over, which kept its timer
-   * armed to cut this one short and its tail to complete a false end marker.
-   *
-   * @returns Whether the paste began: a handler reached from a release may stop
-   *   the router, and a paste begun after that would arm a timer nobody clears.
+   * Both markers hand control to handlers before the bytes after them are read:
+   * the start marker flushes the key held in front of it, and the end marker
+   * delivers the paste. Any of those handlers can `feed()`, which is read on the
+   * spot, so what the bytes after the marker meet is whatever the feed left open:
+   * an unfinished paste took them as its content -- Ctrl-C included -- and a held
+   * partial key joined them into a key nobody pressed. So both markers ask this,
+   * and it closes both, over and over, because closing one runs handlers too: a
+   * paste left open is released as its own paste, since held text is delivered,
+   * and a held key is flushed as `ESCAPE_TIMEOUT` would flush it, since the bytes
+   * after the marker are not its continuation. One function rather than a guard
+   * per site, because two review rounds found this shape at four (SIG-402).
    */
-  function beginPaste(): boolean {
-    while (pasting !== undefined && !stopped) {
-      releasePaste();
+  function closeOut(): void {
+    while (!stopped) {
+      if (pasting !== undefined) {
+        releasePaste();
+      } else if (held !== '') {
+        clearTimeout(timer);
+        expire();
+      } else {
+        return;
+      }
     }
-    if (stopped) {
-      return false;
-    }
-    // nothing to reset here: a paste ends only through `endPaste()`, which clears
-    // the timer, the tail and the length with it, so with `pasting` undefined the
-    // rest of the state already is
-    pasting = [];
-    // the wait starts at the marker rather than at the first content, because a
-    // read that ends on the marker brings nothing else to start it
-    pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
-    return true;
   }
 
   function consume(input: string): void {
@@ -2167,6 +2166,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         const content = pasting.join('') + rest;
         endPaste();
         flushPaste(content.slice(0, content.length - (window.length - end)));
+        closeOut();
         rest = window.slice(end + PASTE_END.length);
         continue;
       }
@@ -2202,17 +2202,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // across the paste instead, it joined what followed it, so `ESC [ [`, a
       // paste and `A` read as an F1 nobody pressed, after the paste. Flushed
       // rather than dropped, because it is a key somebody pressed: an Escape
-      // just before a paste is still an Escape, in front of the paste
-      if (held !== '' && !stopped) {
-        clearTimeout(timer);
-        expire();
-      }
-      // either of those may have reached a handler that stopped the router, or
-      // that fed a paste of its own, and `beginPaste()` answers for both
-      if (!beginPaste()) {
+      // just before a paste is still an Escape, in front of the paste. And
+      // whatever a handler fed meanwhile is closed with it
+      closeOut();
+      // any of that may have reached a handler that stopped the router, and a
+      // paste begun after that would arm a timer into a router with no listeners
+      if (stopped) {
         return;
       }
+      pasting = [];
       rest = joined.slice(start + PASTE_START.length);
+      // the wait starts at the marker rather than at the first content, because a
+      // read that ends on the marker brings nothing else to start it
+      pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {

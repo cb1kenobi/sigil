@@ -812,30 +812,49 @@ the absence here is settled rather than pending.
   on that key stops the paste too: it is never begun, so no idle timer is armed
   into a router with no listeners.
 
-  **And a handler for that key can feed a paste of its own, which is the one
-  re-entrant shape this opens** (found by review round 1). A finished one is gone
-  before the outer paste begins and was always fine. An unfinished one was begun
-  over: the start path set a fresh list and a fresh timer and reset nothing else,
-  so the inner paste's text was dropped, its timer stayed armed -- cutting the
-  outer paste short a second after the _inner_ one began, and firing after
-  `stop()`, which cleared only the newer id -- and its tail stayed behind, so five
-  bytes of an end marker it held completed a false one with the outer paste's
-  first byte. Each measured before the fix. `beginPaste()` is now the one way a
-  paste starts: it releases a paste a handler left open as its own paste, since
-  held text is delivered, and the release goes through `endPaste()` -- the one
-  function that ends a paste, and so the one that resets the timer, the tail and
-  the length together. A second reset in `beginPaste()` was written and deleted:
-  with every end going through `endPaste()` it survived its sabotage, so it was
-  dead. The end
-  marker's path ends the paste _before_ handing it over, as a release already
-  did, so a key a handler feeds there is a key rather than bytes added to a paste
-  already delivered and then thrown away. `releasePaste()` asks `stopped` as
-  well, which is a fourth place beside the three "There is no fourth place"
-  names, for the paste's own timer rather than the sequence's. It is
-  **unreachable today** and survives its sabotage for that reason; it is kept,
-  where the reset above was not, because the failure it stands against -- a
-  timer outliving its paste -- is the one this paragraph records actually
-  happening. Pinned in "a paste a handler feeds while a paste is beginning".
+  **What a handler that `feed()`s while a marker is being read can rely on**
+  (review rounds 1 and 2). Both markers hand control to handlers before the bytes
+  after them are read -- the start marker flushes the held key, the end marker
+  delivers the paste -- and a handler's `feed()` is read on the spot. What it
+  left open then met the bytes after the marker, at four sites: an unfinished
+  paste fed from the flushed key's handler was begun over, its text dropped, its
+  timer left to cut the next paste short and to fire after `stop()`, its tail
+  left to complete a false end marker; an unfinished paste fed from the end
+  marker's handler took the bytes after the marker as its content, so
+  `paste, Ctrl-C` never reached `runApp()`'s `quit`; and a partial key fed from
+  any of those handlers stayed in `held` and joined the bytes after the marker,
+  so `ESC [` and an `A` read as Up. Each measured before its fix. The rule is now
+  one function, `closeOut()`, that both markers call before reading on: it
+  releases a paste a handler left unfinished as its own paste, since held text
+  is delivered, and flushes a held key as `ESCAPE_TIMEOUT` would, since the bytes
+  after the marker are not its continuation -- in a loop, because closing either
+  runs handlers that can feed again. So the contract is: **what a handler feeds
+  is read before the bytes after the marker, in full, and is closed before they
+  are** -- a key is a key, a paste is a paste, and nothing it leaves open reaches
+  across the marker. The end marker's path ends the paste _before_ delivering it,
+  as a release does, so a key fed there is not added to a paste already handed
+  over. A handler that feeds an unfinished paste from every paste it is handed
+  loops forever, which is the handler's to not do.
+
+  **A queue was measured first and refused.** The uniform answer would be to make
+  a re-entrant `feed()` wait until the read under way finishes, as though its
+  bytes arrived after that chunk -- which makes all four impossible by
+  construction. It moves one test `main` pins: `should offer a key from the root
+  with a trail of its own` in `test/input/sequence.test.ts`, where a `g` binding
+  feeds a `d` and `gd` must leave one pending `d`; queued, the fed `d` is read
+  after the typed one and `d d` fires. That is the contract "a key a handler
+  feeds is routed before the rest of the chunk", which a remapping binding --
+  `bind(key, () => input.feed(DOWN))` -- can depend on, so changing it for every
+  handler inside a paste ticket is the wrong place to do it. Nothing else in
+  `packages/sigil`'s suite moved under the queue, apart from the round-1 tests
+  written for the synchronous order. `releasePaste()` asks `stopped` as well, a fourth
+  place beside the three "There is no fourth place" names, for the paste's own
+  timer; it is **unreachable today** and survives its sabotage for that reason,
+  and is kept because a timer outliving its paste is what round 1 found
+  happening. Pinned in "a paste a handler feeds while a paste is beginning",
+  "what a handler feeds while a paste ends" and "a key a handler feeds while a
+  paste begins" in `test/input/input.test.ts`, and through `runApp()` in
+  `test/renderer/app.test.ts`.
 
 - **`KEY_NAMES` is derived from the decoder's own three tables.** The rule
   `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside

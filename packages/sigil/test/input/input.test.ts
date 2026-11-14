@@ -1877,6 +1877,179 @@ describe('paste', () => {
     });
   });
 
+  describe('what a handler feeds while a paste ends', () => {
+    // the end marker's paste handler can `feed()`, which runs before the bytes
+    // after the marker are read -- and a paste it left unfinished took those
+    // bytes as its own content, Ctrl-C included, while a key it left held joined
+    // them into a key nobody pressed
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    /** A router whose paste handler feeds what `fed` maps the paste's text to. */
+    function feeding(fed: Record<string, string>): {
+      feed: (chunk: string) => void;
+      order: string[];
+      stop: () => void;
+    } {
+      const { feed, terminal } = harness();
+      const input = createInput({ root: box({}), terminal });
+      const order: string[] = [];
+      input.onPaste((event) => {
+        order.push(`paste:${event.text}`);
+        event.stop();
+        const more = fed[event.text];
+        if (more !== undefined) {
+          feed(more);
+        }
+      });
+      input.bind((event) => {
+        const name = event.key.ctrl ? `ctrl-${event.key.name}` : event.key.name;
+        order.push(event.key.meta ? `alt-${name}` : name);
+      });
+      return { feed, order, stop: () => input.stop() };
+    }
+
+    it('should not let an unfinished paste a handler fed take the bytes after the end marker', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}IN` });
+
+        feed(`${start}hello${end}Z\u0003`);
+        expect(order).toEqual(['paste:hello', 'paste:IN', 'Z', 'ctrl-c']);
+        expect(vi.getTimerCount(), 'a paste timer outlived its paste').toBe(0);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not let the tail of a paste a handler fed complete an end marker', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}xx${end.slice(0, 5)}` });
+
+        feed(`${start}hello${end}~MORE`);
+        expect(order).toEqual([
+          'paste:hello',
+          `paste:xx${end.slice(0, 5)}`,
+          '~',
+          'M',
+          'O',
+          'R',
+          'E',
+        ]);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should begin a paste after the end marker as its own, not as content of a fed one', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: `${start}IN` });
+
+        feed(`${start}hello${end}${start}world${end}`);
+        expect(order).toEqual(['paste:hello', 'paste:IN', 'paste:world']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should release each of a nest of unfinished pastes fed from each other', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ B: `${start}Q`, hello: `${start}B` });
+
+        feed(`${start}hello${end}Z`);
+        expect(order).toEqual(['paste:hello', 'paste:B', 'paste:Q', 'Z']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not join a key a handler fed when a paste ended to the bytes after it', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, order, stop } = feeding({ hello: '\u001b[' });
+
+        feed(`${start}hello${end}A`);
+        expect(order).toEqual(['paste:hello', 'alt-[', 'A']);
+        stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('a key a handler feeds while a paste begins', () => {
+    // the start marker flushes a held key once, and a key a handler fed after
+    // that flush was still held when the bytes after the paste were read
+    const start = '\u001b[200~';
+    const end = '\u001b[201~';
+
+    it('should not join a key fed by the flushed key’s handler to the bytes after the paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const order: string[] = [];
+        input.onPaste((event) => {
+          order.push(`paste:${event.text}`);
+          event.stop();
+        });
+        let fired = false;
+        input.bind((event) => {
+          order.push(event.key.meta ? `alt-${event.key.name}` : event.key.name);
+          if (event.key.name === 'escape' && !fired) {
+            fired = true;
+            feed('\u001b[');
+          }
+        });
+
+        feed('\u001b');
+        feed(`${start}hi${end}A`);
+        expect(order).toEqual(['escape', 'alt-[', 'paste:hi', 'A']);
+        input.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should not join a key fed by a released paste’s handler to the bytes after the paste', () => {
+      vi.useFakeTimers();
+      try {
+        const { feed, terminal } = harness();
+        const input = createInput({ root: box({}), terminal });
+        const order: string[] = [];
+        input.onPaste((event) => {
+          order.push(`paste:${event.text}`);
+          event.stop();
+          if (event.text === 'IN') {
+            feed('\u001b[');
+          }
+        });
+        let fired = false;
+        input.bind((event) => {
+          order.push(event.key.meta ? `alt-${event.key.name}` : event.key.name);
+          if (event.key.name === 'escape' && !fired) {
+            fired = true;
+            feed(`${start}IN`);
+          }
+        });
+
+        feed('\u001b');
+        feed(`${start}hi${end}A`);
+        expect(order).toEqual(['escape', 'paste:IN', 'alt-[', 'paste:hi', 'A']);
+        input.stop();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('a start marker with bracketed paste off', () => {
     // the terminal brackets a paste only when asked to, so a marker on a stdin
     // nobody asked is not one -- and honoring it is how a stray `ESC [ 200 ~`
