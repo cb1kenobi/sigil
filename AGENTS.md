@@ -612,7 +612,13 @@ These look like bugs and are not. Each is intentional and covered by tests.
   declared a type for, which is the opposite of what `allowUnknownOptions` is
   for. `auto` still reads a 13-digit epoch as a number rather than a date: the
   two types match different shapes on purpose, and sharing the check does not
-  merge them. See `test/parser/regressions.test.ts`.
+  merge them. The number guess is held to what `int` is held to (SIG-391): an
+  integer spelling -- decimal, signed, padded, `0x`, `0o` or `0b` -- that is not a
+  safe integer is not the number guess, and `auto` returns the string it was
+  handed rather than the different integer `Number()` maps it to, where `int`
+  throws; it returns before `JSON.parse`, which would read the same digits through
+  the same `Number`. A decimal, an exponent and `Infinity` are not integer
+  spellings and stay doubles. See `test/parser/regressions.test.ts`.
 - **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
   were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
   than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR

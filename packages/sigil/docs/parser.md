@@ -1128,6 +1128,12 @@ falls through to the string it was handed. `auto` never throws — it guesses an
 gives up — and it is what undeclared options are coerced with, where nobody
 asked for a date at all.
 
+The number guess is held to the bound `int` is held to. An integer outside the
+safe range — `12345678901234567890`, `9007199254740993`, a long `0x…` — is not
+the number guess, because `Number()` would hand back a different integer; where
+`int` throws, `auto` leaves it the string it was given. `007` is still `7`, and
+a decimal or an exponent such as `1e21` is still the double `Number()` reads.
+
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
 Anything else throws `Invalid boolean: "…"` rather than guessing — `0` and

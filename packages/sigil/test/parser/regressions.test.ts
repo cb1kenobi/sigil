@@ -15,7 +15,7 @@ import {
   type Schema,
 } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
-import { daysInMonth } from '../../src/util/transform.js';
+import { daysInMonth, transformValue } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1515,6 +1515,126 @@ describe('regressions', () => {
         schema: { options: { '--when <d>': { type: 'auto' } } },
       });
       expect(result.argv.when).to.equal(1718454600000);
+    });
+  });
+
+  describe('auto and an integer past 2^53', () => {
+    // `int` throws for an integer `Number` cannot hold, because returning a
+    // different integer is the one failure a caller cannot detect. `auto` did
+    // `Number(value)` and returned it, so an id on an undeclared option --
+    // which is coerced with `auto` -- came back as `12345678901234567000`. It
+    // is not a number guess, so it is not the number guess: `auto` ends at the
+    // string it was handed
+    const unsafe = [
+      '12345678901234567890',
+      '-12345678901234567890',
+      '9007199254740992',
+      '9007199254740993',
+      '-9007199254740992',
+      '-9007199254740993',
+      '+12345678901234567890',
+      '0x20000000000001',
+      '0xFFFFFFFFFFFFFFFFF',
+      '0b100000000000000000000000000000000000000000000000000001',
+      ' 12345678901234567890 ',
+    ];
+
+    it.each(unsafe)(
+      'should leave the unsafe integer %s a string on an undeclared option',
+      async (value) => {
+        // the attached spelling: an undeclared option does not take a value that
+        // starts with a dash from the next token
+        const result = await parse({ argv: [`--id=${value}`], schema: {} });
+        expect(result.argv.id).to.equal(value);
+      }
+    );
+
+    it.each(unsafe)(
+      'should leave the unsafe integer %s a string on a declared auto option',
+      async (value) => {
+        const result = await parse({
+          argv: ['--id', value],
+          schema: { options: { '--id <v>': { type: 'auto' } } },
+        });
+        expect(result.argv.id).to.equal(value);
+      }
+    );
+
+    it('should leave an unsafe integer a string on a declared auto argument', async () => {
+      const result = await parse({
+        argv: ['12345678901234567890'],
+        schema: { args: [{ name: 'id', type: 'auto' }] },
+      });
+      expect(result.argv.id).to.equal('12345678901234567890');
+    });
+
+    it('should leave an unsafe integer in the environment a string', async () => {
+      const result = await parse({
+        argv: [],
+        env: { ID: '12345678901234567890' },
+        schema: { options: { '--id [v]': { env: 'ID', type: 'auto' } } },
+      });
+      expect(result.argv.id).to.equal('12345678901234567890');
+    });
+
+    it('should leave an unsafe integer in a string default a string', async () => {
+      const result = await parse({
+        argv: [],
+        schema: { options: { '--id [v]': { default: '-9007199254740993', type: 'auto' } } },
+      });
+      expect(result.argv.id).to.equal('-9007199254740993');
+    });
+
+    it('should not read an unsafe integer back through JSON', () => {
+      // the ladder's last step reads the same digits through the same `Number`
+      expect(transformValue('12345678901234567890', 'auto')).to.equal('12345678901234567890');
+    });
+
+    // the boundary: `2^53 - 1` is the last integer a number holds exactly
+    it.each([
+      ['9007199254740991', 9007199254740991],
+      ['-9007199254740991', -9007199254740991],
+      ['0x1FFFFFFFFFFFFF', 9007199254740991],
+      ['  42  ', 42],
+      ['007', 7],
+    ])('should still read the safe integer %s as a number', async (value, expected) => {
+      const declared = await parse({
+        argv: ['--id', value],
+        schema: { options: { '--id <v>': { type: 'auto' } } },
+      });
+      expect(declared.argv.id).to.equal(expected);
+
+      const undeclared = await parse({ argv: [`--id=${value}`], schema: {} });
+      expect(undeclared.argv.id).to.equal(expected);
+    });
+
+    // a 13-digit epoch is nowhere near 2^53 and is still a number
+    it('should still read a 13-digit epoch as a number on an undeclared option', async () => {
+      const result = await parse({ argv: ['--when', '1718454600000'], schema: {} });
+      expect(result.argv.when).to.equal(1718454600000);
+    });
+
+    // not integer spellings, so not this rule: a decimal, an exponent and
+    // `Infinity` are still the double `Number` reads, as they were
+    it.each([
+      ['1e21', 1e21],
+      ['1.5', 1.5],
+      ['12345678901234567890.5', 12345678901234567000],
+      ['0.1000000000000000055511151231257827', 0.1],
+      ['Infinity', Infinity],
+      ['1e400', Infinity],
+    ])('should still read %s as a number', (value, expected) => {
+      expect(transformValue(value, 'auto')).to.equal(expected);
+    });
+
+    // `int` and `auto` keep the same bound: one throws where the other gives up
+    it('should reject the same integer on int that auto gives up on', async () => {
+      await expect(
+        parse({
+          argv: ['--id', '9007199254740993'],
+          schema: { options: { '--id <v>': { type: 'int' } } },
+        })
+      ).rejects.toThrow('Integer is too large to be exact');
     });
   });
 

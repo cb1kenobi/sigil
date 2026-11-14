@@ -298,6 +298,15 @@ export function transformValue(
     // try as a number
     const num = Number(value);
     if (!isNaN(num)) {
+      // an integer past 2^53-1 is not a number guess: `Number` maps
+      // `12345678901234567890` to `...567000`, which is a different integer, and
+      // `int` throws for exactly that. `auto` gives up rather than throwing, so
+      // the value stays the string it was handed -- and returns here, because
+      // `JSON.parse` below reads the same digits through the same `Number` and
+      // would hand the lossy one back
+      if (spellsLostInteger(value, num)) {
+        return value;
+      }
       return num;
     }
 
@@ -311,6 +320,29 @@ export function transformValue(
 
   // return the original value
   return value;
+}
+
+/**
+ * Whether `text` spells an integer that `num`, what `Number()` made of it, is not.
+ *
+ * `BigInt()` is the question "is this an integer spelling" for every form
+ * `Number()` reads -- decimal, a sign, surrounding whitespace, `0x`, `0o`, `0b`
+ * -- and throws for the rest, so a decimal such as `0.1`, an exponent such as
+ * `1e21` and `Infinity` are not asked about here: a double is what was written
+ * for those, or the nearest one is the documented meaning of `number`.
+ * `int` has already settled the spelling with its own patterns and asks only
+ * `Number.isSafeInteger()`, which is the same bound.
+ */
+function spellsLostInteger(text: string, num: number): boolean {
+  if (Number.isSafeInteger(num)) {
+    return false;
+  }
+  try {
+    BigInt(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
