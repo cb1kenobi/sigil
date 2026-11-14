@@ -3762,6 +3762,35 @@ people's software and will move.
   prints DEP0205 on Node 26 (measured), and `registerHooks()` is synchronous, in
   the loader's own thread, and there from 22.15, under the 22.19 floor. The test
   asserts the warning is absent from what the probed run printed.
+- **The scaffolded tests keep vitest's 5-second default, and `new-tui.test.ts`
+  gives its own runs of them 30 (SIG-426).** A Windows runner once timed out the
+  scaffold's `describes itself` at 5 seconds, and the time was the harness's.
+  `link()` makes `@ttylabs/sigil` a junction to the workspace, vite follows it to
+  a path with no `node_modules` in it, and vitest transforms whatever is not under
+  one -- so every module of the runtime went through vite, in every app. Measured
+  over the same app: with the junction `describes itself` took 72 ms and half the
+  run was transform, and node's own loader received none of the runtime's
+  modules; with `@ttylabs/sigil` copied under a `node_modules`, as an install puts
+  it, node loaded all 73 and the test took 14 ms. The Windows log said
+  `transform 64%`. So the budget is raised where the cost is, as
+  `--testTimeout=30000` in `OWN_SUITE` (`test/own-suite.ts`), the argv both
+  `new-tui.test.ts` and the guides' `$ npm test` steps run an app's suite with,
+  and a new app gets no
+  timeout it does not need. Thirty is six times the default and inside the 180
+  seconds the variant test gives the whole app. Raising it in the scaffold
+  instead would put a number in every new app to pay for how this repository
+  links them.
+- **Known defect: a JSX component behind a command fails its app's own `refuses
+  without a terminal` once the app is installed, and the harness cannot see it.**
+  Found by SIG-426 trying the faithful fix above, a copy under a `node_modules`:
+  the two JSX variants at a command failed with `Unknown file extension ".tsx"`
+  and `.jsx`. With the runtime left to node, `runCommand()` routes to
+  `src/commands/<name>` through node's own `import()`, which loads the command
+  and then cannot load the component the command imports. Inlined, vite
+  made that `import()` its own and transformed the `.tsx`, so the harness passes
+  a test an installed app fails. The root placement is not affected, because the
+  test imports `src/index` directly and vite transforms it. Not fixed in SIG-426,
+  which is about CI timing; it is why `link()` still makes a junction.
 - **The two prompts that take typed text refuse what they cannot use, at the
   prompt, and suggest nothing.** Enter on an empty project name used to submit,
   fail, and end the run; the TUI command's name was pre-filled with `dashboard`

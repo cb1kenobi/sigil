@@ -742,7 +742,80 @@ pre-commit hook and every local run.
   `beforeAll` made, or one made at module level like `runtimes-cache.test.ts`'s
   `box`, before the second test could use it. Per-test isolation already comes
   from each test getting a directory of its own from `mkdtemp`. Removing it
-  between tests was never what kept two tests apart.
+  between tests was never what kept two tests apart. A test whose directory is
+  heavy and its own may still remove it as it finishes, with `removeTempDir()`
+  in its `onTestFinished` -- not `afterEach`, which is the file's and would
+  reach every other test's directory too. `new-tui.test.ts` does it for each app
+  it scaffolds and builds (SIG-426): sixteen of them were half of what that
+  file's `afterAll` had to remove, and that hook ran past 10 seconds on Windows
+  with every test green.
+- **A test that removes its own directory reaps its children first, the whole
+  tree of each.** When a test times out, vitest aborts its `signal` and runs
+  `onTestFinished` straight away, with the test's `await` still pending. So
+  the removal has to wait for the children itself: `new-tui.test.ts` keeps each
+  child's promise, which settles only on `close`, and its hook awaits them
+  before it removes anything. Settling on `close` is the point, which is why
+  `spawn()`'s own `signal` option is not used: it rejects at the abort, with
+  the child still alive. And ending the child alone does not end what it
+  started. A nested `vitest run` uses forked workers, and killing that vitest
+  with SIGTERM or SIGKILL on macOS left its worker running under pid 1,
+  measured with `ps`. On Windows, where killing a process kills only that
+  process, the abort runs `taskkill /pid <pid> /T /F`, which walks the tree by
+  parent pid. POSIX has no such call, so `endTree()` reads the tree from `ps`
+  and walks it: each process found is sent SIGSTOP before the next look, so
+  none can start another in between, and once a look finds nothing new every
+  one of them gets SIGKILL. The SIGKILL is in a `finally`, so a look that
+  fails still kills everything already stopped; a stopped process would hold
+  its directory and never close. A look that fails -- `ps` missing, exiting
+  non-zero, killed by its 5-second timeout, or listing nothing -- throws
+  naming `ps` rather than reading as a tree with no descendants, which would
+  kill the root alone and leave its workers in the directory. That error is
+  what the child's promise rejects with, and the hook fails the test with it
+  once the directory is removed. `ending a process tree` pins both halves with
+  a real root and child, failing the first look and the second; taking the
+  `finally` out leaves the root stopped, and taking the checks out leaves
+  nothing thrown, and each fails it. Timing out all twelve variants at 250, 350, 450 and
+  550 ms left no directory and no process in one, and from 350 ms up every
+  abort was a nested vitest's. The first version, which passed the signal to
+  `spawn()`, left an orphaned worker at 350 and at 400 ms. A child that never
+  closes holds the hook until `REMOVAL_TIMEOUT`, which fails the test and
+  leaves the directory to the `afterAll`.
+- **The children stay in the suite's own process group, so a Ctrl-C reaches
+  them.** Killing a group would be one call, and the second version did it: the
+  child spawned `detached` and `process.kill(-pid)` on an abort. Review found
+  what that cost. A terminal's Ctrl-C is SIGINT to its foreground group, and a
+  detached child is in a session of its own, so the SIGINT never reached it.
+  Nothing passed it on either. vitest's main process answers SIGINT by exiting
+  a millisecond later without stopping anything it spawned (the logger's
+  `addCleanupListeners()`). The `forks.js` workers install no handler at all.
+  `@ttylabs/cli` runs its tests in `threads`, and a worker thread is sent no
+  signal events: a `process.on('SIGINT')`, `SIGTERM`, `SIGHUP` or `exit` handler
+  in a test file never ran when the main process was interrupted, so there is
+  nowhere for a test to clean up from. Measured with a nested test that waits
+  two minutes, by sending SIGINT to the whole run's group as a terminal does:
+  with `detached`, ten processes (five nested vitests and their workers) were
+  still running five seconds later, in the app directories. In the suite's
+  group, none were. This is how the suite behaved before SIG-426, and a SIGTERM
+  sent to the vitest process alone still leaves its children running, as it
+  always has. Directories a Ctrl-C leaves behind are a separate thing: no
+  `afterAll` runs after one, with or without this.
+- **A directory removed early is checked again when the file ends.**
+  `removeTempDir()` remembers what it removed, and `removeTempDirs()` fails the
+  file over any of it that exists again, after removing it a second time. A
+  cleanup that cannot see its own failure is a leak nobody hears about. Proved
+  by sabotage: with the reaping taken out, the full `new-tui.test.ts` failed
+  on four apps `written to after it was removed`, and nothing was left. It only
+  sees a write that lands before the file ends; one after that is what `pnpm
+  test:leaks` is for.
+- **Removal is asynchronous and concurrent, with a budget of 60 seconds.**
+  `REMOVAL_TIMEOUT` in `temp.ts`, given to the `afterAll` in each `setup.ts`.
+  `rmSync` over every directory in turn put each one's retries end to end, and
+  vitest counts a slow synchronous hook against its 10-second default as well,
+  which is the timeout `new-tui.test.ts` hit on Windows after every test had
+  passed: Defender scans what a test has just written, so removal there is
+  slow. Run together, one directory waiting out its retries no longer holds up
+  the rest. The budget is a bound on a hang and not on speed: a directory that
+  cannot be removed is not a hang, because `rm` stops retrying and throws.
 - **Each directory is tracked, and none of them are nested under a shared
   root.** A per-worker root removed in `afterAll` was the other proposal. It
   saves nothing, because a recursive `rmSync` of one root unlinks the same 510
@@ -759,7 +832,7 @@ pre-commit hook and every local run.
   belong in a module that is runner-agnostic on purpose. A file outside every
   package would sit outside each package's `tsconfig` `include`. The file is
   about fifty lines, and the four copies are identical so they can be diffed.
-- **A directory that cannot be removed fails the file.** `rmSync` gets
+- **A directory that cannot be removed fails the file.** `rm` gets
   `maxRetries: 5` for Windows, where a directory a child has just let go of can
   answer `EBUSY` or `EPERM` for a moment. After that the error is thrown. A
   cleanup that swallows its own failure is a leak nobody hears about, and that

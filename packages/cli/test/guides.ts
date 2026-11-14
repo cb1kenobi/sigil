@@ -1,4 +1,5 @@
 import { scaffold } from '../src/scaffold/index.ts';
+import { OWN_SUITE } from './own-suite.ts';
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -37,30 +38,6 @@ const sigil = dirname(require.resolve('@ttylabs/sigil/package.json'));
  * `devDependencies` to write.
  */
 const vitest = dirname(require.resolve('vitest/package.json'));
-
-/**
- * What `npm test` runs, from the app's directory: the scaffold's `test` script
- * is `vitest run`, and this is vitest's bin under the link `prepare()` makes.
- * Run with node directly rather than through `npm`, the way a `my-cli` line is
- * `node dev.ts` rather than `npm run dev`: no package manager is involved.
- *
- * The reporter is named because vitest picks one from the environment: `minimal`
- * when std-env detects a coding agent, `default` otherwise, and `github-actions`
- * on top of it on CI. The first time this ran on CI it was a different reporter
- * and in colour, where it had been neither on the machine it was written on, so
- * the transcript's summary lines were in the output and matched nothing. See
- * `TEST_ENV` for the colour.
- */
-const VITEST = [
-  join(
-    'node_modules',
-    'vitest',
-    (JSON.parse(readFileSync(join(vitest, 'package.json'), 'utf-8')) as { bin: { vitest: string } })
-      .bin.vitest
-  ),
-  'run',
-  '--reporter=default',
-];
 
 /**
  * What a `$ npm test` step adds to `environment()`: no colour.
@@ -221,7 +198,7 @@ export function steps(guide: Guide, markdown: string): { skipped: string[]; step
 
       if (Object.keys(env).length === 0 && words.join(' ') === 'npm test') {
         out.push({
-          argv: VITEST,
+          argv: OWN_SUITE,
           expected: rest.filter((line) => line !== '...'),
           kind: 'test',
           typed,

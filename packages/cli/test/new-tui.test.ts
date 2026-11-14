@@ -8,7 +8,8 @@ import {
   type Syntax,
   type Tui,
 } from '../src/scaffold/index.ts';
-import { tempDir } from './temp.ts';
+import { OWN_SUITE } from './own-suite.ts';
+import { REMOVAL_TIMEOUT, removeTempDir, tempDir } from './temp.ts';
 import { ttyPreload, typeKeys } from './tty-child.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawn, spawnSync } from 'node:child_process';
@@ -24,7 +25,7 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, type TestContext } from 'vitest';
 
 /**
  * `sigil new` with a full-screen app (SIG-279).
@@ -1573,9 +1574,62 @@ function link(app: string): void {
   }
 }
 
-/** Writes a scaffold into a directory and links its packages. */
-function materialize(opts: Partial<ScaffoldOptions>): string {
+/** What running node in an app said. */
+interface Ran {
+  /** The exit code, or `null` for a child that was killed. */
+  readonly code: number | null;
+  /** stdout and stderr, interleaved as they arrived. */
+  readonly out: string;
+}
+
+/** A scaffolded app, and node run inside it. */
+interface App {
+  /** The app's directory. */
+  readonly app: string;
+  /** Runs node in the app with nothing on stdin, and reads what it did. */
+  readonly node: (...argv: string[]) => Promise<Ran>;
+}
+
+/**
+ * Writes a scaffold into a directory, links its packages, and ties both to the
+ * test that asked for it.
+ *
+ * The directory goes when that test finishes rather than when the file does.
+ * An app is about a hundred entries once it has been built and its own suite
+ * has run, every one of them new to a Windows runner's scanner, and the sixteen
+ * of them were half of what this file's `afterAll` had to remove -- the hook
+ * that ran past its budget on Windows (SIG-426).
+ *
+ * The removal waits for every child the test started to close first. A test
+ * that times out does not: vitest aborts its `signal` and goes straight on to
+ * `onTestFinished`, with the test's own `await` still pending. So the signal
+ * ends each child's whole process tree (`spawnNode()`), and the hook waits for
+ * those children before it removes anything, since one still running writes
+ * its `node_modules/.vitest-cache` back into a directory already gone. A child
+ * that never closes holds the hook until `REMOVAL_TIMEOUT`, which fails it and
+ * leaves the directory to the file's `afterAll`.
+ */
+function materialize(
+  opts: Partial<ScaffoldOptions>,
+  { onTestFinished, signal }: Pick<TestContext, 'onTestFinished' | 'signal'>
+): App {
   const app = tempDir('sigil-tui-app-');
+  const children: Promise<Ran>[] = [];
+  onTestFinished(async () => {
+    const settled = await Promise.allSettled(children);
+    await removeTempDir(app);
+    // a child that failed while the test was still waiting on it has already
+    // failed the test; one that failed after a timeout, ending its tree, has
+    // no test left to fail but this hook
+    const failed = signal.aborted
+      ? settled.flatMap((each) =>
+          each.status === 'rejected' && each.reason !== signal.reason ? [each.reason] : []
+        )
+      : [];
+    if (failed.length > 0) {
+      throw new AggregateError(failed, 'Could not end every child this test started');
+    }
+  }, REMOVAL_TIMEOUT);
   const manifest = JSON.parse(readFileSync(resolve(here, '../package.json'), 'utf-8')) as {
     devDependencies: Record<string, string>;
   };
@@ -1591,24 +1645,237 @@ function materialize(opts: Partial<ScaffoldOptions>): string {
     writeFileSync(join(app, entry.path), entry.contents);
   }
   link(app);
-  return app;
+  return {
+    app,
+    node: (...argv) => {
+      const ran = spawnNode(app, signal, argv);
+      children.push(ran);
+      return ran;
+    },
+  };
 }
 
-/** Runs node in `cwd` with nothing on stdin and reads what it did. */
-function node(cwd: string, ...argv: string[]): Promise<{ code: number | null; out: string }> {
+/**
+ * Ends a process and everything descended from it.
+ *
+ * The whole tree, because ending the process alone was measured to leave its
+ * descendants running: a nested `vitest run` uses forked workers, and killing
+ * that vitest with SIGTERM or SIGKILL on macOS left its worker running under
+ * pid 1, mid-test. Windows kills one process at a time, so it is
+ * `taskkill /T`, which walks the tree by parent pid. POSIX has no such call, so
+ * the tree is read from `ps` and walked here. Each process found is stopped
+ * before the next look, so none of them can start another in between, and
+ * only once a look finds nothing new is every one of them killed.
+ *
+ * A process group would be one call, and it was the first version: the child
+ * spawned `detached` and the group killed. It is not used, because a detached
+ * child is in no terminal's foreground group, so a Ctrl-C of the suite never
+ * reached it. vitest exits on SIGINT without stopping anything it spawned, a
+ * worker thread gets no signal events to clean up in, and so a nested suite
+ * kept running in the app directory after the run it belonged to had ended.
+ * Measured, with a nested test that waits two minutes: ten processes were
+ * still running five seconds after the Ctrl-C. Spawned in the suite's own
+ * group, the Ctrl-C reaches every one of them, as it did before SIG-426.
+ *
+ * @param pid - The process at the root of the tree.
+ */
+function endTree(pid: number, list: () => string = listProcesses): void {
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).on('error', () => {});
+    return;
+  }
+  // everything stopped is killed whatever happens below, `list()` throwing
+  // included: a process left stopped holds its directory and never closes
+  const tried = new Set<number>();
+  try {
+    for (let found = [pid]; found.length > 0;) {
+      for (const each of found) {
+        tried.add(each);
+        try {
+          process.kill(each, 'SIGSTOP');
+        } catch {
+          // it has already gone
+        }
+      }
+      const below = new Map<number, number[]>();
+      for (const line of list().trim().split('\n')) {
+        const [child, parent] = line.trim().split(/\s+/).map(Number);
+        if (child !== undefined && parent !== undefined) {
+          below.set(parent, [...(below.get(parent) ?? []), child]);
+        }
+      }
+      const tree: number[] = [];
+      for (const queue = [pid]; queue.length > 0;) {
+        for (const child of below.get(queue.shift()!) ?? []) {
+          tree.push(child);
+          queue.push(child);
+        }
+      }
+      found = tree.filter((each) => !tried.has(each));
+    }
+  } finally {
+    for (const each of tried) {
+      try {
+        process.kill(each, 'SIGKILL');
+      } catch {
+        // it has already gone
+      }
+    }
+  }
+}
+
+/**
+ * Every process on the machine as `pid ppid` lines, from `ps`.
+ *
+ * A look that fails throws, naming `ps`, rather than answering with nothing: an
+ * empty answer would read as a tree with no descendants, and `endTree()` would
+ * kill the root alone and leave its workers running in the directory that is
+ * about to be removed. Bounded, since it runs while a test is being torn down.
+ *
+ * @param command - What to run, which is `ps` except in the test that makes it fail.
+ * @returns The listing.
+ */
+function listProcesses(command = 'ps'): string {
+  const ran = spawnSync(command, ['-A', '-o', 'pid=,ppid='], { encoding: 'utf-8', timeout: 5000 });
+  const why =
+    ran.error?.message ??
+    (ran.signal !== null
+      ? `it was killed by ${ran.signal}`
+      : ran.status !== 0
+        ? `it exited ${ran.status}${ran.stderr.trim() ? `: ${ran.stderr.trim()}` : ''}`
+        : ran.stdout.trim() === ''
+          ? 'it listed nothing'
+          : undefined);
+  if (why !== undefined) {
+    throw new Error(`Could not end a child's process tree, because ps failed: ${why}`, {
+      cause: ran.error,
+    });
+  }
+  return ran.stdout;
+}
+
+/**
+ * Runs node in `cwd` with nothing on stdin and reads what it did, and ends the
+ * child and everything it started if `signal` is aborted.
+ *
+ * It settles on `close` in every case, abort included: `spawn()`'s own `signal`
+ * option rejects the moment the abort happens, while the child is still alive.
+ *
+ * @param cwd - The directory to run in.
+ * @param signal - The test's, aborted when the test times out.
+ * @param argv - The arguments to node.
+ * @returns The exit code and what was written, or a rejection with the abort's
+ *   reason once the tree has gone.
+ */
+function spawnNode(cwd: string, signal: AbortSignal, argv: readonly string[]): Promise<Ran> {
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, argv, {
       cwd,
       env: { ...process.env, COLUMNS: '80', NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    // a failure to end the tree is what the child's promise rejects with, so
+    // that `materialize()`'s hook can fail the test with it once it has closed
+    let failure: unknown;
+    const end = (): void => {
+      if (child.pid !== undefined) {
+        try {
+          endTree(child.pid);
+        } catch (err) {
+          failure = err;
+        }
+      }
+    };
+    signal.addEventListener('abort', end, { once: true });
+    if (signal.aborted) {
+      end();
+    }
+
     let out = '';
     child.stdout.on('data', (chunk: Buffer) => void (out += chunk.toString()));
     child.stderr.on('data', (chunk: Buffer) => void (out += chunk.toString()));
-    child.on('error', fail);
-    child.on('close', (code) => settle({ code, out: out.replaceAll('\r\n', '\n') }));
+    child.on('error', (err) => {
+      signal.removeEventListener('abort', end);
+      fail(err);
+    });
+    child.on('close', (code) => {
+      signal.removeEventListener('abort', end);
+      if (failure !== undefined) {
+        fail(failure);
+      } else if (signal.aborted) {
+        fail(signal.reason);
+      } else {
+        settle({ code, out: out.replaceAll('\r\n', '\n') });
+      }
+    });
   });
 }
+
+describe('ending a process tree', () => {
+  /** Whether a process is still there, which a signal of 0 asks without sending one. */
+  function running(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // POSIX only: Windows is `taskkill /T`, which reads no listing
+  it.skipIf(process.platform === 'win32').for([
+    { command: 'sigil-no-such-ps', failing: 1, why: /ENOENT/ },
+    { command: 'false', failing: 2, why: /exited 1/ },
+  ])(
+    'should kill everything it stopped, and say ps failed, when look $failing fails ($command)',
+    async ({ command, failing, why }) => {
+      // a node that starts a node, says its pid, and waits: a root and a child
+      const root = spawn(
+        process.execPath,
+        [
+          '-e',
+          "const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); console.log(c.pid); setInterval(() => {}, 1000);",
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      const exited = new Promise<NodeJS.Signals | null>((settle) =>
+        root.once('exit', (_code, signal) => settle(signal))
+      );
+      const child = Number(
+        await new Promise<string>((settle) =>
+          root.stdout.once('data', (data) => settle(String(data)))
+        )
+      );
+      let looks = 0;
+
+      try {
+        expect(() =>
+          endTree(root.pid!, () => listProcesses(++looks === failing ? command : 'ps'))
+        ).toThrow(new RegExp(`because ps failed: .*${why.source}`));
+
+        // the root is stopped before the first look, so it is killed whichever
+        // look fails, and the child only once a look has found it. Raced, so a
+        // root left stopped fails here and reaches the `finally` that kills it
+        const late = new Promise<string>((settle) => setTimeout(() => settle('still there'), 5000));
+        expect(await Promise.race([exited, late])).toBe('SIGKILL');
+        if (failing === 2) {
+          for (let wait = 0; running(child) && wait < 100; wait++) {
+            await new Promise((settle) => setTimeout(settle, 20));
+          }
+          expect(running(child)).toBe(false);
+        }
+      } finally {
+        for (const pid of [root.pid!, child]) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // it has already gone
+          }
+        }
+      }
+    }
+  );
+});
 
 /** What `runApp()` says when there is no terminal, which is the app's own refusal and not ours. */
 const REFUSAL = 'not a terminal';
@@ -1618,17 +1885,18 @@ describe('every variant, scaffolded and run', () => {
     SYNTAXES.flatMap((syntax) => LANGUAGES.map((language) => ({ ...placement, language, syntax })))
   );
 
-  it.concurrent.each(variants)(
+  it.concurrent.for(variants)(
     '$name, $syntax, $language: should build or start, refuse a pipe, and pass its own tests',
-    async ({ language, layout, syntax, tui }) => {
-      const app = materialize({ language, layout, syntax, tui });
+    { timeout: 180_000 },
+    async ({ language, layout, syntax, tui }, test) => {
+      const { node } = materialize({ language, layout, syntax, tui }, test);
       const argv = tui.at === 'command' ? [tui.command] : [];
 
       // the entry a person runs: the bundle for JSX, which is the only form it
       // has, and the source for the `ui` tag, which needs nothing built
       let start: string[];
       if (syntax === 'jsx') {
-        const built = await node(app, cli, 'build');
+        const built = await node(cli, 'build');
         expect(built.code, built.out).toBe(0);
         start = [join('dist', 'demo.mjs')];
       } else {
@@ -1638,40 +1906,31 @@ describe('every variant, scaffolded and run', () => {
       // piped, `runApp()` refuses with its own line: exit 1 and no stack. That the
       // refusal is reached at all is the proof the component was found and
       // imported, so it is also the proof the dynamic import resolved
-      const piped = await node(app, ...start, ...argv);
+      const piped = await node(...start, ...argv);
       expect(piped.out).toContain(REFUSAL);
       expect(piped.code).toBe(1);
       expect(piped.out).not.toMatch(/^\s+at /m);
 
       // and the commands that are not the app never meet it
-      const help = await node(app, ...start, '--help');
+      const help = await node(...start, '--help');
       expect(help.code, help.out).toBe(0);
       expect(help.out).toContain('Usage: demo');
 
       // its own suite, which is the test a new author copies
-      const vitest = JSON.parse(
-        readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
-      ) as { bin: { vitest: string } };
-      const suite = await node(
-        app,
-        join('node_modules', 'vitest', vitest.bin.vitest),
-        'run',
-        '--reporter=default'
-      );
+      const suite = await node(...OWN_SUITE);
       expect(suite.code, suite.out).toBe(0);
       expect(suite.out).toMatch(/Tests\s+\d+ passed/);
-    },
-    180_000
+    }
   );
 
-  it.concurrent('should not load the renderer for a command that is not the app, though the root opens it', async () => {
+  it.concurrent('should not load the renderer for a command that is not the app, though the root opens it', async (test) => {
     // the lazy tree is the reason for the dynamic import, so it is measured
     // rather than read off the source: a hook watches for the one subpath that
     // is the renderer, and `hello` is run beside an app that opens from the root.
     // The `ui` tag
     // only, because a built bundle has no specifier left to watch -- the build
     // has already turned each `import()` into a chunk that loads when asked
-    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'ui', tui: { at: 'root' } }, test);
     // a synchronous hook in the loader's own thread. `module.register()` is the
     // older spelling and prints DEP0205 on Node 26; `registerHooks()` is there
     // from 22.15, under the 22.19 floor
@@ -1680,14 +1939,14 @@ describe('every variant, scaffolded and run', () => {
       "import { registerHooks } from 'node:module';\nregisterHooks({\n  resolve(specifier, context, next) {\n    if (specifier === '@ttylabs/sigil/app') {\n      process.stderr.write('RENDERER LOADED\\n');\n    }\n    return next(specifier, context);\n  },\n});\n"
     );
 
-    const hello = await node(app, '--import', './probe.mjs', 'dev.ts', 'hello', 'there');
+    const hello = await node('--import', './probe.mjs', 'dev.ts', 'hello', 'there');
     expect(hello.code, hello.out).toBe(0);
     expect(hello.out).toContain('hello there');
     expect(hello.out).not.toContain('RENDERER LOADED');
     expect(hello.out).not.toContain('DEP0205');
 
     // and the probe is shown to work, or a silent hook would pass for a lazy tree
-    const ops = await node(app, '--import', './probe.mjs', 'dev.ts');
+    const ops = await node('--import', './probe.mjs', 'dev.ts');
     expect(ops.out).toContain('RENDERER LOADED');
   }, 120_000);
 
@@ -1740,59 +1999,52 @@ describe('every variant, scaffolded and run', () => {
     expect(ran.status).toBe(0);
   });
 
-  it.concurrent('should size the footer by columns and not by characters, for an item with wide ones', async () => {
+  it.concurrent('should size the footer by columns and not by characters, for an item with wide ones', async (test) => {
     // a copied template gets its own item names, and one in a script that takes
     // two columns a character is the case `.length` gets wrong: the status is
     // measured short, the footer is given too much, and the status is pushed off
     // the row. `stringWidth()` is what the component asks
-    const app = materialize({ syntax: 'ui', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'ui', tui: { at: 'root' } }, test);
     for (const path of [join('src', 'ui', 'app.ts'), join('test', 'tui.test.ts')]) {
       writeFileSync(
         join(app, path),
         readFileSync(join(app, path), 'utf-8').replaceAll('Settings', '設定設定設定')
       );
     }
-    const vitest = JSON.parse(
-      readFileSync(join(app, 'node_modules', 'vitest', 'package.json'), 'utf-8')
-    ) as { bin: { vitest: string } };
 
     // the narrow-terminal test alone: the resize test goes down to 22 columns,
     // which a status this wide does not fit in whatever measures it
-    const ran = await node(
-      app,
-      join('node_modules', 'vitest', vitest.bin.vitest),
-      'run',
-      '--reporter=default',
-      '-t',
-      'in a narrow terminal'
-    );
+    const ran = await node(...OWN_SUITE, '-t', 'in a narrow terminal');
 
     expect(ran.code, ran.out).toBe(0);
     expect(ran.out).toMatch(/Tests\s+1 passed/);
   }, 120_000);
 
-  it.concurrent('should still say what is wrong when the dev script builds quietly', async () => {
+  it.concurrent('should still say what is wrong when the dev script builds quietly', async (test) => {
     // `dev` is `sigil build --quiet && node ...`, so a build that failed has to
     // say so with the tables gone, or the loop would fail with nothing on screen
-    const app = materialize({ syntax: 'jsx', tui: { at: 'root' } });
+    const { app, node } = materialize({ syntax: 'jsx', tui: { at: 'root' } }, test);
     const component = join(app, 'src', 'ui', 'app.tsx');
     writeFileSync(
       component,
       `${readFileSync(component, 'utf-8')}\nexport const x: number = 'a';\n`
     );
 
-    const built = await node(app, cli, 'build', '--quiet');
+    const built = await node(cli, 'build', '--quiet');
 
     expect(built.code).not.toBe(0);
     expect(built.out).toContain('TS2322');
     expect(built.out).not.toContain('Loads');
   }, 120_000);
 
-  it.concurrent('should resolve a .js specifier to the .tsx in a build, though the scaffold spells it .tsx', async () => {
+  it.concurrent('should resolve a .js specifier to the .tsx in a build, though the scaffold spells it .tsx', async (test) => {
     // the ticket's question, asked of the build: does `import('../ui/app.js')`
     // find `app.tsx` the way a `load()` follows `.js` to `.ts`? It does, in
     // rolldown and in the app's own `tsc`, and this is what keeps it true
-    const app = materialize({ syntax: 'jsx', tui: { at: 'command', command: 'ops' } });
+    const { app, node } = materialize(
+      { syntax: 'jsx', tui: { at: 'command', command: 'ops' } },
+      test
+    );
     const command = join(app, 'src', 'commands', 'ops.ts');
     writeFileSync(
       command,
@@ -1800,10 +2052,10 @@ describe('every variant, scaffolded and run', () => {
     );
     expect(readFileSync(command, 'utf-8')).toContain("'../ui/app.js'");
 
-    const built = await node(app, cli, 'build');
+    const built = await node(cli, 'build');
     expect(built.code, built.out).toBe(0);
 
-    const piped = await node(app, join('dist', 'demo.mjs'), 'ops');
+    const piped = await node(join('dist', 'demo.mjs'), 'ops');
     expect(piped.out).toContain(REFUSAL);
     expect(readdirSync(join(app, 'dist'))).toContain('demo.mjs');
   }, 120_000);
