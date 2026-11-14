@@ -583,14 +583,24 @@ function validates(
  * makes this declaration the one that produced what is on it, and so the one whose
  * `choices` the value answers to.
  *
+ * A string read through a negated flag's name is inverted once it is coerced,
+ * which is what `negated` asks for: `NO_COLOR=1` on `--no-color` says "no color",
+ * so it is `color: false`, the same as `--no-color=1` -- and not the `true` the
+ * variable's bare value spells. Only an environment variable is read this way. A
+ * `default` is already a value for the destination, which is why a lone negated
+ * flag's implied one is `true`, so it is never inverted.
+ *
  * @param state - The parse state.
  * @param it - The option or argument being filled.
  * @param value - The fallback value, if there is one.
+ * @param negated - Whether a string value was spelled through a negated flag's
+ * name, and so means the opposite of what it coerces to.
  */
 function applyFallback(
   state: ParseState,
   it: InternalOption | InternalArgument,
-  value: unknown
+  value: unknown,
+  negated = false
 ): void {
   const { dest } = it[Internal];
   const { multiple, type } = it;
@@ -607,6 +617,9 @@ function applyFallback(
 
   if (typeof value === 'string') {
     value = transformValue(value, type);
+    if (negated) {
+      value = !value;
+    }
   } else if (Array.isArray(value)) {
     // an array `default` belongs to the caller; handing it straight to
     // `argv` would let a consumer's `push` reach back into the schema and
@@ -1257,10 +1270,20 @@ export async function processOptions(state: ParseState): Promise<void> {
   // option and its negated twin — keeps the same argv, then environment, then
   // default precedence a lone option has, and is not reported missing just
   // because the option that fills it comes second
+  //
+  // a variable declared on a negated flag is read through the negation, the way
+  // argv reads `--no-color=1`: `NO_COLOR=1` is `color: false`. Only a `bool` is
+  // inverted -- a counter given a value is set to it, from argv as from here --
+  // and `negate: false` is not a negation, so its variable reads literally
   for (const opt of all) {
     const { envs, parserOwned } = opt[Internal];
     if (!parserOwned) {
-      applyFallback(state, opt, envValue(state.env, envs));
+      applyFallback(
+        state,
+        opt,
+        envValue(state.env, envs),
+        opt.negate === true && opt.type === 'bool'
+      );
     }
   }
 

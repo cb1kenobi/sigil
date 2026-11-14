@@ -227,6 +227,8 @@ The format string carries the name, the aliases, and whether a value is taken:
 | `alias`, `format`, `name`, `hint` | override what the format string implied                                                                 |
 
 Precedence for every option and argument is **argv → `env` → `default`**.
+An `env` on a negated flag is read through the negation, as `--no-color=1` is:
+`NO_COLOR=1` on `--no-color` is `color: false`.
 
 Data types, coercion rules, negation, short groups (`-abc`, `-n5`), undeclared
 options, and the terminator are all covered in
