@@ -334,6 +334,26 @@ describe('renderBar()', () => {
   it('should always draw at least one cell', () => {
     expect(renderBar(1, 0, '#', '-')).to.equal('#');
   });
+
+  it('should not draw a bar full before the work is done', () => {
+    expect(renderBar(0.999, 10, '#', '-')).to.equal('#########-');
+    expect(renderBar(0.97, 13, '#', '-')).to.equal('############-');
+    expect(renderBar(1 - Number.EPSILON, 1, '#', '-')).to.equal('-');
+  });
+
+  it('should fill a cell only once the work has reached it', () => {
+    expect(renderBar(0.05, 10, '#', '-')).to.equal('----------');
+    expect(renderBar(0.19, 10, '#', '-')).to.equal('#---------');
+    expect(renderBar(0.2, 10, '#', '-')).to.equal('##--------');
+  });
+
+  it('should fill every cell when the value reaches an awkward total', () => {
+    for (const total of [3, 7, 11, 13, 23, 49, 97]) {
+      for (const width of [1, 4, 10, 13, 23, 40]) {
+        expect(renderBar(total / total, width, '#', '-')).to.equal('#'.repeat(width));
+      }
+    }
+  });
 });
 
 describe('createProgress()', () => {
@@ -389,6 +409,17 @@ describe('createProgress()', () => {
     expect(bar.current).to.equal(10);
     expect(ui.log.join('\n')).to.contain('Copied');
     expect(ui.log.join('\n')).to.contain('100%');
+  });
+
+  it('should not draw the bar full while the percentage says 99%', () => {
+    const ui = screenSetup();
+    const bar = createProgress({ ansi: ui.ansi, barWidth: 13, terminal: ui.terminal, total: 3 });
+
+    bar.current = 2.999;
+    expect(ui.frame).to.equal(`${'\u2588'.repeat(12)}\u2591 99%`);
+
+    bar.current = 3;
+    expect(ui.frame).to.equal(`${'\u2588'.repeat(13)} 100%`);
   });
 
   it('should size the bar to the terminal when not told', () => {

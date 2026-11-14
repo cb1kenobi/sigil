@@ -98,11 +98,11 @@
   "views": {
     "narrow": {
       "columns": 40,
-      "output": "Copying src/file-25.js \u001b[36m████████░░░░░\u001b[0m 60%"
+      "output": "Copying src/file-25.js \u001b[36m███████░░░░░░\u001b[0m 60%"
     },
     "rendered": {
       "columns": 80,
-      "output": "Copying src/file-25.js \u001b[36m████████████████░░░░░░░░░░\u001b[0m 60%"
+      "output": "Copying src/file-25.js \u001b[36m███████████████░░░░░░░░░░░\u001b[0m 60%"
     }
   }
 }
