@@ -1158,16 +1158,32 @@ The sites judged not to need it, with the reason:
   message only through `transformValue()`, and that is escaped.
 
 `@ttylabs/config-xml` and `@ttylabs/config-yaml` pass their parser's first error
-into `Failed to parse …` and were not audited for this. Either can import the
-helper from `@ttylabs/sigil/error-handler` if its parser quotes the source.
+into `Failed to parse …`, and both parsers quote the source in some of those
+messages, so both stores escape it with the published helper. Each package's
+`AGENTS.md` records which messages it measured.
 
-`sigil add` follows the same rule (see `packages/cli/src/commands/add.ts`). The
-plan it prints before "Write these files?" is a registry's paths, entry names and
-version, and argv's package name and `--dir`, written raw to stdout. Each is
-escaped with the same function, imported from the published subpath and not
-copied, and so are the registry- and argv-supplied names in its errors.
-`writeNote()` and `table()` draw on a canvas, which strips control characters
-already.
+Two other parse errors have the same V8 shape and are left alone on purpose:
+`routes.ts` reading a route package's `package.json`, and the toolchain's
+`discover.ts` reading the app's manifest. Both are the app's own files, so
+they are bug reports in the app's code, like the schema messages above.
+
+`sigil add` follows the same rule (see `packages/cli/src/commands/add.ts`). A
+registry's `registry.json` is **not** the app's own file: it comes from a package
+somebody installed, so everything `add` echoes from it is escaped. That covers:
+
+- the plan printed before "Write these files?": the registry's paths, entry
+  names and version, plus argv's package name and `--dir`, all written raw to
+  stdout;
+- the heading `add` prints when it lists a registry: the package and the
+  version;
+- V8's message when `registry.json` is not valid JSON, which quotes the file
+  (`<pkg> ships a registry.json that is not valid JSON: …`);
+- the registry- and argv-supplied names in its other errors.
+
+Each uses the same function, imported from the published subpath and not
+copied. The entry names and descriptions in the listing, and the notes, are
+drawn by `table()` and `writeNote()` on a canvas, which already strips control
+characters.
 
 ### `:` as a topic separator, a tokenizer alias and nothing more
 

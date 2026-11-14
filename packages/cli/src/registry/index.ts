@@ -31,7 +31,7 @@
 
 import { displayPath, isFile, isInside } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
-import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { errorMessage, escapeControls } from '@ttylabs/sigil/error-handler';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -221,7 +221,21 @@ export function loadRegistry(root: string, pkg: string): Registry {
     );
   }
 
-  const manifest = JSON.parse(readFileSync(path, 'utf-8')) as RegistryManifest;
+  // read outside the `try`, so that a file that cannot be read is not reported
+  // as one that is not JSON
+  const text = readFileSync(path, 'utf-8');
+  let manifest: RegistryManifest;
+  try {
+    manifest = JSON.parse(text) as RegistryManifest;
+  } catch (err) {
+    // V8's message quotes the text it failed on, and a registry is somebody
+    // else's package rather than the app's own file, so it is escaped the way
+    // every other value `add` echoes from one is
+    throw new Error(
+      `${escapeControls(pkg)} ships a registry.json that is not valid JSON: ${escapeControls(errorMessage(err))}`,
+      { cause: err }
+    );
+  }
 
   if (!manifest.entries || typeof manifest.entries !== 'object') {
     throw new Error(`${escapeControls(pkg)} ships a registry with no entries in it`);

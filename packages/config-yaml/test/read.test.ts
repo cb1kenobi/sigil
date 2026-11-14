@@ -240,6 +240,29 @@ describe('reading a document', () => {
       expect(() => yaml(file('a: [1, 2\n')).readSync()).toThrow(/Failed to parse .*config\.yaml/);
     });
 
+    /**
+     * SIG-412: some of the parser's messages quote the source -- an escape
+     * sequence, a block scalar header, a tag -- so a raw control character in a
+     * config file reached stderr live through `Failed to parse`. The tag is the
+     * warning path rather than the error one, and both are read.
+     */
+    it.each([
+      ['an escape in a double-quoted scalar', 'a: "x\\\u001by"\n'],
+      ['a block scalar header', 'a: |2\u001b]0;PWNED\u0007\n  x\n'],
+      ['an unresolved tag', 'a: !<tag:x\u001b]0;PWNED\u0007> 5\n'],
+    ])('should escape a control character the parser quotes from %s', (_shape, text) => {
+      const read = () => yaml(file(text)).readSync();
+      expect(read).toThrow(/Failed to parse .*\\x1B/);
+      expect(read).not.toThrow(/\p{Cc}/u);
+    });
+
+    it("should escape a control character in an alias's name", () => {
+      // an anchor may hold one, and the store's own message quotes the alias
+      const read = () => yaml(file('a: &x\u001b [*x\u001b]\n')).readSync();
+      expect(read).toThrow('the alias *x\\x1B refers to itself');
+      expect(read).not.toThrow(/\p{Cc}/u);
+    });
+
     it('should report a read failure that is not absence', () => {
       // `ENOENT` alone is "the file is not there", which is `isMissing()`'s own
       // rule: reading every error that way is what handed a `0o600` config back

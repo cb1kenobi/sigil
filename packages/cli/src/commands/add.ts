@@ -64,9 +64,11 @@ function list(registry: Registry): void {
     .sort(([a], [b]) => byCodeUnit(a, b))
     .map(([name, entry]) => ({ Component: name, Description: entry.desc }));
 
+  // the heading is the one line here not drawn by `table()`, which strips
+  // control characters itself, and the version on it is the registry's text
+  const heading = `${escapeControls(registry.pkg)} ${escapeControls(registry.manifest.version)}`;
   process.stdout.write(
-    `\n${registry.pkg} ${registry.manifest.version}\n\n${table(rows)}\n\n` +
-      `Add one with \`sigil add <component>\`.\n\n`
+    `\n${heading}\n\n${table(rows)}\n\n` + `Add one with \`sigil add <component>\`.\n\n`
   );
 
   // wrapped to the terminal rather than broken by hand at about seventy columns,

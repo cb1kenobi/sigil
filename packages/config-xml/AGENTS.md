@@ -556,6 +556,17 @@ five things core had deliberately not published, which is the entry below.
   would be silently kept or silently dropped either way. `&nope;` and `<1b/>` are
   the other two that report and do not throw.
 
+- **The parser's message is escaped before it is quoted, because it quotes the
+  file (SIG-412).** xmldom puts the text it failed on into its sentence:
+  `end tag name contains invalid characters: "b<ESC>]0;PWNED<BEL>"` and
+  `Unexpected content outside root element: '<ESC>]0;PWNED<BEL>'` both reached
+  stderr live through `Failed to parse …`, measured over eight malformed
+  documents with a raw `ESC` at the error position. Both `Failed to parse` sites
+  run the message through `escapeControls()` from `@ttylabs/sigil/error-handler`,
+  imported rather than copied. The read-time messages that name an element or
+  attribute need nothing: XML refuses a control character in a name as a parse
+  error first, so none can reach them.
+
 #### A sibling package's translated messages have no key registration
 
 - **Everything a user's file can provoke is translated, and `sigil check` reports
