@@ -4884,6 +4884,24 @@ how the two come to disagree." It is decided, and the answer is no.
   ECMA-48's 0x30-0x3f at the same time, because only `[\d;]` was read: the `<`
   a mouse report leads with was taken for the terminator, and `0;1;1M` was typed
   a character at a time after it.
+- **A run of `ESC` bytes is counted in a loop, and reads as it always did
+  (SIG-408).** Every `ESC` in front of a key is Alt held over it, so `ESC ESC x`
+  is one Alt-`x` whose sequence holds all three bytes, and `readEscape()` used
+  to say so by reading the next `ESC` through `readOne()` and wrapping what came
+  back -- one stack frame and one slice of the input per byte. `decodeKeys('\x1b'
+  .repeat(8000) + 'a')` threw `Maximum call stack size exceeded`, and only
+  garbage on stdin reaches it, such as binary data written into a raw-mode
+  terminal. The run is stepped over to its last `ESC`, that one is read once by
+  `readEscapeAt()`, and the Alt wrap is applied once: it sets `meta` and the
+  sequence and carries everything else, so one application is the answer the
+  recursion gave after however many. The decision is that **nothing that decoded
+  before decodes differently** -- a robustness fix, not a new reading of
+  `ESC ESC` -- which is why the doubled Alt is still just Alt rather than
+  something a binding could name, and why a trailing `ESC ESC` is still an
+  Alt-Escape that `pendingLength()` holds. `src/input` has no copy of this: it
+  reads keys through `decodeKeys()` and `pendingLength()`, and
+  `parseMouseReport()` and `parseCapabilityResponse()` match one whole sequence
+  with a pattern. See `test/components/keys.test.ts`.
 - **Ctrl-`\` `]` `^` `_`, a lone Alt-`[`, and the Linux console's F1 to F5 are
   recorded with the binding grammar, not here (SIG-361).** Three readings
   `decodeKeys()` got wrong, each a key a spec could name and nothing could

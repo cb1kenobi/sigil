@@ -322,7 +322,19 @@ function readString(input: string, start: number, opts: DecodeOptions): Read | u
 }
 
 /**
- * Reads one escape sequence from `input` at `start`.
+ * Reads one escape sequence from `input` at `start`, through any run of `ESC`
+ * bytes in front of it.
+ *
+ * Each `ESC` before a key is Alt held over it, so `ESC ESC x` is Alt-Alt-x and
+ * reads as Alt-x, with all three bytes in its sequence. That used to be a
+ * recursion -- `readEscape()` read the `ESC` after it through `readOne()` and
+ * wrapped the answer -- so a run of them recursed to its own length and sliced
+ * the input at every level: 8,000 of them overflowed the stack, and what came
+ * back below that was quadratic. The run is counted in a loop and the last `ESC`
+ * of it read once, which is the one reading every level above it was wrapping,
+ * and the wrap is applied once rather than once per byte. A wrap is idempotent
+ * -- it sets `meta` and the sequence and carries the rest -- so one application
+ * is the same answer as however many there were.
  *
  * @param input - The whole chunk.
  * @param start - The index of the `ESC`.
@@ -330,6 +342,36 @@ function readString(input: string, start: number, opts: DecodeOptions): Read | u
  * @returns The key, how much of the input it took, and whether it finished.
  */
 function readEscape(input: string, start: number, opts: DecodeOptions): Read {
+  let last = start;
+  while (input[last + 1] === '\u001b') {
+    last++;
+  }
+
+  const read = readEscapeAt(input, last, opts);
+  if (last === start) {
+    return read;
+  }
+
+  const extra = last - start;
+  return {
+    key: key({ ...read.key, meta: true, sequence: input.slice(start, last + read.length) }),
+    length: extra + read.length,
+    pending: read.pending,
+    // carried, or Alt held over a reply still arriving reports itself as a
+    // half-arrived key -- and a caller that reads that decides the wrong deadline
+    string: read.string,
+  };
+}
+
+/**
+ * Reads the escape sequence at `start`, where the byte after it is not an `ESC`.
+ *
+ * @param input - The whole chunk.
+ * @param start - The index of the `ESC`, the last of any run.
+ * @param opts - How to read an OSC or DCS introducer.
+ * @returns The key, how much of the input it took, and whether it finished.
+ */
+function readEscapeAt(input: string, start: number, opts: DecodeOptions): Read {
   const next = input[start + 1];
 
   // a lone ESC, or one at the very end of a chunk. Terminals send Alt-x as ESC
@@ -444,7 +486,9 @@ function readEscape(input: string, start: number, opts: DecodeOptions): Read {
 
   // ESC followed by anything else is Alt-that. Whether it finished is whatever
   // that key says: `ESC ESC [` is Alt held over a sequence still arriving, and
-  // holding all three is what lets the `A` after it make Alt-Up
+  // holding all three is what lets the `A` after it make Alt-Up. The byte is not
+  // an `ESC`, which `readEscape()` has already stepped over, so this is one read
+  // and not a recursion
   const read = readOne(input, start + 1, opts);
   return {
     key: key({ ...read.key, meta: true, sequence: input.slice(start, start + 1 + read.length) }),
