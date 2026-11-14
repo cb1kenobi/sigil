@@ -948,9 +948,12 @@ given to `--no-color=` is:
 | `NO_COLOR=1` | `color: false` |
 | `NO_COLOR=0` | `color: true`  |
 
-The variable inverts exactly when argv would invert a value given through the
-option's first spelling — the one help leads with. So it takes a flag, and a
-flag whose leading spelling is the negated one: `'--color': { negate: true }`
+The variable inverts exactly when argv would invert the same value given through
+the option's first long spelling, or its short spelling when it has no long
+one. So it takes a flag, and a flag whose first long spelling is the negated
+one. A declaration listing both a positive and a negated long spelling is
+decided by whichever long spelling comes first, so `'--no-color, --color'`
+inverts and `'--color, --no-color'` does not. `'--color': { negate: true }`
 registers only `--color`, which turns it on, so its variable reads literally,
 and an option that takes a value is never inverted whatever `negate` and `type`
 say, because argv reads `--color=1` on it literally too. `negate: false` is not

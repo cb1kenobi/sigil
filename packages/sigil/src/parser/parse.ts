@@ -408,11 +408,12 @@ function isNegated(option: InternalOption, subject?: string): boolean {
  *
  * The one rule for both places a value can be given that way. argv asks it with
  * the token as typed, so `--no-color=1` is off and `--color=1` is on. The
- * environment asks it with the option's label -- the spelling the declaration
- * leads with, and the one help prints -- because a variable declared on
- * `--no-color` is spelled through that name. Only a flag inverts: an option
- * that takes a value reads it literally whatever its name or `negate` say, and
- * a counter given a value is set to it.
+ * environment asks it with the option's `label` -- its first long spelling, or
+ * its short one when it has no long one -- because a variable declared on
+ * `--no-color` is spelled through that name. A declaration listing both a
+ * positive and a negated long spelling is decided by whichever comes first.
+ * Only a flag inverts: an option that takes a value reads it literally whatever
+ * its name or `negate` say, and a counter given a value is set to it.
  *
  * @param option - The declared option the value was given to.
  * @param subject - The spelling the value was given through.

@@ -1753,8 +1753,13 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   color level in `src/ansi/`, which never went through the parser.
 - **The variable inverts exactly when argv would invert the same value, and
   one function says when.** `readsInverted()` in `parse.ts` is asked by argv with
-  the token as typed and by the environment with the option's `label`, the
-  spelling the declaration leads with and help prints. It is `isNegated()` behind
+  the token as typed and by the environment with the option's `label`, which is
+  its first long spelling, or its short spelling when it has no long one
+  (`init-option.ts`). That is neither the first word of the format nor the
+  spelling help leads with: help lists short spellings first and drops the
+  positive `--name` of a negated flag, so `'-C, --color': { negate: true }` leads
+  with `-C` in help while its label is `--color`, and `'-c'` with an `alias` of
+  `--no-color` has the alias as its label. It is `isNegated()` behind
   two conditions that were already argv's branch structure: only a flag inverts,
   and a counter given a value is set to it. The first version of the fix asked
   `opt.negate === true && opt.type === 'bool'` instead, a parallel condition that
@@ -1765,11 +1770,11 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   `'--color': { negate: true }` registers only `--color`, which `isNegated()`
   reads as the positive spelling. All three now read their variable literally,
   and each test asserts the variable against argv. Bare `color: { negate: true }`
-  still inverts, because the key registers `--no-color` and leads with it. What
-  follows from leading with the label is that `'--color, --no-color'`, which
-  names no `negate` and leads with `--color`, reads its variable literally while
-  `--no-color` on argv still turns it off -- the declaration's own first word
-  decides, the same word help shows beside the variable.
+  still inverts, because the key registers `--no-color` as its only long
+  spelling. A declaration listing both a positive and a negated long spelling is
+  decided by whichever long spelling comes first: `'--color, --no-color'` has
+  the label `--color`, so it reads its variable literally while `--no-color` on
+  argv still turns it off, and `'--no-color, --color'` inverts.
 - **Only the variable is inverted, and only the inversion is shared.** A
   `default` on the flag is already a value for the destination -- a lone negated
   flag's implied one is `true` -- so it is written as it stands, and
