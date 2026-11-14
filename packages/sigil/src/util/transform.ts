@@ -298,13 +298,13 @@ export function transformValue(
     // try as a number
     const num = Number(value);
     if (!isNaN(num)) {
-      // an integer past 2^53-1 is not a number guess: `Number` maps
-      // `12345678901234567890` to `...567000`, which is a different integer, and
-      // `int` throws for exactly that. `auto` gives up rather than throwing, so
-      // the value stays the string it was handed -- and returns here, because
-      // `JSON.parse` below reads the same digits through the same `Number` and
-      // would hand the lossy one back
-      if (spellsLostInteger(value, num)) {
+      // an integer outside the safe range is not a number guess. Past 2^53-1 a
+      // double cannot say which integer was written -- 2^53 is also what 2^53+1
+      // rounds to -- so `auto` keeps the bound `int` throws for and gives up
+      // instead: the value stays the string it was handed. It returns here
+      // because `JSON.parse` below reads the same digits through the same
+      // `Number` and would hand the lossy one back
+      if (isUnsafeIntegerGuess(value, num)) {
         return value;
       }
       return num;
@@ -323,18 +323,29 @@ export function transformValue(
 }
 
 /**
- * Whether `text` spells an integer that `num`, what `Number()` made of it, is not.
+ * Whether the number guess for `text` is an integer outside the safe range, which
+ * `auto` refuses and `int` throws for.
  *
- * `BigInt()` is the question "is this an integer spelling" for every form
- * `Number()` reads -- decimal, a sign, surrounding whitespace, `0x`, `0o`, `0b`
- * -- and throws for the rest, so a decimal such as `0.1`, an exponent such as
- * `1e21` and `Infinity` are not asked about here: a double is what was written
- * for those, or the nearest one is the documented meaning of `number`.
- * `int` has already settled the spelling with its own patterns and asks only
- * `Number.isSafeInteger()`, which is the same bound.
+ * The rule is about the value `Number()` produced and not about how `text` was
+ * spelled, so `9007199254740993.0`, `9007199254740993e0` and `9.007199254740993e15`
+ * are refused as `9007199254740993` is, and so are `1e21` and `2^53` itself. The
+ * bound is `Number.isSafeInteger()` for all of them, which is the one `int` uses.
+ *
+ * One case is invisible to that test: an integer spelling long enough that
+ * `Number()` overflows to `Infinity`. `BigInt()` answers whether `text` is an
+ * integer spelling -- decimal, signed, padded, `0x`, `0o`, `0b` -- and throws for
+ * the rest, so the literal `Infinity` and `1e400` are not integer spellings and
+ * stay the doubles they were. A non-integral value, a small decimal with more
+ * digits than a double holds included, is not an integer and is not asked about.
  */
-function spellsLostInteger(text: string, num: number): boolean {
+function isUnsafeIntegerGuess(text: string, num: number): boolean {
   if (Number.isSafeInteger(num)) {
+    return false;
+  }
+  if (Number.isInteger(num)) {
+    return true;
+  }
+  if (Number.isFinite(num)) {
     return false;
   }
   try {

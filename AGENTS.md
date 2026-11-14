@@ -612,13 +612,18 @@ These look like bugs and are not. Each is intentional and covered by tests.
   declared a type for, which is the opposite of what `allowUnknownOptions` is
   for. `auto` still reads a 13-digit epoch as a number rather than a date: the
   two types match different shapes on purpose, and sharing the check does not
-  merge them. The number guess is held to what `int` is held to (SIG-391): an
-  integer spelling -- decimal, signed, padded, `0x`, `0o` or `0b` -- that is not a
-  safe integer is not the number guess, and `auto` returns the string it was
-  handed rather than the different integer `Number()` maps it to, where `int`
-  throws; it returns before `JSON.parse`, which would read the same digits through
-  the same `Number`. A decimal, an exponent and `Infinity` are not integer
-  spellings and stay doubles. See `test/parser/regressions.test.ts`.
+  merge them. The number guess is held to the bound `int` is held to (SIG-391):
+  outside the safe range a double cannot say which integer was written -- 2^53 is
+  also what 2^53+1 rounds to -- so a guess that is an integer there is not the
+  number guess, and `auto` returns the string it was handed where `int` throws. The
+  test is on the value `Number()` produced and not on its spelling, so
+  `9007199254740993.0`, `9.007199254740993e15`, `1e21` and `2^53` itself are strings
+  even where `Number()` happens to be exact; `BigInt()` covers the one case that
+  test cannot see, an integer spelling so long that `Number()` overflows to
+  `Infinity`. It returns before `JSON.parse`, which would read the same digits
+  through the same `Number`. A non-integral value stays a double, a small decimal
+  with more digits than a double holds included, and so do the literal `Infinity`
+  and `1e400`. See `test/parser/regressions.test.ts`.
 - **A data type name is matched anchored.** `optionTypesRE` and `argTypesRE`
   were written `/^auto|bool|...|yesno$/`, where the alternation binds looser
   than the anchors -- so the pattern read as `^auto` OR `bool` OR ... OR
