@@ -36,6 +36,15 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
+/**
+ * Whether a value is a JSON object: not `null`, which `typeof` calls one, and
+ * not an array, which it also does. Asked of everything read out of a
+ * `registry.json`, which is somebody else's data and so is whatever it says.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Whether a path is a directory, answering `false` for anything unreadable. */
 function isDirectory(path: string): boolean {
   try {
@@ -242,11 +251,8 @@ export function loadRegistry(root: string, pkg: string): Registry {
   // a registry with nothing to add -- which `add` would otherwise answer with
   // `has no "x". It has: ` and nothing after the colon
   if (
-    typeof manifest !== 'object' ||
-    manifest === null ||
-    typeof manifest.entries !== 'object' ||
-    manifest.entries === null ||
-    Array.isArray(manifest.entries) ||
+    !isRecord(manifest) ||
+    !isRecord(manifest.entries) ||
     Object.keys(manifest.entries).length === 0
   ) {
     throw new Error(`${escapeControls(pkg)} ships a registry with no entries in it`);
@@ -310,17 +316,19 @@ function checkedEntry(registry: Registry, name: string): RegistryEntry | undefin
     return undefined;
   }
 
-  const isObject = (value: unknown): value is Record<string, unknown> =>
-    typeof value === 'object' && value !== null && !Array.isArray(value);
   let why: string | undefined;
 
-  if (!isObject(entry)) {
+  if (!isRecord(entry)) {
     why = 'is not an object';
   } else if (!Array.isArray(entry.registryDeps)) {
     why = 'has no registryDeps list';
+  } else if (!entry.registryDeps.every((dep) => typeof dep === 'string')) {
+    // `Object.hasOwn()` reads `['x']` as the key "x" while `seen` tracks the
+    // array, so a list in the list planned the asked-for entry twice
+    why = 'has a registryDeps item that is not a string';
   } else if (!Array.isArray(entry.files)) {
     why = 'has no files list';
-  } else if (!entry.files.every(isObject)) {
+  } else if (!entry.files.every(isRecord)) {
     why = 'has a file that is not an object';
   }
 

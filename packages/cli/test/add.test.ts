@@ -302,6 +302,7 @@ describe('planning an add', () => {
     // (`entry.registryDeps is not iterable`) or a contradiction (`has no "x".
     // It has: x`) rather than a statement about the registry
     const file = { from: 'a.ts', to: 'a.ts' };
+    const notString = /"x" has a registryDeps item that is not a string/;
     const bug = /"x" .*That is a bug in the registry, and nothing was written/;
 
     it.each([
@@ -318,6 +319,16 @@ describe('planning an add', () => {
         { files: [file], registryDeps: 'leaf' },
         /"x" has no registryDeps list/,
       ],
+      // a list in the list read as the key "x" and planned the asked-for entry twice
+      ['a list in registryDeps', { files: [file], registryDeps: [['x']] }, notString],
+      // `String()` of it threw `Cannot convert object to primitive value`
+      [
+        'an object with a toString in registryDeps',
+        { files: [file], registryDeps: [{ toString: 1 }] },
+        notString,
+      ],
+      ['a null in registryDeps', { files: [file], registryDeps: [null] }, notString],
+      ['a number in registryDeps', { files: [file], registryDeps: [42] }, notString],
       ['no files', { registryDeps: [] }, /"x" has no files list/],
       ['object files', { files: {}, registryDeps: [] }, /"x" has no files list/],
       ['a null file', { files: [null], registryDeps: [] }, /"x" has a file that is not an object/],
@@ -719,7 +730,13 @@ describe('the command, end to end', () => {
   it('should refuse an entry that is not shaped like one with a sentence about the registry', () => {
     // SIG-435: `null` here printed `has no "x". It has: x`, and the others
     // `entry.registryDeps is not iterable`
-    for (const value of ['null', '"str"', '{"files":[]}', '{"registryDeps":[],"files":[null]}']) {
+    for (const value of [
+      'null',
+      '"str"',
+      '{"files":[]}',
+      '{"registryDeps":[],"files":[null]}',
+      '{"registryDeps":[["x"]],"files":[]}',
+    ]) {
       shipRegistry('shaped', `{"entries":{"x":${value}},"name":"shaped","version":"1"}`);
       const result = run('add', 'shaped/x', '--yes');
 
