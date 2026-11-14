@@ -184,6 +184,45 @@ export const ESCAPE_TIMEOUT: number = 50;
 export const SEQUENCE_TIMEOUT: number = 500;
 
 /**
+ * How long a paste whose end marker has not come waits for its next byte.
+ *
+ * A bracketed paste is held until `ESC [ 201 ~`, and an end marker can be lost --
+ * a tmux detach or a dropped ssh session mid-paste -- which left every later byte,
+ * Ctrl-C included, held as content for the life of the process. Past this long
+ * with nothing arriving, what was held is handed over as the paste it was and
+ * what follows is read as keys again.
+ *
+ * **Idle time, not a deadline from the start**, because a large paste over a slow
+ * link arrives for longer than any fixed figure while its reads stay close
+ * together: each read restarts the wait, so a paste is cut only by a stall inside
+ * it. A second because the failures are not symmetric, the way `ESCAPE_TIMEOUT`'s
+ * are not: too short cuts a real paste and types the rest of it in as keys,
+ * where a newline is Enter, and too long only delays getting out of a paste that
+ * is already broken. The router already assumes a terminal never stalls
+ * `ESCAPE_TIMEOUT` inside one of its own sequences, and this is twenty times
+ * that. What it cannot tell apart is a human: a Ctrl-C pressed inside the wait is
+ * a byte like any other, so it is held with the paste and restarts the wait, and
+ * the way out is the first key pressed after a second of quiet.
+ */
+export const PASTE_TIMEOUT: number = 1000;
+
+/**
+ * How much of a paste whose end marker has not come is held, in UTF-16 code units.
+ *
+ * The other bound, and the one the timeout cannot be: bytes that keep arriving
+ * never go idle, so a stream with no end marker in it would be held without
+ * limit. Reaching it hands over what was held, the read that reached it
+ * included, and reads what follows as keys.
+ *
+ * Thirty-two mebibytes, twice the 16 MB paste the router is pinned to hold whole
+ * and in linear time, because the figure has to sit well above anything anybody
+ * pastes on purpose -- Windows Terminal asks before pasting more than 5 KiB --
+ * while still putting a ceiling on memory: 32 MB held as one-byte strings, twice
+ * that as two-byte ones, and the join at the end doubles it for a moment.
+ */
+export const PASTE_LIMIT: number = 32 * 1024 * 1024;
+
+/**
  * Two clicks on one thing this close together are a double-click, in milliseconds.
  *
  * The router reports a `click` and no count, and a count is not worth carrying on
@@ -715,6 +754,11 @@ export interface InputOptions {
    * On by default. Off means a pasted block arrives as though it had been
    * typed, which is what a terminal that does not support the markers does
    * anyway -- so this is about whether to ask, not about what to trust.
+   *
+   * The markers are read only while the terminal is bracketing, which is
+   * `Terminal.bracketedPaste` and not this option: off, with nothing else having
+   * turned the mode on, a stray `ESC [ 200 ~` on stdin is a key rather than the
+   * start of a paste that holds everything after it.
    */
   paste?: boolean;
   /** The tree keys are dispatched through, and the focus ring is built from. */
@@ -1951,6 +1995,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let pasting: string[] | undefined;
   /** The last few characters of `pasting`, which is all an end marker can straddle. */
   let pasteTail = '';
+  /** How many characters `pasting` holds, which is what `PASTE_LIMIT` is asked of. */
+  let pastedLength = 0;
+  /** Releases a paste nothing has added to for `PASTE_TIMEOUT`. */
+  let pasteTimer: ReturnType<typeof setTimeout> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
@@ -1998,6 +2046,30 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     }
   }
 
+  /** Ends the paste being held, without a flush: what it held is the caller's. */
+  function endPaste(): void {
+    clearTimeout(pasteTimer);
+    pasteTimer = undefined;
+    pasting = undefined;
+    pasteTail = '';
+    pastedLength = 0;
+  }
+
+  /**
+   * Hands over a paste whose end marker has not come, and reads what follows as keys.
+   *
+   * Reached from the idle timeout and the size cap. What was held is delivered as
+   * the paste it was -- it was bracketed, so it is content however it ended -- and
+   * the paste is over *before* it is flushed, so a handler that feeds a key reaches
+   * the keys rather than the paste. An end marker that turns up late is then a key
+   * sequence like any other, and decodes as an inert `unknown`.
+   */
+  function releasePaste(): void {
+    const text = pasting?.join('') ?? '';
+    endPaste();
+    flushPaste(text);
+  }
+
   function consume(input: string): void {
     // a stopped router reads nothing, which was not true and had a cost: `stop()`
     // clears the held tail and the escape timer, and then `consume()` carried on
@@ -2029,16 +2101,40 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         if (end === -1) {
           pasting.push(rest);
           pasteTail = window.slice(-(PASTE_END.length - 1));
+          pastedLength += rest.length;
+          // and the paste is bounded twice, because an end marker can be lost: a
+          // tmux detach or a dropped ssh session mid-paste, or a stray start
+          // marker with no paste behind it. Without either bound every later
+          // byte, Ctrl-C included, was content for the life of the process. The
+          // cap is for bytes that keep coming, which never go idle; the timeout
+          // is for bytes that stopped, and it is idle time rather than a
+          // deadline, so a paste arriving slowly in many reads is not cut.
+          // `PASTE_TIMEOUT` and `PASTE_LIMIT` have the figures
+          if (pastedLength >= PASTE_LIMIT) {
+            releasePaste();
+            return;
+          }
+          clearTimeout(pasteTimer);
+          pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
           return;
         }
         // the marker cannot lie wholly inside the tail, which is shorter than it,
         // so it ends in this chunk and what follows it is this chunk's
         const content = pasting.join('') + rest;
         flushPaste(content.slice(0, content.length - (window.length - end)));
-        pasting = undefined;
-        pasteTail = '';
+        endPaste();
         rest = window.slice(end + PASTE_END.length);
         continue;
+      }
+
+      // only a terminal that was asked to bracket a paste brackets one, so a
+      // start marker on a stdin nobody asked is a key sequence like any other --
+      // it decodes as `unknown` -- rather than an instruction to hold every byte
+      // after it. Asked of the terminal rather than of this router, because the
+      // question is whether the terminal is bracketing: a router built with
+      // `paste: false` under an app that turned the mode on still reads a paste
+      if (!terminal.bracketedPaste) {
+        break;
       }
 
       // and the opening marker's first half is in `held`, since every prefix of
@@ -2055,8 +2151,28 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
       held = '';
       keys(joined.slice(0, start));
+      // and what `keys()` holds back of that is not the start of anything any
+      // more: a terminal writes a paste whole and between its own sequences, so
+      // the marker is the proof that nothing more of the held key is coming --
+      // the answer `ESCAPE_TIMEOUT` would have reached, reached early. Held
+      // across the paste instead, it joined what followed it, so `ESC [ [`, a
+      // paste and `A` read as an F1 nobody pressed, after the paste. Flushed
+      // rather than dropped, because it is a key somebody pressed: an Escape
+      // just before a paste is still an Escape, in front of the paste
+      if (held !== '' && !stopped) {
+        clearTimeout(timer);
+        expire();
+      }
+      // either of those may have reached a handler that stopped the router, and
+      // a paste begun after that would arm a timer into a router with no listeners
+      if (stopped) {
+        return;
+      }
       pasting = [];
       rest = joined.slice(start + PASTE_START.length);
+      // the wait starts at the marker rather than at the first content, because
+      // a read that ends on the marker brings nothing else to start it
+      pasteTimer = setTimeout(releasePaste, PASTE_TIMEOUT);
     }
 
     if (!stopped && pasting === undefined && rest !== '') {
@@ -2786,8 +2902,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       clearTimeout(timer);
       timer = undefined;
       held = '';
-      pasting = undefined;
-      pasteTail = '';
+      endPaste();
 
       // and the pending sequence goes the way the hover states do, and for its
       // reason: nothing will ever clear it otherwise -- the keys have stopped --

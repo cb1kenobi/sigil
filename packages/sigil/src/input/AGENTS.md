@@ -242,6 +242,64 @@ the entry it belongs to.
   already holds a partial marker. A split start used to type the marker and the
   whole paste in as keys. Pinned in `test/input/input.test.ts` at every split
   position of both markers, each followed by a Ctrl-C that has to arrive.
+- **A paste whose end marker never comes is released, and a start marker is one
+  only while the terminal is bracketing (SIG-402).** The entry above fixed the end
+  marker that was there and split; this is the one that is not there at all. A tmux
+  detach or a dropped ssh session mid-paste loses it, and a stray `ESC [ 200 ~` on
+  stdin never had one -- and either way every later byte, Ctrl-C included, was held
+  as content without bound, so the app could not be reached from the keyboard
+  again. Measured before the fix: `ESC [ 200 ~ abc`, then Ctrl-C 20ms later, and no
+  handler heard anything however long the clock ran. Three rules, all in
+  `consume()`:
+
+  - **A held paste is released by an idle timeout or a size cap, whichever comes
+    first.** `PASTE_TIMEOUT` is 1000ms of _no bytes_ -- each read restarts it, so it
+    is idle time and not a deadline from the start, and a large paste arriving
+    slowly over many reads is one paste however long it takes in all. A second
+    because the failures point the way `ESCAPE_TIMEOUT`'s do: too short cuts a real
+    paste and types the rest in as keys, where a newline is Enter, and too long only
+    delays getting out of a paste that is already broken. The router already
+    assumes a terminal does not stall `ESCAPE_TIMEOUT` inside its own sequence, and
+    this is twenty times that. `PASTE_LIMIT` is 32 MiB of UTF-16 code units, for
+    the stream that never goes idle: twice the 16 MB paste `should hold a large
+    paste in time linear in its size` pins as arriving whole, far above anything
+    pasted on purpose (Windows Terminal asks before more than 5 KiB), and a ceiling
+    on memory -- 32 MB as one-byte strings, twice that two-byte. The read that
+    reaches the cap is included rather than split, so the bound is the cap plus one
+    read.
+  - **What was held is delivered as the paste it was, and what follows is keys.**
+    It was bracketed, so it is content however it ended; dropping it would lose
+    what somebody pasted, and typing it in as keys would undo what bracketing is
+    for. The paste is over _before_ it is flushed, so a handler that feeds a key
+    reaches the keys. An end marker arriving after a release is a key sequence like
+    any other and decodes as an inert `unknown`. What this cannot tell apart is a
+    human: a Ctrl-C pressed inside the wait is a byte, so it is held with the paste
+    and restarts the wait -- the ticket's own Ctrl-C at 20ms is pasted content,
+    typed in as a pasted key when nobody takes the paste whole, which a function
+    binding such as `runApp()`'s `quit` still hears. The way out is the first key
+    after a second of quiet, so somebody pressing Ctrl-C faster than once a second
+    is held for as long as they keep doing it. A release also cannot tell a
+    half-arrived end marker from content, so one split across a stall of a second
+    is delivered as the last bytes of the paste and its other half typed in --
+    the cost `ESCAPE_TIMEOUT` already accepts for a CSI split across a stall.
+  - **`ESC [ 200 ~` starts a paste only while `Terminal.bracketedPaste` is true.**
+    A terminal brackets only once it has been told to, so a marker nobody asked
+    for is a key -- it decodes as `unknown`, and the bytes after it are keys. Asked
+    of the terminal rather than of the router's own `paste` option, because the
+    question is whether the terminal is bracketing: a router built with
+    `paste: false` under an app that turned the mode on still reads a paste, and
+    one whose mode was turned off under it stops. `bracketedPaste` is a getter
+    added to `Terminal` for this, beside `closed`, since `enableBracketedPaste()`
+    answers only whether _this call_ turned it on. Nothing in the suite fed a
+    marker to a router that had not turned the mode on except `should read nothing
+    more once it has stopped`, which stops on the Ctrl-C in front of it, so no
+    existing test moved.
+
+  The held escape tail is the fourth thing, and it is under "Key sequences"
+  below, beside the Linux console's F-keys whose hold it interacts with. Pinned
+  in "a paste whose end marker never arrives", "a start marker with bracketed
+  paste off" and "a key held when a paste begins" in `test/input/input.test.ts`.
+
 - **A paste is offered to the tree before the router's own handlers, which is
   the mouse's order and not the keys'.** `Element.onPaste` on the focused element
   and then on each ancestor, and `onPaste()` sees what none of them stopped; what
@@ -729,14 +787,30 @@ the absence here is settled rather than pending.
     the second `[` yet, the sequence is pending, so a split read holds it like any
     other; flushed, it is the `unknown` it always was. `ESC [ [` and any other
     byte keeps today's reading, an unknown `ESC [ [` and then that byte. Holding
-    it has one interaction with a paste, which belongs with the paste work
-    (SIG-402) rather than this entry: a held tail survives across a bracketed paste and joins what follows
-    it, so `x ESC [ [` then a paste then `A` within `ESCAPE_TIMEOUT` reads `x`,
-    the paste, `f1` where it read `x`, `unknown`, the paste, `A`. A held `ESC [`
-    already had that shape.
+    it had one interaction with a paste, settled by SIG-402 and recorded next: a
+    held tail survived across a bracketed paste and joined what followed it.
 
   Pinned in `test/components/keys.test.ts` and, through the router, in "keys the
   decoder misnamed" in `test/input/sequence.test.ts`.
+
+- **A key held when a paste begins is flushed in front of it (SIG-402).** `keys()`
+  holds whatever might still be the start of a longer key for `ESCAPE_TIMEOUT`, and
+  a paste beginning inside that window left it held across the paste -- so it
+  joined what followed the paste. `x ESC [ [`, then `ESC [ 200 ~ hi ESC [ 201 ~ A`,
+  read `x`, the paste, `f1`: an F1 nobody pressed, after the paste, where before
+  the Linux console's F-keys it read `x`, `unknown`, the paste, `A`. A held `ESC [`
+  made the `A` an Up the same way, and a held Escape made it Alt-A with the Escape
+  gone; all three measured before the fix. The start marker now flushes what is
+  held, through `expire()`, before the paste begins. **Flushed rather than
+  dropped**, because the marker is proof and not a guess: a terminal writes a
+  paste whole and between its own sequences, so nothing more of the held key is
+  coming, and the reading is the one `ESCAPE_TIMEOUT` would have reached fifty
+  milliseconds later -- `ESC [ [` is `unknown`, `ESC [` Alt-`[`, a lone ESC Escape.
+  Dropping would throw away a key somebody pressed: an Escape just before a paste
+  is still an Escape, in front of the paste. The order is the bytes' order, so the
+  key reaches the handlers before the paste does. A handler that stops the router
+  on that key stops the paste too: it is never begun, so no idle timer is armed
+  into a router with no listeners.
 
 - **`KEY_NAMES` is derived from the decoder's own three tables.** The rule
   `COLOR_PROPERTIES` and `INHERITED` already follow: a hand-written list beside
