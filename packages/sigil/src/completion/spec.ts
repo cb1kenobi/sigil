@@ -335,7 +335,9 @@ export function declaredValues(type: string, choices: readonly unknown[]): strin
  * on every tab.
  *
  * Whitespace is deliberately not touched: a value really may contain a space,
- * and every emitter quotes it.
+ * and every emitter quotes it -- in the script it writes, and for bash in what
+ * the script hands readline to insert, since zsh's `_describe` quotes on insert
+ * and bash's `COMPREPLY` is inserted as it stands.
  *
  * @param value - The token.
  * @returns Whether to offer it.
