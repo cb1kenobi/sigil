@@ -477,6 +477,80 @@ describe('the command, end to end', () => {
     expect(existsSync(join(root, 'components'))).toBe(false);
   });
 
+  it('should not print a control character from a registry before asking to write', () => {
+    // SIG-412. The plan is printed raw to stdout just before "Write these
+    // files?", and every path and the version on it are the registry's text.
+    // No `--yes`, so nothing is written on any platform -- a file name holding
+    // ESC is not one Windows can create, and the plan is printed either way
+    const pkg = join(root, 'node_modules', 'evil');
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'evil', version: '1.0.0' }));
+    writeFileSync(join(pkg, 'registry', 'pwn.ts'), 'export {};\n');
+    writeFileSync(
+      join(pkg, 'registry', 'registry.json'),
+      JSON.stringify({
+        entries: {
+          pwn: {
+            classes: [],
+            desc: 'pwn',
+            files: [{ from: 'pwn.ts', to: 'pwn\u001b]0;PWNED\u0007.ts' }],
+            imports: [],
+            registryDeps: [],
+          },
+        },
+        name: 'evil',
+        version: '1.0.0\u001b[2J',
+      })
+    );
+
+    const result = run('add', 'evil/pwn');
+
+    expect(result.stdout).toContain('From evil 1.0.0\\x1B[2J into');
+    expect(result.stdout).toContain('pwn\\x1B]0;PWNED\\x07.ts');
+    expect(result.stdout.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+    expect(result.stderr.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+    expect(existsSync(join(root, 'components'))).toBe(false);
+  });
+
+  it("should not print a control character from a registry's version when listing it", () => {
+    // SIG-412, review round 1. `add` with nothing named lists the default
+    // registry under a heading of its package and version, written raw to
+    // stdout -- the entries below it are drawn by `table()`, which strips them
+    const pkg = join(root, 'node_modules', '@ttylabs', 'sigil');
+    rmSync(pkg, { force: true, recursive: true });
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@ttylabs/sigil' }));
+    writeFileSync(
+      join(pkg, 'registry', 'registry.json'),
+      JSON.stringify({
+        entries: { pwn: { desc: 'pwn', files: [] } },
+        version: '1.0.0\u001b]0;PWNED\u0007',
+      })
+    );
+
+    const result = run('add');
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`${DEFAULT_REGISTRY} 1.0.0\\x1B]0;PWNED\\x07`);
+    expect(result.stdout.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+  });
+
+  it('should not print a control character from a registry.json that is not JSON', () => {
+    // SIG-412, review round 1. V8's message quotes the text it failed on, and
+    // a registry is somebody else's package
+    const pkg = join(root, 'node_modules', 'evil');
+    mkdirSync(join(pkg, 'registry'), { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: 'evil', version: '1.0.0' }));
+    writeFileSync(join(pkg, 'registry', 'registry.json'), '{"entries":\u001b]0;PWNED\u0007}');
+
+    const result = run('add', 'evil/pwn');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('evil ships a registry.json that is not valid JSON');
+    expect(result.stderr).toContain('\\x1B]0;PWNED\\x07');
+    expect(result.stderr.replaceAll(/\r?\n/g, '')).not.toMatch(/\p{Cc}/u);
+  });
+
   it('should copy something that then runs', () => {
     // the claim the whole ticket rests on: what lands is a working component,
     // not a file that merely looks like one

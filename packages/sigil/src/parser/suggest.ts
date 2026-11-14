@@ -35,6 +35,7 @@
 
 import { __ } from '../i18n/index.js';
 import { Internal, type InternalCommand, type Settings } from '../types.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { fuzzyMatch } from '../util/fuzzy.js';
 import { nearMiss, type SuggestKey } from '../util/near-miss.js';
 
@@ -280,9 +281,14 @@ export function unexpectedArgument(
   const typed = typeof subject === 'string' && enabled(settings) ? subject : undefined;
   const near = typed === undefined ? undefined : nearest(typed, commandTokens(ctx));
 
+  // the token is argv's and argv is not always typed -- a glob over a hostile
+  // file name reaches here -- so it is echoed inert. `near` is the schema's own
+  // spelling and is left alone
+  const shown = escapeControls(subject);
+
   return near === undefined
-    ? __`Unexpected argument "${subject}"`
-    : __`Unexpected argument "${subject}". Did you mean "${near}"?`;
+    ? __`Unexpected argument "${shown}"`
+    : __`Unexpected argument "${shown}". Did you mean "${near}"?`;
 }
 
 /**
@@ -312,9 +318,11 @@ export function unknownOption(
   const near =
     typed === undefined ? undefined : nearest(typed, optionTokens(contexts), withoutDashes);
 
+  const shown = escapeControls(subject);
+
   return near === undefined
-    ? __`Unknown option "${subject}"`
-    : __`Unknown option "${subject}". Did you mean "${near}"?`;
+    ? __`Unknown option "${shown}"`
+    : __`Unknown option "${shown}". Did you mean "${near}"?`;
 }
 
 /**
@@ -336,7 +344,9 @@ export function unknownCommand(
 ): string {
   const near = enabled(settings) ? nearest(subject, commandTokens(parent)) : undefined;
 
+  const shown = escapeControls(subject);
+
   return near === undefined
-    ? __`Unknown command "${subject}"`
-    : __`Unknown command "${subject}". Did you mean "${near}"?`;
+    ? __`Unknown command "${shown}"`
+    : __`Unknown command "${shown}". Did you mean "${near}"?`;
 }

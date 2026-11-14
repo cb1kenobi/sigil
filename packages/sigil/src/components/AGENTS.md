@@ -2863,10 +2863,14 @@ it is a component rather than the frame effect SIG-103 is.
   the rest of the library is a surprise nobody asked for, and it is a
   **differential** rather than a rule said twice: `should wrap where the wrapper
   does` renders seven texts at nine widths and compares against `wrap()` itself,
-  with each line's trailing blanks dropped because the renderer drops them -- which
-  is the one place the two legitimately differ, since `wrap()` leaves an indent on
-  a line of its own where the word after it could not fit and a row of spaces and
-  an empty row are the same row on screen.
+  exactly. It used to drop each line's trailing blanks first, because `wrap()`
+  left an indent on a line of its own where the word after it could not fit and
+  `placeCells()` copied it. SIG-405 made `wrap()` drop indentation that leaves no
+  room for the word's first character, `placeCells()` follows, and with that
+  difference gone the comparison is byte for byte. The indentation dropped is
+  only the spaces and tabs `wrap()` breaks at; any other blank stays, and `should
+  drop only the indentation the wrapper drops` holds that, outside the grid
+  because the cells break at every blank and `wrap()` does not.
 
   Which **break opportunities** there are is asked of the plan rather than of what
   is drawn -- a hidden cell is never whitespace, so `hidden` settles it before the

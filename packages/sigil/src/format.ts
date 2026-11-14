@@ -76,6 +76,7 @@
 import { __ } from './i18n/index.js';
 import type { OutputFormat, Schema } from './types.js';
 import { isArrayIndex } from './util/array-index.js';
+import { escapeControls } from './util/escape-controls.js';
 
 export type { SerializedError } from './types.js';
 
@@ -492,7 +493,7 @@ export function formatFor(
 
   if (!serialize) {
     throw new Error(
-      __`Unknown output format "${name}". This command accepts: ${available.join(', ')}`
+      __`Unknown output format "${escapeControls(name)}". This command accepts: ${available.join(', ')}`
     );
   }
 

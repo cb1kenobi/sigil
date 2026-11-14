@@ -44,6 +44,7 @@ import { isQuiet, writeNote } from '../report.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm } from '@ttylabs/sigil/components/prompt';
 import { table } from '@ttylabs/sigil/components/table';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { byCodeUnit } from '@ttylabs/sigil/reference';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -63,9 +64,11 @@ function list(registry: Registry): void {
     .sort(([a], [b]) => byCodeUnit(a, b))
     .map(([name, entry]) => ({ Component: name, Description: entry.desc }));
 
+  // the heading is the one line here not drawn by `table()`, which strips
+  // control characters itself, and the version on it is the registry's text
+  const heading = `${escapeControls(registry.pkg)} ${escapeControls(registry.manifest.version)}`;
   process.stdout.write(
-    `\n${registry.pkg} ${registry.manifest.version}\n\n${table(rows)}\n\n` +
-      `Add one with \`sigil add <component>\`.\n\n`
+    `\n${heading}\n\n${table(rows)}\n\n` + `Add one with \`sigil add <component>\`.\n\n`
   );
 
   // wrapped to the terminal rather than broken by hand at about seventy columns,
@@ -92,15 +95,23 @@ function list(registry: Registry): void {
  * @param target - Where it lands, for the heading.
  */
 function describe(plan: Plan, registry: Registry, target: string): void {
-  process.stdout.write(`\nFrom ${registry.pkg} ${registry.manifest.version} into ${target}:\n\n`);
+  // everything on these lines is somebody else's text -- the registry's paths,
+  // names and version, and argv's package and `--dir` -- printed straight to
+  // stdout just before a question about writing files, so a control character
+  // in any of it is escaped rather than handed to the terminal. What goes
+  // through `writeNote()` below is drawn on a canvas, which strips them itself
+  const version = escapeControls(registry.manifest.version);
+  process.stdout.write(
+    `\nFrom ${escapeControls(registry.pkg)} ${version} into ${escapeControls(target)}:\n\n`
+  );
 
   for (const file of plan.files) {
     const note = file.exists ? '  (overwrites)' : '';
-    process.stdout.write(`  ${file.shown}${note}\n`);
+    process.stdout.write(`  ${escapeControls(file.shown)}${note}\n`);
   }
 
   if (plan.pulled.length > 0) {
-    process.stdout.write(`\nAlso needed: ${plan.pulled.join(', ')}\n`);
+    process.stdout.write(`\nAlso needed: ${plan.pulled.map(escapeControls).join(', ')}\n`);
   }
 
   const classes = plan.entries
@@ -176,7 +187,7 @@ const add: AnyCommand = command({
 
     if (packages.length > 1) {
       throw new Error(
-        `One registry at a time, and this names ${packages.join(' and ')}. ` +
+        `One registry at a time, and this names ${packages.map(escapeControls).join(' and ')}. ` +
           `Run \`sigil add\` once per registry.`
       );
     }
@@ -191,17 +202,16 @@ const add: AnyCommand = command({
     );
 
     if (plan.missing.length > 0) {
-      const have = Object.keys(registry.manifest.entries).sort().join(', ');
-      throw new Error(
-        `${registry.pkg} has no ${plan.missing.map((n) => `"${n}"`).join(' or ')}. It has: ${have}`
-      );
+      const have = Object.keys(registry.manifest.entries).sort().map(escapeControls).join(', ');
+      const asked = plan.missing.map((n) => `"${escapeControls(n)}"`).join(' or ');
+      throw new Error(`${escapeControls(registry.pkg)} has no ${asked}. It has: ${have}`);
     }
 
     const clashes = plan.files.filter((file) => file.exists);
 
     if (clashes.length > 0 && !argv.force) {
       throw new Error(
-        `${clashes.map((f) => f.shown).join(', ')} already ${clashes.length === 1 ? 'exists' : 'exist'}. ` +
+        `${clashes.map((f) => escapeControls(f.shown)).join(', ')} already ${clashes.length === 1 ? 'exists' : 'exist'}. ` +
           `Pass --force to overwrite, having looked at what is there.`
       );
     }

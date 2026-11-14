@@ -1,4 +1,5 @@
 import { isPlainObject } from '@ttylabs/sigil/config';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { __ } from '@ttylabs/sigil/i18n';
 import {
   isAlias,
@@ -154,9 +155,15 @@ export function assertReadable(doc: Document, read: ReadShape): void {
   // lines and the first of them is the one with the line number in it, which is
   // what `split` below takes. Setting it off to match the old sentence would
   // leave `Map keys must be unique` with no line at all
+  //
+  // Escaped, because some of those first lines quote the source -- `Invalid
+  // escape sequence \<ESC>`, a block scalar header, an unresolved tag -- and
+  // the source is the config file's rather than ours (SIG-412)
   const first = doc.errors[0];
   if (first) {
-    throw new Error(__`Failed to parse ${read.what}: ${first.message.split('\n')[0] as string}`);
+    throw new Error(
+      __`Failed to parse ${read.what}: ${escapeControls(first.message.split('\n')[0])}`
+    );
   }
 
   // an unresolved tag is a **warning** rather than an error -- measured -- and
@@ -166,7 +173,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
   const unresolved = doc.warnings.find((it) => it.code === 'TAG_RESOLVE_FAILED');
   if (unresolved) {
     throw new Error(
-      __`Failed to parse ${read.what}: ${unresolved.message.split('\n')[0] as string}`
+      __`Failed to parse ${read.what}: ${escapeControls(unresolved.message.split('\n')[0])}`
     );
   }
 
@@ -260,7 +267,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
       }
       tagged(node);
       if (!anchors.has(node.source)) {
-        fault = __`${read.what}:${lineAt(node, read)}: the alias *${node.source} comes before the anchor it refers to`;
+        fault = __`${read.what}:${lineAt(node, read)}: the alias *${escapeControls(node.source)} comes before the anchor it refers to`;
         return;
       }
       // an alias whose own anchor is on one of its ancestors is a **cycle**, and
@@ -269,7 +276,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
       // is the same refusal with a line on it rather than a second opinion
       for (const up of path) {
         if ((up as { anchor?: string }).anchor === node.source) {
-          fault = __`${read.what}:${lineAt(node, read)}: the alias *${node.source} refers to itself`;
+          fault = __`${read.what}:${lineAt(node, read)}: the alias *${escapeControls(node.source)} refers to itself`;
           return;
         }
       }

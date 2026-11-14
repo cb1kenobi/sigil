@@ -317,5 +317,18 @@ describe('the mapping', () => {
     it('should refuse a document that will not parse, naming the file', () => {
       expect(() => value(`<config><a></config>`)).toThrow(/Failed to parse .*config\.xml/);
     });
+
+    /**
+     * SIG-412: xmldom quotes the text it failed on, so a raw control character
+     * in a config file reached stderr live through `Failed to parse`. Both
+     * shapes measured, the one that throws and the one that only reports.
+     */
+    it.each([
+      ['an end tag', `<config><a>1</b\u001b]0;PWNED\u0007></config>`],
+      ['content outside the root', `\u001b]0;PWNED\u0007<config/>`],
+    ])('should escape a control character the parser quotes from %s', (_shape, text) => {
+      expect(() => value(text)).toThrow(/Failed to parse .*\\x1B\]0;PWNED\\x07/);
+      expect(() => value(text)).not.toThrow(/\p{Cc}/u);
+    });
   });
 });

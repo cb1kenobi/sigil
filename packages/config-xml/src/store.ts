@@ -18,6 +18,7 @@ import {
   type WritableConfigStore,
   type WriteOptions,
 } from '@ttylabs/sigil/config';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { __ } from '@ttylabs/sigil/i18n';
 import { expand } from '@ttylabs/sigil/paths';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
@@ -226,13 +227,15 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
       // the collected message in preference to the thrown one: they are the
       // same sentence, and a parser that reported before it threw has already
       // said the thing closest to the first offending byte
-      throw new Error(
-        __`Failed to parse ${source}: ${errors[0] ?? ((e as Error).message.split('\n')[0] as string)}`
-      );
+      const said = errors[0] ?? ((e as Error).message.split('\n')[0] as string);
+      throw new Error(__`Failed to parse ${source}: ${escapeControls(said)}`);
     }
 
+    // escaped, because xmldom quotes the text it failed on -- `end tag name
+    // contains invalid characters: "b<ESC>]0;…"` -- and that text is the
+    // config file's rather than ours (SIG-412)
     if (errors.length > 0) {
-      throw new Error(__`Failed to parse ${source}: ${errors[0] as string}`);
+      throw new Error(__`Failed to parse ${source}: ${escapeControls(errors[0])}`);
     }
 
     // a document with no root is only reachable where the parser neither threw

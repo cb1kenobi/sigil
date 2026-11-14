@@ -1,6 +1,13 @@
 import { ansi } from '../../src/ansi/index.js';
 import { stringWidth } from '../../src/width/index.js';
-import { DEFAULT_WIDTH, MAX_WIDTH, terminalWidth, tokenize, wrap } from '../../src/wrap/index.js';
+import {
+  DEFAULT_WIDTH,
+  MAX_WIDTH,
+  terminalWidth,
+  tokenize,
+  truncate,
+  wrap,
+} from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
 
 const ESC = String.fromCharCode(0x1b);
@@ -132,6 +139,92 @@ describe('wrap()', () => {
   it('should keep leading whitespace even when the first word does not fit', () => {
     expect(lines(wrap('  abcde', 5))).toEqual(['  abc', 'de']);
     expect(lines(wrap('  aaa bbb', 5))).toEqual(['  aaa', 'bbb']);
+  });
+
+  // written out, it was a line of nothing but spaces: wider than the width, and
+  // ended at once by the break the word needed
+  it('should drop indentation wider than the width rather than write a line of spaces', () => {
+    expect(wrap('          word', 5)).toBe('word');
+    expect(lines(wrap('          word and more', 5))).toEqual(['word', 'and', 'more']);
+  });
+
+  // indentation is kept while it leaves room for the first character of the
+  // word, which is then broken beside it as before; one column further and there
+  // is no room, so the line starts with the word instead
+  it('should keep indentation that leaves room for one character, and only that', () => {
+    expect(lines(wrap('    word', 5))).toEqual(['    w', 'ord']);
+    expect(lines(wrap('     word', 5))).toEqual(['word']);
+  });
+
+  it('should measure the room against the width of the first character', () => {
+    expect(lines(wrap('   日本', 5))).toEqual(['   日', '本']);
+    expect(lines(wrap('    日本', 5))).toEqual(['日本']);
+  });
+
+  it('should drop indentation written with tabs the same way', () => {
+    expect(lines(wrap('\t\t\t\tword', 5))).toEqual(['    w', 'ord']);
+    expect(wrap('\t\t\t\t\tword', 5)).toBe('word');
+    expect(wrap(' \t \t \tword', 5)).toBe('word');
+  });
+
+  // a word that may not be broken cannot have its first character beside the
+  // indentation and the rest below, so the whole word is what has to fit
+  it('should drop indentation the unbroken word does not fit beside', () => {
+    expect(wrap('          word', { hard: false, width: 5 })).toBe('word');
+    expect(wrap('    words', { hard: false, width: 5 })).toBe('words');
+    expect(wrap('   long-word', { hard: false, width: 5 })).toBe('long-word');
+  });
+
+  it('should drop indentation that does not fit beside an indent or a hanging indent', () => {
+    expect(wrap('      word', { indent: 2, width: 6 })).toBe('  word');
+    expect(lines(wrap('A\n     word', { hangingIndent: 2, width: 6 }))).toEqual(['A', '  word']);
+    expect(lines(wrap('A\n   word', { hangingIndent: 2, width: 6 }))).toEqual([
+      'A',
+      '     w',
+      '  ord',
+    ]);
+  });
+
+  // what the ticket measured: `NaN` fails every comparison, so the room came out
+  // as `NaN` and every word took a line of its own
+  it('should answer a width that is not a width the way truncate() does', () => {
+    for (const width of [Number.NaN, 0, -3, Number.NEGATIVE_INFINITY]) {
+      expect(wrap('hello world', width), String(width)).toBe(truncate('hello world', width));
+      expect(wrap('hello world', width), String(width)).toBe('');
+      expect(wrap('a\nb', { indent: 2, width }), String(width)).toBe('');
+    }
+  });
+
+  it('should wrap nothing at an infinite width, as truncate() cuts nothing', () => {
+    expect(wrap('hello world', Number.POSITIVE_INFINITY)).toBe('hello world');
+    expect(wrap('          word', Number.POSITIVE_INFINITY)).toBe('          word');
+    expect(truncate('hello world', Number.POSITIVE_INFINITY)).toBe('hello world');
+  });
+
+  // the property the indentation rule exists for, over every split of the room
+  // between indentation and word: no line wider than the width, no line of
+  // nothing but spaces, and every character that is not a space still there
+  it('should write no line wider than the width, whatever the indentation', () => {
+    const words = ['a', 'word', 'abcdefghij', 'two words', 'a bb ccc dddd', '日本', '日本語 の'];
+    for (const word of words) {
+      // a two-column character cannot fit one column, and is allowed over it
+      const narrowest = stringWidth(word) === word.length ? 1 : 2;
+      for (let width = narrowest; width <= 12; width++) {
+        for (let depth = 0; depth <= 14; depth++) {
+          for (const space of [' ', '\t']) {
+            const text = space.repeat(depth) + word;
+            const wrapped = wrap(text, width);
+            const label = `${JSON.stringify(text)} at ${width}`;
+
+            for (const line of lines(wrapped)) {
+              expect(stringWidth(line), label).toBeLessThanOrEqual(width);
+              expect(line.trim() === '' && line !== '', label).toBe(false);
+            }
+            expect(wrapped.replace(/\s/g, ''), label).toBe(word.replace(/\s/g, ''));
+          }
+        }
+      }
+    }
   });
 });
 
@@ -368,6 +461,22 @@ describe('styled text', () => {
     expect(lines(wrap(`aaa ${ESC}[31m${open}bbb`, 3))).toEqual([
       'aaa',
       `${ESC}[31m${open}bbb${ESC}[39m`,
+    ]);
+  });
+
+  // the spaces go and what was among them stays: the attributes reopen from
+  // the state, and the hyperlink, which nothing reopens, is written in front of
+  // the word it applies to
+  it('should keep the styling among indentation it drops', () => {
+    const BEL = String.fromCharCode(0x07);
+    const open = `${ESC}]8;;https://example.com${BEL}`;
+    const close = `${ESC}]8;;${BEL}`;
+
+    expect(wrap(`${ESC}[31m   ${ESC}[1m   word${ESC}[0m`, 5)).toBe(`${ESC}[31;1mword${ESC}[0m`);
+    expect(wrap(`   ${open}   word${close}`, 5)).toBe(`${open}word${close}`);
+    expect(lines(wrap(`${ESC}[31m      word word`, 5))).toEqual([
+      `${ESC}[31mword${ESC}[39m`,
+      `${ESC}[31mword${ESC}[39m`,
     ]);
   });
 });

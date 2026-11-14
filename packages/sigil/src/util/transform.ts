@@ -1,5 +1,6 @@
 import { __ } from '../i18n/index.js';
 import type { DataType } from '../types.js';
+import { escapeControls } from './escape-controls.js';
 
 /**
  * Every data type name, as the one list the three readers of it share.
@@ -156,7 +157,7 @@ export function transformValue(
     if (boolFalseRE.test(value)) {
       return false;
     }
-    throw new Error(__`Invalid boolean: "${value}"`);
+    throw new Error(__`Invalid boolean: "${escapeControls(value)}"`);
   }
 
   if (type === 'date') {
@@ -175,7 +176,7 @@ export function transformValue(
     }
 
     if (!date) {
-      throw new Error(__`Invalid date: "${value}"`);
+      throw new Error(__`Invalid date: "${escapeControls(value)}"`);
     }
 
     return date;
@@ -204,8 +205,9 @@ export function transformValue(
       // two keys rather than a noun interpolated into one: `Invalid {0}: {1}`
       // would put the English word `count` through a slot, where what a
       // translator needs is the whole sentence
+      const shown = escapeControls(value);
       throw new Error(
-        type === 'count' ? __`Invalid count: ${value}` : __`Invalid integer: ${value}`
+        type === 'count' ? __`Invalid count: ${shown}` : __`Invalid integer: ${shown}`
       );
     }
 
@@ -230,7 +232,9 @@ export function transformValue(
       return JSON.parse(value);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (e: any) {
-      throw new Error(__`Invalid JSON: ${e.message}`);
+      // V8's message quotes the text it could not parse, so it is an echo of
+      // argv like any other
+      throw new Error(__`Invalid JSON: ${escapeControls(e.message)}`);
     }
   }
 
@@ -239,12 +243,12 @@ export function transformValue(
     // blank value parse as zero where every other valued type rejects it. Neither
     // is a number somebody wrote
     if (!value.trim()) {
-      throw new Error(__`Invalid number: ${value}`);
+      throw new Error(__`Invalid number: ${escapeControls(value)}`);
     }
 
     const num = Number(value);
     if (isNaN(num)) {
-      throw new Error(__`Invalid number: ${value}`);
+      throw new Error(__`Invalid number: ${escapeControls(value)}`);
     }
     return num;
   }
@@ -336,7 +340,7 @@ export function assertChoices(
 
   for (const v of Array.isArray(value) ? value : [value]) {
     if (!choices.includes(v)) {
-      throw new Error(__`Invalid value "${v}" for ${label}`);
+      throw new Error(__`Invalid value "${escapeControls(v)}" for ${label}`);
     }
   }
 }
@@ -370,6 +374,20 @@ const INTEGER_TYPES = new Set(['count', 'int']);
  * @returns Something short enough to put in a sentence.
  */
 function show(value: unknown): string {
+  // escaped once, here, because every reader puts the answer in a message. JSON
+  // escapes C0 in what it writes, but not `DEL` or C1, and a function's source
+  // or the `Symbol.toStringTag` of an object JSON cannot write reaches a message
+  // through `String()` instead
+  return escapeControls(spell(value));
+}
+
+/**
+ * What `show()` says, before it escapes it.
+ *
+ * @param value - The value.
+ * @returns Something short enough to put in a sentence.
+ */
+function spell(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }

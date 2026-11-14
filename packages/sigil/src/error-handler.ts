@@ -10,6 +10,9 @@ export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } f
 // published here, and written in a leaf module so that a layer below this one
 // -- the signals graph -- can ask it without importing the error handler
 export { errorMessage } from './util/error-message.js';
+// and the one spelling of a value a message echoes, which the parser's own
+// messages use and `sigil add` imports from here rather than copying
+export { escapeControls } from './util/escape-controls.js';
 
 const { log } = debug('sigil:error');
 
