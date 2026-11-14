@@ -583,6 +583,7 @@ describe('where a paragraph and a text break', () => {
       ['ab\u3000cd', 6],
       ['one\u2007two three', 8],
       ['a\u202fb c', 3],
+      ['a \u0301b c', 3],
     ] as const) {
       expect(
         renderToLines(paragraph([content]), { colorLevel: 0, width }).join('\n'),
@@ -605,5 +606,22 @@ describe('where a paragraph and a text break', () => {
     expect(narrowest('10 kg is')).to.equal(2);
     expect(narrowest('a\tbb\nccc')).to.equal(3);
     expect(narrowest('  \n ')).to.equal(0);
+    expect(narrowest('a \u0301b c')).to.equal(3);
+  });
+
+  // a blank line of a CRLF text is `\r` once the lines are split at `\n` alone, and
+  // a `\r` is a word to `words()`: an empty row where the LF text has none
+  it('should read a CRLF text as it reads the same text with LF', () => {
+    for (const [lf, crlf] of [
+      ['ab\n\ncd', 'ab\r\n\r\ncd'],
+      ['\nab', '\r\nab'],
+      ['ab\n\n', 'ab\r\n\r\n'],
+      ['ab\ncd', 'ab\r\ncd'],
+    ]) {
+      const draw = (content: string): string =>
+        renderToLines(paragraph([content]), { colorLevel: 0, width: 10 }).join('\n');
+
+      expect(draw(crlf), JSON.stringify(crlf)).to.equal(draw(lf));
+    }
   });
 });

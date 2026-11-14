@@ -51,7 +51,8 @@ import { raise } from '../signals/raise.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
-import { words as wordsOf, wrap } from '../wrap/index.js';
+import { words as wordsOf } from '../wrap/breaks.js';
+import { wrap } from '../wrap/index.js';
 import { announceFocus, checkFocusWrite } from './focus.js';
 
 /** The host types. Everything above resolves to these three. */
@@ -1540,7 +1541,7 @@ export function paragraph(runs: readonly (TextRun | string)[], props: ElementPro
   const lines: TextRun[][] = [[]];
   for (const run of runs) {
     const { class: classes, text: content } = typeof run === 'string' ? { text: run } : run;
-    const pieces = content.split('\n');
+    const pieces = content.split(/\r?\n/);
     for (const [index, piece] of pieces.entries()) {
       if (index > 0) {
         lines.push([]);

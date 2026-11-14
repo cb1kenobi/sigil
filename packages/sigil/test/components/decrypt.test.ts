@@ -803,6 +803,7 @@ describe('decryptView()', () => {
       '10 kg is',
       'a\u2007b c\u202fd',
       'one two\nthree',
+      'a \u0301b c',
     ]) {
       const state = decryptState('');
       state.frame.set(decryptedFrame(content));

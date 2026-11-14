@@ -1,5 +1,6 @@
 import { ansi } from '../../src/ansi/index.js';
 import { stringWidth } from '../../src/width/index.js';
+import { words } from '../../src/wrap/breaks.js';
 import {
   DEFAULT_WIDTH,
   isBreakSpace,
@@ -7,7 +8,6 @@ import {
   terminalWidth,
   tokenize,
   truncate,
-  words,
   wrap,
 } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
@@ -555,6 +555,15 @@ describe('words()', () => {
     expect(words('ab\u3000cd')).toEqual(['ab\u3000cd']);
     expect(words('')).toEqual([]);
     expect(words(' \t\n ')).toEqual([]);
+  });
+
+  // a break space that carries a combining mark or a joiner is one cluster with it,
+  // and `wrap()` reads that cluster as part of the word: it is not a gap
+  it('should not cut a cluster that begins with a break space', () => {
+    expect(words('a \u0301b c')).toEqual(['a \u0301b', 'c']);
+    expect(words('a  \u0301b')).toEqual(['a', ' \u0301b']);
+    expect(words('a\t\u200db c')).toEqual(['a', '\u200db', 'c']);
+    expect(words('a \u200cb')).toEqual(['a \u200cb']);
   });
 
   it('should agree with isBreakSpace() over every blank', () => {
