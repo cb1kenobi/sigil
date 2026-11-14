@@ -397,13 +397,20 @@ export default {
         const before = (name: string, key: string, consequence: string) =>
           `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
         const carried = (name: string, key: string, consequence: string) =>
-          `the "${name}" command spreads another object, which may carry a "${key}" this cannot see; ${consequence}`;
+          `the "${name}" command spreads another object, which may carry ${key === 'alias' ? 'an' : 'a'} "${key}" this cannot see; ${consequence}`;
+        const alias = 'the built app will not answer to the alias the app runs with';
+        const isDefault = 'the built app will not run it when argv names no command';
         expect(diagnostics.map((d) => [d.severity, d.message])).toStrictEqual([
           ['warning', before('async', 'desc', 'the built app will list it by name alone')],
-          // `base` is a name, so it may carry a `hidden` too
+          // `base` is a name, so it may carry a `hidden` too, and the two keys
+          // that route (SIG-430)
           ['warning', carried('async', 'hidden', 'the built app will list it in help')],
+          ['warning', carried('async', 'alias', alias)],
+          ['warning', carried('async', 'default', isDefault)],
           ['warning', before('number', 'desc', 'the built app will list it by name alone')],
           ['warning', carried('number', 'hidden', 'the built app will list it in help')],
+          ['warning', carried('number', 'alias', alias)],
+          ['warning', carried('number', 'default', isDefault)],
           ['warning', before('method', 'hidden', 'the built app will list it in help')],
           ['warning', before('computed', 'desc', 'the built app will list it by name alone')],
         ]);
@@ -470,6 +477,15 @@ export default {
           [
             'warning',
             'the "quiet" command\'s "hidden" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; the "!" in its name hides it either way, unless the value the app runs with is neither a boolean nor undefined, which the app refuses',
+          ],
+          // `base` is a name, so it may carry the two keys that route (SIG-430)
+          [
+            'warning',
+            'the "quiet" command spreads another object, which may carry an "alias" this cannot see; the built app will not answer to the alias the app runs with',
+          ],
+          [
+            'warning',
+            'the "quiet" command spreads another object, which may carry a "default" this cannot see; the built app will not run it when argv names no command',
           ],
         ]);
         expect(at(list, 'keyed').desc).toBe('Build the app');
@@ -616,6 +632,15 @@ export default {
           [
             'warning',
             'the "spread" command spreads another object, which may carry a "hidden" this cannot see; the built app will list it in help',
+          ],
+          // ...and the two keys that route (SIG-430)
+          [
+            'warning',
+            'the "spread" command spreads another object, which may carry an "alias" this cannot see; the built app will not answer to the alias the app runs with',
+          ],
+          [
+            'warning',
+            'the "spread" command spreads another object, which may carry a "default" this cannot see; the built app will not run it when argv names no command',
           ],
         ]);
         expect(at(list, 'spread').desc).toBeUndefined();
@@ -972,6 +997,103 @@ export default {
         // a nested placeholder is read like any other
         'drop.run',
       ]);
+    });
+
+    it("read a placeholder's alias and default from their first spelling, so the build refused an app that starts and baked a value the runtime replaces", async () => {
+      // SIG-430. The runtime registers the object a placeholder ends up as, so
+      // the last spelling of a key is the one that routes -- and the build read
+      // the first. A spelling a later spread or computed key may replace, or a
+      // key a spread may carry and nothing spells, is unknown: a warning and
+      // nothing baked, as a computed one is, and never refused
+      const source = `const base = { alias: 'erase', path: './commands/a.js' };
+const off = { default: false, path: './commands/a.js' };
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    ship: { default: 'yes', default: true, path: './commands/a.js' },
+    remove: { alias: 42, alias: 'rm', path: './commands/a.js' },
+    unset: { alias: 'del', alias: undefined, default: true, default: void 0, path: './commands/a.js' },
+    late: { alias: 'rm', alias: 42, path: './commands/a.js' },
+    method: { default: true, default() {}, path: './commands/a.js' },
+    getter: { alias: 'del', get alias() { return 'erase'; }, path: './commands/a.js' },
+    purge: { alias: 'del', ...base },
+    stage: { default: true, ...off },
+    keyed: { alias: 'del', ['alias']: 'erase', path: './commands/a.js' },
+    carried: { ...base },
+  },
+};\n`;
+
+      await withSchema(source, async (dir) => {
+        const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+        const list = commands?.kind === 'inline' ? commands.commands : [];
+        const schema = (
+          (await import(pathToFileURL(join(dir, 'src', 'index.js')).href)) as {
+            default: { commands: Record<string, unknown> };
+          }
+        ).default;
+
+        const runtime: Record<string, string | undefined> = {};
+        for (const [name, declaration] of Object.entries(schema.commands)) {
+          runtime[name] = await runtimeRefusal(name, declaration);
+        }
+        expect(runtime).toStrictEqual({
+          // argv names nothing, so the runtime dispatched it as the default --
+          // and a schema with no `baseDir` cannot find its module, which no
+          // other command here gets far enough to ask for
+          ship: 'Command module not found: ./commands/a.js',
+          remove: undefined,
+          unset: undefined,
+          late: 'Expected command alias to be a string or list of strings',
+          method: 'Expected default in "method" command to be a boolean',
+          getter: undefined,
+          purge: undefined,
+          stage: undefined,
+          keyed: undefined,
+          carried: undefined,
+        });
+
+        const before = (name: string, key: string, consequence: string) =>
+          `the "${name}" command's "${key}" is written before a spread or a computed key, which may replace it when the app runs, so it cannot be read at build time; ${consequence}`;
+        const carried = (name: string, key: string, consequence: string) =>
+          `the "${name}" command spreads another object, which may carry ${key === 'alias' ? 'an' : 'a'} "${key}" this cannot see; ${consequence}`;
+        const alias = 'the built app will not answer to the alias the app runs with';
+        const isDefault = 'the built app will not run it when argv names no command';
+        expect(
+          diagnostics
+            // `desc` and `hidden` say what they always said about a spread
+            .filter((d) => !/"(?:desc|hidden)"/.test(d.message))
+            .map((d) => [d.severity, d.message])
+        ).toStrictEqual([
+          // each refused where the runtime refuses, and nowhere else
+          ['error', 'Expected alias in "late" command to be a string or list of strings'],
+          ['error', runtime.method],
+          [
+            'warning',
+            'the "getter" command\'s "alias" is computed rather than a string or a list of strings, so it cannot be read at build time; the built app will not answer to it',
+          ],
+          ['warning', before('purge', 'alias', alias)],
+          ['warning', carried('purge', 'default', isDefault)],
+          ['warning', carried('stage', 'alias', alias)],
+          ['warning', before('stage', 'default', isDefault)],
+          ['warning', before('keyed', 'alias', alias)],
+          ['warning', carried('carried', 'alias', alias)],
+          ['warning', carried('carried', 'default', isDefault)],
+        ]);
+
+        // the last spelling is what is baked...
+        expect(at(list, 'ship').default).toBe(true);
+        expect(at(list, 'remove').alias).toStrictEqual(['rm']);
+        // ...an `undefined` last is not declared...
+        expect(at(list, 'unset').alias).toBeUndefined();
+        expect(at(list, 'unset').default).toBeUndefined();
+        // ...and nothing earlier is baked in place of what may replace it
+        for (const name of ['late', 'getter', 'purge', 'keyed', 'carried']) {
+          expect(at(list, name).alias, name).toBeUndefined();
+        }
+        for (const name of ['method', 'stage', 'purge', 'carried']) {
+          expect(at(list, name).default, name).toBeUndefined();
+        }
+      });
     });
 
     it('should warn about an alias or a default it cannot read, naming the command', () => {

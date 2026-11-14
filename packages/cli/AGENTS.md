@@ -416,6 +416,41 @@ makes it testable with a fixture directory and no bundler at all.
   not in the source, and is "computed", not wrong; `!0` and `!1` are read as the
   booleans they are.
 
+  **The spelling read is the one the runtime registers, which is the last.**
+  SIG-430. `placeholderRouting()` took `alias` and `default` through
+  `plainProperty()`, which answers with the **first** plain spelling and skips
+  spreads, while the runtime registers the object the literal ends up as. So
+  `{ default: 'yes', default: true }` and `{ alias: 42, alias: 'rm' }`, which
+  start from source, failed the build with the wrong-type errors above, and
+  `{ alias: 'del', ...base }` and `{ default: true, ...off }` baked `del` and
+  `true` where the app answers to `base`'s alias and runs no default -- all four
+  reproduced, from source and built. Both keys are now read through
+  `placeholderSpelling()`, the function `placeholderFacts()` reads `desc` and
+  `hidden` through, so the four keys a placeholder bakes cannot disagree about
+  which spelling runs: the last spelling, `undefined` being not declared, and an
+  accessor read as computed and a method refused, as the runtime refuses a
+  function for either key. A spelling a later spread or computed key may
+  replace, and a key spelled nowhere that a spread may carry, are unknown --
+  asked through SIG-421's `mayCarry()`, `lastReplacing()` and
+  `unspelledCarrier()`, with literals read and expressions not evaluated -- and
+  are a **warning** with nothing baked, the severity a computed `alias` already
+  had, since the outcome is the same; never an error, since the value that runs
+  may be a fine one. "Nothing baked" is exactly what the warning says it is: the
+  built app answers to no alias of that property and does not take the command
+  as the default, so it differs from source only where the spread or the key
+  really carries one. `plainProperty()` itself is unchanged, because its other
+  callers read a `commands`, a `path`, a `name` or `settings`, and changing what
+  it returns is not this entry's to decide. `keyedPackage()` never reaches the
+  new branches, since it refuses any spread or computed key in a package's export
+  first; it does now read a key written twice there by its last spelling too. A
+  `commands.json` entry already agreed, and needed nothing: the runtime and the
+  build both read it through `readRoutes()`, which is `JSON.parse`, and that
+  keeps the last of a duplicated key -- probed with `"alias": 42, "alias": "del"`
+  both ways round. Covered by `read a placeholder's alias and default from their
+  first spelling ...` in `test/build/discover.test.ts`, which asks `main()` what
+  it refuses over the same schema, and by its built-against-source twin in
+  `test/build-command.test.ts` over `discover/placeholder-spellings`.
+
   **A known divergence, not a rule: a built app carries none of the rest of what
   a placeholder declares.** The runtime reads every property off a placeholder
   (`initCommand()` copies the declaration and `loadCommand()` merges it over a

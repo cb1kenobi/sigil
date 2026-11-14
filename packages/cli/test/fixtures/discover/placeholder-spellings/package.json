@@ -1,0 +1,7 @@
+{
+  "name": "placeholder-spellings",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
