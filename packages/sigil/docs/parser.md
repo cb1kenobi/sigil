@@ -1128,6 +1128,15 @@ falls through to the string it was handed. `auto` never throws — it guesses an
 gives up — and it is what undeclared options are coerced with, where nobody
 asked for a date at all.
 
+The number guess is held to the bound `int` is held to. Outside the safe range a
+double cannot say which integer was written — 2^53 is also what 2^53+1 rounds
+to — so an integer guess there is not the number guess, and `auto` leaves the
+value the string it was given where `int` throws. It is the value that counts and
+not the spelling: `12345678901234567890`, `9007199254740993.0`, `1e21`, a long
+`0x…` and `9007199254740992` itself are all strings. `007` is still `7`, and a
+non-integral value, such as `1.5` or a small decimal with more digits than a
+double holds, is still the double `Number()` reads.
+
 `bool` accepts `true`, `t`, `yes`, `y`, `on`, and `1` as true, and `false`,
 `f`, `no`, `n`, `off`, `0`, and the empty string as false. Case is ignored.
 Anything else throws `Invalid boolean: "…"` rather than guessing — `0` and
