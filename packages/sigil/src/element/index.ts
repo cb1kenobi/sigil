@@ -51,6 +51,7 @@ import { raise } from '../signals/raise.js';
 import type { PropValues, Style, StyleState } from '../style/index.js';
 import { declare } from '../style/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
+import { words as wordsOf } from '../wrap/breaks.js';
 import { wrap } from '../wrap/index.js';
 import { announceFocus, checkFocusWrite } from './focus.js';
 
@@ -368,10 +369,8 @@ const UNWRAPPED = -1;
 /** The narrowest a wrapping text can be squeezed to: its longest word. */
 function longestWord(content: string): number {
   let longest = 0;
-  for (const word of content.split(/\s+/)) {
-    if (word !== '') {
-      longest = Math.max(longest, stringWidth(word));
-    }
+  for (const word of wordsOf(content)) {
+    longest = Math.max(longest, stringWidth(word));
   }
   return longest;
 }
@@ -1542,7 +1541,7 @@ export function paragraph(runs: readonly (TextRun | string)[], props: ElementPro
   const lines: TextRun[][] = [[]];
   for (const run of runs) {
     const { class: classes, text: content } = typeof run === 'string' ? { text: run } : run;
-    const pieces = content.split('\n');
+    const pieces = content.split(/\r?\n/);
     for (const [index, piece] of pieces.entries()) {
       if (index > 0) {
         lines.push([]);
@@ -1572,16 +1571,14 @@ function wrappingRow(runs: readonly TextRun[], props: ElementProps): Element {
   const words: Element[] = [];
 
   for (const run of runs) {
-    for (const word of run.text.split(/\s+/)) {
-      if (word !== '') {
-        // `min-width: 0` rather than the automatic minimum, which for a text is
-        // its longest word and for a one-word text is the whole of it. A word
-        // too long for the line it is alone on would otherwise keep its width
-        // and run off the edge, where `wrap()` breaks one -- and a paragraph
-        // that disagreed with the wrapper about that is a help screen whose
-        // alias list is four columns wider than the terminal
-        words.push(Element.text(word, { class: run.class, 'min-width': 0 }));
-      }
+    for (const word of wordsOf(run.text)) {
+      // `min-width: 0` rather than the automatic minimum, which for a text is
+      // its longest word and for a one-word text is the whole of it. A word
+      // too long for the line it is alone on would otherwise keep its width
+      // and run off the edge, where `wrap()` breaks one -- and a paragraph
+      // that disagreed with the wrapper about that is a help screen whose
+      // alias list is four columns wider than the terminal
+      words.push(Element.text(word, { class: run.class, 'min-width': 0 }));
     }
   }
 
