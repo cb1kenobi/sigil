@@ -405,10 +405,14 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   quote open, a candidate holding anything outside `[[:alnum:]_@%+=:,./-]` is
   stored as `printf %q` of itself, which bash 3.2 has; a candidate inside that
   set is stored bare, so the ordinary case reads exactly as before. bash 3.2's
-  `%q` leaves a leading `~` bare, and bare it is tilde expansion, so a leading
-  `~` takes a backslash of its own. When the word already **starts a quote**,
-  readline replaces from just after that quote and closes it after a single
-  match -- measured, with `-o default` and no `-o filenames` -- so `%q` is
+  `%q` leaves every `~` bare, and bash expands one at the start of a word and
+  after each `=` and `:` in it -- offered `foo=~/x:~/y` arrived with both
+  expanded -- so every `~` the `%q` answer left bare takes a backslash, by
+  position nowhere. A `$'...'` answer, which `%q` gives for bytes it will not
+  print, has quoted all of itself and is left alone. When the word already
+  **starts a quote**, readline replaces from just after that quote and closes it
+  after a single match -- measured, with `-o default` and no `-o filenames` --
+  unless the character before the cursor is that quote already; so `%q` is
   skipped and only what that quote cannot hold is said: inside `'` a `'` is
   `'\''`, and inside `"` the four characters a backslash quotes there take one,
   while `!` steps outside as `"\!"`, because history expansion reads it inside
@@ -419,6 +423,14 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   and the line reads `it'\''s'` -- which is `it\s`, because the idiom's first
   quote now opens instead of closing. A replacement that starts with the open
   quote therefore carries one more in front, which is the one readline removes.
+  The other end has the matching trap, found by review: readline will not add
+  the closing quote after one, so a value **ending** in the quote character --
+  `trail"` inserted as `trail\"`, `end'` as `end'\''`, and `bang!` as
+  `bang"\!"` -- left the line open at the continuation prompt. Every
+  replacement this builds leaves the quote open at its end, so one that ends in
+  the quote character gets one more quote, which closes it and stops readline
+  adding anything: `trail\""`, `end'\'''`, `bang"\!""`. A value that is only
+  the quote takes both rules, and arrives whole.
 
   **The other half is reading.** A candidate is filtered by the value the user
   typed, not by its spelling, or `two\ w<TAB>` matches nothing -- bash hands the
@@ -471,6 +483,22 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   with a Homebrew bash checks 3.2 and 5 at once, and Linux CI checks 5. It is
   skipped on Windows, where there is no pty. The `-o default` file fallback is
   in it, because readline quotes a filename itself and must go on doing so.
+
+  **Two known limits, recorded rather than fixed (SIG-414 review).**
+
+  - **What the user typed through an unquoted metacharacter stays as typed.**
+    `mycli --semi a;<TAB>` offers what follows the `;`, and Enter then runs
+    `b` as a command of its own; `<`, `>`, `&`, `|`, `(` and `$(` are the same.
+    readline replaces only the text after the word break, so the
+    metacharacter the user typed is already on the line where no completion
+    can quote it -- the same as the user's own `~` before a `:` in
+    `bar=~/x:<TAB>`, which expands however the rest is inserted.
+  - **A value that starts with `-` is not offered once the dash is typed.** A
+    word that starts with `-` is completed as an option name first, which is
+    the order `main()` reads it in, so `--neg -<TAB>` offers spellings rather
+    than `-x`. With an open quote, `'-<TAB>` inserts nothing at all, and `\-`
+    is read as the `-` it spells, so it is no way round either -- all three
+    measured in bash 3.2 on a pty.
 
 - **A `default` command's own arguments and options are offered at the level
   above it, and that was measured both ways before anything was written.** A

@@ -1996,6 +1996,14 @@ describe('a candidate inserted by a real interactive bash', () => {
         ],
       },
       '--out [file]': 'where',
+      // values that end in a quote character, or are nothing else, each on an
+      // option of its own so that a prefix picks exactly one
+      '--endq [v]': { choices: ['trail"', 'say "hi"', 'bang!'] },
+      '--endsq [v]': { choices: ["end'"] },
+      '--onlyq [v]': { choices: ['"'] },
+      '--onlysq [v]': { choices: ["'"] },
+      // a `~` after `=` or `:` is expanded too, which bash 3.2's `%q` leaves bare
+      '--tilde [v]': { choices: ['foo=~/x', 'bar=~/x:~/y'] },
     },
     quiet: false,
   };
@@ -2101,6 +2109,54 @@ describe('a candidate inserted by a real interactive bash', () => {
         ["mycli --level=it'", "[--level=it's]"],
         ['mycli --level a"', '[--level][a!b]'],
         ["mycli --level a'", '[--level][a!b]'],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should close an open quote when the value ends in that quote', async () => {
+      // readline appends the closing quote only when the character before the
+      // cursor is not already one, so a replacement ending in an escaped quote
+      // -- or in the quote `"\!"` reopens -- was left open, at the
+      // continuation prompt
+      const cases: [string, string | null][] = [
+        ['mycli --endq "t', '[--endq][trail"]'],
+        ['mycli --endq "s', '[--endq][say "hi"]'],
+        ['mycli --endq "b', '[--endq][bang!]'],
+        ["mycli --endq 't", '[--endq][trail"]'],
+        ['mycli --endq t', '[--endq][trail"]'],
+        ["mycli --endsq 'e", "[--endsq][end']"],
+        ['mycli --endsq "e', "[--endsq][end']"],
+        ['mycli --endsq e', "[--endsq][end']"],
+        // a value that is only the quote, typed from the quote alone
+        ['mycli --onlyq "', '[--onlyq]["]'],
+        ["mycli --onlyq '", '[--onlyq]["]'],
+        ["mycli --onlysq '", "[--onlysq][']"],
+        ['mycli --onlysq "', "[--onlysq][']"],
+      ];
+
+      expect(
+        await typed(
+          shell,
+          cases.map(([line]) => line)
+        )
+      ).toEqual(cases.map(([, argv]) => argv));
+    });
+
+    it('should not let a tilde after = or : expand', async () => {
+      const cases: [string, string | null][] = [
+        ['mycli --tilde f', '[--tilde][foo=~/x]'],
+        ['mycli --tilde foo\\=', '[--tilde][foo=~/x]'],
+        ['mycli --tilde foo=', '[--tilde][foo=~/x]'],
+        ['mycli --tilde b', '[--tilde][bar=~/x:~/y]'],
+        // readline keeps what precedes the `:`, so the first `~` is the one
+        // the user typed and has to escape; what is inserted is the second
+        ['mycli --tilde bar=\\~/x:', '[--tilde][bar=~/x:~/y]'],
       ];
 
       expect(

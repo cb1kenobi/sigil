@@ -243,12 +243,33 @@ ${pre}_add() {
   done
 }
 
+# every \`~\` that \`%q\` left bare in \`__o\` takes a backslash: bash expands one
+# at the start of a word and after an \`=\` or a \`:\` in one, and bash 3.2's
+# \`%q\` escapes none of them. A \`$'...'\` answer has quoted all of itself
+${pre}_tilde() {
+  case "$__o" in "$'"*) return ;; esac
+  local __t='' __j=0 __d
+  while [ "$__j" -lt \${#__o} ]; do
+    __d="\${__o:__j:1}"
+    __j=$((__j + 1))
+    case "$__d" in
+      '\\')
+        __t="$__t$__d\${__o:__j:1}"
+        __j=$((__j + 1))
+        ;;
+      '~') __t="$__t\\\\~" ;;
+      *) __t="$__t$__d" ;;
+    esac
+  done
+  __o="$__t"
+}
+
 # a candidate as it has to be typed, because readline inserts \`COMPREPLY\` as
 # it stands -- it quotes only under \`-o filenames\` -- so \`two words\` would
 # arrive as two arguments and \`it's\` as an open quote. Outside a quote that is
 # \`printf %q\` of anything holding a character a shell could read as something
 # else. Inside a quote the user opened, readline closes it, so only what that
-# quote cannot hold is said. A leading \`~\` takes its backslash here because
+# quote cannot hold is said. A \`~\` takes its backslash in \`_tilde\`, because
 # bash 3.2's \`%q\` leaves it bare, and bare it is a home directory
 ${pre}_put() {
   local __v="$1" __o='' __c __i=0
@@ -279,10 +300,19 @@ ${pre}_put() {
       case "$__v" in
         *[![:alnum:]_@%+=:,./-]*)
           printf -v __o '%q' "$__v"
-          case "$__o" in '~'*) __o="\\\\$__o" ;; esac
+          ${pre}_tilde
           ;;
         *) __o="$__v" ;;
       esac
+      ;;
+  esac
+  # readline closes the quote the user opened only when the character before
+  # the cursor is not that quote already, so a replacement ending in one -- an
+  # escaped quote, or the quote \`"\\!"\` reopens -- was left open. Every one of
+  # them ends with the quote open, so it is closed here instead
+  case "$${pre}_quote" in
+    "'" | '"')
+      case "$__o" in *"$${pre}_quote") __o="$__o$${pre}_quote" ;; esac
       ;;
   esac
   # readline will not double an opening quote: a replacement that starts with
