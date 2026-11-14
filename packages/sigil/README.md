@@ -227,6 +227,8 @@ The format string carries the name, the aliases, and whether a value is taken:
 | `alias`, `format`, `name`, `hint` | override what the format string implied                                                                 |
 
 Precedence for every option and argument is **argv → `env` → `default`**.
+An `env` on a negated flag is read through the negation, as `--no-color=1` is:
+`NO_COLOR=1` on `--no-color` is `color: false`.
 
 Data types, coercion rules, negation, short groups (`-abc`, `-n5`), undeclared
 options, and the terminator are all covered in
@@ -3875,7 +3877,9 @@ bar.done('Copied');
 ```
 
 The bar sizes itself to a third of the terminal, between 10 and 40 columns,
-unless given a `barWidth`.
+unless given a `barWidth`. A cell fills once the work has reached it, so the bar
+is full only when the work is done, and it agrees with the percentage, which
+also rounds down.
 
 Pass `rate: true`, `eta: true` or both for the pace and the time remaining beside
 the percentage -- `10 files/s  ETA 9s`, with `unit: 'files'` naming the unit. Both
@@ -4908,7 +4912,8 @@ not a view built again every tick.
   draws a thin bar, and `thresholds: { warn: 0.7, error: 0.9 }` draws the bar in
   the `warn` and `error` roles from those ratios up. It is not `progress()`: that
   is live, moves, and falls back to a percentage where there is no terminal; a
-  gauge is printed once. They share the bar arithmetic and nothing else.
+  gauge is printed once. They share the bar arithmetic and the percentage, both
+  rounded down, and nothing else.
 
 Every chart takes `role` (`accent` by default, `none` for the terminal's own
 foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`,
@@ -7595,7 +7600,10 @@ resolution that fails for any reason but something not being there throws.
 
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
-holds, or `undefined` where it is not there; `claim(theirs, value, paths,
+holds, or `undefined` where it is not there -- and they refuse a file that is not
+UTF-8, naming it and the offset of the first bad byte, rather than reading every
+such byte as U+FFFD for a write to put back; a UTF-8 byte order mark is kept as
+U+FEFF, and a UTF-16 one is refused by name; `claim(theirs, value, paths,
 source)` is what a write with `WriteOptions.paths` should leave in the file; and
 `rewrite(source, render, value, opts)` and `rewriteSync()` read the file, hand
 its text to your store's `render` -- a `RenderText` -- and write the result back

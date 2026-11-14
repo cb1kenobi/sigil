@@ -530,9 +530,15 @@ describe('gauge()', () => {
     expect(meter(0.5, { ascii: true, style: 'line', width: 4 })).to.equal('==-- 50%');
   });
 
-  it('should round the bar the way the progress bar does', () => {
-    // renderBar() rounds, and a gauge borrowing its arithmetic has to agree
-    expect(meter(0.34, { width: 10 })).to.equal('███░░░░░░░ 34%');
+  it('should fill the bar the way the progress bar does', () => {
+    // renderBar() rounds down, and a gauge borrowing its arithmetic has to agree
+    expect(meter(0.36, { width: 10 })).to.equal('███░░░░░░░ 36%');
+  });
+
+  it('should not draw a gauge full beside a figure that says 100%', () => {
+    expect(meter(0.996, { width: 10 })).to.equal('█████████░ 99%');
+    expect(meter(1, { width: 10 })).to.equal('██████████ 100%');
+    expect(meter(7, { max: 7, width: 13 })).to.equal(`${'█'.repeat(13)} 100%`);
   });
 
   it('should change role at the thresholds it was given', () => {

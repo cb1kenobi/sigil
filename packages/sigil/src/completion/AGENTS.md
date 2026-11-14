@@ -388,6 +388,118 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   bash running it, so a bash whose default differs fails there rather than
   passing quietly.
 
+- **What bash inserts is quoted, and what was typed is read with its quoting
+  taken off (SIG-414).** readline inserts a `COMPREPLY` entry exactly as it
+  stands -- it quotes only under `-o filenames`, which this script does not ask
+  for and `-o default` is not -- so a value the script offered correctly arrived
+  as a different argv. Driven in an interactive bash 3.2 on a pty: `--log-level
+  tw<TAB>` then Enter gave `<two> <words>`; `it<TAB>` left `it's`'s quote open
+  and dropped to the continuation prompt; `$HOME` reached the command as the
+  home directory, `*` as whatever the directory held, `a\b` as `ab`, and
+  `a!b` as `event not found`. zsh's `_describe` quotes on insert and was never
+  affected. The quoting in the generated script was right throughout, which is
+  why the `COMPREPLY`-reading drivers passed: the defect was one step further
+  on than anything they read.
+
+  **The rule.** `__x_put` is the only thing that adds to `COMPREPLY`. With no
+  quote open, a candidate holding anything outside `[[:alnum:]_@%+=:,./-]` is
+  stored as `printf %q` of itself, which bash 3.2 has; a candidate inside that
+  set is stored bare, so the ordinary case reads exactly as before. bash 3.2's
+  `%q` leaves every `~` bare, and bash expands one at the start of a word and
+  after each `=` and `:` in it -- offered `foo=~/x:~/y` arrived with both
+  expanded -- so every `~` the `%q` answer left bare takes a backslash, by
+  position nowhere. A `$'...'` answer, which `%q` gives for bytes it will not
+  print, has quoted all of itself and is left alone. When the word already
+  **starts a quote**, readline replaces from just after that quote and closes it
+  after a single match -- measured, with `-o default` and no `-o filenames` --
+  unless the character before the cursor is that quote already; so `%q` is
+  skipped and only what that quote cannot hold is said: inside `'` a `'` is
+  `'\''`, and inside `"` the four characters a backslash quotes there take one,
+  while `!` steps outside as `"\!"`, because history expansion reads it inside
+  double quotes whatever precedes it. One more thing readline does there was
+  found by the test rather than by reading: it will not double an opening quote,
+  so a replacement that _starts_ with the quote the user opened is written over
+  that quote. `it'<TAB>` inserts `'\''s`, readline takes the user's `'` away,
+  and the line reads `it'\''s'` -- which is `it\s`, because the idiom's first
+  quote now opens instead of closing. A replacement that starts with the open
+  quote therefore carries one more in front, which is the one readline removes.
+  The other end has the matching trap, found by review: readline will not add
+  the closing quote after one, so a value **ending** in the quote character --
+  `trail"` inserted as `trail\"`, `end'` as `end'\''`, and `bang!` as
+  `bang"\!"` -- left the line open at the continuation prompt. Every
+  replacement this builds leaves the quote open at its end, so one that ends in
+  the quote character gets one more quote, which closes it and stops readline
+  adding anything: `trail\""`, `end'\'''`, `bang"\!""`. A value that is only
+  the quote takes both rules, and arrives whole.
+
+  **The other half is reading.** A candidate is filtered by the value the user
+  typed, not by its spelling, or `two\ w<TAB>` matches nothing -- bash hands the
+  word over raw, backslash and quotes included -- measured in 3.2, where
+  `COMP_WORDS` and `$2` both read `two\ w`. bash 4 and later split on
+  `COMP_WORDBREAKS` but skip quoted and escaped characters while doing it, so
+  the word arrives whole there too; no bash 4 or 5 was on the machine this was
+  written on, and that half is the Linux CI jobs' run of the pty test. So `__x_keep` reads the word the
+  way the shell and readline do, in one pass: it takes the quoting off, and it
+  finds what readline keeps, which is everything up to a quote still open at
+  the end or else up to the last break character nothing quoted -- the `:` in
+  `host\:port` is not a break, and an escaped space is part of the word. That
+  is readline's own `_rl_find_completion_word`, and it replaces the backwards
+  scan the `COMP_WORDBREAKS` entry describes, which saw every `'` and `"` as a
+  break because both are in the default `COMP_WORDBREAKS`. Nothing is
+  expanded: `$H` is two characters, because what is matched is a value. The
+  walk reads every word the same way, so `it\'s --f<TAB>` is the command
+  `it's` and offers its `--force`, and `_join`'s two questions do too: a quote
+  is never split off as a word of its own by a bash that honours quoting, so
+  `''` is an empty value rather than a run of break characters, and a word
+  ending in `\'` does not glue the next word onto it.
+
+  **What a reader sees.** With more than one match readline lists `COMPREPLY`
+  as it is, so the menu shows `two\ words` and `it\'s` -- the spelling the line
+  will hold -- and inside an open quote it shows the bare value. readline also
+  inserts the longest common prefix of what it was given, and two candidates
+  whose first difference is an escaped character share a trailing backslash:
+  `back<TAB>` over `back\slash` and ``back`tick`` leaves `back\`, which the
+  next character or TAB settles and which Enter takes as a line continuation.
+  That is the cost of quoting in `COMPREPLY` rather than in readline, and the
+  rarer one: it needs two values that diverge on a special character. In a
+  locale where `%q` writes non-ASCII as `$'\303\251'` the inserted value is
+  right and a second TAB over it does not re-match, because the reading pass
+  does not decode `$'...'`.
+
+  **`-o filenames` was not the answer** even though it makes readline do all
+  of this itself: it also appends a `/` to any candidate that names a directory
+  in the working directory and lists only what follows a candidate's last `/`,
+  so a subcommand called `build` beside a `build/` directory would complete as
+  `build/`. `compopt` could scope it to the file fallback, but it is bash 4.
+
+  Pinned by `a candidate inserted by a real interactive bash`, which runs an
+  interactive bash on a pty -- Python's `pty`, since nothing in node opens one
+  and this package takes no dependency -- with `--rcfile` defining `mycli` as a
+  function that prints its argv, types each line, presses TAB and Enter in one
+  write, and reads the argv back. No sleeps: readline finishes the TAB before it
+  reads the Enter behind it, so the only waiting is for output, under a
+  deadline that fails rather than paces. It runs every bash the machine has by
+  what it resolves to -- `bash` on `PATH` and, on a Mac, `/bin/bash` -- so a Mac
+  with a Homebrew bash checks 3.2 and 5 at once, and Linux CI checks 5. It is
+  skipped on Windows, where there is no pty. The `-o default` file fallback is
+  in it, because readline quotes a filename itself and must go on doing so.
+
+  **Two known limits, recorded rather than fixed (SIG-414 review).**
+
+  - **What the user typed through an unquoted metacharacter stays as typed.**
+    `mycli --semi a;<TAB>` offers what follows the `;`, and Enter then runs
+    `b` as a command of its own; `<`, `>`, `&`, `|`, `(` and `$(` are the same.
+    readline replaces only the text after the word break, so the
+    metacharacter the user typed is already on the line where no completion
+    can quote it -- the same as the user's own `~` before a `:` in
+    `bar=~/x:<TAB>`, which expands however the rest is inserted.
+  - **A value that starts with `-` is not offered once the dash is typed.** A
+    word that starts with `-` is completed as an option name first, which is
+    the order `main()` reads it in, so `--neg -<TAB>` offers spellings rather
+    than `-x`. With an open quote, `'-<TAB>` inserts nothing at all, and `\-`
+    is read as the `-` it spells, so it is no way round either -- all three
+    measured in bash 3.2 on a pty.
+
 - **A `default` command's own arguments and options are offered at the level
   above it, and that was measured both ways before anything was written.** A
   default command is dispatched when argv names no command, so it _is_
@@ -587,7 +699,8 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   command line_, so cleaning one would type a token that is not the value. It is
   dropped, which is honest about a value that was never completable, and the
   whitespace in one is left alone because a value really may contain a space and
-  every emitter quotes it.
+  every emitter quotes it -- in the script, and in bash on insertion as well,
+  which is the entry below on quoting what bash inserts.
 
 - **The pattern that answers "is this a control character" has no `g` flag, and
   the one that replaces has.** `test()` on a global regex is stateful: it leaves
@@ -690,7 +803,10 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   which is a by-hand run rather than a test -- so the suite asserts the
   _candidates_ each word regime has to produce, which is the same claim in the
   one form a test can hold, and the `COMP_WORDBREAKS` entry has the
-  measurement.
+  measurement. That was the whole of it until SIG-414 found a third defect that
+  lived past readline, and the suite now has the one pty test the entry on
+  quoting what bash inserts describes: it reads the argv a line arrives as,
+  which says the same thing as the backspaces without having to count them.
 
   And a **zsh driver** with the completion system stubbed:
   `compset`, `_describe` and `_files` replaced by functions that print what they

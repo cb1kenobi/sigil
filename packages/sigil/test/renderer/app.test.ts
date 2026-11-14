@@ -62,6 +62,21 @@ describe('runApp()', () => {
     expect(term.stdin.listenerCount('data')).toBe(0);
   });
 
+  it('should quit on a Ctrl-C after a paste whose handler fed an unfinished one', async () => {
+    // a paste handler that fed an unfinished paste took the bytes after the end
+    // marker as that paste's content, so the Ctrl-C there never reached `quit`
+    const { app, term } = start(() => text('x'));
+    app.input?.onPaste((event) => {
+      event.stop();
+      if (event.text === 'hello') {
+        app.input?.feed('\u001b[200~IN');
+      }
+    });
+
+    await term.press('\u001b[200~hello\u001b[201~\u0003');
+    expect(await app.exited).toBe(130);
+  });
+
   it('should end on Ctrl-D too, which is the rest of isAbort()', async () => {
     const { app, term } = start(() => text('x'));
     await term.press(ctrl('d'));

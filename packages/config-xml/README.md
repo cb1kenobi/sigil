@@ -217,8 +217,16 @@ The complete residual, each measured:
 
 The last two are **required of every conforming parser** — attribute-value and
 line-ending normalization are in the XML spec — so they are not this store's to
-avoid. A byte order mark, CRLF line endings and a trailing newline are detected at
-read and reapplied at write, so none of them is a loss.
+avoid. A UTF-8 byte order mark, CRLF line endings and a trailing newline are
+detected at read and reapplied at write, so none of them is a loss.
+
+The file is read as **UTF-8 and nothing else**. Bytes that are not UTF-8 --
+Latin-1, or UTF-16 with its byte order mark -- are refused at the read, naming the
+file, and so is a declaration naming any other encoding, `encoding="ISO-8859-1"`
+included, even over a file that is plain ASCII: a write puts UTF-8 into the text
+and keeps the declaration, so reading it would end in a file that says one
+encoding and holds another. Convert the file, or change its declaration to
+`UTF-8`.
 
 Each row is matched against the document's **element content** — the source with
 every comment, CDATA section, processing instruction and DOCTYPE blanked out, at

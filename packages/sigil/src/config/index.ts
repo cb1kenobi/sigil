@@ -105,7 +105,9 @@
  * `rewrite()` and `rewriteSync()` -- because `json()` and both sibling stores
  * had each written all five out byte for byte around a parse and a render that
  * really are theirs. They are made of the five above: `readText()` is
- * `isMissing()` asked of a read, `claim()` is `overlay()` asked of a write, and
+ * `isMissing()` asked of a read -- and the one place a file that is not UTF-8
+ * is refused, so a store that reads through it cannot write one back with its
+ * bytes replaced (SIG-413) -- `claim()` is `overlay()` asked of a write, and
  * `rewrite()` is `writeAtomic()` asked only where the bytes changed -- so a
  * fourth store writing them out again is a fourth copy of three decisions.
  *

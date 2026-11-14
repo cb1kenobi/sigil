@@ -20,9 +20,9 @@ import { claim, readText, readTextSync, type RenderText, rewrite, rewriteSync } 
  *
  * That is the shape rather than the lines: each half really does its own I/O
  * call and both go through one `parse()`, and what `readText()` and
- * `readTextSync()` add around it is the `ENOENT` reading -- which is the same
- * reading twice because a `catch` cannot be shared between an `await` and a
- * synchronous call. Those two, the claim and the write are the store kit's text
+ * `readTextSync()` add around it is the `ENOENT` reading and the refusal of a
+ * file that is not UTF-8 -- the first said twice because a `catch` cannot be
+ * shared between an `await` and a synchronous call. Those two, the claim and the write are the store kit's text
  * half, in `./text.ts`, which the XML and YAML stores read as well.
  *
  * The path is expanded through `paths.expand()` rather than taken literally. A

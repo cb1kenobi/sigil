@@ -373,6 +373,21 @@ describe('createMultiProgress()', () => {
     expect(ui.log).to.deep.equal([`a ${FULL}${FULL} 100%`, `b ${FULL}${LIGHT}  50%`]);
   });
 
+  it('should not draw a bar full while its percentage says 99%', () => {
+    const ui = screenSetup({ rows: 10 });
+    const group = createMultiProgress({ ansi: ui.ansi, barWidth: 13, terminal: ui.terminal });
+
+    const a = group.add({ text: 'a', total: 7 });
+    const b = group.add({ text: 'b', total: 7 });
+    a.current = 6.999;
+    b.current = 7;
+
+    expect(ui.log).to.deep.equal([
+      `a ${FULL.repeat(12)}${LIGHT}  99%`,
+      `b ${FULL.repeat(13)} 100%`,
+    ]);
+  });
+
   it('should relabel a bar when it finishes', () => {
     const ui = screenSetup({ rows: 10 });
     const group = createMultiProgress({ ansi: ui.ansi, barWidth: 2, terminal: ui.terminal });
