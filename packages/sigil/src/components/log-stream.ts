@@ -57,6 +57,23 @@ export interface StreamWrapper {
 
 const ESC = String.fromCharCode(0x1b);
 
+// What a sequence that has not ended looks like, and what can be added to it
+// without ending it. A string sequence (an OSC, a DCS) runs to the end of the
+// text until a terminator or something that cancels it arrives, and a CSI takes
+// parameter bytes and then intermediate bytes, in that order, until a final byte.
+// Built from the characters rather than written as literals, so that no control
+// character is in the source and nothing needs a lint suppression to stay there
+const STRING_STOPS = '\u0007\u0018\u001a\u001b\u009c';
+const CSI = `(?:${ESC}\\[|\u009b)`;
+const OPEN_STRING = new RegExp(
+  `^(?:${ESC}[\\]P^_X]|[\u009d\u0090\u0098\u009e\u009f])[^${STRING_STOPS}]*$`
+);
+const ENDS_STRING = new RegExp(`[${STRING_STOPS}]`);
+const OPEN_PARAMS = new RegExp(`^${CSI}[0-?]*$`);
+const OPEN_INTERMEDIATES = new RegExp(`^${CSI}[0-?]*[ -/]+$`);
+const PARAMS = /^[0-?]*$/;
+const INTERMEDIATES = /^[ -/]*$/;
+
 /**
  * How much of the end of `text` is a sequence that has not finished.
  *
@@ -177,9 +194,11 @@ export function createStreamWrapper(width: number): StreamWrapper {
   // combining mark after a blank is not a blank) or complete a sequence, so it is
   // read again with whatever follows it, and what is before it is final
   let raw = '';
-  // how much of the text was wrapped last time, so that a chunk that settles
-  // nothing new wraps nothing
-  let wrapped = 0;
+  // the text that was wrapped last time, so that a chunk that settles nothing
+  // new wraps nothing. Compared whole and not by length: the text is not only
+  // appended to, since a run of blanks keeps its last blank and a sequence that is
+  // not finished takes its end back
+  let wrapped = '';
   // how many rows of the text being built have been handed out and are still in
   // it, because there was nowhere to cut them off
   let given = 0;
@@ -198,6 +217,20 @@ export function createStreamWrapper(width: number): StreamWrapper {
   let csi: 0 | 1 | 2 = 0;
   let csiLength = 0;
   let lostAtBlank = 0;
+  // How many blanks end `head`, and how many of them are kept: the first `width`
+  // and the last. A run of blanks is pending until a word follows, and when it is
+  // wider than the room the word moves down and the run is dropped whatever its
+  // length, so past that only the last one can matter -- it is the one the next
+  // character is beside, and a mark after it joins it into a cluster that is not a
+  // blank. Without this a line of blanks is wrapped from its first by each chunk of
+  // them, and so is anything that cleans down to one: cursor and erase sequences
+  // between spaces. A blank and a colour alternating are not a run of blanks, and
+  // are still wrapped each time
+  let blanks = 0;
+  const room = Math.max(1, Math.ceil(width)) + 1;
+  // what the line's raw source is, when it is one sequence that has not ended: a
+  // chunk that cannot end it changes nothing, so is not read
+  let unfinished: 'string' | 'params' | 'intermediates' | undefined;
 
   /** The wrapped rows of the text, opened from the styling carried in. */
   const lines = (open: string, text: string) => wrapRows(open + text, { continued: cut, width });
@@ -261,7 +294,8 @@ export function createStreamWrapper(width: number): StreamWrapper {
       tail = tail.slice(at - head.length);
       head = '';
     }
-    wrapped = text.length - at;
+    blanks = Math.min(blanks, head.length);
+    wrapped = text.slice(at);
     cut = true;
   };
 
@@ -280,7 +314,9 @@ export function createStreamWrapper(width: number): StreamWrapper {
     head = '';
     tail = '';
     raw = '';
-    wrapped = 0;
+    unfinished = undefined;
+    blanks = 0;
+    wrapped = '';
     given = 0;
     cut = false;
     blankCut = true;
@@ -302,7 +338,19 @@ export function createStreamWrapper(width: number): StreamWrapper {
    * what keeps a long line from being wrapped again from its start by every
    * chunk.
    */
-  const read = (): string[] => {
+  const read = (chunk: string): string[] => {
+    // an unfinished sequence, and nothing in the chunk that ends it or changes
+    // what it is: it is still the one token it was, to the end of the text. Read
+    // again, an unterminated OSC 52 of a megabyte in small chunks is a megabyte
+    // tokenized per chunk
+    if (
+      (unfinished === 'string' && !ENDS_STRING.test(chunk)) ||
+      (unfinished === 'params' && PARAMS.test(chunk)) ||
+      (unfinished === 'intermediates' && INTERMEDIATES.test(chunk))
+    ) {
+      return [];
+    }
+
     const whole = raw.slice(0, incompleteAt(raw));
 
     if (whole === '') {
@@ -316,7 +364,16 @@ export function createStreamWrapper(width: number): StreamWrapper {
       const lost = watch(token);
 
       if (isBlank(token)) {
-        head += tail + cleanToken(token);
+        const blank = cleanToken(token);
+
+        if (tail === '' && csi === 0 && blanks >= room) {
+          // the run is as long as it needs to be, so this one takes the place of
+          // the last. Not inside a CSI that may yet fail, whose blanks are counted
+          head = head.slice(0, -1) + blank;
+        } else {
+          head += tail + blank;
+          blanks = tail === '' ? blanks + 1 : 1;
+        }
         tail = '';
         lostAtBlank = lost;
       } else {
@@ -325,6 +382,17 @@ export function createStreamWrapper(width: number): StreamWrapper {
     }
 
     raw = raw.slice(whole.length - last.text.length);
+    unfinished = undefined;
+
+    if (last.type === 'sequence' && raw === last.text) {
+      if (OPEN_STRING.test(raw)) {
+        unfinished = 'string';
+      } else if (OPEN_PARAMS.test(raw)) {
+        unfinished = 'params';
+      } else if (OPEN_INTERMEDIATES.test(raw)) {
+        unfinished = 'intermediates';
+      }
+    }
 
     // the token being read is a blank as far as anybody can tell, so it is a
     // place to break unless the next chunk says it is not. It is read again with
@@ -342,11 +410,11 @@ export function createStreamWrapper(width: number): StreamWrapper {
 
     text = text.slice(0, text.length - lostAtEnd);
 
-    if (text === '' || text.length === wrapped) {
+    if (text === '' || text === wrapped) {
       return [];
     }
 
-    wrapped = text.length;
+    wrapped = text;
     const open = state.open();
     const { ends, rows } = lines(open, text);
 
@@ -410,7 +478,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
       }
 
       if (width !== Infinity) {
-        out.push(...read());
+        out.push(...read(chunk));
       }
 
       return out;

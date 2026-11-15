@@ -10,6 +10,13 @@ import { describe, expect, it, vi } from 'vitest';
  * length again each time, so the count at eight times the text is sixty-four
  * times the count at the text; a line whose rows are cut off as they are handed
  * out reads each character a few times in all, and eight.
+ *
+ * What it cannot see is what the stream wrapper does with a string itself rather
+ * than through those two: `incompleteAt()`'s search for the last `ESC` and its
+ * matcher, `strip()`, and the flattening of a string built by concatenation. So a
+ * shape that is quadratic only there passes, which is why the unfinished-sequence
+ * shapes below are read by the tokenizer too, and why the wall clock for the same
+ * shapes was measured by hand (SIG-406, in `src/components/AGENTS.md`).
  */
 const work = vi.hoisted(() => ({ read: 0 }));
 
@@ -61,6 +68,16 @@ describe('a line streamed in time linear in its length', () => {
     ['coloured words', repeated(`${ESC}[31mred ${ESC}[1mbold${ESC}[0m plain `)],
     ['wide characters', repeated('日本語 ')],
     ['long words', repeated(`${'abcdefghij'.repeat(12)} `)],
+    // a run of blanks is wrapped from its first by each chunk of it unless the run
+    // stops growing, and anything that cleans down to blanks is one
+    ['a run of blanks', (size) => `a${' '.repeat(size - 2)}b`],
+    ['a run of blanks and tabs', repeated(' \t  ')],
+    ['sequences between blanks', repeated(`${ESC}[3 x `)],
+    ['a stray escape between blanks', repeated(`${ESC}[ a `)],
+    ['cursor sequences between blanks', repeated(`${ESC}[2K ${ESC}[K `)],
+    // a sequence that has not ended, as an OSC 52 in small chunks is
+    ['an OSC 52 that does not end', (size) => `${ESC}]52;c;${'QUJD'.repeat(size / 4)}`],
+    ['a CSI of parameters that does not end', (size) => `${ESC}[${'1;'.repeat(size / 2)}`],
   ];
 
   it.each(SHAPES)('should read %s a constant number of times each', (_name, make) => {

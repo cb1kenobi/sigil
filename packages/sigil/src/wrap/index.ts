@@ -86,6 +86,10 @@ export interface WrapOptions {
    * dropped the ones a break leaves behind was the break. Without it the same
    * text wraps as a new one would -- a row that starts with something that takes
    * no columns, and a blank run after it, is a line of indentation.
+   *
+   * It is for an end inside a paragraph. An end past a newline starts a new one,
+   * whose blanks *are* indentation and which `continued` would drop: see
+   * `WrappedRows.ends`.
    */
   continued?: boolean;
   /**
@@ -163,6 +167,16 @@ export interface WrappedRows {
    * blanks dropped after it -- are all before its end, so applying every
    * sequence in `text.slice(0, ends[i])` to a `createSgrState()` gives the
    * styling row `i + 1` opens with.
+   *
+   * What follows an end wraps as the rest of this wrap when it is wrapped from the
+   * styling that was in effect, with `continued: true` -- unless the end is past a
+   * newline (`text[ends[i] - 1] === '\n'`). That is a paragraph of its own, whose
+   * leading blanks are indentation, so it is wrapped with `continued` off, which is
+   * exact when there is no `hangingIndent` (apart from a line that is nothing but
+   * blanks while a style is open, which comes out as the style and not as an empty
+   * row). With a `hangingIndent` neither is exact -- `continued` loses the
+   * indentation and the other takes the first line's room and indent -- so wrap
+   * the whole text, or cut inside a paragraph.
    */
   ends: number[];
   /** The rows, exactly as `wrap()` joins them: `rows.join('\n') === wrap(text, opts)`. */
@@ -182,7 +196,10 @@ export interface WrappedRows {
  * Only `text.slice(ends[i])` wrapped afresh agrees with the rest of this wrap
  * when the blanks dropped at a break carried nothing but styling. A sequence
  * `wrap()` cannot reopen -- an OSC 8 hyperlink -- travels with the word after the
- * break, and resuming at the word leaves it behind.
+ * break, and resuming at the word leaves it behind. Nor can a row be started at a sequence
+ * that follows a cluster wider than the room (`日` where one column is all there
+ * is): the sequences are written on the row after it, in the word, and a text
+ * that starts with them reads them as indentation.
  *
  * @param text - The text to wrap.
  * @param opts - The width to wrap at, or the options.

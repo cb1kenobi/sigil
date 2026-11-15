@@ -552,7 +552,12 @@ describe('isBreakSpace()', () => {
  * What is left of a wrap after row `row`, wrapped as a text of its own: the rows
  * after it, from the styling every sequence before its end left in effect.
  */
-function rest(text: string, row: number, width: number, extra = {}): string[] {
+function rest(
+  text: string,
+  row: number,
+  width: number,
+  extra: { continued?: boolean; hangingIndent?: number; indent?: number } = {}
+): string[] {
   const { ends } = wrapRows(text, { width, ...extra });
   const state = createSgrState();
   for (const token of tokenize(text.slice(0, ends[row]))) {
@@ -560,7 +565,13 @@ function rest(text: string, row: number, width: number, extra = {}): string[] {
       state.apply(token.text);
     }
   }
-  return wrapRows(state.open() + text.slice(ends[row]), { continued: true, width, ...extra }).rows;
+  // an end past a newline starts a paragraph, which is not the rest of a row
+  const paragraph = text[(ends[row] as number) - 1] === '\n';
+  return wrapRows(state.open() + text.slice(ends[row]), {
+    continued: !paragraph,
+    width,
+    ...extra,
+  }).rows;
 }
 
 describe('wrapRows()', () => {
@@ -645,6 +656,8 @@ describe('wrapRows()', () => {
       'wide clusters': `日本語 ${FLAG_US} 日本語日本語 ${FAMILY} ${FAMILY}${FAMILY} 日`,
       'runs of blanks': 'aaaa     bbbb  \t  cccc        dddd   eeee    ',
       'a mark with nothing to sit on': 'aaaa \u0301    bbbbbbbb   cc',
+      'paragraphs, indented': 'aaa bbb\n   ccccccccccc ddd\n\teee fff\n      ggg',
+      'a colour carried over paragraphs': `${ESC}[31maaa bbb\n   ccc ddd${ESC}[39m eee\r\n  fff ggg hhh`,
       'a word that moved down whole': `aaaa ${ESC}[7mbbbbbbb${ESC}[27m ccccccc ddd`,
     };
 
@@ -666,6 +679,40 @@ describe('wrapRows()', () => {
         }
       });
     }
+
+    it('should start a paragraph without `continued`, which would drop its indentation', () => {
+      const text = 'aaa\n   bbbbbbbbbbbb';
+      const { ends, rows } = wrapRows(text, 10);
+
+      expect(rows).toEqual(['aaa', '   bbbbbbb', 'bbbbb']);
+      expect(text[(ends[0] as number) - 1]).toBe('\n');
+      expect(wrapRows(text.slice(ends[0]), { width: 10 }).rows).toEqual(rows.slice(1));
+      expect(wrapRows(text.slice(ends[0]), { continued: true, width: 10 }).rows).toEqual([
+        'bbbbbbbbbb',
+        'bb',
+      ]);
+    });
+
+    it('should start a paragraph with neither spelling when there is a hanging indent', () => {
+      // the paragraph's first row has the room and indent of a row after the first,
+      // which `continued` gives it, and its blanks are indentation, which it does not
+      const options = { hangingIndent: 2, width: 10 };
+      const text = 'aaa\n   bbbbbbbbbbbb';
+      const { ends, rows } = wrapRows(text, options);
+      const after = text.slice(ends[0]);
+
+      expect(rows).toEqual(['aaa', '     bbbbb', '  bbbbbbb']);
+      expect(wrapRows(after, { continued: true, ...options }).rows).not.toEqual(rows.slice(1));
+      expect(wrapRows(after, options).rows).not.toEqual(rows.slice(1));
+    });
+
+    it('should write the style of a blank line a paragraph restarts, where wrap() writes nothing', () => {
+      const text = `${ESC}[4mab\n   `;
+      const { ends, rows } = wrapRows(text, 8);
+
+      expect(rows).toEqual([`${ESC}[4mab${ESC}[24m`, '']);
+      expect(wrapRows(`${ESC}[4m${text.slice(ends[0])}`, 8).rows).toEqual([`${ESC}[4m`]);
+    });
 
     it('should not start again in front of a sequence the word it breaks was holding', () => {
       // at one column a wide cluster is wider than the room, so the sequences

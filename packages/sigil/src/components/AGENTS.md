@@ -6995,11 +6995,45 @@ changed.
     text can be shortened by what the prefix would have swallowed; a CR before a
     newline is the other way to end a line in the middle of one, handled where
     the newline is.
-  - **What is not fixed is a run of blanks.** Blanks are pending until a word
-    follows, so a line of tens of thousands of blanks and then a word is wrapped
-    from the row's start by each chunk of blanks: 10,000 took 298 ms, 20,000 1.2 s
-    and 40,000 5.6 s. Nothing real writes that, and trimming the run is not
-    byte-identical for free.
+  - **A run of blanks keeps its first `width` and its last (SIG-406, round 1).**
+    Blanks are pending until a word follows, so a line of blanks was wrapped from
+    its first by each chunk of them: 10,000 took 348 ms, 20,000 1.5 s and 40,000
+    4.7 s -- and so was anything that cleans down to a blank run, which is every
+    non-colour sequence between spaces, so a subprocess drawing with cursor and
+    erase sequences hit it with no newline in sight (`ESC[3 x ` repeated: 20,000
+    227 ms, 80,000 3.0 s; `ESC[ a `: 80,000 4.7 s). A run wider than the room is
+    dropped whole when a word follows, whatever its length, so `head` keeps the
+    first `width` blanks and replaces its last as each new one arrives; the text
+    stops growing and the unchanged text is not wrapped again. **The last, not
+    the second to last or any**: a mark after the run joins the blank beside it
+    into one cluster, which is not a blank, and the first clamp tried, a regex that kept
+    the first blanks and dropped the tail, gave 23 mismatches against the old build
+    where a dropped tab had been the one beside a following U+FE0F. 10,000, 40,000 and
+    80,000 blanks now take 5, 10 and 17 ms. Not applied inside a CSI that may yet
+    fail, whose blanks `watch()` counts.
+  - **The last text is compared whole, not by length.** `wrapped` was a length,
+    which holds while the text only grows. A clamped run keeps its length while
+    its last blank changes, and the text up to a blank loses the end of a CSI that
+    is not finished -- so a text of the same length as the last one wrapped was a
+    different text -- found by the differential at a width of 7.9, as a row that
+    came a chunk late.
+  - **An unfinished sequence is not read again until a chunk can end it.** An
+    OSC 52 in small chunks was tokenized from its start by every one: 17, 60 and
+    230 ms at 10,000, 20,000 and 40,000 characters, and the same for an OSC 8 or a
+    CSI of parameters. A line whose source is one sequence that has not ended is
+    still that sequence when the chunk has no terminator, no cancel and no `ESC`
+    (a string), or only more parameters, or only more intermediates (a CSI), so
+    it is not read, and 80,000 characters take 1 ms. Anything else is read as it
+    always was and the next chunk starts from what that found.
+  - **What is not linear.** A blank and a colour alternating are not a run of
+    blanks, and each chunk wraps the line again: `ESC[1m` between spaces for
+    20,000 characters takes 1.1 s and 40,000 4.3 s. And at a width of one, `日` and a
+    sequence repeated: every row starts with the sequences after a wide cluster,
+    which is where a cut cannot be made (`resumable()`), so nothing is cut and the
+    line is wrapped from its start by each chunk -- 5,000 characters 0.6 s, 10,000
+    2.6 s, 20,000 9.3 s. The second is the same on the build this replaced, and
+    neither is designed for here: one is a width nothing uses, and folding a blank
+    and a colour is not byte-identical for free.
 
 - **What is held back is exactly what could change.** Everything after the last
   space (a word that may be growing) and a trailing escape sequence the matcher

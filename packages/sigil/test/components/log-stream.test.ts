@@ -226,7 +226,8 @@ describe('a line that is cut off as its rows are handed out', () => {
   const FAMILY = [0x1f468, 0x1f469, 0x1f467].map((c) => String.fromCodePoint(c)).join(ZWJ);
   const FLAG = String.fromCodePoint(0x1f1fa, 0x1f1f8);
 
-  const CASES: Record<string, [string, number[]]> = {
+  // [what is streamed, the widths, and what `wrap()` is handed when that is not it]
+  const CASES: Record<string, [string, number[], string?]> = {
     'a long run of words': ['word '.repeat(60), [1, 7, 20, 80]],
     'words with several blanks and tabs between': [
       'aaa   bbb\t\tccc  ddd \teee    fff ggg hhh   iii',
@@ -267,15 +268,38 @@ describe('a line that is cut off as its rows are handed out', () => {
       [6, 9],
     ],
     'a width of one, over wide characters': [`日 a${ESC}[31m 日 ${ESC}[39mb c`, [1]],
+    'a run of blanks far wider than the line, between words': [
+      `aaa${' '.repeat(200)}bbb ccc${'\t'.repeat(50)}ddd${' \t'.repeat(40)}`,
+      [1, 4, 8, 80],
+    ],
+    'a run of blanks, and a mark after the last of it': [
+      `aaaa${' '.repeat(30)}\t\ufe0fbb cc${' '.repeat(9)}\u0301d`,
+      [3, 5, 8],
+    ],
+    'cursor sequences between the blanks of a run': [
+      `a ${`${ESC}[2K `.repeat(40)}b${` ${ESC}[3 x`.repeat(30)} c`,
+      [2, 5, 80],
+      `a ${' '.repeat(40)}b${' '.repeat(30)} c`,
+    ],
+    'an OSC 52 that is ended after many chunks': [
+      `copy ${ESC}]52;c;${'QUJD'.repeat(60)}\u0007 done ${ESC}]52;c;${'QUJD'.repeat(9)}${ESC}\\ ok`,
+      [4, 12],
+      'copy  done  ok',
+    ],
+    'a long CSI, ended by a final byte after many chunks': [
+      `x ${ESC}[${'1;'.repeat(40)}H y ${ESC}[${'2;'.repeat(30)} q z`,
+      [6, 11],
+      'x  y  z',
+    ],
   };
 
-  for (const [name, [text, widths]] of Object.entries(CASES)) {
+  for (const [name, [text, widths, plain]] of Object.entries(CASES)) {
     it(`should wrap exactly as wrap() does for ${name}`, () => {
       // what the stream drops, `wrap()` is handed already dropped
       const link = `${ESC}]8;;https://example.com${ESC}\\`;
       const unlink = `${ESC}]8;;${ESC}\\`;
       const expected = (width: number) =>
-        wrap(text.replaceAll(link, '').replaceAll(unlink, ''), width);
+        wrap(plain ?? text.replaceAll(link, '').replaceAll(unlink, ''), width);
 
       for (const width of widths) {
         for (const size of SIZES) {
@@ -365,6 +389,45 @@ describe('a line that is cut off as its rows are handed out', () => {
     expect(wrapper.push('\nc')).toEqual(['abc']);
     expect(wrapper.end()).toEqual(['c']);
     expect(run(40, [`abc ${ESC}[3\r\nc`])).toEqual(['abc', 'c']);
+  });
+
+  it('should drop a sequence that never ends, and keep what came before it', () => {
+    const wrapper = createStreamWrapper(20);
+    const given: string[] = [];
+
+    for (const piece of chop(`copy this ${ESC}]52;c;${'QUJD'.repeat(100)}`, 5)) {
+      given.push(...wrapper.push(piece));
+    }
+
+    expect(given).toEqual([]);
+    expect(wrapper.end()).toEqual(['copy this']);
+  });
+
+  it('should wrap what is after a sequence once a chunk ends it', () => {
+    const wrapper = createStreamWrapper(10);
+
+    expect(wrapper.push(`aaaa ${ESC}]52;c;QUJDQUJD`)).toEqual([]);
+    expect(wrapper.push('QUJD')).toEqual([]);
+    expect(wrapper.push(`\u0007bbbb cccc ${ESC}[1;`)).toEqual(['aaaa bbbb']);
+    expect(wrapper.push('2')).toEqual([]);
+    expect(wrapper.push('Hdddd')).toEqual([]);
+    expect(wrapper.end()).toEqual(['cccc dddd']);
+  });
+
+  // a text of the same length as the last one wrapped is not the same text: the
+  // blank run keeps its length while its last blank changes, and the text up to a
+  // blank loses the end of a CSI that is not finished. Found at a width of 7.9 by
+  // comparing every push, as a row that was given one chunk late
+  it('should wrap again when the text is as long as the last one wrapped and is not it', () => {
+    const wrapper = createStreamWrapper(7.9);
+    const parts = [
+      '[2K\b \b \u0007\t\u0007\u001b[2K\b   \t',
+      '\b \t \u0007\t     ',
+      '\b \b  \u00ad\u001b[0101100 \u001b[48;2;;0;0;0',
+    ];
+
+    expect(parts.map((part) => wrapper.push(part))).toEqual([[], [], ['[2K']]);
+    expect(wrapper.end()).toEqual(['\u00ad0101100']);
   });
 
   /** A text of words, blanks, colours and wide characters, from a seed. */

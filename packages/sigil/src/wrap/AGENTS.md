@@ -108,6 +108,22 @@ reopen travelling with its word.
   texts. The option gives the first line the room and the hanging indent of a row
   after the first; later lines of the text, after a newline, are paragraphs of
   their own as ever.
+- **An end past a newline is a paragraph, and `continued` is the wrong thing to
+  start it with.** A newline starts an input line, whose leading blanks are its
+  indentation, and `continued` is what says blanks in front of a first word are
+  what a break left behind. Round 1 of review ran 190,115 ends over every option
+  and found 337 that failed, all at a newline: `wrapRows('aaa\n   bbbbbbbbbbbb', 10)`
+  ends at 4, and `continued` from there drops the three blanks the paragraph was
+  indented by. The rule that holds is to wrap the rest **without** `continued`,
+  and it holds when there is no `hangingIndent`, checked over the same ends with
+  every width, `indent` and `hard`: the one difference left is a line of nothing
+  but blanks and sequences while a style is open, which the restart writes as the
+  style (the styling put in front of it is a trailing sequence) and `wrap()`
+  writes as an empty row. With a `hangingIndent` neither spelling is exact: the
+  paragraph's first row has the room and indent of a row after the first, which
+  is `continued`, and its blanks are indentation, which is not. So a caller with
+  one does not cut at a newline, which `createStreamWrapper()` never does -- its
+  text has none in it. The code was not changed; the contract was narrowed.
 - **One end cannot be started again, and the API does not hide it.** A word wider
   than the room is broken between clusters, and a cluster wider than the room --
   `日` at a width of one -- leaves the row over-full, so the zero-width sequences

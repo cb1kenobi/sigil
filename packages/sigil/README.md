@@ -2580,9 +2580,14 @@ const { rows, ends } = wrapRows('aaa bbb ccc ddd', 7);
 // the rest is 'ccc ddd', from ends[0]
 ```
 
-An end can be started again from unless the row after it begins with a sequence
-in the middle of a word, which only a character wider than the width can do. See
-`createStreamWrapper()` for the caller this is written for.
+An end can be started again from, with two exceptions. A row after a newline is a
+paragraph of its own: its leading blanks are indentation, so wrap it without
+`continued` -- which is exact when there is no `hangingIndent`, and with one
+neither spelling is, so wrap the whole text or cut inside a paragraph. And a row
+that begins with a sequence in the middle of a word can only be made by a
+character wider than the room (`日` where there is one column), and starting there
+reads the sequence as indentation. See `createStreamWrapper()` for the caller this
+is written for.
 
 ### `sigil/width`
 
