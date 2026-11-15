@@ -125,9 +125,9 @@ function encode(value: number): number {
  * Here rather than beside the interpolator for one reason: the forward matrix is
  * `oklab()` above, with its own entry about the `b` row's last coefficient, and a
  * pair of matrices that are supposed to be each other's inverse belong in one
- * place. `style/degrade.ts` re-exports it. Clamped on the way out, because a mix of two in-gamut colors can leave
- * the cube by a rounding error and `rgb()` refuses a channel rather than
- * clamping it.
+ * place. `style/degrade.ts` re-exports it. Clamped on the way out, because a mix
+ * of two in-gamut colors can leave the cube by a rounding error and `rgb()`
+ * refuses a channel rather than clamping it.
  *
  * @param lab - The Oklab coordinates.
  * @returns The sRGB channels, 0-255.

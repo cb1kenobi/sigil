@@ -162,11 +162,11 @@ export function quantizeColor(color: Color, level: ColorLevel): Color {
   // whatever the user's theme says they are -- so rewriting a declared `blue`
   // into the cube's #0000ff would override a choice they already made. Only a
   // colour the level *cannot* emit is matched, and only ever onto the fixed part
-  // of the palette
+  // of the palette.
   //
-  // the match is the one the styler asks for `ansi.rgb()`, which lives in
+  // The match is the one the styler asks for `ansi.rgb()`, which lives in
   // `ansi/quantize.ts` so that a declared color and a styled string cannot
-  // draw as two different colors
+  // draw as two different colors.
   if (level === 2 ? color < RGB_BASE : color < 16) {
     return color;
   }
