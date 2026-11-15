@@ -368,8 +368,8 @@ function mix(value: number): number {
  * by tile rank, which leaves ties within a rank in hash order and ties in the
  * hash in cell order. An insertion sort of each rank's bucket gave the same
  * answer and was quadratic in the bucket, which is `cells / 2048` for a large
- * rectangle and `cells / 32` for one a cell wide -- 1.8 seconds at 3000x1000 and
- * 1.4 seconds at 1x300000 -- so "constant per cell" was true only of terminals.
+ * rectangle and `cells / 32` for one a cell wide -- 866ms at 3000x1000 and
+ * 550ms at 1x300000, best of three -- so "constant per cell" was true only of terminals.
  *
  * Exported for the test that counts how often it reads the hash, which is the
  * clock-free way to say the work does not grow faster than the cells; it is not
@@ -450,7 +450,7 @@ export function orderCells(
  * would have across the seam, and repeating it across any rectangle is the same
  * pattern as the tile had inside. Building it is about 7ms, once per process, on
  * the first call; after that a mask costs `O(cells)` whatever the size and
- * whatever its shape, because the ordering is two radix passes and not a
+ * whatever its shape, because the ordering is a radix sort and not a
  * comparison sort.
  *
  * What the repeat costs is that the field is periodic: the same order recurs

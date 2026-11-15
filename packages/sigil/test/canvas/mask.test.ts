@@ -560,7 +560,7 @@ describe('a mask', () => {
     });
 
     it('should be no clumpier at a large size than at a small one', () => {
-      // the per-block variance is 0.74 at 32x16, 0.77 at 64x32 and 0.75 at
+      // the per-block variance is 0.74 at 32x16, 0.75 at 64x32 and 0.74 at
       // 240x70 -- the repeat does not accumulate into anything
       let large = 0;
       let shuffled = 0;
@@ -613,7 +613,7 @@ describe('a mask', () => {
       expect(new Set(origins.map((o) => o.join(','))).size).toBeGreaterThanOrEqual(10);
     });
 
-    it('should break ties between copies from the third draw, and only there', () => {
+    it('should break ties between copies from the third draw', () => {
       // above the tile a rank repeats, and the order of its copies is the salt.
       // Two generators with one window and different third draws must disagree,
       // and a generator that dropped the salt from the hash would not
@@ -631,10 +631,15 @@ describe('a mask', () => {
     it('should order cells in work that grows with the cells, whatever the buckets hold', () => {
       // an insertion sort of a rank's bucket is quadratic in it, which is
       // `cells / 2048` for a large rectangle and `cells / 32` for a thin one:
-      // 1.4 seconds at 1x300000. No clock, because a deadline flaked on CI
-      // (SIG-429): the hash is read through a proxy and the reads are counted. A
-      // radix sort reads each hash a fixed number of times, however many cells
-      // share a rank, and a sort that compares reads them again and again
+      // 550ms at 1x300000, best of three. No clock, because a deadline flaked on CI
+      // (SIG-429): the hash is read through a proxy and the reads are counted. The
+      // radix sort reads each hash exactly five times -- once for the histogram of
+      // all four digits and once per pass -- however many cells share a rank, and
+      // a sort that compares reads them again and again. The count is pinned
+      // rather than bounded so that a sort which copies the hash once and then
+      // sorts the copy, which reads it `size` times, fails too. What it cannot
+      // see is a sort that reads five times and is quadratic anyway: it counts
+      // reads through the argument and says nothing of what is done with them
       const size = 100_000;
       const ranks = new Uint16Array(size);
       for (let i = 0; i < size; i++) {
@@ -656,7 +661,7 @@ describe('a mask', () => {
         },
       });
       const order = orderCells(ranks, counted, size);
-      expect(reads).toBeLessThanOrEqual(6 * size);
+      expect(reads).toBe(5 * size);
       // and it is the order it says: by rank, then hash, then index
       for (let i = 1; i < size; i++) {
         const [p, q] = [order[i - 1], order[i]];

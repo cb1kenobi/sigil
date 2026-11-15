@@ -709,7 +709,8 @@ style sweep had to grow.
   thresholds are drawn from the whole rectangle uniformly, so they clump by chance.
   `blueNoiseMask()` is void-and-cluster (Ulichney 1993), which cannot clump,
   because a cell that would is exactly the one it ranks last.
-- **The difference is 0.813 against 4.250, and it is the only assertion that can
+- **The difference is 0.742 against 4.250 (0.813 for the untiled generator this
+  entry was first written for, before SIG-401), and it is the only assertion that can
   see it.** The mean variance of the per-block revealed count over 4x4 blocks at
   half the ramp, over eight seeds. Both generators lay the _same_ even ramp, so the
   histogram -- which is what catches a phase that ranked one cell twice -- cannot
@@ -737,7 +738,7 @@ style sweep had to grow.
   pattern across a seam as inside one -- measured, the per-block variance is 0.50
   for blocks straddling the seam and 1.07 for blocks inside, against 4.3 for a
   shuffle -- the order between those two is noise at 24 blocks a seed -- and it is
-  0.74 at 32x16, 0.77 at 64x32 and 0.75 at 240x70, so the repeat does not
+  0.74 at 32x16, 0.75 at 64x32 and 0.74 at 240x70, so the repeat does not
   accumulate. `should spread a step as evenly across a tile seam as it
   does inside one` is that, and it fails for a tile that clips at its edge
   (sabotaged: the stamp skipping what falls off the tile, which also fails the
@@ -784,9 +785,14 @@ style sweep had to grow.
   insertion sort produced: a differential over 957 masks (sizes from 1x1 to
   1x70000, three windows each) found **0 bytes different**. Measured after:
   **2.8 / 12.5 / 43ms** and **3.1ms**, about 10ns a cell at every shape. The
-  clock-free test reads the hash through a proxy and counts reads -- the radix
-  reads each at most five times however many cells share a rank, a comparison sort
-  reads them again and again -- and fails for the insertion sort restored.
+  clock-free test reads the hash through a proxy and counts reads, **pinned to
+  exactly five a cell** -- once for the histogram of all four digits and once per
+  pass, however many cells share a rank, where a comparison sort reads them again
+  and again. Pinned rather than bounded because a sort that copies the hash once and
+  sorts the copy reads it once a cell and beat a bound of six (a review's sabotage,
+  217ms); an exact count fails it. What it cannot see is a sort that reads five times
+  and is quadratic anyway: it counts reads through the argument and says nothing of
+  what is done with them.
 - **The caller's `Random` picks a window and an order among the copies, and not the
   tile -- so the number of distinct fields is bounded, and the bound is small.** At
   or below the tile's size no rank repeats, so the copy order does nothing and the
@@ -802,7 +808,8 @@ style sweep had to grow.
   `seeded()` is very nearly linear in its seed on its first draws: the first
   version scaled the second draw straight to a column, and seeds 1 to 12 started the
   tile at columns 1 to 12 -- one further along per seed -- and seeds 262 and 512
-  gave the same mask. Discarding the first draw only moved that, which is why it
+  gave the same mask at or below the tile's size (they differ at 80x24, where a rank repeats and the third draw's salt orders its
+  copies). Discarding the first draw only moved that, which is why it
   is gone; `should not start the tile one column further along for each small seed`
   fails for a direct scale with or without the discard. The salt is the third
   draw and is read by `should break ties between copies from the third draw`,
