@@ -112,7 +112,8 @@ reopen travelling with its word.
   start it with.** A newline starts an input line, whose leading blanks are its
   indentation, and `continued` is what says blanks in front of a first word are
   what a break left behind. Round 1 of review ran 190,115 ends over every option
-  and found 337 that failed, all at a newline: `wrapRows('aaa\n   bbbbbbbbbbbb', 10)`
+  and found 337 that failed at a newline (and 874 at the sequence-start class
+  below, which is not the newline's): `wrapRows('aaa\n   bbbbbbbbbbbb', 10)`
   ends at 4, and `continued` from there drops the three blanks the paragraph was
   indented by. The rule that holds is to wrap the rest **without** `continued`,
   and it holds when there is no `hangingIndent`, checked over the same ends with

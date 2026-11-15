@@ -78,6 +78,7 @@ describe('a line streamed in time linear in its length', () => {
     // a sequence that has not ended, as an OSC 52 in small chunks is
     ['an OSC 52 that does not end', (size) => `${ESC}]52;c;${'QUJD'.repeat(size / 4)}`],
     ['a CSI of parameters that does not end', (size) => `${ESC}[${'1;'.repeat(size / 2)}`],
+    ['a CSI of intermediates that does not end', (size) => `${ESC}[1${' '.repeat(size - 3)}`],
   ];
 
   it.each(SHAPES)('should read %s a constant number of times each', (_name, make) => {

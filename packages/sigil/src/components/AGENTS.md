@@ -7025,15 +7025,20 @@ changed.
     (a string), or only more parameters, or only more intermediates (a CSI), so
     it is not read, and 80,000 characters take 1 ms. Anything else is read as it
     always was and the next chunk starts from what that found.
-  - **What is not linear.** A blank and a colour alternating are not a run of
-    blanks, and each chunk wraps the line again: `ESC[1m` between spaces for
-    20,000 characters takes 1.1 s and 40,000 4.3 s. And at a width of one, `日` and a
+  - **What is not linear.** A row being built whose zero-width content grows
+    without bound -- colours, combining marks, zero-width spaces -- is read again
+    by each chunk, because nothing in it takes a column for the row to fill and
+    finish, and so is a single grapheme cluster that keeps growing. Measured, and
+    each as slow or slower on the build this replaced: a blank and a colour
+    alternating (`ESC[1m` between spaces, 20,000 characters 1.1 s, 40,000 4.3 s);
+    `a` and then U+0301 repeated, 4.6 s at 40,000; U+200B repeated and then spaces,
+    5.9 s at 320,000; `x` and then `ESC[1m` repeated and then spaces, 4.7 s at
+    320,000, and then ` \t`, 6.6 s at 80,000. And at a width of one, `日` and a
     sequence repeated: every row starts with the sequences after a wide cluster,
     which is where a cut cannot be made (`resumable()`), so nothing is cut and the
     line is wrapped from its start by each chunk -- 5,000 characters 0.6 s, 10,000
-    2.6 s, 20,000 9.3 s. The second is the same on the build this replaced, and
-    neither is designed for here: one is a width nothing uses, and folding a blank
-    and a colour is not byte-identical for free.
+    2.6 s, 20,000 9.3 s. None is designed for here: one is a width nothing uses,
+    and folding zero-width content is not byte-identical for free.
 
 - **What is held back is exactly what could change.** Everything after the last
   space (a word that may be growing) and a trailing escape sequence the matcher

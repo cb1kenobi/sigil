@@ -36,7 +36,14 @@
  */
 
 import { matcher, strip } from '../ansi/strip.js';
-import { createSgrState, isSgr, type Token, tokenize, wrapRows } from '../wrap/index.js';
+import {
+  createSgrState,
+  isBreakSpace,
+  isSgr,
+  type Token,
+  tokenize,
+  wrapRows,
+} from '../wrap/index.js';
 
 export interface StreamWrapper {
   /**
@@ -108,7 +115,7 @@ function incompleteAt(text: string): number {
  * @returns Whether a line may break here.
  */
 function isBlank(token: Token): boolean {
-  return token.type === 'cluster' && (token.text === ' ' || token.text === '\t');
+  return token.type === 'cluster' && isBreakSpace(token.text);
 }
 
 /**

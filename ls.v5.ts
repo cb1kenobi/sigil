@@ -36,7 +36,14 @@
  */
 
 import { matcher, strip } from '../ansi/strip.js';
-import { createSgrState, isSgr, type Token, tokenize, wrapRows } from '../wrap/index.js';
+import {
+  createSgrState,
+  isBreakSpace,
+  isSgr,
+  type Token,
+  tokenize,
+  wrapRows,
+} from '../wrap/index.js';
 
 export interface StreamWrapper {
   /**
@@ -108,7 +115,7 @@ function incompleteAt(text: string): number {
  * @returns Whether a line may break here.
  */
 function isBlank(token: Token): boolean {
-  return token.type === 'cluster' && (token.text === ' ' || token.text === '\t');
+  return token.type === 'cluster' && isBreakSpace(token.text);
 }
 
 /**
@@ -194,9 +201,11 @@ export function createStreamWrapper(width: number): StreamWrapper {
   // combining mark after a blank is not a blank) or complete a sequence, so it is
   // read again with whatever follows it, and what is before it is final
   let raw = '';
-  // how much of the text was wrapped last time, so that a chunk that settles
-  // nothing new wraps nothing
-  let wrapped = 0;
+  // the text that was wrapped last time, so that a chunk that settles nothing
+  // new wraps nothing. Compared whole and not by length: the text is not only
+  // appended to, since a run of blanks keeps its last blank and a sequence that is
+  // not finished takes its end back
+  let wrapped = '';
   // how many rows of the text being built have been handed out and are still in
   // it, because there was nowhere to cut them off
   let given = 0;
@@ -215,10 +224,15 @@ export function createStreamWrapper(width: number): StreamWrapper {
   let csi: 0 | 1 | 2 = 0;
   let csiLength = 0;
   let lostAtBlank = 0;
-  // how many blanks end `head`, and how many of them are worth keeping. A run of
-  // blanks wider than the room is dropped whole whatever its length when a word
-  // follows, so the only ones that can matter are the first few and the last,
-  // which is the one the next character is beside
+  // How many blanks end `head`, and how many of them are kept: the first `width`
+  // and the last. A run of blanks is pending until a word follows, and when it is
+  // wider than the room the word moves down and the run is dropped whatever its
+  // length, so past that only the last one can matter -- it is the one the next
+  // character is beside, and a mark after it joins it into a cluster that is not a
+  // blank. Without this a line of blanks is wrapped from its first by each chunk of
+  // them, and so is anything that cleans down to one: cursor and erase sequences
+  // between spaces. A blank and a colour alternating are not a run of blanks, and
+  // are still wrapped each time
   let blanks = 0;
   const room = Math.max(1, Math.ceil(width)) + 1;
   // what the line's raw source is, when it is one sequence that has not ended: a
@@ -288,7 +302,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
       head = '';
     }
     blanks = Math.min(blanks, head.length);
-    wrapped = text.length - at;
+    wrapped = text.slice(at);
     cut = true;
   };
 
@@ -309,7 +323,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
     raw = '';
     unfinished = undefined;
     blanks = 0;
-    wrapped = 0;
+    wrapped = '';
     given = 0;
     cut = false;
     blankCut = true;
@@ -361,7 +375,7 @@ export function createStreamWrapper(width: number): StreamWrapper {
 
         if (tail === '' && csi === 0 && blanks >= room) {
           // the run is as long as it needs to be, so this one takes the place of
-          // the last: it is the one that is beside whatever comes next
+          // the last. Not inside a CSI that may yet fail, whose blanks are counted
           head = head.slice(0, -1) + blank;
         } else {
           head += tail + blank;
@@ -403,11 +417,11 @@ export function createStreamWrapper(width: number): StreamWrapper {
 
     text = text.slice(0, text.length - lostAtEnd);
 
-    if (text === '' || text.length === wrapped) {
+    if (text === '' || text === wrapped) {
       return [];
     }
 
-    wrapped = text.length;
+    wrapped = text;
     const open = state.open();
     const { ends, rows } = lines(open, text);
 
