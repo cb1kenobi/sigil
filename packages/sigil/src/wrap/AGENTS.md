@@ -82,3 +82,40 @@ reopen travelling with its word.
   still leaves one column, as `should leave one column when the indent takes the
   whole width` records, because that is the caller's own prefix rather than the
   text's.
+
+### `wrapRows()`: where a row ended, and the text that follows it (SIG-406)
+
+- **It is `wrap()`, with the offsets kept.** `wrap()` and `wrapRows()` are one
+  function, `layout()`, and `wrap()` passes it nowhere to record them: a second
+  walk that found where rows break would be a second idea of where rows break,
+  and `createStreamWrapper()` was the caller that needed the first one's answer.
+  Ordinary calls pay for one addition per token; `wrap()` of a 4,000-line text and
+  of a 65-character line measured the same before and after (24.8 and 23.9 ms,
+  67 and 66 ms per 20,000 calls).
+- **An end is where the next row's text begins, not where this one's stopped.**
+  `ends[i]` is past the blanks the break dropped, so `text.slice(ends[i])` starts
+  on the first thing row `i + 1` takes -- a word, or a cluster inside one that was
+  broken. A row that ends at a newline ends past it (a CRLF included), and the
+  last row at `text.length`. The sequences a row passed, in its text or in the gap
+  dropped after it, are all before its end, so applying them to a `createSgrState()`
+  gives the styling the next row opens with.
+- **`continued` is what makes the rest of a wrap wrap as the rest of it.** A text
+  whose first row takes no columns -- a combining mark with nothing to sit on, a
+  zero-width space -- followed by blanks is a row with indentation, and the same
+  characters after a break are the blanks the break left, which are dropped.
+  Starting the rest afresh read them as indentation and wrote them, which the
+  differential check against the old stream wrapper found on its first thousand
+  texts. The option gives the first line the room and the hanging indent of a row
+  after the first; later lines of the text, after a newline, are paragraphs of
+  their own as ever.
+- **One end cannot be started again, and the API does not hide it.** A word wider
+  than the room is broken between clusters, and a cluster wider than the room --
+  `日` at a width of one -- leaves the row over-full, so the zero-width sequences
+  after it are what the next row starts with: written, inline, in the word. A text
+  that starts there has them before a blank and a word, as indentation, which is
+  opened from rather than written. Same row, other bytes, so a caller that wants
+  byte-identical output must not cut there: the stream wrapper asks
+  `resumable()` and goes back to the row before. Likewise a sequence `wrap()`
+  cannot reopen, an OSC 8 hyperlink, travels in front of the word after a break
+  (the entry in the root file) and a restart at the word leaves it behind; the
+  stream wrapper has cleaned those away before it wraps, so it never meets one.

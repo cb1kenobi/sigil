@@ -6936,14 +6936,71 @@ changed.
   wrapped line, through the same `writeStatus()` as `log.info()` -- no new terminal
   seam. The cost is that a line appears when it is full and not word by word; the
   alternative needs the terminal to know about a cursor parked mid-row.
-- **Wrapping calls `wrap()`.** `createStreamWrapper()` re-wraps the line being
-  built on every chunk and returns the lines that cannot change: `wrap()` is
-  greedy, so every line but the last is final however much follows. A second
-  wrapper whose idea of a break could drift from the first's was the thing to
-  avoid, and the price is a re-wrap per chunk of one line (a paragraph, since a
-  newline in the text ends it). `test/components/log-stream.test.ts` asserts the
-  joined output equals `wrap(whole text)` for chunk sizes from 1 up, plain and
-  styled.
+- **Wrapping calls `wrap()`.** `createStreamWrapper()` wraps the line being built
+  and returns the lines that cannot change: `wrap()` is greedy, so every line but
+  the last is final however much follows. A second wrapper whose idea of a break
+  could drift from the first's was the thing to avoid, so there is still one.
+  `test/components/log-stream.test.ts` asserts the joined output equals
+  `wrap(whole text)` for chunk sizes from 1 up, plain and styled, and for a few
+  thousand random texts.
+
+  **It used to re-wrap the whole line on every chunk, and that was recorded as a
+  price for "a paragraph", with no measurement (SIG-406).** One line of `word `
+  pushed in five-character chunks at width 80 took **1,661 ms** at 10,000
+  characters, **6,099 ms** at 20,000 and **24,354 ms** at 40,000, and the next
+  doubling did not finish in 120 s: quadratic, since each chunk re-tokenized and
+  re-wrapped the line from its start and skipped the rows it had already given by
+  count. A newline ends a paragraph, but a model's output without newlines and a
+  minified JSON document are one line of any length.
+
+  What replaced it is the cut: `wrapRows()` reports where each row ended
+  (`src/wrap`), so once a row is final it is dropped from the front of the line
+  and what is wrapped next is the row still being built and what has arrived.
+  The styling the dropped rows left in effect is walked into the stream's own
+  `createSgrState()` and put in front of the rest, the way a newline already
+  carried it. The line is held as the _cleaned_ text of the tokens read, in two
+  strings -- `head`, up to the last blank, which is as far as anything is wrapped,
+  and `tail`, the word after it -- plus the raw source from the last token read,
+  which is read again with every chunk because a chunk can change it (a combining
+  mark after a blank; a sequence completed). So a chunk is tokenized from that
+  token on and a long word with no blank in it costs what it is long. Measured by
+  characters passed to the wrapper and the tokenizer, which is the same on every
+  machine, the cost is **eight times** at eight times the text for words,
+  coloured words, wide characters, long words, a minified document and a single
+  word; wall clock for the same line at 10k, 20k, 40k, 80k, 160k and 320k is 13,
+  18, 31, 56, 110 and 220 ms. `test/components/log-stream-linear.test.ts` counts
+  rather than times, for the reason SIG-429 gives for `highlightCode()`.
+
+  **Byte-identical to what it replaced, which is what made the cut hard rather
+  than the reason to do it.** Checked against the old build over 150,000 random
+  texts and chunkings, comparing what every single `push()` returned, and the
+  differences it found each became a rule below rather than a tolerance:
+  - **The rest is `continued`.** A text that starts with something that takes no
+    columns and then a blank run is a row with indentation; the rest of a row that
+    started that way has the blanks a break leaves behind, which are dropped.
+    `wrapRows(text, { continued: true })` is what says which one it is.
+  - **A cut is not made in front of a sequence.** At a width of one a wide
+    character is wider than the room, and the sequences after it open the next row
+    where they are, written and in the word they were in. Started there they are
+    indentation, which `wrap()` opens the row from and does not write: the same
+    row in other bytes. `resumable()` refuses that end and the cut goes back to the
+    row before; the rows between are held as given (`given`), which is the old
+    count and now almost always zero.
+  - **The text up to a blank is read on its own.** `ESC[3 ` is a whole sequence
+    where the text ends and `ESC[` and text where a no-break space follows it, so
+    the settled text -- cleaned from the start up to the last blank, as it always
+    was -- loses `3 ` and the line read at its end keeps it. That is not a
+    chunking artifact to fix: the rows given early are the rows this has always
+    given. `watch()` follows the bare opener, its parameters and its blanks so the
+    text can be shortened by what the prefix would have swallowed; a CR before a
+    newline is the other way to end a line in the middle of one, handled where
+    the newline is.
+  - **What is not fixed is a run of blanks.** Blanks are pending until a word
+    follows, so a line of tens of thousands of blanks and then a word is wrapped
+    from the row's start by each chunk of blanks: 10,000 took 298 ms, 20,000 1.2 s
+    and 40,000 5.6 s. Nothing real writes that, and trimming the run is not
+    byte-identical for free.
+
 - **What is held back is exactly what could change.** Everything after the last
   space (a word that may be growing) and a trailing escape sequence the matcher
   cannot yet match (`ESC[3`). The state of the SGR carries across a finished line

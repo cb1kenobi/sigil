@@ -77,6 +77,18 @@ function positive(value: string | number | undefined): number | undefined {
 
 export interface WrapOptions {
   /**
+   * Whether the text is what is left of a longer one after a row that ended where
+   * `wrapRows()` said it did, rather than a text of its own. Off by default.
+   *
+   * Its first line is then the next row of that wrap and not the first line of
+   * anything: it has the room and the hanging indent a row after the first has,
+   * and the blanks in front of its first word are not indentation, since what
+   * dropped the ones a break leaves behind was the break. Without it the same
+   * text wraps as a new one would -- a row that starts with something that takes
+   * no columns, and a blank run after it, is a line of indentation.
+   */
+  continued?: boolean;
+  /**
    * Whether to break a word too long for a line of its own. On by default: a
    * path or a URL longer than the terminal is wide is the case that makes this
    * matter, and letting it run past the edge is what wrapping was supposed to
@@ -134,8 +146,66 @@ export interface WrapOptions {
  * @returns The wrapped text.
  */
 export function wrap(text: string, opts: WrapOptions | number = {}): string {
+  return layout(text, opts).join('\n');
+}
+
+/** The rows of a wrap, and where in the text each one stopped. */
+export interface WrappedRows {
+  /**
+   * For each row, the offset into the text where the next row's input begins:
+   * just past everything the row took **and** the blanks the break after it
+   * dropped, so `text.slice(ends[i])` is what is left to wrap and starts on the
+   * first thing row `i + 1` takes. A row that ends where a newline was ends
+   * past the newline, and the last row ends at `text.length`.
+   *
+   * A word too long for a line is broken between clusters, so a row can end
+   * inside a word. The sequences a row passed -- among its own text, and in the
+   * blanks dropped after it -- are all before its end, so applying every
+   * sequence in `text.slice(0, ends[i])` to a `createSgrState()` gives the
+   * styling row `i + 1` opens with.
+   */
+  ends: number[];
+  /** The rows, exactly as `wrap()` joins them: `rows.join('\n') === wrap(text, opts)`. */
+  rows: string[];
+}
+
+/**
+ * Wraps text like `wrap()` and says where in the text each row stopped.
+ *
+ * The same walk with its offsets kept rather than thrown away, so there is one
+ * wrapper and the answer to "where did that row end" cannot disagree with where
+ * it was broken. What it is for is text that arrives in pieces: a row that is not
+ * the last can no longer change, so everything before its `end` can be dropped
+ * and the rest wrapped on its own, in a time that does not grow with how much has
+ * come before.
+ *
+ * Only `text.slice(ends[i])` wrapped afresh agrees with the rest of this wrap
+ * when the blanks dropped at a break carried nothing but styling. A sequence
+ * `wrap()` cannot reopen -- an OSC 8 hyperlink -- travels with the word after the
+ * break, and resuming at the word leaves it behind.
+ *
+ * @param text - The text to wrap.
+ * @param opts - The width to wrap at, or the options.
+ * @returns The rows and the offset each one ends at.
+ */
+export function wrapRows(text: string, opts: WrapOptions | number = {}): WrappedRows {
+  const ends: number[] = [];
+  const rows = layout(text, opts, ends);
+
+  return { ends, rows };
+}
+
+/**
+ * The rows `wrap()` joins, optionally with where each one ended.
+ *
+ * @param text - The text to wrap.
+ * @param opts - The width to wrap at, or the options.
+ * @param ends - Where to record each row's end, when a caller wants them.
+ * @returns The rows, indentation included.
+ */
+function layout(text: string, opts: WrapOptions | number, ends?: number[]): string[] {
   const settings = typeof opts === 'number' ? { width: opts } : opts;
-  const { hard = true, hangingIndent = 0, indent = 0 } = settings;
+  const { continued = false, hard = true, hangingIndent = 0, indent = 0 } = settings;
 
   const first = prefix(indent);
   const rest = first + prefix(hangingIndent);
@@ -147,7 +217,8 @@ export function wrap(text: string, opts: WrapOptions | number = {}): string {
   // number is not a width, and nor is one that holds nothing, so both are
   // answered the way `truncate()` answers them
   if (!(limit > 0)) {
-    return '';
+    ends?.push(text.length);
+    return [''];
   }
 
   // an indent as wide as the width leaves nowhere to put the text, and one
@@ -160,20 +231,36 @@ export function wrap(text: string, opts: WrapOptions | number = {}): string {
   const state = createSgrState();
   const lines: string[] = [];
 
-  for (const line of text.split(/\r?\n/)) {
+  // the lines are what `split(/\r?\n/)` would give, found by hand so that each
+  // one's offset is known: a `\r` is half of a line break only in front of `\n`
+  for (let base = 0; ;) {
+    // only the first of them is where the text was cut, and it is where the room
+    // and the indentation of a row after the first apply
+    const resumed = continued && lines.length === 0;
+    const newline = text.indexOf('\n', base);
+    const stop = newline === -1 ? text.length : newline;
+    const lineEnd = newline !== -1 && stop > base && text[stop - 1] === '\r' ? stop - 1 : stop;
+
     wrapLine(
-      tokenize(line),
-      lines.length === 0 ? firstRoom : restRoom,
+      tokenize(text.slice(base, lineEnd)),
+      lines.length === 0 && !continued ? firstRoom : restRoom,
       restRoom,
       hard,
       state,
-      lines
+      lines,
+      ends && { base, ends, next: newline === -1 ? text.length : newline + 1 },
+      !resumed
     );
+
+    if (newline === -1) {
+      break;
+    }
+    base = newline + 1;
   }
 
-  return lines
-    .map((line, index) => (line === '' ? '' : (index === 0 ? first : rest) + line))
-    .join('\n');
+  return lines.map((line, index) =>
+    line === '' ? '' : (index === 0 && !continued ? first : rest) + line
+  );
 }
 
 /**
@@ -191,6 +278,12 @@ export function wrap(text: string, opts: WrapOptions | number = {}): string {
  * @param hard - Whether to break a word too long for a line.
  * @param state - The styling in effect, carried in and out.
  * @param lines - The output lines to append to.
+ * @param marks - Where the line sits in the text and where to record each row's
+ *   end, for a caller that wants them: `base` is the offset of its first
+ *   character, `next` the offset where the line after it begins, and `ends`
+ *   the list to append to.
+ * @param atStart - Whether the line starts a paragraph, so that its leading
+ *   blanks are indentation.
  */
 function wrapLine(
   tokens: Token[],
@@ -198,7 +291,9 @@ function wrapLine(
   rest: number,
   hard: boolean,
   state: SgrState,
-  lines: string[]
+  lines: string[],
+  marks: { base: number; ends: number[]; next: number } | undefined,
+  atStart: boolean
 ): void {
   let room = first;
   let used = 0;
@@ -206,7 +301,7 @@ function wrapLine(
   // whether the output line being built is also the start of the input line.
   // Leading spaces there are the text's own indentation and are kept; the same
   // spaces after a break are what the break left behind, and are dropped.
-  let atLineStart = true;
+  let atLineStart = atStart;
   // captured when the line takes its first token, because that is when the
   // styling it has to reopen is known. A line with no content opens nothing and
   // closes nothing.
@@ -224,6 +319,11 @@ function wrapLine(
   // moves to the next line takes its own styling along.
   let word: Token[] = [];
   let wordWidth = 0;
+  // the offset of the token being read, and of the word's first cluster: where
+  // the next row starts when the word moves down, and the base of the walk
+  // through it when it is broken
+  let at = marks?.base ?? 0;
+  let wordAt = at;
 
   /** Writes tokens to the current line, and lets their styling take effect. */
   const emit = (list: Token[]) => {
@@ -240,8 +340,13 @@ function wrapLine(
     }
   };
 
-  /** Ends the current line, closing whatever it left open. */
-  const endLine = () => {
+  /**
+   * Ends the current line, closing whatever it left open.
+   *
+   * @param next - The offset where the line after it begins.
+   */
+  const endLine = (next: number) => {
+    marks?.ends.push(next);
     lines.push(started ? opened + content + state.close() : '');
     content = '';
     opened = '';
@@ -286,11 +391,14 @@ function wrapLine(
 
   /** Writes a word too long for one line, breaking between clusters. */
   const emitBroken = () => {
+    let here = wordAt;
+
     for (const token of word) {
       if (used > 0 && used + token.width > room) {
-        endLine();
+        endLine(here);
       }
       emit([token]);
+      here += token.text.length;
     }
   };
 
@@ -309,7 +417,7 @@ function wrapLine(
       // there is something to break away from, so the word moves down whole.
       // What the gap carried that the state cannot reopen goes down with it,
       // in front of the word it applies to
-      endLine();
+      endLine(wordAt);
       emit(dropPending());
       if (hard && wordWidth > room) {
         emitBroken();
@@ -353,6 +461,9 @@ function wrapLine(
   };
 
   for (const token of tokens) {
+    const here = at;
+    at += token.text.length;
+
     if (token.type === 'sequence') {
       if (word.length === 0) {
         pending.push(token);
@@ -371,6 +482,9 @@ function wrapLine(
       continue;
     }
 
+    if (word.length === 0) {
+      wordAt = here;
+    }
     word.push(token);
     wordWidth += token.width;
   }
@@ -393,6 +507,7 @@ function wrapLine(
   const closing = state.close();
   dropPending();
 
+  marks?.ends.push(marks.next);
   lines.push(
     started || trailing !== '' ? opened + content + (state.active ? closing : '') + trailing : ''
   );
