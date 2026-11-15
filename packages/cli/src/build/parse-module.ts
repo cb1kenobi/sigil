@@ -73,7 +73,7 @@ export interface Position {
 }
 
 /**
- * Every module read so far, one entry per path.
+ * Every module read so far: for each path, a tree per source it was read as.
  *
  * A build reads one module from several passes -- discovery, the static lift,
  * the settings and update-check reads, the tree, the i18n scan, the utility
@@ -91,16 +91,24 @@ export interface Position {
  * only one whose result is kept. `parses()` and `parseTree()` below call
  * `parseSync()` too, `parseTree()` with options, and keep nothing.
  *
- * One entry per path, so a source that changed **replaces** the tree it had
- * rather than sitting beside it, and `forgetParsedModules()` empties it at the
- * start of each build -- so what a long-lived process holds is one app's
- * trees, never every version of every app it has built.
+ * Every source a path was read as is kept **for the build**, so a source that
+ * changed sits beside the tree it had rather than replacing it. The template
+ * compile rewrites a module and the passes after it parse what it wrote, while
+ * the utility scan reads every file as the disk holds it, and rolldown
+ * transforms modules concurrently -- so whether the scan comes before or after
+ * a rewrite is not fixed, and one entry per path made the second order parse
+ * the original again. `forgetParsedModules()` empties it at the start of each
+ * build, so what a long-lived process holds is one app's trees, never every
+ * version of every app it has built. In a build a path has a second source only
+ * where a pass hands this a rewrite of it, which is `shakeStyles()` alone; a
+ * caller outside a build that hands one path several sources keeps all of them
+ * until the next `forgetParsedModules()`.
  *
  * Sharing a tree is sound only because no reader writes to one. That was
  * checked rather than assumed: every tree was deep-frozen and the toolchain's
  * whole suite run, and nothing threw. AGENTS.md has the entry.
  */
-const parsedModules = new Map<string, ParsedModule>();
+const parsedModules = new Map<string, ParsedModule[]>();
 
 /**
  * Forgets every module read so far.
@@ -127,8 +135,9 @@ export function forgetParsedModules(): void {
  *   throws again.
  */
 export function parseModule(file: string, source: string): ParsedModule {
-  const cached = parsedModules.get(file);
-  if (cached?.source === source) {
+  const kept = parsedModules.get(file);
+  const cached = kept?.find((one) => one.source === source);
+  if (cached) {
     return cached;
   }
 
@@ -152,7 +161,11 @@ export function parseModule(file: string, source: string): ParsedModule {
     source,
   };
 
-  parsedModules.set(file, parsed);
+  if (kept) {
+    kept.push(parsed);
+  } else {
+    parsedModules.set(file, [parsed]);
+  }
   return parsed;
 }
 
