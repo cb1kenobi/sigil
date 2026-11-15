@@ -776,12 +776,15 @@ the absence here is settled rather than pending.
     itself is the cost "`ESCAPE_TIMEOUT` still owns a half-arrived CSI" already
     accepts. A run of ESC bytes is decoded the way it was -- the outer ESC is Alt
     over whatever the inner read is -- so `ESC ESC [` flushed is now Alt-`[` and
-    `ESC ESC [ [ A` is Alt-F1. How consecutive ESCs nest is SIG-408's question,
-    and a late capability reply split mid-payload is SIG-403's; both will
-    interact with this reading rather than being settled by it.
+    `ESC ESC [ [ A` is Alt-F1. How consecutive ESCs nest was left to SIG-408, which
+    settled it by changing nothing: a run collapses to one Alt wrap over the last
+    ESC's reading, in a loop rather than a recursion (see "A run of `ESC` bytes is
+    counted in a loop" in `src/components/AGENTS.md`). A late capability reply
+    split mid-payload is SIG-403's, and will interact with this reading rather
+    than being settled by it.
   - **`ESC [ [ A` to `ESC [ [ E` are the Linux console's F1 to F5.** The CSI
     reader takes the second `[` as a final byte, so F1 was an unknown sequence and
-    a literal `A` typed into the field. `readEscape()` reads one more byte after
+    a literal `A` typed into the field. `readEscapeAt()` reads one more byte after
     `ESC [ [` and names A to E from `LINUX_CONSOLE`, a table beside `SEQUENCES`
     that `KEY_NAMES` also reads (its names were already there). With nothing after
     the second `[` yet, the sequence is pending, so a split read holds it like any
