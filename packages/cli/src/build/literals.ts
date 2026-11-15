@@ -141,19 +141,26 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  * description the build can read or waves through one the runtime refuses
  * (SIG-421). So a computed key that is a literal may replace only the key it
  * converts to -- `[1]` and `[1n]` are `"1"`, `[true]` is `"true"`, `[null]` is
- * `"null"`, `[/a/g]` is `"/a/g"` -- and a spread may replace only what its operand can carry: an
- * object literal what it carries, read through its own spreads; an array, a
- * string or a template literal its indices and nothing else -- an array only
- * when no element is itself a spread; and any other literal, or `undefined`,
- * nothing at all.
+ * `"null"`, `[/a/g]` is `"/a/g"` -- and a symbol (`[Symbol.for('x')]`,
+ * `[Symbol.iterator]`) is never a string key at all (SIG-433). A spread may
+ * replace only what its operand can carry: an object literal what it carries,
+ * read through its own spreads; an array, a string or a template literal its
+ * indices and nothing else -- an array only when no element is itself a spread;
+ * any other literal, or `undefined`, nothing at all; and a conditional or a
+ * logical expression what its arms can carry, so `...(on && { hidden: true })`
+ * and `...(on ? { hidden: false } : {})` carry `hidden` and nothing else.
  *
  * **Literals are read and expressions are not evaluated.** A spread of a name,
- * a call, or a conditional, logical or sequence expression -- even one whose
- * arms are all literals -- and a key computed by an expression, `['de' +
- * 'sc']`, may carry anything. That costs only a warning where a bake was
- * possible, and never bakes a wrong value. A call is not looked through here,
+ * a call, a member or a sequence expression, and a key computed by an
+ * expression, `['de' + 'sc']`, may carry anything -- and a conditional whose
+ * arm is one of those carries anything too, since what is read is the arms and
+ * the test is not. That costs a warning where a bake was possible, and an error
+ * where the key is one a built app cannot be wrong about (`name`, `path`,
+ * `load`), and never bakes a wrong value. A call is not looked through here,
  * even the single-argument one `objectLiteral()` unwraps: a wrapper adding a
- * `desc` is exactly the case this question exists for.
+ * `desc` is exactly the case this question exists for. Resolving a name to the
+ * literal it was declared as is SIG-440, and wants a guard against a mutation
+ * between the declaration and the spread before it can be trusted.
  *
  * A plain property is not asked about: its key is its own, and the caller
  * reads it by name.
@@ -164,41 +171,100 @@ export function plainProperty(object: ObjectExpression, name: string): ObjectPro
  */
 export function mayCarry(property: ObjectExpression['properties'][number], key: string): boolean {
   if (property.type === 'SpreadElement') {
-    const spread = unwrapShallow(property.argument);
-
-    switch (spread.type) {
-      case 'ObjectExpression':
-        return spread.properties.some((inner) =>
-          inner.type === 'SpreadElement' || inner.computed
-            ? mayCarry(inner, key)
-            : propertyKey(inner) === key
-        );
-      case 'ArrayExpression':
-        // an array copies its indices and nothing else -- unless an element
-        // is itself a spread, which is an expression rather than a literal and
-        // so is not read: `[...null]` throws when the object is evaluated
-        return (
-          spread.elements.some((element) => element?.type === 'SpreadElement') || INDEX.test(key)
-        );
-      case 'TemplateLiteral':
-        // ...and so does a string
-        return INDEX.test(key);
-      case 'Literal':
-        // ...and so does a string literal, while a primitive copies nothing:
-        // `null`, a boolean, a number, a bigint, and a regular expression,
-        // whose one own property is `lastIndex`, which does not enumerate
-        return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
-      default:
-        return !isUndefined(spread);
-    }
+    return carries(property.argument, key);
   }
 
   if (!property.computed) {
     return false;
   }
 
+  if (isSymbol(property.key as Expression)) {
+    return false;
+  }
+
   const name = literalKey(property.key as Expression);
   return name === undefined || name === key;
+}
+
+/**
+ * Whether spreading an expression may set `key`: what `mayCarry()` asks of a
+ * spread, and of each arm of one that chooses between operands.
+ *
+ * @param node - The operand of the spread.
+ * @param key - The key in question.
+ * @returns Whether it may.
+ */
+function carries(node: Expression, key: string): boolean {
+  const spread = unwrapShallow(node);
+
+  switch (spread.type) {
+    case 'ObjectExpression':
+      return spread.properties.some((inner) =>
+        inner.type === 'SpreadElement' || inner.computed
+          ? mayCarry(inner, key)
+          : propertyKey(inner) === key
+      );
+    case 'ArrayExpression':
+      // an array copies its indices and nothing else -- unless an element
+      // is itself a spread, which is an expression rather than a literal and
+      // so is not read: `[...null]` throws when the object is evaluated
+      return (
+        spread.elements.some((element) => element?.type === 'SpreadElement') || INDEX.test(key)
+      );
+    case 'TemplateLiteral':
+      // ...and so does a string
+      return INDEX.test(key);
+    case 'Literal':
+      // ...and so does a string literal, while a primitive copies nothing:
+      // `null`, a boolean, a number, a bigint, and a regular expression,
+      // whose one own property is `lastIndex`, which does not enumerate
+      return typeof spread.value === 'string' && !('regex' in spread) && INDEX.test(key);
+    case 'ConditionalExpression':
+      // the test is never spread, only whichever arm it picks
+      return carries(spread.consequent, key) || carries(spread.alternate, key);
+    case 'LogicalExpression':
+      // `a && b` is `b` or a falsy `a`, and a falsy value copies nothing --
+      // `false`, `0`, `''`, `null` and `undefined` have no own string keys --
+      // while `a || b` and `a ?? b` may be either operand
+      return spread.operator === '&&'
+        ? carries(spread.right, key)
+        : carries(spread.left, key) || carries(spread.right, key);
+    default:
+      return !isUndefined(spread);
+  }
+}
+
+/**
+ * Whether a computed key is a symbol -- `Symbol.iterator`, `Symbol('x')`,
+ * `Symbol.for('x')` -- which is never `name`, `path` or any other string.
+ *
+ * Read by shape, as the rest here is: `Symbol` is taken to be the global one.
+ *
+ * @param node - The expression inside the brackets.
+ * @returns Whether it is one.
+ */
+function isSymbol(node: Expression): boolean {
+  const value = unwrapShallow(node);
+  const isGlobal = (candidate: Expression) =>
+    candidate.type === 'Identifier' && candidate.name === 'Symbol';
+
+  if (value.type === 'MemberExpression') {
+    return isGlobal(value.object) && !value.computed;
+  }
+
+  if (value.type === 'CallExpression') {
+    const callee = unwrapShallow(value.callee);
+    return (
+      isGlobal(callee) ||
+      (callee.type === 'MemberExpression' &&
+        isGlobal(callee.object) &&
+        !callee.computed &&
+        callee.property.type === 'Identifier' &&
+        callee.property.name === 'for')
+    );
+  }
+
+  return false;
 }
 
 /** The order `RegExp.prototype.flags` lists flags in, which is what `String()` prints. */
@@ -230,6 +296,66 @@ function literalKey(node: Expression): string | undefined {
   return value.value === null || typeof value.value !== 'object' ? String(value.value) : undefined;
 }
 
+/** A property of an object literal, or a spread. */
+export type Member = ObjectExpression['properties'][number];
+
+/**
+ * An object literal's members as the object it evaluates to would list them:
+ * a spread of an object literal is replaced by what the literal holds, as far
+ * down as it goes, and a computed key written as a string is the plain key.
+ *
+ * Reading a literal is not evaluating one. `{ ...{ path: './a.js' }, ['name']:
+ * 'a' }` is `{ path: './a.js', name: 'a' }` whatever runs it, so a reader that
+ * asks what an object spells should be asked of this list and not of the source
+ * (SIG-433, SIG-434). What stays a spread is what is not a literal -- a name, a
+ * call, a member, an import, a conditional whose arms are not all literals --
+ * and what stays computed is a key that is not a string: `[key]`, `['de' +
+ * 'sc']`, `[1]`, a symbol. Those are the members `mayCarry()` is asked about.
+ *
+ * The members are the source's own nodes, except a computed key that was
+ * rewritten to the plain one, so a position taken from one is the source's.
+ *
+ * @param object - The object literal.
+ * @returns Its members, in the order the object has them.
+ */
+export function flatten(object: ObjectExpression): Member[] {
+  const members: Member[] = [];
+
+  for (const member of object.properties) {
+    if (member.type === 'SpreadElement') {
+      const inner = unwrapShallow(member.argument);
+      if (inner.type === 'ObjectExpression') {
+        members.push(...flatten(inner));
+      } else {
+        members.push(member);
+      }
+      continue;
+    }
+
+    // `['path']` is `path`: a key somebody wrote as a string is a key, and
+    // `propertyKey()` leaves a computed one `undefined` only because it cannot
+    // tell this from `[key]`, which this can
+    const text = member.computed ? literalString(member.key as Expression) : undefined;
+    members.push(
+      text === undefined
+        ? member
+        : ({
+            ...member,
+            computed: false,
+            key: { ...member.key, raw: JSON.stringify(text), type: 'Literal', value: text },
+          } as ObjectProperty)
+    );
+  }
+
+  return members;
+}
+
+/** What a reader of an object's members may be handed: the literal or its list. */
+type Members = ObjectExpression | readonly Member[];
+
+const membersOf = (members: Members): readonly Member[] =>
+  'properties' in members ? members.properties : members;
+
 /**
  * Where the last property that may set `key` without spelling it sits -- a
  * spread or a computed key that `mayCarry()` says may carry it.
@@ -238,13 +364,15 @@ function literalKey(node: Expression): string | undefined {
  * object-literal order is what the module runs with and that property may
  * replace it. One function for the module lift and the placeholder read, so
  * the two cannot come to disagree about which spelling is the one that runs.
+ * Both hand it `flatten()`'s list, so a spread of an object literal is what it
+ * holds wherever it is asked.
  *
- * @param object - The object literal.
+ * @param object - The object literal, or its flattened members.
  * @param key - The key in question.
  * @returns Its index, or `-1` where nothing may replace the key.
  */
-export function lastReplacing(object: ObjectExpression, key: string): number {
-  return object.properties.findLastIndex((property) => mayCarry(property, key));
+export function lastReplacing(object: Members, key: string): number {
+  return membersOf(object).findLastIndex((property) => mayCarry(property, key));
 }
 
 /**
@@ -257,25 +385,37 @@ export function lastReplacing(object: ObjectExpression, key: string): number {
  * `desc` beside one is reported, and on a placeholder a key a spread may carry
  * is the placeholder's rather than the module's, since the runtime merges the
  * module in only where the placeholder's key is `undefined` (SIG-421). Spreads
- * only: a computed key beside an absent key is not reported, as it never was.
+ * only, unless asked: a computed key beside an absent key is not reported, as it
+ * never was.
  *
- * @param object - The object literal.
+ * `computed` is for a caller that cannot let a key go unseen: a computed key
+ * beside an absent key counts too (SIG-433, SIG-434). The three keys that route
+ * a placeholder and hold its module are asked that way, because a built app
+ * that missed one is not listed wrongly but answers to a different name or runs
+ * nothing at all.
+ *
+ * @param object - The object literal, or its flattened members.
  * @param key - The key in question.
- * @returns The first such spread, or `undefined` where the key is spelled or
- *   nothing may carry it.
+ * @param computed - Whether a computed key that may be `key` counts as well.
+ * @returns The first such spread, or computed key when asked for them, or
+ *   `undefined` where the key is spelled or nothing may carry it.
  */
-export function unspelledCarrier(object: ObjectExpression, key: string): SpreadElement | undefined {
+export function unspelledCarrier(
+  object: Members,
+  key: string,
+  computed = false
+): SpreadElement | ObjectProperty | undefined {
+  const members = membersOf(object);
   if (
-    object.properties.some(
-      (property) => property.type !== 'SpreadElement' && propertyKey(property) === key
-    )
+    members.some((property) => property.type !== 'SpreadElement' && propertyKey(property) === key)
   ) {
     return undefined;
   }
 
-  return object.properties.find(
-    (property): property is SpreadElement =>
-      property.type === 'SpreadElement' && mayCarry(property, key)
+  return members.find(
+    (property): property is SpreadElement | ObjectProperty =>
+      (property.type === 'SpreadElement' || (computed && property.computed)) &&
+      mayCarry(property, key)
   );
 }
 
