@@ -1,4 +1,5 @@
 import { completionSpec } from '../../src/completion/spec.js';
+import { createConfig, object } from '../../src/config/index.js';
 import { createSections, renderHelp, resolveHelp } from '../../src/help/index.js';
 import { main } from '../../src/index.js';
 import type { CommandRegistry } from '../../src/parser/command/command-registry.js';
@@ -15,7 +16,7 @@ import {
   type Schema,
 } from '../../src/types.js';
 import { camelCase } from '../../src/util/camel-case.js';
-import { daysInMonth } from '../../src/util/transform.js';
+import { daysInMonth, transformValue } from '../../src/util/transform.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1516,6 +1517,154 @@ describe('regressions', () => {
       });
       expect(result.argv.when).to.equal(1718454600000);
     });
+  });
+
+  describe('auto and an integer past 2^53', () => {
+    // `int` throws for an integer `Number` cannot hold, because returning a
+    // different integer is the one failure a caller cannot detect. `auto` did
+    // `Number(value)` and returned it, so an id on an undeclared option -- which
+    // is coerced with `auto` -- came back as `12345678901234567000`. Outside the
+    // safe range a double cannot say which integer was written, so an integer
+    // guess out there is not the number guess: `auto` ends at the string it was
+    // handed, however the integer was spelled and whether or not `Number()`
+    // happened to be exact for it (`2^53`, `1e21`)
+    const unsafe = [
+      '12345678901234567890',
+      '-12345678901234567890',
+      '+12345678901234567890',
+      '9007199254740992',
+      '9007199254740993',
+      '-9007199254740992',
+      '-9007199254740993',
+      '18446744073709551616',
+      '0x20000000000001',
+      '0xFFFFFFFFFFFFFFFFF',
+      '0o1000000000000000001',
+      '0b100000000000000000000000000000000000000000000000000001',
+      ' 12345678901234567890 ',
+      ' 12345678901234567890 ',
+      // the same integers spelled with a point or an exponent: `Number()` reads
+      // them to the same double, so they are refused as the plain ones are
+      '9007199254740993.0',
+      '9007199254740993.',
+      '9007199254740993.00000',
+      '9007199254740993e0',
+      '9.007199254740993e15',
+      '12345678901234567890.5',
+      '1e21',
+      '1e23',
+      // so long that `Number()` overflows to `Infinity`
+      '1'.repeat(400),
+      `0x${'F'.repeat(300)}`,
+    ];
+
+    it.each(unsafe)('should leave the unsafe integer %j a string', (value) => {
+      expect(transformValue(value, 'auto')).to.equal(value);
+    });
+
+    // one test per path that coerces with `auto`; the values above are the
+    // coercion's and are not run through each of them
+    it('should leave an unsafe integer a string on an undeclared option', async () => {
+      // the attached spelling: an undeclared option does not take a value that
+      // starts with a dash from the next token
+      for (const value of ['12345678901234567890', '-9007199254740993', '9007199254740993.0']) {
+        const result = await parse({ argv: [`--id=${value}`], schema: {} });
+        expect(result.argv.id).to.equal(value);
+      }
+      const spaced = await parse({ argv: ['--id', '9007199254740993.0'], schema: {} });
+      expect(spaced.argv.id).to.equal('9007199254740993.0');
+    });
+
+    it('should leave an unsafe integer a string on a declared auto option', async () => {
+      const result = await parse({
+        argv: ['--id', '12345678901234567890'],
+        schema: { options: { '--id <v>': { type: 'auto' } } },
+      });
+      expect(result.argv.id).to.equal('12345678901234567890');
+    });
+
+    it('should leave an unsafe integer a string on a declared auto argument', async () => {
+      const result = await parse({
+        argv: ['12345678901234567890'],
+        schema: { args: [{ name: 'id', type: 'auto' }] },
+      });
+      expect(result.argv.id).to.equal('12345678901234567890');
+    });
+
+    it('should leave an unsafe integer in the environment a string', async () => {
+      const result = await parse({
+        argv: [],
+        env: { ID: '12345678901234567890' },
+        schema: { options: { '--id [v]': { env: 'ID', type: 'auto' } } },
+      });
+      expect(result.argv.id).to.equal('12345678901234567890');
+    });
+
+    it('should leave an unsafe integer in a string default a string', async () => {
+      const result = await parse({
+        argv: [],
+        schema: { options: { '--id [v]': { default: '-9007199254740993', type: 'auto' } } },
+      });
+      expect(result.argv.id).to.equal('-9007199254740993');
+    });
+
+    // `config/schema.ts` is the other caller of `transformValue()`: a string in a
+    // layer, an environment variable or a default is coerced to the setting's type
+    it('should leave an unsafe integer in a config layer a string', async () => {
+      const config = await createConfig({
+        schema: { id: { type: 'auto' } },
+        layers: [{ name: 'user', store: object({ id: '12345678901234567890' }) }],
+      });
+      expect(config.get('id')).to.equal('12345678901234567890');
+    });
+
+    // the boundary: `2^53 - 1` is the last integer a number holds exactly
+    it.each([
+      ['9007199254740991', 9007199254740991],
+      ['-9007199254740991', -9007199254740991],
+      ['0x1FFFFFFFFFFFFF', 9007199254740991],
+      ['9007199254740991.0', 9007199254740991],
+      ['9.007199254740991e15', 9007199254740991],
+      ['  42  ', 42],
+      [' 42 ', 42],
+      ['007', 7],
+      // a 13-digit epoch is nowhere near 2^53 and is still a number
+      ['1718454600000', 1718454600000],
+    ])('should still read the safe integer %j as a number', async (value, expected) => {
+      expect(transformValue(value, 'auto')).to.equal(expected);
+
+      const declared = await parse({
+        argv: ['--id', value],
+        schema: { options: { '--id <v>': { type: 'auto' } } },
+      });
+      expect(declared.argv.id).to.equal(expected);
+
+      const undeclared = await parse({ argv: [`--id=${value}`], schema: {} });
+      expect(undeclared.argv.id).to.equal(expected);
+    });
+
+    // not integers, so not this rule: a double is what was written for them, or
+    // the nearest one is. The two infinities overflow from a spelling that is not
+    // an integer and are unchanged
+    it.each([
+      ['1.5', 1.5],
+      ['1e3', 1000],
+      ['0.1000000000000000055511151231257827', 0.1],
+      ['Infinity', Infinity],
+      ['1e400', Infinity],
+    ])('should still read %s as a number', (value, expected) => {
+      expect(transformValue(value, 'auto')).to.equal(expected);
+    });
+
+    // `int` and `auto` keep the same bound: one throws where the other gives up
+    it.each(['9007199254740993', '9007199254740992'])(
+      'should reject on int the integer %s that auto gives up on',
+      async (value) => {
+        await expect(
+          parse({ argv: ['--id', value], schema: { options: { '--id <v>': { type: 'int' } } } })
+        ).rejects.toThrow('Integer is too large to be exact');
+      }
+    );
   });
 
   describe('destinations and the process locale', () => {
