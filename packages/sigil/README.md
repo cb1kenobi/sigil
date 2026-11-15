@@ -6615,8 +6615,9 @@ is on top.
 
 A mask is one byte per cell saying _when_ that cell shows, plus a threshold: a
 cell is in when `values[i] <= threshold`. `dissolveMask()` is a shuffled even
-ramp, `blueNoiseMask()` is the same ramp spread so no step of it clumps (and
-costs about 8ms to generate at 80x24, once), `wipeMask()` is a hard edge, and
+ramp, `blueNoiseMask()` is the same ramp spread so no step of it clumps (a
+repeating 64x32 tile of blue noise, built once per process, so a mask costs about
+a millisecond at any terminal size), `wipeMask()` is a hard edge, and
 `irisMask()` is a circle opening out. Generate one **once** and ramp the
 threshold; a per-frame random flickers. `maskThreshold()` is the arithmetic
 between a fraction and a threshold, and it exists because both ends are off by

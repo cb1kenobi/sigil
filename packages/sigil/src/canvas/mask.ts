@@ -313,6 +313,53 @@ const SIGMA = 1.5;
 /** Where the splat is cut off, past which `exp()` of it is not worth adding. */
 const REACH = Math.ceil(SIGMA * 3);
 
+/** The width of the blue-noise tile, in cells. */
+const TILE_WIDTH = 64;
+
+/**
+ * The height of the blue-noise tile, in rows.
+ *
+ * Half the width, because a terminal cell is about twice as tall as it is wide:
+ * 64x32 cells is roughly a square on screen, so the repeat has the same period in
+ * both directions.
+ */
+const TILE_HEIGHT = 32;
+
+/** The seed the tile is generated from, so every process has the same one. */
+const TILE_SEED = 0x5eed_0401;
+
+/** The tile's rank per cell, built on the first call and never again. */
+let tile: Uint16Array | undefined;
+
+/**
+ * The toroidal blue-noise tile: each cell's position in the void-and-cluster
+ * order.
+ *
+ * `tile[y * TILE_WIDTH + x]` is a permutation of `0` to `TILE_WIDTH * TILE_HEIGHT - 1`.
+ * It is the whole of the quadratic work, generated lazily once per process from a
+ * fixed seed -- so it is the same tile everywhere and the caller's `Random` is not
+ * what it is made from -- and every mask of every size is a window onto it.
+ */
+function blueNoiseTile(): Uint16Array {
+  if (tile === undefined) {
+    const order = new VoidAndCluster(TILE_WIDTH, TILE_HEIGHT).rankAll(seeded(TILE_SEED));
+    const ranks = new Uint16Array(order.length);
+    for (let position = 0; position < order.length; position++) {
+      ranks[order[position]] = position;
+    }
+    tile = ranks;
+  }
+  return tile;
+}
+
+/** A 32-bit integer mixed to look arbitrary, which is all the tie-break asks of it. */
+function mix(value: number): number {
+  let h = value | 0;
+  h = Math.imul(h ^ (h >>> 16), 0x85eb_ca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2_ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 /**
  * A dissolve whose every step is spatially even: blue noise.
  *
@@ -325,21 +372,34 @@ const REACH = Math.ceil(SIGMA * 3);
  * chance; here they cannot, because a cell that would clump is exactly the one
  * the algorithm ranks last.
  *
- * It costs a generation pass -- `O(cells^2)` on the energy walk, measured over
- * three runs at **8.34 / 8.40 / 8.71ms** for 80x24 and **1.10 / 1.13 / 1.15ms**
- * for 40x12, against `dissolveMask()`'s 0.25ms for the same 80x24 -- and it is
- * generated **once**. A transition that ramps for thirty frames pays it on the
- * frame the transition starts, against a frame already measured at 0.10ms. So it
- * is a frame that takes eighty-odd times as long as the ones after it, which for
- * a full-screen dissolve is a visible hitch at the moment the transition begins:
- * build the mask before the transition starts, or reach for `dissolveMask()`,
- * which is `O(cells)`. That is the whole of the trade, and it is why both ship
- * rather than one.
+ * **It is generated once, on a tile, and every size is a window onto it.** The
+ * algorithm is `O(cells^2)` -- every rank scans the whole energy field -- which
+ * was measured at 5ms for 80x24, 97ms for 160x48, 475ms for 240x70 and 4.0s for
+ * 400x120, so a full-screen dissolve on a large terminal froze for the length of
+ * a second. The tile is 64x32 cells and **toroidal**, as the generator already
+ * is, so it is seamless: a cell on its right edge has the same neighbours it
+ * would have across the seam, and repeating it across any rectangle is the same
+ * pattern as the tile had inside. Building it is about 7ms, once per process, on
+ * the first call; after that a mask costs `O(cells)` whatever the size.
+ *
+ * What the repeat costs is that the field is periodic: the same order recurs
+ * every 64 columns and 32 rows. That is the accepted price, and it is a mild
+ * one -- within one period the order is blue noise, so no step of the reveal
+ * clumps, and the period is far enough apart that it reads as texture and not as
+ * a grid.
+ *
+ * A mask is still an even ramp of 256 buckets, which is what a threshold
+ * ramps over. Repeating tile ranks would leave several cells with one rank, so
+ * the cells are ordered by tile rank and then by a hash of which copy of the
+ * tile they sit in, and *that* order is what is scaled to `0`-`MASK_MAX`. So
+ * each bucket takes the same number of cells, to within one, and at any threshold
+ * two copies of the tile differ by at most one cell.
  *
  * @param width - Columns.
  * @param height - Rows.
- * @param random - Randomness in `[0, 1)`, for the initial pattern. Defaults to
- *   `Math.random`.
+ * @param random - Randomness in `[0, 1)`. It picks where the tile starts and how
+ *   its copies are ordered among themselves, so two seeds are two different
+ *   fields. Defaults to `Math.random`.
  * @returns The mask, at `threshold: -1`.
  */
 export function blueNoiseMask(width: number, height: number, random: Random = Math.random): Mask {
@@ -349,8 +409,59 @@ export function blueNoiseMask(width: number, height: number, random: Random = Ma
     return { height: h, threshold: -1, values, width: w };
   }
 
-  const field = new VoidAndCluster(w, h);
-  const order = field.rankAll(random);
+  // the first draw is thrown away, because `seeded()` is very nearly linear in
+  // its seed on the first one and small seeds would all start the tile at zero
+  random();
+  const originX = Math.floor(unit(random()) * TILE_WIDTH);
+  const originY = Math.floor(unit(random()) * TILE_HEIGHT);
+  const salt = Math.floor(unit(random()) * 0x1_0000_0000);
+
+  const ranks = blueNoiseTile();
+  const cells = TILE_WIDTH * TILE_HEIGHT;
+
+  // a counting sort by tile rank, then a sort by the copy's hash within a rank:
+  // the copies of one rank are at most ceil(w / 64) * ceil(h / 32) of them, so
+  // the second sort is a handful of items however large the rectangle is
+  const tileRank = new Uint16Array(size);
+  const copy = new Uint32Array(size);
+  const start = new Int32Array(cells + 1);
+  for (let y = 0; y < h; y++) {
+    const ty = y + originY;
+    const row = (ty % TILE_HEIGHT) * TILE_WIDTH;
+    const copyRow = Math.trunc(ty / TILE_HEIGHT) * 0x1_0000;
+    for (let x = 0; x < w; x++) {
+      const tx = x + originX;
+      const index = y * w + x;
+      const rankHere = ranks[row + (tx % TILE_WIDTH)];
+      tileRank[index] = rankHere;
+      copy[index] = mix(
+        salt ^ (copyRow + Math.trunc(tx / TILE_WIDTH)) ^ Math.imul(rankHere, 0x9e37_79b1)
+      );
+      start[rankHere + 1]++;
+    }
+  }
+  for (let r = 0; r < cells; r++) {
+    start[r + 1] += start[r];
+  }
+  const order = new Int32Array(size);
+  const fill = start.slice(0, cells);
+  for (let index = 0; index < size; index++) {
+    order[fill[tileRank[index]]++] = index;
+  }
+  for (let r = 0; r < cells; r++) {
+    // insertion sort of a bucket, which is one item for a rectangle inside the
+    // tile and a dozen for a large terminal
+    for (let i = start[r] + 1; i < start[r + 1]; i++) {
+      const moving = order[i];
+      let j = i - 1;
+      while (j >= start[r] && copy[order[j]] > copy[moving]) {
+        order[j + 1] = order[j];
+        j--;
+      }
+      order[j + 1] = moving;
+    }
+  }
+
   for (let position = 0; position < size; position++) {
     values[order[position]] = rank(position, size);
   }

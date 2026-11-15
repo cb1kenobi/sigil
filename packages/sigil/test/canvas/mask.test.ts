@@ -10,7 +10,7 @@ import {
   seeded,
   wipeMask,
 } from '../../src/canvas/index.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * How many cells of each value a field holds.
@@ -78,6 +78,28 @@ function clumpiness(mask: Mask, block = 4): number {
       }
       counts.push(count);
     }
+  }
+  const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+  return counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+}
+
+/**
+ * The variance of the revealed count over 4x4 blocks in the four columns from
+ * `x0`, at half way -- the same measure `clumpiness()` takes, over one strip.
+ */
+function stripVariance(mask: Mask, x0: number): number {
+  mask.threshold = maskThreshold(0.5);
+  const counts: number[] = [];
+  for (let by = 0; by + 4 <= mask.height; by += 4) {
+    let count = 0;
+    for (let y = by; y < by + 4; y++) {
+      for (let x = x0; x < x0 + 4; x++) {
+        if (masked(mask, x, y)) {
+          count++;
+        }
+      }
+    }
+    counts.push(count);
   }
   const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
   return counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
@@ -366,6 +388,182 @@ describe('a mask', () => {
       expect([...blueNoiseMask(16, 8, seeded(1)).values]).not.toEqual([
         ...blueNoiseMask(16, 8, seeded(2)).values,
       ]);
+    });
+
+    it('should run the generator once, however many masks and whatever their size', async () => {
+      // the structural fact the tile is for, asserted without a clock: the
+      // void-and-cluster builds its splat table with `Math.exp()`, so a call to
+      // `Math.exp()` is a generator being constructed. Wall-clock deadlines
+      // flaked on CI, and "work does not grow with the cell count" is not
+      // something a deadline can say anyway. A fresh module, so that an earlier
+      // test having built the tile does not make this one vacuous
+      vi.resetModules();
+      const fresh = await import('../../src/canvas/mask.js');
+      const exp = vi.spyOn(Math, 'exp');
+      try {
+        fresh.blueNoiseMask(3, 3, seeded(1));
+        const built = exp.mock.calls.length;
+        expect(built).toBeGreaterThan(0);
+        for (const [w, h] of [
+          [1, 1],
+          [40, 12],
+          [64, 32],
+          [240, 70],
+          [400, 120],
+        ]) {
+          fresh.blueNoiseMask(w, h, seeded(w));
+          fresh.blueNoiseMask(w, h);
+        }
+        expect(exp.mock.calls.length).toBe(built);
+      } finally {
+        exp.mockRestore();
+      }
+    });
+
+    it('should lay an even ramp at any size, smaller than the tile or larger and in between', () => {
+      // 64x32 is the tile: the sizes around it are a crop, the tile itself, one
+      // more than it, a multiple of it, and a size that is a multiple of neither
+      // -- with a long thin one each way, which is a window onto one row or one
+      // column of the tile and then onto the next copy of it
+      for (const [w, h] of [
+        [63, 31],
+        [64, 32],
+        [65, 33],
+        [128, 64],
+        [130, 70],
+        [240, 70],
+        [200, 5],
+        [5, 200],
+      ]) {
+        expect(histogram(blueNoiseMask(w, h, seeded(5))), `${w}x${h}`).toEqual(evenRamp(w * h));
+      }
+    });
+
+    it('should reveal nothing at the bottom of the ramp and everything at the top, at any size', () => {
+      for (const [w, h] of [
+        [7, 3],
+        [64, 32],
+        [240, 70],
+      ]) {
+        const mask = blueNoiseMask(w, h, seeded(4));
+        expect(showing(mask, maskThreshold(0)), `${w}x${h}`).toBe(0);
+        expect(showing(mask, maskThreshold(1)), `${w}x${h}`).toBe(w * h);
+      }
+    });
+
+    it('should reveal the same cells in every whole copy of the tile at any threshold', () => {
+      // `() => 0` starts the tile at its own corner, so each of the nine copies is
+      // a whole one. The tile is 2048 cells and the ramp has 256 buckets, so a
+      // bucket takes eight ranks of every copy exactly and an edge never splits a
+      // rank -- which makes this the check that the copies are one field repeated
+      // rather than nine, and it fails for an order that gave each copy ranks of
+      // its own
+      const mask = blueNoiseMask(192, 96, () => 0);
+      for (let step = 1; step < 32; step++) {
+        mask.threshold = maskThreshold(step / 32);
+        const counts = new Set<number>();
+        for (let ty = 0; ty < 3; ty++) {
+          for (let tx = 0; tx < 3; tx++) {
+            let count = 0;
+            for (let y = 0; y < 32; y++) {
+              for (let x = 0; x < 64; x++) {
+                if (masked(mask, tx * 64 + x, ty * 32 + y)) {
+                  count++;
+                }
+              }
+            }
+            counts.add(count);
+          }
+        }
+        expect([...counts], `step ${step}`).toHaveLength(1);
+      }
+    });
+
+    it('should not let one copy of the tile lead another every time a bucket splits a rank', () => {
+      // 100x32 is one whole tile and 36 columns of a second, so the cells in those
+      // columns have a twin 64 columns to the right and a bucket edge can fall
+      // between them. Which of the two goes first is the tie-break's to say, and
+      // an order that left it to the cell index would put the left one first in
+      // every pair -- a reveal that always runs left to right across the repeat,
+      // by one cell at a time. Both directions have to occur
+      const mask = blueNoiseMask(100, 32, () => 0);
+      let leftFirst = 0;
+      let rightFirst = 0;
+      for (let y = 0; y < 32; y++) {
+        for (let x = 0; x < 36; x++) {
+          const left = mask.values[y * 100 + x];
+          const right = mask.values[y * 100 + x + 64];
+          if (left < right) {
+            leftFirst++;
+          } else if (right < left) {
+            rightFirst++;
+          }
+        }
+      }
+      expect(leftFirst + rightFirst).toBeGreaterThan(40);
+      expect(leftFirst).toBeGreaterThan((leftFirst + rightFirst) / 4);
+      expect(rightFirst).toBeGreaterThan((leftFirst + rightFirst) / 4);
+    });
+
+    it('should spread a step as evenly across a tile seam as it does inside one', () => {
+      // what the tile being toroidal buys, and the most this can honestly say:
+      // blocks of 4 columns that straddle the seam at x=64 count revealed cells
+      // about as evenly as blocks well inside a tile, and both beat a shuffle by
+      // the same margin as everywhere else. Measured over eight seeds, the
+      // per-block variance is 0.78 across the seam and 0.70 inside, against 4.1
+      // for a shuffle -- so a seam that was a border, which would put a column of
+      // cells with nothing on one side of them, would show as a multiple. It
+      // cannot see a defect smaller than the sampling noise of 24 blocks a seed
+      let seam = 0;
+      let inside = 0;
+      let shuffled = 0;
+      for (let seed = 1; seed <= 8; seed++) {
+        const mask = blueNoiseMask(192, 96, seeded(seed));
+        seam += stripVariance(mask, 62);
+        inside += stripVariance(mask, 30);
+        shuffled += stripVariance(dissolveMask(192, 96, seeded(seed)), 62);
+      }
+      expect(seam).toBeLessThan(shuffled / 3);
+      expect(seam).toBeLessThan(inside * 1.5);
+    });
+
+    it('should be no clumpier at a large size than at a small one', () => {
+      // the per-block variance is 0.69 at 32x16, 0.77 at 64x32 and 0.75 at
+      // 240x70 -- the repeat does not accumulate into anything
+      let large = 0;
+      let shuffled = 0;
+      for (let seed = 1; seed <= 4; seed++) {
+        large += clumpiness(blueNoiseMask(240, 70, seeded(seed)));
+        shuffled += clumpiness(dissolveMask(240, 70, seeded(seed)));
+      }
+      expect(large).toBeLessThan(shuffled / 3);
+    });
+
+    it('should reproduce from a seed at a size larger than the tile', () => {
+      expect([...blueNoiseMask(150, 50, seeded(9)).values]).toEqual([
+        ...blueNoiseMask(150, 50, seeded(9)).values,
+      ]);
+    });
+
+    it('should read its source at a size larger than the tile, so two seeds disagree', () => {
+      // a seed picks where the tile starts and how its copies are ordered, and a
+      // generator that was ignored would give one field for every caller
+      expect([...blueNoiseMask(150, 50, seeded(1)).values]).not.toEqual([
+        ...blueNoiseMask(150, 50, seeded(2)).values,
+      ]);
+    });
+
+    it('should make every seed a window onto one tile rather than a tile of its own', () => {
+      // a full tile has no repeated rank, so a field that starts at (32, 16) is
+      // the one that starts at (0, 0) read round the torus -- exactly, not
+      // approximately. That is what lets the tile be built once for every caller
+      const a = blueNoiseMask(64, 32, () => 0);
+      const b = blueNoiseMask(64, 32, () => 0.5);
+      for (let y = 0; y < 32; y++) {
+        for (let x = 0; x < 64; x++) {
+          expect(b.values[y * 64 + x]).toBe(a.values[((y + 16) % 32) * 64 + ((x + 32) % 64)]);
+        }
+      }
     });
 
     it('should survive a generator that answers out of range', () => {
