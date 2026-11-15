@@ -972,21 +972,29 @@ export default {
     });
 
     it.each([
-      ['', /is empty/],
-      [42, /its package\.json name is 42, which is not a string/],
+      ['""', '', /is empty/],
+      ['42', '', /its package\.json name is 42, which is not a string/],
+      ['null', '', /its package\.json name is null, which is not a string/],
+      // Node refuses a present name that is not a string whether or not the module names
+      // itself, so the build must too -- these built, and failed from source
+      ['42', "name: 'mine', ", /its package\.json name is 42, which is not a string/],
+      ['null', "name: 'mine', ", /its package\.json name is null, which is not a string/],
     ])(
-      'should refuse the manifest name %j in the runtime’s words, not its own',
-      async (name, reason) => {
+      'should refuse the manifest name %s, with module %j, in the runtime’s words, not its own',
+      async (json, own, reason) => {
         // an empty name used to be reported as "both leave it unnamed", which the runtime
         // does not say, and a number never reached the runtime's refusal at all
         await withSchema(
           "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
           async (dir) => {
             mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
-            writeFileSync(join(dir, 'src', 'pkg', 'index.js'), 'export default { run() {} };\n');
+            writeFileSync(
+              join(dir, 'src', 'pkg', 'index.js'),
+              `export default { ${own}run() {} };\n`
+            );
             writeFileSync(
               join(dir, 'src', 'pkg', 'package.json'),
-              JSON.stringify({ main: 'index.js', name, type: 'module' })
+              `{ "main": "index.js", "name": ${json}, "type": "module" }`
             );
 
             const { diagnostics } = readAppCommands(discoverApp(dir));
@@ -996,6 +1004,9 @@ export default {
             expect(errors[0]!.message).toMatch(/Cannot route the package ".*pkg"/);
             expect(errors[0]!.message).not.toContain('both leave it unnamed');
 
+            // refused before anything is imported, so this is sigil's refusal and not
+            // Node's `ERR_INVALID_PACKAGE_CONFIG`, which `route-manifest-name.test.ts`
+            // proves under a Node that loads the module itself
             await expect(
               main({
                 argv: [],

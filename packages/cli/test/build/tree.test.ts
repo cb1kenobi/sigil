@@ -851,7 +851,7 @@ describe('resolving a tree whose names are the file system’s', () => {
       const dir = tree({ [name]: mod });
 
       expect(() => resolveCommandTree(dir)).toThrow(message);
-      expect(() => resolveCommandTree(dir)).toThrow(/in a commands\.json beside it/);
+      expect(() => resolveCommandTree(dir)).toThrow(/commands\.json beside it/);
       // the same words from the runtime, because one function says them
       await expect(
         main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
@@ -909,6 +909,23 @@ describe('resolving a tree whose names are the file system’s', () => {
       main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
     ).rejects.toThrow(message);
   });
+
+  it.each(['null', '42'])(
+    'should refuse a `.js` package whose manifest name is %s, which Node refuses and the build baked',
+    async (json) => {
+      const dir = tree({
+        'pkg/index.js': mod,
+        'pkg/package.json': `{ "main": "index.js", "name": ${json}, "type": "module" }`,
+      });
+      const message =
+        /Cannot route the package ".*pkg": its package\.json name is .*, which is not a string/;
+
+      expect(() => resolveCommandTree(dir)).toThrow(message);
+      await expect(
+        main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+      ).rejects.toThrow(message);
+    }
+  );
 
   it('should leave a control character in a refused name inert, in the build as in the runtime', async () => {
     const dir = tree({

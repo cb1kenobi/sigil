@@ -34,7 +34,7 @@ import {
   type Route,
   routeName,
 } from './routes.js';
-import { basename, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
@@ -524,11 +524,7 @@ async function resolveCommandPath({
   return [
     await initCommand(
       {
-        name: assertRouteName(
-          filename,
-          `the file "${escapeControls(modulePath)}"`,
-          basename(modulePath).slice(filename.length)
-        ),
+        name: assertRouteName(filename, `the file "${escapeControls(modulePath)}"`),
       },
       modulePath
     ),
@@ -725,8 +721,9 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
       desc: cmd.desc ?? description,
       // the module's own `name` is a declaration and is read as a name string;
       // the manifest's is a name the file system gave, and is taken as it is
-      // with its scope off -- asked only when it is used, so a module that
-      // names itself is not refused over a manifest it never consulted
+      // with its scope off -- refused for what it says only when it is used, though
+      // `readPackage()` above has already refused one that is not a string, since
+      // Node does whether or not the module names itself
       name: cmd.name ?? packageRouteName(pkg, dir),
     },
     entryFile

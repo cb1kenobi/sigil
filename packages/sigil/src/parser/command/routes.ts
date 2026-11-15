@@ -419,6 +419,8 @@ export function readPackage(dir: string): PackageRoute | undefined {
 
   const { description, exports, main, name, type } = pkgJson;
 
+  assertManifestName(name, dir);
+
   const entries = resolveEntries(exports);
   if (!entries.length && typeof main === 'string') {
     entries.push(main);
@@ -685,13 +687,13 @@ function unscoped(name: string): string {
  * @throws If it holds a character a command name string would read, naming
  *   `source` and pointing at `commands.json`.
  */
-export function assertRouteName(name: string, source: string, ext = ''): string {
+export function assertRouteName(name: string, source: string): string {
   const problem = routeNameProblem(name);
   if (problem !== undefined) {
     throw new Error(
       `Cannot route ${source}: the command name "${escapeControls(name)}" ${problem}. ` +
         "A route is named exactly as its file, directory or package is, with none of a name string's " +
-        `syntax, so ${advice(name, ext)}`
+        `syntax, so ${advice(name)}`
     );
   }
 
@@ -699,28 +701,31 @@ export function assertRouteName(name: string, source: string, ext = ''): string 
 }
 
 /**
- * What to do about a refused name, said as the replacement where there is one.
+ * What to do about a refused name, said once and computing nothing.
  *
  * A `!` or `@` on a file name used to do something -- hide the command, or add
  * an alias -- so the app that wrote one is the app that meets this, and "rename
- * it" is not an answer to somebody who wanted it hidden. Offered only when what
- * is left after the prefix would be a route name, so the replacement named is
- * one this accepts.
+ * it" is not an answer to somebody who wanted it hidden. The sentence names no
+ * replacement on purpose: a computed one was wrong for `!index.js`, offered to
+ * rename a file onto one that exists, and was not valid JSON for a name holding
+ * a quote.
  *
  * @param name - The refused name.
- * @param ext - The file's extension, which the suggested name keeps.
  * @returns The rest of the sentence, which begins after "so".
  */
-function advice(name: string, ext: string): string {
-  const rest = name.slice(1);
+function advice(name: string): string {
+  if (name[0] === '!') {
+    return (
+      'to hide a route, name the file without the "!" and add an entry with "hidden": true ' +
+      'for that name to a commands.json beside it'
+    );
+  }
 
-  if ((name[0] === '!' || name[0] === '@') && routeNameProblem(rest) === undefined) {
-    const to = `"${escapeControls(rest)}${escapeControls(ext)}"`;
-
-    return name[0] === '!'
-      ? `rename it to ${to} and hide it with { "${escapeControls(rest)}": { "hidden": true } } in a commands.json beside it`
-      : `rename it to ${to}, which is what it already was (the "@" made it an alias of itself); ` +
-          'any other alias goes in a commands.json beside it';
+  if (name[0] === '@') {
+    return (
+      'to alias a route, name the file without the "@" and list the alias in a ' +
+      'commands.json beside it'
+    );
   }
 
   return 'rename it; to alias or hide a route, describe it in a commands.json beside it';
@@ -742,24 +747,43 @@ export function packageRouteName(pkg: PackageRoute, dir: string): string | undef
   const { name } = pkg;
 
   // a manifest that says nothing leaves the directory to name it, as it always has
-  if (name === undefined || name === null) {
+  if (name === undefined) {
     return undefined;
   }
 
-  // `readPackage()` hands over whatever JSON held. A number is not a name, and the
-  // runtime refuses one when it builds the command while a build that never builds
-  // one baked it as the key -- so it is refused here, where both of them ask
-  if (typeof name !== 'string') {
-    throw new TypeError(
-      `Cannot route the package "${escapeControls(dir)}": its package.json name is ${escapeControls(JSON.stringify(name))}, ` +
-        'which is not a string, so remove it to be named by the directory or make it one'
-    );
-  }
+  // `readPackage()` has already refused a name that is not a string, so this is for a
+  // `PackageRoute` that did not come from it
+  assertManifestName(name, dir);
 
   return assertRouteName(
     unscoped(name),
     `the package "${escapeControls(dir)}" (its package.json name is "${escapeControls(name)}")`
   );
+}
+
+/**
+ * Refuses a manifest `name` that is present and is not a string.
+ *
+ * Node's own reader does, for any entry whose format it reads from the manifest --
+ * a `.js` or `.ts` file, and not a `.mjs`, `.cjs` or `.mts` -- and it does so with
+ * `null` too, as `ERR_INVALID_PACKAGE_CONFIG`. So the same package ran or failed
+ * according to its entry's extension, and a build, which never imports it, baked
+ * the one source could not start. Asked of every manifest `readPackage()` reads,
+ * before anything is imported and whether or not the module names itself, so that
+ * the refusal is sigil's and in sigil's words whatever the extension.
+ *
+ * @param name - The manifest's `name`, as the JSON held it.
+ * @param dir - The package's directory, for the message.
+ * @throws If it is anything but absent or a string.
+ */
+function assertManifestName(name: unknown, dir: string): asserts name is string | undefined {
+  if (name !== undefined && typeof name !== 'string') {
+    throw new TypeError(
+      `Cannot route the package "${escapeControls(dir)}": its package.json name is ` +
+        `${escapeControls(JSON.stringify(name))}, which is not a string, so remove it to ` +
+        'be named by the directory or make it one'
+    );
+  }
 }
 
 /**
@@ -788,8 +812,7 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
       kind: 'module',
       name: assertRouteName(
         name,
-        `the file "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`,
-        entry.name.slice(name.length)
+        `the file "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`
       ),
       path,
     };
@@ -861,7 +884,8 @@ export function resolveRoutes(
       // over second, which is the file system's order deciding which command
       // an app has
       throw new Error(
-        `Two entries in "${dir}" both declare a "${route.name}" command: "${previous}" and "${entry.name}"`
+        `Two entries in "${escapeControls(dir)}" both declare a "${escapeControls(route.name)}" command: ` +
+          `"${escapeControls(previous)}" and "${escapeControls(entry.name)}"`
       );
     }
     claimed.set(route.name, entry.name);

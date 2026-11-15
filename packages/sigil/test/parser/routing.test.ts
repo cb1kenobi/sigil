@@ -890,24 +890,41 @@ describe('filesystem routing', () => {
         expect(() => resolveRoutes('/nowhere', [entry(name)])).toThrow(reason);
       });
 
-      it('should say what to write for a `@` file name, which only ever aliased itself', () => {
+      it('should say how to alias a route in place of a `@` file name', () => {
         expect(() => resolveRoutes('/nowhere', [entry('@x.mjs')])).toThrow(
-          /rename it to "x\.mjs", which is what it already was.*any other alias goes in a commands\.json beside it$/
+          /to alias a route, name the file without the "@" and list the alias in a commands\.json beside it$/
         );
       });
 
-      it('should say what to write for a `!` directory, which has no extension to keep', () => {
+      it('should say how to hide a route in place of a `!` directory', () => {
         expect(() => resolveRoutes('/nowhere', [entry('!d', true)])).toThrow(
-          /rename it to "d" and hide it with \{ "d": \{ "hidden": true \} \}/
+          /to hide a route, name the file without the "!" and add an entry with "hidden": true for that name to a commands\.json beside it$/
         );
       });
 
-      it('should not offer a replacement that would itself be refused', () => {
-        // `!a b` stripped is `a b`, which is no better; saying "rename it to" that
-        // would send somebody round the same error
-        expect(() => resolveRoutes('/nowhere', [entry('!a b.mjs')])).toThrow(
-          /so rename it; to alias or hide a route, describe it in a commands\.json beside it$/
-        );
+      it('should compute no replacement name, which was wrong for an index, an existing file and a quote', () => {
+        // naming `!index.js`'s successor sent somebody to a top-level `index`, which is
+        // nothing; `!x.js` beside `x.js` was told to rename onto it; and a name holding
+        // a quote came back as JSON that did not parse. One fixed sentence is right for
+        // every one of them
+        for (const name of [
+          '!index.mjs',
+          '!x.mjs',
+          '!a"b.mjs',
+          '!a\\b.mjs',
+          '@acme.mjs',
+          '!a b.mjs',
+        ]) {
+          let message = '';
+          try {
+            resolveRoutes('/nowhere', [entry(name)]);
+          } catch (err) {
+            message = (err as Error).message;
+          }
+          expect(message, name).toContain('commands.json beside it');
+          expect(message, name).not.toContain('rename it to');
+          expect(message, name).not.toContain('{ "');
+        }
       });
 
       it('should call a space a separator and not say so of whitespace that is not one', () => {
@@ -952,6 +969,34 @@ describe('filesystem routing', () => {
         ).to.deep.equal(['a\x07b']);
       });
 
+      it('should escape a control character in a directory name it echoes', () => {
+        // the directory branch of `entryRoute()` is its own call site
+        let message = '';
+        try {
+          resolveRoutes('/nowhere', [entry('!d\x1b]0;PWNED\x07', true)]);
+        } catch (err) {
+          message = (err as Error).message;
+        }
+
+        expect(message).toContain('Cannot route the directory "!d\\x1B]0;PWNED\\x07"');
+        expect(message).not.toMatch(/\p{Cc}/u);
+      });
+
+      it('should escape a control character in the two names a collision echoes', () => {
+        // `a ESC` as a file and as a directory are one command, and both spellings,
+        // the name and the directory they are in are echoed
+        let message = '';
+        try {
+          resolveRoutes('/no\x1b[31mwhere', [entry('a\x1b.mjs'), entry('a\x1b', true)]);
+        } catch (err) {
+          message = (err as Error).message;
+        }
+
+        expect(message).toContain('both declare a "a\\x1B" command: "a\\x1B" and "a\\x1B.mjs"');
+        expect(message).toContain('no\\x1B[31mwhere');
+        expect(message).not.toMatch(/\p{Cc}/u);
+      });
+
       it('should refuse a directory by the same rules, naming it', () => {
         expect(() => resolveRoutes('/nowhere', [entry('my dir', true)])).toThrow(
           /Cannot route the directory "my dir" in "[^"]*nowhere": the command name "my dir" contains whitespace/
@@ -961,7 +1006,7 @@ describe('filesystem routing', () => {
 
       it('should say which file, and that a commands.json is how to alias or hide a route', () => {
         expect(() => resolveRoutes('/nowhere', [entry('!secret.mjs')])).toThrow(
-          /Cannot route the file "!secret\.mjs" in .*nowhere.*rename it to "secret\.mjs" and hide it with \{ "secret": \{ "hidden": true \} \} in a commands\.json beside it$/
+          /Cannot route the file "!secret\.mjs" in .*nowhere.*to hide a route, name the file without the "!" and add an entry with "hidden": true for that name to a commands\.json beside it$/
         );
       });
 
@@ -1025,7 +1070,7 @@ describe('filesystem routing', () => {
           await expect(refused).rejects.toThrow('!x\\x1B]0;PWNED\\x07.mjs"');
           await expect(refused).rejects.not.toThrow(/\p{Cc}/u);
           await expect(refused).rejects.toThrow(
-            /rename it to "x\\x1B\]0;PWNED\\x07\.mjs" and hide it/
+            /to hide a route, name the file without the "!" and add an entry with "hidden": true for that name to a commands\.json beside it$/
           );
         }
       );
@@ -1158,13 +1203,51 @@ describe('filesystem routing', () => {
         ).rejects.toThrow(refusal);
       });
 
-      it('should name a package by its directory when the manifest name is null, as when it is missing', async () => {
+      it.each([
+        ['null', 'null'],
+        ['42', '42'],
+        ['true', 'true'],
+        ['an empty list', '[]'],
+      ])(
+        'should refuse a manifest name of %s whatever the entry is called and whether or not the module names itself',
+        async (_what, json) => {
+          // Node's own reader throws ERR_INVALID_PACKAGE_CONFIG for any present name that
+          // is not a string, `null` included -- but only when it reads the format from the
+          // manifest, which is a `.js` or `.ts` entry and not a `.mjs`. So the same
+          // package ran or failed by extension, and a build that never imports it baked
+          // the one source could not start. Refused before the import, in sigil's words
+          for (const entryFile of ['index.js', 'index.mjs', 'index.ts', 'index.mts']) {
+            for (const own of ['', "name: 'mine', "]) {
+              const dir = app({
+                [`pkg/${entryFile}`]: `export default { ${own}run() {} };\n`,
+                'pkg/package.json': `{ "main": "${entryFile}", "name": ${json}, "type": "module" }`,
+              });
+              const refusal =
+                /Cannot route the package ".*pkg": its package\.json name is .*, which is not a string/;
+              const label = `${entryFile} ${own}`;
+
+              await expect(
+                parse({ argv: [], schema: { commands: dir } }),
+                `walked ${label}`
+              ).rejects.toThrow(refusal);
+              await expect(
+                parse({ argv: [], schema: { commands: { x: path.join(dir, 'pkg') } } }),
+                `keyed ${label}`
+              ).rejects.toThrow(refusal);
+            }
+          }
+        }
+      );
+
+      it('should escape a C1 control character in the non-string manifest name it echoes', async () => {
+        // `JSON.stringify()` leaves U+009B, the one-character CSI, as it found it
         const dir = app({
-          'plain/index.mjs': mod,
-          'plain/package.json': '{ "main": "index.mjs", "name": null }',
+          'pkg/index.mjs': mod,
+          'pkg/package.json': JSON.stringify({ main: 'index.mjs', name: ['\u009b2J'] }),
         });
-        const result = await parse({ argv: ['plain'], schema: { commands: dir } });
-        expect(result.cmd?.name).to.equal('plain');
+        const refused = parse({ argv: [], schema: { commands: dir } });
+        await expect(refused).rejects.toThrow('\\x9B2J');
+        await expect(refused).rejects.not.toThrow(/\p{Cc}/u);
       });
 
       it('should say an empty manifest name is empty', async () => {

@@ -1153,7 +1153,10 @@ The sites judged not to need it, with the reason:
   reached only by an app calling the function directly.
 - **Messages about the schema, a command module, or a route on disk.** These are
   bug reports in the app's own declaration, in English and not translated, which
-  is the line the i18n work already draws.
+  is the line the i18n work already draws. The exception is a route's name:
+  `assertRouteName()`'s refusals and `resolveRoutes()`'s collision echo a file,
+  directory or manifest name the file system chose, which can hold an `ESC`, so
+  those are escaped (SIG-389).
 - **A `.env` reader.** The framework has none. An environment value reaches a
   message only through `transformValue()`, and that is escaped.
 
@@ -1716,21 +1719,39 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   rewritten.** `readPackage()` hands over raw JSON, so `{"name": 42}` reached the
   walk as a number: the runtime refused it when `initCommand()` built the command,
   and the build never builds one for a walked route, so it baked `42` as the key
-  and the built app answered a command the source run could not start. A missing
-  or `null` name still falls to the directory, as it always did; any other
-  non-string is `packageRouteName()`'s refusal, which both sides ask.
+  and the built app answered a command the source run could not start. Only an
+  **absent** name falls to the directory. A present one must be a string, `null`
+  included, because that is Node's own rule: its package reader throws
+  `ERR_INVALID_PACKAGE_CONFIG` for any other, whenever it reads an import's format
+  from the manifest -- a `.js` or `.ts` entry, and not a `.mjs`, `.cjs` or `.mts`.
+  So the same package used to run or fail by the extension of its entry, and a
+  package whose module named itself ran in a build and failed from source over a
+  manifest it never seemed to consult. `readPackage()` asks, before anything is
+  imported and before it looks for an entry, so both sides refuse in sigil's words
+  whatever the extension and whether or not the module names itself. What is
+  refused beyond the type -- whitespace, a scope that leaves nothing -- is still
+  asked only of a name that is _used_, since Node has no opinion on it. Pinned
+  under a real node, not vite's, by `packages/cli/test/route-manifest-name.test.ts`:
+  a test that loads the module through vite proves the routing and cannot prove the
+  loading, and the first version of this entry's tests did exactly that.
 - **The echoed names are escaped, and the names are not refused for it.** A file
   called `!x<ESC>]0;...<BEL>.mjs` is refused for its `!` and the message used to
   carry the escape through to stderr twice. `escapeControls()` goes round the file,
-  directory, path and manifest name where the message is built, so the build's
-  diagnostic, which reuses the text, is inert too. A control character is not
+  directory, path, manifest name and the two names a collision echoes where the
+  message is built, so the build's diagnostic, which reuses the text, is inert in
+  its message. Its location prefix is the build's own and is not touched here. A control character is not
   itself grounds for refusal -- that is a larger decision than this entry.
 - **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
   else, so a tab or a no-break space is refused with its own reason -- it cannot be
   typed reliably as part of one word -- and not with a claim about aliases it does
-  not make. A `!` or `@` file name says what to write instead (the stripped name,
-  and the `commands.json` entry for `hidden`), because the app that meets that
-  message is the one that used the prefix for something.
+  not make. A `!` or `@` file name gets one fixed sentence about what to do --
+  name it without the prefix and put `hidden` or the alias in a `commands.json` --
+  and **computes no replacement name**. It used to, and a computed one told
+  `!index.js` to become a top-level `index` (which is nothing, and the build then
+  warned about the entry it had been told to write), told `!x.js` to rename onto an
+  existing `x.js`, dropped the scope from `@acme/!p`, and was not valid JSON for a
+  name holding a quote. The README's upgrade example is static and correct for the
+  ordinary case.
 - **Refused where the level is read, not where it is listed.** One bad file name
   fails the level that holds it, `--help` included, which is what two routes of
   one name already do and for the same reason: an app that lists what it cannot

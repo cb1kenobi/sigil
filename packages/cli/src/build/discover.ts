@@ -1788,7 +1788,7 @@ function packageName(
     return undefined;
   }
 
-  if (pkg.name !== undefined && pkg.name !== null) {
+  if (pkg.name !== undefined) {
     // a name the file system gave, so the runtime's rule for it and not a name
     // string's: scope off, and refused where the runtime refuses it -- in its
     // words, an empty one and a number included, which is why this does not

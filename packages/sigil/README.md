@@ -437,7 +437,9 @@ that is empty, holds whitespace, a `,` or a `/`, or starts with `<`, `[`, `!` or
 a route is aliased or hidden. A scoped package, `@acme/deploy`, is the command
 `deploy`.
 
-Upgrading: a route that was hidden or aliased by its file name -- `!x.js`,
+Upgrading: a package whose manifest says `@acme/deploy` used to register as
+`acme/deploy` and now registers as `deploy`, so `mycli acme/deploy` stops working
+and `mycli deploy` starts. A route that was hidden or aliased by its file name -- `!x.js`,
 `@x.js`, `my cmd.js` -- now stops the app at the level that holds it, `--help`
 included, with a message naming the file. Rename it `x.js` and put
 `{ "x": { "hidden": true } }` (or `"alias"`) in a `commands.json` beside it.
