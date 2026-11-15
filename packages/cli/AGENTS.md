@@ -4557,16 +4557,22 @@ about what a valid app is would be the worse half of the feature.
   the document and the file and says nothing was downloaded. The test serves bytes that are not an archive at all, so a
   refusal that came from `tar` would read `Could not extract` instead.
 
-  `redirect: 'error'` is on all three requests, because none of these hosts
-  redirects for these URLs: probed with `curl -sI`, Node's archive and
+  `redirect: 'error'` is on both requests a runtime makes (the digest document
+  and the archive), because none of these hosts redirects for the four URLs: probed with `curl -sI`, Node's archive and
   `SHASUMS256.txt` and npm's tarball and version document all answer `200` with
   no `Location`. A host that starts redirecting fails loudly rather than handing
   the digest or the bytes to somewhere nobody named. That arrives as undici's
   `fetch failed` with the reason in `cause`, which `errorHandler()` never
   renders, so `get()` rethrows a sentence naming the runtime, the URL and the
-  reason -- "answered with a redirect" for that one, and for any other failure
-  that this check needs the network even for a runtime an older sigil cached,
-  since that is the case that used to work offline and now does not. The version **listings**
+  reason -- "answered with a redirect" for that one. The reason is not always a
+  `message`: a refused connection to a host with both an IPv4 and an IPv6
+  address is an `AggregateError` with an empty one and the answer in `code` and
+  `errors`, so it falls through those, and it is escaped, being text from the
+  network. The **body** is read inside the same translation, which it was not at
+  first: the archive is tens of megabytes and the read most likely to fail, and a
+  reset mid-body is a bare `terminated`, a timeout one is `The operation was
+  aborted due to timeout`, and a captive portal answering `200` HTML to the Bun
+  version document was a raw `SyntaxError` -- now "did not answer with JSON". The version **listings**
   (`fetchJson()`) are not part of this and are unchanged.
 
   **The cache.** What is written beside an executable is `sigil-verified.json`:
@@ -4577,12 +4583,26 @@ about what a valid app is would be the worse half of the feature.
   the **whole entry** and falls through to a fresh download, so a refusal never
   leaves the unverified binary behind for next time -- and the run says so
   (`The cached node X has no verification record, so it was removed.`) rather than
-  claiming the runtime was never on the machine. The record is written to the
+  claiming the runtime was never on the machine (`fetchNote()`, so the sentence
+  is asserted rather than only printed; a record that exists and does not parse
+  is `has no readable verification record`). The record is written to the
   scratch directory and **renamed** in, never written in place, since a write in
   place truncates first and a concurrent build reading that window would remove
   a good entry; and it lands **before** the binary is renamed into place, because
   the binary's presence is what makes an entry visible to `local()` and a binary
   with no record is one `distrust()` throws away.
+
+  **An interrupted run's scratch directory is removed once it is an hour old.**
+  Ctrl-C ends node without running a `finally`, and with a directory per run each
+  interrupted one stayed for good -- measured, four left behind and 9.5 MB each
+  for a 5 MB archive, a few hundred MB for a real one. `sweep()` removes
+  `<version>.partial-*` entries older than an hour at the top of `download()`,
+  which no live download can own, so a concurrent build's is never touched. It is
+  silent and best effort: tidying must not fail a build.
+
+  **A rename over a running executable** is refused on Windows. The other build put
+  the same verified bytes there, so `download()` uses what is there if
+  `distrust()` accepts it and fails, with the entry removed, if not.
 
   **The scratch directory is `mkdtempSync()`'s, and the archive holds one
   executable.** It was `<version>.partial-<pid>`, which a process killed
@@ -4625,12 +4645,13 @@ about what a valid app is would be the worse half of the feature.
   Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
   stubbed, the archives are real `tar` archives so a passing download goes
   through the real extraction, and `cache()` is mocked for the reason
-  `runtimes-cache.test.ts` records. Sabotage-checked fifteen ways -- the archive
+  `runtimes-cache.test.ts` records. Sabotage-checked twenty-five ways -- the archive
   comparison, the missing-line, duplicate-line and prefix-match rules, Bun's
   missing-integrity refusal, the cache comparison, the no-record discard, the
   reason handed to the caller, `redirect: 'error'`, both rewordings of a failed
-  request, the scratch directory, the one-executable rule, and the record's
-  atomicity and order -- and each fails a named test. The order is observed
+  request, the scratch directory, the one-executable rule, the record's
+  atomicity and order, the empty-reason fallbacks, the body read, the HTML
+  answer, the sweep, the rename fallback and the escaping -- and each fails a named test. The order is observed
   through a wrapped `renameSync`, so the test sees what existed beside the
   target at the moment of the move.
 

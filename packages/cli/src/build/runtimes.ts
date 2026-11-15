@@ -46,6 +46,7 @@
 
 import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
 import { isInside } from './discover.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { cache } from '@ttylabs/sigil/paths';
 import { isFreshStamp } from '@ttylabs/sigil/updates';
 import { whichSync } from '@ttylabs/sigil/which';
@@ -60,6 +61,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -673,10 +675,19 @@ export async function resolve(
  * `.tgz` rather than from GitHub as a `.zip`. Node's Windows archive is a zip,
  * and that is the one platform whose `tar` is bsdtar and reads it.
  *
- * The extraction goes to a sibling directory and is **renamed into place**, so
- * a download that dies half way leaves no directory that looks like a cached
- * runtime. Two builds fetching the same version race on the rename, which is
- * atomic, and the loser's copy is discarded.
+ * The extraction goes to a sibling directory of its own, and what is verified
+ * is **moved into place** -- the record, then the executable, as two renames --
+ * so a download that dies half way leaves no directory that looks like a cached
+ * runtime. Two builds fetching the same version race on those renames: each
+ * rename is atomic, and the loser's record and executable are byte-identical to
+ * the winner's -- both hashed the same verified archive -- and replace them. Where
+ * a rename over a running executable is refused (Windows, while another build is
+ * running that very file), the entry already there is used if `distrust()`
+ * accepts it.
+ *
+ * A directory an interrupted run left behind is removed once it is old enough
+ * that no live download can own it (`sweep()`), because Ctrl-C ends the process
+ * without running a `finally`.
  *
  * Nothing is extracted until the archive has hashed to the digest its own origin
  * publishes (`originDigest()`), and what lands in the cache carries a record of
@@ -706,6 +717,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
   // the verified archive, and it was hashed into the record as verified. It
   // also had two `resolve()` calls in one process sharing one directory
   mkdirSync(root, { recursive: true });
+  sweep(root);
   const partial = mkdtempSync(`${into}.partial-`);
 
   try {
@@ -714,9 +726,8 @@ async function download(runtime: Runtime, version: string): Promise<string> {
     // the origin's own digest first, so a version it does not list costs a few
     // hundred bytes rather than an archive
     const expected = await originDigest(runtime, version, url);
-    const response = await get(runtime, version, url);
     const archive = join(partial, runtime === 'node' ? 'node.tar.gz' : 'bun.tgz');
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await get(runtime, version, url, 'bytes');
 
     // before the bytes are written, let alone extracted: `tar` parses what it is
     // handed, and nothing here has decided yet that it should
@@ -776,7 +787,20 @@ async function download(runtime: Runtime, version: string): Promise<string> {
     // would take a good entry for a bad one and remove it
     writeFileSync(join(partial, RECORD), `${JSON.stringify(record, null, 2)}\n`);
     renameSync(join(partial, RECORD), join(into, RECORD));
-    renameSync(found, binary);
+
+    try {
+      renameSync(found, binary);
+    } catch (error) {
+      // Windows refuses to replace an executable another build is running. That
+      // build put the same verified bytes there, so what is there is used if it
+      // still answers to the record -- and it is removed, and this fails, if not
+      if (existsSync(binary) && distrust(runtime, version, binary) === undefined) {
+        return binary;
+      }
+
+      throw error;
+    }
+
     chmodSync(binary, 0o755);
 
     return binary;
@@ -815,30 +839,21 @@ const RECORD = 'sigil-verified.json';
  * @returns The response, known to be `ok`.
  * @throws If it could not be read in time or did not answer `200`.
  */
-async function get(runtime: Runtime, version: string, url: string): Promise<Response> {
+async function get(runtime: Runtime, version: string, url: string, as: 'bytes'): Promise<Buffer>;
+async function get(runtime: Runtime, version: string, url: string, as: 'text'): Promise<string>;
+async function get(runtime: Runtime, version: string, url: string, as: 'json'): Promise<unknown>;
+async function get(
+  runtime: Runtime,
+  version: string,
+  url: string,
+  as: 'bytes' | 'json' | 'text'
+): Promise<Buffer | string | unknown> {
   let response: Response;
 
   try {
     response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT) });
   } catch (error) {
-    // undici reports every failure as `fetch failed` and keeps the reason in
-    // `cause`, which nothing downstream renders -- so the reason is said here
-    const why = (error instanceof Error && error.cause instanceof Error ? error.cause : error) as {
-      message?: string;
-    };
-    const reason = why.message ?? String(why);
-
-    if (/redirect/i.test(reason)) {
-      throw new Error(
-        `Refusing ${runtime} ${version}: ${url} answered with a redirect, which is not followed -- these origins serve these files directly, so a redirect means something between here and them is answering instead.\n  Nothing was downloaded, extracted or run.`,
-        { cause: error }
-      );
-    }
-
-    throw new Error(
-      `Could not download ${runtime} ${version}: ${url} could not be fetched (${reason}).\n  A runtime has to be verified against its origin before it is used, so this needs the network even for one cached by an older sigil, which has no verification record. Check the connection and try again.`,
-      { cause: error }
-    );
+    throw failed(runtime, version, url, error, 'could not be fetched');
   }
 
   if (!response.ok) {
@@ -847,7 +862,81 @@ async function get(runtime: Runtime, version: string, url: string): Promise<Resp
     );
   }
 
-  return response;
+  // read here, inside the same translation: the archive is tens of megabytes
+  // and so the read most likely to fail, and a reset mid-body is a bare
+  // `terminated` and a timeout one is `The operation was aborted`
+  let body: Buffer | string;
+
+  try {
+    body = as === 'bytes' ? Buffer.from(await response.arrayBuffer()) : await response.text();
+  } catch (error) {
+    throw failed(runtime, version, url, error, 'was cut off while it was being read');
+  }
+
+  if (as !== 'json') {
+    return body;
+  }
+
+  try {
+    return JSON.parse(body as string) as unknown;
+  } catch {
+    throw new Error(
+      `Could not download ${runtime} ${version}: ${url} did not answer with JSON, so there is nothing to check the download against. Something between here and the origin may be answering in its place, such as a sign-in page.\n  Nothing was downloaded, extracted or run.`
+    );
+  }
+}
+
+/**
+ * The error for a request or a read that failed, saying why.
+ *
+ * undici reports every failure as `fetch failed` and keeps the reason in
+ * `cause`, which nothing downstream renders. The reason is not always a
+ * message: a refused connection on a host with both an IPv4 and an IPv6 address
+ * is an `AggregateError` whose message is empty, with the answer in `code` and
+ * `errors`. And it is text from the network, so it is escaped.
+ *
+ * @param runtime - Which runtime.
+ * @param version - The version.
+ * @param url - What was being read.
+ * @param error - What was thrown.
+ * @param what - What happened to the URL, as a clause for the sentence.
+ * @returns The error to throw.
+ */
+function failed(
+  runtime: Runtime,
+  version: string,
+  url: string,
+  error: unknown,
+  what: string
+): Error {
+  const why = (error instanceof Error && error.cause instanceof Error ? error.cause : error) as {
+    code?: unknown;
+    errors?: unknown;
+    message?: unknown;
+  };
+  const inner = Array.isArray(why?.errors)
+    ? why.errors.map((one: { message?: unknown }) => String(one?.message ?? one)).join('; ')
+    : '';
+  const reason = escapeControls(
+    String(
+      (typeof why?.message === 'string' && why.message) ||
+        (typeof why?.code === 'string' && why.code) ||
+        inner ||
+        String(why)
+    )
+  );
+
+  if (/redirect/i.test(reason)) {
+    return new Error(
+      `Refusing ${runtime} ${version}: ${url} answered with a redirect, which is not followed -- these origins serve these files directly, so a redirect means something between here and them is answering instead.\n  Nothing was downloaded, extracted or run.`,
+      { cause: error }
+    );
+  }
+
+  return new Error(
+    `Could not download ${runtime} ${version}: ${url} ${what} (${reason}).\n  A runtime is verified against its origin when it is fetched, so a fetch needs the network; one already cached and verified does not. Check the connection and try again.`,
+    { cause: error }
+  );
 }
 
 /**
@@ -878,7 +967,7 @@ async function originDigest(runtime: Runtime, version: string, url: string): Pro
 
   if (runtime === 'node') {
     const sums = `${url.slice(0, url.lastIndexOf('/'))}/SHASUMS256.txt`;
-    const text = await (await get(runtime, version, sums)).text();
+    const text = await get(runtime, version, sums, 'text');
     const found = new Set<string>();
 
     for (const line of text.split('\n')) {
@@ -900,10 +989,10 @@ async function originDigest(runtime: Runtime, version: string, url: string): Pro
 
   const triple = url.slice(url.indexOf('/@oven/') + 7).split('/')[0]!;
   const doc = `https://registry.npmjs.org/@oven%2f${triple}/${version}`;
-  const meta = (await (await get(runtime, version, doc)).json()) as {
+  const meta = (await get(runtime, version, doc, 'json')) as {
     dist?: { integrity?: unknown };
-  };
-  const integrity = typeof meta.dist?.integrity === 'string' ? meta.dist.integrity : '';
+  } | null;
+  const integrity = typeof meta?.dist?.integrity === 'string' ? meta.dist.integrity : '';
   const sri = integrity
     .split(/\s+/)
     .map((one) => /^sha512-([A-Za-z0-9+/]+={0,2})$/.exec(one)?.[1])
@@ -958,29 +1047,96 @@ function distrust(runtime: Runtime, version: string, path: string): string | und
   let why = 'has no verification record';
 
   try {
-    const record = JSON.parse(readFileSync(join(dirname(path), RECORD), 'utf-8')) as {
-      binary?: unknown;
-      runtime?: unknown;
-      version?: unknown;
-    };
+    let text: string | undefined;
 
-    why = 'no longer matches its verification record';
+    try {
+      text = readFileSync(join(dirname(path), RECORD), 'utf-8');
+    } catch (error) {
+      // absent is `has no record`; present and unreadable is a different thing
+      // to be told
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        why = 'has no readable verification record';
+      }
+    }
 
-    if (
-      record.runtime === runtime &&
-      record.version === version &&
-      record.binary === `sha256:${hashFile(path)}`
-    ) {
-      return undefined;
+    if (text !== undefined) {
+      why = 'has no readable verification record';
+
+      const record = JSON.parse(text) as {
+        binary?: unknown;
+        runtime?: unknown;
+        version?: unknown;
+      } | null;
+
+      if (record !== null && typeof record === 'object') {
+        why = 'no longer matches its verification record';
+
+        if (
+          record.runtime === runtime &&
+          record.version === version &&
+          record.binary === `sha256:${hashFile(path)}`
+        ) {
+          return undefined;
+        }
+      }
     }
   } catch {
-    // no record, an unreadable one, or a binary that cannot be read: the
-    // clause above says which of those it was as far as it can be known
+    // a record that does not parse, or an executable that cannot be read: `why`
+    // says which of them it was as far as it can be known
   }
 
   rmSync(dirname(path), { force: true, recursive: true });
 
   return why;
+}
+
+/**
+ * What `sigil package` says before it fetches a runtime.
+ *
+ * Where the fetch follows removing a cached copy that failed its check, it says
+ * that rather than "not on this machine", which is untrue of it and leaves the
+ * next question -- where did it go -- unanswered.
+ *
+ * @param runtime - Which runtime.
+ * @param version - The version.
+ * @param discarded - Why a cached copy was removed first, when one was.
+ * @returns The line.
+ */
+export function fetchNote(runtime: Runtime, version: string, discarded?: string): string {
+  return discarded
+    ? `The cached ${runtime} ${version} ${discarded}, so it was removed. Fetching it again...`
+    : `Fetching ${runtime} ${version}, which is not on this machine...`;
+}
+
+/** How old a `.partial-*` directory must be before it is taken for an interrupted run's. */
+const STALE_PARTIAL = 60 * 60 * 1000;
+
+/**
+ * Removes the scratch directories interrupted runs left in a runtime's cache.
+ *
+ * Ctrl-C ends node without running a `finally`, and every run has a directory
+ * of its own now, so each interrupted one left one for good -- up to a few
+ * hundred megabytes of a half-extracted runtime. A directory untouched for an
+ * hour belongs to no live download, which is why a concurrent build's is never
+ * in danger. Best effort and silent: failing to tidy must never fail a build.
+ *
+ * @param root - The runtime's cache directory.
+ */
+function sweep(root: string): void {
+  try {
+    for (const entry of readdirSync(root)) {
+      const at = join(root, entry);
+
+      if (
+        /^\d+\.\d+\.\d+\.partial-/.test(entry) &&
+        Date.now() - statSync(at).mtimeMs > STALE_PARTIAL
+      ) {
+        rmSync(at, { force: true, recursive: true });
+      }
+    }
+  } catch {
+    // tidying is not the job
+  }
 }
 
 /** Where a runtime of this version is published. */

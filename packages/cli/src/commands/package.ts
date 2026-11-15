@@ -60,6 +60,7 @@ import {
   parseSpec,
   resolve,
   type Spec,
+  fetchNote,
 } from '../build/index.ts';
 import { CONFIG_FILE, readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
@@ -591,14 +592,7 @@ async function fetchIfAbsent(runtime: Runtime, version: string, target: Target):
     // several seconds, and a build that appears to hang is worse than a slow one.
     // A copy that was removed first says so, because "not on this machine" is
     // untrue of it and the next question is where it went
-    writeNote(
-      [
-        discarded
-          ? `The cached ${runtime} ${which} ${discarded}, so it was removed. Fetching it again...`
-          : `Fetching ${runtime} ${which}, which is not on this machine...`,
-      ],
-      process.stderr
-    );
+    writeNote([fetchNote(runtime, which, discarded)], process.stderr);
   });
 }
 

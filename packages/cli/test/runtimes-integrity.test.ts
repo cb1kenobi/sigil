@@ -1,7 +1,15 @@
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,6 +36,9 @@ const nativeFetch = globalThis.fetch;
 /** Every `renameSync` the module makes, and whether the record already sat beside its target. */
 const renames: { record: boolean; to: string }[] = [];
 
+/** Runs before each rename, so a test can make one fail the way Windows does. */
+let beforeRename: ((to: string) => void) | undefined;
+
 vi.mock('node:fs', async (original) => {
   const actual = await original<typeof import('node:fs')>();
 
@@ -39,6 +50,8 @@ vi.mock('node:fs', async (original) => {
         to: String(to),
       });
 
+      beforeRename?.(String(to));
+
       return actual.renameSync(from, to);
     },
   };
@@ -48,7 +61,7 @@ vi.mock('@ttylabs/sigil/paths', () => ({
   cache: (...paths: string[]) => join(box, 'cache', ...paths),
 }));
 
-const { resolve } = await import('../src/build/runtimes.ts');
+const { fetchNote, resolve } = await import('../src/build/runtimes.ts');
 
 const VERSION = '9.9.9';
 const TARGET = { arch: 'x64', platform: 'linux' } as const;
@@ -140,6 +153,7 @@ describe('verifying a runtime against its own origin', () => {
   beforeEach(() => {
     rmSync(join(box, 'cache'), { force: true, recursive: true });
     renames.length = 0;
+    beforeRename = undefined;
   });
 
   afterEach(() => {
@@ -324,7 +338,87 @@ describe('verifying a runtime against its own origin', () => {
       expect((refusal as Error).message).toContain('Could not download node 9.9.9');
       expect((refusal as Error).message).toContain('getaddrinfo ENOTFOUND nodejs.org');
       expect((refusal as Error).message).toContain('SHASUMS256.txt');
-      expect((refusal as Error).message).toContain('older sigil');
+      expect((refusal as Error).message).toContain('needs the network');
+    });
+
+    it('should name a refused connection on a dual-stack host, whose message is empty', async () => {
+      // undici's cause for a failed happy-eyeballs connect: an AggregateError
+      // with message '' and the answer in `code` and `errors`
+      const cause = Object.assign(
+        new AggregateError([new Error('connect ECONNREFUSED ::1:443')], ''),
+        { code: 'ECONNREFUSED' }
+      );
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed', { cause })));
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).toContain('could not be fetched (ECONNREFUSED)');
+    });
+
+    it('should fall back to the nested errors when there is neither a message nor a code', async () => {
+      const cause = new AggregateError([new Error('connect ECONNREFUSED ::1:443')], '');
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed', { cause })));
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).toContain('(connect ECONNREFUSED ::1:443)');
+    });
+
+    it('should not echo a control character the network put in the reason', async () => {
+      vi.stubGlobal('fetch', () =>
+        Promise.reject(
+          new TypeError('fetch failed', { cause: new Error('bad \u001b[31mred\u001b[0m reply') })
+        )
+      );
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).not.toContain('\u001b');
+      expect((refusal as Error).message).toContain('red');
+    });
+
+    it('should say so when the archive is cut off while it is being read', async () => {
+      // the archive is tens of megabytes, so it is the read most likely to fail,
+      // and a reset mid-body is a bare `terminated` that skipped the wrapping
+      const bytes = archive('node', 'REAL');
+      vi.stubGlobal('fetch', (url: string) =>
+        Promise.resolve(
+          url.endsWith('/SHASUMS256.txt')
+            ? new Response(shasums(sha256(bytes)))
+            : new Response(
+                new ReadableStream({
+                  pull(controller) {
+                    controller.error(
+                      new TypeError('terminated', { cause: new Error('other side closed') })
+                    );
+                  },
+                })
+              )
+        )
+      );
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).toContain('Could not download node 9.9.9');
+      expect((refusal as Error).message).toContain(
+        'was cut off while it was being read (other side closed)'
+      );
+      expect(existsSync(cached('node'))).toBe(false);
+    });
+
+    it("should say so when Bun's version document is a page rather than JSON", async () => {
+      // a captive portal answers 200 with HTML
+      vi.stubGlobal('fetch', () =>
+        Promise.resolve(
+          new Response('<html>sign in</html>', { headers: { 'content-type': 'text/html' } })
+        )
+      );
+
+      const refusal = await resolve('bun', VERSION, TARGET).catch((error: Error) => error);
+
+      expect(refusal).not.toBeInstanceOf(SyntaxError);
+      expect((refusal as Error).message).toContain('did not answer with JSON');
+      expect((refusal as Error).message).toContain('Nothing was downloaded, extracted or run');
     });
   });
 
@@ -413,11 +507,29 @@ describe('verifying a runtime against its own origin', () => {
       rmSync(cached('node'), { force: true, recursive: true });
       await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
 
+      // present but not parseable is not the same thing to be told as absent
+      await resolve('node', VERSION, TARGET);
+      writeFileSync(join(cached('node'), 'sigil-verified.json'), '{ not json');
+      await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
+
       expect(said).toEqual([
         'no longer matches its verification record',
         'has no verification record',
         undefined,
+        'has no readable verification record',
       ]);
+    });
+
+    it('should say what happened in the note `sigil package` prints', () => {
+      expect(fetchNote('node', '9.9.9')).toBe(
+        'Fetching node 9.9.9, which is not on this machine...'
+      );
+      expect(fetchNote('node', '9.9.9', 'has no verification record')).toBe(
+        'The cached node 9.9.9 has no verification record, so it was removed. Fetching it again...'
+      );
+      expect(fetchNote('bun', '9.9.9', 'no longer matches its verification record')).toBe(
+        'The cached bun 9.9.9 no longer matches its verification record, so it was removed. Fetching it again...'
+      );
     });
 
     it('should be discarded and fetched again when it has no record', async () => {
@@ -445,6 +557,72 @@ describe('verifying a runtime against its own origin', () => {
       await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/Refusing node 9\.9\.9/);
 
       expect(existsSync(path)).toBe(false);
+    });
+  });
+
+  describe('a download interrupted before it could clean up', () => {
+    const root = (): string => join(box, 'cache', 'sigil/runtimes', 'node');
+
+    /** A scratch directory as an interrupted run leaves it, last touched `age` ms ago. */
+    function leave(name: string, age: number): string {
+      const at = join(root(), name);
+      mkdirSync(at, { recursive: true });
+      writeFileSync(join(at, 'half-extracted'), 'x');
+      const when = new Date(Date.now() - age);
+      utimesSync(at, when, when);
+
+      return at;
+    }
+
+    it('should remove a scratch directory an hour old and leave a fresh one alone', async () => {
+      // Ctrl-C skips the `finally`, so each interrupted run left one for good --
+      // and a fresh one may be a concurrent build's live download
+      const old = leave('9.9.1.partial-OLDOLD', 2 * 60 * 60 * 1000);
+      const fresh = leave('9.9.1.partial-FRESH1', 1000);
+      const other = leave('not-a-scratch-dir', 2 * 60 * 60 * 1000);
+
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      await resolve('node', VERSION, TARGET);
+
+      expect(existsSync(old)).toBe(false);
+      expect(existsSync(fresh)).toBe(true);
+      expect(existsSync(other)).toBe(true);
+    });
+  });
+
+  describe('a rename over an executable that is in use', () => {
+    // Windows refuses to replace a `node.exe` another build is running. The
+    // other build put the same verified bytes there
+    function refuse(content: string): void {
+      beforeRename = (to) => {
+        if (to === join(cached('node'), NAME('node'))) {
+          writeFileSync(to, content);
+          throw Object.assign(new Error('EPERM: operation not permitted, rename'), {
+            code: 'EPERM',
+          });
+        }
+      };
+    }
+
+    it('should use what is there when it answers to the record', async () => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      refuse('REAL');
+
+      const path = await resolve('node', VERSION, TARGET);
+
+      expect(readFileSync(path, 'utf-8')).toBe('REAL');
+    });
+
+    it('should fail, and remove the entry, when what is there does not', async () => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      refuse('SOMETHING ELSE');
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/EPERM/);
+
+      expect(existsSync(cached('node'))).toBe(false);
     });
   });
 });
