@@ -906,12 +906,13 @@ describe('filesystem routing', () => {
         // naming `!index.js`'s successor sent somebody to a top-level `index`, which is
         // nothing; `!x.js` beside `x.js` was told to rename onto it; and a name holding
         // a quote came back as JSON that did not parse. One fixed sentence is right for
-        // every one of them
+        // every one of them. A backslash is a separator on Windows, where no entry a
+        // directory listing hands over can hold one, so that case is POSIX's alone
         for (const name of [
           '!index.mjs',
           '!x.mjs',
           '!a"b.mjs',
-          '!a\\b.mjs',
+          ...(process.platform === 'win32' ? [] : ['!a\\b.mjs']),
           '@acme.mjs',
           '!a b.mjs',
         ]) {
