@@ -1,7 +1,9 @@
 import { stringWidth } from '../width/index.js';
+import { isBreakSpace } from './breaks.js';
 import { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 import { type Token, tokenize } from './tokens.js';
 
+export { isBreakSpace } from './breaks.js';
 export { createSgrState, isSgr, type SgrState } from './sgr-state.js';
 export { type Token, tokenize } from './tokens.js';
 
@@ -360,7 +362,7 @@ function wrapLine(
       continue;
     }
 
-    if (token.text === ' ' || token.text === '\t') {
+    if (isBreakSpace(token.text)) {
       placeWord();
       // a tab counts as one space and is written as one, so that what was
       // measured is what comes out

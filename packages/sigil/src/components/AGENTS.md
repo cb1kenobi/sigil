@@ -2869,8 +2869,47 @@ it is a component rather than the frame effect SIG-103 is.
   room for the word's first character, `placeCells()` follows, and with that
   difference gone the comparison is byte for byte. The indentation dropped is
   only the spaces and tabs `wrap()` breaks at; any other blank stays, and `should
-  drop only the indentation the wrapper drops` holds that, outside the grid
-  because the cells break at every blank and `wrap()` does not.
+  drop only the indentation the wrapper drops` holds that.
+
+  **The blanks it breaks at are `wrap()`'s, asked of one function (SIG-438).** The
+  cells broke at any `\s`, so a no-break, figure, narrow no-break or ideographic
+  space split a line and was thrown away as a gap: `10 kg` stayed together in a
+  `text` and came apart in a decrypt. `isBreakSpace()` in `src/wrap/index.ts` is
+  U+0020 and a tab, `wrap()` breaks on it, and `cellRuns()` reads the same call.
+  The indentation rule gets it through `cellRuns()`, since a gap is made only of
+  break spaces. Every other blank is part of the word beside it, which is also why
+  a run of them wider than the line is cut at the edge as a word is. What stays on
+  `\s` is the hidden-cluster check, which asks whether a cluster is whitespace
+  (`width > 0 && !WHITESPACE`) and not where a line may break.
+
+  Two string-based splitters read it too, from `words()` in `src/wrap/breaks.ts`,
+  which is built from the same characters: `longestWord()` in `src/element`, the
+  narrowest a `text` can be squeezed to, and `paragraph()`'s `wrappingRow()`. Both
+  split on `\s` and had the same defect, and a decrypt's own measurement reads
+  `cellRuns()`, so with `longestWord()` on `\s` the two reported `5` and `2` for
+  `10 kg is`. A split helper rather than a call to the predicate per character,
+  because a string is split once and a cluster is asked once, and two spellings of
+  one set is how they come apart. It does not split at a space that carries a
+  combining mark or a joiner -- that is one cluster, and `wrap()` reads it as part
+  of the word -- and `paragraph()` splits its lines at `\r?\n` as `wrap()` does,
+  since a CRLF blank line arrived as a `\r` word and drew an empty row. Markdown
+  still splits on `\s` in `components/markdown.ts` and so breaks at a no-break
+  space: SIG-441, not done here.
+
+  **Only `isBreakSpace()` is public, and it has to be.** Decrypt is a registry
+  component: `sigil add` copies it into an app, and `rewrite()` in
+  `scripts/generate-registry.mjs` throws for any import that is not a published
+  subpath. A private module under `src/wrap/` would break the registry build, and
+  the only alternative is a second copy of the rule, which is the thing this entry
+  exists to stop. `words()` is the opposite case: its callers are in this package
+  and no registry component imports it, so it lives in the private `breaks.ts` and
+  what `@ttylabs/sigil/wrap` exports, which freezes at 1.0, is one function.
+
+  The leading-blanks half of the ticket did not reproduce: SIG-405's rule already
+  holds for spaces and tabs, and the only indentation that ran past the width was
+  made of those other blanks, which are words now. `should break only at the blanks
+  the wrapper breaks at` and the seeded walk beside it compare decrypt's rows
+  against `wrap()` byte for byte.
 
   Which **break opportunities** there are is asked of the plan rather than of what
   is drawn -- a hidden cell is never whitespace, so `hidden` settles it before the

@@ -705,12 +705,44 @@ describe('decryptView()', () => {
     }
   });
 
+  // `wrap()` breaks at U+0020 and a tab and nowhere else, so a non-breaking, figure,
+  // narrow no-break or ideographic space is part of the word beside it. The cells
+  // used to break at any `\s`: `10 kg` split across two rows and the space that held
+  // it together was thrown away as a gap
+  it('should break only at the blanks the wrapper breaks at', () => {
+    for (const blank of ['\u00a0', '\u2007', '\u202f', '\u3000', '\u2003']) {
+      for (const text of [
+        `10${blank}kg is heavy`,
+        `ab 10${blank}kg`,
+        `a${blank}${blank}${blank}${blank}b c`,
+        `${blank}${blank}${blank}${blank}word`,
+        `x ${blank}${blank}${blank}${blank}${blank}${blank} y`,
+        `one two${blank}`,
+        `${blank}`,
+      ]) {
+        for (const width of [2, 3, 4, 5, 6, 8, 12]) {
+          expect(
+            drawFrame(decryptedFrame(text), width),
+            `${JSON.stringify(text)} at ${width}`
+          ).to.equal(wrap(text, { width }));
+        }
+      }
+    }
+  });
+
+  // the one case the ticket named, spelled out: a break would have dropped the
+  // no-break space, so the two halves of `10 kg` drew as `10` and `kg`
+  it('should keep a no-break space between the words it joins', () => {
+    const out = drawFrame(decryptedFrame('ab 10\u00a0kg'), 6);
+
+    expect(out).to.equal('ab\n10\u00a0kg');
+    expect(out).to.equal(wrap('ab 10\u00a0kg', { width: 6 }));
+  });
+
   // `wrap()` drops indentation that leaves no room, and its indentation is what
   // it breaks at: U+0020 and a tab. Every other space is an ordinary character
-  // there, kept like one, so the cells have to keep it too. Pairs rather than the
-  // grid above, because two differences older than this rule keep these texts out
-  // of it: the cells break at any blank where `wrap()` breaks only at those two,
-  // and they do not split a run of other blanks wider than the line
+  // there, kept like one, so the cells have to keep it too -- and it is part of
+  // the word, so a run of them wider than the line is cut at the edge as a word is
   it('should drop only the indentation the wrapper drops', () => {
     const IDEOGRAPHIC = '\u3000';
     const NBSP = '\u00a0';
@@ -720,6 +752,7 @@ describe('decryptView()', () => {
       [`${EM}${EM}${EM}word`, 3],
       [`${IDEOGRAPHIC}a`, 2],
       [`${NBSP}${NBSP}${NBSP}${NBSP}word`, 4],
+      [`${NBSP}${NBSP}${NBSP}${NBSP}${NBSP}${NBSP}word`, 4],
       [`  ${NBSP}word`, 2],
       [`   ${IDEOGRAPHIC}a`, 4],
       [`    ${IDEOGRAPHIC}a`, 4],
@@ -730,6 +763,55 @@ describe('decryptView()', () => {
         drawFrame(decryptedFrame(text), width),
         `${JSON.stringify(text)} at ${width}`
       ).to.equal(wrap(text, { width }));
+    }
+  });
+
+  // a negative claim about every input is not established by the cases somebody
+  // thought of, so the two layers are compared over a seeded walk of texts built
+  // from the blanks that matter and the characters they sit between. From width 2:
+  // a two-column character in one column is a cut the box makes and not the wrap
+  it('should wrap as the wrapper does over texts of mixed blanks', () => {
+    const parts = ['a', 'b', 'c', ' ', ' ', '\t', '\u00a0', '\u2007', '\u202f', '\u3000', '\n'];
+    const random = seeded(438);
+    for (let i = 0; i < 2000; i++) {
+      let text = '';
+      for (let n = 1 + Math.floor(random() * 10); n > 0; n--) {
+        text += parts[Math.floor(random() * parts.length)];
+      }
+      const width = 2 + Math.floor(random() * 7);
+
+      expect(
+        drawFrame(decryptedFrame(text), width),
+        `${JSON.stringify(text)} at ${width}`
+      ).to.equal(wrap(text, { width }));
+    }
+  });
+
+  // a decrypt reports its widest word as what it can be squeezed to, which is what
+  // a text reports for the same string: both read the words `wrap()` finds, so a
+  // no-break space is inside one. They disagreed (5 against 2) while the text
+  // split its words at any `\s`
+  it('should be as narrow as a text of the same string can be', () => {
+    const narrowest = (el: Element): number | undefined => {
+      resolveStyles(el);
+      return el.measure?.(40).minWidth;
+    };
+
+    for (const content of [
+      '10\u00a0kg is',
+      'ab\u3000cd',
+      '10 kg is',
+      'a\u2007b c\u202fd',
+      'one two\nthree',
+      'a \u0301b c',
+    ]) {
+      const state = decryptState('');
+      state.frame.set(decryptedFrame(content));
+
+      expect(
+        narrowest(decryptView(state).children[0] as Element),
+        JSON.stringify(content)
+      ).to.equal(narrowest(textNode(content)));
     }
   });
 
