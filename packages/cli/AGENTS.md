@@ -4527,6 +4527,77 @@ about what a valid app is would be the worse half of the feature.
   `--runtime <runtime>@<version>` now, and the picker, which is the real way to
   see what exists.
 
+- **A downloaded runtime is checked against its own origin's digest before it
+  is extracted, and a cached one is checked again on every use (SIG-411).** The
+  runtime is executed on the author's machine and then embedded in every binary
+  they ship, and `download()` used to `fetch` it, `tar -xf` it and cache it with
+  no comparison of any kind -- so a CDN, a mirror or a TLS-intercepting proxy
+  serving a modified `node` or `bun` got it run, kept indefinitely under the XDG
+  cache, and shipped. The URLs were already sound (hard-coded HTTPS, the strict
+  `isVersion()`, `cacheDir()` containing the path); the bytes were what nobody
+  asked about.
+
+  What it is checked against is the digest the origin publishes **for that
+  file**, so an arbitrary `--runtime node@x.y.z` keeps working: there is no table
+  of digests shipped here to go stale, and no signature is checked.
+  - **Node:** the line for the exact archive name in `SHASUMS256.txt` beside the
+    release (sha256). No line, or two lines with different digests, is a refusal.
+  - **Bun:** it is downloaded as npm's `@oven/bun-<triple>` tarball, so the
+    digest is the `dist.integrity` (sha512, SRI) of that version of that package,
+    read from the registry's per-version document
+    (`registry.npmjs.org/@oven%2fbun-<triple>/<version>`), not the full
+    packument, which is megabytes. The `bun` packument that `latestBun()` reads
+    describes the wrapper package and says nothing about this tarball.
+
+  The digest is fetched **first** and the archive hashed **before it is written
+  or extracted**, so a version the origin does not list costs a few hundred
+  bytes, and `tar` never parses bytes nothing has vouched for. Every message
+  names the runtime, the file, expected against actual, and says nothing was
+  extracted or run. The test serves bytes that are not an archive at all, so a
+  refusal that came from `tar` would read `Could not extract` instead.
+
+  `redirect: 'error'` is on all three requests, because none of these hosts
+  redirects for these URLs: probed with `curl -sI`, Node's archive and
+  `SHASUMS256.txt` and npm's tarball and version document all answer `200` with
+  no `Location`. A host that starts redirecting fails loudly rather than handing
+  the digest or the bytes to somewhere nobody named. The version **listings**
+  (`fetchJson()`) are not part of this and are unchanged.
+
+  **The cache.** What is written beside an executable is `sigil-verified.json`:
+  the runtime, the version, the archive's file name, its origin digest and
+  source, and the sha256 of the executable that came out of it. `resolve()` calls
+  `trusted()` for an executable under sigil's own cache and re-hashes it against
+  that record on every use; no record, an unreadable one, or a mismatch removes
+  the **whole entry** and falls through to a fresh download, so a refusal never
+  leaves the unverified binary behind for next time. The record is written
+  **before** the binary is renamed into place, because the binary's presence is
+  what makes an entry visible to `local()` and a binary with no record is one
+  `trusted()` throws away. An entry cached before this existed has no record and
+  is fetched once more. Only sigil's own cache is checked: a runtime found on
+  `PATH` or in Bun's own cache is the user's installation, not something sigil
+  fetched, and `local()` is what the picker lists, so it is not re-hashed on
+  every listing either -- it costs a hash of ~90 MB only when a version is
+  actually resolved.
+
+  **What this does not protect against, stated plainly.** The digest comes from
+  the same origin as the file, so a compromise of nodejs.org or of the npm
+  registry itself changes both and passes. The record is not signed and lives in
+  the directory it guards, so anyone who can write the cache can write a matching
+  record -- it catches a binary that changed under it (a corrupted write, another
+  tool, a swap that did not know to touch the record) and not an attacker with
+  that access, who could equally edit this toolchain. What it removes is the
+  case this was written for: an intermediary that can alter a download but not
+  the origin's own documents -- which, over HTTPS to the origin, is everything
+  between the two ends.
+
+  Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
+  stubbed, the archives are real `tar` archives so a passing download goes
+  through the real extraction, and `cache()` is mocked for the reason
+  `runtimes-cache.test.ts` records. Sabotage-checked six ways -- the archive
+  comparison, the missing-line refusal, Bun's missing-integrity refusal, the
+  cache comparison, the no-record discard, and `redirect: 'error'` -- and each
+  fails a named test.
+
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First
   that was wrong for a **pinned** version -- `--runtime bun@1.3.14` on a machine

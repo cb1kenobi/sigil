@@ -50,6 +50,7 @@ import { cache } from '@ttylabs/sigil/paths';
 import { isFreshStamp } from '@ttylabs/sigil/updates';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -61,7 +62,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 /** Where a fetched runtime is kept, under the XDG cache. */
 const CACHE = 'sigil/runtimes';
@@ -626,7 +627,9 @@ async function fetchJson(url: string): Promise<unknown> {
  *
  * Local first, always: a version already on `PATH` or in either cache is the
  * one to use, because downloading a runtime somebody has is a slow way to get
- * the same answer.
+ * the same answer. The exception is a runtime in **sigil's own** cache, which is
+ * used only while it still matches the digest recorded when it was verified
+ * (see `trusted()`); one that does not is discarded and fetched again.
  *
  * @param runtime - Which runtime.
  * @param version - The version, without a leading `v`.
@@ -643,7 +646,7 @@ export async function resolve(
 ): Promise<string> {
   const here = local(runtime, target).find((one) => one.version === version);
 
-  if (here?.path) {
+  if (here?.path && (!isOwn(runtime, here.path) || trusted(runtime, version, here.path))) {
     return here.path;
   }
 
@@ -667,10 +670,14 @@ export async function resolve(
  * runtime. Two builds fetching the same version race on the rename, which is
  * atomic, and the loser's copy is discarded.
  *
+ * Nothing is extracted until the archive has hashed to the digest its own origin
+ * publishes (`originDigest()`), and what lands in the cache carries a record of
+ * what it was verified as, which `trusted()` re-checks on every later use.
+ *
  * @param runtime - Which runtime.
  * @param version - The version, without a leading `v`.
  * @returns The executable.
- * @throws If the download or the extraction failed.
+ * @throws If the download, the verification or the extraction failed.
  */
 async function download(runtime: Runtime, version: string): Promise<string> {
   const root = cache(CACHE, runtime);
@@ -689,17 +696,24 @@ async function download(runtime: Runtime, version: string): Promise<string> {
 
   try {
     const url = downloadUrl(runtime, version);
-    const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT) });
 
-    if (!response.ok) {
+    // the origin's own digest first, so a version it does not list costs a few
+    // hundred bytes rather than an archive
+    const expected = await originDigest(runtime, version, url);
+    const response = await get(runtime, version, url);
+    const archive = join(partial, runtime === 'node' ? 'node.tar.gz' : 'bun.tgz');
+    const bytes = Buffer.from(await response.arrayBuffer());
+
+    // before the bytes are written, let alone extracted: `tar` parses what it is
+    // handed, and nothing here has decided yet that it should
+    const actual = createHash(expected.algorithm).update(bytes).digest('hex');
+    if (actual !== expected.hex) {
       throw new Error(
-        `Could not download ${runtime} ${version}: ${url} answered ${response.status}.\n  Check the version exists, and pin one that does with --runtime ${runtime}@<version>. "sigil package" at a terminal, with neither --runtime nor "package.runtime" in sigil.json, offers the newest of each line.`
+        `Refusing ${runtime} ${version}: ${basename(url)} does not match the ${expected.algorithm} digest ${expected.source} publishes for it.\n  expected ${expected.algorithm}:${expected.hex}\n  got      ${expected.algorithm}:${actual}\n  Nothing was extracted or run, and nothing was cached. Try again; if this repeats, something between here and the origin is serving a different file.`
       );
     }
 
-    const archive = join(partial, runtime === 'node' ? 'node.tar.gz' : 'bun.tgz');
-    const { writeFileSync } = await import('node:fs');
-    writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
+    writeFileSync(archive, bytes);
 
     const tar = spawnSync('tar', ['-xf', archive, '-C', partial], {
       encoding: 'utf-8',
@@ -717,7 +731,20 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       throw new Error(`Downloaded ${runtime} ${version} but found no ${runtime} executable in it.`);
     }
 
+    // the record goes down **before** the binary, because the binary's presence
+    // is what makes a cache entry visible to `local()`: a binary with no record
+    // is an entry `trusted()` discards, so a second build looking at the
+    // directory between the two writes would throw away a download in progress
     mkdirSync(into, { recursive: true });
+    const record: Record<string, string> = {
+      archive: `${expected.algorithm}:${expected.hex}`,
+      binary: `sha256:${hashFile(found)}`,
+      file: basename(url),
+      runtime,
+      source: expected.source,
+      version,
+    };
+    writeFileSync(join(into, RECORD), `${JSON.stringify(record, null, 2)}\n`);
     renameSync(found, binary);
     chmodSync(binary, 0o755);
 
@@ -725,6 +752,174 @@ async function download(runtime: Runtime, version: string): Promise<string> {
   } finally {
     rmSync(partial, { force: true, recursive: true });
   }
+}
+
+/** What a download is checked against, and who said so. */
+interface Digest {
+  /** The hash function the origin publishes the digest in. */
+  readonly algorithm: 'sha256' | 'sha512';
+  /** The digest, as lower case hex whatever the origin spelled it as. */
+  readonly hex: string;
+  /** The origin's document it came from, for the message. */
+  readonly source: string;
+}
+
+/** The file beside a cached executable that says what it was verified as. */
+const RECORD = 'sigil-verified.json';
+
+/**
+ * Fetches a URL a runtime is verified through, and refuses to follow a redirect.
+ *
+ * `redirect: 'error'` because neither host redirects for any of these URLs --
+ * probed with `curl -sI` for Node's archive and `SHASUMS256.txt` and for npm's
+ * tarball and version document, all `200` with no `Location` -- so a redirect
+ * is not a thing that happens, and the place it would be an event is the place
+ * that would hand the digest or the bytes to a host nobody named. A host that
+ * starts redirecting fails loudly here, which is the right response to finding
+ * out.
+ *
+ * @param runtime - Which runtime, for the message.
+ * @param version - The version, for the message.
+ * @param url - What to read.
+ * @returns The response, known to be `ok`.
+ * @throws If it could not be read in time or did not answer `200`.
+ */
+async function get(runtime: Runtime, version: string, url: string): Promise<Response> {
+  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT) });
+
+  if (!response.ok) {
+    throw new Error(
+      `Could not download ${runtime} ${version}: ${url} answered ${response.status}.\n  Check the version exists, and pin one that does with --runtime ${runtime}@<version>. "sigil package" at a terminal, with neither --runtime nor "package.runtime" in sigil.json, offers the newest of each line.`
+    );
+  }
+
+  return response;
+}
+
+/**
+ * The digest the runtime's own origin publishes for the archive at `url`.
+ *
+ * Same origin as the archive, and that is the whole of what this can promise: a
+ * CDN, a mirror or a proxy that serves a modified archive is caught, and a
+ * compromise of the origin itself -- nodejs.org, or the npm registry -- is not,
+ * because it can change the digest along with the file. No signature is
+ * checked and no table of digests is shipped, so that any `--runtime
+ * node@x.y.z` that exists keeps working.
+ *
+ * - **Node** publishes `SHASUMS256.txt` beside the release, one `sha256  name`
+ *   line per file.
+ * - **Bun** is downloaded as npm's `@oven/bun-<triple>` tarball (see
+ *   `downloadUrl()`), so the digest is the `dist.integrity` of that version of
+ *   that package -- sha512 in SRI form -- read from the registry's per-version
+ *   document rather than the full packument, which is megabytes.
+ *
+ * @param runtime - Which runtime.
+ * @param version - The version.
+ * @param url - The archive's URL.
+ * @returns What the archive has to hash to.
+ * @throws If the document could not be read or says nothing usable about the file.
+ */
+async function originDigest(runtime: Runtime, version: string, url: string): Promise<Digest> {
+  const file = basename(url);
+
+  if (runtime === 'node') {
+    const sums = `${url.slice(0, url.lastIndexOf('/'))}/SHASUMS256.txt`;
+    const text = await (await get(runtime, version, sums)).text();
+    const found = new Set<string>();
+
+    for (const line of text.split('\n')) {
+      const match = /^([0-9a-fA-F]{64}) [ *](.+?)\s*$/.exec(line);
+
+      if (match?.[2] === file) {
+        found.add(match[1]!.toLowerCase());
+      }
+    }
+
+    if (found.size !== 1) {
+      throw new Error(
+        `Refusing ${runtime} ${version}: ${sums} ${found.size ? `lists ${file} with ${found.size} different digests` : `has no line for ${file}`}, so there is nothing to check the download against.\n  Nothing was downloaded, extracted or run.`
+      );
+    }
+
+    return { algorithm: 'sha256', hex: [...found][0]!, source: sums };
+  }
+
+  const triple = url.slice(url.indexOf('/@oven/') + 7).split('/')[0]!;
+  const doc = `https://registry.npmjs.org/@oven%2f${triple}/${version}`;
+  const meta = (await (await get(runtime, version, doc)).json()) as {
+    dist?: { integrity?: unknown };
+  };
+  const integrity = typeof meta.dist?.integrity === 'string' ? meta.dist.integrity : '';
+  const sri = integrity
+    .split(/\s+/)
+    .map((one) => /^sha512-([A-Za-z0-9+/]+={0,2})$/.exec(one)?.[1])
+    .find((one) => one !== undefined);
+
+  const hex = sri === undefined ? '' : Buffer.from(sri, 'base64').toString('hex');
+  if (hex.length !== 128) {
+    throw new Error(
+      `Refusing ${runtime} ${version}: ${doc} publishes no sha512 integrity for ${file}, so there is nothing to check the download against.\n  Nothing was downloaded, extracted or run.`
+    );
+  }
+
+  return { algorithm: 'sha512', hex, source: doc };
+}
+
+/** The sha256 of a file, as hex. */
+function hashFile(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/** Whether an executable is under sigil's own runtime cache, as opposed to `PATH` or Bun's. */
+function isOwn(runtime: Runtime, path: string): boolean {
+  const root = cache(CACHE, runtime);
+
+  return root !== undefined && isInside(root, path);
+}
+
+/**
+ * Whether a runtime in sigil's cache is still the one that was verified.
+ *
+ * A cached runtime is the thing every binary built afterwards embeds, so it is
+ * not trusted for being there. It is re-hashed on every use against the sha256
+ * of the executable that was written beside it when the archive passed
+ * `originDigest()`. A missing or unreadable record, or a digest that does not
+ * match, discards the whole entry, and the caller fetches again -- which is also
+ * what happens, once, to an entry written before this existed.
+ *
+ * The limit, stated rather than implied: the record is not signed, and it lives
+ * in the directory it protects. It catches a binary that changed under it -- a
+ * corrupted write, another tool, a swap that did not know to touch the record --
+ * and **not** anyone who can write that directory, who can write the record
+ * too. That is the same trust the user's own cache directory already carries.
+ *
+ * @param runtime - Which runtime.
+ * @param version - The version.
+ * @param path - The cached executable.
+ * @returns Whether it may be used; when it may not, it has been removed.
+ */
+function trusted(runtime: Runtime, version: string, path: string): boolean {
+  try {
+    const record = JSON.parse(readFileSync(join(dirname(path), RECORD), 'utf-8')) as {
+      binary?: unknown;
+      runtime?: unknown;
+      version?: unknown;
+    };
+
+    if (
+      record.runtime === runtime &&
+      record.version === version &&
+      record.binary === `sha256:${hashFile(path)}`
+    ) {
+      return true;
+    }
+  } catch {
+    // no record, an unreadable one, or a binary that cannot be read: all the same answer
+  }
+
+  rmSync(dirname(path), { force: true, recursive: true });
+
+  return false;
 }
 
 /** Where a runtime of this version is published. */
