@@ -2103,6 +2103,117 @@ describe('a nested main() leaves the outer app`s locale alone', () => {
     expect(reading()).toBe('de Hallo');
   });
 
+  it('should give a call from a context-less listener the innermost call as its parent', async () => {
+    const { main } = await import('../src/index.js');
+    const { EventEmitter } = await import('node:events');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+    // made out here, so the listener inherits no async context at all
+    const emitter = new EventEmitter();
+    const timer = setTimeout(() => emitter.emit('pick'), 20);
+
+    try {
+      await main({
+        argv: ['go'],
+        locale: 'de',
+        schema: app(
+          async () => {
+            await main({
+              argv: ['x'],
+              locale: 'fr',
+              schema: inner(async () => {
+                seen.push(`B before C: ${reading()}`);
+                await new Promise<void>((done) =>
+                  emitter.once('pick', () => {
+                    void main({ argv: ['x'], schema: inner(() => {}), settings }).then(() =>
+                      done()
+                    );
+                  })
+                );
+                seen.push(`B after C: ${reading()}`);
+              }, fr),
+              settings,
+            });
+            seen.push(`A after B: ${reading()}`);
+          },
+          { de: async () => hello }
+        ),
+        settings,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    expect(seen).toEqual([
+      'B before C: fr Bonjour',
+      'B after C: fr Bonjour',
+      'A after B: de Hallo',
+    ]);
+  });
+
+  it('should restore nothing under a call that is still running when its parent has returned', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          let outliving: Promise<unknown> = Promise.resolve();
+
+          await main({
+            argv: ['x'],
+            locale: 'fr',
+            schema: inner(async () => {
+              // not awaited: it ends after the call that started it has returned
+              outliving = main({ argv: ['x'], schema: inner(() => wait(40)), settings });
+              await wait(5);
+            }, fr),
+            settings,
+          });
+          seen.push(`A after B returned, C running: ${reading()}`);
+          await outliving;
+          seen.push(`A after C ended: ${reading()}`);
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+    seen.push(`top after A: ${reading()}`);
+
+    expect(seen).toEqual([
+      // the subtree settles together: B returned, and C is still the app running
+      'A after B returned, C running: undefined Hello',
+      'A after C ended: de Hallo',
+      'top after A: de Hallo',
+    ]);
+  });
+
+  it('should leave nothing in flight when a call`s body throws before it returns a promise', async () => {
+    const { main } = await import('../src/index.js');
+    const { inCall } = await import('../src/nested-call.js');
+
+    // `main()`'s own body is async and cannot do this, which is the point of
+    // guarding the list's exit rather than trusting every body to be
+    await expect(
+      inCall((): Promise<never> => {
+        throw new Error('body threw');
+      })
+    ).rejects.toThrow('body threw');
+
+    // a later top-level call is not nested under a call that never left
+    await main({
+      argv: ['x'],
+      locale: 'de',
+      schema: inner(() => {}, { de: async () => hello }),
+      settings,
+    });
+
+    expect(reading()).toBe('de Hallo');
+  });
+
   it('should discard a setLocale() the outer app made while the nested call was running', async () => {
     const { main } = await import('../src/index.js');
     const locales = { de: async () => hello, fr: async () => ({ Hello: 'Bonjour' }) };

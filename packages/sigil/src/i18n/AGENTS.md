@@ -305,16 +305,30 @@ and the check, and `src/i18n/keys.ts` is generated.
   the components -- inherits no store and was read as top-level while the outer app
   was still running, and one called from a timer the outer `run()` scheduled, after
   the outer call returned, inherited a store naming nothing and was read as nested,
-  so it rolled back its own locale. A count of calls in flight answers both. The
-  store is kept only to say **which** call is the parent, so that three levels
-  unwind one at a time; where it names no live call the parent is the outermost
-  one in flight.
+  so it rolled back its own locale. A list of the calls in flight answers both:
+  nested is the list being non-empty. The store is kept only to say **which** call
+  is the parent, so that three levels unwind one at a time. Where it names no live
+  call the parent is the **innermost** call in flight, the most recently started
+  and still running. It was the outermost at first, and a level entered from a
+  listener with no context under a middle level then counted against the outermost
+  call: no snapshot was taken, and the middle level finished on the locale of the
+  call it had started.
 
   **The snapshot is held on the parent and counted**: the first child to start
   takes it and the last to finish puts it back. Per child, two nested calls
   running together each snapshot what the other left, and whichever finishes last
   restores a state that was never the outer app's -- measured, an outer `de`
   ended on English for the rest of the process, depending on finish order.
+
+  **A call counts out of its parent only once it has returned and every call it
+  started has too.** A call that started another without awaiting it returns first,
+  and counting it out then puts the parent's snapshot back under a call that is
+  still running; the one that ends last then puts _its_ parent's snapshot back
+  over everything, which measured as the whole process ending on the middle
+  call's locale. So a subtree settles together, from the leaves up, and while the
+  outliving call runs the locale is its own. The body is wrapped in an `async`
+  function so that one that threw before returning a promise would still leave the
+  list; `main()`'s own cannot, which is why that case is pinned on `inCall()` itself.
 
   **The restore is unconditional**, which is the difference from the quiet axis it
   follows (`rewindQuiet()`, "A quiet axis" in `src/style/AGENTS.md`). Quiet
@@ -330,13 +344,19 @@ and the check, and `src/i18n/keys.ts` is generated.
   was already superseded by its `loadCatalog()`, as it always was, and is not
   revived.
 
-  **The price: two overlapping top-level calls read as nested.** With another
-  `main()` in flight and no live store to say otherwise, the later call is a child
-  of the earlier one and its locale is rolled back when it returns. Accepted: they
-  share one catalog slot, so each was already overwriting the other, and the
-  earlier one is still running. A top-level call with nothing in flight is
-  unchanged and leaves its locale in effect, which is what a host reading
-  `locale()` after `main()` returns has always seen.
+  **The price: overlapping top-level calls read as nested, and what locale they
+  end on is unspecified.** With another `main()` in flight and no live store to
+  say otherwise, a later call is a child of the innermost one running and its
+  locale is rolled back when it returns. That is pinned for a call that starts
+  after the earlier one has loaded its catalog. Two calls started in the same tick
+  race for the one catalog slot -- the later load supersedes the earlier -- and end
+  on neither app's locale; nothing here claims better. Accepted: they share one
+  slot, so each was already overwriting the other. A top-level call with nothing in
+  flight is unchanged and leaves its locale in effect, which is what a host
+  reading `locale()` after `main()` returns has always seen. And a `main()` that
+  never settles keeps every later top-level call nested for the rest of the
+  process, so their locales are rolled back; a call that never returns has already
+  broken its own caller.
 
   `saveLocale()` is on this module's public entry because the state it reads is
   private to this file and this file is the entry, with `loadCatalog()` as the

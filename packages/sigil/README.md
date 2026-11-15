@@ -596,8 +596,8 @@ back, including one set with `setLocale()` or the `locale` option. "Nested" mean
 another `main()` is still running, wherever the call was made from. Anything that
 changes the locale while the nested call runs is discarded, its own `setLocale()`
 included, so await the nested call before setting one. A `main()` with nothing
-else running leaves its locale in effect as before; two top-level calls that
-overlap count as nested.
+else running leaves its locale in effect as before. Which locale two top-level
+calls that overlap end on is unspecified.
 
 **A nested dispatch does not inherit the outer invocation's root options.** They
 are re-read from the argv you pass, so an outer `--verbose` is `false` inside
