@@ -36,6 +36,7 @@
 import { parseJsonc } from '../../config/jsonc.js';
 import { byCodeUnit } from '../../util/by-code-unit.js';
 import { errorMessage } from '../../util/error-message.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
 
@@ -177,7 +178,7 @@ export interface DirectoryRoutes {
 export interface PackageRoute {
   readonly description?: string;
   readonly entryFile: string;
-  readonly name?: string;
+  readonly name?: unknown;
 }
 
 /**
@@ -624,8 +625,15 @@ function routeNameProblem(name: string): string | undefined {
     return 'is empty';
   }
 
-  if (/\s/.test(name)) {
+  // a space is what `parseName()` splits at, and the only whitespace that is. A tab or a
+  // no-break space is refused too -- not because it separates anything, but because
+  // nobody can type it as part of one word, and a name that cannot be typed is not one
+  if (name.includes(' ')) {
     return 'contains whitespace, which a command name string reads as a separator between aliases';
+  }
+
+  if (/\s/.test(name)) {
+    return 'contains whitespace, which cannot be typed reliably as part of one word';
   }
 
   if (name.includes(',')) {
@@ -677,17 +685,45 @@ function unscoped(name: string): string {
  * @throws If it holds a character a command name string would read, naming
  *   `source` and pointing at `commands.json`.
  */
-export function assertRouteName(name: string, source: string): string {
+export function assertRouteName(name: string, source: string, ext = ''): string {
   const problem = routeNameProblem(name);
   if (problem !== undefined) {
     throw new Error(
-      `Cannot route ${source}: the command name "${name}" ${problem}. A route is named exactly as ` +
-        "its file, directory or package is, with none of a name string's syntax, so rename it; " +
-        'to alias or hide a route, describe it in a commands.json beside it'
+      `Cannot route ${source}: the command name "${escapeControls(name)}" ${problem}. ` +
+        "A route is named exactly as its file, directory or package is, with none of a name string's " +
+        `syntax, so ${advice(name, ext)}`
     );
   }
 
   return name;
+}
+
+/**
+ * What to do about a refused name, said as the replacement where there is one.
+ *
+ * A `!` or `@` on a file name used to do something -- hide the command, or add
+ * an alias -- so the app that wrote one is the app that meets this, and "rename
+ * it" is not an answer to somebody who wanted it hidden. Offered only when what
+ * is left after the prefix would be a route name, so the replacement named is
+ * one this accepts.
+ *
+ * @param name - The refused name.
+ * @param ext - The file's extension, which the suggested name keeps.
+ * @returns The rest of the sentence, which begins after "so".
+ */
+function advice(name: string, ext: string): string {
+  const rest = name.slice(1);
+
+  if ((name[0] === '!' || name[0] === '@') && routeNameProblem(rest) === undefined) {
+    const to = `"${escapeControls(rest)}${escapeControls(ext)}"`;
+
+    return name[0] === '!'
+      ? `rename it to ${to} and hide it with { "${escapeControls(rest)}": { "hidden": true } } in a commands.json beside it`
+      : `rename it to ${to}, which is what it already was (the "@" made it an alias of itself); ` +
+          'any other alias goes in a commands.json beside it';
+  }
+
+  return 'rename it; to alias or hide a route, describe it in a commands.json beside it';
 }
 
 /**
@@ -705,14 +741,24 @@ export function assertRouteName(name: string, source: string): string {
 export function packageRouteName(pkg: PackageRoute, dir: string): string | undefined {
   const { name } = pkg;
 
-  // nothing, or something `initCommand()` refuses in its own words
+  // a manifest that says nothing leaves the directory to name it, as it always has
+  if (name === undefined || name === null) {
+    return undefined;
+  }
+
+  // `readPackage()` hands over whatever JSON held. A number is not a name, and the
+  // runtime refuses one when it builds the command while a build that never builds
+  // one baked it as the key -- so it is refused here, where both of them ask
   if (typeof name !== 'string') {
-    return name;
+    throw new TypeError(
+      `Cannot route the package "${escapeControls(dir)}": its package.json name is ${escapeControls(JSON.stringify(name))}, ` +
+        'which is not a string, so remove it to be named by the directory or make it one'
+    );
   }
 
   return assertRouteName(
     unscoped(name),
-    `the package "${dir}" (its package.json name is "${name}")`
+    `the package "${escapeControls(dir)}" (its package.json name is "${escapeControls(name)}")`
   );
 }
 
@@ -740,7 +786,11 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
   if (!isDir) {
     return {
       kind: 'module',
-      name: assertRouteName(name, `the file "${entry.name}" in "${dir}"`),
+      name: assertRouteName(
+        name,
+        `the file "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`,
+        entry.name.slice(name.length)
+      ),
       path,
     };
   }
@@ -755,14 +805,19 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
     return {
       desc: pkg.description,
       kind: 'package',
-      name: packageRouteName(pkg, path) ?? assertRouteName(name, `the package "${path}"`),
+      name:
+        packageRouteName(pkg, path) ??
+        assertRouteName(name, `the package "${escapeControls(path)}"`),
       path: pkg.entryFile,
     };
   }
 
   return {
     kind: 'directory',
-    name: assertRouteName(name, `the directory "${entry.name}" in "${dir}"`),
+    name: assertRouteName(
+      name,
+      `the directory "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`
+    ),
     path,
   };
 }

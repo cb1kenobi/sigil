@@ -463,11 +463,12 @@ scope: `@acme/deploy` is `mycli deploy`, whether the walk found the package or a
 declaration pointed at it.
 
 A route's name is taken exactly as the file system or the manifest spells it,
-and none of a name string's syntax applies to it. So a name with whitespace or a
-`,` in it, or one that starts with `<`, `[`, `!` or `@`, is refused with an
-error that names the file, directory or package — `my cmd.js` would otherwise be
+and none of a name string's syntax applies to it. So a name that is empty, that has
+whitespace, a `,` or a `/` in it, or that starts with `<`, `[`, `!` or `@`, is
+refused with an error that names the file, directory or package — `my cmd.js` would otherwise be
 `my` with an alias of `cmd`, and `!secret.js` a hidden `secret`. Rename it, and
-use a `commands.json` beside it to alias or hide a route. Two routes that end up
+use a `commands.json` beside it to alias or hide a route — an app that hid
+`!x.js` by its file name renames it `x.js` and adds `{ "x": { "hidden": true } }`. Two routes that end up
 with one name, a `deploy.js` beside a package that calls itself `@acme/deploy`,
 are refused too. A module's own `name` is a declaration, and is still read as a
 name string.

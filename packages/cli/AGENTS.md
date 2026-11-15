@@ -63,7 +63,7 @@ makes it testable with a fixture directory and no bundler at all.
   divergence the shared rules exist to prevent, and it took a test asserting both
   halves against each other to see it. It cannot be resolved correctly either,
   which is why this is a refusal and not a special case: the runtime names such a
-  package from the module it _imports_ -- `cmd.name ?? pkg.name` -- and the build
+  package from the module it _imports_ -- `cmd.name ?? packageRouteName(pkg)`, the manifest's name with its scope off (SIG-389) -- and the build
   cannot read that without running it. The error says to declare it under a key,
   which makes it one named command, or to drop the manifest. A side benefit: an
   unnamed one is refused by the runtime too, with
@@ -309,7 +309,7 @@ makes it testable with a fixture directory and no bundler at all.
 - **A package a schema key points at is named the way the runtime names it, and
   refused where its names cannot be read.** SIG-332. `commands: { foo: './pkg' }`
   over a directory with a `package.json` is imported when the schema is built
-  and registered as `cmd.name ?? pkg.name` (`registerCommandPackage()`; "A
+  and registered as `cmd.name ?? packageRouteName(pkg)` -- the manifest's name with its scope off, refused if no route may have it, by the one function both sides call (`registerCommandPackage()`; "A
   package names itself, wherever it was found" in the root `AGENTS.md`), so from
   source a module saying `name: 'lazy, lz', alias: 'pk'` ran as `lazy`, `lz` and
   `pk`, and `foo` was `Unexpected argument`. The build baked the key, so the built

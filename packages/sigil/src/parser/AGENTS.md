@@ -1712,6 +1712,25 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   package renaming itself (`route.name`, not the entry's); what is new is that
   the registered name is now the scope-stripped one, so a `deploy.mjs` beside a
   package calling itself `@acme/deploy` is the existing two-routes-one-name error.
+- **A manifest `name` that is not a string is refused, and nothing else is
+  rewritten.** `readPackage()` hands over raw JSON, so `{"name": 42}` reached the
+  walk as a number: the runtime refused it when `initCommand()` built the command,
+  and the build never builds one for a walked route, so it baked `42` as the key
+  and the built app answered a command the source run could not start. A missing
+  or `null` name still falls to the directory, as it always did; any other
+  non-string is `packageRouteName()`'s refusal, which both sides ask.
+- **The echoed names are escaped, and the names are not refused for it.** A file
+  called `!x<ESC>]0;...<BEL>.mjs` is refused for its `!` and the message used to
+  carry the escape through to stderr twice. `escapeControls()` goes round the file,
+  directory, path and manifest name where the message is built, so the build's
+  diagnostic, which reuses the text, is inert too. A control character is not
+  itself grounds for refusal -- that is a larger decision than this entry.
+- **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
+  else, so a tab or a no-break space is refused with its own reason -- it cannot be
+  typed reliably as part of one word -- and not with a claim about aliases it does
+  not make. A `!` or `@` file name says what to write instead (the stripped name,
+  and the `commands.json` entry for `hidden`), because the app that meets that
+  message is the one that used the prefix for something.
 - **Refused where the level is read, not where it is listed.** One bad file name
   fails the level that holds it, `--help` included, which is what two routes of
   one name already do and for the same reason: an app that lists what it cannot

@@ -8,6 +8,7 @@ import {
   Schema,
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { initArgs } from '../argument/init-args.js';
@@ -33,7 +34,7 @@ import {
   type Route,
   routeName,
 } from './routes.js';
-import { dirname, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:init-command');
@@ -521,7 +522,16 @@ async function resolveCommandPath({
 
   // named by the file, which is a name the file system gave
   return [
-    await initCommand({ name: assertRouteName(filename, `the file "${modulePath}"`) }, modulePath),
+    await initCommand(
+      {
+        name: assertRouteName(
+          filename,
+          `the file "${escapeControls(modulePath)}"`,
+          basename(modulePath).slice(filename.length)
+        ),
+      },
+      modulePath
+    ),
   ];
 }
 

@@ -1048,10 +1048,10 @@ These look like bugs and are not. Each is intentional and covered by tests.
 
 - **A route is a module file or a subdirectory, and `index` is the directory
   itself.** A route's name is taken literally, with no name-string syntax: a
-  file, directory or package name with whitespace or a `,` in it, or starting
-  with `<`, `[`, `!` or `@`, is refused rather than read as aliases, a hidden
-  command or an argument, and `commands.json` is how a route is aliased or
-  hidden (SIG-389). Inside a directory, a module file -- `.js`, `.mjs`, `.cjs`, `.ts`,
+  file, directory or package name that is empty, has whitespace, a `,` or a `/`
+  in it, or starts with `<`, `[`, `!` or `@`, is refused rather than read as
+  aliases, a hidden command or an argument, and `commands.json` is how a route
+  is aliased or hidden (SIG-389). Inside a directory, a module file -- `.js`, `.mjs`, `.cjs`, `.ts`,
   `.mts` or `.cts` -- is a command named after the file and a subdirectory is a command named after the
   directory, as deep as the tree goes. An `index` module beside them is that
   command -- its `desc`, its `options`, its `run` -- and is never a command

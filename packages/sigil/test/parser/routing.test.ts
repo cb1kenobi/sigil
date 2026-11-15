@@ -890,6 +890,68 @@ describe('filesystem routing', () => {
         expect(() => resolveRoutes('/nowhere', [entry(name)])).toThrow(reason);
       });
 
+      it('should say what to write for a `@` file name, which only ever aliased itself', () => {
+        expect(() => resolveRoutes('/nowhere', [entry('@x.mjs')])).toThrow(
+          /rename it to "x\.mjs", which is what it already was.*any other alias goes in a commands\.json beside it$/
+        );
+      });
+
+      it('should say what to write for a `!` directory, which has no extension to keep', () => {
+        expect(() => resolveRoutes('/nowhere', [entry('!d', true)])).toThrow(
+          /rename it to "d" and hide it with \{ "d": \{ "hidden": true \} \}/
+        );
+      });
+
+      it('should not offer a replacement that would itself be refused', () => {
+        // `!a b` stripped is `a b`, which is no better; saying "rename it to" that
+        // would send somebody round the same error
+        expect(() => resolveRoutes('/nowhere', [entry('!a b.mjs')])).toThrow(
+          /so rename it; to alias or hide a route, describe it in a commands\.json beside it$/
+        );
+      });
+
+      it('should call a space a separator and not say so of whitespace that is not one', () => {
+        // `parseName()` splits at a comma and a space and nothing else, so a claim
+        // that a tab or a no-break space separates aliases is not true of it
+        expect(() => resolveRoutes('/nowhere', [entry('a b.mjs')])).toThrow(
+          /contains whitespace, which a command name string reads as a separator between aliases/
+        );
+
+        for (const name of ['a\tb.mjs', 'a b.mjs', 'a　b.mjs']) {
+          let message = '';
+          try {
+            resolveRoutes('/nowhere', [entry(name)]);
+          } catch (err) {
+            message = (err as Error).message;
+          }
+          expect(message, name).toContain('contains whitespace, which cannot be typed reliably');
+          expect(message, name).not.toContain('separator');
+        }
+      });
+
+      it('should escape a control character in a name it echoes, and still refuse it for what it is', () => {
+        // a file called `!x ESC ] 0 ; PWNED BEL .mjs` put a live OSC on stderr, twice
+        const name = '!x\x1b]0;PWNED\x07.mjs';
+        let message = '';
+        try {
+          resolveRoutes('/nowhere\x1b[31m', [entry(name)]);
+        } catch (err) {
+          message = (err as Error).message;
+        }
+
+        expect(message).toContain('Cannot route the file "!x\\x1B]0;PWNED\\x07.mjs"');
+        expect(message).toContain('nowhere\\x1B[31m');
+        expect(message).toContain('starts with "!"');
+        expect(message).not.toMatch(/\p{Cc}/u);
+      });
+
+      it('should not refuse a control character for being one', () => {
+        // outside this decision: only what a name string would read is refused
+        expect(
+          resolveRoutes('/nowhere', [entry('a\x07b.mjs')]).map((route) => route.name)
+        ).to.deep.equal(['a\x07b']);
+      });
+
       it('should refuse a directory by the same rules, naming it', () => {
         expect(() => resolveRoutes('/nowhere', [entry('my dir', true)])).toThrow(
           /Cannot route the directory "my dir" in "[^"]*nowhere": the command name "my dir" contains whitespace/
@@ -899,7 +961,7 @@ describe('filesystem routing', () => {
 
       it('should say which file, and that a commands.json is how to alias or hide a route', () => {
         expect(() => resolveRoutes('/nowhere', [entry('!secret.mjs')])).toThrow(
-          /Cannot route the file "!secret\.mjs" in .*nowhere.*rename it; to alias or hide a route, describe it in a commands\.json beside it$/
+          /Cannot route the file "!secret\.mjs" in .*nowhere.*rename it to "secret\.mjs" and hide it with \{ "secret": \{ "hidden": true \} \} in a commands\.json beside it$/
         );
       });
 
@@ -950,6 +1012,23 @@ describe('filesystem routing', () => {
           parse({ argv: [], schema: { commands: path.join(dir, 'my cmd.mjs') } })
         ).rejects.toThrow(/Cannot route the file ".*my cmd\.mjs"/);
       });
+
+      it.skipIf(process.platform === 'win32')(
+        'should escape what it echoes of a file a path names on its own',
+        async () => {
+          // an escape cannot be in a Windows file name at all
+          const dir = app({ '!x\x1b]0;PWNED\x07.mjs': mod });
+          const refused = parse({
+            argv: [],
+            schema: { commands: path.join(dir, '!x\x1b]0;PWNED\x07.mjs') },
+          });
+          await expect(refused).rejects.toThrow('!x\\x1B]0;PWNED\\x07.mjs"');
+          await expect(refused).rejects.not.toThrow(/\p{Cc}/u);
+          await expect(refused).rejects.toThrow(
+            /rename it to "x\\x1B\]0;PWNED\\x07\.mjs" and hide it/
+          );
+        }
+      );
 
       it('should not refuse a declaration, whose name string is still a name string', async () => {
         // only a name the file system or a manifest gave is literal: a key and a
@@ -1056,6 +1135,53 @@ describe('filesystem routing', () => {
         await expect(parse({ argv: [], schema: { commands: dir } })).rejects.toThrow(
           /Two entries in .* both declare a "deploy" command: "deploy\.mjs" and "ship-it"/
         );
+      });
+
+      it.each([
+        ['42', 42],
+        ['a boolean', true],
+        ['a list', ['a']],
+        ['an object', { n: 'a' }],
+      ])('should refuse a manifest name that is %s, naming the package', async (_what, name) => {
+        // the build never builds a command for a walked package, so a number used to
+        // be baked as the key and routed in the built app while source refused it
+        const dir = app({
+          'pkg/index.mjs': mod,
+          'pkg/package.json': JSON.stringify({ main: 'index.mjs', name }),
+        });
+        const refusal =
+          /Cannot route the package ".*pkg": its package\.json name is .*, which is not a string/;
+
+        await expect(parse({ argv: [], schema: { commands: dir } })).rejects.toThrow(refusal);
+        await expect(
+          parse({ argv: [], schema: { commands: { x: path.join(dir, 'pkg') } } })
+        ).rejects.toThrow(refusal);
+      });
+
+      it('should name a package by its directory when the manifest name is null, as when it is missing', async () => {
+        const dir = app({
+          'plain/index.mjs': mod,
+          'plain/package.json': '{ "main": "index.mjs", "name": null }',
+        });
+        const result = await parse({ argv: ['plain'], schema: { commands: dir } });
+        expect(result.cmd?.name).to.equal('plain');
+      });
+
+      it('should say an empty manifest name is empty', async () => {
+        const dir = app(pkgFiles('pkg', ''));
+        await expect(parse({ argv: [], schema: { commands: dir } })).rejects.toThrow(/is empty/);
+        await expect(
+          parse({ argv: [], schema: { commands: { x: path.join(dir, 'pkg') } } })
+        ).rejects.toThrow(/is empty/);
+      });
+
+      it('should escape a control character in a manifest name and in the directory it echoes', async () => {
+        const dir = app(pkgFiles('pkg', '@acme/a b\x1b]0;PWNED\x07'));
+        for (const commands of [dir, { x: path.join(dir, 'pkg') }]) {
+          const refused = parse({ argv: [], schema: { commands } });
+          await expect(refused).rejects.toThrow('a b\\x1B]0;PWNED\\x07');
+          await expect(refused).rejects.not.toThrow(/\p{Cc}/u);
+        }
       });
 
       it.each([

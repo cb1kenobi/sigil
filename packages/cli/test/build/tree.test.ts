@@ -851,7 +851,7 @@ describe('resolving a tree whose names are the file system’s', () => {
       const dir = tree({ [name]: mod });
 
       expect(() => resolveCommandTree(dir)).toThrow(message);
-      expect(() => resolveCommandTree(dir)).toThrow(/describe it in a commands\.json beside it/);
+      expect(() => resolveCommandTree(dir)).toThrow(/in a commands\.json beside it/);
       // the same words from the runtime, because one function says them
       await expect(
         main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
@@ -893,6 +893,42 @@ describe('resolving a tree whose names are the file system’s', () => {
       );
     }
   );
+
+  it('should refuse a package whose manifest name is not a string, as the runtime does', async () => {
+    // the build never builds a command for a walked route, so `{ "name": 42 }` was baked
+    // as the key `42` and the built app answered a command source could not start
+    const dir = tree({
+      'pkg/index.mjs': mod,
+      'pkg/package.json': JSON.stringify({ main: 'index.mjs', name: 42 }),
+    });
+    const message =
+      /Cannot route the package ".*pkg": its package\.json name is 42, which is not a string/;
+
+    expect(() => resolveCommandTree(dir)).toThrow(message);
+    await expect(
+      main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+    ).rejects.toThrow(message);
+  });
+
+  it('should leave a control character in a refused name inert, in the build as in the runtime', async () => {
+    const dir = tree({
+      'pkg/index.mjs': mod,
+      'pkg/package.json': JSON.stringify({ main: 'index.mjs', name: 'a b\x1b]0;PWNED\x07' }),
+    });
+    const message = 'a b\\x1B]0;PWNED\\x07';
+
+    expect(() => resolveCommandTree(dir)).toThrow(message);
+    let built = '';
+    try {
+      resolveCommandTree(dir);
+    } catch (err) {
+      built = (err as Error).message;
+    }
+    expect(built).not.toMatch(/\p{Cc}/u);
+    await expect(
+      main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+    ).rejects.toThrow(message);
+  });
 
   it('should collide on the name that registers, as the runtime does', () => {
     const dir = tree({

@@ -971,6 +971,43 @@ export default {
       );
     });
 
+    it.each([
+      ['', /is empty/],
+      [42, /its package\.json name is 42, which is not a string/],
+    ])(
+      'should refuse the manifest name %j in the runtime’s words, not its own',
+      async (name, reason) => {
+        // an empty name used to be reported as "both leave it unnamed", which the runtime
+        // does not say, and a number never reached the runtime's refusal at all
+        await withSchema(
+          "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
+          async (dir) => {
+            mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
+            writeFileSync(join(dir, 'src', 'pkg', 'index.js'), 'export default { run() {} };\n');
+            writeFileSync(
+              join(dir, 'src', 'pkg', 'package.json'),
+              JSON.stringify({ main: 'index.js', name, type: 'module' })
+            );
+
+            const { diagnostics } = readAppCommands(discoverApp(dir));
+            const errors = diagnostics.filter((d) => d.severity === 'error');
+            expect(errors).toHaveLength(1);
+            expect(errors[0]!.message).toMatch(reason);
+            expect(errors[0]!.message).toMatch(/Cannot route the package ".*pkg"/);
+            expect(errors[0]!.message).not.toContain('both leave it unnamed');
+
+            await expect(
+              main({
+                argv: [],
+                schema: { commands: { x: join(dir, 'src', 'pkg') } },
+                settings: { errorHandler: false },
+              })
+            ).rejects.toThrow(reason);
+          }
+        );
+      }
+    );
+
     it("should leave a package's own module name alone, which is a declaration", async () => {
       await withSchema(
         "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",

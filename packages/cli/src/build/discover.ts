@@ -1635,7 +1635,7 @@ const PACKAGE_NAMES =
  *
  * From source, `commands: { foo: './pkg' }` over a directory with a
  * `package.json` imports the package's module when the schema is built and
- * registers it as `cmd.name ?? pkg.name` -- the key is not one of its spellings
+ * registers it as `cmd.name ?? packageRouteName(pkg)` -- the key is not one of its spellings
  * (`registerCommandPackage()` in the runtime, and "A package names itself,
  * wherever it was found" in the root `AGENTS.md`). So the build reads the same
  * answer statically: the module's literal `name`, else the manifest's, and the
@@ -1750,9 +1750,9 @@ const ROUTED: ReadonlySet<string> = new Set(['alias', 'default', 'name']);
 /**
  * The name string a package a schema key points at is registered under.
  *
- * `cmd.name ?? pkg.name`, as the runtime reads it: the module's own `name`
- * wins, and an absent one -- `undefined` or `null`, both of which `??` passes
- * over -- falls to the manifest's.
+ * The module's own `name` wins, as the runtime reads it, and an absent one --
+ * `undefined` or `null`, both of which `??` passes over -- falls to the
+ * manifest's, with its scope off and refused by `packageRouteName()`.
  *
  * @param object - The module's command literal.
  * @param entry - The module, for positions.
@@ -1788,11 +1788,14 @@ function packageName(
     return undefined;
   }
 
-  if (typeof pkg.name === 'string' && pkg.name !== '') {
+  if (pkg.name !== undefined && pkg.name !== null) {
     // a name the file system gave, so the runtime's rule for it and not a name
-    // string's: scope off, and refused where the runtime refuses it
+    // string's: scope off, and refused where the runtime refuses it -- in its
+    // words, an empty one and a number included, which is why this does not
+    // pre-filter on what it thinks a name is. The directory is named the way
+    // every other diagnostic names a path
     try {
-      return packageRouteName(pkg, dir);
+      return packageRouteName(pkg, displayPath(dir));
     } catch (err) {
       diagnostics.push({
         file: join(dir, 'package.json'),
