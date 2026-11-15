@@ -431,7 +431,10 @@ commands: './commands'              // a directory *of* commands
 A directory is a tree: a file is a command named after the file, a subdirectory
 is a command named after the directory with the routes inside it as its
 subcommands, and an `index` module is the directory's own command rather than
-one called `index`.
+one called `index`. A name is taken literally: a file, directory or package name
+holding whitespace or a `,`, or starting with `<`, `[`, `!` or `@`, is refused
+rather than read as a name string, and a `commands.json` is how a route is
+aliased or hidden. A scoped package, `@acme/deploy`, is the command `deploy`.
 
 ```
 commands/

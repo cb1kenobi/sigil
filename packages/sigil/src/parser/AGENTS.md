@@ -1674,6 +1674,60 @@ the thing this file keeps refusing. A leftover `routeInfo` is custom data and is
 ignored, with no compatibility read and no warning. Pinned by `a commands.json`
 in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md`.
 
+### A route's name is the file system's, taken literally (SIG-389)
+
+- **A name a file, a directory or a manifest gave is never a name string.** It
+  went through `parseName()` like a declaration's `name`, so the file system's
+  spelling was read as syntax: `my cmd.mjs` was `my` with an alias `cmd` -- and
+  beside a real `my.mjs` nothing threw, because `resolveRoutes()` asked about
+  collisions on the raw name and `my cmd` and `my` differ -- `!secret.mjs` was a
+  hidden `secret`, `[id].mjs` failed every run with `Unable to determine command
+  name from "[id]"`, and a package called `@acme/deploy` registered as
+  `acme/deploy`, which no one can type and help listed with a slash in it. The
+  fix is not a second parser for file names. A name that a name string would
+  read differently is **refused**, so that what reaches `parseName()` parses to
+  itself and the two readings cannot differ.
+- **What is refused is `assertRouteName()`'s, in `routes.ts`, and it is one
+  function for everyone.** Whitespace, a `,`, a `/`, an empty name, and a first
+  character of `<`, `[`, `!` or `@`. The message names the file, directory or
+  package, says which of those it is, and points at `commands.json` as the way a
+  route is hidden or aliased -- which is the supported spelling of what the
+  punctuation used to do by accident. It is asked by `resolveRoutes()` for a
+  walked level, so the runtime's walk and `sigil build` both get it from one
+  call; by `registerCommandPackage()` for a package a declaration points at; by
+  `resolveCommandPath()` for a path that names a single file; and by the build's
+  `keyedPackage()` for a keyed package's manifest. A declaration's own `name` and
+  a `commands` key are written by the author and are **still name strings**, as is
+  a package module's own `name`: only a name somebody else's file system gave is
+  literal.
+- **A scope is not part of what a package is called.** `@acme/deploy` registers
+  as `deploy`, and that is `packageRouteName()`, applied to a package the walk
+  found and to one a declaration pointed at, because "a package names itself,
+  wherever it was found" is one rule. What is left after the scope goes through
+  the same refusal, so `@acme` and `@acme/@x` and `@acme/a/b` are refused rather
+  than guessed at. A package's manifest is asked only when it is used: a module
+  that names itself is not refused over a `name` in a `package.json` it never
+  consulted.
+- **A collision is asked of the name that registers.** That was already so for a
+  package renaming itself (`route.name`, not the entry's); what is new is that
+  the registered name is now the scope-stripped one, so a `deploy.mjs` beside a
+  package calling itself `@acme/deploy` is the existing two-routes-one-name error.
+- **Refused where the level is read, not where it is listed.** One bad file name
+  fails the level that holds it, `--help` included, which is what two routes of
+  one name already do and for the same reason: an app that lists what it cannot
+  route is worse than one that says which file to rename.
+- **Not refused, deliberately:** a leading `-`, which would read as an option
+  when typed and which nothing refused before; a name with a `:` in it, which is
+  the topic separator and is its own entry above; and `.` or
+  `_` prefixes, which are already not routes. Each is a separate question.
+
+Pinned by `a route's name is taken literally` in `test/parser/routing.test.ts`,
+over `resolveRoutes()` with entries that were never on a disk, so a name no
+Windows file system holds is tested everywhere; and on the build side by
+`resolving a tree whose names are the file system’s` in
+`packages/cli/test/build/tree.test.ts`, the keyed package in `discover.test.ts`,
+and a built app that answers `deploy` in `build-command.test.ts`.
+
 ### Two options in one command may not share a spelling
 
 - **A short or long spelling another option in the same registry holds is

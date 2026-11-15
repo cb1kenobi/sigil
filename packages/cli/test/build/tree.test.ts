@@ -815,6 +815,110 @@ describe('a generated tree at run time', () => {
 });
 
 /**
+ * A route is named by the file system, and the build reads it through the
+ * runtime's own rules (SIG-389): a name a command name string would read --
+ * whitespace, `,`, a leading `!`, `@`, `<` or `[` -- is refused with the
+ * runtime's message rather than baked, and a scoped package registers as the
+ * name after its scope. A built app that registered what the source run
+ * refuses is the divergence `@ttylabs/sigil/routes` exists to prevent.
+ */
+describe('resolving a tree whose names are the file system’s', () => {
+  /** A directory holding the given files. */
+  function tree(files: Record<string, string>): string {
+    const dir = tempDir('sigil-tree-names-');
+    for (const [name, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, name)), { recursive: true });
+      writeFileSync(join(dir, name), text);
+    }
+    return dir;
+  }
+
+  const mod = "export default { desc: 'a module', run() {} };\n";
+  const scoped = {
+    'pkg/index.mjs': mod,
+    'pkg/package.json': JSON.stringify({ main: 'index.mjs', name: '@acme/deploy', type: 'module' }),
+  };
+
+  it.each([
+    ['my cmd.mjs', /Cannot route the file "my cmd\.mjs" in .*contains whitespace/],
+    ['!secret.mjs', /Cannot route the file "!secret\.mjs" in .*starts with "!"/],
+    ['[id].mjs', /Cannot route the file "\[id\]\.mjs" in .*starts with "\["/],
+    ['a,b.mjs', /Cannot route the file "a,b\.mjs" in .*contains a ","/],
+    ['@x.mjs', /Cannot route the file "@x\.mjs" in .*starts with "@"/],
+  ])(
+    'should refuse the file %j as the runtime does, naming commands.json',
+    async (name, message) => {
+      const dir = tree({ [name]: mod });
+
+      expect(() => resolveCommandTree(dir)).toThrow(message);
+      expect(() => resolveCommandTree(dir)).toThrow(/describe it in a commands\.json beside it/);
+      // the same words from the runtime, because one function says them
+      await expect(
+        main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+      ).rejects.toThrow(message);
+    }
+  );
+
+  it('should refuse `my cmd.mjs` beside `my.mjs`, which used to be one command', () => {
+    const dir = tree({ 'my cmd.mjs': mod, 'my.mjs': mod });
+    expect(() => resolveCommandTree(dir)).toThrow(/Cannot route the file "my cmd\.mjs"/);
+  });
+
+  it('should refuse a directory named with a space, a level down', () => {
+    const dir = tree({ 'db/my dir/index.mjs': mod, 'db/index.mjs': mod });
+    expect(() => resolveCommandTree(dir)).toThrow(/Cannot route the directory "my dir" in /);
+  });
+
+  it('should name a scoped package by what follows its scope, as the runtime does', async () => {
+    const dir = tree(scoped);
+    const { commands } = resolveCommandTree(dir, { facts: false });
+    expect(commands.map((command) => command.name)).to.deep.equal(['deploy']);
+
+    const state = (await main({
+      argv: [],
+      schema: { commands: dir, completion: false, help: false },
+    })) as ParseState;
+    expect([...state.contexts[0]![Internal].commands.keys()]).to.deep.equal(['deploy']);
+  });
+
+  it.each(['@acme/my pkg', 'my pkg', '@acme/', '@acme', 'a/b', '!x'])(
+    'should refuse the package name %j, naming the package',
+    (name) => {
+      const dir = tree({
+        'pkg/index.mjs': mod,
+        'pkg/package.json': JSON.stringify({ main: 'index.mjs', name }),
+      });
+      expect(() => resolveCommandTree(dir)).toThrow(
+        /Cannot route the package ".*pkg" \(its package\.json name is/
+      );
+    }
+  );
+
+  it('should collide on the name that registers, as the runtime does', () => {
+    const dir = tree({
+      'deploy.mjs': mod,
+      ...Object.fromEntries(
+        Object.entries(scoped).map(([name, text]) => [`ship-it/${name.split('/')[1]}`, text])
+      ),
+    });
+    expect(() => resolveCommandTree(dir)).toThrow(
+      /both declare a "deploy" command: "deploy\.mjs" and "ship-it"/
+    );
+  });
+
+  it('should still hide and alias a route a commands.json describes', () => {
+    const dir = tree({
+      'commands.json': JSON.stringify({ secret: { hidden: true }, ship: { alias: ['s'] } }),
+      'secret.mjs': mod,
+      'ship.mjs': mod,
+    });
+    const { commands } = resolveCommandTree(dir, { facts: false });
+    expect(at(commands, 'secret').hidden).to.equal(true);
+    expect(at(commands, 'ship').alias).to.deep.equal(['s']);
+  });
+});
+
+/**
  * Reads a generated module back, without writing it to disk.
  *
  * The `import()` calls are never reached -- nothing here calls a `load` -- so

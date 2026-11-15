@@ -68,6 +68,8 @@ import {
   descReturnMessage,
   descTypeMessage,
   hiddenTypeMessage,
+  type PackageRoute,
+  packageRouteName,
   parseName,
   readPackage,
 } from '@ttylabs/sigil/routes';
@@ -1724,7 +1726,7 @@ function keyedPackage(
   }
 
   const before = diagnostics.length;
-  const name = packageName(object, entry, diagnostics, key, pkg.name, join(dir, 'package.json'));
+  const name = packageName(object, entry, diagnostics, key, pkg, dir);
   const routing = placeholderRouting(object, entry, diagnostics, key, PACKAGE_NAMES);
 
   if (name === undefined || diagnostics.slice(before).some((d) => d.severity === 'error')) {
@@ -1756,8 +1758,8 @@ const ROUTED: ReadonlySet<string> = new Set(['alias', 'default', 'name']);
  * @param entry - The module, for positions.
  * @param diagnostics - Where to report.
  * @param key - What the schema wrote it under, for the messages.
- * @param manifestName - What its `package.json` calls it.
- * @param manifest - Where that is, for the message when neither names it.
+ * @param pkg - What its `package.json` says, whose name is the fallback.
+ * @param dir - The package's directory.
  * @returns The name string, or `undefined` with an error said.
  */
 function packageName(
@@ -1765,8 +1767,8 @@ function packageName(
   entry: ParsedModule,
   diagnostics: Diagnostic[],
   key: string,
-  manifestName: unknown,
-  manifest: string
+  pkg: PackageRoute,
+  dir: string
 ): string | undefined {
   const declared = plainProperty(object, 'name');
   if (declared && !isUndefined(declared.value) && literalType(declared.value) !== 'null') {
@@ -1786,12 +1788,23 @@ function packageName(
     return undefined;
   }
 
-  if (typeof manifestName === 'string' && manifestName !== '') {
-    return manifestName;
+  if (typeof pkg.name === 'string' && pkg.name !== '') {
+    // a name the file system gave, so the runtime's rule for it and not a name
+    // string's: scope off, and refused where the runtime refuses it
+    try {
+      return packageRouteName(pkg, dir);
+    } catch (err) {
+      diagnostics.push({
+        file: join(dir, 'package.json'),
+        message: `the "${key}" command is a package the app cannot name: ${errorMessage(err)}`,
+        severity: 'error',
+      });
+      return undefined;
+    }
   }
 
   diagnostics.push({
-    file: manifest,
+    file: join(dir, 'package.json'),
     message: `Expected command name to be a non-empty string in the "${key}" command, which is a package whose module and package.json both leave it unnamed`,
     severity: 'error',
   });

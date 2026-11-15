@@ -603,6 +603,120 @@ function describeRoute(route: Route, entry: RouteEntry | undefined): Route {
 }
 
 /**
+ * Why a name cannot be a route's, or `undefined` when it can.
+ *
+ * A route is named by the file system -- a file's name, a directory's, a
+ * package's manifest -- and that name is taken exactly as written. A command
+ * name string has syntax, and none of it is a route's to use: whitespace and
+ * `,` separate aliases, `@` and `!` prefix one, `<` and `[` open an inline
+ * argument. Read as a name string, `my cmd.js` is `my` with an alias of `cmd`,
+ * `!secret.js` is a hidden `secret`, and `[id].js` is no name at all. So those
+ * are refused rather than reinterpreted, and `commands.json` is where a route
+ * is aliased or hidden. A `/` is refused with them because a command name has
+ * no use for one and the only place one appears is a package scope, which
+ * `unscoped()` has already taken off by then.
+ *
+ * @param name - The name, scope already removed.
+ * @returns The reason, which finishes the sentence "the name ...".
+ */
+function routeNameProblem(name: string): string | undefined {
+  if (!name) {
+    return 'is empty';
+  }
+
+  if (/\s/.test(name)) {
+    return 'contains whitespace, which a command name string reads as a separator between aliases';
+  }
+
+  if (name.includes(',')) {
+    return 'contains a ",", which a command name string reads as a separator between aliases';
+  }
+
+  if (name.includes('/')) {
+    return 'contains a "/", which no command name has';
+  }
+
+  switch (name[0]) {
+    case '<':
+    case '[':
+      return `starts with "${name[0]}", which a command name string reads as an argument`;
+    case '!':
+      return 'starts with "!", which a command name string reads as hiding the command';
+    case '@':
+      return 'starts with "@", which a command name string reads as an alias';
+  }
+
+  return undefined;
+}
+
+/**
+ * The route name a package's manifest gives, with its scope taken off.
+ *
+ * `@acme/deploy` is the package `deploy` in the scope `acme`, and the scope is
+ * where the package is published from rather than what it is called -- so a
+ * package that registered as `acme/deploy` was a command nobody could type and
+ * help listed under a name with a slash in it.
+ *
+ * @param name - The manifest's `name`.
+ * @returns What follows the scope, or the name as it was when it has none.
+ */
+function unscoped(name: string): string {
+  return /^@[^/]+\//.test(name) ? name.slice(name.indexOf('/') + 1) : name;
+}
+
+/**
+ * What a route is called, refused if the name could not be one.
+ *
+ * Shared by the runtime's walk, a package a declaration points at, and `sigil
+ * build`, because a build that registered a name the runtime refuses is an app
+ * that works bundled and fails from source.
+ *
+ * @param name - The name, exactly as the file system or a manifest spells it.
+ * @param source - What it came from, for the message: `the file "a b.js" in "dir"`.
+ * @returns The name.
+ * @throws If it holds a character a command name string would read, naming
+ *   `source` and pointing at `commands.json`.
+ */
+export function assertRouteName(name: string, source: string): string {
+  const problem = routeNameProblem(name);
+  if (problem !== undefined) {
+    throw new Error(
+      `Cannot route ${source}: the command name "${name}" ${problem}. A route is named exactly as ` +
+        "its file, directory or package is, with none of a name string's syntax, so rename it; " +
+        'to alias or hide a route, describe it in a commands.json beside it'
+    );
+  }
+
+  return name;
+}
+
+/**
+ * The command name a package's manifest gives it, or `undefined` when the
+ * manifest names nothing.
+ *
+ * One rule for a package the walk found and a package a declaration pointed
+ * at, which is what "a package names itself, wherever it was found" says.
+ *
+ * @param pkg - The package.
+ * @param dir - The package's directory, for the message.
+ * @returns The name, scope removed.
+ * @throws If the name is one no route may have.
+ */
+export function packageRouteName(pkg: PackageRoute, dir: string): string | undefined {
+  const { name } = pkg;
+
+  // nothing, or something `initCommand()` refuses in its own words
+  if (typeof name !== 'string') {
+    return name;
+  }
+
+  return assertRouteName(
+    unscoped(name),
+    `the package "${dir}" (its package.json name is "${name}")`
+  );
+}
+
+/**
  * The route one directory entry is, or `undefined` when it is not one.
  *
  * @param dir - The directory the entry came from.
@@ -624,7 +738,11 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
   const path = join(dir, entry.name);
 
   if (!isDir) {
-    return { kind: 'module', name, path };
+    return {
+      kind: 'module',
+      name: assertRouteName(name, `the file "${entry.name}" in "${dir}"`),
+      path,
+    };
   }
 
   // a package is not walked: its `exports` is what says which module is the
@@ -637,12 +755,16 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
     return {
       desc: pkg.description,
       kind: 'package',
-      name: pkg.name ?? name,
+      name: packageRouteName(pkg, path) ?? assertRouteName(name, `the package "${path}"`),
       path: pkg.entryFile,
     };
   }
 
-  return { kind: 'directory', name, path };
+  return {
+    kind: 'directory',
+    name: assertRouteName(name, `the directory "${entry.name}" in "${dir}"`),
+    path,
+  };
 }
 
 /**
