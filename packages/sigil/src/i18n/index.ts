@@ -936,6 +936,36 @@ export async function loadCatalog(
 }
 
 /**
+ * Takes the module's whole state, for a nested `main()` to put back.
+ *
+ * Returns the undo rather than a value to hand to one, so that the shape of
+ * what is kept -- the catalog, the tag, the loader map -- is this file's
+ * business and not the caller's. The plural selector is not kept: it is derived
+ * from the tag and rebuilt on first use, which is what every other commit
+ * already relies on.
+ *
+ * The undo takes a generation, so a load the nested call left in flight -- a
+ * `setLocale()` its `run()` did not await -- cannot settle on top of what was
+ * put back. It is unconditional on purpose, unlike `rewindQuiet()`'s: a quiet
+ * statement made inside a run is about the process and outlives it, while a
+ * locale the nested app set is the nested app's.
+ *
+ * Not for an app to call: `main()` is the only caller.
+ *
+ * @internal
+ * @returns A function that puts the state taken now back.
+ */
+export function saveLocale(): () => void {
+  const was = { active, current, registered };
+
+  return (): void => {
+    ({ active, current, registered } = was);
+    rules = undefined;
+    generations++;
+  };
+}
+
+/**
  * Changes the locale after the app has started, which is what a config file is
  * for.
  *

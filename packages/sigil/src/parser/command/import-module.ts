@@ -56,11 +56,19 @@ export function importModule(url: string): Promise<unknown> {
 /**
  * Runs one `main()` call in a slot of its own, empty until it is filled.
  *
- * @param body - The call.
+ * The body is told whether it is **nested**, which is whether the call was made
+ * from inside another `main()`'s async context -- a `run()`, a hook, anything
+ * the outer call awaited. The slot is the one thing every `main()` already opens
+ * and every call it makes reads from, so it is also the one honest answer to
+ * "is there an outer call", where a counter would call two `main()`s that merely
+ * overlap nested.
+ *
+ * @param body - The call, handed whether it is nested.
  * @returns What the call resolved with.
  */
-export function withModuleImports<T>(body: () => Promise<T>): Promise<T> {
-  return slots.run({}, body);
+export function withModuleImports<T>(body: (nested: boolean) => Promise<T>): Promise<T> {
+  const nested = slots.getStore() !== undefined;
+  return slots.run({}, () => body(nested));
 }
 
 /**

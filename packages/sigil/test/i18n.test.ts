@@ -1707,3 +1707,262 @@ describe('a translated screen`s width', () => {
     expect(lines[at + 1]).toMatch(/^ {25,}\S/);
   });
 });
+
+describe('a nested main() leaves the outer app`s locale alone', () => {
+  const hello = { Hello: 'Hallo' };
+  const settings = { assertCwd: false } as const;
+
+  /** What the locale and `__` answer right now, which is what an app reads. */
+  const reading = (): string => `${locale()} ${__`Hello`}`;
+
+  /** A schema whose one command, `go`, runs `body`. */
+  const app = (body: () => Promise<void>, locales?: Locales) => ({
+    commands: { go: { run: body } },
+    locales,
+    name: 'outer',
+  });
+
+  /** A schema declaring no locales, whose one command, `x`, runs `body`. */
+  const inner = (body: () => void | Promise<void>, locales?: Locales) => ({
+    commands: { x: { run: body } },
+    locales,
+    name: 'inner',
+  });
+
+  const withEnglishEnvironment = (): void => {
+    vi.stubEnv('LANG', 'en_US.UTF-8');
+    vi.stubEnv('LC_ALL', '');
+    vi.stubEnv('LC_MESSAGES', '');
+    vi.stubEnv('SIGIL_LOCALE', '');
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('should keep the outer catalog when the inner app declares no locales', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          seen.push(reading());
+          await main({ argv: ['x'], schema: inner(() => void seen.push(reading())), settings });
+          seen.push(reading());
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo', 'undefined Hello', 'de Hallo']);
+  });
+
+  it('should keep a setLocale() the outer app made when the environment says otherwise', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    withEnglishEnvironment();
+
+    await main({
+      argv: ['go'],
+      schema: app(async () => {
+        await setLocale('de');
+        seen.push(reading());
+        await main({
+          argv: ['x'],
+          schema: inner(() => void seen.push(reading()), locales),
+          settings,
+        });
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo', 'en-US Hello', 'de Hallo']);
+  });
+
+  it('should keep the locale the outer call was given as an option', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    withEnglishEnvironment();
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          schema: inner(() => void seen.push(reading()), locales),
+          settings,
+        });
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['en-US Hello', 'de Hallo']);
+  });
+
+  it('should discard a locale the inner run set, and let the outer app set another after', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello, fr: async () => ({ Hello: 'Bonjour' }) };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          schema: inner(async () => {
+            await setLocale('fr');
+            seen.push(reading());
+          }, locales),
+          settings,
+        });
+        seen.push(reading());
+        await setLocale('fr');
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['fr Bonjour', 'de Hallo', 'fr Bonjour']);
+  });
+
+  it('should not let a load the inner run left in flight land after the restore', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const slow = {
+      fr: () => new Promise<Catalog>((done) => setTimeout(() => done({ Hello: 'Bonjour' }), 20)),
+    };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          // not awaited, so it settles after `main()` has returned
+          schema: inner(() => void setLocale('fr'), slow),
+          settings,
+        });
+        await new Promise((done) => setTimeout(done, 60));
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo']);
+  });
+
+  it('should restore through a rethrown error and a handled one', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        const boom = (): Promise<unknown> =>
+          main({
+            argv: ['x'],
+            schema: inner(() => {
+              seen.push(reading());
+              throw new Error('boom');
+            }),
+            settings: { ...settings, errorHandler: false },
+          });
+
+        await expect(boom()).rejects.toThrow('boom');
+        seen.push(reading());
+
+        const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+        try {
+          await main({
+            argv: ['x'],
+            schema: inner(() => {
+              throw new Error('handled');
+            }),
+            settings,
+          });
+        } finally {
+          stderr.mockRestore();
+          process.exitCode = undefined;
+        }
+
+        seen.push(reading());
+
+        // a parse that fails before a command ever runs
+        await expect(
+          main({
+            argv: ['nope'],
+            schema: inner(() => {}),
+            settings: { ...settings, allowUnknownOptions: false, errorHandler: false },
+          })
+        ).rejects.toThrow();
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['undefined Hello', 'de Hallo', 'de Hallo', 'de Hallo']);
+  });
+
+  it('should unwind two levels of nesting one at a time', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          await main({
+            argv: ['x'],
+            locale: 'fr',
+            schema: inner(async () => {
+              seen.push(reading());
+              await main({
+                argv: ['x'],
+                schema: inner(() => void seen.push(reading())),
+                settings,
+              });
+              seen.push(reading());
+            }, fr),
+            settings,
+          });
+          seen.push(reading());
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+
+    expect(seen).toEqual(['fr Bonjour', 'undefined Hello', 'fr Bonjour', 'de Hallo']);
+  });
+
+  it('should leave a top-level main() its locale once it returns', async () => {
+    const { main } = await import('../src/index.js');
+
+    await main({
+      argv: ['x'],
+      locale: 'de',
+      schema: inner(() => {}, { de: async () => hello }),
+      settings,
+    });
+
+    expect(reading()).toBe('de Hallo');
+  });
+});

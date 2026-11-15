@@ -285,6 +285,39 @@ and the check, and `src/i18n/keys.ts` is generated.
   because a JSON `import()` is module-cached, so the second call costs a resolved
   promise, and a loader that does its own work is the app's to cache.
 
+- **A nested `main()` puts the outer app's locale back when it returns
+  (SIG-395).** `loadCatalog()` writes module state -- the catalog, the tag, the
+  loader map -- and `main()` called it unconditionally, so a `main()` inside a
+  `run()`, which the README documents as how commands compose, reset the outer
+  app for the rest of the process: an outer `de` read `undefined` and English
+  after an inner schema that declared no locales, and the same schema re-resolved
+  from `LANG`, discarding an earlier `setLocale('de')` and the outer call's own
+  `locale` option. The nested call still loads exactly what it would have loaded
+  at the top level -- it is its own app, and its parse errors and help render in
+  its own locale -- and `saveLocale()` is taken before that and run in `main()`'s
+  `finally`, so a return, a handled error and a rethrow under `errorHandler:
+  false` all put it back. Two levels unwind one at a time.
+
+  It follows the quiet axis's shape and differs from it in two places that are
+  both on purpose. **Nested only**: quiet restores on every `main()`, but a
+  top-level run has no outer app and has always left its locale in effect for a
+  host that reads `locale()` afterwards, so that is unchanged. Nested is asked
+  of the async slot `main()` already opens for `importModule`, which is why a
+  counter is not used -- two `main()`s that merely overlap are not nested.
+  **Unconditional**: quiet declines to rewind where somebody wrote since, because
+  a quiet statement is about the process and outlives the run that made it; a
+  locale the nested app set -- by `setLocale()` in its own `run()` included -- is
+  the nested app's, and the outer one is what is still running. The restore also
+  takes a generation, so a `setLocale()` the inner run did not await cannot settle
+  on top of what was put back, which is SIG-375's rule applied to the undo.
+
+  What it does not do: an outer `setLocale()` still in flight when the nested call
+  begins was already superseded by the nested `loadCatalog()`, as it always was,
+  and is not revived. Await it. `saveLocale()` is exported from this module for
+  `main()` and is not for apps. Pinned in `test/i18n.test.ts` under
+  `a nested main() leaves the outer app`s locale alone`, with the restore removed,
+  the generation removed and the nested check removed each failing a named case.
+
 - **A loader that throws, or that answers something that is not a catalog,
   leaves English in effect and says so through `sigil:i18n`.** What a broken
   translation must not do is fail a parse: the English it falls back to is a
