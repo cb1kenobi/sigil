@@ -1054,13 +1054,14 @@ toolchain's one reader.
   palette and Oklab won, for the two reasons recorded above: the xterm defaults
   are what most terminals' own themes resemble, and Oklab is perceptual where RGB
   distance, redmean included, picks visibly wrong answers. `quantize.ts` owns
-  `paletteRgb()`, `oklab()` and `nearestPaletteIndex()`; it lives in `src/ansi`
+  `paletteRgb()`, `oklab()`, `rgbFromOklab()` and `nearestPaletteIndex()`; it lives in `src/ansi`
   because that is the lower layer and `degrade.ts` already imports it, and
-  `degrade.ts` re-exports the first two so `@ttylabs/sigil/style` is unchanged.
+  `degrade.ts` re-exports the first three so `@ttylabs/sigil/style` is unchanged.
   Its table is built on first use rather than at import, which is what keeps the
   `ansi` entry from doing work for a program that never degrades a color. The
-  output of `ansi.rgb()`, `ansi.hex()` and `ansi.ansi256()` on a 16- or
-  256-color terminal changed, and that is the intended change. The memo stays in
+  output of `ansi.rgb()` and `ansi.hex()` changed at 16 and at 256 colors, and
+  `ansi.ansi256()`'s at 16 colors only (at 256 it is still `38;5;n` verbatim); that
+  is the intended change. The memo stays in
   `degradeColor()`, which sees declared colors; the styler's calls are not
   memoized, so a color a program computes does not accumulate. What is _not_
   merged is the SGR parameter tables of the styler and the wrapper, which are a
@@ -1973,10 +1974,12 @@ own colours so none of them has to know.
 - **It lives in `style/` because both halves of the colour model do.** The mix is
   `mixColors()` and the depth is `degradeColor()`, so a gradient is a third caller
   of two pure functions. `ansi/` was the other candidate for a string-in,
-  string-out surface and was refused: `ansi` has its own, different downsampling
-  (`rgbToBasic()`, `rgbToAnsi256()`), and a gradient there would have been a
-  second colour model beside the Oklab one, with a ramp that quantized differently
-  from the same colour in a stylesheet. The only change outside this file is
+  string-out surface and was refused, for a reason SIG-396 has since removed:
+  `ansi` had its own, different downsampling (`rgbToBasic()`, `rgbToAnsi256()`),
+  and a gradient there would have been a second colour model beside the Oklab one,
+  with a ramp that quantized differently from the same colour in a stylesheet.
+  Both now ask one quantizer (see "There is one quantizer" under "Colour
+  degradation"), so `style/` stays the home on its own merits: the mix is here. The only change outside this file is
   `colorParams()` in `canvas/style.ts` gaining an `export`, so the SGR a cell is
   emitted with is the canvas's own spelling rather than a copy.
 - **The stops must be 24-bit, at every level.** `mixColors()` refuses a palette

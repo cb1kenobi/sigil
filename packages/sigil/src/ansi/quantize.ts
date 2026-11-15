@@ -6,9 +6,9 @@
  * and the style engine, for a declared color -- and for a while each had its own
  * palette and its own metric, so a value written once drew as two colors:
  * `rgb(0, 0, 255)` was bright blue through one and plain blue through the other,
- * and 4,096 sampled colors disagreed at 16 colors and 1,288 at 256. There is one
- * answer now, owned here because `src/ansi` is the lower layer and both callers
- * already import it.
+ * and 2,499 of 4,096 sampled colors disagreed at 16 colors and 1,288 of 4,096 at
+ * 256. There is one answer now, owned here because `src/ansi` is the lower layer
+ * and both callers already import it.
  *
  * The palette is the xterm defaults and the metric is Oklab. The first because
  * it is what most terminals' default themes resemble; the second because it is
@@ -111,6 +111,41 @@ export function oklab(
 function linear(value: number): number {
   const v = value / 255;
   return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+/** Linear light back to one sRGB channel, 0-255, rounded and clamped. */
+function encode(value: number): number {
+  const v = value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+  return Math.min(255, Math.max(0, Math.round(v * 255)));
+}
+
+/**
+ * Oklab back to sRGB.
+ *
+ * Here rather than beside the interpolator for one reason: the forward matrix is
+ * `oklab()` above, with its own entry about the `b` row's last coefficient, and a
+ * pair of matrices that are supposed to be each other's inverse belong in one
+ * place. `style/degrade.ts` re-exports it. Clamped on the way out, because a mix of two in-gamut colors can leave
+ * the cube by a rounding error and `rgb()` refuses a channel rather than
+ * clamping it.
+ *
+ * @param lab - The Oklab coordinates.
+ * @returns The sRGB channels, 0-255.
+ */
+export function rgbFromOklab(
+  lab: readonly [number, number, number]
+): readonly [number, number, number] {
+  const [l, a, b] = lab;
+
+  const lc = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const mc = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const sc = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
+
+  return [
+    encode(4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc),
+    encode(-1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc),
+    encode(-0.0041960863 * lc - 0.7034186147 * mc + 1.707614701 * sc),
+  ];
 }
 
 /** Every palette index's Oklab, worked out on first use rather than at import. */
