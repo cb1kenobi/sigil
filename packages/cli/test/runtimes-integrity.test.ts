@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -364,6 +365,30 @@ describe('verifying a runtime against its own origin', () => {
       expect((refusal as Error).message).toContain('(connect ECONNREFUSED ::1:443)');
     });
 
+    it('should not take a host name that contains "redirect" for a redirect', async () => {
+      vi.stubGlobal('fetch', () =>
+        Promise.reject(
+          new TypeError('fetch failed', {
+            cause: new Error('connect redirect-host.example ECONNREFUSED'),
+          })
+        )
+      );
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).toContain('Could not download node 9.9.9');
+      expect((refusal as Error).message).not.toContain('answered with a redirect');
+    });
+
+    it('should not render empty nested messages as a list of separators', async () => {
+      const cause = new AggregateError([new Error(''), new Error('')], '');
+      vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed', { cause })));
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).not.toContain('(; )');
+    });
+
     it('should not echo a control character the network put in the reason', async () => {
       vi.stubGlobal('fetch', () =>
         Promise.reject(
@@ -507,6 +532,11 @@ describe('verifying a runtime against its own origin', () => {
       rmSync(cached('node'), { force: true, recursive: true });
       await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
 
+      // present but not readable at all -- a directory is `EISDIR` everywhere
+      rmSync(join(cached('node'), 'sigil-verified.json'));
+      mkdirSync(join(cached('node'), 'sigil-verified.json'));
+      await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
+
       // present but not parseable is not the same thing to be told as absent
       await resolve('node', VERSION, TARGET);
       writeFileSync(join(cached('node'), 'sigil-verified.json'), '{ not json');
@@ -516,6 +546,7 @@ describe('verifying a runtime against its own origin', () => {
         'no longer matches its verification record',
         'has no verification record',
         undefined,
+        'has no readable verification record',
         'has no readable verification record',
       ]);
     });
@@ -588,6 +619,27 @@ describe('verifying a runtime against its own origin', () => {
       expect(existsSync(old)).toBe(false);
       expect(existsSync(fresh)).toBe(true);
       expect(existsSync(other)).toBe(true);
+    });
+  });
+
+  describe('a scratch directory the sweep cannot examine', () => {
+    // `readdir` order is the file system's, so the dangling link is named to
+    // sort first, and the test still holds if the order is reversed -- it only
+    // proves something where the failing entry comes first
+    it.skipIf(process.platform === 'win32')('should go on to the entries after it', async () => {
+      const root = join(box, 'cache', 'sigil/runtimes', 'node');
+      mkdirSync(root, { recursive: true });
+      symlinkSync(join(box, 'nowhere'), join(root, '0.0.0.partial-DANGLE'));
+      const old = join(root, '9.9.1.partial-OLDOLD');
+      mkdirSync(old, { recursive: true });
+      const when = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      utimesSync(old, when, when);
+
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+      await resolve('node', VERSION, TARGET);
+
+      expect(existsSync(old)).toBe(false);
     });
   });
 

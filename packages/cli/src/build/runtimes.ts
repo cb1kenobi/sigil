@@ -685,9 +685,11 @@ export async function resolve(
  * running that very file), the entry already there is used if `distrust()`
  * accepts it.
  *
- * A directory an interrupted run left behind is removed once it is old enough
- * that no live download can own it (`sweep()`), because Ctrl-C ends the process
- * without running a `finally`.
+ * A directory an interrupted run left behind is removed once it is an hour old
+ * (`sweep()`), because Ctrl-C ends the process without running a `finally`. A
+ * live download touches its directory far more often than that, so only one
+ * suspended for an hour or more can lose its directory -- and it then fails
+ * having cached nothing.
  *
  * Nothing is extracted until the archive has hashed to the digest its own origin
  * publishes (`originDigest()`), and what lands in the cache carries a record of
@@ -793,7 +795,8 @@ async function download(runtime: Runtime, version: string): Promise<string> {
     } catch (error) {
       // Windows refuses to replace an executable another build is running. That
       // build put the same verified bytes there, so what is there is used if it
-      // still answers to the record -- and it is removed, and this fails, if not
+      // still answers to the record -- and its removal is attempted, and this
+      // fails, if not
       if (existsSync(binary) && distrust(runtime, version, binary) === undefined) {
         return binary;
       }
@@ -836,8 +839,11 @@ const RECORD = 'sigil-verified.json';
  * @param runtime - Which runtime, for the message.
  * @param version - The version, for the message.
  * @param url - What to read.
- * @returns The response, known to be `ok`.
- * @throws If it could not be read in time or did not answer `200`.
+ * @param as - How to return the body: `bytes` as a `Buffer`, `text` as a string,
+ *   or `json` as the parsed value.
+ * @returns The body, read in full, in the form `as` asked for.
+ * @throws If it could not be fetched or read in time, did not answer `200`, or
+ *   was asked for as `json` and is not.
  */
 async function get(runtime: Runtime, version: string, url: string, as: 'bytes'): Promise<Buffer>;
 async function get(runtime: Runtime, version: string, url: string, as: 'text'): Promise<string>;
@@ -915,7 +921,10 @@ function failed(
     message?: unknown;
   };
   const inner = Array.isArray(why?.errors)
-    ? why.errors.map((one: { message?: unknown }) => String(one?.message ?? one)).join('; ')
+    ? why.errors
+        .map((one: { message?: unknown }) => String(one?.message ?? one))
+        .filter(Boolean)
+        .join('; ')
     : '';
   const reason = escapeControls(
     String(
@@ -926,7 +935,9 @@ function failed(
     )
   );
 
-  if (/redirect/i.test(reason)) {
+  // undici's own text, the same on node 22, 24 and 26; a host name that happens
+  // to contain the word is not a redirect
+  if (why?.message === 'unexpected redirect') {
     return new Error(
       `Refusing ${runtime} ${version}: ${url} answered with a redirect, which is not followed -- these origins serve these files directly, so a redirect means something between here and them is answering instead.\n  Nothing was downloaded, extracted or run.`,
       { cause: error }
@@ -1116,15 +1127,28 @@ const STALE_PARTIAL = 60 * 60 * 1000;
  *
  * Ctrl-C ends node without running a `finally`, and every run has a directory
  * of its own now, so each interrupted one left one for good -- up to a few
- * hundred megabytes of a half-extracted runtime. A directory untouched for an
- * hour belongs to no live download, which is why a concurrent build's is never
- * in danger. Best effort and silent: failing to tidy must never fail a build.
+ * hundred megabytes of a half-extracted runtime. A live download touches its
+ * directory at least every few minutes, since each step is capped by `TIMEOUT`,
+ * so only a process suspended for an hour or more -- Ctrl-Z, a sleeping laptop --
+ * or a cache on a network file system with a skewed clock can lose its directory;
+ * it then fails with `ENOENT` and caches nothing, which is safe. Best effort and
+ * silent, and **per entry**: one that cannot be examined or removed, a dangling
+ * symlink or a directory that cannot be deleted, must not stop the rest being
+ * tidied.
  *
  * @param root - The runtime's cache directory.
  */
 function sweep(root: string): void {
+  let entries: string[];
+
   try {
-    for (const entry of readdirSync(root)) {
+    entries = readdirSync(root);
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    try {
       const at = join(root, entry);
 
       if (
@@ -1133,9 +1157,9 @@ function sweep(root: string): void {
       ) {
         rmSync(at, { force: true, recursive: true });
       }
+    } catch {
+      // tidying is not the job
     }
-  } catch {
-    // tidying is not the job
   }
 }
 

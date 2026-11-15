@@ -4597,12 +4597,16 @@ about what a valid app is would be the worse half of the feature.
   interrupted one stayed for good -- measured, four left behind and 9.5 MB each
   for a 5 MB archive, a few hundred MB for a real one. `sweep()` removes
   `<version>.partial-*` entries older than an hour at the top of `download()`,
-  which no live download can own, so a concurrent build's is never touched. It is
-  silent and best effort: tidying must not fail a build.
+  and a live download touches its directory at least every few minutes, since each
+  step is capped by `TIMEOUT`. So only a process suspended for an hour or more, or
+  a cache on a network file system with a skewed clock, can lose its directory;
+  it then fails with `ENOENT` and caches nothing, which is safe. It is silent,
+  best effort and per entry: one that cannot be examined or removed -- a dangling
+  symlink -- does not stop the ones after it.
 
   **A rename over a running executable** is refused on Windows. The other build put
   the same verified bytes there, so `download()` uses what is there if
-  `distrust()` accepts it and fails, with the entry removed, if not.
+  `distrust()` accepts it and fails, with removal of the entry attempted, if not.
 
   **The scratch directory is `mkdtempSync()`'s, and the archive holds one
   executable.** It was `<version>.partial-<pid>`, which a process killed
@@ -4645,13 +4649,14 @@ about what a valid app is would be the worse half of the feature.
   Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
   stubbed, the archives are real `tar` archives so a passing download goes
   through the real extraction, and `cache()` is mocked for the reason
-  `runtimes-cache.test.ts` records. Sabotage-checked twenty-five ways -- the archive
+  `runtimes-cache.test.ts` records. Sabotage-checked guard by guard -- the archive
   comparison, the missing-line, duplicate-line and prefix-match rules, Bun's
   missing-integrity refusal, the cache comparison, the no-record discard, the
   reason handed to the caller, `redirect: 'error'`, both rewordings of a failed
   request, the scratch directory, the one-executable rule, the record's
   atomicity and order, the empty-reason fallbacks, the body read, the HTML
-  answer, the sweep, the rename fallback and the escaping -- and each fails a named test. The order is observed
+  answer, the sweep and its per-entry isolation, the rename fallback, the
+  unreadable record and the escaping -- and each fails a named test. The order is observed
   through a wrapped `renameSync`, so the test sees what existed beside the
   target at the moment of the move.
 
