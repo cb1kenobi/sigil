@@ -4551,33 +4551,56 @@ about what a valid app is would be the worse half of the feature.
 
   The digest is fetched **first** and the archive hashed **before it is written
   or extracted**, so a version the origin does not list costs a few hundred
-  bytes, and `tar` never parses bytes nothing has vouched for. Every message
-  names the runtime, the file, expected against actual, and says nothing was
-  extracted or run. The test serves bytes that are not an archive at all, so a
+  bytes, and `tar` never parses bytes nothing has vouched for. A mismatch names
+  the runtime, the file, the digest document, expected against actual, and says
+  nothing was extracted or run; a missing line or integrity names the runtime,
+  the document and the file and says nothing was downloaded. The test serves bytes that are not an archive at all, so a
   refusal that came from `tar` would read `Could not extract` instead.
 
   `redirect: 'error'` is on all three requests, because none of these hosts
   redirects for these URLs: probed with `curl -sI`, Node's archive and
   `SHASUMS256.txt` and npm's tarball and version document all answer `200` with
   no `Location`. A host that starts redirecting fails loudly rather than handing
-  the digest or the bytes to somewhere nobody named. The version **listings**
+  the digest or the bytes to somewhere nobody named. That arrives as undici's
+  `fetch failed` with the reason in `cause`, which `errorHandler()` never
+  renders, so `get()` rethrows a sentence naming the runtime, the URL and the
+  reason -- "answered with a redirect" for that one, and for any other failure
+  that this check needs the network even for a runtime an older sigil cached,
+  since that is the case that used to work offline and now does not. The version **listings**
   (`fetchJson()`) are not part of this and are unchanged.
 
   **The cache.** What is written beside an executable is `sigil-verified.json`:
   the runtime, the version, the archive's file name, its origin digest and
   source, and the sha256 of the executable that came out of it. `resolve()` calls
-  `trusted()` for an executable under sigil's own cache and re-hashes it against
+  `distrust()` for an executable under sigil's own cache and re-hashes it against
   that record on every use; no record, an unreadable one, or a mismatch removes
   the **whole entry** and falls through to a fresh download, so a refusal never
-  leaves the unverified binary behind for next time. The record is written
-  **before** the binary is renamed into place, because the binary's presence is
-  what makes an entry visible to `local()` and a binary with no record is one
-  `trusted()` throws away. An entry cached before this existed has no record and
+  leaves the unverified binary behind for next time -- and the run says so
+  (`The cached node X has no verification record, so it was removed.`) rather than
+  claiming the runtime was never on the machine. The record is written to the
+  scratch directory and **renamed** in, never written in place, since a write in
+  place truncates first and a concurrent build reading that window would remove
+  a good entry; and it lands **before** the binary is renamed into place, because
+  the binary's presence is what makes an entry visible to `local()` and a binary
+  with no record is one `distrust()` throws away.
+
+  **The scratch directory is `mkdtempSync()`'s, and the archive holds one
+  executable.** It was `<version>.partial-<pid>`, which a process killed
+  mid-extraction leaves behind and a later one with the same pid -- ordinary in a
+  container over a persisted cache volume -- reused without emptying, so
+  `findBinary()` returned the first `node` it met in the stale tree and hashed it
+  into the record as verified. Measured with the seeded directory:
+  `cached binary content: "STALE-0"`. Two `resolve()` calls in one process shared
+  a directory for the same reason. `findBinaries()` also refuses an archive with
+  more than one file named for the runtime, because the one that is hashed into
+  the record is the one that runs; checked against real archives, which hold
+  exactly one (Node 24 darwin `bin/node`, Windows `node.exe`; Bun 1.3 `package/bin/bun`
+  and `bun.exe`, three platforms). An entry cached before this existed has no record and
   is fetched once more. Only sigil's own cache is checked: a runtime found on
   `PATH` or in Bun's own cache is the user's installation, not something sigil
   fetched, and `local()` is what the picker lists, so it is not re-hashed on
-  every listing either -- it costs a hash of ~90 MB only when a version is
-  actually resolved.
+  every listing either -- it costs a hash of ~120 MB (Node darwin-arm64;
+  measured 47 ms for 115 MB) once per `sigil package`, when a version is resolved.
 
   **What this does not protect against, stated plainly.** The digest comes from
   the same origin as the file, so a compromise of nodejs.org or of the npm
@@ -4586,17 +4609,30 @@ about what a valid app is would be the worse half of the feature.
   record -- it catches a binary that changed under it (a corrupted write, another
   tool, a swap that did not know to touch the record) and not an attacker with
   that access, who could equally edit this toolchain. What it removes is the
-  case this was written for: an intermediary that can alter a download but not
-  the origin's own documents -- which, over HTTPS to the origin, is everything
-  between the two ends.
+  case this was written for: a mirror, CDN or cache serving a modified or stale
+  archive while the origin's own digest is intact, and corruption in transit. A
+  proxy that terminates TLS and rewrites **every** response, the digest document
+  included, is not that case and is the same as a compromised origin here.
+
+  **Bun cross-targets are not covered, and this is a gap rather than a decision.**
+  `compileBun()` runs `bun build --compile --target=bun-<label>`. For a target
+  other than the host, Bun downloads that target's runtime **itself** into
+  `~/.bun/install/cache/bun-<target>-v<version>` and embeds it, so what sigil
+  verified is the bundler `bun` it ran, and the runtime that ends up in the
+  shipped binary is whatever Bun fetched and checked by its own rules. Not
+  closed in code here.
 
   Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
   stubbed, the archives are real `tar` archives so a passing download goes
   through the real extraction, and `cache()` is mocked for the reason
-  `runtimes-cache.test.ts` records. Sabotage-checked six ways -- the archive
-  comparison, the missing-line refusal, Bun's missing-integrity refusal, the
-  cache comparison, the no-record discard, and `redirect: 'error'` -- and each
-  fails a named test.
+  `runtimes-cache.test.ts` records. Sabotage-checked fifteen ways -- the archive
+  comparison, the missing-line, duplicate-line and prefix-match rules, Bun's
+  missing-integrity refusal, the cache comparison, the no-record discard, the
+  reason handed to the caller, `redirect: 'error'`, both rewordings of a failed
+  request, the scratch directory, the one-executable rule, and the record's
+  atomicity and order -- and each fails a named test. The order is observed
+  through a wrapped `renameSync`, so the test sees what existed beside the
+  target at the moment of the move.
 
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First

@@ -2,7 +2,8 @@ import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createServer } from 'node:http';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -21,6 +22,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const box = tempDir('sigil-integrity-');
 
+/** The real `fetch`, before any test stubs it. */
+const nativeFetch = globalThis.fetch;
+
+/** Every `renameSync` the module makes, and whether the record already sat beside its target. */
+const renames: { record: boolean; to: string }[] = [];
+
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+
+  return {
+    ...actual,
+    renameSync: (from: string, to: string) => {
+      renames.push({
+        record: actual.existsSync(join(dirname(String(to)), 'sigil-verified.json')),
+        to: String(to),
+      });
+
+      return actual.renameSync(from, to);
+    },
+  };
+});
+
 vi.mock('@ttylabs/sigil/paths', () => ({
   cache: (...paths: string[]) => join(box, 'cache', ...paths),
 }));
@@ -35,7 +58,7 @@ const NAME = (runtime: string): string => (EXE ? `${runtime}.${EXE}` : runtime);
 type Runtime = 'bun' | 'node';
 
 /** A real `.tar.gz` holding one executable where the runtime's archive puts it. */
-function archive(runtime: Runtime, content: string): Buffer {
+function archive(runtime: Runtime, content: string, extra: string[] = []): Buffer {
   const src = join(box, `src-${runtime}`);
   const out = join(box, `${runtime}.tgz`);
   const inside = runtime === 'node' ? join('node-v9.9.9-x', 'bin') : join('package', 'bin');
@@ -43,6 +66,11 @@ function archive(runtime: Runtime, content: string): Buffer {
   rmSync(src, { force: true, recursive: true });
   mkdirSync(join(src, inside), { recursive: true });
   writeFileSync(join(src, inside, NAME(runtime)), content);
+
+  for (const [at, name] of extra.entries()) {
+    mkdirSync(join(src, `extra-${at}`), { recursive: true });
+    writeFileSync(join(src, `extra-${at}`, NAME(name)), `EXTRA-${at}`);
+  }
 
   const made = spawnSync('tar', ['-czf', out, '-C', src, '.'], { encoding: 'utf-8' });
   expect(made.status, made.stderr).toBe(0);
@@ -64,6 +92,15 @@ function shasums(digest: string, version = VERSION): string {
   return `${names.map((name) => `${digest}  ${name}`).join('\n')}\n`;
 }
 
+/** The name Node publishes this host's archive under, as `downloadUrl()` spells it. */
+function hostFile(): string {
+  const os =
+    process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'darwin' : 'linux';
+  const arch = process.arch === 'x64' ? 'x64' : 'arm64';
+
+  return `node-v${VERSION}-${os}-${arch}.${process.platform === 'win32' ? 'zip' : 'tar.gz'}`;
+}
+
 interface Origin {
   /** What the archive URL serves. */
   readonly bytes: Buffer;
@@ -73,8 +110,8 @@ interface Origin {
   readonly sums?: string;
 }
 
-/** Stubs `fetch` as the origin of `runtime` and records every request. */
-function origin(runtime: Runtime, served: Origin) {
+/** Stubs `fetch` as an origin and records every request. */
+function origin(served: Origin) {
   const calls: { init: RequestInit | undefined; url: string }[] = [];
 
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
@@ -93,8 +130,6 @@ function origin(runtime: Runtime, served: Origin) {
     return Promise.resolve(new Response(new Uint8Array(served.bytes)));
   });
 
-  void runtime;
-
   return calls;
 }
 
@@ -104,6 +139,7 @@ const cached = (runtime: Runtime): string => join(box, 'cache', 'sigil/runtimes'
 describe('verifying a runtime against its own origin', () => {
   beforeEach(() => {
     rmSync(join(box, 'cache'), { force: true, recursive: true });
+    renames.length = 0;
   });
 
   afterEach(() => {
@@ -113,7 +149,7 @@ describe('verifying a runtime against its own origin', () => {
   describe('node', () => {
     it('should extract and cache an archive that matches SHASUMS256.txt', async () => {
       const bytes = archive('node', 'REAL');
-      const calls = origin('node', { bytes, digest: sha256(bytes) });
+      const calls = origin({ bytes, digest: sha256(bytes) });
 
       const path = await resolve('node', VERSION, TARGET);
 
@@ -129,7 +165,7 @@ describe('verifying a runtime against its own origin', () => {
 
     it('should follow no redirect on any request it makes', async () => {
       const bytes = archive('node', 'REAL');
-      const calls = origin('node', { bytes, digest: sha256(bytes) });
+      const calls = origin({ bytes, digest: sha256(bytes) });
 
       await resolve('node', VERSION, TARGET);
 
@@ -143,7 +179,7 @@ describe('verifying a runtime against its own origin', () => {
       // asserting it was the digest that stopped it, and that nothing parsed it
       const bytes = Buffer.from('not an archive');
       const expected = sha256(archive('node', 'REAL'));
-      origin('node', { bytes, digest: expected });
+      origin({ bytes, digest: expected });
 
       const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
 
@@ -158,7 +194,7 @@ describe('verifying a runtime against its own origin', () => {
 
     it('should refuse when SHASUMS256.txt has no line for the archive, and not fetch it', async () => {
       const bytes = archive('node', 'REAL');
-      const calls = origin('node', { bytes, sums: shasums(sha256(bytes), '1.2.3') });
+      const calls = origin({ bytes, sums: shasums(sha256(bytes), '1.2.3') });
 
       await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(
         /has no line for node-v9\.9\.9/
@@ -169,12 +205,133 @@ describe('verifying a runtime against its own origin', () => {
       ]);
       expect(existsSync(cached('node'))).toBe(false);
     });
+
+    it('should use the line for exactly this archive, whatever the other lines say', async () => {
+      // every filename used to carry one digest, so a prefix or suffix match
+      // passed all of the above; here every other line is a different digest
+      const good = archive('node', 'REAL');
+      const evil = archive('node', 'EVIL');
+      const file = hostFile();
+      const lines = [
+        `${sha256(evil)}  x${file}`,
+        `${sha256(evil)}  ${file}.asc`,
+        `${sha256(evil)}  node-v${VERSION}-linux-ppc64le.tar.gz`,
+        `${sha256(good)}  ${file}`,
+      ].join('\n');
+
+      origin({ bytes: good, sums: lines });
+      expect(readFileSync(await resolve('node', VERSION, TARGET), 'utf-8')).toBe('REAL');
+
+      // and the same document refuses the file a lookalike line vouches for
+      rmSync(join(box, 'cache'), { force: true, recursive: true });
+      origin({ bytes: evil, sums: lines });
+      await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/does not match the sha256/);
+    });
+
+    it('should refuse a SHASUMS256.txt that lists the archive with two different digests', async () => {
+      const bytes = archive('node', 'REAL');
+      const calls = origin({
+        bytes,
+        sums: `${sha256(bytes)}  ${hostFile()}\n${sha256(Buffer.from('other'))}  ${hostFile()}\n`,
+      });
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/2 different digests/);
+
+      expect(calls).toHaveLength(1);
+      expect(existsSync(cached('node'))).toBe(false);
+    });
+
+    it('should not take an executable a dead process left behind over the verified archive', async () => {
+      // `.partial-<pid>` was reused by a later process with the same pid and
+      // never emptied, so `findBinary()` returned the first `node` it met in it
+      // -- and that was hashed into the record as verified
+      const root = join(box, 'cache', 'sigil/runtimes', 'node');
+      for (const name of ['0', 'a', 'z']) {
+        mkdirSync(join(root, `${VERSION}.partial-${process.pid}`, name), { recursive: true });
+        writeFileSync(
+          join(root, `${VERSION}.partial-${process.pid}`, name, NAME('node')),
+          `STALE-${name}`
+        );
+      }
+
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+
+      expect(readFileSync(await resolve('node', VERSION, TARGET), 'utf-8')).toBe('REAL');
+    });
+
+    it('should refuse an archive that holds more than one executable', async () => {
+      const bytes = archive('node', 'REAL', ['node']);
+      origin({ bytes, digest: sha256(bytes) });
+
+      await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/holds 2 files named/);
+
+      expect(existsSync(cached('node'))).toBe(false);
+    });
+
+    it('should write the record, atomically, before the executable is in place', async () => {
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+
+      await resolve('node', VERSION, TARGET);
+
+      const binary = renames.find((one) => one.to === join(cached('node'), NAME('node')));
+      const record = renames.find((one) => one.to === join(cached('node'), 'sigil-verified.json'));
+
+      // the record arrived by rename, so it was never visible half written, and
+      // it was already there when the executable arrived beside it
+      expect(record).toBeDefined();
+      expect(binary?.record).toBe(true);
+    });
+  });
+
+  describe('a request that fails', () => {
+    it('should say a redirect was refused, naming the URL, rather than "fetch failed"', async () => {
+      // a real `fetch` against a local server that redirects: the reason lives
+      // in undici's `cause`, which nothing downstream renders
+      const server = createServer((_, response) => {
+        response.writeHead(302, { Location: 'http://127.0.0.1:1/elsewhere' });
+        response.end();
+      });
+      await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+      const address = server.address() as { port: number };
+      vi.stubGlobal('fetch', (_: string, init?: RequestInit) =>
+        nativeFetch(`http://127.0.0.1:${address.port}/x`, init)
+      );
+
+      try {
+        const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+        expect((refusal as Error).message).toContain('Refusing node 9.9.9');
+        expect((refusal as Error).message).toContain(
+          'https://nodejs.org/dist/v9.9.9/SHASUMS256.txt answered with a redirect'
+        );
+        expect((refusal as Error).message).not.toBe('fetch failed');
+      } finally {
+        server.close();
+      }
+    });
+
+    it('should say why a request could not be made, and that this needs the network', async () => {
+      vi.stubGlobal('fetch', () =>
+        Promise.reject(
+          new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND nodejs.org') })
+        )
+      );
+
+      const refusal = await resolve('node', VERSION, TARGET).catch((error: Error) => error);
+
+      expect((refusal as Error).message).toContain('Could not download node 9.9.9');
+      expect((refusal as Error).message).toContain('getaddrinfo ENOTFOUND nodejs.org');
+      expect((refusal as Error).message).toContain('SHASUMS256.txt');
+      expect((refusal as Error).message).toContain('older sigil');
+    });
   });
 
   describe('bun', () => {
     it('should extract and cache a tarball that matches its npm integrity', async () => {
       const bytes = archive('bun', 'REAL');
-      const calls = origin('bun', { bytes, digest: sha512(bytes) });
+      const calls = origin({ bytes, digest: sha512(bytes) });
 
       const path = await resolve('bun', VERSION, TARGET);
 
@@ -190,7 +347,7 @@ describe('verifying a runtime against its own origin', () => {
     it('should refuse a tarball that does not match its integrity, before extracting it', async () => {
       const bytes = Buffer.from('not an archive');
       const expected = sha512(archive('bun', 'REAL'));
-      origin('bun', { bytes, digest: expected });
+      origin({ bytes, digest: expected });
 
       const refusal = await resolve('bun', VERSION, TARGET).catch((error: Error) => error);
 
@@ -202,7 +359,7 @@ describe('verifying a runtime against its own origin', () => {
 
     it('should refuse when the registry publishes no sha512 integrity, and not fetch the tarball', async () => {
       const bytes = archive('bun', 'REAL');
-      const calls = origin('bun', { bytes, digest: undefined });
+      const calls = origin({ bytes, digest: undefined });
 
       await expect(resolve('bun', VERSION, TARGET)).rejects.toThrow(
         /publishes no sha512 integrity/
@@ -216,7 +373,7 @@ describe('verifying a runtime against its own origin', () => {
   describe('a runtime already in the cache', () => {
     async function seed(): Promise<string> {
       const bytes = archive('node', 'REAL');
-      origin('node', { bytes, digest: sha256(bytes) });
+      origin({ bytes, digest: sha256(bytes) });
 
       const path = await resolve('node', VERSION, TARGET);
       vi.unstubAllGlobals();
@@ -226,7 +383,7 @@ describe('verifying a runtime against its own origin', () => {
 
     it('should be used without a request while it matches its record', async () => {
       const path = await seed();
-      const calls = origin('node', { bytes: Buffer.alloc(0), digest: '' });
+      const calls = origin({ bytes: Buffer.alloc(0), digest: '' });
 
       expect(await resolve('node', VERSION, TARGET)).toBe(path);
       expect(calls).toHaveLength(0);
@@ -237,10 +394,30 @@ describe('verifying a runtime against its own origin', () => {
       writeFileSync(path, 'TAMPERED');
 
       const bytes = archive('node', 'REAL');
-      const calls = origin('node', { bytes, digest: sha256(bytes) });
+      const calls = origin({ bytes, digest: sha256(bytes) });
 
       expect(readFileSync(await resolve('node', VERSION, TARGET), 'utf-8')).toBe('REAL');
       expect(calls.length).toBeGreaterThan(0);
+    });
+
+    it('should say why a copy was removed, and say nothing of the kind for one never fetched', async () => {
+      const path = await seed();
+      const said: (string | undefined)[] = [];
+      const bytes = archive('node', 'REAL');
+      origin({ bytes, digest: sha256(bytes) });
+
+      writeFileSync(path, 'TAMPERED');
+      await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
+      rmSync(join(cached('node'), 'sigil-verified.json'));
+      await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
+      rmSync(cached('node'), { force: true, recursive: true });
+      await resolve('node', VERSION, TARGET, (_, why) => said.push(why));
+
+      expect(said).toEqual([
+        'no longer matches its verification record',
+        'has no verification record',
+        undefined,
+      ]);
     });
 
     it('should be discarded and fetched again when it has no record', async () => {
@@ -250,7 +427,7 @@ describe('verifying a runtime against its own origin', () => {
       void path;
 
       const bytes = archive('node', 'REAL');
-      const calls = origin('node', { bytes, digest: sha256(bytes) });
+      const calls = origin({ bytes, digest: sha256(bytes) });
 
       await resolve('node', VERSION, TARGET);
 
@@ -263,7 +440,7 @@ describe('verifying a runtime against its own origin', () => {
       // refusal never leaves the unverified binary behind to be used next time
       const path = await seed();
       writeFileSync(path, 'TAMPERED');
-      origin('node', { bytes: Buffer.from('not an archive'), digest: sha256(Buffer.from('x')) });
+      origin({ bytes: Buffer.from('not an archive'), digest: sha256(Buffer.from('x')) });
 
       await expect(resolve('node', VERSION, TARGET)).rejects.toThrow(/Refusing node 9\.9\.9/);
 

@@ -55,6 +55,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -629,12 +630,13 @@ async function fetchJson(url: string): Promise<unknown> {
  * one to use, because downloading a runtime somebody has is a slow way to get
  * the same answer. The exception is a runtime in **sigil's own** cache, which is
  * used only while it still matches the digest recorded when it was verified
- * (see `trusted()`); one that does not is discarded and fetched again.
+ * (see `distrust()`); one that does not is discarded and fetched again.
  *
  * @param runtime - Which runtime.
  * @param version - The version, without a leading `v`.
  * @param target - What is being built.
  * @param onFetch - Called before a download starts, so the caller can say so.
+ *   `discarded` is why a cached copy was removed first, when one was.
  * @returns The executable to use.
  * @throws If it is not available and could not be fetched.
  */
@@ -642,15 +644,21 @@ export async function resolve(
   runtime: Runtime,
   version: string,
   target: Target,
-  onFetch?: (version: string) => void
+  onFetch?: (version: string, discarded?: string) => void
 ): Promise<string> {
   const here = local(runtime, target).find((one) => one.version === version);
 
-  if (here?.path && (!isOwn(runtime, here.path) || trusted(runtime, version, here.path))) {
-    return here.path;
+  let discarded: string | undefined;
+
+  if (here?.path) {
+    discarded = isOwn(runtime, here.path) ? distrust(runtime, version, here.path) : undefined;
+
+    if (discarded === undefined) {
+      return here.path;
+    }
   }
 
-  onFetch?.(version);
+  onFetch?.(version, discarded);
 
   return download(runtime, version);
 }
@@ -672,7 +680,7 @@ export async function resolve(
  *
  * Nothing is extracted until the archive has hashed to the digest its own origin
  * publishes (`originDigest()`), and what lands in the cache carries a record of
- * what it was verified as, which `trusted()` re-checks on every later use.
+ * what it was verified as, which `distrust()` re-checks on every later use.
  *
  * @param runtime - Which runtime.
  * @param version - The version, without a leading `v`.
@@ -690,9 +698,15 @@ async function download(runtime: Runtime, version: string): Promise<string> {
 
   const into = cacheDir(root, runtime, version);
   const binary = join(into, executable(runtime));
-  const partial = `${into}.partial-${process.pid}`;
 
-  mkdirSync(partial, { recursive: true });
+  // a directory nothing else has ever used. It was `.partial-<pid>`, which a
+  // process killed mid-extraction leaves behind and a later one with the same
+  // pid -- ordinary in a container over a persisted cache -- reuses without
+  // emptying: `findBinary()` then picked a stale executable over the one from
+  // the verified archive, and it was hashed into the record as verified. It
+  // also had two `resolve()` calls in one process sharing one directory
+  mkdirSync(root, { recursive: true });
+  const partial = mkdtempSync(`${into}.partial-`);
 
   try {
     const url = downloadUrl(runtime, version);
@@ -726,14 +740,26 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       );
     }
 
-    const found = findBinary(partial, runtime);
-    if (!found) {
+    const candidates = findBinaries(partial, runtime);
+    if (candidates.length === 0) {
       throw new Error(`Downloaded ${runtime} ${version} but found no ${runtime} executable in it.`);
     }
 
+    // one, because the one that is hashed into the record is the one that runs,
+    // and choosing among several is a choice nobody verified. Every real
+    // archive has exactly one: node's `bin/node` or `node.exe`, bun's
+    // `package/bin/bun`
+    if (candidates.length > 1) {
+      throw new Error(
+        `Downloaded ${runtime} ${version} but its archive holds ${candidates.length} files named ${executable(runtime)}, so there is no telling which is the runtime. Nothing was cached.`
+      );
+    }
+
+    const found = candidates[0]!;
+
     // the record goes down **before** the binary, because the binary's presence
     // is what makes a cache entry visible to `local()`: a binary with no record
-    // is an entry `trusted()` discards, so a second build looking at the
+    // is an entry `distrust()` discards, so a second build looking at the
     // directory between the two writes would throw away a download in progress
     mkdirSync(into, { recursive: true });
     const record: Record<string, string> = {
@@ -744,7 +770,12 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       source: expected.source,
       version,
     };
-    writeFileSync(join(into, RECORD), `${JSON.stringify(record, null, 2)}\n`);
+
+    // written beside and renamed in rather than written in place: a write in
+    // place truncates first, and a build reading the record in that window
+    // would take a good entry for a bad one and remove it
+    writeFileSync(join(partial, RECORD), `${JSON.stringify(record, null, 2)}\n`);
+    renameSync(join(partial, RECORD), join(into, RECORD));
     renameSync(found, binary);
     chmodSync(binary, 0o755);
 
@@ -785,7 +816,30 @@ const RECORD = 'sigil-verified.json';
  * @throws If it could not be read in time or did not answer `200`.
  */
 async function get(runtime: Runtime, version: string, url: string): Promise<Response> {
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT) });
+  let response: Response;
+
+  try {
+    response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT) });
+  } catch (error) {
+    // undici reports every failure as `fetch failed` and keeps the reason in
+    // `cause`, which nothing downstream renders -- so the reason is said here
+    const why = (error instanceof Error && error.cause instanceof Error ? error.cause : error) as {
+      message?: string;
+    };
+    const reason = why.message ?? String(why);
+
+    if (/redirect/i.test(reason)) {
+      throw new Error(
+        `Refusing ${runtime} ${version}: ${url} answered with a redirect, which is not followed -- these origins serve these files directly, so a redirect means something between here and them is answering instead.\n  Nothing was downloaded, extracted or run.`,
+        { cause: error }
+      );
+    }
+
+    throw new Error(
+      `Could not download ${runtime} ${version}: ${url} could not be fetched (${reason}).\n  A runtime has to be verified against its origin before it is used, so this needs the network even for one cached by an older sigil, which has no verification record. Check the connection and try again.`,
+      { cause: error }
+    );
+  }
 
   if (!response.ok) {
     throw new Error(
@@ -878,7 +932,8 @@ function isOwn(runtime: Runtime, path: string): boolean {
 }
 
 /**
- * Whether a runtime in sigil's cache is still the one that was verified.
+ * Whether a runtime in sigil's cache is still the one that was verified, and if
+ * it is not, why -- having removed it.
  *
  * A cached runtime is the thing every binary built afterwards embeds, so it is
  * not trusted for being there. It is re-hashed on every use against the sha256
@@ -896,9 +951,12 @@ function isOwn(runtime: Runtime, path: string): boolean {
  * @param runtime - Which runtime.
  * @param version - The version.
  * @param path - The cached executable.
- * @returns Whether it may be used; when it may not, it has been removed.
+ * @returns `undefined` when it may be used; otherwise what was wrong with it,
+ *   as a clause for a sentence. It has been removed in that case.
  */
-function trusted(runtime: Runtime, version: string, path: string): boolean {
+function distrust(runtime: Runtime, version: string, path: string): string | undefined {
+  let why = 'has no verification record';
+
   try {
     const record = JSON.parse(readFileSync(join(dirname(path), RECORD), 'utf-8')) as {
       binary?: unknown;
@@ -906,20 +964,23 @@ function trusted(runtime: Runtime, version: string, path: string): boolean {
       version?: unknown;
     };
 
+    why = 'no longer matches its verification record';
+
     if (
       record.runtime === runtime &&
       record.version === version &&
       record.binary === `sha256:${hashFile(path)}`
     ) {
-      return true;
+      return undefined;
     }
   } catch {
-    // no record, an unreadable one, or a binary that cannot be read: all the same answer
+    // no record, an unreadable one, or a binary that cannot be read: the
+    // clause above says which of those it was as far as it can be known
   }
 
   rmSync(dirname(path), { force: true, recursive: true });
 
-  return false;
+  return why;
 }
 
 /** Where a runtime of this version is published. */
@@ -951,7 +1012,7 @@ function downloadUrl(runtime: Runtime, version: string): string {
 }
 
 /**
- * Finds the runtime's executable inside an extracted archive.
+ * Finds the runtime's executable(s) inside an extracted archive.
  *
  * A search rather than a known path, because the two archives are laid out
  * differently -- Node's is `node-v<v>-<os>-<arch>/bin/node` and Bun's is
@@ -960,18 +1021,14 @@ function downloadUrl(runtime: Runtime, version: string): string {
  *
  * @param dir - Where it was extracted.
  * @param runtime - The executable's name.
- * @returns Its path, or `undefined`.
+ * @returns Every path it is at: one in any real archive.
  */
-function findBinary(dir: string, runtime: Runtime): string | undefined {
+function findBinaries(dir: string, runtime: Runtime): string[] {
   const wanted = executable(runtime);
 
-  for (const entry of readdirSync(dir, { recursive: true, withFileTypes: true })) {
-    if (entry.isFile() && entry.name === wanted) {
-      return join(entry.parentPath, entry.name);
-    }
-  }
-
-  return undefined;
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name === wanted)
+    .map((entry) => join(entry.parentPath, entry.name));
 }
 
 /** A runtime and, optionally, the version of it to embed. */
