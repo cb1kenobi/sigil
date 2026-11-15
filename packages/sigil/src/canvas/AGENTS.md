@@ -726,17 +726,19 @@ style sweep had to grow.
   terminal it is a frozen second. The decision is a **fixed tile**: one toroidal
   64x32 tile is generated the first time any mask asks for one, from a fixed seed,
   and every mask is a window onto it -- so the quadratic part runs once per process
-  and a mask of any size is `O(cells)`. Measured now: **0.12 / 0.15 / 0.25 / 0.5 /
+  and a mask of any size is `O(cells)` -- which it was **not** in the first version
+  of this change (see the sort, below). Measured now: **0.12 / 0.15 / 0.25 / 0.5 /
   1.0ms** at the same five sizes -- the same order as `dissolveMask()` at each --
   with the first call in a process paying the tile as well, **9 to 13ms** over four
   runs on a machine under load (7ms is the tile alone).
 - **The tile is seamless because the generator was already toroidal, and that is
   what the repeat is made of.** A cell on the right edge of the tile has the
   neighbours it would have across the seam, so repeating the tile gives the same
-  pattern across a seam as inside one -- measured, the per-block variance is 0.78
-  for blocks straddling the seam and 0.70 for blocks inside, against 4.1 for a
-  shuffle, and it is 0.69 at 32x16, 0.77 at 64x32 and 0.75 at 240x70, so the repeat
-  does not accumulate. `should spread a step as evenly across a tile seam as it
+  pattern across a seam as inside one -- measured, the per-block variance is 0.50
+  for blocks straddling the seam and 1.07 for blocks inside, against 4.3 for a
+  shuffle -- the order between those two is noise at 24 blocks a seed -- and it is
+  0.74 at 32x16, 0.77 at 64x32 and 0.75 at 240x70, so the repeat does not
+  accumulate. `should spread a step as evenly across a tile seam as it
   does inside one` is that, and it fails for a tile that clips at its edge
   (sabotaged: the stamp skipping what falls off the tile, which also fails the
   two differentials). What it cannot see is a defect smaller than the sampling
@@ -768,20 +770,45 @@ style sweep had to grow.
   in index order: a bucket edge can fall between the copies of one rank, and an
   order that broke the tie by cell index would put the same copy ahead every time
   (`should not let one copy of the tile lead another...`, sabotaged by dropping the
-  comparison). The sort is a counting sort by tile rank and a hand insertion sort
-  inside a rank, which is a dozen cells for a 240x70 mask and not a sort of the
-  rectangle.
+  comparison).
+- **The ordering is a radix sort, because an insertion sort was quadratic in the
+  bucket and the buckets grow with the rectangle (SIG-401, round 1).** The first
+  version broke ties inside a rank with an insertion sort and said the bucket was
+  "a dozen cells". That is true of a terminal and of nothing larger: a rank's
+  bucket is `cells / 2048` for a large rectangle and `cells / 32` for one a cell
+  wide, and an insertion sort is quadratic in it -- measured **12 / 171 / 866ms**
+  at 1000x300, 2000x600 and 3000x1000 and **550ms at 1x300000**, ns per cell
+  climbing from 40 to 1,835. `orderCells()` is four stable 8-bit passes over the
+  hash and then one stable counting sort by tile rank, so ties in a rank follow
+  hash order and ties in the hash follow cell order, which is exactly what the
+  insertion sort produced: a differential over 957 masks (sizes from 1x1 to
+  1x70000, three windows each) found **0 bytes different**. Measured after:
+  **2.8 / 12.5 / 43ms** and **3.1ms**, about 10ns a cell at every shape. The
+  clock-free test reads the hash through a proxy and counts reads -- the radix
+  reads each at most five times however many cells share a rank, a comparison sort
+  reads them again and again -- and fails for the insertion sort restored.
 - **The caller's `Random` picks a window and an order among the copies, and not the
-  tile.** The tile is the same in every process, so what two seeds can differ in is
-  where on the torus the rectangle starts and how its copies are tied -- 2,048
-  windows times the tie-break, rather than the unbounded fields the old initial
-  pattern gave. Two seeds still disagree and one reproduces
-  (`should make every seed a window onto one tile...` reads a field at (32, 16)
-  off the one at the origin, exactly). The first draw is thrown away, because
-  `seeded()` is very nearly linear in its seed on the first draw and small seeds
-  would all start the tile at zero. A rectangle smaller than the tile is a crop of
-  it, re-ranked, so a 3x3 mask is the nine cells the tile's own order puts first
-  among those nine.
+  tile -- so the number of distinct fields is bounded, and the bound is small.** At
+  or below the tile's size no rank repeats, so the copy order does nothing and the
+  only thing a seed chooses is where the tile starts: **2,048 distinct fields**,
+  and two seeds give the same one about one time in 2,048 (measured, 1,889 distinct
+  64x32 masks over seeds 1 to 5000, which is what random draws give). Above the
+  tile the salt is a further 32 bits of tie-break order. This is far fewer than the
+  unbounded fields the old initial pattern gave, and it is what a fixed tile costs;
+  mirroring or rotating the tile would widen it and is not done. One seed
+  reproduces, and a seed is an exact toroidal shift of the field that starts at the
+  origin (`should make every seed a window onto one tile...` finds the shift by
+  search). Each draw goes through `mix()` before it becomes an origin, because
+  `seeded()` is very nearly linear in its seed on its first draws: the first
+  version scaled the second draw straight to a column, and seeds 1 to 12 started the
+  tile at columns 1 to 12 -- one further along per seed -- and seeds 262 and 512
+  gave the same mask. Discarding the first draw only moved that, which is why it
+  is gone; `should not start the tile one column further along for each small seed`
+  fails for a direct scale with or without the discard. The salt is the third
+  draw and is read by `should break ties between copies from the third draw`,
+  which fails without it. A rectangle smaller than the tile is a crop of the tile,
+  re-ranked, so a 3x3 mask is the nine cells the tile's own order puts first among
+  those nine.
 - **"Generated once" is asserted without a clock.** `should run the generator once,
   however many masks and whatever their size` counts `Math.exp()` calls, which is
   how the generator builds its splat table, over a freshly imported module: the

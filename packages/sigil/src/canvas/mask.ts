@@ -361,6 +361,75 @@ function mix(value: number): number {
 }
 
 /**
+ * Every cell index, ordered by tile rank and then by the hash of its copy.
+ *
+ * A least-significant-digit radix sort, so it is `O(cells)` for any rectangle:
+ * four stable passes of eight bits over the hash, then one stable counting sort
+ * by tile rank, which leaves ties within a rank in hash order and ties in the
+ * hash in cell order. An insertion sort of each rank's bucket gave the same
+ * answer and was quadratic in the bucket, which is `cells / 2048` for a large
+ * rectangle and `cells / 32` for one a cell wide -- 1.8 seconds at 3000x1000 and
+ * 1.4 seconds at 1x300000 -- so "constant per cell" was true only of terminals.
+ *
+ * Exported for the test that counts how often it reads the hash, which is the
+ * clock-free way to say the work does not grow faster than the cells; it is not
+ * part of the module's public surface.
+ *
+ * @param tileRank - Each cell's rank in the tile.
+ * @param hash - Each cell's tie-break.
+ * @param size - How many cells.
+ * @returns The cell indices, in reveal order.
+ */
+export function orderCells(
+  tileRank: ArrayLike<number>,
+  hash: ArrayLike<number>,
+  size: number
+): Int32Array {
+  const counts = new Int32Array(4 * 256);
+  for (let i = 0; i < size; i++) {
+    const h = hash[i];
+    counts[h & 0xff]++;
+    counts[256 + ((h >>> 8) & 0xff)]++;
+    counts[512 + ((h >>> 16) & 0xff)]++;
+    counts[768 + (h >>> 24)]++;
+  }
+  let from = new Int32Array(size);
+  let to = new Int32Array(size);
+  for (let i = 0; i < size; i++) {
+    from[i] = i;
+  }
+  for (let pass = 0; pass < 4; pass++) {
+    const at = pass * 256;
+    let total = 0;
+    for (let digit = 0; digit < 256; digit++) {
+      const count = counts[at + digit];
+      counts[at + digit] = total;
+      total += count;
+    }
+    const shift = pass * 8;
+    for (let i = 0; i < size; i++) {
+      const index = from[i];
+      to[counts[at + ((hash[index] >>> shift) & 0xff)]++] = index;
+    }
+    [from, to] = [to, from];
+  }
+
+  const cells = TILE_WIDTH * TILE_HEIGHT;
+  const start = new Int32Array(cells + 1);
+  for (let i = 0; i < size; i++) {
+    start[tileRank[i] + 1]++;
+  }
+  for (let r = 0; r < cells; r++) {
+    start[r + 1] += start[r];
+  }
+  for (let i = 0; i < size; i++) {
+    const index = from[i];
+    to[start[tileRank[index]]++] = index;
+  }
+  return to;
+}
+
+/**
  * A dissolve whose every step is spatially even: blue noise.
  *
  * Void-and-cluster (Ulichney 1993). The field is built by repeatedly asking
@@ -380,7 +449,9 @@ function mix(value: number): number {
  * is, so it is seamless: a cell on its right edge has the same neighbours it
  * would have across the seam, and repeating it across any rectangle is the same
  * pattern as the tile had inside. Building it is about 7ms, once per process, on
- * the first call; after that a mask costs `O(cells)` whatever the size.
+ * the first call; after that a mask costs `O(cells)` whatever the size and
+ * whatever its shape, because the ordering is two radix passes and not a
+ * comparison sort.
  *
  * What the repeat costs is that the field is periodic: the same order recurs
  * every 64 columns and 32 rows. That is the accepted price, and it is a mild
@@ -398,8 +469,10 @@ function mix(value: number): number {
  * @param width - Columns.
  * @param height - Rows.
  * @param random - Randomness in `[0, 1)`. It picks where the tile starts and how
- *   its copies are ordered among themselves, so two seeds are two different
- *   fields. Defaults to `Math.random`.
+ *   its copies are ordered among themselves. At or below the tile's size no rank
+ *   repeats, so only the start matters and there are **2,048 distinct fields**:
+ *   two seeds give the same one about one time in 2,048. Beyond it the order of
+ *   the copies is a further 32 bits. Defaults to `Math.random`.
  * @returns The mask, at `threshold: -1`.
  */
 export function blueNoiseMask(width: number, height: number, random: Random = Math.random): Mask {
@@ -409,22 +482,16 @@ export function blueNoiseMask(width: number, height: number, random: Random = Ma
     return { height: h, threshold: -1, values, width: w };
   }
 
-  // the first draw is thrown away, because `seeded()` is very nearly linear in
-  // its seed on the first one and small seeds would all start the tile at zero
-  random();
-  const originX = Math.floor(unit(random()) * TILE_WIDTH);
-  const originY = Math.floor(unit(random()) * TILE_HEIGHT);
+  // each draw goes through `mix()` rather than being scaled directly, because
+  // `seeded()` is very nearly linear in its seed on its first draws and a
+  // direct scale started the tile one column further along for each small seed
+  const originX = mix(Math.floor(unit(random()) * 0x1_0000_0000)) % TILE_WIDTH;
+  const originY = mix(Math.floor(unit(random()) * 0x1_0000_0000)) % TILE_HEIGHT;
   const salt = Math.floor(unit(random()) * 0x1_0000_0000);
 
   const ranks = blueNoiseTile();
-  const cells = TILE_WIDTH * TILE_HEIGHT;
-
-  // a counting sort by tile rank, then a sort by the copy's hash within a rank:
-  // the copies of one rank are at most ceil(w / 64) * ceil(h / 32) of them, so
-  // the second sort is a handful of items however large the rectangle is
   const tileRank = new Uint16Array(size);
   const copy = new Uint32Array(size);
-  const start = new Int32Array(cells + 1);
   for (let y = 0; y < h; y++) {
     const ty = y + originY;
     const row = (ty % TILE_HEIGHT) * TILE_WIDTH;
@@ -437,30 +504,9 @@ export function blueNoiseMask(width: number, height: number, random: Random = Ma
       copy[index] = mix(
         salt ^ (copyRow + Math.trunc(tx / TILE_WIDTH)) ^ Math.imul(rankHere, 0x9e37_79b1)
       );
-      start[rankHere + 1]++;
     }
   }
-  for (let r = 0; r < cells; r++) {
-    start[r + 1] += start[r];
-  }
-  const order = new Int32Array(size);
-  const fill = start.slice(0, cells);
-  for (let index = 0; index < size; index++) {
-    order[fill[tileRank[index]]++] = index;
-  }
-  for (let r = 0; r < cells; r++) {
-    // insertion sort of a bucket, which is one item for a rectangle inside the
-    // tile and a dozen for a large terminal
-    for (let i = start[r] + 1; i < start[r + 1]; i++) {
-      const moving = order[i];
-      let j = i - 1;
-      while (j >= start[r] && copy[order[j]] > copy[moving]) {
-        order[j + 1] = order[j];
-        j--;
-      }
-      order[j + 1] = moving;
-    }
-  }
+  const order = orderCells(tileRank, copy, size);
 
   for (let position = 0; position < size; position++) {
     values[order[position]] = rank(position, size);
