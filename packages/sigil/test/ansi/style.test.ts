@@ -325,9 +325,9 @@ describe('truecolor', () => {
     expect(ansi.hex('#c0c0c0')('hi')).toBe(`${ESC}[37mhi${ESC}[39m`);
     expect(ansi.hex('#ffffff')('hi')).toBe(`${ESC}[97mhi${ESC}[39m`);
     expect(ansi.hex('#555555')('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
-    // #404040 is exactly as far from black as from #808080, and a tie goes to
-    // the lower index
-    expect(ansi.hex('#404040')('hi')).toBe(`${ESC}[30mhi${ESC}[39m`);
+    // #404040 is nearer #7f7f7f than black in Oklab, which is the metric both
+    // degraders share (it was a tie to black under the redmean one)
+    expect(ansi.hex('#404040')('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
     expect(ansi.hex('#0a0a0a')('hi')).toBe(`${ESC}[30mhi${ESC}[39m`);
     // and the same by way of the 256-color grayscale ramp
     expect(ansi.ansi256(244)('hi')).toBe(`${ESC}[90mhi${ESC}[39m`);
