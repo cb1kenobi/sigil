@@ -936,21 +936,24 @@ export async function loadCatalog(
 }
 
 /**
- * Takes the module's whole state, for a nested `main()` to put back.
+ * Takes the catalog, the tag and the loader map, for a nested `main()` to put
+ * back.
  *
  * Returns the undo rather than a value to hand to one, so that the shape of
- * what is kept -- the catalog, the tag, the loader map -- is this file's
- * business and not the caller's. The plural selector is not kept: it is derived
- * from the tag and rebuilt on first use, which is what every other commit
- * already relies on.
+ * what is kept is this file's business and not the caller's. The plural selector
+ * is not kept: it is derived from the tag and rebuilt on first use, which is what
+ * every other commit already relies on. The generation counter is not kept
+ * either -- the undo moves it **forward**, so a load still in flight when the
+ * undo runs, a `setLocale()` the nested call did not await, cannot settle on top
+ * of what was put back.
  *
- * The undo takes a generation, so a load the nested call left in flight -- a
- * `setLocale()` its `run()` did not await -- cannot settle on top of what was
- * put back. It is unconditional on purpose, unlike `rewindQuiet()`'s: a quiet
- * statement made inside a run is about the process and outlives it, while a
- * locale the nested app set is the nested app's.
+ * Unconditional: it overwrites whatever is in effect when it runs, however it
+ * got there. Whether to run it is `nested-call.ts`'s decision, and the reason
+ * is recorded there.
  *
- * Not for an app to call: `main()` is the only caller.
+ * Exported for `main()` and not for apps. It is on this module's public entry
+ * because the state it reads is private to this file and this file is the entry;
+ * `loadCatalog()` is the precedent.
  *
  * @internal
  * @returns A function that puts the state taken now back.

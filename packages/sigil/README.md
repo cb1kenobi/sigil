@@ -591,10 +591,13 @@ in `AGENTS.md`.
 
 **A nested `main()` gives the locale back.** It loads its own schema's catalog
 and renders in it, and when it returns -- normally, through a handled error or
-through a rethrown one -- the outer app's locale is what it was, including one
-set with `setLocale()` or the `locale` option. A `setLocale()` the nested
-command made is the nested command's. A top-level `main()` leaves its locale in
-effect as before.
+through a rethrown one -- the locale that was in effect when it started is put
+back, including one set with `setLocale()` or the `locale` option. "Nested" means
+another `main()` is still running, wherever the call was made from. Anything that
+changes the locale while the nested call runs is discarded, its own `setLocale()`
+included, so await the nested call before setting one. A `main()` with nothing
+else running leaves its locale in effect as before; two top-level calls that
+overlap count as nested.
 
 **A nested dispatch does not inherit the outer invocation's root options.** They
 are re-read from the argv you pass, so an outer `--verbose` is `false` inside

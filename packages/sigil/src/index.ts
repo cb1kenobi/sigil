@@ -2,7 +2,8 @@ import debug from './debug/index.js';
 import { errorHandler, errorMessage } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
-import { loadCatalog, saveLocale } from './i18n/index.js';
+import { loadCatalog } from './i18n/index.js';
+import { inCall } from './nested-call.js';
 import { useModuleImporter, withModuleImports } from './parser/command/import-module.js';
 import { resolveSettings, salvagedErrorHandler } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
@@ -52,24 +53,18 @@ export function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
   // in a slot of its own, so that every module this call imports for the app --
   // from the parse, from help, from completion -- reads the `importModule` this
   // call was given, and a nested call reads its own. See `import-module.ts`
-  return withModuleImports((nested) => runMain(opts, nested));
+  return inCall(() => withModuleImports(() => runMain(opts)));
 }
 
 /**
  * The body of `main()`, inside its call's module-import slot.
  *
  * @param opts - The app options.
- * @param nested - Whether another `main()` is awaiting this one.
  * @returns What `main()` resolves with.
  */
-async function runMain(opts: AppOptions, nested: boolean): Promise<ParseState | unknown> {
+async function runMain(opts: AppOptions): Promise<ParseState | unknown> {
   let state: ParseState | undefined;
   let hooksFired = false;
-  // taken before anything can change it, and only by a nested call: the outer
-  // app's locale is what is being kept, and a top-level run has no outer app --
-  // it leaves its locale in effect, which is what a host reading `locale()` after
-  // `main()` returns has always seen
-  const restoreLocale = nested ? saveLocale() : undefined;
   /** What the process-wide quiet request was before this run, if it moved. */
   let restoreQuiet: (() => void) | undefined;
 
@@ -302,10 +297,6 @@ async function runMain(opts: AppOptions, nested: boolean): Promise<ParseState | 
     return await handleError(err, state ?? stateFromError(err), opts, hooksFired);
   } finally {
     restoreQuiet?.();
-    // on every way out -- a return, a handled error, a rethrow -- and whatever the
-    // nested app did to the locale, its own `setLocale()` included: that was the
-    // nested app's, and the outer one is what is still running
-    restoreLocale?.();
   }
 }
 
