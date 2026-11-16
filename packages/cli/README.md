@@ -82,11 +82,11 @@ or nothing is extracted, and a cached runtime is re-hashed against a record writ
 when it was verified, and fetched again if it no longer matches. Limits: it cannot
 catch a compromise of nodejs.org or the npm registry themselves, since they publish
 both the file and its digest; the record is unsigned and sits in the cache, so an
-entry rewritten together with its record passes; and for a Bun **cross-target**
-(`--target` other than this machine) Bun downloads the target's runtime itself into
-`~/.bun/install/cache`, so only the `bun` that does the bundling is verified, not the
-runtime that ships. A cache entry from before this check has no record and is fetched
-once more, so that needs the network.
+entry rewritten together with its record passes. A Bun **cross-target** (`--target`
+other than this machine) is checked the same way: sigil fetches that platform's
+runtime from npm, verifies it, and hands it to `bun` to embed, so `bun` never
+downloads one itself and the first build for each target needs the network. A cache
+entry from before this check has no record and is fetched once more.
 
 **Pinning a version.** `--runtime` takes a version too:
 

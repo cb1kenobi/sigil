@@ -37,7 +37,7 @@ import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** The runtimes a binary can embed. */
 export const RUNTIMES = ['bun', 'node'] as const;
@@ -137,6 +137,20 @@ export function hostTarget(): Target {
   }
 
   return { arch, platform };
+}
+
+/**
+ * Whether a target is the machine this is running on.
+ *
+ * @param target - The target.
+ * @returns Whether it is. A host that is no target at all is no target's host.
+ */
+export function isHostTarget(target: Target): boolean {
+  try {
+    return label(target) === label(hostTarget());
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -452,6 +466,18 @@ export interface CompileOptions {
    * it unset there checked one binary and compiled with another.
    */
   readonly exec?: string;
+  /**
+   * The verified runtime to embed, for a Bun binary.
+   *
+   * **Required for a target that is not the host**, and refused without: left
+   * to itself, `bun build --compile --target=bun-<other>` downloads that
+   * target's runtime into its own cache and embeds whatever it got, by rules
+   * sigil does not control and cannot see. `bunTargetRuntime()` is what
+   * produces one that has been checked against npm's own digest for it. Given
+   * for the host target as well, it is embedded in place of `exec` itself.
+   * Ignored by Node, which embeds the `node` whose `--build-sea` ran.
+   */
+  readonly embed?: string;
   /** What to build for. */
   readonly target: Target;
 }
@@ -531,6 +557,14 @@ export function compileWithBun(options: CompileOptions): CompileResult {
 
   const bun = options.exec ?? locate('bun', 'Packaging with Bun needs it to compile the binary.');
 
+  // before the bracket, for `written()`'s reason: a refusal that wrote nothing
+  // must not delete what is at `out`
+  if (options.embed === undefined && !isHostTarget(target)) {
+    throw new Error(
+      `Refusing to compile for ${label(target)} without a verified runtime to embed: bun would download that platform's runtime itself and embed it unchecked.\n  Resolve one with bunTargetRuntime() and pass it as "embed" -- "sigil package" does.`
+    );
+  }
+
   return written(out, () => compileBun(bun, options));
 }
 
@@ -542,23 +576,26 @@ export function compileWithBun(options: CompileOptions): CompileResult {
  * @returns What was produced.
  */
 function compileBun(bun: string, options: CompileOptions): CompileResult {
-  const { entry, out, sign: identity, target } = options;
-  const run = spawnSync(
-    bun,
-    [
-      'build',
-      '--compile',
-      `--target=bun-${label(target)}`,
-      entry,
-      '--outfile',
-      out,
-      // the bundle is already minified by `sigil build`, and asking Bun to do
-      // it again buys nothing measurable while making a stack trace from the
-      // packaged binary harder to read than one from the unpackaged app
-      '--sourcemap=none',
-    ],
-    { encoding: 'utf-8' }
-  );
+  const { embed, entry, out, sign: identity, target } = options;
+  const run =
+    embed === undefined
+      ? spawnSync(
+          bun,
+          [
+            'build',
+            '--compile',
+            `--target=bun-${label(target)}`,
+            entry,
+            '--outfile',
+            out,
+            // the bundle is already minified by `sigil build`, and asking Bun to do
+            // it again buys nothing measurable while making a stack trace from the
+            // packaged binary harder to read than one from the unpackaged app
+            '--sourcemap=none',
+          ],
+          { encoding: 'utf-8' }
+        )
+      : compileEmbedding(bun, options, embed);
 
   if (run.error) {
     throw new Error(`Failed to run bun at ${bun}: ${run.error.message}`);
@@ -566,6 +603,10 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
 
   if (run.status !== 0) {
     throw new Error(`bun build --compile failed for ${label(target)}:\n${said(run)}`);
+  }
+
+  if (embed !== undefined) {
+    assertEmbedded(out, embed, bun, target);
   }
 
   // Bun ad-hoc signs what it writes -- `adhoc, linker-signed` on a darwin
@@ -578,6 +619,106 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
   // Gatekeeper -- which is the exact failure `--sign` exists to avoid, and the
   // scaffolded workflow's own comment points at this flag.
   return signed(out, target, identity, 'bun');
+}
+
+/**
+ * The script a `bun` runs to compile with a runtime it was handed.
+ *
+ * `bun build --compile` has no flag for one, and for a target that is not the
+ * host it downloads that target's runtime itself. `Bun.build()` takes
+ * `compile.executablePath`, which embeds the file it names and fetches nothing
+ * -- measured with the network refused: the CLI form failed with
+ * `Failed to download 'bun-linux-x64-v1.4.4': ConnectionRefused` and this wrote
+ * the binary, byte for byte the one the CLI wrote with the network up.
+ *
+ * Arguments are positional and absolute, because the script runs in a directory
+ * of its own (see `compileEmbedding()`).
+ */
+const COMPILE_WITH = `
+const [entry, outfile, target, executablePath] = process.argv.slice(1);
+try {
+  const result = await Bun.build({
+    entrypoints: [entry],
+    compile: { executablePath, outfile, target },
+    sourcemap: 'none',
+  });
+  if (!result.success) {
+    throw new AggregateError(result.logs, 'the build failed');
+  }
+} catch (error) {
+  const logs = error instanceof AggregateError ? error.errors : [error];
+  console.error(logs.map((one) => String(one?.message ?? one)).join('\\n'));
+  process.exit(1);
+}
+`;
+
+/**
+ * Runs `Bun.build()` with `compile.executablePath` under the bundler.
+ *
+ * In a directory made for it, and with nothing else read from where the user
+ * happens to be: a script run by `bun` loads that directory's `bunfig.toml`,
+ * `preload` included, which `bun build` does not -- measured, a `preload` there
+ * printed from the script and not from the CLI form. The compile is therefore
+ * not run from the app, and every path it is given is absolute.
+ *
+ * @param bun - The bundler.
+ * @param options - What to compile and where it goes.
+ * @param embed - The runtime to embed.
+ * @returns The finished process.
+ */
+function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
+  const here = mkdtempSync(join(tmpdir(), 'sigil-compile-'));
+
+  try {
+    return spawnSync(
+      bun,
+      [
+        '--no-install',
+        '-e',
+        COMPILE_WITH,
+        resolve(options.entry),
+        resolve(options.out),
+        `bun-${label(options.target)}`,
+        resolve(embed),
+      ],
+      { cwd: here, encoding: 'utf-8' }
+    );
+  } finally {
+    rmSync(here, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Refuses a compile that did not write the binary it was asked for.
+ *
+ * Needed because a Bun that predates `compile` in `Bun.build()` takes the
+ * option, ignores it, writes nothing and answers `success: true` -- measured,
+ * 1.2.15 does and 1.2.23 does not. A binary smaller than the runtime inside it
+ * is the same failure by another route -- smaller than half of it, which no
+ * binary holding it can be.
+ *
+ * @param out - Where the binary should be.
+ * @param embed - The runtime that should be in it.
+ * @param bun - The bundler, for the message.
+ * @param target - What was being built.
+ * @throws If there is no binary there, or it is smaller than the runtime.
+ */
+function assertEmbedded(out: string, embed: string, bun: string, target: Target): void {
+  let wrote = -1;
+
+  try {
+    wrote = statSync(out).size;
+  } catch {
+    // nothing there, which is the answer
+  }
+
+  // half, not all: a Mach-O runtime's signature is replaced on the way in, so
+  // the binary can come out a few hundred kilobytes under the file it embeds
+  if (wrote < statSync(embed).size / 2) {
+    throw new Error(
+      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use 1.2.23 or newer.`
+    );
+  }
 }
 
 /**

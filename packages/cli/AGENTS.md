@@ -4638,13 +4638,72 @@ about what a valid app is would be the worse half of the feature.
   proxy that terminates TLS and rewrites **every** response, the digest document
   included, is not that case and is the same as a compromised origin here.
 
-  **Bun cross-targets are not covered, and this is a gap rather than a decision.**
-  `compileBun()` runs `bun build --compile --target=bun-<label>`. For a target
-  other than the host, Bun downloads that target's runtime **itself** into
-  `~/.bun/install/cache/bun-<target>-v<version>` and embeds it, so what sigil
-  verified is the bundler `bun` it ran, and the runtime that ends up in the
-  shipped binary is whatever Bun fetched and checked by its own rules. Not
-  closed in code here.
+  **A Bun cross-target embeds a runtime sigil verified, and `bun` is never
+  allowed to fetch one (SIG-442).** `bun build --compile --target=bun-<other>`
+  downloads that platform's runtime **itself** into
+  `~/.bun/install/cache/bun-<target>-v<version>` and embeds whatever it got, by
+  rules sigil cannot see -- so for a long while what sigil verified was the
+  bundler it ran and not the runtime that shipped. `bun build` has no flag for a
+  local runtime (1.4.4), and `Bun.build()` does: `compile: { executablePath }`
+  embeds the file it names and fetches nothing.
+
+  So a target that is not the host's is compiled through that. `resolveEmbeds()`
+  in `commands/package.ts` asks `bunTargetRuntime()` for each one before
+  `clean()`, for the reason `resolveExec()` is asked there: the same
+  `@oven/bun-<triple>` package at the **bundler's** version (asked of the
+  bundler with `bunVersion()`, a release only), through the same `download()` --
+  `dist.integrity` first, the archive hashed before it is written, a refusal
+  naming expected against actual -- into `<cache>/bun-targets/<triple>/<version>/`
+  with the same `sigil-verified.json`, re-hashed on every use. The record also
+  carries `target`, so an entry copied into another platform's directory is not
+  taken for its own. The directory is beside `bun/` rather than inside it,
+  because `local()` lists everything in `bun/` as a bundler this machine could
+  run. `compileWithBun()` **refuses** a non-host target handed no `embed`, before
+  anything is written: a direct caller gets the same guarantee, not a fallback to
+  the unchecked path. The host target is unchanged -- it embeds the `bun` that
+  compiles, which is what SIG-411 already covers.
+
+  **Measured, not read.** Three approaches were on the table; the first worked,
+  so the other two were not built. With the network refused (`HTTPS_PROXY` at a
+  dead port, an empty `BUN_INSTALL_CACHE_DIR`), `bun build --compile
+  --target=bun-linux-x64` fails with `Failed to download 'bun-linux-x64-v1.4.4':
+  ConnectionRefused` -- the control that says the block works -- and
+  `Bun.build({ compile: { target, executablePath, outfile } })` writes the
+  binary for all five targets, Bun's own cache staying empty. The binary is
+  **byte for byte** the one the CLI form writes with the network up for the same
+  outfile name, and Bun's cache entry for that target is byte-identical to the npm
+  package's `bun`, so it is the same runtime arriving by a route sigil checked. A
+  runtime with one byte changed is embedded as given: the marker is found at the
+  same offset in the output, which is what `compile-embed.test.ts` asserts with
+  the host's own `bun` -- Bun refuses a file that is not an executable of the
+  target's format (`InvalidElfFile`), and a hand-built ELF was tried and refused
+  for want of a real one's sections, so the host's own is the one valid runtime
+  a test can supply offline. Every other test of a cross target goes through
+  `test/bun-cross.ts`: a stand-in npm serving a small archive per platform, and a
+  `bun` that writes the runtime it was handed as the binary. The suite refuses a
+  test that reaches the network (`test/setup.ts`), which is how the three
+  existing cross-target tests in `package-command.test.ts` were found: Bun
+  downloaded for them out of sight, and sigil's fetch is seen.
+
+  **Two things about running `Bun.build()` that the CLI form does not have.** The
+  script runs under `bun`, and a script **loads the `bunfig.toml` of its working
+  directory, `preload` included**, which `bun build` does not -- measured, a
+  `preload` printed from one and not the other. So it runs in a directory made for
+  it with every path absolute, rather than in the app. And a Bun that predates
+  `compile` in `Bun.build()` takes the option, ignores it, writes nothing and
+  answers `success: true` -- 1.2.15 does, 1.2.23 and 1.3.0 do not -- so
+  `assertEmbedded()` refuses a run that left no binary, or one under half the size
+  of the runtime in it. Half rather than all: a Mach-O runtime's signature is
+  replaced on the way in and the signed result is a few hundred kilobytes under
+  the file it embeds.
+
+  **What changed for somebody offline.** A cross target used to work offline
+  from `~/.bun/install/cache` if Bun had fetched it once; it needs sigil's own
+  cache now, which is filled from npm on first use and re-checked after. That is
+  the cost of the check, and it is the same one a host download pays. What this
+  still does not cover is the one thing that section already says: the digest
+  and the file come from one origin, and Bun's own copy of the runtime (the
+  `bun` that bundles) is whatever `PATH` or sigil's cache gave it.
 
   Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
   stubbed, the archives are real `tar` archives so a passing download goes
@@ -4659,6 +4718,19 @@ about what a valid app is would be the worse half of the feature.
   unreadable record and the escaping -- and each fails a named test. The order is observed
   through a wrapped `renameSync`, so the test sees what existed beside the
   target at the moment of the move.
+
+  The cross-target half (SIG-442) is `test/runtimes-target.test.ts` (the fetch,
+  the cache and the record), `test/compile-embed.test.ts` (the refusal, the shape
+  of the invocation through a stub `bun`, and a real `bun` embedding a marked
+  runtime) and one case in `test/package-command.test.ts` (npm vouching for one
+  archive and serving another). Sabotage-checked guard by guard -- the refusal of
+  a non-host target with nothing to embed, the directory the script runs in, the
+  no-binary and too-small-binary refusals, the record's `target`, the archive
+  comparison on a target download, `resolveEmbeds()`, handing the runtime to the
+  compile, the Windows executable name, npm's spelling of the platform, the
+  separate cache directory, the release-version rule, the cached reuse, the
+  `--no-install -e` form and `executablePath` itself -- and each fails a named
+  test.
 
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First
