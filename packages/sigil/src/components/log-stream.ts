@@ -232,7 +232,9 @@ export function createStreamWrapper(width: number): StreamWrapper {
   // blank. Without this a line of blanks is wrapped from its first by each chunk of
   // them, and so is anything that cleans down to one: cursor and erase sequences
   // between spaces. A blank and a colour alternating are not a run of blanks, and
-  // are still wrapped each time
+  // are still wrapped each time. A run that opens the line is no exception: it is
+  // indentation, and `wrap()` drops indentation that leaves no room for the word
+  // after it (SIG-405), which is the same threshold
   let blanks = 0;
   const room = Math.max(1, Math.ceil(width)) + 1;
   // what the line's raw source is, when it is one sequence that has not ended: a

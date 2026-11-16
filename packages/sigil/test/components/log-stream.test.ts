@@ -272,6 +272,20 @@ describe('a line that is cut off as its rows are handed out', () => {
       `aaa${' '.repeat(200)}bbb ccc${'\t'.repeat(50)}ddd${' \t'.repeat(40)}`,
       [1, 4, 8, 80],
     ],
+    // a run that opens a line is indentation, which `wrap()` keeps while the word
+    // after it fits and drops once it does not -- so it is dropped exactly when a
+    // run between words is, and the clamp may count it. Runs either side of the
+    // width, opening a line, after a colour, and after a mark that takes no column
+    'a run of blanks opening a line, either side of the width': [
+      [7, 8, 9, 10, 79, 80, 81, 82]
+        .flatMap((n) => [
+          `${' '.repeat(n)}mm`,
+          `${ESC}[31m${'\t'.repeat(n)}x${ESC}[39m`,
+          `́${' '.repeat(n)}x z`,
+        ])
+        .join('\n'),
+      [8, 80],
+    ],
     'a run of blanks, and a mark after the last of it': [
       `aaaa${' '.repeat(30)}\t\ufe0fbb cc${' '.repeat(9)}\u0301d`,
       [3, 5, 8],
