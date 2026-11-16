@@ -60,6 +60,7 @@ import {
   parseSpec,
   resolve,
   type Spec,
+  fetchNote,
 } from '../build/index.ts';
 import { CONFIG_FILE, readSigilConfig } from '../config.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
@@ -586,10 +587,12 @@ async function resolveExec(spec: Spec, target: Target): Promise<string> {
  * @returns The executable.
  */
 async function fetchIfAbsent(runtime: Runtime, version: string, target: Target): Promise<string> {
-  return resolve(runtime, version, target, (which) => {
+  return resolve(runtime, version, target, (which, discarded) => {
     // said rather than left silent: fetching a runtime is tens of megabytes and
-    // several seconds, and a build that appears to hang is worse than a slow one
-    writeNote([`Fetching ${runtime} ${which}, which is not on this machine...`], process.stderr);
+    // several seconds, and a build that appears to hang is worse than a slow one.
+    // A copy that was removed first says so, because "not on this machine" is
+    // untrue of it and the next question is where it went
+    writeNote([fetchNote(runtime, which, discarded)], process.stderr);
   });
 }
 

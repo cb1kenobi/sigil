@@ -174,6 +174,7 @@ export {
   canEmbed,
   choices,
   compare,
+  fetchNote,
   installed,
   latest,
   local,
