@@ -1152,6 +1152,29 @@ makes it testable with a fixture directory and no bundler at all.
   was fatal. The type checker's paths are made absolute on the way in, because
   it is run with the app as its cwd and writes relative ones, and a report
   holding both spellings is one nobody can sort.
+- **A diagnostic is escaped where it is printed, which is the opposite of a
+  framework error, and the reason is the whole difference (SIG-443).** The
+  location printed its file exactly as it is on disk, so a routed directory named
+  `c<ESC>]0;T<BEL>d` made a piped `sigil build` print an OSC that retitles the
+  reader's window -- while the message after it was already escaped, because the
+  route refusals escape what they echo where they are thrown. `diagnosticLocation()`
+  now escapes the file and `diagnosticMessage()` escapes the message, both in
+  `diagnostic.ts`, and both forms read them: `formatDiagnostic()` for a pipe and
+  `diagnosticRow()` for a terminal, so the two still say one thing. The sink and
+  not the producers because there are dozens of producers, because a message
+  quotes names the app's own source chose (a command called `'\x1b]0;T\x07'` is a
+  string literal) as readily as ones the file system did, and because nothing
+  here is styled: a framework error is escaped at its throw site since the handler
+  may be printing an app's own SGR, and a diagnostic is the toolchain's text.
+  Every control character becomes `\xNN` except `\n`, which is how a message carries
+  the type checker's whole output. Escaped **after** `displayPath()`, since the
+  escape is spelled with a backslash. A producer that escaped first is safe:
+  `escapeControls()` writes printable characters and no control one, so the second
+  pass changes nothing -- asserted by `should not escape twice what a producer
+  already escaped`. On a terminal the canvas already strips a raw sequence, so the
+  visible change there is that the name is shown as `\x1B` instead of vanishing.
+  A thrown `Failed to parse ${path}` and the summary lines are not diagnostics and
+  are not covered by this entry.
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
   Ending it `\r\n` made `DIAGNOSTIC_RE`'s `.*$` miss every line, since `.` does

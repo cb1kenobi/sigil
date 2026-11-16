@@ -40,6 +40,7 @@ export {
   DiagnosticError,
   displayPath,
   diagnosticLocation,
+  diagnosticMessage,
   formatDiagnostic,
   isFatal,
   type Diagnostic,

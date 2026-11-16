@@ -1739,7 +1739,7 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   carry the escape through to stderr twice. `escapeControls()` goes round the file,
   directory, path, manifest name and the two names a collision echoes where the
   message is built, so the build's diagnostic, which reuses the text, is inert in
-  its message. Its location prefix is the build's own and is not touched here. A control character is not
+  its message. Its location prefix is the build's own and is escaped there, by `diagnosticLocation()` (SIG-443). A control character is not
   itself grounds for refusal -- that is a larger decision than this entry.
 - **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
   else, so a tab or a no-break space is refused with its own reason -- it cannot be

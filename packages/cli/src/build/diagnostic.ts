@@ -8,6 +8,7 @@
  * to disagree about whether something was fatal.
  */
 
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { byCodeUnit } from '@ttylabs/sigil/reference';
 
 /** How much a diagnostic means. */
@@ -102,13 +103,19 @@ export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
  *
  * `displayPath()` is applied here, which makes this the one place the
  * forward-slash rule has to hold for every diagnostic however it is printed.
+ * `escapeControls()` is applied here for the same reason: a file name is
+ * whatever the file system holds, and one called `c<ESC>]0;T<BEL>d` is a
+ * sequence that retitles the reader's window when a pipe prints it as it stands
+ * (SIG-443). Escaped after `displayPath()` rather than before, because
+ * the escape is spelled with a backslash and `displayPath()` would turn every
+ * one of them into a slash.
  *
  * @param diagnostic - The diagnostic.
- * @returns The location, with no trailing colon.
+ * @returns The location, with no trailing colon and no control character.
  */
 export function diagnosticLocation(diagnostic: Diagnostic): string {
   const { column, file, line } = diagnostic;
-  const shown = displayPath(file);
+  const shown = escapeControls(displayPath(file));
 
   return line === undefined ? shown : `${shown}:${line}${column === undefined ? '' : `:${column}`}`;
 }
@@ -138,6 +145,32 @@ export function byLocation(
 }
 
 /**
+ * What a diagnostic says, with nothing in it a terminal would act on.
+ *
+ * The other half of `diagnosticLocation()`, for the same reason it is shared:
+ * the pipe form and the laid-out form print one message and must not disagree
+ * about it. Every control character becomes `\xNN` except `\n`, which is how a
+ * message carries lines -- a type checker's whole output travels as one.
+ *
+ * Applied here, at the output, rather than at each of the producers: there are
+ * dozens, a message embeds names the app's own source chose (a command called
+ * `'\x1b]0;T\x07'` is a perfectly good string literal) as readily as ones the
+ * file system did, and a producer that forgets is a hole nobody reads a build
+ * for. That is the opposite of the rule for a framework error, which is escaped
+ * where it is thrown because the handler may be printing an app's own SGR --
+ * and nothing here is: a diagnostic is the toolchain's own text, never styled by
+ * its author. A producer that already escaped what it echoed is safe to leave as
+ * it is, because `escapeControls()` writes the four characters `\x1B` and no
+ * control character, so a second pass finds nothing to change.
+ *
+ * @param diagnostic - The diagnostic.
+ * @returns The message, with each control character but a newline as `\xNN`.
+ */
+export function diagnosticMessage(diagnostic: Diagnostic): string {
+  return diagnostic.message.replaceAll(/[^\n]+/g, (run) => escapeControls(run));
+}
+
+/**
  * A diagnostic as one line, the way every compiler writes one.
  *
  * `file:line:column: severity: message` is what an editor, a terminal and a CI
@@ -149,5 +182,5 @@ export function byLocation(
  * @returns The line, without a trailing newline.
  */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
-  return `${diagnosticLocation(diagnostic)}: ${diagnostic.severity}: ${diagnostic.message}`;
+  return `${diagnosticLocation(diagnostic)}: ${diagnostic.severity}: ${diagnosticMessage(diagnostic)}`;
 }

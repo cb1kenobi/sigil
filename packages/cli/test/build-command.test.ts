@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -183,6 +184,42 @@ describe('sigil build', () => {
     expect(process.exitCode).toBe(1);
     expect(existsSync(join(out, 'route-names.mjs'))).toBe(false);
   }, 60_000);
+
+  // a control character in a file name cannot be created on Windows
+  it.skipIf(process.platform === 'win32')(
+    'should print no control character from a diagnostic located at a name that holds one (SIG-443)',
+    async () => {
+      // the file part of `file:line:column:` was printed exactly as it is on disk,
+      // so a refusal located at `c<ESC>]0;T<BEL>d` handed a terminal an OSC that sets
+      // its title -- while the message after the prefix was already escaped
+      const app = linkedFixture(
+        join(fixtures, 'discover', 'route-names'),
+        'sigil-build-route-controls-'
+      );
+      // a refusal is located at the directory it was walking, so that is the name
+      // that has to hold the control character for the prefix to carry it
+      const name = 'c\u001b]0;T\u0007d';
+      renameSync(join(app, 'src', 'commands'), join(app, 'src', name));
+      writeFileSync(
+        join(app, 'src', 'index.ts'),
+        readFileSync(join(app, 'src', 'index.ts'), 'utf-8').replace(
+          "'./commands'",
+          JSON.stringify(`./${name}`)
+        )
+      );
+      writeFileSync(join(app, 'src', name, 'my cmd.js'), 'export default { run() {} };\n');
+
+      const { err } = await sigil('build', app, '--out', out);
+
+      expect(err).toContain('Cannot route the file');
+      expect(err).toContain('c\\x1B]0;T\\x07d: error: Cannot route');
+      // every character a terminal would act on, newline aside
+      expect(err.replaceAll('\n', '')).not.toMatch(/\p{Cc}/u);
+      expect(err).toContain('\\x1B]0;T\\x07');
+      expect(process.exitCode).toBe(1);
+    },
+    60_000
+  );
 
   it('should refuse an app whose schema declares neither commands nor a run', async () => {
     // the other half of the test above: a schema with no `commands` is a

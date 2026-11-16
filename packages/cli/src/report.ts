@@ -75,6 +75,7 @@
 import {
   type Diagnostic,
   diagnosticLocation,
+  diagnosticMessage,
   formatDiagnostic,
   type Severity,
 } from './build/index.ts';
@@ -318,7 +319,11 @@ export const SEVERITY_ROLE: Record<Severity, string> = {
  * @returns The row.
  */
 function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element {
-  const { message, severity } = diagnostic;
+  const { severity } = diagnostic;
+  // from `diagnosticMessage()` for the reason the location is from
+  // `diagnosticLocation()`: the two forms say one thing, and neither hands a
+  // terminal a control character the build was only quoting
+  const message = diagnosticMessage(diagnostic);
 
   // the location and the severity are one unwrappable prefix, because breaking
   // inside `file:12:3` gives a location nothing can jump to. It comes from
