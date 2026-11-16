@@ -210,7 +210,12 @@ describe('filePicker()', () => {
   });
 
   it('should answer relative to the working directory when there is no root', async () => {
-    const ui = screenSetup({ columns: 120, rows: 14 });
+    // wide enough for the whole working directory, which the prompt line
+    // truncates from the start when it does not fit -- and a checkout under a
+    // long path (a worktree, a CI scratch directory) does not fit in 120
+    // columns. Widening the screen keeps the truncation and the claim both.
+    const cwd = process.cwd();
+    const ui = screenSetup({ columns: Math.max(120, cwd.length + 40), rows: 14 });
     const answer = settle(
       filePicker({
         ansi: ui.ansi,
@@ -221,7 +226,7 @@ describe('filePicker()', () => {
     );
     await tick(3);
 
-    expect(ui.log[0]).toContain(process.cwd());
+    expect(ui.log[0]).toContain(cwd);
     ui.stdin.send('\u0003');
     expect((await answer).error).toBeInstanceOf(PromptError);
   });
