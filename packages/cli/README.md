@@ -76,6 +76,18 @@ Nothing is fetched when you name a runtime that is already installed.
 Bun fetches one; `--runtime node` on a Node too old to package itself fetches a
 newer one. Either way it lands in your XDG cache and a second run reuses it.
 
+A fetched runtime is checked before it is used: the archive must hash to the digest
+its own origin publishes (`SHASUMS256.txt` for Node, npm's `dist.integrity` for Bun)
+or nothing is extracted, and a cached runtime is re-hashed against a record written
+when it was verified, and fetched again if it no longer matches. Limits: it cannot
+catch a compromise of nodejs.org or the npm registry themselves, since they publish
+both the file and its digest; the record is unsigned and sits in the cache, so an
+entry rewritten together with its record passes; and for a Bun **cross-target**
+(`--target` other than this machine) Bun downloads the target's runtime itself into
+`~/.bun/install/cache`, so only the `bun` that does the bundling is verified, not the
+runtime that ships. A cache entry from before this check has no record and is fetched
+once more, so that needs the network.
+
 **Pinning a version.** `--runtime` takes a version too:
 
 ```sh

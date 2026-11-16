@@ -10,7 +10,8 @@ import {
   seeded,
   wipeMask,
 } from '../../src/canvas/index.js';
-import { describe, expect, it } from 'vitest';
+import { orderCells } from '../../src/canvas/mask.js';
+import { describe, expect, it, vi } from 'vitest';
 
 /**
  * How many cells of each value a field holds.
@@ -81,6 +82,57 @@ function clumpiness(mask: Mask, block = 4): number {
   }
   const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
   return counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+}
+
+/**
+ * The variance of the revealed count over 4x4 blocks in the four columns from
+ * `x0`, at half way -- the same measure `clumpiness()` takes, over one strip.
+ */
+function stripVariance(mask: Mask, x0: number): number {
+  mask.threshold = maskThreshold(0.5);
+  const counts: number[] = [];
+  for (let by = 0; by + 4 <= mask.height; by += 4) {
+    let count = 0;
+    for (let y = by; y < by + 4; y++) {
+      for (let x = x0; x < x0 + 4; x++) {
+        if (masked(mask, x, y)) {
+          count++;
+        }
+      }
+    }
+    counts.push(count);
+  }
+  const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+  return counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
+}
+
+/**
+ * Where on the tile a 64x32 mask starts, found by reading it back.
+ *
+ * A full tile has no repeated rank, so every start is the same field read round
+ * the torus from somewhere else, and exactly one shift of a start-at-zero field
+ * reproduces it -- which is also the assertion that it is a window onto one tile
+ * and not a tile of its own.
+ */
+function windowOf(mask: Mask): [number, number] | undefined {
+  const zero = blueNoiseMask(64, 32, () => 0).values;
+  for (let dy = 0; dy < 32; dy++) {
+    for (let dx = 0; dx < 64; dx++) {
+      let same = true;
+      for (let y = 0; y < 32 && same; y++) {
+        for (let x = 0; x < 64; x++) {
+          if (mask.values[y * 64 + x] !== zero[((y + dy) % 32) * 64 + ((x + dx) % 64)]) {
+            same = false;
+            break;
+          }
+        }
+      }
+      if (same) {
+        return [dx, dy];
+      }
+    }
+  }
+  return undefined;
 }
 
 describe('a mask', () => {
@@ -339,7 +391,8 @@ describe('a mask', () => {
       // can tell the two apart: both lay the same even ramp, so the histogram
       // cannot see the difference. Measured over eight seeds rather than one,
       // because a single shuffle can be lucky -- the mean per-block variance
-      // is 0.813 for blue noise against 4.250 for the shuffle, so the
+      // is 0.742 for blue noise against 4.250 for the shuffle (0.813 for the
+      // untiled generator this replaced, SIG-401), so the
       // threshold of a third has headroom in the direction that matters and
       // still fails for a generator that stopped being spatially aware
       let blue = 0;
@@ -366,6 +419,260 @@ describe('a mask', () => {
       expect([...blueNoiseMask(16, 8, seeded(1)).values]).not.toEqual([
         ...blueNoiseMask(16, 8, seeded(2)).values,
       ]);
+    });
+
+    it('should run the generator once, however many masks and whatever their size', async () => {
+      // the structural fact the tile is for, asserted without a clock: the
+      // void-and-cluster builds its splat table with `Math.exp()`, so a call to
+      // `Math.exp()` is a generator being constructed. Wall-clock deadlines
+      // flaked on CI, and "work does not grow with the cell count" is not
+      // something a deadline can say anyway. A fresh module, so that an earlier
+      // test having built the tile does not make this one vacuous
+      vi.resetModules();
+      const fresh = await import('../../src/canvas/mask.js');
+      const exp = vi.spyOn(Math, 'exp');
+      try {
+        fresh.blueNoiseMask(3, 3, seeded(1));
+        const built = exp.mock.calls.length;
+        expect(built).toBeGreaterThan(0);
+        for (const [w, h] of [
+          [1, 1],
+          [40, 12],
+          [64, 32],
+          [240, 70],
+          [400, 120],
+        ]) {
+          fresh.blueNoiseMask(w, h, seeded(w));
+          fresh.blueNoiseMask(w, h);
+        }
+        expect(exp.mock.calls.length).toBe(built);
+      } finally {
+        exp.mockRestore();
+      }
+    });
+
+    it('should lay an even ramp at any size, smaller than the tile or larger and in between', () => {
+      // 64x32 is the tile: the sizes around it are a crop, the tile itself, one
+      // more than it, a multiple of it, and a size that is a multiple of neither
+      // -- with a long thin one each way, which is a window onto one row or one
+      // column of the tile and then onto the next copy of it
+      for (const [w, h] of [
+        [63, 31],
+        [64, 32],
+        [65, 33],
+        [128, 64],
+        [130, 70],
+        [240, 70],
+        [200, 5],
+        [5, 200],
+      ]) {
+        expect(histogram(blueNoiseMask(w, h, seeded(5))), `${w}x${h}`).toEqual(evenRamp(w * h));
+      }
+    });
+
+    it('should reveal nothing at the bottom of the ramp and everything at the top, at any size', () => {
+      for (const [w, h] of [
+        [7, 3],
+        [64, 32],
+        [240, 70],
+      ]) {
+        const mask = blueNoiseMask(w, h, seeded(4));
+        expect(showing(mask, maskThreshold(0)), `${w}x${h}`).toBe(0);
+        expect(showing(mask, maskThreshold(1)), `${w}x${h}`).toBe(w * h);
+      }
+    });
+
+    it('should reveal the same cells in every whole copy of the tile at any threshold', () => {
+      // `() => 0` starts the tile at its own corner, so each of the nine copies is
+      // a whole one. The tile is 2048 cells and the ramp has 256 buckets, so a
+      // bucket takes eight ranks of every copy exactly and an edge never splits a
+      // rank -- which makes this the check that the copies are one field repeated
+      // rather than nine, and it fails for an order that gave each copy ranks of
+      // its own
+      const mask = blueNoiseMask(192, 96, () => 0);
+      for (let step = 1; step < 32; step++) {
+        mask.threshold = maskThreshold(step / 32);
+        const counts = new Set<number>();
+        for (let ty = 0; ty < 3; ty++) {
+          for (let tx = 0; tx < 3; tx++) {
+            let count = 0;
+            for (let y = 0; y < 32; y++) {
+              for (let x = 0; x < 64; x++) {
+                if (masked(mask, tx * 64 + x, ty * 32 + y)) {
+                  count++;
+                }
+              }
+            }
+            counts.add(count);
+          }
+        }
+        expect([...counts], `step ${step}`).toHaveLength(1);
+      }
+    });
+
+    it('should not let one copy of the tile lead another every time a bucket splits a rank', () => {
+      // 100x32 is one whole tile and 36 columns of a second, so the cells in those
+      // columns have a twin 64 columns to the right and a bucket edge can fall
+      // between them. Which of the two goes first is the tie-break's to say, and
+      // an order that left it to the cell index would put the left one first in
+      // every pair -- a reveal that always runs left to right across the repeat,
+      // by one cell at a time. Both directions have to occur
+      const mask = blueNoiseMask(100, 32, () => 0);
+      let leftFirst = 0;
+      let rightFirst = 0;
+      for (let y = 0; y < 32; y++) {
+        for (let x = 0; x < 36; x++) {
+          const left = mask.values[y * 100 + x];
+          const right = mask.values[y * 100 + x + 64];
+          if (left < right) {
+            leftFirst++;
+          } else if (right < left) {
+            rightFirst++;
+          }
+        }
+      }
+      expect(leftFirst + rightFirst).toBeGreaterThan(40);
+      expect(leftFirst).toBeGreaterThan((leftFirst + rightFirst) / 4);
+      expect(rightFirst).toBeGreaterThan((leftFirst + rightFirst) / 4);
+    });
+
+    it('should spread a step as evenly across a tile seam as it does inside one', () => {
+      // what the tile being toroidal buys, and the most this can honestly say:
+      // blocks of 4 columns that straddle the seam at x=64 count revealed cells
+      // about as evenly as blocks well inside a tile, and both beat a shuffle by
+      // the same margin as everywhere else. Measured over eight seeds, the
+      // per-block variance is 0.50 across the seam and 1.07 inside, against 4.3
+      // for a shuffle. Which of the two is smaller is noise, at 24 blocks a seed,
+      // but a seam that was a border, which would put a column of cells with
+      // nothing on one side of them, would show as a multiple. It cannot see a
+      // defect smaller than that sampling noise
+      let seam = 0;
+      let inside = 0;
+      let shuffled = 0;
+      for (let seed = 1; seed <= 8; seed++) {
+        const mask = blueNoiseMask(192, 96, seeded(seed));
+        seam += stripVariance(mask, 62);
+        inside += stripVariance(mask, 30);
+        shuffled += stripVariance(dissolveMask(192, 96, seeded(seed)), 62);
+      }
+      expect(seam).toBeLessThan(shuffled / 3);
+      expect(seam).toBeLessThan(inside * 1.5);
+    });
+
+    it('should be no clumpier at a large size than at a small one', () => {
+      // the per-block variance is 0.74 at 32x16, 0.75 at 64x32 and 0.74 at
+      // 240x70 -- the repeat does not accumulate into anything
+      let large = 0;
+      let shuffled = 0;
+      for (let seed = 1; seed <= 4; seed++) {
+        large += clumpiness(blueNoiseMask(240, 70, seeded(seed)));
+        shuffled += clumpiness(dissolveMask(240, 70, seeded(seed)));
+      }
+      expect(large).toBeLessThan(shuffled / 3);
+    });
+
+    it('should reproduce from a seed at a size larger than the tile', () => {
+      expect([...blueNoiseMask(150, 50, seeded(9)).values]).toEqual([
+        ...blueNoiseMask(150, 50, seeded(9)).values,
+      ]);
+    });
+
+    it('should read its source at a size larger than the tile, so two seeds disagree', () => {
+      // a seed picks where the tile starts and how its copies are ordered, and a
+      // generator that was ignored would give one field for every caller
+      expect([...blueNoiseMask(150, 50, seeded(1)).values]).not.toEqual([
+        ...blueNoiseMask(150, 50, seeded(2)).values,
+      ]);
+    });
+
+    it('should make every seed a window onto one tile rather than a tile of its own', () => {
+      // a full tile has no repeated rank, so a field that starts anywhere is the
+      // one that starts at (0, 0) read round the torus -- exactly, not
+      // approximately. That is what lets the tile be built once for every caller
+      const origin = windowOf(blueNoiseMask(64, 32, seeded(3)));
+      expect(origin).not.toBeUndefined();
+    });
+
+    it('should not start the tile one column further along for each small seed', () => {
+      // `seeded()` is very nearly linear in its seed on its first draws, so a
+      // draw scaled straight to a column gave seeds 1 to 12 the origins 1 to 12.
+      // The draw goes through `mix()` now, and neighbouring seeds land anywhere
+      const origins: [number, number][] = [];
+      for (let seed = 1; seed <= 12; seed++) {
+        const at = windowOf(blueNoiseMask(64, 32, seeded(seed)));
+        expect(at, `seed ${seed}`).not.toBeUndefined();
+        origins.push(at as [number, number]);
+      }
+      let adjacent = 0;
+      for (let i = 1; i < origins.length; i++) {
+        if (origins[i][0] === origins[i - 1][0] + 1) {
+          adjacent++;
+        }
+      }
+      expect(adjacent).toBeLessThan(3);
+      expect(new Set(origins.map((o) => o.join(','))).size).toBeGreaterThanOrEqual(10);
+    });
+
+    it('should break ties between copies from the third draw', () => {
+      // above the tile a rank repeats, and the order of its copies is the salt.
+      // Two generators with one window and different third draws must disagree,
+      // and a generator that dropped the salt from the hash would not
+      const draws = (third: number) => {
+        const values = [0, 0.5, third];
+        let i = 0;
+        return () => values[Math.min(i++, values.length - 1)];
+      };
+      const a = blueNoiseMask(150, 70, draws(0.1));
+      const b = blueNoiseMask(150, 70, draws(0.9));
+      expect([...a.values]).not.toEqual([...b.values]);
+      expect(histogram(a)).toEqual(histogram(b));
+    });
+
+    it('should order cells in work that grows with the cells, whatever the buckets hold', () => {
+      // an insertion sort of a rank's bucket is quadratic in it, which is
+      // `cells / 2048` for a large rectangle and `cells / 32` for a thin one:
+      // 550ms at 1x300000, best of three. No clock, because a deadline flaked on CI
+      // (SIG-429): the hash is read through a proxy and the reads are counted. The
+      // radix sort reads each hash exactly five times -- once for the histogram of
+      // all four digits and once per pass -- however many cells share a rank, and
+      // a sort that compares reads them again and again. The count is pinned
+      // rather than bounded so that a sort which copies the hash once and then
+      // sorts the copy, which reads it `size` times, fails too. What it cannot
+      // see is a sort that reads five times and is quadratic anyway: it counts
+      // reads through the argument and says nothing of what is done with them
+      const size = 100_000;
+      const ranks = new Uint16Array(size);
+      for (let i = 0; i < size; i++) {
+        // thirty-two ranks and so about 3,000 cells in each, the 1x100000 case
+        ranks[i] = i % 32;
+      }
+      const hashes = new Uint32Array(size);
+      const random = seeded(2);
+      for (let i = 0; i < size; i++) {
+        hashes[i] = Math.floor(random() * 0x1_0000_0000);
+      }
+      let reads = 0;
+      const counted = new Proxy(hashes, {
+        get(target, key) {
+          if (typeof key === 'string' && /^\d+$/.test(key)) {
+            reads++;
+          }
+          return Reflect.get(target, key);
+        },
+      });
+      const order = orderCells(ranks, counted, size);
+      expect(reads).toBe(5 * size);
+      // and it is the order it says: by rank, then hash, then index
+      for (let i = 1; i < size; i++) {
+        const [p, q] = [order[i - 1], order[i]];
+        const before =
+          ranks[p] !== ranks[q]
+            ? ranks[p] < ranks[q]
+            : hashes[p] !== hashes[q]
+              ? hashes[p] < hashes[q]
+              : p < q;
+        expect(before, `position ${i}`).toBe(true);
+      }
     });
 
     it('should survive a generator that answers out of range', () => {

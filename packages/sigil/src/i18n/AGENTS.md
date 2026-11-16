@@ -285,6 +285,85 @@ and the check, and `src/i18n/keys.ts` is generated.
   because a JSON `import()` is module-cached, so the second call costs a resolved
   promise, and a loader that does its own work is the app's to cache.
 
+- **A nested `main()` puts the outer app's locale back when it returns
+  (SIG-395).** `loadCatalog()` writes module state -- the catalog, the tag, the
+  loader map -- and `main()` called it unconditionally, so a `main()` inside a
+  `run()`, which the README documents as how commands compose, reset the outer
+  app for the rest of the process: an outer `de` read `undefined` and English
+  after an inner schema that declared no locales, and the same schema re-resolved
+  from `LANG`, discarding an earlier `setLocale('de')` and the outer call's own
+  `locale` option. The nested call still loads what it would have loaded at the
+  top level -- it is its own app, and its parse errors and help render in its own
+  locale -- and the outer state is put back when it returns, on a return, a
+  handled error and a rethrow under `errorHandler: false` alike.
+  `src/nested-call.ts` is the mechanism and `saveLocale()` is what it calls.
+
+  **Nested means another `main()` is in flight, not that an async store was
+  inherited.** The first version asked the second, which is a different question
+  and was wrong both ways: a `main()` called from a listener on a handle made
+  before the outer call -- a `process.stdin` listener, once anything has imported
+  the components -- inherits no store and was read as top-level while the outer app
+  was still running, and one called from a timer the outer `run()` scheduled, after
+  the outer call returned, inherited a store naming nothing and was read as nested,
+  so it rolled back its own locale. A list of the calls in flight answers both:
+  nested is the list being non-empty. The store is kept only to say **which** call
+  is the parent, so that three levels unwind one at a time. Where it names no live
+  call the parent is the **innermost** call in flight, the most recently started
+  and still running. It was the outermost at first, and a level entered from a
+  listener with no context under a middle level then counted against the outermost
+  call: no snapshot was taken, and the middle level finished on the locale of the
+  call it had started.
+
+  **The snapshot is held on the parent and counted**: the first child to start
+  takes it and the last to finish puts it back. Per child, two nested calls
+  running together each snapshot what the other left, and whichever finishes last
+  restores a state that was never the outer app's -- measured, an outer `de`
+  ended on English for the rest of the process, depending on finish order.
+
+  **A call counts out of its parent only once it has returned and every call it
+  started has too.** A call that started another without awaiting it returns first,
+  and counting it out then puts the parent's snapshot back under a call that is
+  still running; the one that ends last then puts _its_ parent's snapshot back
+  over everything, which measured as the whole process ending on the middle
+  call's locale. So a subtree settles together, from the leaves up, and while the
+  outliving call runs the locale is its own. The body is wrapped in an `async`
+  function so that one that threw before returning a promise would still leave the
+  list; `main()`'s own cannot, which is why that case is pinned on `inCall()` itself.
+
+  **The restore is unconditional**, which is the difference from the quiet axis it
+  follows (`rewindQuiet()`, "A quiet axis" in `src/style/AGENTS.md`). Quiet
+  declines to rewind where somebody wrote since, because a quiet statement is about
+  the process and outlives the run that made it. A locale belongs to the app, and
+  the nested call owns it for as long as it runs: **any** write made while it runs
+  is discarded on return -- its own `setLocale()`, and one the outer app made
+  meanwhile. While it runs the loader map is the nested app's, so an outer
+  `setLocale()` then resolves against that map and is discarded anyway; await the
+  nested call first. The restore moves the generation forward, so a load the nested
+  call left in flight cannot settle on top of it, which is SIG-375's rule applied
+  to the undo. An outer `setLocale()` still in flight when the nested call begins
+  was already superseded by its `loadCatalog()`, as it always was, and is not
+  revived.
+
+  **The price: overlapping top-level calls read as nested, and what locale they
+  end on is unspecified.** With another `main()` in flight and no live store to
+  say otherwise, a later call is a child of the innermost one running and its
+  locale is rolled back when it returns. That is pinned for a call that starts
+  after the earlier one has loaded its catalog. Two calls started in the same tick
+  race for the one catalog slot -- the later load supersedes the earlier -- and end
+  on neither app's locale; nothing here claims better. Accepted: they share one
+  slot, so each was already overwriting the other. A top-level call with nothing in
+  flight is unchanged and leaves its locale in effect, which is what a host
+  reading `locale()` after `main()` returns has always seen. And a `main()` that
+  never settles keeps every later top-level call nested for the rest of the
+  process, so their locales are rolled back; a call that never returns has already
+  broken its own caller.
+
+  `saveLocale()` is on this module's public entry because the state it reads is
+  private to this file and this file is the entry, with `loadCatalog()` as the
+  precedent; it is `@internal` and `main()` is its only caller. Pinned in
+  `test/i18n.test.ts` under `a nested main() leaves the outer app`s locale alone`,
+  one case per defect above, each failing with its half of the mechanism removed.
+
 - **A loader that throws, or that answers something that is not a catalog,
   leaves English in effect and says so through `sigil:i18n`.** What a broken
   translation must not do is fail a parse: the English it falls back to is a

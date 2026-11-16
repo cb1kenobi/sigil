@@ -1,0 +1,4 @@
+{
+  "deploy": { "alias": ["d"] },
+  "secret": { "hidden": true }
+}

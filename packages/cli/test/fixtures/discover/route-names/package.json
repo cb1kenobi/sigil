@@ -1,0 +1,7 @@
+{
+  "name": "route-names",
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}

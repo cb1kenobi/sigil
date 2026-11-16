@@ -253,7 +253,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
 
 - **`hidden` falls out, and eager loading makes it _better_ than the catalog's
   answer.** Asked twice and the two are not the same question. Before the import,
-  because a `!` name prefix or a lifted `hidden` is on the placeholder and there
+  because a `!` name prefix on a declaration, a `hidden` in a routed directory's `commands.json`, or a lifted `hidden` is on the placeholder and there
   is no reason to read a module whose command will not be offered. After it,
   because `hidden` is additive and a module may set it -- which only an import can
   say. So a routed command that hides itself in its own module is listed by

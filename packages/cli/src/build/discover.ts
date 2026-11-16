@@ -68,6 +68,8 @@ import {
   descReturnMessage,
   descTypeMessage,
   hiddenTypeMessage,
+  type PackageRoute,
+  packageRouteName,
   parseName,
   readPackage,
 } from '@ttylabs/sigil/routes';
@@ -1633,7 +1635,7 @@ const PACKAGE_NAMES =
  *
  * From source, `commands: { foo: './pkg' }` over a directory with a
  * `package.json` imports the package's module when the schema is built and
- * registers it as `cmd.name ?? pkg.name` -- the key is not one of its spellings
+ * registers it as `cmd.name ?? packageRouteName(pkg)` -- the key is not one of its spellings
  * (`registerCommandPackage()` in the runtime, and "A package names itself,
  * wherever it was found" in the root `AGENTS.md`). So the build reads the same
  * answer statically: the module's literal `name`, else the manifest's, and the
@@ -1724,7 +1726,7 @@ function keyedPackage(
   }
 
   const before = diagnostics.length;
-  const name = packageName(object, entry, diagnostics, key, pkg.name, join(dir, 'package.json'));
+  const name = packageName(object, entry, diagnostics, key, pkg, dir);
   const routing = placeholderRouting(object, entry, diagnostics, key, PACKAGE_NAMES);
 
   if (name === undefined || diagnostics.slice(before).some((d) => d.severity === 'error')) {
@@ -1748,16 +1750,16 @@ const ROUTED: ReadonlySet<string> = new Set(['alias', 'default', 'name']);
 /**
  * The name string a package a schema key points at is registered under.
  *
- * `cmd.name ?? pkg.name`, as the runtime reads it: the module's own `name`
- * wins, and an absent one -- `undefined` or `null`, both of which `??` passes
- * over -- falls to the manifest's.
+ * The module's own `name` wins, as the runtime reads it, and an absent one --
+ * `undefined` or `null`, both of which `??` passes over -- falls to the
+ * manifest's, with its scope off and refused by `packageRouteName()`.
  *
  * @param object - The module's command literal.
  * @param entry - The module, for positions.
  * @param diagnostics - Where to report.
  * @param key - What the schema wrote it under, for the messages.
- * @param manifestName - What its `package.json` calls it.
- * @param manifest - Where that is, for the message when neither names it.
+ * @param pkg - What its `package.json` says, whose name is the fallback.
+ * @param dir - The package's directory.
  * @returns The name string, or `undefined` with an error said.
  */
 function packageName(
@@ -1765,8 +1767,8 @@ function packageName(
   entry: ParsedModule,
   diagnostics: Diagnostic[],
   key: string,
-  manifestName: unknown,
-  manifest: string
+  pkg: PackageRoute,
+  dir: string
 ): string | undefined {
   const declared = plainProperty(object, 'name');
   if (declared && !isUndefined(declared.value) && literalType(declared.value) !== 'null') {
@@ -1786,12 +1788,26 @@ function packageName(
     return undefined;
   }
 
-  if (typeof manifestName === 'string' && manifestName !== '') {
-    return manifestName;
+  if (pkg.name !== undefined) {
+    // a name the file system gave, so the runtime's rule for it and not a name
+    // string's: scope off, and refused where the runtime refuses it -- in its
+    // words, an empty one and a number included, which is why this does not
+    // pre-filter on what it thinks a name is. The directory is named the way
+    // every other diagnostic names a path
+    try {
+      return packageRouteName(pkg, displayPath(dir));
+    } catch (err) {
+      diagnostics.push({
+        file: join(dir, 'package.json'),
+        message: `the "${key}" command is a package the app cannot name: ${errorMessage(err)}`,
+        severity: 'error',
+      });
+      return undefined;
+    }
   }
 
   diagnostics.push({
-    file: manifest,
+    file: join(dir, 'package.json'),
     message: `Expected command name to be a non-empty string in the "${key}" command, which is a package whose module and package.json both leave it unnamed`,
     severity: 'error',
   });

@@ -205,7 +205,7 @@ describe('completionSpec()', () => {
   });
 
   it('should not import a module whose placeholder is already hidden', async () => {
-    // a `!` name prefix is on the placeholder, so there is nothing to read: the
+    // `hidden` in a commands.json is on the placeholder, so there is nothing to read: the
     // fixture counts its own imports and nothing is ever meant to pay one
     const found = await spec({ commands: hiddenFixtures, completion: false, help: false });
 

@@ -431,7 +431,18 @@ commands: './commands'              // a directory *of* commands
 A directory is a tree: a file is a command named after the file, a subdirectory
 is a command named after the directory with the routes inside it as its
 subcommands, and an `index` module is the directory's own command rather than
-one called `index`.
+one called `index`. A name is taken literally: a file, directory or package name
+that is empty, holds whitespace, a `,` or a `/`, or starts with `<`, `[`, `!` or
+`@`, is refused rather than read as a name string, and a `commands.json` is how
+a route is aliased or hidden. A scoped package, `@acme/deploy`, is the command
+`deploy`.
+
+Upgrading: a package whose manifest says `@acme/deploy` used to register as
+`acme/deploy` and now registers as `deploy`, so `mycli acme/deploy` stops working
+and `mycli deploy` starts. A route that was hidden or aliased by its file name -- `!x.js`,
+`@x.js`, `my cmd.js` -- now stops the app at the level that holds it, `--help`
+included, with a message naming the file. Rename it `x.js` and put
+`{ "x": { "hidden": true } }` (or `"alias"`) in a `commands.json` beside it.
 
 ```
 commands/
@@ -588,6 +599,16 @@ hook sees **the same error twice**. Catching and re-throwing your own, as above,
 still fires twice, but for two _different_ errors, which is one per error and is
 the rule rather than the bug; catching and handling fires once. See "Known bugs"
 in `AGENTS.md`.
+
+**A nested `main()` gives the locale back.** It loads its own schema's catalog
+and renders in it, and when it returns -- normally, through a handled error or
+through a rethrown one -- the locale that was in effect when it started is put
+back, including one set with `setLocale()` or the `locale` option. "Nested" means
+another `main()` is still running, wherever the call was made from. Anything that
+changes the locale while the nested call runs is discarded, its own `setLocale()`
+included, so await the nested call before setting one. A `main()` with nothing
+else running leaves its locale in effect as before. Which locale two top-level
+calls that overlap end on is unspecified.
 
 **A nested dispatch does not inherit the outer invocation's root options.** They
 are re-read from the argv you pass, so an outer `--verbose` is `false` inside
@@ -6645,8 +6666,9 @@ is on top.
 
 A mask is one byte per cell saying _when_ that cell shows, plus a threshold: a
 cell is in when `values[i] <= threshold`. `dissolveMask()` is a shuffled even
-ramp, `blueNoiseMask()` is the same ramp spread so no step of it clumps (and
-costs about 8ms to generate at 80x24, once), `wipeMask()` is a hard edge, and
+ramp, `blueNoiseMask()` is the same ramp spread so no step of it clumps (a
+repeating 64x32 tile of blue noise, built once per process, so a mask costs about
+a millisecond at any terminal size), `wipeMask()` is a hard edge, and
 `irisMask()` is a circle opening out. Generate one **once** and ramp the
 threshold; a per-frame random flickers. `maskThreshold()` is the arithmetic
 between a fraction and a threshold, and it exists because both ends are off by

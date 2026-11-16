@@ -915,6 +915,132 @@ export default {
       expect(diagnostics).toStrictEqual([]);
     });
 
+    it('should name a scoped package a key points at by what follows its scope', async () => {
+      // SIG-389. The manifest's name is a name the file system gave, so it is not a
+      // name string and its scope is not part of what it is called -- the runtime
+      // registers `deploy`, and a build that baked `@acme/deploy` or `acme/deploy`
+      // would route the built app differently
+      await withSchema(
+        "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
+        (dir) => {
+          mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
+          writeFileSync(join(dir, 'src', 'pkg', 'index.js'), 'export default { run() {} };\n');
+          writeFileSync(
+            join(dir, 'src', 'pkg', 'package.json'),
+            JSON.stringify({ main: 'index.js', name: '@acme/deploy', type: 'module' })
+          );
+
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+          expect(list.map((command) => command.name)).toStrictEqual(['deploy']);
+          expect(diagnostics).toStrictEqual([]);
+        }
+      );
+    });
+
+    it('should refuse a package whose manifest name no route may have, as the runtime does', async () => {
+      await withSchema(
+        "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
+        async (dir) => {
+          mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
+          writeFileSync(join(dir, 'src', 'pkg', 'index.js'), 'export default { run() {} };\n');
+          writeFileSync(
+            join(dir, 'src', 'pkg', 'package.json'),
+            JSON.stringify({ main: 'index.js', name: '@acme/my pkg', type: 'module' })
+          );
+
+          const { diagnostics } = readAppCommands(discoverApp(dir));
+          const errors = diagnostics.filter((d) => d.severity === 'error');
+          expect(errors).toHaveLength(1);
+          expect(errors[0]!.message).toMatch(
+            /^the "x" command is a package the app cannot name: Cannot route the package ".*pkg" \(its package\.json name is "@acme\/my pkg"\): the command name "my pkg" contains whitespace/
+          );
+          expect(errors[0]!.message).toContain('commands.json');
+
+          // and the runtime refuses the same package in the same words
+          await expect(
+            main({
+              argv: [],
+              schema: { commands: { x: join(dir, 'src', 'pkg') } },
+              settings: { errorHandler: false },
+            })
+          ).rejects.toThrow(
+            /Cannot route the package ".*pkg" \(its package\.json name is "@acme\/my pkg"\)/
+          );
+        }
+      );
+    });
+
+    it.each([
+      ['""', '', /is empty/],
+      ['42', '', /its package\.json name is 42, which is not a string/],
+      ['null', '', /its package\.json name is null, which is not a string/],
+      // Node refuses a present name that is not a string whether or not the module names
+      // itself, so the build must too -- these built, and failed from source
+      ['42', "name: 'mine', ", /its package\.json name is 42, which is not a string/],
+      ['null', "name: 'mine', ", /its package\.json name is null, which is not a string/],
+    ])(
+      'should refuse the manifest name %s, with module %j, in the runtime’s words, not its own',
+      async (json, own, reason) => {
+        // an empty name used to be reported as "both leave it unnamed", which the runtime
+        // does not say, and a number never reached the runtime's refusal at all
+        await withSchema(
+          "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
+          async (dir) => {
+            mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
+            writeFileSync(
+              join(dir, 'src', 'pkg', 'index.js'),
+              `export default { ${own}run() {} };\n`
+            );
+            writeFileSync(
+              join(dir, 'src', 'pkg', 'package.json'),
+              `{ "main": "index.js", "name": ${json}, "type": "module" }`
+            );
+
+            const { diagnostics } = readAppCommands(discoverApp(dir));
+            const errors = diagnostics.filter((d) => d.severity === 'error');
+            expect(errors).toHaveLength(1);
+            expect(errors[0]!.message).toMatch(reason);
+            expect(errors[0]!.message).toMatch(/Cannot route the package ".*pkg"/);
+            expect(errors[0]!.message).not.toContain('both leave it unnamed');
+
+            // refused before anything is imported, so this is sigil's refusal and not
+            // Node's `ERR_INVALID_PACKAGE_CONFIG`, which `route-manifest-name.test.ts`
+            // proves under a Node that loads the module itself
+            await expect(
+              main({
+                argv: [],
+                schema: { commands: { x: join(dir, 'src', 'pkg') } },
+                settings: { errorHandler: false },
+              })
+            ).rejects.toThrow(reason);
+          }
+        );
+      }
+    );
+
+    it("should leave a package's own module name alone, which is a declaration", async () => {
+      await withSchema(
+        "export default { baseDir: import.meta.dirname, commands: { x: './pkg' } };\n",
+        (dir) => {
+          mkdirSync(join(dir, 'src', 'pkg'), { recursive: true });
+          writeFileSync(
+            join(dir, 'src', 'pkg', 'index.js'),
+            "export default { name: 'ship, s', run() {} };\n"
+          );
+          writeFileSync(
+            join(dir, 'src', 'pkg', 'package.json'),
+            JSON.stringify({ main: 'index.js', name: 'not a name', type: 'module' })
+          );
+
+          const { commands, diagnostics } = readAppCommands(discoverApp(dir));
+          const list = commands?.kind === 'inline' ? commands.commands : [];
+          expect(list.map((command) => command.name)).toStrictEqual(['ship, s']);
+          expect(diagnostics.filter((d) => d.severity === 'error')).toStrictEqual([]);
+        }
+      );
+    });
+
     it('should refuse a package a key points at whose names it cannot read', () => {
       // from source each of these answers to whatever its module computes, so
       // the build cannot route the built app the same way, and says so rather

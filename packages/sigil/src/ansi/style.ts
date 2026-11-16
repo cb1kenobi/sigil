@@ -1,6 +1,7 @@
 import { codes, CSI, ESC, sgr, type StyleName } from './codes.js';
 import { type ColorLevel } from './color-support.js';
 import { hexChannels } from './hex.js';
+import { nearestPaletteIndex, paletteRgb } from './quantize.js';
 
 /**
  * One style in a chain: the sequence that turns it on, and the SGR parameter
@@ -80,14 +81,14 @@ Object.defineProperties(proto, {
     const n = assertByte(code, 'color code');
     return extend(this, {
       close: 39,
-      open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), false))),
+      open: (level) => (level >= 2 ? sgr(`38;5;${n}`) : sgr(rgbToBasic(...paletteRgb(n), false))),
     });
   }),
   bgAnsi256: method(function (this: InternalStyler, code: number) {
     const n = assertByte(code, 'color code');
     return extend(this, {
       close: 49,
-      open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...ansi256ToRgb(n), true))),
+      open: (level) => (level >= 2 ? sgr(`48;5;${n}`) : sgr(rgbToBasic(...paletteRgb(n), true))),
     });
   }),
   bgHex: method(function (this: InternalStyler, hex: string) {
@@ -217,7 +218,7 @@ function rgbChain(
         return sgr(`${prefix};2;${r};${g};${b}`);
       }
       if (level === 2) {
-        return sgr(`${prefix};5;${rgbToAnsi256(r, g, b)}`);
+        return sgr(`${prefix};5;${nearestPaletteIndex(r, g, b, 2)}`);
       }
       return sgr(rgbToBasic(r, g, b, background));
     },
@@ -407,71 +408,10 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 /**
- * The standard 16 colors, as the values most terminals ship.
- *
- * All sixteen are a theme the user can change, so this is an approximation and
- * cannot be anything else: what 31 draws is whatever the terminal was told to
- * draw. These are the conventional values, and they are what picking a nearest
- * color has to be measured against.
- */
-const basic16 = [
-  [0, 0, 0], // black
-  [128, 0, 0], // red
-  [0, 128, 0], // green
-  [128, 128, 0], // yellow
-  [0, 0, 128], // blue
-  [128, 0, 128], // magenta
-  [0, 128, 128], // cyan
-  [192, 192, 192], // white
-  [128, 128, 128], // bright black
-  [255, 0, 0], // bright red
-  [0, 255, 0], // bright green
-  [255, 255, 0], // bright yellow
-  [0, 0, 255], // bright blue
-  [255, 0, 255], // bright magenta
-  [0, 255, 255], // bright cyan
-  [255, 255, 255], // bright white
-] as const;
-
-/**
- * The six levels each channel of the 256-color cube steps through. They are
- * neither evenly spaced nor multiples of 51: the first step up is 95, and the
- * rest are 40 apart.
- */
-const cubeSteps = [0, 95, 135, 175, 215, 255] as const;
-
-/**
- * How far apart two colors are, by the "redmean" weighting -- a closer match to
- * what the eye does than plain squared distance, for about the same arithmetic.
- *
- * @param red - The red channel of the first color.
- * @param green - The green channel of the first color.
- * @param blue - The blue channel of the first color.
- * @param to - The second color.
- * @returns The weighted square of the distance between them.
- */
-function distance(
-  red: number,
-  green: number,
-  blue: number,
-  to: readonly [number, number, number]
-): number {
-  const mean = (red + to[0]) / 2;
-  const dr = red - to[0];
-  const dg = green - to[1];
-  const db = blue - to[2];
-  return (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
-}
-
-/**
  * The nearest of the basic 16, as an SGR parameter.
  *
- * Nearest by distance against the palette above, rather than by rounding each
- * channel to a bit and reading the result as a color index. Rounding to bits
- * cannot express a gray at all -- every channel rounds the same way, so the
- * only grays it reaches are black and white -- which puts mid-gray on 37 when
- * 37 is `#c0c0c0` and 90 is exactly `#808080`. A tie goes to the lower index,
- * which is the darker or the less saturated of the two.
+ * The match is `nearestPaletteIndex()`'s, which `style/degrade.ts` asks as well,
+ * so `ansi.rgb()` and a declared color draw the same on one terminal.
  *
  * @param red - The red channel, 0-255.
  * @param green - The green channel, 0-255.
@@ -480,95 +420,9 @@ function distance(
  * @returns The SGR parameter.
  */
 function rgbToBasic(red: number, green: number, blue: number, background: boolean): number {
-  let nearest = 0;
-  let shortest = Infinity;
-
-  for (let i = 0; i < basic16.length; i++) {
-    const d = distance(red, green, blue, basic16[i]!);
-    if (d < shortest) {
-      shortest = d;
-      nearest = i;
-    }
-  }
-
+  const nearest = nearestPaletteIndex(red, green, blue, 1);
   const offset = background ? 10 : 0;
   return nearest < 8 ? 30 + nearest + offset : 90 + (nearest - 8) + offset;
-}
-
-/**
- * The nearest index in the 256-color palette.
- *
- * Above 15 the palette is a 6x6x6 cube and a 24-step gray ramp, and a color is
- * measured against both: the ramp is far finer than the cube's six gray steps,
- * but only the cube reaches pure black and white, so neither alone is right.
- *
- * The first sixteen entries are skipped on purpose. They are the theme the user
- * can change, so quantizing into them would make a fixed color follow it.
- *
- * @param red - The red channel, 0-255.
- * @param green - The green channel, 0-255.
- * @param blue - The blue channel, 0-255.
- * @returns The palette index.
- */
-function rgbToAnsi256(red: number, green: number, blue: number): number {
-  const r = nearestCubeStep(red);
-  const g = nearestCubeStep(green);
-  const b = nearestCubeStep(blue);
-  const cube = 16 + 36 * r + 6 * g + b;
-  const cubeDistance = distance(red, green, blue, [cubeSteps[r]!, cubeSteps[g]!, cubeSteps[b]!]);
-
-  // the ramp runs 8 to 238 in steps of 10, as indices 232 to 255
-  const mean = (red + green + blue) / 3;
-  const step = Math.min(Math.max(Math.round((mean - 8) / 10), 0), 23);
-  const value = step * 10 + 8;
-  const rampDistance = distance(red, green, blue, [value, value, value]);
-
-  return rampDistance < cubeDistance ? 232 + step : cube;
-}
-
-/**
- * The index of the cube step nearest a channel value.
- *
- * @param value - The channel value, 0-255.
- * @returns The step index, 0-5.
- */
-function nearestCubeStep(value: number): number {
-  let nearest = 0;
-  let shortest = Infinity;
-
-  for (let i = 0; i < cubeSteps.length; i++) {
-    const d = Math.abs(value - cubeSteps[i]!);
-    if (d < shortest) {
-      shortest = d;
-      nearest = i;
-    }
-  }
-
-  return nearest;
-}
-
-/**
- * The color a 256-color palette index stands for.
- *
- * @param code - The palette index, 0-255.
- * @returns The channel values.
- */
-function ansi256ToRgb(code: number): readonly [number, number, number] {
-  if (code < 16) {
-    return basic16[code]!;
-  }
-
-  if (code >= 232) {
-    const value = (code - 232) * 10 + 8;
-    return [value, value, value];
-  }
-
-  const index = code - 16;
-  return [
-    cubeSteps[Math.floor(index / 36)]!,
-    cubeSteps[Math.floor((index % 36) / 6)]!,
-    cubeSteps[index % 6]!,
-  ];
 }
 
 /**
