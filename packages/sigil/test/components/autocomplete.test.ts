@@ -33,6 +33,28 @@ async function frame(): Promise<void> {
 }
 
 /**
+ * Waits until what the test is about is on the screen, and says what was there
+ * if it never is.
+ *
+ * `frame()` above is a guess at how long the renderer's paced frame takes: ten
+ * milliseconds of wall clock, which a loaded runner is free to overrun. An answer
+ * that arrives with no key behind it is drawn when that frame runs and not when
+ * the answer lands, so the state a test means -- "the fresh answer is up" -- is
+ * the thing to wait for rather than a number of ticks (SIG-445). Bounded in wall
+ * time, so a screen that never gets there is the assertion after it failing over
+ * what was shown, not a test that hangs.
+ *
+ * @param done - Whether the screen shows what the test is waiting for.
+ */
+async function until(done: () => boolean): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!done() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  await tick();
+}
+
+/**
  * Starts the prompt and reports how it settled.
  *
  * The handler is attached before any key is sent, for `prompt.test.ts`'s own
@@ -483,7 +505,7 @@ describe('autocomplete() and a disabled choice', () => {
       open(ui, { source: () => [{ disabled: true, label: 'prod' }, 'dev', 'qa'] })
     );
 
-    await frame();
+    await until(() => rows(ui).length === 3);
 
     expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']);
 
@@ -515,7 +537,7 @@ describe('autocomplete() over a source', () => {
       open(ui, { source: (term) => (term === '' ? ['old-term-row'] : next.promise) })
     );
 
-    await frame();
+    await until(() => rows(ui)[1] === '  ❯ old-term-row');
     expect(rows(ui)[1]).toBe('  ❯ old-term-row');
 
     // the row on screen answers the empty term, and `x` has been asked for: it is
@@ -538,7 +560,7 @@ describe('autocomplete() over a source', () => {
     expect(rows(ui)).toEqual(['? Pick', '  Searching...']);
 
     pending.resolve(['late']);
-    await frame();
+    await until(() => rows(ui)[1] === '  ❯ late');
     expect(rows(ui)).toEqual(['? Pick', '  ❯ late']);
 
     await type(ui.stdin, ENTER);
@@ -624,8 +646,41 @@ describe('autocomplete() over a source', () => {
     await type(ui.stdin, ENTER);
     expect(rows(ui)).toEqual(['? Pick ab', '  Searching...']);
 
+    // waited for by what it shows and not by a delay: the answer is drawn by a
+    // frame the renderer paces, and one `frame()` was not always enough on a
+    // loaded runner -- 'Searching...' was still up (SIG-445)
     lookups.get('ab')?.resolve(['fresh-answer']);
-    await frame();
+    await until(() => rows(ui)[1] === '  ❯ fresh-answer');
+    expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']);
+
+    await type(ui.stdin, ENTER);
+    expect((await answer).value).toBe('fresh-answer');
+  });
+
+  it('should draw a fresh answer on whichever frame the renderer paces, however late', async () => {
+    // thirty milliseconds is the renderer's own default, and four times what a
+    // `frame()` waits: the answer is in the prompt's state at once and on the
+    // screen when the frame runs, which is the gap a fixed wait guesses at
+    const ui = screenSetup({ rows: 10 });
+    const lookups = new Map<string, ReturnType<typeof deferred<string[]>>>();
+    const answer = settle(
+      open(ui, {
+        frameMs: 40,
+        source: (term: string) => {
+          const lookup = deferred<string[]>();
+          lookups.set(term, lookup);
+          return lookup.promise;
+        },
+      })
+    );
+
+    await type(ui.stdin, 'a', 'b');
+    lookups.get('a')?.resolve(['stale-answer']);
+    await type(ui.stdin, ENTER);
+    expect(rows(ui)).toEqual(['? Pick ab', '  Searching...']);
+
+    lookups.get('ab')?.resolve(['fresh-answer']);
+    await until(() => rows(ui)[1] === '  ❯ fresh-answer');
     expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']);
 
     await type(ui.stdin, ENTER);
@@ -749,7 +804,7 @@ describe('autocomplete() over a source', () => {
     const ui = screenSetup({ rows: 10 });
     const answer = settle(open(ui, { source: async () => [] }));
 
-    await frame();
+    await until(() => rows(ui)[1] === '  No matches');
     expect(rows(ui)).toEqual(['? Pick', '  No matches']);
 
     await type(ui.stdin, CTRL_C);
