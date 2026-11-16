@@ -135,22 +135,40 @@ export function boundary(value: string, at: number, direction: -1 | 1): number {
  * pair and leaves the mark behind, which is the same damage the astral case
  * causes with a surrogate.
  *
+ * **Only the line `at` is on is segmented, and that is the same answer.** A line
+ * feed is a control character and the break rules put a boundary after every
+ * control and before every one (GB4 and GB5), so no cluster reaches across one
+ * and nothing before a line feed can change how the text after it divides: the
+ * run of regional indicators and the emoji sequence a rule counts back through
+ * both end there. The window is therefore from the line feed before `at` to
+ * the one after it, the line feed included, and `at` is placed in it and the
+ * window's start added back. The whole value was segmented before, which for a
+ * paste is the whole pasted block -- a text area hands an edit only the lines
+ * it spans -- when only the line the caret lands on can have moved it (SIG-444).
+ * `\r` is not a cut: `CR LF` is the one pair a break rule keeps together, and
+ * cutting after the `LF` is what keeps it.
+ *
  * @param value - What has been typed.
  * @param at - The offset to place.
  * @returns `at` when it is already a boundary, else the end of the cluster it
  *   fell inside.
  */
 export function snap(value: string, at: number): number {
-  let offset = 0;
+  const start = at > 0 ? value.lastIndexOf('\n', at - 1) + 1 : 0;
+  const feed = at < value.length ? value.indexOf('\n', at) : -1;
+  const end = feed === -1 ? value.length : feed + 1;
+  let offset = start;
 
-  for (const cluster of graphemes(value)) {
+  for (const cluster of graphemes(
+    start === 0 && end === value.length ? value : value.slice(start, end)
+  )) {
     if (offset >= at) {
       return offset;
     }
     offset += cluster.length;
   }
 
-  return value.length;
+  return Math.min(offset, value.length);
 }
 
 /**
