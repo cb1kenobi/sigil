@@ -4,10 +4,11 @@ import {
   hostTarget,
   isHostTarget,
   label,
+  outputName,
   parseTarget,
-  targets,
+  type Target,
 } from '../src/build/compile.ts';
-import { displayPath } from '../src/build/index.ts';
+import { bunTriple, displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
@@ -109,6 +110,19 @@ async function sigil(...argv: string[]) {
 
   return { err: chunks.err.join(''), out: chunks.out.join('') };
 }
+
+/**
+ * Targets that are not this machine's and need no signing, which is what a
+ * test of a cross build can ask for on every platform.
+ *
+ * Not `darwin-*`, because signing wants `codesign` and only macOS has it -- the
+ * rule is deliberate and these tests are not about it -- and not the host's own,
+ * which `sigil package` compiles with the bundler itself rather than with a
+ * runtime it fetched. At least two remain whichever host this is.
+ */
+const CROSS = ['linux-x64', 'linux-arm64', 'windows-x64']
+  .map(parseTarget)
+  .filter((one) => !isHostTarget(one));
 
 /**
  * Runs `work` with `dir` first on `PATH`, so the `bun` there is the one `sigil
@@ -680,9 +694,7 @@ describe('sigil package', () => {
         // first, checks it against npm's integrity, and hands it over. Here npm
         // vouches for one archive and the origin serves another
         const calls = serveRuntimes({ lying: true });
-        const other = targets()
-          .map(parseTarget)
-          .find((one) => !isHostTarget(one) && label(one) !== 'windows-arm64');
+        const [other] = CROSS;
 
         rmSync(out, { force: true, maxRetries: 5, recursive: true });
 
@@ -970,6 +982,8 @@ describe('sigil package', () => {
         // test reaches the network
         serveRuntimes();
 
+        const [one, two] = CROSS as [Target, Target];
+        const among = [one, two];
         const bun = stubBun();
         rmSync(join(bun, REVISIONS), { force: true });
 
@@ -982,9 +996,9 @@ describe('sigil package', () => {
             '--runtime',
             'bun',
             '--target',
-            'linux-x64',
+            label(one),
             '--target',
-            'windows-x64'
+            label(two)
           )
         );
 
@@ -992,19 +1006,20 @@ describe('sigil package', () => {
         // once for the run and not once for each
         expect(readFileSync(join(bun, REVISIONS), 'utf-8').trim().split('\n')).toHaveLength(1);
 
-        expect(existsSync(join(out, 'buildable-linux-x64'))).toBe(true);
-        expect(existsSync(join(out, 'buildable-windows-x64.exe'))).toBe(true);
+        for (const target of among) {
+          expect(existsSync(join(out, outputName('buildable', target, among)))).toBe(true);
+        }
+
         expect(existsSync(join(out, BINARY))).toBe(false);
 
         // and they really are different files rather than one written twice --
         // each holding the runtime of its own platform, which is what the
         // stand-in `bun` writes
-        expect(readFileSync(join(out, 'buildable-linux-x64'), 'utf-8')).toBe(
-          runtimeFor('bun-linux-x64')
-        );
-        expect(readFileSync(join(out, 'buildable-windows-x64.exe'), 'utf-8')).toBe(
-          runtimeFor('bun-windows-x64')
-        );
+        for (const target of among) {
+          expect(readFileSync(join(out, outputName('buildable', target, among)), 'utf-8')).toBe(
+            runtimeFor(bunTriple(target))
+          );
+        }
       },
       60_000
     );

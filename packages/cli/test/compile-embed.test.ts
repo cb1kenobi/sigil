@@ -4,7 +4,6 @@ import {
   isHostTarget,
   label,
   parseTarget,
-  targets,
   type Target,
 } from '../src/build/compile.ts';
 import { tempDir } from './temp.ts';
@@ -34,10 +33,14 @@ const box = tempDir('sigil-embed-');
 const POSIX = process.platform !== 'win32';
 const hasBun = Boolean(whichSync('bun'));
 
-/** A target that is not this machine's and that Bun can build. */
-const other: Target = targets()
+/**
+ * A target that is not this machine's, that Bun can build, and that needs no
+ * signing: `codesign` is macOS's, so a `darwin-*` target fails on every other
+ * host for a reason these tests are not about.
+ */
+const other: Target = ['linux-x64', 'linux-arm64', 'windows-x64']
   .map(parseTarget)
-  .find((one) => !isHostTarget(one) && label(one) !== 'windows-arm64') as Target;
+  .find((one) => !isHostTarget(one)) as Target;
 
 /**
  * A `bun` that records how it was run and with what environment, then writes
