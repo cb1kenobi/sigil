@@ -52,15 +52,25 @@ const PIECES = [
   '\r',
   '\r\n',
   '\t',
+  '\v', // a line terminator the break rules treat as a control
+  '\f',
+  '\u0085', // next line
+  '\u2028', // line separator
+  '\u2029', // paragraph separator
   '漢',
   '😀',
-  '👨‍👩‍👧', // a ZWJ family
-  '‍', // a joiner on its own
+  '\u{1f468}\u200d\u{1f469}\u200d\u{1f467}', // a ZWJ family
+  '\u200d', // a joiner on its own
   '🇯🇵',
   '🇦', // a lone regional indicator, which pairs with whatever follows
-  '1️⃣', // a keycap
-  '́', // a combining mark, joining whatever is before it
+  '1\ufe0f\u20e3', // a keycap
+  '\u0301', // a combining mark, joining whatever is before it
+  '\u0915\u094d\u0937', // a conjunct: consonant, virama, consonant (GB9c)
   'का', // a spacing mark
+  '\u0600', // a prepend, which joins what follows it
+  '\u1100', // Hangul L
+  '\u1161', // Hangul V
+  '\u11a8', // Hangul T
   '\ud83d', // a lone surrogate
 ];
 
@@ -112,6 +122,8 @@ describe('snap() over a window', () => {
     const small = handed(100);
     const large = handed(100_000);
     // one line and its break, wherever in the value that line is
+    // and that the mock saw it, or a count of nothing would pass for a window
+    expect(small).toBeGreaterThan(0);
     expect(small).toBeLessThanOrEqual(16);
     expect(large).toBe(small);
   });
@@ -121,6 +133,7 @@ describe('snap() over a window', () => {
     measured.units = 0;
     const result = insertAt('before\nafter', 6, `\n${body}`);
     // the whole 290,000 code units were handed over before the window
+    expect(measured.units).toBeGreaterThan(0);
     expect(measured.units).toBeLessThanOrEqual(16);
     expect(result.cursor).toBe(6 + 1 + body.length);
   });

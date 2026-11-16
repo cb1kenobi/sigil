@@ -12227,11 +12227,15 @@ was reached, the measurements and the sabotage pass are in
 
   The test itself is **600,000 lines**, down from a million, for a reason that is
   also written beside it: the line is not time but the spread into `splice()`,
-  which fails at about 494,000 in the vitest worker -- a worker's default 4 MB of
-  stack over eight bytes an argument, the same on node 22 and 24 (measured: 490,000
-  passes and 500,000 overflows on both) and on every platform. 600,000 is 20 percent
-  past that, and with the spread put back it fails with `Maximum call stack size
-  exceeded` on both. As of this entry on node 24, arm64 macOS, alone: the paste
+  which fails at about 494,000 in the vitest worker -- a worker's 4 MB of stack
+  less the 192 KiB Node reserves (`kStackBufferSize`), over eight bytes an
+  argument. Measured on darwin arm64 for node 22, 24 and 26 (490,000 passes and
+  500,000 overflows on 22 and 24; 494,064 on the worker limit the review found),
+  and **expected, not measured,** to match on Linux and Windows, because Node
+  sets a worker's stack limit itself. On a main thread it fails at about 110,000
+  to 124,000, by node version. 600,000 is 20 percent
+  past that, and with the spread put back it fails on all three with `Maximum call stack size
+  exceeded`. As of this entry on node 24, arm64 macOS, alone: the paste
   test went from **about 560ms to about 100ms**, 1,000,000 lines through the
   built paste path from **1,350ms to 415ms**.
 
