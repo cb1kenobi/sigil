@@ -3,6 +3,7 @@ import { errorHandler, errorMessage } from './error-handler.js';
 import { fireBeforeError, stateFromError } from './error-hooks.js';
 import { assertSerialized, formatFor } from './format.js';
 import { loadCatalog } from './i18n/index.js';
+import { inCall } from './nested-call.js';
 import { useModuleImporter, withModuleImports } from './parser/command/import-module.js';
 import { resolveSettings, salvagedErrorHandler } from './parser/settings.js';
 import { fireAfterRun } from './run-hooks.js';
@@ -52,7 +53,7 @@ export function main(opts: AppOptions = {}): Promise<ParseState | unknown> {
   // in a slot of its own, so that every module this call imports for the app --
   // from the parse, from help, from completion -- reads the `importModule` this
   // call was given, and a nested call reads its own. See `import-module.ts`
-  return withModuleImports(() => runMain(opts));
+  return inCall(() => withModuleImports(() => runMain(opts)));
 }
 
 /**

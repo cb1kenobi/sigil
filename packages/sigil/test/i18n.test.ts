@@ -1707,3 +1707,534 @@ describe('a translated screen`s width', () => {
     expect(lines[at + 1]).toMatch(/^ {25,}\S/);
   });
 });
+
+describe('a nested main() leaves the outer app`s locale alone', () => {
+  const hello = { Hello: 'Hallo' };
+  const settings = { assertCwd: false } as const;
+
+  /** What the locale and `__` answer right now, which is what an app reads. */
+  const reading = (): string => `${locale()} ${__`Hello`}`;
+
+  /** A schema whose one command, `go`, runs `body`. */
+  const app = (body: () => Promise<void>, locales?: Locales) => ({
+    commands: { go: { run: body } },
+    locales,
+    name: 'outer',
+  });
+
+  /** A schema declaring no locales, whose one command, `x`, runs `body`. */
+  const inner = (body: () => void | Promise<void>, locales?: Locales) => ({
+    commands: { x: { run: body } },
+    locales,
+    name: 'inner',
+  });
+
+  const withEnglishEnvironment = (): void => {
+    vi.stubEnv('LANG', 'en_US.UTF-8');
+    vi.stubEnv('LC_ALL', '');
+    vi.stubEnv('LC_MESSAGES', '');
+    vi.stubEnv('SIGIL_LOCALE', '');
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('should keep the outer catalog when the inner app declares no locales', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          seen.push(reading());
+          await main({ argv: ['x'], schema: inner(() => void seen.push(reading())), settings });
+          seen.push(reading());
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo', 'undefined Hello', 'de Hallo']);
+  });
+
+  it('should keep a setLocale() the outer app made when the environment says otherwise', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    withEnglishEnvironment();
+
+    await main({
+      argv: ['go'],
+      schema: app(async () => {
+        await setLocale('de');
+        seen.push(reading());
+        await main({
+          argv: ['x'],
+          schema: inner(() => void seen.push(reading()), locales),
+          settings,
+        });
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo', 'en-US Hello', 'de Hallo']);
+  });
+
+  it('should keep the locale the outer call was given as an option', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    withEnglishEnvironment();
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          schema: inner(() => void seen.push(reading()), locales),
+          settings,
+        });
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['en-US Hello', 'de Hallo']);
+  });
+
+  it('should discard a locale the inner run set, and let the outer app set another after', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello, fr: async () => ({ Hello: 'Bonjour' }) };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          schema: inner(async () => {
+            await setLocale('fr');
+            seen.push(reading());
+          }, locales),
+          settings,
+        });
+        seen.push(reading());
+        await setLocale('fr');
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['fr Bonjour', 'de Hallo', 'fr Bonjour']);
+  });
+
+  it('should not let a load the inner run left in flight land after the restore', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const slow = {
+      fr: () => new Promise<Catalog>((done) => setTimeout(() => done({ Hello: 'Bonjour' }), 20)),
+    };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({
+          argv: ['x'],
+          // not awaited, so it settles after `main()` has returned
+          schema: inner(() => void setLocale('fr'), slow),
+          settings,
+        });
+        await new Promise((done) => setTimeout(done, 60));
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo']);
+  });
+
+  it('should restore through a rethrown error and a handled one', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        const boom = (): Promise<unknown> =>
+          main({
+            argv: ['x'],
+            schema: inner(() => {
+              seen.push(reading());
+              throw new Error('boom');
+            }),
+            settings: { ...settings, errorHandler: false },
+          });
+
+        await expect(boom()).rejects.toThrow('boom');
+        seen.push(reading());
+
+        const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+        try {
+          await main({
+            argv: ['x'],
+            schema: inner(() => {
+              throw new Error('handled');
+            }),
+            settings,
+          });
+        } finally {
+          stderr.mockRestore();
+          process.exitCode = undefined;
+        }
+
+        seen.push(reading());
+
+        // a parse that fails before a command ever runs
+        await expect(
+          main({
+            argv: ['nope'],
+            schema: inner(() => {}),
+            settings: { ...settings, allowUnknownOptions: false, errorHandler: false },
+          })
+        ).rejects.toThrow();
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['undefined Hello', 'de Hallo', 'de Hallo', 'de Hallo']);
+  });
+
+  it('should unwind two levels of nesting one at a time', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          await main({
+            argv: ['x'],
+            locale: 'fr',
+            schema: inner(async () => {
+              seen.push(reading());
+              await main({
+                argv: ['x'],
+                schema: inner(() => void seen.push(reading())),
+                settings,
+              });
+              seen.push(reading());
+            }, fr),
+            settings,
+          });
+          seen.push(reading());
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+
+    expect(seen).toEqual(['fr Bonjour', 'undefined Hello', 'fr Bonjour', 'de Hallo']);
+  });
+
+  it('should leave a top-level main() its locale once it returns', async () => {
+    const { main } = await import('../src/index.js');
+
+    await main({
+      argv: ['x'],
+      locale: 'de',
+      schema: inner(() => {}, { de: async () => hello }),
+      settings,
+    });
+
+    expect(reading()).toBe('de Hallo');
+  });
+
+  /** Resolves after `ms`, from whatever async context asked. */
+  const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
+
+  it('should keep the loader map, so the outer app can set a locale after the nested call', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello, fr: async () => ({ Hello: 'Bonjour' }) };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        await main({ argv: ['x'], schema: inner(() => {}), settings });
+        await setLocale('fr');
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    expect(seen).toEqual(['fr Bonjour']);
+  });
+
+  it('should restore for a main() called from a listener made before the outer call', async () => {
+    const { main } = await import('../src/index.js');
+    const { EventEmitter } = await import('node:events');
+    const seen: string[] = [];
+    // made out here, so the listener's emit inherits no async context from the
+    // outer `main()` -- which is what a `process.stdin` listener is
+    const emitter = new EventEmitter();
+    const timer = setTimeout(() => emitter.emit('pick'), 20);
+
+    try {
+      await main({
+        argv: ['go'],
+        locale: 'de',
+        schema: app(
+          async () => {
+            seen.push(reading());
+            await new Promise<void>((done) =>
+              emitter.once('pick', () => {
+                void main({ argv: ['x'], schema: inner(() => {}), settings }).then(() => done());
+              })
+            );
+            seen.push(reading());
+          },
+          { de: async () => hello }
+        ),
+        settings,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    expect(seen).toEqual(['de Hallo', 'de Hallo']);
+  });
+
+  it('should leave a main() started after the outer call returned its own locale', async () => {
+    const { main } = await import('../src/index.js');
+    let late: Promise<void> = Promise.resolve();
+
+    await main({
+      argv: ['go'],
+      schema: app(async () => {
+        // scheduled inside the outer run, so it inherits that run's context --
+        // which names a call that has returned by the time it fires
+        late = wait(20).then(async () => {
+          await main({
+            argv: ['x'],
+            locale: 'fr',
+            schema: inner(() => {}, { fr: async () => ({ Hello: 'Bonjour' }) }),
+            settings,
+          });
+        });
+      }),
+      settings,
+    });
+    await late;
+
+    expect(reading()).toBe('fr Bonjour');
+  });
+
+  it.each([
+    ['the one with no locales finishing first', 10, 40],
+    ['the one with a locale finishing first', 40, 10],
+  ])('should restore once for two concurrent nested calls, %s', async (_name, plain, french) => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          await Promise.all([
+            main({ argv: ['x'], schema: inner(() => wait(plain)), settings }),
+            main({
+              argv: ['x'],
+              locale: 'fr',
+              schema: inner(() => wait(french), { fr: async () => ({ Hello: 'Bonjour' }) }),
+              settings,
+            }),
+          ]);
+          seen.push(reading());
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+
+    expect(seen).toEqual(['de Hallo']);
+    expect(reading()).toBe('de Hallo');
+  });
+
+  it('should roll back the later of two overlapping top-level calls, which read as nested', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+    const earlier = main({
+      argv: ['x'],
+      locale: 'de',
+      schema: inner(() => wait(80), { de: async () => hello }),
+      settings,
+    });
+
+    await wait(20);
+    await main({
+      argv: ['x'],
+      locale: 'fr',
+      schema: inner(() => void seen.push(reading()), { fr: async () => ({ Hello: 'Bonjour' }) }),
+      settings,
+    });
+    seen.push(reading());
+    await earlier;
+
+    expect(seen).toEqual(['fr Bonjour', 'de Hallo']);
+    expect(reading()).toBe('de Hallo');
+  });
+
+  it('should give a call from a context-less listener the innermost call as its parent', async () => {
+    const { main } = await import('../src/index.js');
+    const { EventEmitter } = await import('node:events');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+    // made out here, so the listener inherits no async context at all
+    const emitter = new EventEmitter();
+    const timer = setTimeout(() => emitter.emit('pick'), 20);
+
+    try {
+      await main({
+        argv: ['go'],
+        locale: 'de',
+        schema: app(
+          async () => {
+            await main({
+              argv: ['x'],
+              locale: 'fr',
+              schema: inner(async () => {
+                seen.push(`B before C: ${reading()}`);
+                await new Promise<void>((done) =>
+                  emitter.once('pick', () => {
+                    void main({ argv: ['x'], schema: inner(() => {}), settings }).then(() =>
+                      done()
+                    );
+                  })
+                );
+                seen.push(`B after C: ${reading()}`);
+              }, fr),
+              settings,
+            });
+            seen.push(`A after B: ${reading()}`);
+          },
+          { de: async () => hello }
+        ),
+        settings,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    expect(seen).toEqual([
+      'B before C: fr Bonjour',
+      'B after C: fr Bonjour',
+      'A after B: de Hallo',
+    ]);
+  });
+
+  it('should restore nothing under a call that is still running when its parent has returned', async () => {
+    const { main } = await import('../src/index.js');
+    const seen: string[] = [];
+    const fr = { fr: async () => ({ Hello: 'Bonjour' }) };
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(
+        async () => {
+          let outliving: Promise<unknown> = Promise.resolve();
+
+          await main({
+            argv: ['x'],
+            locale: 'fr',
+            schema: inner(async () => {
+              // not awaited: it ends after the call that started it has returned
+              outliving = main({ argv: ['x'], schema: inner(() => wait(40)), settings });
+              await wait(5);
+            }, fr),
+            settings,
+          });
+          seen.push(`A after B returned, C running: ${reading()}`);
+          await outliving;
+          seen.push(`A after C ended: ${reading()}`);
+        },
+        { de: async () => hello }
+      ),
+      settings,
+    });
+    seen.push(`top after A: ${reading()}`);
+
+    expect(seen).toEqual([
+      // the subtree settles together: B returned, and C is still the app running
+      'A after B returned, C running: undefined Hello',
+      'A after C ended: de Hallo',
+      'top after A: de Hallo',
+    ]);
+  });
+
+  it('should leave nothing in flight when a call`s body throws before it returns a promise', async () => {
+    const { main } = await import('../src/index.js');
+    const { inCall } = await import('../src/nested-call.js');
+
+    // `main()`'s own body is async and cannot do this, which is the point of
+    // guarding the list's exit rather than trusting every body to be
+    await expect(
+      inCall((): Promise<never> => {
+        throw new Error('body threw');
+      })
+    ).rejects.toThrow('body threw');
+
+    // a later top-level call is not nested under a call that never left
+    await main({
+      argv: ['x'],
+      locale: 'de',
+      schema: inner(() => {}, { de: async () => hello }),
+      settings,
+    });
+
+    expect(reading()).toBe('de Hallo');
+  });
+
+  it('should discard a setLocale() the outer app made while the nested call was running', async () => {
+    const { main } = await import('../src/index.js');
+    const locales = { de: async () => hello, fr: async () => ({ Hello: 'Bonjour' }) };
+    const seen: string[] = [];
+
+    await main({
+      argv: ['go'],
+      locale: 'de',
+      schema: app(async () => {
+        const nested = main({ argv: ['x'], schema: inner(() => wait(30)), settings });
+
+        await setLocale('fr');
+        seen.push(reading());
+        await nested;
+        seen.push(reading());
+      }, locales),
+      settings,
+    });
+
+    // `fr` is the tag, and English the text: while the nested call runs the loader map
+    // is the nested app's, which declares none, so there was nothing to resolve it against
+    expect(seen).toEqual(['fr Hello', 'de Hallo']);
+  });
+});
