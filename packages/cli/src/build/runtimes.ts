@@ -50,7 +50,13 @@
  * `compile.executablePath` -- see "Bun cross-targets" in AGENTS.md.
  */
 
-import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
+import {
+  BUN_COMPILES_FROM,
+  NODE_BUILD_SEA,
+  RUNTIMES,
+  type Runtime,
+  type Target,
+} from './compile.ts';
 import { isInside } from './discover.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { cache } from '@ttylabs/sigil/paths';
@@ -699,7 +705,8 @@ export async function resolve(
  *
  * @param exec - The `bun` executable.
  * @returns Its version.
- * @throws If it cannot be run, is a prerelease, or does not report a version.
+ * @throws If it cannot be run, is a prerelease, does not report a version, or is
+ *   older than one that can embed a runtime it was handed.
  */
 export function bunVersion(exec: string): string {
   const run = spawnSync(exec, ['--revision'], { encoding: 'utf-8', timeout: 30_000 });
@@ -714,6 +721,14 @@ export function bunVersion(exec: string): string {
   if (run.status !== 0 || !isVersion(version)) {
     throw new Error(
       `${exec} did not report a release version (it said "${escapeControls(said.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
+    );
+  }
+
+  // before anything is fetched: a Bun that cannot embed a runtime it was handed
+  // would only be found out after the download, by `assertEmbedded()`
+  if (compare(version, BUN_COMPILES_FROM) < 0) {
+    throw new Error(
+      `${exec} is Bun ${version}, which accepts "compile" in Bun.build() and ignores it, so it cannot embed the runtime sigil verified for another platform; use ${BUN_COMPILES_FROM} or newer.`
     );
   }
 

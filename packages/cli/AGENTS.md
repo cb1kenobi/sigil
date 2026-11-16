@@ -4676,27 +4676,51 @@ about what a valid app is would be the worse half of the feature.
   **"Host" is node's answer, and `bun` can disagree.** `isHostTarget()` reads
   `process.platform` and `process.arch`, which are the machine **node** thinks it
   is on: an x64 node under Rosetta beside a native arm64 `bun` counts `darwin-x64`
-  as the host, takes the CLI form, and Bun downloads that target itself --
-  reproduced for the download half. So both compile spawns run in `offline()`: the
-  four proxy variables point at a closed local port and `NO_PROXY`/`no_proxy` are
-  removed (`NO_PROXY=*` was measured to go straight past a dead proxy). Anything
-  that makes Bun try to download then fails loudly with `Failed to download ...
-  ConnectionRefused` instead of embedding an unchecked runtime. Measured under it:
-  a host-target compile and a `Bun.build()` cross compile with an embedded runtime
-  both still succeed, and the CLI form for a foreign target with an empty cache
-  fails. The bundle is already done by rolldown, so Bun needs the network for
-  nothing else.
+  as the host, takes the CLI form, and Bun treats that target as foreign. For a
+  foreign target Bun looks for `bun-<triple>-v<version>` in its **working
+  directory**, then in its **install cache** (`BUN_INSTALL_CACHE_DIR`, else
+  `~/.bun/install/cache`), uses what it finds with no integrity check of any kind,
+  and only then downloads. So `offline()` closes exactly three things, one per
+  place it looks, and both compile spawns run in it:
+  - **the network** -- the four proxy variables point at `http://127.0.0.1:0`,
+    which refuses at once (port 9 was used first and is wrong: it can be bound
+    unprivileged on macOS, and a silent listener hung Bun for good, with no
+    timeout on `spawnSync`), and every `NO_PROXY` spelling is deleted, matched by
+    lower case because Windows keeps the user's own spelling and looks names up
+    without regard to it. `NO_PROXY=*` was measured to go straight past a dead proxy;
+  - **Bun's install cache** -- `BUN_INSTALL_CACHE_DIR` is an empty directory made
+    for the spawn, so neither the user's own `~/.bun/install/cache` (which holds
+    `bun-darwin-x64-v1.4.4` on the machine this was written on) nor anything
+    planted in it is read;
+  - **the working directory** -- the same empty directory, and the CLI form's
+    entry and outfile are absolute for it, as the embedding form's already were.
+
+  Measured: a renamed 1.3.0 arm64 binary as `bun-darwin-x64-v1.4.4` was embedded
+  **silently** whether it sat in the cache or in the working directory, giving a
+  "darwin-x64" binary that is Mach-O arm64 and reports 1.3.0 -- the dead proxy
+  alone never comes into play, because Bun never reaches the download. With both
+  directories empty the same compile fails with `Failed to download
+  'bun-darwin-x64-v1.4.4': ConnectionRefused` (`FailedToOpenSocket` through sigil),
+  and a host-target compile and a `Bun.build()` cross compile with an embedded
+  runtime both still succeed. Simulated end to end by setting `process.arch` to
+  `x64` under an arm64 `bun` with both places poisoned: refused, nothing written,
+  and the error says `bun is not a native darwin-x64 build although node reports
+  darwin-x64 (Rosetta?)` -- added because a user otherwise sees a
+  `ConnectionRefused` for a proxy they never set. The directory is removed
+  afterwards. What is **not** closed is anything else Bun reads, such as
+  `~/.bunfig.toml`; none of it is a place a runtime can come from.
 
   **Baseline and musl.** The runtime npm serves for a triple is its default
   package, `@oven/bun-<os>-<arch>`, and that is what sigil always picks.
   `@oven/bun-linux-x64-baseline`, `-musl`, `-musl-baseline`,
   `@oven/bun-linux-aarch64-musl`, `@oven/bun-darwin-x64-baseline` and
-  `@oven/bun-windows-x64-baseline` all exist at 1.4.4. Bun's own cross download
-  was reported to pick a baseline or musl runtime for a host of that kind, so a
-  baseline or musl host's cross targets used to get that and now get the default
-  package. sigil's targets have no such axis (`linux-x64`, not `linux-x64-musl`),
-  so there is nothing to choose between; a musl or baseline _target_ is not
-  something `sigil package` can produce.
+  `@oven/bun-windows-x64-baseline` all exist at 1.4.4. Bun's own
+  `CompileTarget.tryFrom` starts from the **host's** baseline and libc, so a
+  baseline or musl host's cross targets used to get that variant of the runtime
+  and now get npm's default package. Host compiles on such hosts are unaffected,
+  since they embed the `bun` that compiles. sigil's targets have no such axis
+  (`linux-x64`, not `linux-x64-musl`), so there is nothing to choose between; a
+  musl or baseline _target_ is not something `sigil package` can produce.
 
   **When it is verified and when it is embedded are not the same moment.**
   `resolveEmbeds()` verifies the runtime before the bundle and `compileBun()`
@@ -4735,8 +4759,10 @@ about what a valid app is would be the worse half of the feature.
   it with every path absolute, rather than in the app. And a Bun that predates
   `compile` in `Bun.build()` takes the option, ignores it, writes nothing and
   answers `success: true` -- 1.2.20 does and 1.2.21 does not (measured at both,
-  with 1.2.15 and 1.2.23 either side) -- so `assertEmbedded()` refuses a run that
-  left no binary, or one under half the size of the runtime in it. And what is at
+  with 1.2.15 and 1.2.23 either side) -- so `bunVersion()` refuses a bundler below
+  1.2.21 before anything is fetched, and `assertEmbedded()` stays as the backstop,
+  refusing a run that left no binary, or one under half the size of the runtime
+  in it. And what is at
   the output is removed **first**, because that size check passes a stale binary:
   with `--no-clean` the last release is at that path, bigger than half the
   runtime, and an old Bun would have shipped it as this run's. Half rather than all: a Mach-O runtime's signature is
@@ -4778,8 +4804,10 @@ about what a valid app is would be the worse half of the feature.
   separate cache directory, the release-version rule, the cached reuse, the
   `--no-install -e` form and `executablePath` itself, the last asserted on the
   script's text in a test that runs without Bun (CI installs none), the stale
-  output being removed, `--revision` and the canary refusal, and the dead proxy in
-  both spawns' environment -- and each fails a named test.
+  output being removed, `--revision` and the canary refusal, the floor, a host-only
+  run never asking for the revision, and the dead proxy, the empty install cache
+  and the empty working directory in both spawns' environment -- and each fails a
+  named test.
 
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First

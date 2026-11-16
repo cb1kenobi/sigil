@@ -430,6 +430,13 @@ function signsOn(target: Target, runtime: Runtime, identity: string | undefined)
   return target.platform === 'darwin';
 }
 
+/**
+ * The first Bun whose `Bun.build()` honours `compile`: 1.2.20 takes the option,
+ * ignores it, writes nothing and answers `success: true`, and 1.2.21 writes the
+ * binary (both measured).
+ */
+export const BUN_COMPILES_FROM = '1.2.21';
+
 /** What `compile()` was asked to do. */
 export interface CompileOptions {
   /** The bundle to embed -- ESM for Bun, the flat `.cjs` for Node. */
@@ -580,21 +587,24 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
   const { embed, entry, out, sign: identity, target } = options;
   const run =
     embed === undefined
-      ? spawnSync(
-          bun,
-          [
-            'build',
-            '--compile',
-            `--target=bun-${label(target)}`,
-            entry,
-            '--outfile',
-            out,
-            // the bundle is already minified by `sigil build`, and asking Bun to do
-            // it again buys nothing measurable while making a stack trace from the
-            // packaged binary harder to read than one from the unpackaged app
-            '--sourcemap=none',
-          ],
-          { encoding: 'utf-8', env: offline() }
+      ? scratch((here) =>
+          spawnSync(
+            bun,
+            [
+              'build',
+              '--compile',
+              `--target=bun-${label(target)}`,
+              // absolute, because it no longer runs where the caller did
+              resolve(entry),
+              '--outfile',
+              resolve(out),
+              // the bundle is already minified by `sigil build`, and asking Bun to do
+              // it again buys nothing measurable while making a stack trace from the
+              // packaged binary harder to read than one from the unpackaged app
+              '--sourcemap=none',
+            ],
+            { cwd: here, encoding: 'utf-8', env: offline(here) }
+          )
         )
       : compileEmbedding(bun, options, embed);
 
@@ -603,7 +613,14 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
   }
 
   if (run.status !== 0) {
-    throw new Error(`bun build --compile failed for ${label(target)}:\n${said(run)}`);
+    // the one failure this environment is built to cause: a Bun that tried to
+    // fetch a runtime because it does not agree with node about the host
+    const hint =
+      embed === undefined && /Failed to download/.test(run.stderr)
+        ? `\n  bun is not a native ${label(target)} build although node reports ${label(target)} (Rosetta?), so it tried to fetch that platform's runtime, which sigil does not allow it to. Use a node and a bun of the same architecture.`
+        : '';
+
+    throw new Error(`bun build --compile failed for ${label(target)}:\n${said(run)}${hint}`);
   }
 
   if (embed !== undefined) {
@@ -623,40 +640,75 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
 }
 
 /**
- * An environment in which Bun cannot download anything.
+ * Runs `work` in an empty directory made for it, and removes the directory after.
+ *
+ * @param work - Given the directory.
+ * @returns What `work` returned.
+ */
+function scratch<T>(work: (here: string) => T): T {
+  const here = mkdtempSync(join(tmpdir(), 'sigil-compile-'));
+
+  try {
+    return work(here);
+  } finally {
+    rmSync(here, { force: true, recursive: true });
+  }
+}
+
+/**
+ * What a `bun` is run in, so that it can neither download a runtime nor find one
+ * that nobody checked.
  *
  * Both compile spawns run in it. Which targets are the host's is decided by the
  * platform and architecture **node** reports, and a `bun` can disagree -- an x64
  * node under Rosetta beside a native arm64 `bun` counts `darwin-x64` as the host
- * and runs the CLI form, which then fetches that target's runtime itself, which
- * is the thing this exists to stop. Measured: `bun build --compile
- * --target=bun-linux-x64` with an empty cache fails with `Failed to download
- * 'bun-linux-x64-v1.4.4': ConnectionRefused` under it, and a host-target compile
- * and a `Bun.build()` cross compile with an embedded runtime both still succeed.
- * Any path on which Bun tries to download is therefore a loud failure rather
- * than an unchecked runtime in a shipped binary.
+ * and runs the CLI form, which for a target it takes to be foreign looks for
+ * `bun-<triple>-v<version>` first in its **working directory**, then in its
+ * **install cache** (`BUN_INSTALL_CACHE_DIR`, or `~/.bun/install/cache`), uses
+ * what it finds there with no check of any kind, and only then downloads. Three
+ * things are closed, one for each place it looks:
  *
- * `NO_PROXY` is cleared because `NO_PROXY=*` was measured to send the request
- * straight past the dead proxy. Both spellings of each, since Bun reads either.
+ * - **The working directory** is `here`, an empty directory, so nothing in the
+ *   directory sigil was started from can be a runtime.
+ * - **The install cache** is `here` too, set through `BUN_INSTALL_CACHE_DIR`, so
+ *   neither the user's own `~/.bun/install/cache` nor anything planted in it is
+ *   read. Measured: a renamed 1.3.0 arm64 binary as `bun-darwin-x64-v1.4.4`, in
+ *   the cache or in the working directory, was embedded silently into a
+ *   "darwin-x64" binary that is Mach-O arm64 and reports 1.3.0.
+ * - **The network** is every proxy variable at a port nothing can listen on
+ *   (`:0`, which fails at once; `:9` can be bound unprivileged on macOS, and a
+ *   silent listener there hung Bun for good) with `NO_PROXY` removed in every
+ *   spelling, since `NO_PROXY=*` was measured to send the request straight past
+ *   a dead proxy.
  *
+ * What is left is a loud failure -- `Failed to download 'bun-darwin-x64-v1.4.4':
+ * ConnectionRefused` -- rather than an unchecked runtime in a shipped binary. A
+ * host-target compile and a `Bun.build()` cross compile with an embedded runtime
+ * both still succeed in it.
+ *
+ * @param here - An empty directory, which is also where the spawn runs.
  * @returns The environment to spawn `bun` with.
  */
-function offline(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+function offline(here: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, BUN_INSTALL_CACHE_DIR: here };
+
+  // by lower case, because Windows keeps the user's own spelling (`No_Proxy`)
+  // and looks a name up without regard to case, so two names are one
+  for (const name of Object.keys(env)) {
+    if (/^(?:https?_proxy|no_proxy)$/i.test(name)) {
+      delete env[name];
+    }
+  }
 
   for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {
     env[name] = DEAD_PROXY;
   }
 
-  for (const name of ['NO_PROXY', 'no_proxy']) {
-    delete env[name];
-  }
-
   return env;
 }
 
-/** A local port nothing listens on, which is where a request to download goes to die. */
-const DEAD_PROXY = 'http://127.0.0.1:9';
+/** A proxy address that refuses at once: port 0 is not one anything can listen on. */
+const DEAD_PROXY = 'http://127.0.0.1:0';
 
 /**
  * The script a `bun` runs to compile with a runtime it was handed.
@@ -709,9 +761,7 @@ try {
  * @returns The finished process.
  */
 function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
-  const here = mkdtempSync(join(tmpdir(), 'sigil-compile-'));
-
-  try {
+  return scratch((here) => {
     // whatever is at the output goes first. A Bun that predates `compile` in
     // `Bun.build()` writes nothing and answers `success: true`, so a binary an
     // earlier run left there -- `--no-clean` keeps one -- would pass the size
@@ -729,11 +779,9 @@ function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
         `bun-${label(options.target)}`,
         resolve(embed),
       ],
-      { cwd: here, encoding: 'utf-8', env: offline() }
+      { cwd: here, encoding: 'utf-8', env: offline(here) }
     );
-  } finally {
-    rmSync(here, { force: true, recursive: true });
-  }
+  });
 }
 
 /**
@@ -764,7 +812,7 @@ function assertEmbedded(out: string, embed: string, bun: string, target: Target)
   // the binary can come out a few hundred kilobytes under the file it embeds
   if (wrote < statSync(embed).size / 2) {
     throw new Error(
-      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use 1.2.21 or newer.`
+      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use ${BUN_COMPILES_FROM} or newer.`
     );
   }
 }

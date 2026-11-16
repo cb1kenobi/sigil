@@ -1090,6 +1090,36 @@ describe('sigil package', () => {
     }, 120_000);
 
     it.skipIf(process.platform === 'win32')(
+      'should not ask the bundler for its revision when every target is the host',
+      async () => {
+        // the version is only needed to fetch a runtime for another platform,
+        // and a run with none has no use for it
+        serveRuntimes();
+
+        const bun = stubBun();
+        rmSync(join(bun, REVISIONS), { force: true });
+
+        await withBun(bun, () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            label(hostTarget())
+          )
+        );
+
+        // the stand-in cannot sign what it writes on macOS, so the run may
+        // fail late; what is asked is whether it asked
+        expect(existsSync(join(bun, REVISIONS))).toBe(false);
+      },
+      60_000
+    );
+
+    it.skipIf(process.platform === 'win32')(
       'should build one binary per target named once, however often it was named',
       async () => {
         // two spellings of one target would compile twice to one path, the

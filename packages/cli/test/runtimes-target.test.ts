@@ -265,6 +265,12 @@ describe('what a bundler reports', () => {
     );
   });
 
+  it.skipIf(!POSIX)('should refuse a Bun that ignores compile, before anything is fetched', () => {
+    // 1.2.20 takes `compile` in Bun.build(), writes nothing and says success
+    expect(() => bunVersion(stub('1.2.20', '1.2.20+abcdef123'))).toThrow(/use 1\.2\.21 or newer/);
+    expect(bunVersion(stub('1.2.21', '1.2.21+abcdef123'))).toBe('1.2.21');
+  });
+
   it.skipIf(!POSIX)('should refuse what is not a version at all', () => {
     expect(() => bunVersion(stub('../../x', '../../x'))).toThrow(/release version/);
   });

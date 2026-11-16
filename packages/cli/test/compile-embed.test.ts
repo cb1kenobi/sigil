@@ -11,7 +11,7 @@ import { tempDir } from './temp.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -50,7 +50,7 @@ function recorder(name: string, size: number): { exec: string; ran: string } {
   writeFileSync(
     exec,
     // $4 is the entry and $5 the outfile: `--no-install -e <script> <entry> <outfile> <target> <runtime>`
-    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\nenv > '${ran}.env'\n[ "$1" = "--no-install" ] && [ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`,
+    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\nenv > '${ran}.env'\n{ [ -d "$BUN_INSTALL_CACHE_DIR" ] && echo exists; [ -z "$(ls -A "$BUN_INSTALL_CACHE_DIR")" ] && echo empty; } > '${ran}.cache'\n[ "$1" = "--no-install" ] && [ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`,
     { mode: 0o755 }
   );
 
@@ -151,20 +151,25 @@ describe('compiling for a platform that is not this one', () => {
 
   describe.skipIf(!POSIX)('the environment bun is run in', () => {
     // which targets are the host's is node's answer, and a bun can disagree
-    // (an x64 node under Rosetta beside an arm64 bun). So that any path on
-    // which bun tries to download fails instead of embedding an unchecked
-    // runtime, neither spawn is given a network
+    // (an x64 node under Rosetta beside an arm64 bun). Such a bun looks for a
+    // runtime in its working directory, then in its install cache, and uses
+    // what it finds with no check, then downloads. So neither spawn is given a
+    // network, a cache, or a directory with anything in it
     const saved = { ...process.env };
+    const names = [
+      'HTTPS_PROXY',
+      'HTTP_PROXY',
+      'https_proxy',
+      'http_proxy',
+      'NO_PROXY',
+      'no_proxy',
+    ];
 
     afterEach(() => {
-      for (const name of [
-        'HTTPS_PROXY',
-        'HTTP_PROXY',
-        'https_proxy',
-        'http_proxy',
-        'NO_PROXY',
-        'no_proxy',
-      ]) {
+      delete process.env.No_Proxy;
+      delete process.env.BUN_INSTALL_CACHE_DIR;
+
+      for (const name of names) {
         if (saved[name] === undefined) {
           delete process.env[name];
         } else {
@@ -173,10 +178,12 @@ describe('compiling for a platform that is not this one', () => {
       }
     });
 
-    const dead = (name: string, target: Target, embed?: string) => {
+    const run = (name: string, target: Target, embed?: string) => {
       process.env.NO_PROXY = '*';
       process.env.no_proxy = '*';
+      process.env.No_Proxy = '*';
       process.env.HTTPS_PROXY = 'http://proxy.example:3128';
+      process.env.BUN_INSTALL_CACHE_DIR = join(box, 'users-own-cache');
 
       const { exec, ran } = recorder(name, 1000);
       const out = join(box, `${name}.out`);
@@ -192,24 +199,63 @@ describe('compiling for a platform that is not this one', () => {
         // environment it ran in is the thing being read
       }
 
-      return readFileSync(`${ran}.env`, 'utf-8').split('\n');
+      const [cwd, ...args] = readFileSync(ran, 'utf-8').trimEnd().split('\n') as [
+        string,
+        ...string[],
+      ];
+
+      return {
+        args,
+        cache: readFileSync(`${ran}.cache`, 'utf-8').trim().split('\n'),
+        cwd,
+        env: readFileSync(`${ran}.env`, 'utf-8').split('\n'),
+      };
     };
 
-    const checks = (lines: string[]) => {
+    const checks = (seen: ReturnType<typeof run>) => {
+      // the network: a port that refuses at once, and nothing that goes round it
       for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {
-        expect(lines).toContain(`${name}=http://127.0.0.1:9`);
+        expect(seen.env).toContain(`${name}=http://127.0.0.1:0`);
       }
 
-      // `NO_PROXY=*` sends a request straight past a dead proxy
-      expect(lines.filter((line) => /^no_proxy=/i.test(line))).toEqual([]);
+      // `NO_PROXY=*` sends a request straight past a dead proxy, in any spelling
+      expect(seen.env.filter((line) => /^no_proxy=/i.test(line))).toEqual([]);
+
+      // the install cache is an empty directory that exists, and it is where the
+      // spawn runs -- not the user's own cache, and not where sigil was started
+      const cache = seen.env.find((line) => line.startsWith('BUN_INSTALL_CACHE_DIR='))?.slice(22);
+
+      expect(cache).toBeDefined();
+      expect(cache).not.toBe(join(box, 'users-own-cache'));
+      expect(seen.cache).toEqual(['exists', 'empty']);
+      // the same directory, which is gone by now, so named rather than resolved
+      expect(basename(seen.cwd)).toBe(basename(cache as string));
+      expect(seen.cwd).not.toBe(process.cwd());
     };
 
     it('should be one Bun cannot download in, when it embeds a runtime', () => {
-      checks(dead('bun-env-embed', other, join(box, 'runtime-env')));
+      checks(run('bun-env-embed', other, join(box, 'runtime-env')));
     });
 
     it('should be one Bun cannot download in, when it compiles for the host', () => {
-      checks(dead('bun-env-host', hostTarget()));
+      const seen = run('bun-env-host', hostTarget());
+
+      checks(seen);
+      // absolute, because it does not run where the caller did
+      expect(seen.args).toContain(join(process.cwd(), 'entry.js'));
+    });
+
+    it('should say what went wrong when bun tried to download anyway', () => {
+      const exec = join(box, 'bun-tries-to-download');
+      writeFileSync(
+        exec,
+        '#!/bin/sh\necho "Failed to download \'bun-darwin-x64-v1.4.4\': ConnectionRefused" >&2\nexit 1\n',
+        { mode: 0o755 }
+      );
+
+      expect(() =>
+        compileWithBun({ entry: 'entry.js', exec, out: join(box, 'nope'), target: hostTarget() })
+      ).toThrow(/not a native .* build although node reports .*\(Rosetta\?\)/);
     });
   });
 
