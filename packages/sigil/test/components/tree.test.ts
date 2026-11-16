@@ -8,7 +8,7 @@ import {
   type TreeChoiceItem,
   treeGlyphs,
 } from '../../src/components/tree.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type ScreenHarness, screenSetup, tick, until } from './helpers.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, sep } from 'node:path';
@@ -188,11 +188,6 @@ async function type(ui: ScreenHarness, ...chunks: string[]): Promise<void> {
     ui.stdin.send(chunk);
     await tick();
   }
-}
-
-/** Waits for a promise the prompt is holding, which a `tick()` does not. */
-async function until(check: () => void): Promise<void> {
-  await vi.waitFor(check, { interval: 5, timeout: 2000 });
 }
 
 /** The rows under the question, with the pointer column taken off. */

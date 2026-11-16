@@ -6136,8 +6136,10 @@ borrows `runPrompt()` and the field helpers rather than reading a key itself.
   it reads `Searching...` where the fresh answer belongs, which is exactly the
   assertion that failed once on node 24 and ubuntu in CI. The prompt is right in
   that case, since the answer lands in its state at once and is drawn when the
-  frame runs, so it is the wait that is wrong, and `until()` waits for the row.
-  A pinned test runs the same sequence at `frameMs: 40`.
+  frame runs, so it is the wait that is wrong, and `until()` from
+  `test/components/helpers.ts` -- the one definition, `vi.waitFor` over an
+  assertion -- waits for the row. A pinned test runs the same sequence at
+  `frameMs: 40`.
 - **`toChoice()` and `valueOf()` are exported from the bottom block of
   `prompt.ts`** (as `promptChoice` and `promptValue`) rather than copied, so a
   change to what a `Choice` is made in one place.

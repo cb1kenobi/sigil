@@ -1,7 +1,7 @@
 import { createAnsi } from '../../src/ansi/index.js';
 import { autocomplete, type AutocompleteOptions } from '../../src/components/autocomplete.js';
 import { PromptError } from '../../src/components/prompt.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type ScreenHarness, screenSetup, tick, until } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
 const ENTER = '\r';
@@ -29,28 +29,6 @@ async function type(stdin: { send(chunk: string): void }, ...chunks: string[]) {
  */
 async function frame(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 10));
-  await tick();
-}
-
-/**
- * Waits until what the test is about is on the screen, and says what was there
- * if it never is.
- *
- * `frame()` above is a guess at how long the renderer's paced frame takes: ten
- * milliseconds of wall clock, which a loaded runner is free to overrun. An answer
- * that arrives with no key behind it is drawn when that frame runs and not when
- * the answer lands, so the state a test means -- "the fresh answer is up" -- is
- * the thing to wait for rather than a number of ticks (SIG-445). Bounded in wall
- * time, so a screen that never gets there is the assertion after it failing over
- * what was shown, not a test that hangs.
- *
- * @param done - Whether the screen shows what the test is waiting for.
- */
-async function until(done: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (!done() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
   await tick();
 }
 
@@ -505,9 +483,7 @@ describe('autocomplete() and a disabled choice', () => {
       open(ui, { source: () => [{ disabled: true, label: 'prod' }, 'dev', 'qa'] })
     );
 
-    await until(() => rows(ui).length === 3);
-
-    expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('dev');
@@ -537,8 +513,7 @@ describe('autocomplete() over a source', () => {
       open(ui, { source: (term) => (term === '' ? ['old-term-row'] : next.promise) })
     );
 
-    await until(() => rows(ui)[1] === '  ❯ old-term-row');
-    expect(rows(ui)[1]).toBe('  ❯ old-term-row');
+    await until(() => expect(rows(ui)[1]).toBe('  ❯ old-term-row'));
 
     // the row on screen answers the empty term, and `x` has been asked for: it is
     // still drawn, and Enter must not hand it over as though it were current
@@ -560,8 +535,7 @@ describe('autocomplete() over a source', () => {
     expect(rows(ui)).toEqual(['? Pick', '  Searching...']);
 
     pending.resolve(['late']);
-    await until(() => rows(ui)[1] === '  ❯ late');
-    expect(rows(ui)).toEqual(['? Pick', '  ❯ late']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  ❯ late']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('late');
@@ -650,8 +624,7 @@ describe('autocomplete() over a source', () => {
     // frame the renderer paces, and one `frame()` was not always enough on a
     // loaded runner -- 'Searching...' was still up (SIG-445)
     lookups.get('ab')?.resolve(['fresh-answer']);
-    await until(() => rows(ui)[1] === '  ❯ fresh-answer');
-    expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('fresh-answer');
@@ -680,8 +653,7 @@ describe('autocomplete() over a source', () => {
     expect(rows(ui)).toEqual(['? Pick ab', '  Searching...']);
 
     lookups.get('ab')?.resolve(['fresh-answer']);
-    await until(() => rows(ui)[1] === '  ❯ fresh-answer');
-    expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('fresh-answer');
@@ -804,8 +776,7 @@ describe('autocomplete() over a source', () => {
     const ui = screenSetup({ rows: 10 });
     const answer = settle(open(ui, { source: async () => [] }));
 
-    await until(() => rows(ui)[1] === '  No matches');
-    expect(rows(ui)).toEqual(['? Pick', '  No matches']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  No matches']));
 
     await type(ui.stdin, CTRL_C);
     await answer;

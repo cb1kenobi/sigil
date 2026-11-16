@@ -237,6 +237,22 @@ export async function tick(times = 2): Promise<void> {
 }
 
 /**
+ * Waits until an assertion holds, rather than for a length of time.
+ *
+ * A prompt answered by the file system, a lookup or the renderer's paced frame
+ * is on screen when that work finishes and not after any number of ticks, so a
+ * fixed delay is a guess a loaded runner is free to overrun (SIG-445). The check
+ * is retried until it stops throwing, and `vi.waitFor` rethrows the last thing it
+ * threw when the time is up, so a failure names what was on screen.
+ *
+ * @param check - An assertion about the screen, retried until it passes.
+ * @returns Once the assertion holds.
+ */
+export async function until(check: () => void): Promise<void> {
+  await vi.waitFor(check, { interval: 5, timeout: 2000 });
+}
+
+/**
  * Waits for a prompt to have dealt with what it was sent: its output still, and
  * no directory read it is waiting on still out.
  *

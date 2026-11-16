@@ -1,7 +1,14 @@
 import { entryPath, filePicker, parentOf } from '../../src/components/file-picker.js';
 import { candidatesOf, entryCache } from '../../src/components/path.js';
 import { PROMPT_SYMBOLS, PromptError } from '../../src/components/prompt.js';
-import { countEntrySorts, type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
+import {
+  countEntrySorts,
+  type ScreenHarness,
+  screenSetup,
+  settleOutput,
+  tick,
+  until,
+} from './helpers.js';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, posix, sep, win32 } from 'node:path';
@@ -62,11 +69,6 @@ function listed(ui: ScreenHarness): string[] {
 function highlighted(ui: ScreenHarness): string | undefined {
   const row = ui.log.find((line) => line.trimStart().startsWith(PROMPT_SYMBOLS.cursor));
   return row?.trimStart().slice(PROMPT_SYMBOLS.cursor.length).trim();
-}
-
-/** Waits for the file system and the queue, which a `tick()` does not. */
-async function until(check: () => void): Promise<void> {
-  await vi.waitFor(check, { interval: 5, timeout: 2000 });
 }
 
 /** The directory the test owns, which is what Left from the root lands in. */
