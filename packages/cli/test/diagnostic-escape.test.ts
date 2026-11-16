@@ -1,4 +1,9 @@
 import {
+  compileTemplates,
+  templateDiagnostics,
+  TemplateCompileError,
+} from '../src/build/compile-templates.js';
+import {
   type Diagnostic,
   DiagnosticError,
   diagnosticLocation,
@@ -7,6 +12,7 @@ import {
 } from '../src/build/diagnostic.js';
 import { discoverApp, readAppCommands } from '../src/build/discover.js';
 import { checkCatalogs } from '../src/build/i18n.js';
+import { checkMainSettings } from '../src/build/main-settings.js';
 import { resolveCommandTree } from '../src/build/tree.js';
 import { diagnosticsView, render, writeDiagnostics } from '../src/report.js';
 import { tempDir } from './temp.js';
@@ -291,5 +297,83 @@ export default {
       lines.filter((line) => line.startsWith('src/forged.ts')),
       lines.join('\n')
     ).toEqual([]);
+  });
+
+  it('should not let an interpolation in a template forge one', () => {
+    // a template error quotes the source of the interpolation it is about, and an
+    // interpolation can be a nested template literal that holds a newline
+    const source = [
+      "import { ui } from '@ttylabs/sigil/template';",
+      'const Bar = () => null;',
+      'const pick = (x) => x;',
+      'export const view = () =>',
+      '  ui`<${pick(`x\nsrc/forged.ts:1:1: error: FORGED-TEMPLATE`)}>hi</${Bar}>`;',
+      '',
+    ].join('\n');
+
+    let error: unknown;
+    try {
+      compileTemplates('/app/view.ts', source);
+    } catch (e) {
+      error = e;
+    }
+
+    expect(error).toBeInstanceOf(TemplateCompileError);
+    const diagnostics = templateDiagnostics(error as TemplateCompileError);
+    const lines = printed(diagnostics);
+
+    expect(diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(
+      lines.filter((line) => line.startsWith('src/forged.ts')),
+      lines.join('\n')
+    ).toEqual([]);
+    expect(lines).toHaveLength(diagnostics.length);
+  });
+
+  it('should not let a commands.json refusal forge one, which is also what the runtime prints', () => {
+    // thrown by the route rules and caught by `sigil check`, which turns the
+    // message into a diagnostic -- so the line count of the message is the claim
+    for (const json of [
+      JSON.stringify({ [`zz${FORGED(1)}`]: 5 }),
+      JSON.stringify({ list: { alias: [`@x${FORGED(2)}`] } }),
+      JSON.stringify({ [`zz${FORGED(3)}`]: { desc: 1 } }),
+    ]) {
+      const dir = tempDir('sigil-forged-manifest-');
+      writeFileSync(join(dir, 'list.js'), 'export default { run() {} };\n');
+      writeFileSync(join(dir, 'commands.json'), json);
+
+      let message = '';
+      try {
+        resolveCommandTree(dir);
+      } catch (e) {
+        message = (e as Error).message;
+      }
+
+      expect(message, json).not.toBe('');
+      expect(message.split('\n'), message).toHaveLength(1);
+    }
+  });
+
+  it('should not let a settings key passed to main() forge one', () => {
+    const root = tempDir('sigil-forged-settings-');
+    writeFileSync(
+      join(root, 'dev.ts'),
+      `import { main } from '@ttylabs/sigil';\nawait main({ schema, settings: { ${JSON.stringify(`x${FORGED(1)}`)}: 1, assertCwd: false } });\n`
+    );
+    writeFileSync(join(root, 'index.ts'), "export default { name: 'a' };\n");
+
+    const diagnostics = checkMainSettings({
+      entry: join(root, 'index.ts'),
+      manifest: { dependencies: ['@ttylabs/sigil'], path: join(root, 'package.json') },
+      root,
+    });
+    const lines = printed(diagnostics);
+
+    expect(diagnostics.length).toBeGreaterThanOrEqual(1);
+    expect(
+      lines.filter((line) => line.startsWith('src/forged.ts')),
+      lines.join('\n')
+    ).toEqual([]);
+    expect(lines).toHaveLength(diagnostics.length);
   });
 });

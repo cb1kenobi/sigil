@@ -446,6 +446,57 @@ describe('filesystem routing', () => {
         );
       });
 
+      it.each([
+        ['an entry that is not an object', '{ "z\\u001b[2J\\nx": 5 }', /"z\\x1B\[2J\\x0Ax" in /],
+        [
+          'a desc of the wrong type',
+          '{ "z\\u001b\\nx": { "desc": 1 } }',
+          /desc for "z\\x1B\\x0Ax" in /,
+        ],
+        [
+          'a hidden of the wrong type',
+          '{ "z\\u001b\\nx": { "hidden": 1 } }',
+          /hidden for "z\\x1B\\x0Ax" in /,
+        ],
+        [
+          'a default of the wrong type',
+          '{ "z\\u001b\\nx": { "default": 1 } }',
+          /default for "z\\x1B\\x0Ax" in /,
+        ],
+        [
+          'an alias of the wrong type',
+          '{ "z\\u001b\\nx": { "alias": 1 } }',
+          /alias for "z\\x1B\\x0Ax" in /,
+        ],
+        [
+          'a name-string alias',
+          '{ "z\\u001b\\nx": { "alias": ["@y\\u001b\\nw"] } }',
+          /Invalid alias "@y\\x1B\\x0Aw" for "z\\x1B\\x0Ax" in /,
+        ],
+        [
+          'two defaults',
+          '{ "a\\u001b\\n": { "default": true }, "b\\u001b\\n": { "default": true } }',
+          /"a\\x1B\\x0A" and "b\\x1B\\x0A" are both default in /,
+        ],
+      ])(
+        'should escape a control character in a key it echoes, in %s (SIG-443)',
+        async (_, json, expected) => {
+          // a `commands.json` key is whatever the file holds, and these refusals
+          // reach the terminal raw at run time and become a build diagnostic
+          // line, where a newline is a line the reader's tooling reads as a
+          // second diagnostic
+          const dir = app({ 'commands.json': json });
+
+          const error = await parse({ argv: [], schema: { commands: dir } }).then(
+            () => undefined,
+            (e: unknown) => e as Error
+          );
+
+          expect(error?.message).toMatch(expected);
+          expect(error?.message).not.toMatch(/\p{Cc}/u);
+        }
+      );
+
       it('should ignore a property it does not know', async () => {
         // ignored rather than refused, for the reason a stale entry is: the
         // app runs as it would without it, and `sigil check` says so

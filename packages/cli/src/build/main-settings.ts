@@ -58,6 +58,7 @@ import { defaultObject } from './extract.ts';
 import { isUndefined, plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';
@@ -330,7 +331,7 @@ function runners(app: DiscoveredApp): string[] {
  */
 function builtUses(keys: readonly string[], schemaKeys: ReadonlySet<string>): string {
   const quoted = (names: readonly string[]): string => {
-    const each = names.map((n) => `\`${n}\``);
+    const each = names.map((n) => `\`${escapeControls(n)}\``);
     return each.length > 1 ? `${each.slice(0, -1).join(', ')} and ${each.at(-1)}` : each[0]!;
   };
   const fromSchema = keys.filter((key) => schemaKeys.has(key));

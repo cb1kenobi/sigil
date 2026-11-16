@@ -177,9 +177,13 @@ export function byLocation(
  * a quoted `a\nsrc/forged.ts:1:1: error: ...` is a second line that an editor's
  * problem matcher or a CI log parser reads as a real diagnostic. So a producer
  * that echoes a value from the app's source or the file system escapes it with
- * `escapeControls()` itself, which handles `\n` too -- `discover.ts`, `i18n.ts`,
- * `extract.ts` and `tree.ts` do, and the sink is what stands behind them for every
- * other character.
+ * `escapeControls()` itself, which handles `\n` too. Those that do, after SIG-443:
+ * `discover.ts`, `i18n.ts`, `extract.ts`, `tree.ts`, `compile-templates.ts` (a
+ * template error quotes the source of an interpolation), `main-settings.ts` (the
+ * keys of a `main()` call's settings) and `parse-module.ts` (a parse failure),
+ * plus the route rules in `routes.ts`, which escape where they throw because the
+ * runtime prints the same message. The sink is what stands behind them for every
+ * other character, and a producer not on that list has not been audited for it.
  *
  * @param diagnostic - The diagnostic.
  * @returns The message, with each control character but a newline and a tab as `\xNN`.

@@ -1677,6 +1677,14 @@ the thing this file keeps refusing. A leftover `routeInfo` is custom data and is
 ignored, with no compatibility read and no warning. Pinned by `a commands.json`
 in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md`.
 
+**A refusal of a `commands.json` echoes a key the file holds, so it escapes it
+where it throws (SIG-443).** An entry name, an alias, the file's path and the two
+names of a double `default` go through `escapeControls()` in `readRouteManifest()`,
+by the rule at the top of this file. It is a message the runtime prints and
+`sigil check` turns into a diagnostic line, so a newline in a key was both a raw
+terminal byte and a second line a log parser reads as an error. Pinned by `should
+escape a control character in a key it echoes` in `test/parser/routing.test.ts`.
+
 ### A route's name is the file system's, taken literally (SIG-389)
 
 - **A name a file, a directory or a manifest gave is never a name string.** It

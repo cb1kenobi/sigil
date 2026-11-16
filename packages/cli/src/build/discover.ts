@@ -213,7 +213,9 @@ export function readManifest(root: string): AppManifest {
   try {
     json = JSON.parse(raw) as Record<string, unknown>;
   } catch (e: unknown) {
-    throw new Error(`Failed to parse ${path}: ${(e as Error).message}`);
+    throw new Error(
+      `Failed to parse ${escapeControls(path)}: ${escapeControls((e as Error).message)}`
+    );
   }
 
   const dependencies = new Set<string>();
@@ -1355,7 +1357,7 @@ function placeholderIdentity(
     const replaced = blocked.filter(isReplaced);
     const carried = blocked.filter((spelling) => !isReplaced(spelling));
     const quoted = (spellings: readonly Spelling[], word: string) => {
-      const list = spellings.map((spelling) => `"${escapeControls(spelling.key)}"`);
+      const list = spellings.map((spelling) => `"${spelling.key}"`);
       return list.length > 1 ? `${list.slice(0, -1).join(', ')} ${word} ${list.at(-1)}` : list[0]!;
     };
     const carriers = carried.map((spelling) => spelling.carrier!);
@@ -1414,7 +1416,7 @@ function placeholderIdentity(
           : 'not an arrow function returning a literal import()';
       error(
         value ?? declared,
-        `the "${command}" command's "${escapeControls(decider.key)}" is ${why}, so it cannot be read at build time; the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it. It can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import(), as in \`path: './build.js'\` or \`load: () => import('./build.js')\``
+        `the "${command}" command's "${decider.key}" is ${why}, so it cannot be read at build time; the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it. It can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import(), as in \`path: './build.js'\` or \`load: () => import('./build.js')\``
       );
     }
   }

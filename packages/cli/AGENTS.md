@@ -1189,17 +1189,27 @@ makes it testable with a fixture directory and no bundler at all.
   package names, import specifiers, and the messages of the errors it catches),
   `i18n.ts` (locales, and the catalog path and parse error), `extract.ts` (the
   route a module is reached by, the spellings it declares and the manifest's
-  path) and `tree.ts` (a `commands.json` key, alias and property).
-  `should not let a name in the source forge a second diagnostic line` is the
-  guard.
+  path), `tree.ts` (a `commands.json` key, alias and property),
+  `compile-templates.ts` (a template error, which quotes the source of an
+  interpolation, and that can be a nested template literal holding a newline),
+  `main-settings.ts` (the keys of a `main()` call's settings) and
+  `parse-module.ts` (a parse failure's path and message). The route rules'
+  refusals of a `commands.json` are escaped at their throw site in
+  `packages/sigil/src/parser/command/routes.ts`, which is the parser's own rule
+  and fixes the runtime's raw message too; `_inspect.ts` turns that thrown
+  message into a diagnostic and needs no change. That list is what has been
+  audited, not a promise about every producer. The guards are the tests in
+  the `a name in the source that holds a newline` block of
+  `test/diagnostic-escape.test.ts`, and `should escape a control character in a
+  key it echoes` in `packages/sigil/test/parser/routing.test.ts`.
 
   On a terminal the canvas already strips a raw sequence, so the visible change
   there is that the name is shown as `\x1B` instead of vanishing. Not covered by
   this entry, because they are thrown rather than reported as a diagnostic:
-  `readManifest()`'s `Failed to parse ${path}` in `discover.ts`, and what
-  rolldown and the bundle step throw. A routed module's `Failed to parse`
-  (`parse-module.ts`) is caught in `_inspect.ts` and becomes a diagnostic, so it
-  is printed escaped. The summary lines are not diagnostics either.
+  what rolldown and the bundle step throw. The `Failed to parse` of a manifest
+  (`discover.ts`) and of a routed module (`parse-module.ts`, caught in
+  `_inspect.ts` and turned into a diagnostic) escape their path and message at
+  the throw. The summary lines are not diagnostics either.
 
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
