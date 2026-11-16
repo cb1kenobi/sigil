@@ -10,7 +10,7 @@ import {
 import { displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
-import { runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
+import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
 import { copyFixture, linkedFixture } from './copy-fixture.ts';
 import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
@@ -970,7 +970,10 @@ describe('sigil package', () => {
         // test reaches the network
         serveRuntimes();
 
-        await withBun(stubBun(), () =>
+        const bun = stubBun();
+        rmSync(join(bun, REVISIONS), { force: true });
+
+        await withBun(bun, () =>
           sigil(
             'package',
             join(fixtures, 'buildable'),
@@ -984,6 +987,10 @@ describe('sigil package', () => {
             'windows-x64'
           )
         );
+
+        // the bundler's version is the same for every target, so it is asked
+        // once for the run and not once for each
+        expect(readFileSync(join(bun, REVISIONS), 'utf-8').trim().split('\n')).toHaveLength(1);
 
         expect(existsSync(join(out, 'buildable-linux-x64'))).toBe(true);
         expect(existsSync(join(out, 'buildable-windows-x64.exe'))).toBe(true);

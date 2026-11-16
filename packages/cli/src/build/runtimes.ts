@@ -685,31 +685,35 @@ export async function resolve(
 }
 
 /**
- * The version a `bun` executable is, asked of the executable itself.
+ * The release version a `bun` executable is, asked of the executable itself.
  *
  * Asked rather than assumed from where it was found, because the bundler's
  * version is what decides which runtime `bun build --compile` would embed for a
  * target (see `compileBun()`), and a `bun` on `PATH` has no version in its path.
- * Only a release is answered: a canary reports something that is not
- * `<major>.<minor>.<patch>`, and there is no published digest to check a
- * runtime for it against.
+ *
+ * `--revision` and not `--version`: a canary prints its release number for the
+ * second -- `1.4.5` -- and only the first says `1.4.5-canary.1+237bba51e`, so
+ * reading `--version` made the canary refusal unreachable. A stable release
+ * prints `1.4.4+38afee6c8`; the `+` is a build id and is dropped. A canary is
+ * refused, because there is no published digest to check its runtime against.
  *
  * @param exec - The `bun` executable.
  * @returns Its version.
- * @throws If it cannot be run or does not report a release version.
+ * @throws If it cannot be run, is a prerelease, or does not report a version.
  */
 export function bunVersion(exec: string): string {
-  const run = spawnSync(exec, ['--version'], { encoding: 'utf-8', timeout: 30_000 });
+  const run = spawnSync(exec, ['--revision'], { encoding: 'utf-8', timeout: 30_000 });
 
   if (run.error) {
-    throw new Error(`Failed to run bun at ${exec}: ${run.error.message}`);
+    throw new Error(`Failed to run bun at ${exec}: ${escapeControls(run.error.message)}`);
   }
 
-  const version = run.stdout.trim();
+  const said = run.stdout.trim();
+  const version = said.split('+')[0] ?? '';
 
   if (run.status !== 0 || !isVersion(version)) {
     throw new Error(
-      `${exec} did not report a release version (it said "${escapeControls(version.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
+      `${exec} did not report a release version (it said "${escapeControls(said.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
     );
   }
 
@@ -732,20 +736,20 @@ export function bunVersion(exec: string): string {
  * another version produces a binary that prints Bun's usage text instead of the
  * app, exit 0 -- the reason `resolve()` exists at all.
  *
- * @param exec - The `bun` that will do the bundling.
+ * @param version - The bundler's version, from `bunVersion()`, read once by
+ *   the caller for every target rather than once per target.
  * @param target - The platform and architecture being built for.
  * @param onFetch - Called before a download starts, so the caller can say so.
  *   `discarded` is why a cached copy was removed first, when one was.
  * @returns The runtime's executable.
- * @throws If the version cannot be told, the runtime could not be fetched, or
- *   it did not match what npm publishes for it.
+ * @throws If the runtime could not be fetched or did not match what npm
+ *   publishes for it.
  */
 export async function bunTargetRuntime(
-  exec: string,
+  version: string,
   target: Target,
   onFetch?: (version: string, discarded?: string) => void
 ): Promise<string> {
-  const version = bunVersion(exec);
   const root = cache(CACHE, TARGETS, bunTriple(target));
 
   let discarded: string | undefined;
@@ -811,7 +815,9 @@ async function download(runtime: Runtime, version: string, target?: Target): Pro
 
   if (!root) {
     throw new Error(
-      `Cannot work out where to cache a runtime: no XDG cache directory, and ${runtime} ${version} is not installed.`
+      target
+        ? `Cannot work out where to cache the ${runtime} ${version} runtime for ${bunTriple(target)}: there is no XDG cache directory.`
+        : `Cannot work out where to cache a runtime: no XDG cache directory, and ${runtime} ${version} is not installed.`
     );
   }
 

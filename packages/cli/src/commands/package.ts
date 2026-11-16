@@ -37,6 +37,7 @@ import {
   bakedUpdateCheck,
   bundleApp,
   bunTargetRuntime,
+  bunVersion,
   readSchemaUpdateCheck,
   compileWithBun,
   compileWithNode,
@@ -709,20 +710,22 @@ async function resolveEmbeds(
   targets: readonly Target[]
 ): Promise<Map<string, string>> {
   const embeds = new Map<string, string>();
+  const cross = runtime === 'bun' ? targets.filter((target) => !isHostTarget(target)) : [];
 
-  if (runtime !== 'bun') {
+  if (cross.length === 0) {
     return embeds;
   }
 
-  for (const target of targets) {
-    if (!isHostTarget(target)) {
-      embeds.set(
-        label(target),
-        await bunTargetRuntime(exec, target, (version, discarded) => {
-          writeNote([fetchNote('bun', version, discarded, target)], process.stderr);
-        })
-      );
-    }
+  // once for the run: it is the bundler's, and it is the same for every target
+  const version = bunVersion(exec);
+
+  for (const target of cross) {
+    embeds.set(
+      label(target),
+      await bunTargetRuntime(version, target, (which, discarded) => {
+        writeNote([fetchNote('bun', which, discarded, target)], process.stderr);
+      })
+    );
   }
 
   return embeds;

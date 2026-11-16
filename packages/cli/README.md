@@ -85,7 +85,8 @@ both the file and its digest; the record is unsigned and sits in the cache, so a
 entry rewritten together with its record passes. A Bun **cross-target** (`--target`
 other than this machine) is checked the same way: sigil fetches that platform's
 runtime from npm, verifies it, and hands it to `bun` to embed, so `bun` never
-downloads one itself and the first build for each target needs the network. A cache
+downloads one itself. The first build needs the network once per target and per Bun
+version, and a cached runtime is re-checked on every use. A cache
 entry from before this check has no record and is fetched once more.
 
 **Pinning a version.** `--runtime` takes a version too:

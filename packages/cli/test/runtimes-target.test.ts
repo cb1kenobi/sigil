@@ -42,11 +42,26 @@ const POSIX = process.platform !== 'win32';
 
 const sha512 = (bytes: Buffer): string => createHash('sha512').update(bytes).digest('base64');
 
-/** A `bun` that says one thing for `--version`. */
-function stub(said: string): string {
-  const path = join(box, `bun-says-${createHash('sha1').update(said).digest('hex')}`);
+/**
+ * A `bun` that prints what a real one prints for each flag.
+ *
+ * They differ, and that is the point: a canary says `1.4.5` for `--version` and
+ * `1.4.5-canary.1+237bba51e` for `--revision`, and a release says `1.4.4` and
+ * `1.4.4+38afee6c8`.
+ */
+function stub(version: string, revision: string): string {
+  const path = join(
+    box,
+    `bun-${createHash('sha1')
+      .update(version + revision)
+      .digest('hex')}`
+  );
 
-  writeFileSync(path, `#!/bin/sh\necho '${said}'\n`, { mode: 0o755 });
+  writeFileSync(
+    path,
+    `#!/bin/sh\ncase "$1" in --version) echo '${version}';; --revision) echo '${revision}';; esac\n`,
+    { mode: 0o755 }
+  );
 
   return path;
 }
@@ -95,11 +110,8 @@ const at = (triple: string, name = 'bun'): string =>
   join(box, 'cache', 'sigil/runtimes/bun-targets', triple, VERSION, name);
 
 describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
-  let exec: string;
-
   beforeEach(() => {
     rmSync(join(box, 'cache'), { force: true, recursive: true });
-    exec = stub(VERSION);
   });
 
   afterEach(() => {
@@ -110,7 +122,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     const bytes = archive('bun', 'LINUX-RUNTIME');
     const calls = npm({ bytes, integrity: sha512(bytes) });
 
-    const path = await bunTargetRuntime(exec, LINUX);
+    const path = await bunTargetRuntime(VERSION, LINUX);
 
     expect(path).toBe(at('bun-linux-x64'));
     expect(readFileSync(path, 'utf-8')).toBe('LINUX-RUNTIME');
@@ -127,7 +139,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     const bytes = archive('bun.exe', 'WINDOWS-RUNTIME');
     const calls = npm({ bytes, integrity: sha512(bytes) });
 
-    const path = await bunTargetRuntime(exec, WINDOWS);
+    const path = await bunTargetRuntime(VERSION, WINDOWS);
 
     expect(path).toBe(at('bun-windows-x64', 'bun.exe'));
     expect(readFileSync(path, 'utf-8')).toBe('WINDOWS-RUNTIME');
@@ -140,7 +152,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     const bytes = archive('bun', 'MAC-RUNTIME');
     const calls = npm({ bytes, integrity: sha512(bytes) });
 
-    await bunTargetRuntime(exec, MAC);
+    await bunTargetRuntime(VERSION, MAC);
 
     expect(calls[0]).toBe('https://registry.npmjs.org/@oven%2fbun-darwin-aarch64/9.9.9');
     expect(existsSync(at('bun-darwin-aarch64'))).toBe(true);
@@ -151,7 +163,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     const bytes = Buffer.from('not what npm published');
     npm({ bytes, integrity: wanted });
 
-    const refusal = await bunTargetRuntime(exec, LINUX).catch((error: Error) => error);
+    const refusal = await bunTargetRuntime(VERSION, LINUX).catch((error: Error) => error);
 
     expect(refusal).toBeInstanceOf(Error);
     expect((refusal as Error).message).toContain('Refusing bun 9.9.9');
@@ -165,7 +177,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     const bytes = archive('bun', 'REAL');
     const calls = npm({ bytes });
 
-    await expect(bunTargetRuntime(exec, LINUX)).rejects.toThrow(/publishes no sha512 integrity/);
+    await expect(bunTargetRuntime(VERSION, LINUX)).rejects.toThrow(/publishes no sha512 integrity/);
 
     // the document only: nothing was downloaded to be left unchecked
     expect(calls).toHaveLength(1);
@@ -175,10 +187,10 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
   it('should be used from the cache, without a request, while it still matches its record', async () => {
     const bytes = archive('bun', 'LINUX-RUNTIME');
     npm({ bytes, integrity: sha512(bytes) });
-    await bunTargetRuntime(exec, LINUX);
+    await bunTargetRuntime(VERSION, LINUX);
 
     const calls = npm({ bytes: Buffer.from('never read') });
-    const again = await bunTargetRuntime(exec, LINUX);
+    const again = await bunTargetRuntime(VERSION, LINUX);
 
     expect(again).toBe(at('bun-linux-x64'));
     expect(calls).toEqual([]);
@@ -187,12 +199,12 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
   it('should be discarded and fetched again when the cached copy no longer matches its record', async () => {
     const bytes = archive('bun', 'LINUX-RUNTIME');
     npm({ bytes, integrity: sha512(bytes) });
-    await bunTargetRuntime(exec, LINUX);
+    await bunTargetRuntime(VERSION, LINUX);
     writeFileSync(at('bun-linux-x64'), 'SWAPPED');
 
     const calls = npm({ bytes, integrity: sha512(bytes) });
     const told: (string | undefined)[] = [];
-    const path = await bunTargetRuntime(exec, LINUX, (_, discarded) => told.push(discarded));
+    const path = await bunTargetRuntime(VERSION, LINUX, (_, discarded) => told.push(discarded));
 
     expect(readFileSync(path, 'utf-8')).toBe('LINUX-RUNTIME');
     expect(told).toEqual(['no longer matches its verification record']);
@@ -205,7 +217,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
     // record and is not a runtime for that target
     const bytes = archive('bun', 'LINUX-RUNTIME');
     npm({ bytes, integrity: sha512(bytes) });
-    await bunTargetRuntime(exec, LINUX);
+    await bunTargetRuntime(VERSION, LINUX);
 
     mkdirSync(join(at('bun-darwin-aarch64'), '..'), { recursive: true });
     for (const file of ['bun', 'sigil-verified.json']) {
@@ -217,7 +229,7 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
 
     const mac = archive('bun', 'MAC-RUNTIME');
     const calls = npm({ bytes: mac, integrity: sha512(mac) });
-    const path = await bunTargetRuntime(exec, MAC);
+    const path = await bunTargetRuntime(VERSION, MAC);
 
     expect(readFileSync(path, 'utf-8')).toBe('MAC-RUNTIME');
     expect(calls).toHaveLength(2);
@@ -226,36 +238,35 @@ describe.skipIf(!POSIX)('the runtime embedded for another platform', () => {
   it('should never be offered as a bundler this machine could run', async () => {
     const bytes = archive('bun', 'LINUX-RUNTIME');
     npm({ bytes, integrity: sha512(bytes) });
-    await bunTargetRuntime(exec, LINUX);
+    await bunTargetRuntime(VERSION, LINUX);
 
     expect(local('bun', LINUX).map((one) => one.version)).not.toContain(VERSION);
   });
 
-  it("should be the bundler's version, asked of the bundler", async () => {
+  it("should be the version it was asked for, from that version's package", async () => {
     const bytes = archive('bun', 'LINUX-RUNTIME');
     const calls = npm({ bytes, integrity: sha512(bytes) });
 
-    await bunTargetRuntime(stub('1.2.3'), LINUX).catch(() => undefined);
+    await bunTargetRuntime('1.2.3', LINUX).catch(() => undefined);
 
     expect(calls[0]).toBe('https://registry.npmjs.org/@oven%2fbun-linux-x64/1.2.3');
-  });
-
-  it('should be refused for a bundler that is not a release, with nothing fetched', async () => {
-    const calls = npm({ bytes: archive('bun', 'X'), integrity: 'x' });
-
-    await expect(bunTargetRuntime(stub('1.5.0-canary.20260101.1'), LINUX)).rejects.toThrow(
-      /did not report a release version/
-    );
-
-    expect(calls).toEqual([]);
   });
 });
 
 describe('what a bundler reports', () => {
-  it.skipIf(!POSIX)('should be a release version and nothing else', () => {
-    expect(bunVersion(stub('1.4.4'))).toBe('1.4.4');
-    expect(() => bunVersion(stub('1.4.4-canary.1'))).toThrow(/release version/);
-    expect(() => bunVersion(stub('../../x'))).toThrow(/release version/);
+  it.skipIf(!POSIX)('should be a release version, without its build id', () => {
+    expect(bunVersion(stub('1.4.4', '1.4.4+38afee6c8'))).toBe('1.4.4');
+  });
+
+  it.skipIf(!POSIX)('should refuse a canary, which prints its release number for --version', () => {
+    // what a real canary prints: `--version` alone cannot tell it from 1.4.5
+    expect(() => bunVersion(stub('1.4.5', '1.4.5-canary.1+237bba51e'))).toThrow(
+      /did not report a release version \(it said "1.4.5-canary.1\+237bba51e"\)/
+    );
+  });
+
+  it.skipIf(!POSIX)('should refuse what is not a version at all', () => {
+    expect(() => bunVersion(stub('../../x', '../../x'))).toThrow(/release version/);
   });
 
   it('should say which platform a fetch is for', () => {

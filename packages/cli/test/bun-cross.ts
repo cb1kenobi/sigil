@@ -22,6 +22,9 @@ import { expect, vi } from 'vitest';
 
 const box = tempDir('sigil-bun-cross-');
 
+/** The file in a stub's directory that has a line for every `--revision` it was asked. */
+export const REVISIONS = 'revisions';
+
 /** The platform a `@oven/bun-<triple>` request is for, when it is one. */
 const triple = (url: string): string | undefined =>
   /@oven(?:%2f|\/)(bun-[a-z]+-[a-z0-9]+)/.exec(url)?.[1];
@@ -99,8 +102,9 @@ export function serveRuntimes(options: { readonly lying?: boolean } = {}): strin
 /**
  * A directory holding a `bun` that embeds the runtime it is handed.
  *
- * Asked for its version it says `9.9.9`, or defers to `real` when there is one.
- * Run as `bun build --compile` -- the form for the host's own target -- it
+ * Asked for its version it says `9.9.9`, and `9.9.9+abcdef123` for its revision
+ * -- or defers to `real` when there is one -- and writes a line to `REVISIONS`
+ * for each revision either way. Run as `bun build --compile` -- the form for the host's own target -- it
  * defers to `real`, or writes a placeholder binary where `--outfile` said. Run
  * as `sigil package` runs it for another platform, it copies the runtime it was
  * handed to where the binary goes.
@@ -114,6 +118,7 @@ export function stubBun(real?: string): string {
   const fallback = real
     ? `exec '${real}' "$@"`
     : `[ "$1" = "--version" ] && { echo 9.9.9; exit 0; }
+[ "$1" = "--revision" ] && { echo 9.9.9+abcdef123; exit 0; }
 if [ "$1" = "build" ]; then
   for a in "$@"; do [ "$prev" = "--outfile" ] && out="$a"; prev="$a"; done
   echo PLACEHOLDER > "$out"; exit 0
@@ -121,9 +126,10 @@ fi
 exit 1`;
 
   mkdirSync(dir, { recursive: true });
+  // every `--revision` is counted: the bundler's version is read once for a run
   writeFileSync(
     file,
-    `#!/bin/sh\n[ "$1" = "--no-install" ] && { cp "$7" "$5"; exit 0; }\n${fallback}\n`
+    `#!/bin/sh\n[ "$1" = "--revision" ] && echo asked >> '${join(dir, REVISIONS)}'\n[ "$1" = "--no-install" ] && { cp "$7" "$5"; exit 0; }\n${fallback}\n`
   );
   chmodSync(file, 0o755);
 

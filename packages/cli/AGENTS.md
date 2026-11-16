@@ -4643,15 +4643,25 @@ about what a valid app is would be the worse half of the feature.
   downloads that platform's runtime **itself** into
   `~/.bun/install/cache/bun-<target>-v<version>` and embeds whatever it got, by
   rules sigil cannot see -- so for a long while what sigil verified was the
-  bundler it ran and not the runtime that shipped. `bun build` has no flag for a
-  local runtime (1.4.4), and `Bun.build()` does: `compile: { executablePath }`
-  embeds the file it names and fetches nothing.
+  bundler it ran and not the runtime that shipped. `Bun.build()` takes
+  `compile: { executablePath }`, which embeds the file it names and fetches
+  nothing.
+
+  **`bun build --compile-executable-path` exists and is deliberately not used.**
+  Bun 1.4.4's `bun build --help` lists it. But Bun 1.3.0 accepts an unknown flag
+  silently and **downloads anyway**, so the CLI flag cannot tell a Bun that honours
+  it from one that does not, and the first you would hear of it is an unchecked
+  runtime in a shipped binary. `Bun.build()` fails visibly on a Bun that cannot
+  (see `assertEmbedded()`). That is the whole reason for the API, and a later
+  "simplification" to the flag reopens the hole.
 
   So a target that is not the host's is compiled through that. `resolveEmbeds()`
   in `commands/package.ts` asks `bunTargetRuntime()` for each one before
   `clean()`, for the reason `resolveExec()` is asked there: the same
   `@oven/bun-<triple>` package at the **bundler's** version (asked of the
-  bundler with `bunVersion()`, a release only), through the same `download()` --
+  bundler once per run with `bunVersion()`, which reads `--revision`, because a
+  canary prints its release number for `--version` and only `--revision` says
+  `1.4.5-canary.1+237bba51e`; a canary is refused), through the same `download()` --
   `dist.integrity` first, the archive hashed before it is written, a refusal
   naming expected against actual -- into `<cache>/bun-targets/<triple>/<version>/`
   with the same `sigil-verified.json`, re-hashed on every use. The record also
@@ -4662,6 +4672,39 @@ about what a valid app is would be the worse half of the feature.
   anything is written: a direct caller gets the same guarantee, not a fallback to
   the unchecked path. The host target is unchanged -- it embeds the `bun` that
   compiles, which is what SIG-411 already covers.
+
+  **"Host" is node's answer, and `bun` can disagree.** `isHostTarget()` reads
+  `process.platform` and `process.arch`, which are the machine **node** thinks it
+  is on: an x64 node under Rosetta beside a native arm64 `bun` counts `darwin-x64`
+  as the host, takes the CLI form, and Bun downloads that target itself --
+  reproduced for the download half. So both compile spawns run in `offline()`: the
+  four proxy variables point at a closed local port and `NO_PROXY`/`no_proxy` are
+  removed (`NO_PROXY=*` was measured to go straight past a dead proxy). Anything
+  that makes Bun try to download then fails loudly with `Failed to download ...
+  ConnectionRefused` instead of embedding an unchecked runtime. Measured under it:
+  a host-target compile and a `Bun.build()` cross compile with an embedded runtime
+  both still succeed, and the CLI form for a foreign target with an empty cache
+  fails. The bundle is already done by rolldown, so Bun needs the network for
+  nothing else.
+
+  **Baseline and musl.** The runtime npm serves for a triple is its default
+  package, `@oven/bun-<os>-<arch>`, and that is what sigil always picks.
+  `@oven/bun-linux-x64-baseline`, `-musl`, `-musl-baseline`,
+  `@oven/bun-linux-aarch64-musl`, `@oven/bun-darwin-x64-baseline` and
+  `@oven/bun-windows-x64-baseline` all exist at 1.4.4. Bun's own cross download
+  was reported to pick a baseline or musl runtime for a host of that kind, so a
+  baseline or musl host's cross targets used to get that and now get the default
+  package. sigil's targets have no such axis (`linux-x64`, not `linux-x64-musl`),
+  so there is nothing to choose between; a musl or baseline _target_ is not
+  something `sigil package` can produce.
+
+  **When it is verified and when it is embedded are not the same moment.**
+  `resolveEmbeds()` verifies the runtime before the bundle and `compileBun()`
+  embeds it **by path** after it, so the window between check and use spans the
+  type-check and the bundle. It sits inside the trust boundary this entry already
+  states -- the record is unsigned and lives in the directory it guards, so
+  anyone who can write the cache can already write a matching record -- and it is
+  re-hashed on the way out of the cache, not between there and `Bun.build()`.
 
   **Measured, not read.** Three approaches were on the table; the first worked,
   so the other two were not built. With the network refused (`HTTPS_PROXY` at a
@@ -4691,9 +4734,12 @@ about what a valid app is would be the worse half of the feature.
   `preload` printed from one and not the other. So it runs in a directory made for
   it with every path absolute, rather than in the app. And a Bun that predates
   `compile` in `Bun.build()` takes the option, ignores it, writes nothing and
-  answers `success: true` -- 1.2.15 does, 1.2.23 and 1.3.0 do not -- so
-  `assertEmbedded()` refuses a run that left no binary, or one under half the size
-  of the runtime in it. Half rather than all: a Mach-O runtime's signature is
+  answers `success: true` -- 1.2.20 does and 1.2.21 does not (measured at both,
+  with 1.2.15 and 1.2.23 either side) -- so `assertEmbedded()` refuses a run that
+  left no binary, or one under half the size of the runtime in it. And what is at
+  the output is removed **first**, because that size check passes a stale binary:
+  with `--no-clean` the last release is at that path, bigger than half the
+  runtime, and an old Bun would have shipped it as this run's. Half rather than all: a Mach-O runtime's signature is
   replaced on the way in and the signed result is a few hundred kilobytes under
   the file it embeds.
 
@@ -4702,8 +4748,9 @@ about what a valid app is would be the worse half of the feature.
   cache now, which is filled from npm on first use and re-checked after. That is
   the cost of the check, and it is the same one a host download pays. What this
   still does not cover is the one thing that section already says: the digest
-  and the file come from one origin, and Bun's own copy of the runtime (the
-  `bun` that bundles) is whatever `PATH` or sigil's cache gave it.
+  and the file come from one origin, and the `bun` that bundles is whatever
+  `PATH`, sigil's cache or **Bun's own `~/.bun/install/cache`** (`bunCached()`
+  lists host-platform entries there) gave it.
 
   Tested in `test/runtimes-integrity.test.ts` with no network: `fetch` is
   stubbed, the archives are real `tar` archives so a passing download goes
@@ -4729,8 +4776,10 @@ about what a valid app is would be the worse half of the feature.
   comparison on a target download, `resolveEmbeds()`, handing the runtime to the
   compile, the Windows executable name, npm's spelling of the platform, the
   separate cache directory, the release-version rule, the cached reuse, the
-  `--no-install -e` form and `executablePath` itself -- and each fails a named
-  test.
+  `--no-install -e` form and `executablePath` itself, the last asserted on the
+  script's text in a test that runs without Bun (CI installs none), the stale
+  output being removed, `--revision` and the canary refusal, and the dead proxy in
+  both spawns' environment -- and each fails a named test.
 
 - **A missing runtime is resolved, never refused, and getting there took three
   goes.** The tool pre-flight asked `locate('bun')` before the bundle. First

@@ -33,6 +33,7 @@
  * darwin and is not optional there.
  */
 
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -593,12 +594,12 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
             // packaged binary harder to read than one from the unpackaged app
             '--sourcemap=none',
           ],
-          { encoding: 'utf-8' }
+          { encoding: 'utf-8', env: offline() }
         )
       : compileEmbedding(bun, options, embed);
 
   if (run.error) {
-    throw new Error(`Failed to run bun at ${bun}: ${run.error.message}`);
+    throw new Error(`Failed to run bun at ${bun}: ${escapeControls(run.error.message)}`);
   }
 
   if (run.status !== 0) {
@@ -622,11 +623,52 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
 }
 
 /**
+ * An environment in which Bun cannot download anything.
+ *
+ * Both compile spawns run in it. Which targets are the host's is decided by the
+ * platform and architecture **node** reports, and a `bun` can disagree -- an x64
+ * node under Rosetta beside a native arm64 `bun` counts `darwin-x64` as the host
+ * and runs the CLI form, which then fetches that target's runtime itself, which
+ * is the thing this exists to stop. Measured: `bun build --compile
+ * --target=bun-linux-x64` with an empty cache fails with `Failed to download
+ * 'bun-linux-x64-v1.4.4': ConnectionRefused` under it, and a host-target compile
+ * and a `Bun.build()` cross compile with an embedded runtime both still succeed.
+ * Any path on which Bun tries to download is therefore a loud failure rather
+ * than an unchecked runtime in a shipped binary.
+ *
+ * `NO_PROXY` is cleared because `NO_PROXY=*` was measured to send the request
+ * straight past the dead proxy. Both spellings of each, since Bun reads either.
+ *
+ * @returns The environment to spawn `bun` with.
+ */
+function offline(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+
+  for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {
+    env[name] = DEAD_PROXY;
+  }
+
+  for (const name of ['NO_PROXY', 'no_proxy']) {
+    delete env[name];
+  }
+
+  return env;
+}
+
+/** A local port nothing listens on, which is where a request to download goes to die. */
+const DEAD_PROXY = 'http://127.0.0.1:9';
+
+/**
  * The script a `bun` runs to compile with a runtime it was handed.
  *
- * `bun build --compile` has no flag for one, and for a target that is not the
- * host it downloads that target's runtime itself. `Bun.build()` takes
- * `compile.executablePath`, which embeds the file it names and fetches nothing
+ * For a target that is not the host, `bun build --compile` downloads that
+ * target's runtime itself. Bun 1.4.4 has a flag for naming one
+ * (`--compile-executable-path`) and it is **not used**, on purpose: Bun 1.3.0
+ * accepts an unknown flag silently and downloads anyway, so the flag cannot
+ * tell a Bun that honours it from one that does not. `Bun.build()` takes
+ * `compile.executablePath` and fails visibly on a Bun that cannot (see
+ * `assertEmbedded()`), which is why it is the form here. It embeds the file it
+ * names and fetches nothing
  * -- measured with the network refused: the CLI form failed with
  * `Failed to download 'bun-linux-x64-v1.4.4': ConnectionRefused` and this wrote
  * the binary, byte for byte the one the CLI wrote with the network up.
@@ -670,6 +712,12 @@ function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
   const here = mkdtempSync(join(tmpdir(), 'sigil-compile-'));
 
   try {
+    // whatever is at the output goes first. A Bun that predates `compile` in
+    // `Bun.build()` writes nothing and answers `success: true`, so a binary an
+    // earlier run left there -- `--no-clean` keeps one -- would pass the size
+    // check in `assertEmbedded()` and be shipped as this run's
+    rmSync(options.out, { force: true });
+
     return spawnSync(
       bun,
       [
@@ -681,7 +729,7 @@ function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
         `bun-${label(options.target)}`,
         resolve(embed),
       ],
-      { cwd: here, encoding: 'utf-8' }
+      { cwd: here, encoding: 'utf-8', env: offline() }
     );
   } finally {
     rmSync(here, { force: true, recursive: true });
@@ -693,7 +741,7 @@ function compileEmbedding(bun: string, options: CompileOptions, embed: string) {
  *
  * Needed because a Bun that predates `compile` in `Bun.build()` takes the
  * option, ignores it, writes nothing and answers `success: true` -- measured,
- * 1.2.15 does and 1.2.23 does not. A binary smaller than the runtime inside it
+ * 1.2.20 does and 1.2.21 does not. A binary smaller than the runtime inside it
  * is the same failure by another route -- smaller than half of it, which no
  * binary holding it can be.
  *
@@ -716,7 +764,7 @@ function assertEmbedded(out: string, embed: string, bun: string, target: Target)
   // the binary can come out a few hundred kilobytes under the file it embeds
   if (wrote < statSync(embed).size / 2) {
     throw new Error(
-      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use 1.2.23 or newer.`
+      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use 1.2.21 or newer.`
     );
   }
 }
@@ -824,7 +872,7 @@ function compileSea(node: string, config: string, options: CompileOptions): Comp
   const run = spawnSync(node, [`--build-sea=${config}`], { encoding: 'utf-8' });
 
   if (run.error) {
-    throw new Error(`Failed to run node at ${node}: ${run.error.message}`);
+    throw new Error(`Failed to run node at ${node}: ${escapeControls(run.error.message)}`);
   }
 
   if (run.status !== 0) {
@@ -925,7 +973,7 @@ function sign(file: string, identity: string): void {
 
   if (run.error) {
     throw new Error(
-      `Failed to run codesign: ${run.error.message}\n  A macOS binary must be signed to run at all -- an unsigned one is killed before it starts -- so this is not something to skip.`
+      `Failed to run codesign: ${escapeControls(run.error.message)}\n  A macOS binary must be signed to run at all -- an unsigned one is killed before it starts -- so this is not something to skip.`
     );
   }
 
@@ -992,12 +1040,15 @@ function locate(name: string, why: string): string {
 
 /** Whatever a failed spawn said, indented, with the empty stream left out. */
 function said(run: { readonly stderr?: string; readonly stdout?: string }): string {
-  return [run.stderr, run.stdout]
-    .filter((stream): stream is string => Boolean(stream?.trim()))
-    .join('\n')
-    .split('\n')
-    .map((line) => `  ${line}`)
-    .join('\n');
+  return (
+    [run.stderr, run.stdout]
+      .filter((stream): stream is string => Boolean(stream?.trim()))
+      .join('\n')
+      .split('\n')
+      // a spawned program's own words, which a terminal would act on
+      .map((line) => `  ${escapeControls(line.replace(/\r$/, ''))}`)
+      .join('\n')
+  );
 }
 
 /**

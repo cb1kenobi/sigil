@@ -12,7 +12,7 @@ import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * A Bun binary embeds a runtime sigil verified, or is not written (SIG-442).
@@ -39,7 +39,10 @@ const other: Target = targets()
   .map(parseTarget)
   .find((one) => !isHostTarget(one) && label(one) !== 'windows-arm64') as Target;
 
-/** A `bun` that records how it was run, then writes `size` bytes where `--outfile` said. */
+/**
+ * A `bun` that records how it was run and with what environment, then writes
+ * `size` bytes where the binary goes -- `$5` in the form that embeds a runtime.
+ */
 function recorder(name: string, size: number): { exec: string; ran: string } {
   const exec = join(box, name);
   const ran = join(box, `${name}.ran`);
@@ -47,7 +50,7 @@ function recorder(name: string, size: number): { exec: string; ran: string } {
   writeFileSync(
     exec,
     // $4 is the entry and $5 the outfile: `--no-install -e <script> <entry> <outfile> <target> <runtime>`
-    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\n[ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`,
+    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\nenv > '${ran}.env'\n[ "$1" = "--no-install" ] && [ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`,
     { mode: 0o755 }
   );
 
@@ -92,8 +95,10 @@ describe('compiling for a platform that is not this one', () => {
       expect(args).not.toContain('--compile');
       expect(args.some((one) => one.startsWith('--target'))).toBe(false);
       expect(args[0]).toBe('--no-install');
-      // the script names the option that embeds a file instead of fetching one
-      expect(readFileSync(ran, 'utf-8')).toContain('executablePath');
+      // the script names the option that embeds a file instead of fetching one,
+      // **in the object `Bun.build()` is given** -- the word is also the name of
+      // a variable the script destructures, so finding it anywhere proves nothing
+      expect(readFileSync(ran, 'utf-8')).toMatch(/compile:\s*\{[^}]*\bexecutablePath\b/);
       // absolute, because the script does not run where the caller did
       expect(args.slice(-4)).toEqual([
         join(process.cwd(), 'entry.js'),
@@ -123,6 +128,109 @@ describe('compiling for a platform that is not this one', () => {
       /did not write a binary/
     );
     expect(existsSync(out)).toBe(false);
+  });
+
+  it.skipIf(!POSIX)(
+    'should not take the previous release for this one when bun writes nothing',
+    () => {
+      // a Bun older than 1.2.21 ignores `compile` and answers success, and
+      // `--no-clean` leaves the last binary at the path: it is bigger than half
+      // the runtime, so the size check alone shipped it as this run's
+      const { exec } = recorder('bun-writes-nothing-over', 0);
+      const embed = join(box, 'runtime-4');
+      const out = join(box, 'previous-release-over');
+      writeFileSync(embed, 'x'.repeat(500));
+      writeFileSync(out, 'y'.repeat(1000));
+
+      expect(() => compileWithBun({ embed, entry: 'entry.js', exec, out, target: other })).toThrow(
+        /did not write a binary/
+      );
+      expect(existsSync(out)).toBe(false);
+    }
+  );
+
+  describe.skipIf(!POSIX)('the environment bun is run in', () => {
+    // which targets are the host's is node's answer, and a bun can disagree
+    // (an x64 node under Rosetta beside an arm64 bun). So that any path on
+    // which bun tries to download fails instead of embedding an unchecked
+    // runtime, neither spawn is given a network
+    const saved = { ...process.env };
+
+    afterEach(() => {
+      for (const name of [
+        'HTTPS_PROXY',
+        'HTTP_PROXY',
+        'https_proxy',
+        'http_proxy',
+        'NO_PROXY',
+        'no_proxy',
+      ]) {
+        if (saved[name] === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = saved[name];
+        }
+      }
+    });
+
+    const dead = (name: string, target: Target, embed?: string) => {
+      process.env.NO_PROXY = '*';
+      process.env.no_proxy = '*';
+      process.env.HTTPS_PROXY = 'http://proxy.example:3128';
+
+      const { exec, ran } = recorder(name, 1000);
+      const out = join(box, `${name}.out`);
+
+      if (embed) {
+        writeFileSync(embed, 'x'.repeat(500));
+      }
+
+      try {
+        compileWithBun({ ...(embed ? { embed } : {}), entry: 'entry.js', exec, out, target });
+      } catch {
+        // signing what the stand-in wrote fails on macOS; it ran first, and the
+        // environment it ran in is the thing being read
+      }
+
+      return readFileSync(`${ran}.env`, 'utf-8').split('\n');
+    };
+
+    const checks = (lines: string[]) => {
+      for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy']) {
+        expect(lines).toContain(`${name}=http://127.0.0.1:9`);
+      }
+
+      // `NO_PROXY=*` sends a request straight past a dead proxy
+      expect(lines.filter((line) => /^no_proxy=/i.test(line))).toEqual([]);
+    };
+
+    it('should be one Bun cannot download in, when it embeds a runtime', () => {
+      checks(dead('bun-env-embed', other, join(box, 'runtime-env')));
+    });
+
+    it('should be one Bun cannot download in, when it compiles for the host', () => {
+      checks(dead('bun-env-host', hostTarget()));
+    });
+  });
+
+  it.skipIf(!POSIX)('should not pass what bun printed to the terminal as it printed it', () => {
+    // a spawned program's stderr is text from outside, and an escape sequence
+    // in it would rename the window or worse once it reached the error handler
+    const exec = join(box, 'bun-prints-escapes');
+    writeFileSync(exec, "#!/bin/sh\nprintf '\\033]0;PWNED\\007\\n' >&2\nexit 1\n", { mode: 0o755 });
+    const embed = join(box, 'runtime-5');
+    writeFileSync(embed, 'x'.repeat(500));
+
+    const refusal = (() => {
+      try {
+        compileWithBun({ embed, entry: 'entry.js', exec, out: join(box, 'never'), target: other });
+      } catch (error) {
+        return (error as Error).message;
+      }
+    })();
+
+    expect(refusal).toContain('\\x1B]0;PWNED\\x07');
+    expect(refusal).not.toContain(String.fromCharCode(0x1b));
   });
 
   it.skipIf(!POSIX)('should refuse a binary that is smaller than the runtime inside it', () => {
