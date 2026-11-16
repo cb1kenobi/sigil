@@ -431,7 +431,18 @@ commands: './commands'              // a directory *of* commands
 A directory is a tree: a file is a command named after the file, a subdirectory
 is a command named after the directory with the routes inside it as its
 subcommands, and an `index` module is the directory's own command rather than
-one called `index`.
+one called `index`. A name is taken literally: a file, directory or package name
+that is empty, holds whitespace, a `,` or a `/`, or starts with `<`, `[`, `!` or
+`@`, is refused rather than read as a name string, and a `commands.json` is how
+a route is aliased or hidden. A scoped package, `@acme/deploy`, is the command
+`deploy`.
+
+Upgrading: a package whose manifest says `@acme/deploy` used to register as
+`acme/deploy` and now registers as `deploy`, so `mycli acme/deploy` stops working
+and `mycli deploy` starts. A route that was hidden or aliased by its file name -- `!x.js`,
+`@x.js`, `my cmd.js` -- now stops the app at the level that holds it, `--help`
+included, with a message naming the file. Rename it `x.js` and put
+`{ "x": { "hidden": true } }` (or `"alias"`) in a `commands.json` beside it.
 
 ```
 commands/

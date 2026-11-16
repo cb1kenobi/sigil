@@ -8,6 +8,7 @@ import {
   Schema,
 } from '../../types.js';
 import { copyDeclaration } from '../../util/copy-declaration.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { lockDerived } from '../../util/lock-derived.js';
 import { resolveDesc } from '../../util/resolve-desc.js';
 import { initArgs } from '../argument/init-args.js';
@@ -23,7 +24,9 @@ import {
 } from './declaration.js';
 import { importModule } from './import-module.js';
 import {
+  assertRouteName,
   moduleName,
+  packageRouteName,
   readDirectory,
   readPackage,
   readRoutes,
@@ -517,7 +520,15 @@ async function resolveCommandPath({
     throw new Error(`Unsupported command module "${modulePath}"`);
   }
 
-  return [await initCommand({ name: filename }, modulePath)];
+  // named by the file, which is a name the file system gave
+  return [
+    await initCommand(
+      {
+        name: assertRouteName(filename, `the file "${escapeControls(modulePath)}"`),
+      },
+      modulePath
+    ),
+  ];
 }
 
 /**
@@ -688,7 +699,7 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
     return;
   }
 
-  const { description, entryFile, name } = pkg;
+  const { description, entryFile } = pkg;
 
   // the file URL rather than the path: an absolute path on Windows starts with
   // a drive letter, which the ESM loader reads as a scheme it does not know.
@@ -708,7 +719,12 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
     {
       ...cmd,
       desc: cmd.desc ?? description,
-      name: cmd.name ?? name,
+      // the module's own `name` is a declaration and is read as a name string;
+      // the manifest's is a name the file system gave, and is taken as it is
+      // with its scope off -- refused for what it says only when it is used, though
+      // `readPackage()` above has already refused one that is not a string, since
+      // Node does whether or not the module names itself
+      name: cmd.name ?? packageRouteName(pkg, dir),
     },
     entryFile
   );

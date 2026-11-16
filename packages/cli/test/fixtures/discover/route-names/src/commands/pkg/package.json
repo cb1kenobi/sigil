@@ -1,0 +1,6 @@
+{
+  "name": "@acme/deploy",
+  "description": "A scoped package",
+  "type": "module",
+  "exports": "./index.js"
+}

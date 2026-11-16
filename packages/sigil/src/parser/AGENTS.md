@@ -1153,7 +1153,10 @@ The sites judged not to need it, with the reason:
   reached only by an app calling the function directly.
 - **Messages about the schema, a command module, or a route on disk.** These are
   bug reports in the app's own declaration, in English and not translated, which
-  is the line the i18n work already draws.
+  is the line the i18n work already draws. The exception is a route's name:
+  `assertRouteName()`'s refusals and `resolveRoutes()`'s collision echo a file,
+  directory or manifest name the file system chose, which can hold an `ESC`, so
+  those are escaped (SIG-389).
 - **A `.env` reader.** The framework has none. An environment value reaches a
   message only through `transformValue()`, and that is escaped.
 
@@ -1673,6 +1676,97 @@ that can say `alias` and `default`, covers its use. Two sources for one fact is
 the thing this file keeps refusing. A leftover `routeInfo` is custom data and is
 ignored, with no compatibility read and no warning. Pinned by `a commands.json`
 in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md`.
+
+### A route's name is the file system's, taken literally (SIG-389)
+
+- **A name a file, a directory or a manifest gave is never a name string.** It
+  went through `parseName()` like a declaration's `name`, so the file system's
+  spelling was read as syntax: `my cmd.mjs` was `my` with an alias `cmd` -- and
+  beside a real `my.mjs` nothing threw, because `resolveRoutes()` asked about
+  collisions on the raw name and `my cmd` and `my` differ -- `!secret.mjs` was a
+  hidden `secret`, `[id].mjs` failed every run with `Unable to determine command
+  name from "[id]"`, and a package called `@acme/deploy` registered as
+  `acme/deploy`, which no one can type and help listed with a slash in it. The
+  fix is not a second parser for file names. A name that a name string would
+  read differently is **refused**, so that what reaches `parseName()` parses to
+  itself and the two readings cannot differ.
+- **What is refused is `assertRouteName()`'s, in `routes.ts`, and it is one
+  function for everyone.** Whitespace, a `,`, a `/`, an empty name, and a first
+  character of `<`, `[`, `!` or `@`. The message names the file, directory or
+  package, says which of those it is, and points at `commands.json` as the way a
+  route is hidden or aliased -- which is the supported spelling of what the
+  punctuation used to do by accident. It is asked by `resolveRoutes()` for a
+  walked level, so the runtime's walk and `sigil build` both get it from one
+  call; by `registerCommandPackage()` for a package a declaration points at; by
+  `resolveCommandPath()` for a path that names a single file; and by the build's
+  `keyedPackage()` for a keyed package's manifest. A declaration's own `name` and
+  a `commands` key are written by the author and are **still name strings**, as is
+  a package module's own `name`: only a name somebody else's file system gave is
+  literal.
+- **A scope is not part of what a package is called.** `@acme/deploy` registers
+  as `deploy`, and that is `packageRouteName()`, applied to a package the walk
+  found and to one a declaration pointed at, because "a package names itself,
+  wherever it was found" is one rule. What is left after the scope goes through
+  the same refusal, so `@acme` and `@acme/@x` and `@acme/a/b` are refused rather
+  than guessed at. A package's manifest is asked only when it is used: a module
+  that names itself is not refused over a `name` in a `package.json` it never
+  consulted.
+- **A collision is asked of the name that registers.** That was already so for a
+  package renaming itself (`route.name`, not the entry's); what is new is that
+  the registered name is now the scope-stripped one, so a `deploy.mjs` beside a
+  package calling itself `@acme/deploy` is the existing two-routes-one-name error.
+- **A manifest `name` that is not a string is refused, and nothing else is
+  rewritten.** `readPackage()` hands over raw JSON, so `{"name": 42}` reached the
+  walk as a number: the runtime refused it when `initCommand()` built the command,
+  and the build never builds one for a walked route, so it baked `42` as the key
+  and the built app answered a command the source run could not start. Only an
+  **absent** name falls to the directory. A present one must be a string, `null`
+  included, because that is Node's own rule: its package reader throws
+  `ERR_INVALID_PACKAGE_CONFIG` for any other, whenever it reads an import's format
+  from the manifest -- a `.js` or `.ts` entry, and not a `.mjs`, `.cjs` or `.mts`.
+  So the same package used to run or fail by the extension of its entry, and a
+  package whose module named itself ran in a build and failed from source over a
+  manifest it never seemed to consult. `readPackage()` asks, before anything is
+  imported and before it looks for an entry, so both sides refuse in sigil's words
+  whatever the extension and whether or not the module names itself. What is
+  refused beyond the type -- whitespace, a scope that leaves nothing -- is still
+  asked only of a name that is _used_, since Node has no opinion on it. Pinned
+  under a real node, not vite's, by `packages/cli/test/route-manifest-name.test.ts`:
+  a test that loads the module through vite proves the routing and cannot prove the
+  loading, and the first version of this entry's tests did exactly that.
+- **The echoed names are escaped, and the names are not refused for it.** A file
+  called `!x<ESC>]0;...<BEL>.mjs` is refused for its `!` and the message used to
+  carry the escape through to stderr twice. `escapeControls()` goes round the file,
+  directory, path, manifest name and the two names a collision echoes where the
+  message is built, so the build's diagnostic, which reuses the text, is inert in
+  its message. Its location prefix is the build's own and is not touched here. A control character is not
+  itself grounds for refusal -- that is a larger decision than this entry.
+- **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
+  else, so a tab or a no-break space is refused with its own reason -- it cannot be
+  typed reliably as part of one word -- and not with a claim about aliases it does
+  not make. A `!` or `@` file name gets one fixed sentence about what to do --
+  name it without the prefix and put `hidden` or the alias in a `commands.json` --
+  and **computes no replacement name**. It used to, and a computed one told
+  `!index.js` to become a top-level `index` (which is nothing, and the build then
+  warned about the entry it had been told to write), told `!x.js` to rename onto an
+  existing `x.js`, dropped the scope from `@acme/!p`, and was not valid JSON for a
+  name holding a quote. The README's upgrade example is static and correct for the
+  ordinary case.
+- **Refused where the level is read, not where it is listed.** One bad file name
+  fails the level that holds it, `--help` included, which is what two routes of
+  one name already do and for the same reason: an app that lists what it cannot
+  route is worse than one that says which file to rename.
+- **Not refused, deliberately:** a leading `-`, which would read as an option
+  when typed and which nothing refused before; a name with a `:` in it, which is
+  the topic separator and is its own entry above; and `.` or
+  `_` prefixes, which are already not routes. Each is a separate question.
+
+Pinned by `a route's name is taken literally` in `test/parser/routing.test.ts`,
+over `resolveRoutes()` with entries that were never on a disk, so a name no
+Windows file system holds is tested everywhere; and on the build side by
+`resolving a tree whose names are the file system’s` in
+`packages/cli/test/build/tree.test.ts`, the keyed package in `discover.test.ts`,
+and a built app that answers `deploy` in `build-command.test.ts`.
 
 ### Two options in one command may not share a spelling
 

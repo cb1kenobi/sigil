@@ -36,6 +36,7 @@
 import { parseJsonc } from '../../config/jsonc.js';
 import { byCodeUnit } from '../../util/by-code-unit.js';
 import { errorMessage } from '../../util/error-message.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { type Dirent, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, parse } from 'node:path';
 
@@ -177,7 +178,7 @@ export interface DirectoryRoutes {
 export interface PackageRoute {
   readonly description?: string;
   readonly entryFile: string;
-  readonly name?: string;
+  readonly name?: unknown;
 }
 
 /**
@@ -418,6 +419,8 @@ export function readPackage(dir: string): PackageRoute | undefined {
 
   const { description, exports, main, name, type } = pkgJson;
 
+  assertManifestName(name, dir);
+
   const entries = resolveEntries(exports);
   if (!entries.length && typeof main === 'string') {
     entries.push(main);
@@ -603,6 +606,187 @@ function describeRoute(route: Route, entry: RouteEntry | undefined): Route {
 }
 
 /**
+ * Why a name cannot be a route's, or `undefined` when it can.
+ *
+ * A route is named by the file system -- a file's name, a directory's, a
+ * package's manifest -- and that name is taken exactly as written. A command
+ * name string has syntax, and none of it is a route's to use: whitespace and
+ * `,` separate aliases, `@` and `!` prefix one, `<` and `[` open an inline
+ * argument. Read as a name string, `my cmd.js` is `my` with an alias of `cmd`,
+ * `!secret.js` is a hidden `secret`, and `[id].js` is no name at all. So those
+ * are refused rather than reinterpreted, and `commands.json` is where a route
+ * is aliased or hidden. A `/` is refused with them because a command name has
+ * no use for one and the only place one appears is a package scope, which
+ * `unscoped()` has already taken off by then.
+ *
+ * @param name - The name, scope already removed.
+ * @returns The reason, which finishes the sentence "the name ...".
+ */
+function routeNameProblem(name: string): string | undefined {
+  if (!name) {
+    return 'is empty';
+  }
+
+  // a space is what `parseName()` splits at, and the only whitespace that is. A tab or a
+  // no-break space is refused too -- not because it separates anything, but because
+  // nobody can type it as part of one word, and a name that cannot be typed is not one
+  if (name.includes(' ')) {
+    return 'contains whitespace, which a command name string reads as a separator between aliases';
+  }
+
+  if (/\s/.test(name)) {
+    return 'contains whitespace, which cannot be typed reliably as part of one word';
+  }
+
+  if (name.includes(',')) {
+    return 'contains a ",", which a command name string reads as a separator between aliases';
+  }
+
+  if (name.includes('/')) {
+    return 'contains a "/", which no command name has';
+  }
+
+  switch (name[0]) {
+    case '<':
+    case '[':
+      return `starts with "${name[0]}", which a command name string reads as an argument`;
+    case '!':
+      return 'starts with "!", which a command name string reads as hiding the command';
+    case '@':
+      return 'starts with "@", which a command name string reads as an alias';
+  }
+
+  return undefined;
+}
+
+/**
+ * The route name a package's manifest gives, with its scope taken off.
+ *
+ * `@acme/deploy` is the package `deploy` in the scope `acme`, and the scope is
+ * where the package is published from rather than what it is called -- so a
+ * package that registered as `acme/deploy` was a command nobody could type and
+ * help listed under a name with a slash in it.
+ *
+ * @param name - The manifest's `name`.
+ * @returns What follows the scope, or the name as it was when it has none.
+ */
+function unscoped(name: string): string {
+  return /^@[^/]+\//.test(name) ? name.slice(name.indexOf('/') + 1) : name;
+}
+
+/**
+ * What a route is called, refused if the name could not be one.
+ *
+ * Shared by the runtime's walk, a package a declaration points at, and `sigil
+ * build`, because a build that registered a name the runtime refuses is an app
+ * that works bundled and fails from source.
+ *
+ * @param name - The name, exactly as the file system or a manifest spells it.
+ * @param source - What it came from, for the message: `the file "a b.js" in "dir"`.
+ * @returns The name.
+ * @throws If it holds a character a command name string would read, naming
+ *   `source` and pointing at `commands.json`.
+ */
+export function assertRouteName(name: string, source: string): string {
+  const problem = routeNameProblem(name);
+  if (problem !== undefined) {
+    throw new Error(
+      `Cannot route ${source}: the command name "${escapeControls(name)}" ${problem}. ` +
+        "A route is named exactly as its file, directory or package is, with none of a name string's " +
+        `syntax, so ${advice(name)}`
+    );
+  }
+
+  return name;
+}
+
+/**
+ * What to do about a refused name, said once and computing nothing.
+ *
+ * A `!` or `@` on a file name used to do something -- hide the command, or add
+ * an alias -- so the app that wrote one is the app that meets this, and "rename
+ * it" is not an answer to somebody who wanted it hidden. The sentence names no
+ * replacement on purpose: a computed one was wrong for `!index.js`, offered to
+ * rename a file onto one that exists, and was not valid JSON for a name holding
+ * a quote.
+ *
+ * @param name - The refused name.
+ * @returns The rest of the sentence, which begins after "so".
+ */
+function advice(name: string): string {
+  if (name[0] === '!') {
+    return (
+      'to hide a route, name the file without the "!" and add an entry with "hidden": true ' +
+      'for that name to a commands.json beside it'
+    );
+  }
+
+  if (name[0] === '@') {
+    return (
+      'to alias a route, name the file without the "@" and list the alias in a ' +
+      'commands.json beside it'
+    );
+  }
+
+  return 'rename it; to alias or hide a route, describe it in a commands.json beside it';
+}
+
+/**
+ * The command name a package's manifest gives it, or `undefined` when the
+ * manifest names nothing.
+ *
+ * One rule for a package the walk found and a package a declaration pointed
+ * at, which is what "a package names itself, wherever it was found" says.
+ *
+ * @param pkg - The package.
+ * @param dir - The package's directory, for the message.
+ * @returns The name, scope removed.
+ * @throws If the name is one no route may have.
+ */
+export function packageRouteName(pkg: PackageRoute, dir: string): string | undefined {
+  const { name } = pkg;
+
+  // a manifest that says nothing leaves the directory to name it, as it always has
+  if (name === undefined) {
+    return undefined;
+  }
+
+  // `readPackage()` has already refused a name that is not a string, so this is for a
+  // `PackageRoute` that did not come from it
+  assertManifestName(name, dir);
+
+  return assertRouteName(
+    unscoped(name),
+    `the package "${escapeControls(dir)}" (its package.json name is "${escapeControls(name)}")`
+  );
+}
+
+/**
+ * Refuses a manifest `name` that is present and is not a string.
+ *
+ * Node's own reader does, for any entry whose format it reads from the manifest --
+ * a `.js` or `.ts` file, and not a `.mjs`, `.cjs` or `.mts` -- and it does so with
+ * `null` too, as `ERR_INVALID_PACKAGE_CONFIG`. So the same package ran or failed
+ * according to its entry's extension, and a build, which never imports it, baked
+ * the one source could not start. Asked of every manifest `readPackage()` reads,
+ * before anything is imported and whether or not the module names itself, so that
+ * the refusal is sigil's and in sigil's words whatever the extension.
+ *
+ * @param name - The manifest's `name`, as the JSON held it.
+ * @param dir - The package's directory, for the message.
+ * @throws If it is anything but absent or a string.
+ */
+function assertManifestName(name: unknown, dir: string): asserts name is string | undefined {
+  if (name !== undefined && typeof name !== 'string') {
+    throw new TypeError(
+      `Cannot route the package "${escapeControls(dir)}": its package.json name is ` +
+        `${escapeControls(JSON.stringify(name))}, which is not a string, so remove it to ` +
+        'be named by the directory or make it one'
+    );
+  }
+}
+
+/**
  * The route one directory entry is, or `undefined` when it is not one.
  *
  * @param dir - The directory the entry came from.
@@ -624,7 +808,14 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
   const path = join(dir, entry.name);
 
   if (!isDir) {
-    return { kind: 'module', name, path };
+    return {
+      kind: 'module',
+      name: assertRouteName(
+        name,
+        `the file "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`
+      ),
+      path,
+    };
   }
 
   // a package is not walked: its `exports` is what says which module is the
@@ -637,12 +828,21 @@ function entryRoute(dir: string, entry: Dirent): Route | undefined {
     return {
       desc: pkg.description,
       kind: 'package',
-      name: pkg.name ?? name,
+      name:
+        packageRouteName(pkg, path) ??
+        assertRouteName(name, `the package "${escapeControls(path)}"`),
       path: pkg.entryFile,
     };
   }
 
-  return { kind: 'directory', name, path };
+  return {
+    kind: 'directory',
+    name: assertRouteName(
+      name,
+      `the directory "${escapeControls(entry.name)}" in "${escapeControls(dir)}"`
+    ),
+    path,
+  };
 }
 
 /**
@@ -684,7 +884,8 @@ export function resolveRoutes(
       // over second, which is the file system's order deciding which command
       // an app has
       throw new Error(
-        `Two entries in "${dir}" both declare a "${route.name}" command: "${previous}" and "${entry.name}"`
+        `Two entries in "${escapeControls(dir)}" both declare a "${escapeControls(route.name)}" command: ` +
+          `"${escapeControls(previous)}" and "${escapeControls(entry.name)}"`
       );
     }
     claimed.set(route.name, entry.name);

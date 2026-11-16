@@ -136,6 +136,54 @@ describe('sigil build', () => {
     expect(bare.stdout).toBe('hello world\n');
   }, 60_000);
 
+  it('should register a scoped package as the name after its scope, built as from source', async () => {
+    // SIG-389. `@acme/deploy` was `acme/deploy`, a command nobody could type, and
+    // the build and the runtime read it through one function so a built app
+    // answers to what the source run answers to. Asserted by running the bundle,
+    // since a tree the build read right and baked wrong looks identical in a log
+    const { err } = await sigil('build', join(fixtures, 'discover', 'route-names'), '--out', out);
+
+    expect(err).toContain('2 commands');
+    expect(process.exitCode).toBeFalsy();
+
+    const run = (...argv: string[]) =>
+      spawnSync(process.execPath, [join(out, 'route-names.mjs'), ...argv], { encoding: 'utf-8' });
+
+    const deploy = run('deploy');
+    expect(deploy.status, deploy.stderr).toBe(0);
+    expect(deploy.stdout).toBe('deployed\n');
+
+    // the alias a commands.json gave it, keyed by the name it registers as
+    expect(run('d').stdout).toBe('deployed\n');
+    expect(run('acme/deploy').status).not.toBe(0);
+
+    // and the hidden route is still routed, and still not listed
+    expect(run('secret').stdout).toBe('secret\n');
+    const help = run('--help');
+    expect(help.stdout).toContain('deploy');
+    expect(help.stdout).not.toContain('acme/deploy');
+    expect(help.stdout).not.toContain('secret');
+  }, 60_000);
+
+  it('should refuse a route name the runtime refuses, and say which file', async () => {
+    // a name a command name string would read is refused from source, so a build
+    // that baked it would be an app that works bundled and fails the moment it is
+    // run unbundled -- or one that registers a hidden `secret` for `!secret.js`
+    const app = linkedFixture(
+      join(fixtures, 'discover', 'route-names'),
+      'sigil-build-route-names-'
+    );
+    writeFileSync(join(app, 'src', 'commands', 'my cmd.js'), 'export default { run() {} };\n');
+
+    const { err } = await sigil('build', app, '--out', out);
+
+    expect(err).toContain('Cannot route the file "my cmd.js"');
+    expect(err).toContain('contains whitespace');
+    expect(err).toContain('commands.json');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'route-names.mjs'))).toBe(false);
+  }, 60_000);
+
   it('should refuse an app whose schema declares neither commands nor a run', async () => {
     // the other half of the test above: a schema with no `commands` is a
     // single-command app only when it has a `run`, and an app that simply
