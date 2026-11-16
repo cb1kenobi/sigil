@@ -5,9 +5,15 @@ import {
   diagnosticMessage,
   formatDiagnostic,
 } from '../src/build/diagnostic.js';
+import { discoverApp, readAppCommands } from '../src/build/discover.js';
+import { checkCatalogs } from '../src/build/i18n.js';
+import { resolveCommandTree } from '../src/build/tree.js';
 import { diagnosticsView, render, writeDiagnostics } from '../src/report.js';
+import { tempDir } from './temp.js';
 import { ESC, strip } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -132,5 +138,158 @@ describe('a diagnostic that quotes a name with a control character in it', () =>
     expect(
       diagnosticLocation(diagnostic({ column: undefined, file: 'a\\b\u001bc.ts', line: undefined }))
     ).toBe('a/b\\x1Bc.ts');
+  });
+});
+
+describe('a tab in a message', () => {
+  it('should survive in both forms, because it acts on nothing and a Go panic is indented with it', () => {
+    // TypeScript 7's compiler is a native binary, and the stack a panic prints
+    // indents each frame with a tab: escaping it read `\x09/src/checker.go:42`
+    const message = 'panic: boom\n\tgoroutine 1 [running]:\n\t/src/checker.go:42 +0x1d';
+
+    expect(diagnosticMessage(diagnostic({ message }))).toBe(message);
+    expect(formatDiagnostic(diagnostic({ message }))).toContain('\n\t/src/checker.go:42');
+    // the laid-out form draws a tab as a space, and never as its escape
+    const out = strip(laidOut([diagnostic({ message })]));
+    expect(out).not.toContain('\\x09');
+    expect(out).toContain('/src/checker.go:42 +0x1d');
+  });
+
+  it('should still be escaped in the location, where a file name has no business holding one', () => {
+    expect(diagnosticLocation(diagnostic({ file: 'a\tb.ts', line: undefined }))).toBe('a\\x09b.ts');
+  });
+
+  it('should escape a carriage return, which can overwrite a line that was already said', () => {
+    expect(controls(formatDiagnostic(diagnostic({ message: 'fine\rforged' })))).toEqual([]);
+  });
+});
+
+describe('a name in the source that holds a newline', () => {
+  // the sink cannot tell a message's own line break from one inside a quoted name,
+  // so a producer escapes what it echoes -- and a line a person's tooling reads as
+  // a diagnostic is what a newline forges
+  const FORGED = (n: number) => `\nsrc/forged.ts:1:1: error: FORGED-${n}`;
+
+  /** Every printed line of a set of diagnostics, as an editor's problem matcher reads them. */
+  function printed(diagnostics: readonly Diagnostic[]): string[] {
+    return diagnostics.flatMap((d) => formatDiagnostic(d).split('\n'));
+  }
+
+  it('should not let a command name forge a second diagnostic line', () => {
+    const dir = tempDir('sigil-forged-line-');
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'forged' })
+    );
+    mkdirSync(join(dir, 'src', 'commands'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'commands', 'a.js'), 'export default { run() {} };\n');
+    const key = (n: number) => JSON.stringify(`k${n}${FORGED(n)}`);
+    writeFileSync(
+      join(dir, 'src', 'index.js'),
+      `const computed = Math.random();
+export default {
+  baseDir: import.meta.dirname,
+  commands: {
+    ${key(1)}: computed,
+    ${key(2)}: { desc: 42, path: './commands/a.js' },
+    ${key(3)}: { hidden: 'yes', path: './commands/a.js' },
+    ${key(4)}: './missing${FORGED(4).replaceAll('\n', '\\n')}.js',
+    ${key(5)}: { alias: computed, path: './commands/a.js' },
+    ${key(6)}: { desc: computed, path: './commands/a.js' },
+    ${key(7)}: { path: './commands/a.js', ${JSON.stringify(`unbaked${FORGED(7)}`)}: 1 },
+    ${key(9)}: { name: 42, path: './commands/a.js' },
+    ${key(10)}: { name: computed, path: './commands/a.js' },
+    // a name string the runtime refuses to parse is named as written
+    ${JSON.stringify('<x>\nsrc/forged.ts:1:1:')}: { desc: 42, path: './commands/a.js' },
+  },
+};\n`
+    );
+
+    const { diagnostics } = readAppCommands(discoverApp(dir));
+    const lines = printed(diagnostics);
+
+    // every one was reported, or this asserts nothing about what it names
+    expect(diagnostics.length).toBeGreaterThanOrEqual(10);
+    expect(
+      lines.filter((line) => line.startsWith('src/forged.ts')),
+      lines.join('\n')
+    ).toEqual([]);
+    // one line each, which is what a newline in a name would have broken
+    expect(lines).toHaveLength(diagnostics.length);
+  });
+
+  // a directory named with a newline cannot be made on Windows
+  it.skipIf(process.platform === 'win32')(
+    'should not let the directory of a package that cannot be read forge one',
+    () => {
+      const dir = tempDir('sigil-forged-package-');
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name: 'forged' })
+      );
+      const broken = join(dir, 'src', `pkg${FORGED(1)}`);
+      mkdirSync(broken, { recursive: true });
+      writeFileSync(join(broken, 'package.json'), '{ "name": ');
+      writeFileSync(
+        join(dir, 'src', 'index.js'),
+        `export default {
+  baseDir: import.meta.dirname,
+  commands: { ${JSON.stringify(`p${FORGED(2)}`)}: ${JSON.stringify(`./pkg${FORGED(1)}`)} },
+};\n`
+      );
+
+      const { diagnostics } = readAppCommands(discoverApp(dir));
+      const lines = printed(diagnostics);
+
+      expect(diagnostics.length).toBeGreaterThanOrEqual(1);
+      expect(
+        lines.filter((line) => line.startsWith('src/forged.ts')),
+        lines.join('\n')
+      ).toEqual([]);
+      expect(lines).toHaveLength(diagnostics.length);
+    }
+  );
+
+  it('should not let a commands.json key or a declared alias forge one either', () => {
+    const dir = tempDir('sigil-forged-routes-');
+    writeFileSync(
+      join(dir, 'list.js'),
+      `export default { alias: [${JSON.stringify(`x${FORGED(1)}`)}] };\n`
+    );
+    writeFileSync(
+      join(dir, 'commands.json'),
+      JSON.stringify({
+        [`stale${FORGED(2)}`]: { alias: [`z${FORGED(4)}`], desc: 'gone' },
+        list: { alias: [`y${FORGED(3)}`], [`nope${FORGED(5)}`]: 1 },
+      })
+    );
+
+    const { diagnostics } = resolveCommandTree(dir);
+    const lines = printed(diagnostics);
+
+    expect(diagnostics.length).toBeGreaterThanOrEqual(2);
+    expect(
+      lines.filter((line) => line.startsWith('src/forged.ts')),
+      lines.join('\n')
+    ).toEqual([]);
+  });
+
+  it('should not let a locale forge one', () => {
+    const diagnostics = checkCatalogs({
+      catalogs: [
+        { catalog: {}, locale: `de${FORGED(1)}` },
+        { catalog: { extra: 'x' }, locale: `fr${FORGED(2)}` },
+      ],
+      file: '/app/src/index.ts',
+      framework: ['Options:'],
+      keys: ['own'],
+    });
+    const lines = printed(diagnostics);
+
+    expect(diagnostics.length).toBeGreaterThanOrEqual(3);
+    expect(
+      lines.filter((line) => line.startsWith('src/forged.ts')),
+      lines.join('\n')
+    ).toEqual([]);
   });
 });

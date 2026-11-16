@@ -62,7 +62,7 @@ import {
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { physicalPath } from '@ttylabs/sigil/config';
-import { errorMessage } from '@ttylabs/sigil/error-handler';
+import { errorMessage, escapeControls } from '@ttylabs/sigil/error-handler';
 import {
   defaultTypeMessage,
   descReturnMessage,
@@ -677,7 +677,7 @@ function readCommand(
   if (!object) {
     diagnostics.push({
       ...locate(parsed, value.start),
-      message: `the "${name}" command is computed rather than a literal, so nothing about it can be read at build time`,
+      message: `the "${escapeControls(name)}" command is computed rather than a literal, so nothing about it can be read at build time`,
       severity: 'warning',
     });
     return { commands: [], kind: 'inline', name };
@@ -863,7 +863,7 @@ function placeholderFacts(
       diagnostics.push({
         ...locate(parsed, (value ?? hidden).start),
         // the runtime names the name string as declared, here
-        message: hiddenTypeMessage(nameString),
+        message: hiddenTypeMessage(escapeControls(nameString)),
         severity: 'error',
       });
     } else if (!command.hidden) {
@@ -1047,9 +1047,9 @@ function carriedMessage(name: string, key: string, consequence: string): string 
 function commandName(nameString: string): { hidden: boolean; name: string } {
   try {
     const { hidden, name } = parseName(nameString);
-    return { hidden, name };
+    return { hidden, name: escapeControls(name) };
   } catch {
-    return { hidden: false, name: nameString };
+    return { hidden: false, name: escapeControls(nameString) };
   }
 }
 
@@ -1246,7 +1246,7 @@ function placeholderRouting(
       diagnostics.push({
         ...locate(parsed, (read ?? isDefault).start),
         // the runtime names the name string as declared, here
-        message: defaultTypeMessage(nameString),
+        message: defaultTypeMessage(escapeControls(nameString)),
         severity: 'error',
       });
     } else {
@@ -1355,7 +1355,7 @@ function placeholderIdentity(
     const replaced = blocked.filter(isReplaced);
     const carried = blocked.filter((spelling) => !isReplaced(spelling));
     const quoted = (spellings: readonly Spelling[], word: string) => {
-      const list = spellings.map((spelling) => `"${spelling.key}"`);
+      const list = spellings.map((spelling) => `"${escapeControls(spelling.key)}"`);
       return list.length > 1 ? `${list.slice(0, -1).join(', ')} ${word} ${list.at(-1)}` : list[0]!;
     };
     const carriers = carried.map((spelling) => spelling.carrier!);
@@ -1414,7 +1414,7 @@ function placeholderIdentity(
           : 'not an arrow function returning a literal import()';
       error(
         value ?? declared,
-        `the "${command}" command's "${decider.key}" is ${why}, so it cannot be read at build time; the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it. It can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import(), as in \`path: './build.js'\` or \`load: () => import('./build.js')\``
+        `the "${command}" command's "${escapeControls(decider.key)}" is ${why}, so it cannot be read at build time; the build cannot tell which module to bundle for the command, and a built app without it matches the command and prints help rather than running it. It can only bundle a module whose "path" is a string literal or whose "load" is an arrow returning a literal import(), as in \`path: './build.js'\` or \`load: () => import('./build.js')\``
       );
     }
   }
@@ -1453,7 +1453,10 @@ function readName(
   }
 
   if (text === '' || declared.method || isWrongType(declared.value, 'string')) {
-    error(declared.value, `Expected command name to be a non-empty string in the "${key}" command`);
+    error(
+      declared.value,
+      `Expected command name to be a non-empty string in the "${escapeControls(key)}" command`
+    );
   } else {
     // as `keyedPackage()` refuses a package's computed name: from source it
     // answers to whatever the expression gives, and the built app would answer
@@ -1530,7 +1533,7 @@ function warnUnbaked(
 
     diagnostics.push({
       ...locate(parsed, property.start),
-      message: `the "${name}" command declares "${key}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
+      message: `the "${name}" command declares "${escapeControls(key)}" in the schema, which \`sigil build\` does not carry into a built app (SIG-320); it applies when the app runs from source and not after a build${advice(key)}`,
       severity: 'warning',
     });
   }
@@ -1671,7 +1674,7 @@ function keyedPackage(
     // the runtime raises the same error when the schema is built
     diagnostics.push({
       ...locate(parsed, at.start),
-      message: `the "${key}" command is a package the app cannot load: ${errorMessage(err)}`,
+      message: `the "${escapeControls(key)}" command is a package the app cannot load: ${escapeControls(errorMessage(err))}`,
       severity: 'error',
     });
     return refused;
@@ -1697,7 +1700,7 @@ function keyedPackage(
   if (!object) {
     diagnostics.push({
       ...locate(parsed, at.start),
-      message: `the "${key}" command is a package whose default export cannot be read at build time; ${PACKAGE_NAMES}`,
+      message: `the "${escapeControls(key)}" command is a package whose default export cannot be read at build time; ${PACKAGE_NAMES}`,
       severity: 'error',
     });
     return refused;
@@ -1716,10 +1719,10 @@ function keyedPackage(
         ? 'spreads another object, which may carry a "name", "alias" or "default" this cannot read'
         : opaque.computed
           ? 'has a computed key, which may be a "name", "alias" or "default" this cannot read'
-          : `declares "${propertyKey(opaque)}" as an accessor or a method rather than a value, so it cannot be read at build time`;
+          : `declares "${escapeControls(propertyKey(opaque))}" as an accessor or a method rather than a value, so it cannot be read at build time`;
     diagnostics.push({
       ...locate(entry, opaque.start),
-      message: `the "${key}" command is a package whose default export ${what}; ${PACKAGE_NAMES}`,
+      message: `the "${escapeControls(key)}" command is a package whose default export ${what}; ${PACKAGE_NAMES}`,
       severity: 'error',
     });
     return refused;
@@ -1781,8 +1784,8 @@ function packageName(
       ...locate(entry, declared.value.start),
       message:
         text === '' || isWrongType(declared.value, 'string')
-          ? `Expected command name to be a non-empty string in the "${key}" command`
-          : `the "${key}" command's "name" is computed rather than a string literal, so it cannot be read at build time; ${PACKAGE_NAMES}`,
+          ? `Expected command name to be a non-empty string in the "${escapeControls(key)}" command`
+          : `the "${escapeControls(key)}" command's "name" is computed rather than a string literal, so it cannot be read at build time; ${PACKAGE_NAMES}`,
       severity: 'error',
     });
     return undefined;
@@ -1799,7 +1802,7 @@ function packageName(
     } catch (err) {
       diagnostics.push({
         file: join(dir, 'package.json'),
-        message: `the "${key}" command is a package the app cannot name: ${errorMessage(err)}`,
+        message: `the "${escapeControls(key)}" command is a package the app cannot name: ${escapeControls(errorMessage(err))}`,
         severity: 'error',
       });
       return undefined;
@@ -1808,7 +1811,7 @@ function packageName(
 
   diagnostics.push({
     file: join(dir, 'package.json'),
-    message: `Expected command name to be a non-empty string in the "${key}" command, which is a package whose module and package.json both leave it unnamed`,
+    message: `Expected command name to be a non-empty string in the "${escapeControls(key)}" command, which is a package whose module and package.json both leave it unnamed`,
     severity: 'error',
   });
   return undefined;
@@ -1843,7 +1846,7 @@ function moduleFacts(
     if (specifier) {
       diagnostics.push({
         ...locate(parsed, at_.start),
-        message: `the "${name}" command imports "${specifier}", which could not be resolved to a file`,
+        message: `the "${escapeControls(name)}" command imports "${escapeControls(specifier)}", which could not be resolved to a file`,
         severity: 'error',
       });
     }

@@ -149,8 +149,17 @@ export function byLocation(
  *
  * The other half of `diagnosticLocation()`, for the same reason it is shared:
  * the pipe form and the laid-out form print one message and must not disagree
- * about it. Every control character becomes `\xNN` except `\n`, which is how a
- * message carries lines -- a type checker's whole output travels as one.
+ * about it. Every control character becomes `\xNN` except `\n` and `\t`.
+ *
+ * A newline is how a message carries lines -- a type checker's whole output
+ * travels as one -- and a tab is its own formatting: it moves the cursor along
+ * the line and acts on nothing, which is why the build's own escape pass spares
+ * it (`FORMATTING` in `bundle.ts`). It is not hypothetical: TypeScript 7's
+ * compiler is a native binary, and a Go panic it prints indents every stack
+ * frame with one, which would otherwise read `\x09/src/checker.go:42` on each
+ * line. `\r` is escaped, because it can overwrite what a line has already said.
+ * A file name in the location keeps no such allowance: it has no business
+ * holding a tab.
  *
  * Applied here, at the output, rather than at each of the producers: there are
  * dozens, a message embeds names the app's own source chose (a command called
@@ -163,11 +172,20 @@ export function byLocation(
  * it is, because `escapeControls()` writes the four characters `\x1B` and no
  * control character, so a second pass finds nothing to change.
  *
+ * **The sink is not the whole answer, and a newline is the reason.** It cannot
+ * tell a message's own line break from one inside a value the message quotes, and
+ * a quoted `a\nsrc/forged.ts:1:1: error: ...` is a second line that an editor's
+ * problem matcher or a CI log parser reads as a real diagnostic. So a producer
+ * that echoes a value from the app's source or the file system escapes it with
+ * `escapeControls()` itself, which handles `\n` too -- `discover.ts`, `i18n.ts`,
+ * `extract.ts` and `tree.ts` do, and the sink is what stands behind them for every
+ * other character.
+ *
  * @param diagnostic - The diagnostic.
- * @returns The message, with each control character but a newline as `\xNN`.
+ * @returns The message, with each control character but a newline and a tab as `\xNN`.
  */
 export function diagnosticMessage(diagnostic: Diagnostic): string {
-  return diagnostic.message.replaceAll(/[^\n]+/g, (run) => escapeControls(run));
+  return diagnostic.message.replaceAll(/[^\n\t]+/g, (run) => escapeControls(run));
 }
 
 /**

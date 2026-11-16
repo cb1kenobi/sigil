@@ -52,7 +52,9 @@
  * pipe into tooling. So whether there is a terminal decides *what is drawn*
  * rather than only how -- which is the rule the spinner and the progress bar
  * already follow, down to the promise that comes with it: **the piped output is
- * byte for byte what it was** before any of this was rendered.
+ * byte for byte what it was** before any of this was rendered -- bar one change
+ * since (SIG-443), which is that a control character in a file name or a message
+ * is written as `\xNN` rather than as itself, on a pipe and a terminal alike.
  *
  * The two cannot drift apart in the part that matters, because the location is
  * `diagnosticLocation()`'s and both forms print it. What differs is the wrapping
@@ -343,9 +345,11 @@ function diagnosticRow(diagnostic: Diagnostic, opts: { width: number }): Element
 
   // measured as it will be *drawn*, which is the rule a table cell already
   // follows: a tab measures nothing and draws a space, so measuring the raw
-  // string leaves the message column a column out per tab -- and a path really
-  // can hold one. `toDisplayLine()` is the other half, since a prefix two lines tall
-  // would put the message beside the wrong one
+  // string would leave the message column a column out per tab. The location
+  // cannot hold one any more -- `diagnosticLocation()` writes it as `\x09` --
+  // so what this keeps is the measure-what-is-drawn habit for the prefix as a
+  // whole, with `toDisplayLine()` as the other half, since a prefix two lines
+  // tall would put the message beside the wrong one
   const room = opts.width - stringWidth(location) - stringWidth(label);
 
   // a message whose whitespace is structure is output somebody captured rather

@@ -79,6 +79,7 @@ import {
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import type { Expression, ObjectExpression } from 'oxc-parser';
 
 /** What a command module says about itself, read statically. */
@@ -374,7 +375,7 @@ const NO_WAY_TO_DEFAULT_A_DIRECTORY =
 function declareIn(routedBy: RoutedBy & { manifest: object }, entry: string): string {
   const { file, key } = routedBy.manifest;
   const beside = routedBy.index ? 'directory' : 'module';
-  return `declare it in the ${file} beside this ${beside} instead, such as \`{ ${JSON.stringify(key)}: ${entry} }\``;
+  return `declare it in the ${escapeControls(file)} beside this ${beside} instead, such as \`{ ${JSON.stringify(key)}: ${entry} }\``;
 }
 
 /**
@@ -433,6 +434,8 @@ function unroutable(
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const route = routedBy.name;
+  // the name as a message says it, which is a file's or a key's and so can hold anything
+  const shownRoute = escapeControls(route);
   const routed = new Set(spellingsOf(route));
   const target = routedBy.index ? './path/to/this-directory' : './path/to/this-file';
   const warn = (start: number, message: string) =>
@@ -444,7 +447,7 @@ function unroutable(
   };
   /** Spellings written twice are one spelling, and are said once. */
   const quoted = (spellings: readonly string[]) =>
-    [...new Set(spellings)].map((spelling) => `"${spelling}"`).join(', ');
+    [...new Set(spellings)].map((spelling) => `"${escapeControls(spelling)}"`).join(', ');
 
   const manifest = routedBy.manifest ? { ...routedBy, manifest: routedBy.manifest } : undefined;
   /** The advice for spellings that do not route: the `commands.json`, or the schema key. */
@@ -453,7 +456,7 @@ function unroutable(
       ? // a value this could not read has no spellings to show, so the shape is
         // shown with a stand-in
         declareIn(manifest, aliasEntry(extra.length ? extra : ['...']))
-      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${[...new Set([...routed, ...extra])].join(', ')}': '${target}' }\``;
+      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${escapeControls([...new Set([...routed, ...extra])].join(', '))}': '${target}' }\``;
 
   const name = declared('name');
   if (name) {
@@ -463,9 +466,9 @@ function unroutable(
       warn(
         name.start,
         written === undefined
-          ? `"name" is computed, so nothing says it matches "${route}", the name this module is routed by; a name in a routed module has no effect on routing, ` +
+          ? `"name" is computed, so nothing says it matches "${shownRoute}", the name this module is routed by; a name in a routed module has no effect on routing, ` +
               `so ${manifest ? declareIn(manifest, aliasEntry(['...'])) : DECLARE_ON_THE_ROUTE}`
-          : `"name" declares ${quoted(extra)}, which does not route: this module is loaded only after argv has matched "${route}", ` +
+          : `"name" declares ${quoted(extra)}, which does not route: this module is loaded only after argv has matched "${shownRoute}", ` +
               `so a name in it has no effect and help leaves it out; ${declareSpellings(extra)}`
       );
     }
@@ -480,7 +483,7 @@ function unroutable(
       warn(
         alias.start,
         `"alias" ${written.kind === 'strings' ? `declares ${quoted(extra)}` : 'is not a list of strings written down'}, ` +
-          `which does not route: this module is loaded only after argv has matched "${route}", so an alias in it has no effect; ` +
+          `which does not route: this module is loaded only after argv has matched "${shownRoute}", so an alias in it has no effect; ` +
           declareSpellings(extra)
       );
     }
@@ -493,7 +496,7 @@ function unroutable(
     ? declareIn(manifest, '{ "default": true }')
     : routedBy.index
       ? NO_WAY_TO_DEFAULT_A_DIRECTORY
-      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${route}': { default: true, path: '${target}' } }\``;
+      : `${DECLARE_ON_THE_ROUTE}, such as \`commands: { '${shownRoute}': { default: true, path: '${target}' } }\``;
   if (
     fallback &&
     literalBoolean(fallback.value) !== false &&
@@ -501,7 +504,7 @@ function unroutable(
   ) {
     warn(
       fallback.start,
-      `"default" has no effect here: this module is read only after argv has matched "${route}", ` +
+      `"default" has no effect here: this module is read only after argv has matched "${shownRoute}", ` +
         `so it cannot make the command the default; ${advice}`
     );
   }
