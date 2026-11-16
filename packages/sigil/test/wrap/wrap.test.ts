@@ -2,6 +2,7 @@ import { ansi } from '../../src/ansi/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { words } from '../../src/wrap/breaks.js';
 import {
+  createSgrState,
   DEFAULT_WIDTH,
   isBreakSpace,
   MAX_WIDTH,
@@ -9,6 +10,7 @@ import {
   tokenize,
   truncate,
   wrap,
+  wrapRows,
 } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -543,6 +545,210 @@ describe('isBreakSpace()', () => {
   it('should name the blanks wrap() breaks at and keeps a line at', () => {
     expect(wrap('10\u00a0kg', 3)).toBe('10\u00a0\nkg');
     expect(wrap('10 kg', 3)).toBe('10\nkg');
+  });
+});
+
+/**
+ * What is left of a wrap after row `row`, wrapped as a text of its own: the rows
+ * after it, from the styling every sequence before its end left in effect.
+ */
+function rest(
+  text: string,
+  row: number,
+  width: number,
+  extra: { continued?: boolean; hangingIndent?: number; indent?: number } = {}
+): string[] {
+  const { ends } = wrapRows(text, { width, ...extra });
+  const state = createSgrState();
+  for (const token of tokenize(text.slice(0, ends[row]))) {
+    if (token.type === 'sequence') {
+      state.apply(token.text);
+    }
+  }
+  // an end past a newline starts a paragraph, which is not the rest of a row
+  const paragraph = text[(ends[row] as number) - 1] === '\n';
+  return wrapRows(state.open() + text.slice(ends[row]), {
+    continued: !paragraph,
+    width,
+    ...extra,
+  }).rows;
+}
+
+describe('wrapRows()', () => {
+  it('should give the rows wrap() joins, for a plain and for a styled text', () => {
+    for (const text of [
+      SENTENCE,
+      `${ESC}[31mred${ESC}[39m and ${ESC}[1mbold words that wrap${ESC}[22m ok`,
+      'one\ntwo three four\r\nfive',
+      '',
+      '   ',
+    ]) {
+      for (const width of [1, 4, 9, 80]) {
+        expect(wrapRows(text, width).rows.join('\n')).toBe(wrap(text, width));
+      }
+    }
+  });
+
+  it('should end each row where the next one starts, and the last at the end of the text', () => {
+    const text = 'aaa bbb ccc ddd';
+    const { ends, rows } = wrapRows(text, 7);
+
+    expect(rows).toEqual(['aaa bbb', 'ccc ddd']);
+    // the blank the break dropped is the first row's, and the second starts at `ccc`
+    expect(ends).toEqual([8, text.length]);
+    expect(text.slice(ends[0])).toBe('ccc ddd');
+  });
+
+  it('should end a row inside a word broken between clusters', () => {
+    const { ends, rows } = wrapRows('abcdefghij', 4);
+
+    expect(rows).toEqual(['abcd', 'efgh', 'ij']);
+    expect(ends).toEqual([4, 8, 10]);
+  });
+
+  it('should count in code units, a wide cluster or a surrogate pair included', () => {
+    const { ends, rows } = wrapRows(`日本 ${FLAG_US}${FLAG_US} ${FAMILY}x`, 4);
+
+    expect(rows).toEqual(['日本', `${FLAG_US}${FLAG_US}`, `${FAMILY}x`]);
+    expect(ends).toEqual([
+      3,
+      3 + FLAG_US.length * 2 + 1,
+      3 + FLAG_US.length * 2 + 1 + FAMILY.length + 1,
+    ]);
+  });
+
+  it('should end a row past the newline that ended it, and a CRLF with it', () => {
+    const { ends, rows } = wrapRows('ab\ncd\r\nef', 9);
+
+    expect(rows).toEqual(['ab', 'cd', 'ef']);
+    expect(ends).toEqual([3, 7, 9]);
+  });
+
+  it('should count the sequences in the text, and end a row after the ones in its break', () => {
+    const text = `aaa ${ESC}[31m bbb${ESC}[39m ccc`;
+    const { ends, rows } = wrapRows(text, 3);
+
+    expect(rows).toEqual(['aaa', `${ESC}[31mbbb${ESC}[39m`, 'ccc']);
+    // the sequence in the gap is before the end of the first row: it took effect
+    // on the way, and the second row is opened from it
+    expect(text.slice(ends[0])).toBe(`bbb${ESC}[39m ccc`);
+    expect(text.slice(0, ends[0])).toContain(`${ESC}[31m`);
+  });
+
+  it('should answer a width that holds nothing with the one empty row wrap() does', () => {
+    expect(wrapRows('abc', 0)).toEqual({ ends: [3], rows: [''] });
+    expect(wrapRows('abc', Number.NaN)).toEqual({ ends: [3], rows: [''] });
+  });
+
+  it('should give a row and its indentation the same width wrap() does', () => {
+    const { rows } = wrapRows('aaa bbb ccc', { hangingIndent: 2, indent: 1, width: 8 });
+
+    expect(rows.join('\n')).toBe(wrap('aaa bbb ccc', { hangingIndent: 2, indent: 1, width: 8 }));
+  });
+
+  // the point of an end: what is after it wraps as the rest of this wrap does
+  describe('wrapping what is after an end', () => {
+    const texts: Record<string, string> = {
+      plain: SENTENCE.repeat(3),
+      'a long word': `ab ${'x'.repeat(30)} cd ${'y'.repeat(12)}`,
+      'styled across rows': `${ESC}[31;4mred and underlined words that go on and on${ESC}[0m then plain`,
+      'a colour closed in the gap': `aaaa ${ESC}[1mbbbb ${ESC}[22m cccc ${ESC}[32m dddd${ESC}[39m eeee`,
+      'wide clusters': `日本語 ${FLAG_US} 日本語日本語 ${FAMILY} ${FAMILY}${FAMILY} 日`,
+      'runs of blanks': 'aaaa     bbbb  \t  cccc        dddd   eeee    ',
+      'a mark with nothing to sit on': 'aaaa \u0301    bbbbbbbb   cc',
+      'paragraphs, indented': 'aaa bbb\n   ccccccccccc ddd\n\teee fff\n      ggg',
+      'a colour carried over paragraphs': `${ESC}[31maaa bbb\n   ccc ddd${ESC}[39m eee\r\n  fff ggg hhh`,
+      'a word that moved down whole': `aaaa ${ESC}[7mbbbbbbb${ESC}[27m ccccccc ddd`,
+    };
+
+    for (const [name, text] of Object.entries(texts)) {
+      it(`should wrap what is left as the rest of the wrap, for ${name}`, () => {
+        for (const width of [3, 4, 5, 7, 10, 16]) {
+          const { ends, rows } = wrapRows(text, width);
+
+          for (let row = 0; row < rows.length - 1; row++) {
+            // a row that breaks in front of a sequence is the one that cannot be
+            // started again, and is checked below
+            if (text[ends[row] as number] === ESC) {
+              continue;
+            }
+            expect(rest(text, row, width), `${name} at ${width}, after row ${row}`).toEqual(
+              rows.slice(row + 1)
+            );
+          }
+        }
+      });
+    }
+
+    it('should start a paragraph without `continued`, which would drop its indentation', () => {
+      const text = 'aaa\n   bbbbbbbbbbbb';
+      const { ends, rows } = wrapRows(text, 10);
+
+      expect(rows).toEqual(['aaa', '   bbbbbbb', 'bbbbb']);
+      expect(text[(ends[0] as number) - 1]).toBe('\n');
+      expect(wrapRows(text.slice(ends[0]), { width: 10 }).rows).toEqual(rows.slice(1));
+      expect(wrapRows(text.slice(ends[0]), { continued: true, width: 10 }).rows).toEqual([
+        'bbbbbbbbbb',
+        'bb',
+      ]);
+    });
+
+    it('should start a paragraph with neither spelling when there is a hanging indent', () => {
+      // the paragraph's first row has the room and indent of a row after the first,
+      // which `continued` gives it, and its blanks are indentation, which it does not
+      const options = { hangingIndent: 2, width: 10 };
+      const text = 'aaa\n   bbbbbbbbbbbb';
+      const { ends, rows } = wrapRows(text, options);
+      const after = text.slice(ends[0]);
+
+      expect(rows).toEqual(['aaa', '     bbbbb', '  bbbbbbb']);
+      expect(wrapRows(after, { continued: true, ...options }).rows).not.toEqual(rows.slice(1));
+      expect(wrapRows(after, options).rows).not.toEqual(rows.slice(1));
+    });
+
+    it('should write the style of a blank line a paragraph restarts, where wrap() writes nothing', () => {
+      const text = `${ESC}[4mab\n   `;
+      const { ends, rows } = wrapRows(text, 8);
+
+      expect(rows).toEqual([`${ESC}[4mab${ESC}[24m`, '']);
+      expect(wrapRows(`${ESC}[4m${text.slice(ends[0])}`, 8).rows).toEqual([`${ESC}[4m`]);
+    });
+
+    it('should not start again in front of a sequence the word it breaks was holding', () => {
+      // at one column a wide cluster is wider than the room, so the sequences
+      // after it open the next row where they are, in the word, and written. Started
+      // there they are in front of a blank, which `wrap()` opens the row from
+      // rather than writes: the same row, in other bytes
+      const text = `日${ESC}[22m${ESC}[38;5;39m ab`;
+      const { ends, rows } = wrapRows(text, 1);
+
+      expect(rows).toEqual([
+        '日',
+        `${ESC}[22m${ESC}[38;5;39ma${ESC}[39m`,
+        `${ESC}[38;5;39mb${ESC}[39m`,
+      ]);
+      expect(text[ends[0] as number]).toBe(ESC);
+      expect(rest(text, 0, 1)).toEqual([
+        `${ESC}[38;5;39ma${ESC}[39m`,
+        `${ESC}[38;5;39mb${ESC}[39m`,
+      ]);
+    });
+
+    it('should keep a blank run in front of a text that is not continued as its indentation', () => {
+      // the same text, taken as a text of its own and not as the rest of one: a
+      // mark takes no column, so the blanks after it are the row's indentation
+      expect(wrapRows('\u0301    mmmmmmmm', { width: 8 }).rows).toEqual(['\u0301    mmmm', 'mmmm']);
+      expect(wrapRows('\u0301    mmmmmmmm', { continued: true, width: 8 }).rows).toEqual([
+        '\u0301mmmmmmmm',
+      ]);
+    });
+
+    it('should give a continued first line the room and the indent of a row after the first', () => {
+      const options = { hangingIndent: 3, indent: 1, width: 10 };
+
+      expect(wrapRows('aaa', { continued: true, ...options }).rows).toEqual(['    aaa']);
+      expect(wrapRows('aaa', options).rows).toEqual([' aaa']);
+    });
   });
 });
 

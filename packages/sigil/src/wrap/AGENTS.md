@@ -82,3 +82,57 @@ reopen travelling with its word.
   still leaves one column, as `should leave one column when the indent takes the
   whole width` records, because that is the caller's own prefix rather than the
   text's.
+
+### `wrapRows()`: where a row ended, and the text that follows it (SIG-406)
+
+- **It is `wrap()`, with the offsets kept.** `wrap()` and `wrapRows()` are one
+  function, `layout()`, and `wrap()` passes it nowhere to record them: a second
+  walk that found where rows break would be a second idea of where rows break,
+  and `createStreamWrapper()` was the caller that needed the first one's answer.
+  Ordinary calls pay for one addition per token; `wrap()` of a 4,000-line text and
+  of a 65-character line measured the same before and after (24.8 and 23.9 ms,
+  67 and 66 ms per 20,000 calls).
+- **An end is where the next row's text begins, not where this one's stopped.**
+  `ends[i]` is past the blanks the break dropped, so `text.slice(ends[i])` starts
+  on the first thing row `i + 1` takes -- a word, or a cluster inside one that was
+  broken. A row that ends at a newline ends past it (a CRLF included), and the
+  last row at `text.length`. The sequences a row passed, in its text or in the gap
+  dropped after it, are all before its end, so applying them to a `createSgrState()`
+  gives the styling the next row opens with.
+- **`continued` is what makes the rest of a wrap wrap as the rest of it.** A text
+  whose first row takes no columns -- a combining mark with nothing to sit on, a
+  zero-width space -- followed by blanks is a row with indentation, and the same
+  characters after a break are the blanks the break left, which are dropped.
+  Starting the rest afresh read them as indentation and wrote them, which the
+  differential check against the old stream wrapper found on its first thousand
+  texts. The option gives the first line the room and the hanging indent of a row
+  after the first; later lines of the text, after a newline, are paragraphs of
+  their own as ever.
+- **An end past a newline is a paragraph, and `continued` is the wrong thing to
+  start it with.** A newline starts an input line, whose leading blanks are its
+  indentation, and `continued` is what says blanks in front of a first word are
+  what a break left behind. Round 1 of review ran 190,115 ends over every option
+  and found 337 that failed at a newline (and 874 at the sequence-start class
+  below, which is not the newline's): `wrapRows('aaa\n   bbbbbbbbbbbb', 10)`
+  ends at 4, and `continued` from there drops the three blanks the paragraph was
+  indented by. The rule that holds is to wrap the rest **without** `continued`,
+  and it holds when there is no `hangingIndent`, checked over the same ends with
+  every width, `indent` and `hard`: the one difference left is a line of nothing
+  but blanks and sequences while a style is open, which the restart writes as the
+  style (the styling put in front of it is a trailing sequence) and `wrap()`
+  writes as an empty row. With a `hangingIndent` neither spelling is exact: the
+  paragraph's first row has the room and indent of a row after the first, which
+  is `continued`, and its blanks are indentation, which is not. So a caller with
+  one does not cut at a newline, which `createStreamWrapper()` never does -- its
+  text has none in it. The code was not changed; the contract was narrowed.
+- **One end cannot be started again, and the API does not hide it.** A word wider
+  than the room is broken between clusters, and a cluster wider than the room --
+  `日` at a width of one -- leaves the row over-full, so the zero-width sequences
+  after it are what the next row starts with: written, inline, in the word. A text
+  that starts there has them before a blank and a word, as indentation, which is
+  opened from rather than written. Same row, other bytes, so a caller that wants
+  byte-identical output must not cut there: the stream wrapper asks
+  `resumable()` and goes back to the row before. Likewise a sequence `wrap()`
+  cannot reopen, an OSC 8 hyperlink, travels in front of the word after a break
+  (the entry in the root file) and a restart at the word leaves it behind; the
+  stream wrapper has cleaned those away before it wraps, so it never meets one.

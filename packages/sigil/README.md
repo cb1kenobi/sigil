@@ -2585,6 +2585,32 @@ isBreakSpace(' '); // true
 isBreakSpace('\u00a0'); // false
 ```
 
+`wrapRows(text, opts)` is `wrap()` that also says where each row ended, for text
+that arrives in pieces. It returns the rows, which join to what `wrap()` returns,
+and `ends`: for each row, the offset where the next one's text begins, past the
+blanks the break dropped. Every row but the last is final however much follows
+it, so what is before its end can be dropped and the rest wrapped as the rest of
+the same wrap, with `continued: true` and the styling the dropped text left in
+effect put back in front:
+
+```js
+import { wrapRows } from '@ttylabs/sigil/wrap';
+
+const { rows, ends } = wrapRows('aaa bbb ccc ddd', 7);
+// rows: ['aaa bbb', 'ccc ddd']; ends: [8, 15]
+// the rest is 'ccc ddd', from ends[0]
+```
+
+An end can be started again from, with two exceptions. A row after a newline is a
+paragraph of its own: its leading blanks are indentation, so wrap it without
+`continued` -- which is exact when there is no `hangingIndent` (apart from a
+line of only blanks, or nothing, while a style is open, which comes out as the
+style), and with one neither spelling is, so wrap the whole text or cut inside a paragraph. And a row
+that begins with a sequence in the middle of a word can only be made by a
+character wider than the room (`日` where there is one column), and starting there
+reads the sequence as indentation. See `createStreamWrapper()` for the caller this
+is written for.
+
 ### `sigil/width`
 
 ```js
@@ -4161,6 +4187,10 @@ that settles when the source is drained.
   and is written when the stream ends. Lines land above a spinner or bar exactly as
   `log.info()` does, and the glyph leads the first line with the rest hanging under
   its text.
+- **A long line costs its length once.** A row that is final is cut off the line
+  as it is handed out, so a chunk costs the row being built and the chunk, not
+  the line so far: a minified document with no newline in it streams in time
+  linear in its size.
 - **Chunks can be cut anywhere.** A word, an escape sequence (`ESC[3` then `1m`)
   or a multi-byte character split between chunks wraps the same as the whole text
   would. The text's own colours are kept, closed at the end of each line and
