@@ -1042,6 +1042,33 @@ toolchain's one reader.
   `#ff8800` is numerically nearer xterm's green than its red, and perceptually
   nowhere near it. Oklab over CIELAB because it is simpler and better behaved
   around blues; either beats RGB, which is the thing actually worth avoiding.
+- **There is one quantizer, it is `src/ansi/quantize.ts`'s, and the styler and
+  the style engine both ask it (SIG-396).** `ansi.rgb()` and `ansi.hex()` had a
+  degrader of their own -- a VGA-style sixteen (`128,0,0` for red) measured by
+  the redmean weighting -- beside this one's xterm sixteen (`0xcd,0,0`) measured
+  in Oklab, so one declared value drew as two colors on one terminal. Over a grid
+  of 16 levels a channel, 2,499 of 4,096 colors disagreed at 16 colors
+  (`rgb(0, 0, 255)` was bright blue through one and blue through the other) and
+  1,288 at 256 (`rgb(0, 0, 51)` was 233 through one and 17 through the other), and
+  an app mixing `ansi.*` strings with styled elements showed both. The xterm
+  palette and Oklab won, for the two reasons recorded above: the xterm defaults
+  are what most terminals' own themes resemble, and Oklab is perceptual where RGB
+  distance, redmean included, picks visibly wrong answers. `quantize.ts` owns
+  `paletteRgb()`, `oklab()`, `rgbFromOklab()` and `nearestPaletteIndex()`; it
+  lives in `src/ansi` because that is the lower layer and `degrade.ts` already
+  imports it, and `degrade.ts` re-exports the first three so
+  `@ttylabs/sigil/style` is unchanged. Its table is built on first use rather
+  than at import, which is what keeps the `ansi` entry from doing work for a
+  program that never degrades a color. The output of `ansi.rgb()` and
+  `ansi.hex()` changed at 16 and at 256 colors, and `ansi.ansi256()`'s at 16
+  colors only (at 256 it is still `38;5;n` verbatim); that is the intended
+  change. The memo stays in `degradeColor()`, which sees declared colors; the
+  styler's calls are not memoized, so a color a program computes does not
+  accumulate. What is _not_
+  merged is the SGR parameter tables of the styler and the wrapper, which are a
+  different thing, recorded as a deliberate duplicate in the root AGENTS.md.
+  `test/ansi/quantize.test.ts` drives the 4,096-color grid through both paths at
+  both levels and fails on any disagreement.
 - **Nothing is invented at level 0.** Colour is dropped and no attribute is
   synthesised to carry what it meant: turning red into bold makes red and blue
   both bold, which preserves the emphasis while destroying the distinction it is
@@ -1948,10 +1975,13 @@ own colours so none of them has to know.
 - **It lives in `style/` because both halves of the colour model do.** The mix is
   `mixColors()` and the depth is `degradeColor()`, so a gradient is a third caller
   of two pure functions. `ansi/` was the other candidate for a string-in,
-  string-out surface and was refused: `ansi` has its own, different downsampling
-  (`rgbToBasic()`, `rgbToAnsi256()`), and a gradient there would have been a
-  second colour model beside the Oklab one, with a ramp that quantized differently
-  from the same colour in a stylesheet. The only change outside this file is
+  string-out surface and was refused, for a reason SIG-396 has since removed:
+  `ansi` had its own, different downsampling (`rgbToBasic()`, `rgbToAnsi256()`),
+  and a gradient there would have been a second colour model beside the Oklab one,
+  with a ramp that quantized differently from the same colour in a stylesheet.
+  Both now ask one quantizer (see "There is one quantizer" under "Colour
+  degradation"), so `style/` stays the home on its own merits: the mix is here.
+  The only change outside this file is
   `colorParams()` in `canvas/style.ts` gaining an `export`, so the SGR a cell is
   emitted with is the canvas's own spelling rather than a copy.
 - **The stops must be 24-bit, at every level.** `mixColors()` refuses a palette
