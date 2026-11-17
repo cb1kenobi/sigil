@@ -42,6 +42,7 @@
 
 import { word } from '../shell.ts';
 import { displayPath, type Diagnostic, type Severity } from './diagnostic.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -142,7 +143,10 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
     return {
       checked: false,
       diagnostics: [],
-      skipped: `no ${options.project ?? TSCONFIG} in ${cwd}, so there is nothing to type-check`,
+      // escaped by the producer: this is a note rather than a diagnostic, so no
+      // sink escapes it, and it is printed on every run of an app without a
+      // tsconfig -- a failed bundle's included (SIG-447)
+      skipped: `no ${escapeControls(options.project ?? TSCONFIG)} in ${escapeControls(cwd)}, so there is nothing to type-check`,
     };
   }
 
@@ -158,7 +162,7 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
     return {
       checked: false,
       diagnostics: [],
-      skipped: `${project} exists but typescript could not be resolved from ${cwd}; add it as a devDependency to have the build type-check`,
+      skipped: `${escapeControls(project)} exists but typescript could not be resolved from ${escapeControls(cwd)}; add it as a devDependency to have the build type-check`,
     };
   }
 
