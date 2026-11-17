@@ -896,5 +896,18 @@ in half blocks from the start.
   previewed by a test, which would hang rather than fail if one were opened; and
   the gutter goes where the pane cannot hold it and a cell of text.
 
+- **Review round 2, over round 1's fixes: four findings, three fixed.** A
+  case-only rename onto another hard link of the same file passed the inode
+  check and did nothing, so a name the directory already lists exactly as typed
+  is now taken whatever file it is -- on a file system that ignores case the
+  directory lists only the old spelling. Its test can only run where case is
+  kept, so it is skipped on a Mac and runs on Linux. A read that ended on a `\r`
+  with no newline before it drew half a CRLF as `�`, and drops it now. A refused
+  rename or move is a warning, as a refused paste always was, rather than an
+  error. Not fixed: case is compared with `toLowerCase()`, not Unicode case
+  folding, so a pair a file system folds and JavaScript does not (`i` and `İ`)
+  is a name that is taken rather than a case-only rename, and a start spelled
+  that way is not respelled. That is the safe direction to be wrong in.
+
 - **Not done:** selecting several files, a trash, making a file or a directory,
   opening one in `$EDITOR`, and watching a directory (`R` reads it again).

@@ -1,6 +1,14 @@
 import { App as JsxApp } from '../src/root.tsx';
 import { App as UiApp } from '../src/root.ui.ts';
-import { exitMounted, mount, PICTURE, removeTempDirs, tempDir, write } from './fixture.ts';
+import {
+  exitMounted,
+  ignoresCase,
+  mount,
+  PICTURE,
+  removeTempDirs,
+  tempDir,
+  write,
+} from './fixture.ts';
 import { KEYS } from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -50,13 +58,6 @@ function workspace(): { root: string; work: string } {
 }
 
 const LONG = 30_000;
-
-/** Whether the temp directory's file system ignores case, as macOS's and Windows' do by default. */
-function ignoresCase(): boolean {
-  const dir = tempDir();
-  write(dir, { probe: '' });
-  return existsSync(join(dir, 'PROBE'));
-}
 
 for (const [syntax, App] of [
   ['jsx', JsxApp],

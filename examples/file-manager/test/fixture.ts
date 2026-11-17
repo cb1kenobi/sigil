@@ -15,7 +15,7 @@ import type { Element } from '@ttylabs/sigil/element';
 import { encodePng } from '@ttylabs/sigil/png';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -85,6 +85,13 @@ export function exitMounted(): void {
   for (const app of mounted.splice(0)) {
     app.exit(0);
   }
+}
+
+/** Whether the temp directory's file system ignores case, as macOS's and Windows' do by default. */
+export function ignoresCase(): boolean {
+  const dir = tempDir();
+  write(dir, { probe: '' });
+  return existsSync(join(dir, 'PROBE'));
 }
 
 /** What {@link write} writes. */

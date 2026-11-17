@@ -176,7 +176,8 @@ function topOf(bytes: Uint8Array, partial: boolean): { cut: boolean; text: strin
   let cut = partial;
   if (partial) {
     const end = text.lastIndexOf('\n');
-    text = end === -1 ? text : text.slice(0, end);
+    // a `\r` the read ended on may be half of a CRLF whose `\n` was not read
+    text = end === -1 ? text.replace(/\r$/, '') : text.slice(0, end);
   }
   let at = -1;
   for (let n = 0; n < MAX_TEXT_LINES; n++) {

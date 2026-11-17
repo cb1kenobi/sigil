@@ -115,6 +115,12 @@ export interface Model {
   };
 }
 
+/**
+ * A change the manager declined to make, which is said as a warning rather than
+ * as an error: nothing failed, the name was taken.
+ */
+class Refused extends Error {}
+
 const NOTHING: PreviewFor = { about: '', path: '', preview: { kind: 'note', note: '' } };
 
 /**
@@ -357,7 +363,7 @@ export function createModel(): Model {
       try {
         toast(await task());
       } catch (err) {
-        toast((err as Error).message, 'error');
+        toast((err as Error).message, err instanceof Refused ? 'warning' : 'error');
       }
       await go(
         untrack(() => dir.get()),
@@ -415,7 +421,7 @@ export function createModel(): Model {
         // asked again at the last moment, because `rename()` writes over a file
         // on POSIX, and the confirm was time for one to appear
         if (await files.taken(plan.to)) {
-          throw new Error(`${name} is already taken here`);
+          throw new Refused(`${name} is already taken here`);
         }
         await files.move(held.entry.path, plan.to);
         clip.set(undefined);
@@ -473,7 +479,7 @@ export function createModel(): Model {
         // take the name in between, and `rename()` would replace what it made
         const plan = await planRename(files, entry.path, name);
         if (!plan.ok) {
-          throw new Error(plan.reason);
+          throw new Refused(plan.reason);
         }
         await files.move(entry.path, plan.to);
         renamed = true;

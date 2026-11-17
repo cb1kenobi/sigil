@@ -11,7 +11,7 @@ import {
   sortEntries,
   visibleEntries,
 } from '../src/files.ts';
-import { removeTempDirs, tempDir, write } from './fixture.ts';
+import { ignoresCase, removeTempDirs, tempDir, write } from './fixture.ts';
 import { existsSync, linkSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -234,6 +234,24 @@ describe('renaming', () => {
       reason: 'b.txt is already taken',
     });
   });
+
+  it.skipIf(ignoresCase())(
+    'should refuse a name in another case that the directory already lists',
+    async () => {
+      // only where case is kept can both spellings be listed: as two files, and
+      // as two names of one hard link, which a rename would leave both of
+      const root = tempDir();
+      write(root, { 'a.txt': 'a', 'b.txt': 'b', 'B.txt': 'other' });
+      linkSync(join(root, 'a.txt'), join(root, 'A.txt'));
+      for (const [from, to] of [
+        ['a.txt', 'A.txt'],
+        ['b.txt', 'B.txt'],
+      ] as const) {
+        expect(await planRename(files, join(root, from), to)).toMatchObject({ ok: false });
+      }
+      expect(readdirSync(root).sort()).toStrictEqual(['A.txt', 'B.txt', 'a.txt', 'b.txt']);
+    }
+  );
 
   it('should refuse a separator, so a rename never moves a file', async () => {
     const root = tempDir();

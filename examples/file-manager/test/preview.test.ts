@@ -107,6 +107,15 @@ describe('a preview', () => {
     expect(read.text.split('\n').at(-1)).toBe('hello');
   });
 
+  it('should not draw half a CRLF where the read stopped between its two halves', async () => {
+    // one line, no newline in what was read, and the read's last byte a `\r`
+    const root = tempDir();
+    write(root, { 'split.txt': `${'x'.repeat(MAX_TEXT_BYTES - 1)}\r\nrest` });
+    const read = (await previewOf(root, 'split.txt')) as { cut: boolean; text: string };
+    expect(read.cut).toBe(true);
+    expect(read.text).toBe('x'.repeat(MAX_TEXT_BYTES - 1));
+  });
+
   it('should not draw half a character where the read stopped inside one', async () => {
     // three bytes a character, so 64 KB ends a byte into one, and no newline
     // for the cut to fall back to
