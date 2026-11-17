@@ -1,7 +1,7 @@
 import { createAnsi } from '../../src/ansi/index.js';
 import { autocomplete, type AutocompleteOptions } from '../../src/components/autocomplete.js';
 import { PromptError } from '../../src/components/prompt.js';
-import { type ScreenHarness, screenSetup, tick } from './helpers.js';
+import { type ScreenHarness, screenSetup, tick, until } from './helpers.js';
 import { describe, expect, it, vi } from 'vitest';
 
 const ENTER = '\r';
@@ -483,9 +483,7 @@ describe('autocomplete() and a disabled choice', () => {
       open(ui, { source: () => [{ disabled: true, label: 'prod' }, 'dev', 'qa'] })
     );
 
-    await frame();
-
-    expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  ❯ dev', '    qa']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('dev');
@@ -515,8 +513,7 @@ describe('autocomplete() over a source', () => {
       open(ui, { source: (term) => (term === '' ? ['old-term-row'] : next.promise) })
     );
 
-    await frame();
-    expect(rows(ui)[1]).toBe('  ❯ old-term-row');
+    await until(() => expect(rows(ui)[1]).toBe('  ❯ old-term-row'));
 
     // the row on screen answers the empty term, and `x` has been asked for: it is
     // still drawn, and Enter must not hand it over as though it were current
@@ -538,8 +535,7 @@ describe('autocomplete() over a source', () => {
     expect(rows(ui)).toEqual(['? Pick', '  Searching...']);
 
     pending.resolve(['late']);
-    await frame();
-    expect(rows(ui)).toEqual(['? Pick', '  ❯ late']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  ❯ late']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('late');
@@ -624,9 +620,40 @@ describe('autocomplete() over a source', () => {
     await type(ui.stdin, ENTER);
     expect(rows(ui)).toEqual(['? Pick ab', '  Searching...']);
 
+    // waited for by what it shows and not by a delay: the answer is drawn by a
+    // frame the renderer paces, and one `frame()` was not always enough on a
+    // loaded runner -- 'Searching...' was still up (SIG-445)
     lookups.get('ab')?.resolve(['fresh-answer']);
-    await frame();
-    expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']));
+
+    await type(ui.stdin, ENTER);
+    expect((await answer).value).toBe('fresh-answer');
+  });
+
+  it('should draw a fresh answer on whichever frame the renderer paces, however late', async () => {
+    // thirty milliseconds is the renderer's own default, and four times what a
+    // `frame()` waits: the answer is in the prompt's state at once and on the
+    // screen when the frame runs, which is the gap a fixed wait guesses at
+    const ui = screenSetup({ rows: 10 });
+    const lookups = new Map<string, ReturnType<typeof deferred<string[]>>>();
+    const answer = settle(
+      open(ui, {
+        frameMs: 40,
+        source: (term: string) => {
+          const lookup = deferred<string[]>();
+          lookups.set(term, lookup);
+          return lookup.promise;
+        },
+      })
+    );
+
+    await type(ui.stdin, 'a', 'b');
+    lookups.get('a')?.resolve(['stale-answer']);
+    await type(ui.stdin, ENTER);
+    expect(rows(ui)).toEqual(['? Pick ab', '  Searching...']);
+
+    lookups.get('ab')?.resolve(['fresh-answer']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick ab', '  ❯ fresh-answer']));
 
     await type(ui.stdin, ENTER);
     expect((await answer).value).toBe('fresh-answer');
@@ -749,8 +776,7 @@ describe('autocomplete() over a source', () => {
     const ui = screenSetup({ rows: 10 });
     const answer = settle(open(ui, { source: async () => [] }));
 
-    await frame();
-    expect(rows(ui)).toEqual(['? Pick', '  No matches']);
+    await until(() => expect(rows(ui)).toEqual(['? Pick', '  No matches']));
 
     await type(ui.stdin, CTRL_C);
     await answer;

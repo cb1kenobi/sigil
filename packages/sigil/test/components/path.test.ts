@@ -12,7 +12,14 @@ import {
 } from '../../src/components/path.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { home } from '../../src/paths.js';
-import { countEntrySorts, type ScreenHarness, screenSetup, settleOutput, tick } from './helpers.js';
+import {
+  countEntrySorts,
+  type ScreenHarness,
+  screenSetup,
+  settleOutput,
+  tick,
+  until,
+} from './helpers.js';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix, resolve, sep, win32 } from 'node:path';
@@ -80,11 +87,6 @@ function listed(ui: ScreenHarness): string[] {
     .slice(1)
     .map((row) => row.replace(/^\s*❯?\s*/, '').trim())
     .filter(Boolean);
-}
-
-/** Waits for the file system and the queue, which a `tick()` does not. */
-async function until(check: () => void): Promise<void> {
-  await vi.waitFor(check, { interval: 5, timeout: 2000 });
 }
 
 let root: string;
