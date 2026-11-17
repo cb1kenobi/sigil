@@ -123,9 +123,11 @@ describe('pathOf', () => {
         )
       )
     ).toBe('moved.txt');
-    expect(pathOf(fileOf('diff --git a/logo.png b/logo.png\nBinary files differ\n'))).toBe(
-      'logo.png'
-    );
+    expect(
+      pathOf(
+        fileOf('diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n')
+      )
+    ).toBe('logo.png');
   });
 
   it('should undo every escape git quotes a path with', () => {
