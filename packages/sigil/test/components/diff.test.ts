@@ -386,16 +386,24 @@ describe('parsePatch() and what it keeps to write back', () => {
   });
 
   it('should read the names of a file with no hunk off its diff --git line', () => {
+    /** The names of a file that changed mode, which is one path on both sides. */
     const names = (line: string): (string | undefined)[] => {
-      const [file] = parsePatch(`${line}\nsimilarity index 100%\n`);
+      const [file] = parsePatch(`${line}\nold mode 100644\nnew mode 100755\n`);
       return [file?.oldName, file?.newName];
     };
 
-    expect(names('diff --git a/old.txt b/new.txt')).to.deep.equal(['a/old.txt', 'b/new.txt']);
+    expect(names('diff --git a/x.txt b/x.txt')).to.deep.equal(['a/x.txt', 'b/x.txt']);
     expect(names('diff --git a/with space.txt b/with space.txt')).to.deep.equal([
       'a/with space.txt',
       'b/with space.txt',
     ]);
+    // a prefix may hold a space too, which git leaves unquoted
+    expect(names('diff --git src prefix/f.txt dst prefix/f.txt')).to.deep.equal([
+      'src prefix/f.txt',
+      'dst prefix/f.txt',
+    ]);
+    // with diff.noprefix the two halves are the path itself
+    expect(names('diff --git my file my file')).to.deep.equal(['my file', 'my file']);
     // quoted as a `---` line would quote it, which is the spelling the names have
     expect(names('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"')).to.deep.equal([
       '"a/say \\"hi\\".txt"',
@@ -405,17 +413,34 @@ describe('parsePatch() and what it keeps to write back', () => {
       'a/plain.txt',
       '"b/tab\\there.txt"',
     ]);
-    // a second name starts with a prefix, so a space inside the first is not a split
-    expect(names('diff --git a/dir/my file b/dir/my')).to.deep.equal(['a/dir/my file', 'b/dir/my']);
-    expect(names('diff --git a/old.txt b/new file.txt')).to.deep.equal([
-      'a/old.txt',
-      'b/new file.txt',
+  });
+
+  it('should split a rename where its halves end in the paths its header names', () => {
+    /** The names of a rename with no content changes, as git prints one. */
+    const renamed = (from: string, to: string, prefixes = ['a/', 'b/']): (string | undefined)[] => {
+      const [old, next] = [`${prefixes[0]}${from}`, `${prefixes[1]}${to}`];
+      const [file] = parsePatch(
+        `diff --git ${old} ${next}\nsimilarity index 100%\nrename from ${from}\nrename to ${to}\n`
+      );
+      return [file?.oldName, file?.newName];
+    };
+
+    expect(renamed('old.txt', 'new.txt')).to.deep.equal(['a/old.txt', 'b/new.txt']);
+    // the halves agree under their prefixes at the space before `file`, and are not the names
+    expect(renamed('dir/my file', 'dir/my')).to.deep.equal(['a/dir/my file', 'b/dir/my']);
+    expect(renamed('old.txt', 'new file.txt')).to.deep.equal(['a/old.txt', 'b/new file.txt']);
+    // a path that holds what looks like the other prefix
+    expect(renamed('x b/y z/x', 'y')).to.deep.equal(['a/x b/y z/x', 'b/y']);
+    expect(renamed('dir/my file', 'other/new file', ['', ''])).to.deep.equal([
+      'dir/my file',
+      'other/new file',
     ]);
-    // with diff.noprefix, one space or two equal halves
-    expect(names('diff --git old new')).to.deep.equal(['old', 'new']);
-    expect(names('diff --git my file my file')).to.deep.equal(['my file', 'my file']);
-    // and where two splits each start a prefixed name and neither is the same path, nothing
-    expect(names('diff --git a/x b/y b/z')).to.deep.equal([undefined, undefined]);
+  });
+
+  it('should give a file no names where its diff --git line does not settle them', () => {
+    const [file] = parsePatch('diff --git a/x b/y b/z\nold mode 100644\nnew mode 100755\n');
+
+    expect([file!.oldName, file!.newName]).to.deep.equal([undefined, undefined]);
   });
 
   it('should take the names from --- and +++ where a file has them', () => {

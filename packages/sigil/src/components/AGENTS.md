@@ -9393,7 +9393,8 @@ exported beside them as pure functions.
   `diffLines()` splits them.
 - **What was read is kept beside what was understood, so one read shows a patch
   and applies it (SIG-370).** Each file keeps its `header` -- from `diff --git`,
-  or from `---` where git did not begin it, through `+++` -- and each hunk its
+  or from `---` where git did not begin it, to the first hunk, which is `+++`
+  where there is one and the binary or rename lines where there is not -- and each hunk its
   `source`, the `@@` line first, each line exactly as written but for its `\n`.
   The patch is split on `\n` alone and a `\r` stripped only from the copy that is
   read, so a CRLF file's carriage returns are in the source and not in
@@ -9405,16 +9406,20 @@ exported beside them as pure functions.
   empty new file are each a file git said something about, and an app listing or
   staging a patch needs them. Their names are the two on the `diff --git` line,
   spelled as the line spells them -- a quoted name still quoted, as `---` would
-  quote it. An unquoted line is split at a space after which the second name
-  begins with a prefix -- a segment with no space, then a `/` -- and where several
-  spaces do, at the one whose halves name the same path under their prefixes;
-  where that still leaves none or several, there are no names rather than a
-  guess. Splitting only where the halves agree, which is git's own reading of the
-  line, was the first version and was wrong for a rename: `a/dir/my file b/dir/my`
-  agrees at the space before `file` and named the new side `file b/dir/my`, which
-  an app then staged (review round 1). Git does not read a rename's names off
-  this line at all, it reads `rename from` and `rename to` -- which carry no
-  prefix and so are not names in the spelling `---` gives. `diffView()` draws none of them, not even their names, so its output for
+  quote it. An unquoted line holds two names that may both have spaces in them,
+  and a prefix may too (`--src-prefix='src prefix/'`), so where it splits is read
+  from what else the header says rather than from the line's own text. A rename
+  or a copy names its two paths in `rename from` and `rename to`, unprefixed, and
+  the line splits where its halves end in them; anything else is one path on both
+  sides, and the line splits where the halves name the same path under their
+  prefixes, which is git's own reading of it. Where neither settles on one split
+  there are no names rather than a guess. Both earlier versions guessed from the
+  text and each was wrong: splitting where the halves agree named a rename
+  `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review
+  round 1), and requiring the second name to start with a space-free prefix then
+  refused `src prefix/` and still misread `a/x b/y z/x b/y`, a rename from
+  `x b/y z/x` (round 2). The names are read once the header is, because the
+  rename lines come after the `diff --git` line. `diffView()` draws none of them, not even their names, so its output for
   any patch is what it was. This changes what `parsePatch()` returns for a patch
   of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
   the old answer threw away a fact git printed.
