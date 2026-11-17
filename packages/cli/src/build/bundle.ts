@@ -477,10 +477,15 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       // (SIG-447, found in review). So the two app-supplied halves of what
       // rolldown's printer reads are escaped before it reads them -- the file
       // with `escapeControls()`, the message with `diagnosticMessage()`'s rule --
-      // and the rest of the log is handed over untouched
+      // and the rest of the log is handed over untouched. The message is its
+      // first line only, for the reason `bundleError()` gives: the rest is the
+      // boxed frame, which names the file again, and a newline in that name is
+      // the one character the rule keeps -- measured, a directory called
+      // `h<LF>WARN forged` printed a line of its own. The file is still named,
+      // escaped, by the `loc` the printer leads with
       handler(level, {
         ...log,
-        message: escapeMessage(unstyled(message)),
+        message: escapeMessage(firstLine(message)),
         ...(log.loc?.file !== undefined && {
           loc: { ...log.loc, file: escapeValue(log.loc.file) },
         }),
@@ -963,10 +968,13 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * name. What that leaves is a newline inside a path quoted by such an error,
  * which the rule cannot tell from rolldown's own line breaks.
  *
+ * Exported for the reason `undo()` is: one shape it has to survive -- a plugin's
+ * error carrying `loc: null` -- is not one this build's own plugins produce.
+ *
  * @param error - What `write()` rejected with.
  * @returns The error to throw.
  */
-function bundleError(error: unknown): Error {
+export function bundleError(error: unknown): Error {
   const errors: readonly RolldownLog[] =
     error !== null &&
     typeof error === 'object' &&

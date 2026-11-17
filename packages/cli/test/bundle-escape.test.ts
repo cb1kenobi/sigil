@@ -1,4 +1,5 @@
-import { displayPath } from '../src/build/diagnostic.ts';
+import { bundleError } from '../src/build/bundle.ts';
+import { DiagnosticError, displayPath } from '../src/build/diagnostic.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
@@ -161,6 +162,35 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
     expect(stderr).toContain(escapeControls(TITLE));
     expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
+  it('should not let a newline in a file name forge a line through a warning', async () => {
+    // the rest of rolldown's message is a boxed frame that names the file again,
+    // and a newline is the one character the message rule keeps -- so only the
+    // first line is handed to rolldown's printer
+    const app = appWithHelper(join('src', 'h\nWARN forged'), "export const x = eval('1');\n");
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain('[EVAL]');
+    expect(
+      stderr.split('\n').filter((line) => line.startsWith('WARN forged')),
+      stderr
+    ).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from a file system error the bundle step raised', async () => {
+    // Node's own text, which quotes its path as it stands: the generated entry
+    // goes under the app's `node_modules/.sigil`, and a file there makes the
+    // `mkdir` fail with the app's root in the message
+    const app = linkedFixture(buildable, `sigil-${TITLE}-`);
+    writeFileSync(join(app, 'node_modules', '.sigil'), '');
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(escapeControls(TITLE));
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
 });
 
 describe('a specifier that holds a newline', () => {
@@ -182,4 +212,23 @@ describe('a specifier that holds a newline', () => {
       stderr
     ).toEqual([]);
   }, 60_000);
+});
+
+describe('an error a plugin threw with a null location', () => {
+  it('should be reported on its module rather than throw over the null', () => {
+    // a JavaScript plugin's error comes back from rolldown as the object it
+    // threw, and `loc: null` beside an `id` read as located and then threw a
+    // TypeError over `null.column`
+    const id = join('app', 'src', `${TITLE}.js`);
+    const error = bundleError(
+      Object.assign(new Error('Build failed'), {
+        errors: [{ id, loc: null, message: 'boom', plugin: 'p' }],
+      })
+    );
+
+    expect(error).toBeInstanceOf(DiagnosticError);
+    const [found] = (error as DiagnosticError).diagnostics;
+    expect(found).toMatchObject({ column: undefined, file: id, line: undefined, message: 'boom' });
+    expect(controls(error.message), error.message).toEqual([]);
+  });
 });

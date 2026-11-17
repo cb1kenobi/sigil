@@ -1250,12 +1250,24 @@ makes it testable with a fixture directory and no bundler at all.
   rolldown's own printer, which names `loc.file` and then the message as they
   stand -- so a module at that path calling `eval` wrote the retitle on a build
   that succeeded, found by review. `onLog` hands it a copy with the file through
-  `escapeControls()` and the message through `escapeMessage()`; turning warnings
+  `escapeControls()` and the **first line** of the message through
+  `escapeMessage()` -- the rest is the boxed frame, and a directory called
+  `h<LF>WARN forged` printed a line of its own through it. Turning warnings
   into diagnostics was the larger answer and would change what every warning
   looks like, which is not this ticket's. A log counts as located only when its
   file is a non-empty string, because a JavaScript plugin's error comes back as
   the object it threw and `loc: null` beside an `id` threw a `TypeError` over
   the error it was meant to report.
+
+  **And `bundleFailure()` escapes what it passes through**, which is the sink
+  for the bundle step the way `writeDiagnostics()` is for a diagnostic: a file
+  system error is Node's text and quotes its path as it stands, and an app root
+  holding a retitle with a `node_modules/.sigil` that was a file printed
+  `ENOTDIR: ... mkdir '.../h<ESC>]0;PWN<BEL>d/...'` raw (review round 2). It
+  runs `escapeMessage()` over the message and keeps the error itself, so its
+  class, `code` and `exitCode` survive; a sentence already escaped passes
+  through unchanged. A newline inside such a path is the residual the rule
+  cannot tell from a line break, as above.
 
   The audit of everything else a failed bundle prints, each escaped where its
   sentence is built: the build's own refusal to write over a module the bundle

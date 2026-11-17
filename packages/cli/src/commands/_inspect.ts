@@ -29,6 +29,7 @@ import {
   DiagnosticError,
   discoverApp,
   displayPath,
+  escapeMessage,
   forgetParsedModules,
   isFatal,
   isInside,
@@ -427,8 +428,9 @@ function relativeTo(app: DiscoveredApp): (file: string) => string {
  * A `DiagnosticError` -- a template the bundle reached that cannot be
  * compiled -- is written the way `reportDiagnostics()` writes what the read
  * found, and the build then fails with the same `failure()` sentence a type
- * error gets, counting it. Anything else is passed through untouched, since it
- * is already a sentence `main()` knows how to print.
+ * error gets, counting it. Anything else is passed through, since it is
+ * already a sentence `main()` knows how to print -- with its message escaped on
+ * the way, because `main()` prints it as it stands; see `escaped()`.
  *
  * @param found - What reading the app turned up.
  * @param counts - What `reportDiagnostics()` counted.
@@ -441,7 +443,7 @@ export function bundleFailure(
   error: unknown
 ): unknown {
   if (!(error instanceof DiagnosticError)) {
-    return error;
+    return escaped(error);
   }
 
   writeDiagnostics(error.diagnostics, {
@@ -453,6 +455,38 @@ export function bundleFailure(
     errors: counts.errors + error.diagnostics.length,
     warnings: counts.warnings,
   });
+}
+
+/**
+ * A failed bundle's error, with no control character in its message but a
+ * newline and a tab.
+ *
+ * The sentences the bundle step builds itself escape what they quote where they
+ * are built, but not everything that leaves `bundleApp()` is one of them: a
+ * file system error is Node's own text and quotes its path as it stands, and the
+ * build makes directories under the app's root and writes into `--out`. An app
+ * whose root holds a retitle sequence and a `node_modules/.sigil` that is a file
+ * printed `ENOTDIR: not a directory, mkdir '.../h<ESC>]0;PWN<BEL>d/...'` raw
+ * (SIG-447, found in review). So what is passed through is escaped on the way,
+ * with `escapeMessage()`, `diagnosticMessage()`'s rule by name -- which a
+ * sentence already escaped passes through unchanged.
+ *
+ * The error is kept rather than replaced when it is one, so its class, its
+ * `code` and an `exitCode` it carries all survive; only the message changes.
+ *
+ * @param error - What bundling threw.
+ * @returns The same error, or one built from a value that was not an error.
+ */
+function escaped(error: unknown): unknown {
+  if (!(error instanceof Error)) {
+    return new Error(escapeMessage(String(error)));
+  }
+
+  const message = escapeMessage(error.message);
+  if (message !== error.message) {
+    error.message = message;
+  }
+  return error;
 }
 
 /**
