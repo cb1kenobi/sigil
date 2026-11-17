@@ -11946,7 +11946,18 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
 - **A duplicate is checked before anything is written.** An added key that a
   kept row holds, or two added keys alike, throws the same error as before and
   leaves the map, `base` and the rows as they were. A key that went off the
-  front may come back on the end.
+  front may come back on the end. The check reads the map, not `indexOf()`,
+  which reads `undefined` as no key at all: review round 1 found a kept
+  `undefined` key and an added one passing, where a rebuild throws.
+- **The array it already holds is always rebuilt.** `setRows()` keeps the array
+  it is handed, so the same array changed in place and handed back compares
+  equal to itself everywhere, and a push would be read as kept rows that the
+  map never placed. The docs say to hand over a new array, but the rebuild used
+  to forgive a push, so this still does (review round 1).
+- **A kept item keeps its key.** `key` is asked only for the added items, so an
+  object whose key changed in place keeps the old one until it is replaced.
+  The `items` prop says so. Asking again would put the O(n) calls into the app
+  back, and replacing an object is already how a row is rebuilt.
 - **The log browser's trim stopped testing every line.** It used `filter()` over
   every shown line to drop the ones the cap took. Those lines are all at the
   front, so it counts them from there and slices. That was about 1.5 of the
@@ -11956,12 +11967,16 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   `should hand only the added items to key` counts calls to `key`. Both fail
   if either layer falls back to a rebuild, and neither depends on the machine.
   The layout fuzzer's deadline entry records why no test here asserts a time.
-- **Sabotage: nine.** The shape check removed in each layer, the comparison of
-  the kept rows removed in each, the duplicate check, the delete of rows that
-  went, `base` not moved, and `base` not reset on a rebuild. Eight were caught.
-  The ninth, the early exit when the new rows are fewer than the kept ones,
-  survives, because the comparison after it returns `false` anyway. It is kept
-  because it saves that loop.
+- **Sabotage: nine, then two more.** The shape check removed in each layer,
+  the comparison of the kept rows removed in each, the duplicate check, the
+  delete of rows that went, `base` not moved, and `base` not reset on a rebuild.
+  Eight were caught. The ninth, the early exit when the new rows are fewer than
+  the kept ones, survives, because the comparison after it returns `false`
+  anyway. It is kept because it saves that loop. After review round 1, the
+  duplicate check by `indexOf()` and the same array taken as a slide are each
+  caught. `should rebuild a row whose item was replaced while rows were also
+  appended` checks that the answer is right and does not pin the fast path. The
+  two counting tests do that.
 
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 

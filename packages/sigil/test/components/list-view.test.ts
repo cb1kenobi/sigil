@@ -302,6 +302,22 @@ describe('createListSelection()', () => {
       expect(['a', 'b', 'c'].map((key) => sel.indexOf(key))).toEqual([2, 0, 1]);
     });
 
+    it('should refuse an added undefined key that a kept row holds, as a rebuild does', () => {
+      const sel = createListSelection<string | undefined>({ current: 'a' });
+      sel.setRows(['a', undefined]);
+      expect(() => sel.setRows(['a', undefined, undefined])).toThrow('undefined is used twice');
+      expect(sel.rowCount).toBe(2);
+    });
+
+    it('should rebuild for the array it holds, changed in place and handed back', () => {
+      const rows = ['a', 'b', 'c'];
+      const sel = createListSelection<string>({ current: 'a' });
+      sel.setRows(rows);
+      rows.push('d');
+      sel.setRows(rows);
+      expect(sel.indexOf('d')).toBe(3);
+    });
+
     it('should place only the added keys, however many rows it holds', () => {
       const sel = createListSelection<number>();
       const held = Array.from({ length: 10_000 }, (_, i) => i);

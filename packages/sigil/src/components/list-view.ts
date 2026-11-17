@@ -271,7 +271,9 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
    *   everything as it was, for a rebuild.
    */
   const slide = (next: readonly K[]): boolean => {
-    if (keys.length === 0 || next.length === 0) {
+    // the array it already holds, handed back after a change in place, compares
+    // equal to itself everywhere and would hide what was pushed onto it
+    if (keys.length === 0 || next.length === 0 || next === keys) {
       return false;
     }
     const dropped = indexOf(next[0]);
@@ -291,8 +293,10 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
     const added = new Map<K, number>();
     for (let i = kept; i < next.length; i++) {
       const key = next[i] as K;
-      const at = indexOf(key);
-      if (at >= dropped || added.has(key)) {
+      // the map rather than `indexOf()`, which reads `undefined` as no key at all
+      // where a row may still have it for one
+      const at = positions.get(key);
+      if ((at !== undefined && at - base >= dropped) || added.has(key)) {
         throw duplicate(key);
       }
       added.set(key, i);
@@ -479,6 +483,10 @@ export interface ListViewProps<T, K = T> {
    * the rows, keeps the cursor (on its key, unless `follow` is off) and the
    * selection on their keys, and rebuilds the
    * rows on screen whose item is a different object than when they were built.
+   * Where the new array is the old one with items dropped off the front and added
+   * at the end, the items it kept keep the keys they had and only the added ones
+   * are handed to `key`, so an item's key is the one it was first given: give an
+   * item a new key by replacing it.
    * Replace the array to change it, since a `State` hears a new value and not a
    * mutated one; for items changed in place, `listControl(host).refresh()`.
    */
