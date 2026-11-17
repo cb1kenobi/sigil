@@ -278,6 +278,21 @@ describe('the table', () => {
     expect((s.term.viewport[y] ?? '').slice(x - 1)).toBe(row);
   });
 
+  it('should open the menu above the last row of a page, and leave the row in view', async () => {
+    const s = mount({ columns: 120, rows: 30 });
+    await s.toTable();
+    await s.press(KEYS.end);
+    const name = s.rows().at(-1) ?? '';
+    const y = s.term.viewport.findIndex((each) => each.includes(`❯ ◯ ${name}`));
+    const row = s.term.viewport[y] ?? '';
+    await s.press(KEYS.enter);
+    // thirty rows leave too few lines under the last row for the menu, so it
+    // ends on the line above
+    expect(s.term.viewport[y - 1]).toMatch(/╰─+╯/);
+    expect(s.screen()).toContain('Redeploy');
+    expect(s.term.viewport[y]).toBe(row);
+  });
+
   it('should ask before deleting, take No for an answer, and delete on Yes', async () => {
     const s = mount();
     await s.toTable();

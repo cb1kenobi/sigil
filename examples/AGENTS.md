@@ -786,9 +786,10 @@ dark -- built from sigil's own components, with its own data, names and colours.
   theme's State, so `t`, the account menu and a test all reach the screen one way.
 
 - **The row menu opens under the row's right end, found by its classes.** Enter or
-  a double click is the table's `onActivate`, and the menu is `openMenu()` at the
-  last cell of the current row, so it right-aligns under the row and leaves the
-  name in view -- where a web table's row menu is. Nothing hands out the element a
+  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+  the current row's last cell, an element rather than a point, so it right-aligns
+  under the row -- or above it, where the row is too low for it -- and leaves the
+  row in view, where a web table's row menu is. Nothing hands out the element a
   row was built as, so `currentRow()` walks the table for the `sigil-list-row`
   that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
   entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),

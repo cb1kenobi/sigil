@@ -94,6 +94,26 @@ export function currentRow(host: Element): Element | undefined {
   return walk(host);
 }
 
+/**
+ * The last cell a row draws, which is where its right end is.
+ *
+ * @param row - A row of the table.
+ * @returns Its last `sigil-table-cell`, or `undefined` for a row with none.
+ */
+function lastCell(row: Element): Element | undefined {
+  let found: Element | undefined;
+  const walk = (at: Element): void => {
+    if (at.classes.includes('sigil-table-cell')) {
+      found = at;
+    }
+    for (const child of at.children) {
+      walk(child);
+    }
+  };
+  walk(row);
+  return found;
+}
+
 /** What the table section hands back: the panel, and what the keys reach. */
 export interface ProjectsView {
   readonly element: Element;
@@ -264,17 +284,18 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
     if (p === undefined) {
       return;
     }
-    // at the row's last cell, so the menu opens under the row's right end, as
-    // the menu at the end of a web table's row does, and leaves its name in view.
+    // beside the row's last cell, so the menu opens under the row's right end,
+    // as the menu at the end of a web table's row does, and leaves the name in
+    // view. An element and not a point: below it the menu starts on the next
+    // line, and flipped above it -- the last rows of a page, a short terminal --
+    // it ends on the line before, where a point would have put it over the row.
     // A double click moves the cursor and activates in one handler, before the
     // effect that moves `is-current` has run, so a frame is settled first: it
     // runs that effect, and lays the row out where it is now
     app.view.frame();
-    const row = currentRow(table)?.box;
+    const row = currentRow(table);
     openMenu<() => void>(app.view, {
-      // a cell is a point the menu's corner goes at, so the one under the row's
-      // end: placed below it, and past the screen's edge, so it right-aligns
-      at: row === undefined ? table : { x: row.x + row.width, y: row.y + row.height },
+      at: (row === undefined ? undefined : lastCell(row)) ?? row ?? table,
       input,
       items: entries(p),
       onSelect: (item) => item.value?.(),
