@@ -4611,7 +4611,7 @@ thousand edits `diffSequence()` stops searching and reports the middle as replac
 which is a correct script and not the shortest one.
 
 `parsePatch()` keeps what it read as well as what it understood: each file's
-`header`, from `diff --git` to `+++`, and each hunk's `source`, exactly as written
+`header`, from `diff --git` to its first hunk, and each hunk's `source`, exactly as written
 -- a CRLF file's `\r` and `\ No newline at end of file` included -- and each line
 says whether it is its side's last with no newline after it (`noNewline`). A file
 git begins with `diff --git` is kept without hunks too, so a binary file

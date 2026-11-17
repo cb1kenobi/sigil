@@ -116,9 +116,13 @@ describe('pathOf', () => {
   });
 
   it('should read a file with no hunks off its diff line, a rename to where it went', () => {
-    expect(pathOf(fileOf('diff --git a/a.txt b/moved.txt\nsimilarity index 100%\n'))).toBe(
-      'moved.txt'
-    );
+    expect(
+      pathOf(
+        fileOf(
+          'diff --git a/a.txt b/moved.txt\nsimilarity index 100%\nrename from a.txt\nrename to moved.txt\n'
+        )
+      )
+    ).toBe('moved.txt');
     expect(pathOf(fileOf('diff --git a/logo.png b/logo.png\nBinary files differ\n'))).toBe(
       'logo.png'
     );
@@ -132,9 +136,13 @@ describe('pathOf', () => {
   });
 
   it('should read a rename with spaces in its names off the diff line', () => {
-    expect(pathOf(fileOf('diff --git a/dir/my file b/dir/my\nsimilarity index 100%\n'))).toBe(
-      'dir/my'
-    );
+    expect(
+      pathOf(
+        fileOf(
+          'diff --git a/dir/my file b/dir/my\nsimilarity index 100%\nrename from dir/my file\nrename to dir/my\n'
+        )
+      )
+    ).toBe('dir/my');
   });
 
   it('should read a quoted path off the diff line', () => {

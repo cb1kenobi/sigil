@@ -68,7 +68,8 @@ export interface DiffFile {
   /**
    * The lines before the file's first hunk, as its patch wrote them: from
    * `diff --git` where git began the file, through `index`, the mode, rename and
-   * binary lines, to `---` and `+++`. Set by `parsePatch()`, and what
+   * binary lines, to `---` and `+++` where there are any -- a binary file and a
+   * pure rename have none. Set by `parsePatch()`, and what
    * `hunkPatch()` puts above a hunk -- `new file mode` and `--- /dev/null` are what
    * tell `git apply` to create the path rather than look for it.
    */
@@ -511,8 +512,8 @@ export function parsePatch(patch: string): DiffFile[] {
     }
 
     if (row.startsWith('diff --git ')) {
-      const names = gitNames(row.slice('diff --git '.length));
-      file = { header: [raw], hunks: [], newName: names?.[1], oldName: names?.[0] };
+      // named once the header is read, which may say it is a rename
+      file = { header: [raw], hunks: [] };
       files.push(file);
       git.add(file);
       hunk = undefined;
@@ -569,6 +570,17 @@ export function parsePatch(patch: string): DiffFile[] {
     }
   }
 
+  for (const entry of git) {
+    // a file with no `---` and `+++` is named off its `diff --git` line
+    if (entry.oldName === undefined && entry.newName === undefined) {
+      const rows = entry.header!.map((line) => line.replace(/\r$/, ''));
+      const names = gitNames(rows[0]!.slice('diff --git '.length), moved(rows));
+      if (names) {
+        [entry.oldName, entry.newName] = names;
+      }
+    }
+  }
+
   return files.filter((entry) => entry.hunks.length > 0 || git.has(entry));
 }
 
@@ -576,42 +588,56 @@ export function parsePatch(patch: string): DiffFile[] {
 const QUOTED = '"(?:[^"\\\\]|\\\\.)*"';
 
 /**
+ * The paths a rename or a copy names in its header, which git writes without a
+ * prefix: `rename from x` and `rename to y`.
+ *
+ * @param header - The file's header, without line endings.
+ * @returns The two paths, or nothing where the file is not moved or they are quoted.
+ */
+function moved(header: readonly string[]): [string, string] | undefined {
+  const from = header.find((line) => /^(?:rename|copy) from /.test(line));
+  const to = header.find((line) => /^(?:rename|copy) to /.test(line));
+  if (from === undefined || to === undefined) {
+    return undefined;
+  }
+  const paths: [string, string] = [from.replace(/^\w+ from /, ''), to.replace(/^\w+ to /, '')];
+  return paths.some((path) => path.startsWith('"')) ? undefined : paths;
+}
+
+/**
  * The two names on a `diff --git` line, spelled as the line spells them -- a quoted
  * one still quoted, as it would be on a `---` line.
  *
- * Unquoted names may hold spaces, so the line is split at a space after which a
- * second name begins with a prefix: a segment with no space in it, then a `/`
- * (`b/`, `w/`). Where more than one split does that, the one whose halves name
- * the same path under their prefixes wins (`a/x b/y b/x b/y`), which is how git
- * reads the line; where none or several still do, there are no names, rather
- * than a guess. So `a/dir/my file b/dir/my`, a rename, is `a/dir/my file` and
- * `b/dir/my`: the space before `file` is not followed by a prefix. With no
- * prefixes at all (`diff.noprefix`) a line of one space is split there, and a
- * line of two equal halves between them.
+ * Unquoted names may hold spaces, and a prefix may too (`--src-prefix`), so where
+ * the line splits is read from what else git said. A rename or a copy names its
+ * paths in the header, unprefixed, and the line is split where the halves end in
+ * them -- `a/dir/my file b/dir/my` for `dir/my file` moved to `dir/my`, which the
+ * halves' text alone cannot settle. Anything else is one path on both sides, and
+ * the line is split where the halves name the same path under their prefixes,
+ * which is how git reads it. Where neither settles on one split, there are no
+ * names rather than a guess.
  *
  * @param rest - The line after `diff --git `.
+ * @param paths - The rename's or copy's two paths, where the header gave them.
  * @returns The old name and the new one, or nothing where the line does not say.
  */
-function gitNames(rest: string): [string, string] | undefined {
+function gitNames(rest: string, paths: [string, string] | undefined): [string, string] | undefined {
   const quoted =
     new RegExp(`^(${QUOTED}) (.+)$`).exec(rest) ?? new RegExp(`^([^"]+) (${QUOTED})$`).exec(rest);
   if (quoted) {
     return [quoted[1]!, quoted[2]!];
   }
-  const prefixed = /^[^ /]+\//;
-  const path = (name: string): string => name.slice(name.indexOf('/') + 1);
   const splits = [...rest.matchAll(/ /g)].map((match): [string, string] => [
     rest.slice(0, match.index),
     rest.slice(match.index + 1),
   ]);
-  const named = splits.filter(([old, next]) => prefixed.test(old) && prefixed.test(next));
-  const same = named.filter(([old, next]) => path(old) === path(next));
-  const unprefixed = splits.filter(([old, next]) => old === next);
-  const found = same.length === 1 ? same : named.length === 1 ? named : unprefixed;
-  if (found.length === 1) {
-    return found[0];
-  }
-  return splits.length === 1 ? splits[0] : undefined;
+  /** Whether a name is a path under a prefix, or the path itself with no prefix. */
+  const names = (name: string, path: string): boolean => name === path || name.endsWith(`/${path}`);
+  const path = (name: string): string => name.slice(name.indexOf('/') + 1);
+  const found = paths
+    ? splits.filter(([old, next]) => names(old, paths[0]) && names(next, paths[1]))
+    : splits.filter(([old, next]) => path(old) === path(next));
+  return found.length === 1 ? found[0] : undefined;
 }
 
 /**
