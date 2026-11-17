@@ -927,6 +927,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'calendarGrid',
     'checkSlotValue',
     'commandCatalog',
+    'dateFormat',
     'dayKey',
     'diffHunks',
     'diffInline',
