@@ -5838,8 +5838,9 @@ it, and `background-color: default` takes it away.
 the keys write it, and a write the app makes is shown at once with the caret moved
 to the end. `onChange(value)` is called after every edit that changed it, and
 `onSubmit(value)` on Enter. `placeholder` is shown, muted, while the value is
-empty; `mask: '•'` draws a password; `disabled` (a boolean or a `State<boolean>`)
-takes it out of the focus ring and mutes it; `width` is its columns, and without
+empty; `mask: '•'` draws a password; `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live -- see "Form controls") takes it out of the
+focus ring and mutes it; `width` is its columns, and without
 one it takes what the layout gives it -- the whole width in a column. What is
 wider than the field scrolls sideways to keep the caret in view.
 
@@ -6013,17 +6014,34 @@ padding, `[ Save ]` against `  Save  `. Neither moves anything when the focus
 arrives. The value is the marker, `[x]` or `◉`, in `.sigil-accent`; the switch's
 other state is `.sigil-muted`.
 
-`disabled` (a boolean or a `State<boolean>`) takes a control out of the ring,
-mutes it, sets `:disabled`, and makes it ignore keys and clicks, which go on to
-the form; a control disabled while it has the focus keeps it. A checked checkbox
-or switch and a selected option are `:checked` too.
+`disabled` takes a control out of the ring, mutes it, sets `:disabled`, and makes
+it ignore keys and clicks, which go on to the form; a control disabled while it has
+the focus keeps it. A checked checkbox or switch and a selected option are
+`:checked` too. A disabled flag is nearly always derived -- Save until something
+changed, Sign in until the form is valid -- so `disabled` is a boolean, or anything
+read live: a `State`, a `Computed`, anything else with a `get()`, or a function,
+which is how a template spells a reactive prop. Every control that has one --
+these four, `TextField`, `TextArea`, `Slider` and `Dropdown` -- takes the same
+shapes, and follows what it reads:
+
+```tsx
+const unchanged = new Computed(() => !form.dirty.get());
+Button({ disabled: unchanged, label: 'Save', onPress: save });
+<Button disabled={() => !valid.get()} label="Sign in" onPress={signIn} />;
+```
+
+A control never writes `disabled`, which is why it can be a `Computed`; `checked`
+and `value` are written by the keys and the mouse, so they stay a boolean or a
+`State`.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
-and return a function that takes them off. `controlFlag()`, `controlDisabled()`
-and `describeControls()` (from `@ttylabs/sigil/components/control`) are what the
-four share, for a control of your own. The theme hooks are `.sigil-button`
+and return a function that takes them off. `controlFlag()` (a value the control
+writes), `controlCondition()` (a `ControlCondition` it only reads, such as
+`disabled`), `controlDisabled()` and `describeControls()` (from
+`@ttylabs/sigil/components/control`) are what the controls share, for a control of
+your own. The theme hooks are `.sigil-button`
 (`-bracket`, `-label`), `.sigil-checkbox` (`-pointer`, `-mark`, `-label`),
 `.sigil-switch` (`-pointer`, `-label`, `-state`) and `.sigil-radio-set` with
 `.sigil-radio` (`-pointer`, `-mark`, `-label`, `-hint`) per option.
@@ -6063,9 +6081,9 @@ any key with a modifier are left alone, so a form of rows can have them. A left
 press on the track puts the thumb under the pointer and focuses the slider, and
 holding the button drags it: the press captures the pointer, so a drag past either
 end of the track, or off the canvas, clamps at that end and the release still ends
-it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
-`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
-and mutes it.
+it. The wheel is left to whatever scrolls. `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live) takes it out of the focus ring, ignores the keys
+and the pointer, and mutes it.
 
 **The label is the app's, and the readout is the slider's.** A form lines its
 labels up in a column only it knows the width of, which is why a text field has

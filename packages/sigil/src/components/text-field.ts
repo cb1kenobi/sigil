@@ -35,6 +35,7 @@ import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
+import { controlCondition, type ControlCondition } from './control.js';
 import {
   boundary,
   deleteAfter,
@@ -55,10 +56,10 @@ export interface TextFieldProps {
    * Whether the field refuses input.
    *
    * A disabled field is out of the focus ring, takes no key and no paste, and is
-   * drawn in the muted role. A `State<boolean>` is read live, so an app can switch
-   * it. Defaults to `false`.
+   * drawn in the muted role. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /**
    * What is drawn in place of each column of the value, for a password.
    *
@@ -114,13 +115,10 @@ export function TextField(props: TextFieldProps = {}): Element {
   ) {
     throw new TypeError(__`Expected a text field value to be a string or a State`);
   }
-  if (
-    props.disabled !== undefined &&
-    typeof props.disabled !== 'boolean' &&
-    !(props.disabled instanceof State)
-  ) {
-    throw new TypeError(__`Expected text field disabled to be a boolean or a State`);
-  }
+  const disabled = controlCondition(
+    props.disabled,
+    __`Expected text field disabled to be a boolean, a State, a Computed or a function`
+  );
   if (props.mask !== undefined && (typeof props.mask !== 'string' || props.mask === '')) {
     throw new TypeError(__`Expected a text field mask to be a non-empty string`);
   }
@@ -132,8 +130,6 @@ export function TextField(props: TextFieldProps = {}): Element {
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');
-  const disabled =
-    props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);
   const { mask, onChange, onSubmit, placeholder = '' } = props;
 
   const before = textNode('', { class: 'sigil-text-field-before', 'white-space': 'nowrap' });

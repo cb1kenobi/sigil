@@ -5,6 +5,7 @@ import { createInput, type InputRouter } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
+import { DERIVED } from './form-harness.js';
 import {
   click,
   drag,
@@ -227,6 +228,27 @@ describe('Dropdown()', () => {
     disabled.set(false);
     flush();
     expect(s.field.focusable).to.equal(true);
+  });
+
+  it.each(DERIVED)('should follow %s as its disabled, off and on again', async (_, derive) => {
+    const valid = new State(false);
+    const s = scene({ disabled: derive(valid) });
+    expect(s.field.focusable).to.equal(false);
+    await s.term.press(...click(8, 0));
+    expect(picture(s.root).join('\n')).not.toContain('debug');
+    valid.set(true);
+    flush();
+    expect(s.field.focusable).to.equal(true);
+    expect(s.field.classes).not.toContain('is-disabled');
+    await s.term.press(...click(8, 0));
+    expect(picture(s.root).join('\n')).toContain('debug');
+    await escape(s.term);
+    valid.set(false);
+    flush();
+    expect(s.field.focusable).to.equal(false);
+    expect(s.field.classes).toContain('is-disabled');
+    await s.term.press(...click(8, 0));
+    expect(picture(s.root).join('\n')).not.toContain('debug');
   });
 
   it('should open over a dialog it is in, and leave the dialog open on Escape', async () => {

@@ -871,6 +871,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'writeLine',
   ],
   'The parts a form control of your own is built from': [
+    'controlCondition',
     'controlDisabled',
     'controlFlag',
     'describeControls',

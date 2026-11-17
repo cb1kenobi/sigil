@@ -54,6 +54,7 @@ import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
+import { controlCondition, type ControlCondition } from './control.js';
 import {
   boundary,
   deleteAfter,
@@ -83,10 +84,10 @@ export interface TextAreaProps {
    * Whether the area refuses input.
    *
    * A disabled area is out of the focus ring, takes no key, no paste and no
-   * press, and is drawn in the muted role. A `State<boolean>` is read live.
-   * Defaults to `false`.
+   * press, and is drawn in the muted role. A `State`, a `Computed` or a function
+   * is read live, so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /**
    * A mark drawn at the start of every row, after the line number when there is
    * one -- `'│ '` or `'> '`. Drawn muted, and never part of the value.
@@ -219,13 +220,10 @@ export function TextArea(props: TextAreaProps = {}): Element {
   ) {
     throw new TypeError(__`Expected a text area value to be a string or a State`);
   }
-  if (
-    props.disabled !== undefined &&
-    typeof props.disabled !== 'boolean' &&
-    !(props.disabled instanceof State)
-  ) {
-    throw new TypeError(__`Expected text area disabled to be a boolean or a State`);
-  }
+  const disabled = controlCondition(
+    props.disabled,
+    __`Expected text area disabled to be a boolean, a State, a Computed or a function`
+  );
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
     throw new TypeError(__`Expected a text area placeholder to be a string`);
   }
@@ -261,8 +259,6 @@ export function TextArea(props: TextAreaProps = {}): Element {
   }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');
-  const disabled =
-    props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);
   const { highlight, lang, onChange, onCopy, tab } = props;
   const placeholder = (props.placeholder ?? '').split('\n');
   const mark = props.gutter ?? '';

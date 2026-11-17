@@ -8,7 +8,7 @@
  */
 
 import { AccountContext, type Settings } from './account.ts';
-import { follow, type Form, touchOnLeave } from './form.ts';
+import { type Form, touchOnLeave } from './form.ts';
 import { openLogin } from './login.tsx';
 import { Problem, Row } from './rows.tsx';
 import { useApp } from '@ttylabs/sigil/app';
@@ -184,7 +184,7 @@ export function Session(): Element {
   const user = new State<string | undefined>(undefined);
 
   const signIn = Button({
-    disabled: follow(() => user.get() !== undefined),
+    disabled: () => user.get() !== undefined,
     label: 'Sign in...',
     onPress: () => {
       const dialog = openLogin({ account, host: app.view, input, owner });
@@ -201,7 +201,7 @@ export function Session(): Element {
     },
   });
   const signOut = Button({
-    disabled: follow(() => user.get() === undefined),
+    disabled: () => user.get() === undefined,
     label: 'Sign out',
     onPress: () => {
       user.set(undefined);

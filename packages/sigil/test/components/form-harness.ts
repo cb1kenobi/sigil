@@ -1,7 +1,8 @@
 import { strip } from '../../src/ansi/index.js';
+import type { ControlCondition } from '../../src/components/control.js';
 import { box, type Element, renderToLines, renderToString } from '../../src/element/index.js';
 import { createInput, type DescribeOptions, type MouseEvent } from '../../src/input/index.js';
-import { flush } from '../../src/signals/index.js';
+import { Computed, flush, type State } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 
@@ -31,6 +32,21 @@ export interface Form {
 }
 
 const stops: Array<() => void> = [];
+
+/**
+ * The two derived shapes a control's `disabled` takes beside a `State`, each
+ * disabled while `valid` is false: a `Computed` over it, and a function reading
+ * it -- the shape a template author writes, `disabled={() => !valid.get()}`.
+ */
+export const DERIVED = [
+  ['a Computed', (valid: State<boolean>): ControlCondition => new Computed(() => !valid.get())],
+  [
+    'a function',
+    (valid: State<boolean>): ControlCondition =>
+      () =>
+        !valid.get(),
+  ],
+] as const;
 
 /** Stops every router a test made, for an `afterEach`. */
 export function stopForms(): void {

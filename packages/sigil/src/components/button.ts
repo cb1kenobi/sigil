@@ -20,11 +20,11 @@
 
 import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
-import type { State } from '../signals/index.js';
 import {
+  controlCondition,
+  type ControlCondition,
   type ControlDescriber,
   controlDisabled,
-  controlFlag,
   describeControls,
 } from './control.js';
 import { labelLine } from './note.js';
@@ -35,10 +35,10 @@ export interface ButtonProps {
    * Whether the button refuses to be pressed.
    *
    * A disabled button is out of the focus ring, ignores keys and clicks, and is
-   * drawn in the muted role. A `State<boolean>` is read live, so an app can switch
-   * it. Defaults to `false`.
+   * drawn in the muted role. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /** What the button says. One line: escape sequences and line breaks are taken out. */
   label: string;
   /** Called when it is pressed: Enter or Space while it has the focus, or a left click. */
@@ -66,9 +66,9 @@ export function Button(props: ButtonProps): Element {
   if (props.onPress !== undefined && typeof props.onPress !== 'function') {
     throw new TypeError(__`Expected a button onPress to be a function`);
   }
-  const disabled = controlFlag(
+  const disabled = controlCondition(
     props.disabled,
-    __`Expected button disabled to be a boolean or a State`
+    __`Expected button disabled to be a boolean, a State, a Computed or a function`
   );
   const { onPress } = props;
 

@@ -12474,7 +12474,8 @@ sabotage pass -- is in
   `toggle()` prompt's `on` and `off`. Nothing in `prompt.ts` or `toggle.ts` moved.
 - **What the four share is one module, `control.ts`, and it is published.**
   `controlFlag()` (a boolean or a `State<boolean>`, a truthy string refused),
-  `controlDisabled()` and `describeControls()`, each called four times or more.
+  `controlCondition()` (SIG-334, below), `controlDisabled()` and
+  `describeControls()`, each called four times or more.
   Published at `@ttylabs/sigil/components/control` because every sibling a
   component imports has to be, for `sigil add` to rewrite the import, and because
   a control an app writes for itself can then follow the same rules by calling
@@ -12595,8 +12596,65 @@ sabotage pass -- is in
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
   validation, which `examples/settings` writes for itself and SIG-338 would
-  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
-  `TextField`.
+  publish; and `:disabled` on `TextField`. A `Computed` as `disabled` was on
+  this list and is SIG-334's, below.
+
+### A derived `disabled`: a `Computed` or a function (SIG-334)
+
+`controlCondition()` and its types in `control.ts`. Every control's `disabled` was
+`boolean | State<boolean>`, and `controlFlag()` and the four hand-written checks in
+`TextField`, `TextArea`, `Slider` and `Dropdown` asked `instanceof State` -- so a
+`Computed` was refused with a `TypeError`, while a disabled flag is nearly always
+derived. Apps mirrored the condition into a `State` through an effect of their
+own: `examples/settings` had a `follow()` for it, used five times, and
+`demos/components/57-form-controls.js` wrote one inline.
+
+- **`disabled` is read, so it takes what reads.** A control never writes it, so
+  it takes `ControlCondition`: a boolean, a `LiveFlag` -- anything with a `get()`,
+  which a `State` and a `Computed` both are, the duck `ListItems<T>` already uses
+  -- or a function. `checked` and `value` are written by the keys and the mouse, so
+  they stay `controlFlag()`'s and a `Computed` there is still refused; that is why
+  this is a second function beside `controlFlag()` rather than `controlFlag()`
+  widened, which would have let a `Computed` reach a `set()` it does not have.
+- **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
+  open. `() => boolean` is the template's convention for a reactive prop
+  (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
+  so `disabled={() => !valid.get()}` is what an author writes first and now works
+  in JSX and in the `ui` tag alike. `ChartSource<T>` already takes the same three
+  shapes, value, `get()` and function, for the same reason, so this is a second
+  instance of a shape rather than a new one. Reversing it is deleting one branch
+  and one member of the union.
+- **Read live, never memoized.** What `controlCondition()` hands back calls the
+  caller's `get()` or function on every read, inside the control's effect --
+  which is what tracks it -- and in each handler, so a key and the drawing ask
+  the same question at the same moment. Wrapping a function in a `Computed` was
+  the alternative, and it buys a cache that a condition re-read once per key does
+  not need, and a stale answer from a `get()` that reads something other than
+  signals.
+- **A reading is read for its truth.** `Boolean()` on every read. The handlers
+  already asked `if (disabled.get())`, and the effect handed the reading to
+  `toggleClass(name, on)`, which _flips_ the class when `on` is `undefined` -- so a
+  function returning `undefined` would have drawn a control disabled that every
+  handler treats as enabled. A string, a number or `null` handed _as_ `disabled`
+  is still refused, as `controlFlag()` refuses it; a reading cannot be checked
+  there, since it does not exist until it is asked for.
+- **All eight controls, not the ticket's seven.** `Dropdown` has a `disabled` of
+  the same shape and the same `instanceof State` check, and leaving it out would
+  make "every control" false the day it shipped. `TextField`, `TextArea`, `Slider`
+  and `Dropdown` now call `controlCondition()` where they validated by hand, in
+  the same place, so the order their refusals come in is unchanged; their own
+  effects are untouched, since they only ever called `get()`.
+- **A published signature widened, not changed.** `controlDisabled(host,
+  disabled)` takes a `LiveFlag` where it took a `State<boolean>`, which every
+  caller still satisfies. The refusal messages changed -- `Expected button
+  disabled to be a boolean, a State, a Computed or a function` -- which moves eight
+  keys in `src/i18n/keys.ts`, regenerated.
+- **Tests per control, both shapes.** `DERIVED` in `test/components/form-harness.ts`
+  is a `Computed` and a function over one `State`; each control's file runs it
+  through `it.each`: disabled, enabled, takes a key, disabled again and ignores it.
+  `control.test.ts` pins the four readable shapes, the tracking, the truth reading
+  and the refusals; `button.test.ts` drives a function through the `ui` tag; and
+  `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

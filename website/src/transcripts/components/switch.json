@@ -14,7 +14,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "What the `false` state is called. Defaults to `off`.",
