@@ -9407,19 +9407,26 @@ exported beside them as pure functions.
   staging a patch needs them. Their names are the two on the `diff --git` line,
   spelled as the line spells them -- a quoted name still quoted, as `---` would
   quote it. An unquoted line holds two names that may both have spaces in them,
-  and a prefix may too (`--src-prefix='src prefix/'`), so where it splits is read
-  from what else the header says rather than from the line's own text. A rename
-  or a copy names its two paths in `rename from` and `rename to`, unprefixed, and
-  the line splits where its halves end in them; anything else is one path on both
-  sides, and the line splits where the halves name the same path under their
-  prefixes, which is git's own reading of it. Where neither settles on one split
-  there are no names rather than a guess. Both earlier versions guessed from the
-  text and each was wrong: splitting where the halves agree named a rename
+  and a prefix may too (`--src-prefix='src prefix/'`) or may not end in a `/`
+  (`src:`), so where it splits is read from what else the header says rather
+  than from the line's own text. A rename or a copy names its two paths in
+  `rename from` and `rename to`, unprefixed, and the line splits where its halves
+  end in them. A binary file repeats both names in `Binary files X and Y differ`
+  (one of them `/dev/null` for a file added or deleted), and the line splits
+  where that sentence is the one its halves make -- which is what names two blobs,
+  or two files outside a repository, whose paths differ with no rename lines.
+  Anything else, a mode change or an empty file added, is one path on both sides,
+  and the line splits where its halves share the longest tail. Where the rule that
+  applies does not settle on one split there are no names rather than a guess.
+  Three earlier versions read the line's own text and each was wrong somewhere:
+  splitting where the halves agree after their first `/` named a rename
   `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review
-  round 1), and requiring the second name to start with a space-free prefix then
-  refused `src prefix/` and still misread `a/x b/y z/x b/y`, a rename from
-  `x b/y z/x` (round 2). The names are read once the header is, because the
-  rename lines come after the `diff --git` line. `diffView()` draws none of them, not even their names, so its output for
+  round 1); requiring the second name to start with a space-free prefix refused
+  `src prefix/` and misread `a/x b/y z/x b/y`, a rename from `x b/y z/x` (round 2);
+  and leaving every file but a rename to the agreeing split lost the names of two
+  different binaries and of prefixes like `a/x/` and `b/y/` (round 3). The names
+  are read once the header is, because those lines come after `diff --git`.
+  `diffView()` draws none of them, not even their names, so its output for
   any patch is what it was. This changes what `parsePatch()` returns for a patch
   of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
   the old answer threw away a fact git printed.
