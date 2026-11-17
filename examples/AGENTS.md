@@ -487,10 +487,10 @@ commit message in a text area. What it settled:
   everything else is `createModel()` in `src/model.ts`, which both call from
   their body: the states, every git call, the keys, the dialogs and the toasts.
   The roots hand back the parts a key or the focus reaches through
-  `m.attach({ diff, lists, panels })`. The diff pane is a component in a shared
-  module (`src/diff-pane.ts`) that both name, `<DiffPane />` and
-  `<${DiffPane} />`, because it is built from elements and effects and a template
-  would say nothing about it. So the twins are each about 140 lines and the
+  `m.attach({ diff, lists, panels })`. The diff pane is the library's `DiffView`,
+  which both name, `<DiffView />` and `<${DiffView} />`, over the blocks the
+  model builds; until SIG-367 it was a component in a shared module of the
+  example's own, `src/diff-pane.ts`. So the twins are each about 140 lines and the
   model is the rest, and `should draw the same screen in every syntax` compares
   two first screens that hold three panels, three lists and a diff.
 
@@ -577,16 +577,21 @@ commit message in a text area. What it settled:
   the cut went through is dropped rather than offered to Space, since its header
   still counts lines it no longer has.
 
-- **The diff pane rebuilds `diffView()` at the width the layout gives it.**
-  `diffView()` draws for a width it is told and has no view that scrolls, so the
-  pane is a `ScrollBox` whose `onResize` builds every row again when the width
-  changes -- before the frame paints, and answered as a change -- and whose
-  hunks are found by the `sigil-diff-hunk` class on their header rows, each row
-  behind a one-cell mark that is `▌` (`>` in ASCII) for the hunk under the
-  cursor. Reading the class couples the example to `diffView()`'s output, which
-  is the reason SIG-367 exists. The model counts the hunks one way and the pane
-  draws them another, so the pane throws if the two disagree rather than putting
-  the mark on the wrong rows.
+- **The diff pane is a `DiffView` over blocks the model builds, and the model asks
+  `diffStops()` what is under the cursor.** `blocksOf()` turns what the pane shows
+  into the view's blocks: each section's heading and prose, each patch file as a
+  `{ diff: { files } }` block, and a line of prose the cursor stops on for a whole
+  file with nothing to draw -- binary, too large, a pure rename, an empty untracked
+  file -- each block carrying its section. The view counts its stops with
+  `diffStops()` over the same blocks and the model does too, so Space finds the
+  stop the view marks by construction; before SIG-367 the example's own pane found
+  hunks by the `sigil-diff-hunk` class, the model counted them another way, and the
+  pane threw when the two disagreed. `]` and `[` are the view's keys and
+  `describeDiffView()` describes them; `n` and `p` are the client's second
+  spelling, on the panel; Space is the client's, on the panel, and acts on the
+  stop's section -- the untracked file's one hunk stages the file whole, since an
+  added file's hunk written from two texts has no `new file mode` for
+  `git apply`.
 
 - **The footer follows the focus by describing each pane's keys with its panel
   as the scope.** A list's own moves come from `describeListView()`; the pane's

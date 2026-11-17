@@ -25,9 +25,12 @@ import {
 import { useApp } from '@ttylabs/sigil/app';
 import {
   confirmModal,
+  describeDiffView,
   describeListView,
+  type DiffBlock,
   type DiffFile,
-  type DiffHunk,
+  type DiffStop,
+  diffStops,
   hunkPatch,
   type NoteVariant,
   openModal,
@@ -97,20 +100,15 @@ export interface DiffContent {
   readonly title: string;
 }
 
-/** One hunk the cursor can be on, in the order the pane draws them. */
-export interface HunkRef {
-  readonly file?: PatchFile;
-  readonly hunk?: DiffHunk;
-  readonly section: DiffSection;
-}
-
-/** What `DiffPane()` reads and writes. */
+/** What the diff pane, a `DiffView`, draws and moves through. */
 export interface DiffState {
+  /** The content as the view draws it: {@link blocksOf} of {@link content}. */
+  readonly blocks: Computed<readonly DiffBlock<DiffSection>[]>;
   readonly content: State<DiffContent>;
-  /** Which of {@link hunks} the cursor is on. */
+  /** Which of {@link hunks} the cursor is on: the view's `current`. */
   readonly cursor: State<number>;
-  /** Every hunk of the content, in order. */
-  readonly hunks: Computed<readonly HunkRef[]>;
+  /** Every stop of the blocks, in order, as the view counts them. */
+  readonly hunks: Computed<readonly DiffStop<DiffSection>[]>;
 }
 
 /** What the roots hand back once they have built the screen. */
@@ -168,30 +166,62 @@ const DIFF = ['--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/',
 const NOTHING: DiffContent = { key: '', note: '', sections: [], title: 'Diff' };
 
 /**
- * Every hunk the cursor can be on, in the order the pane draws them: each hunk of
- * each file, and one for a whole file that has none to show -- an untracked file,
- * which is drawn as added, a binary one, or one too large to read -- since that is
- * still something Space can stage. A commit's hunks are here too, to move
- * through, and its section has no action.
+ * What the diff pane shows, as the blocks a `DiffView` draws: each section's
+ * heading and prose, and its patches -- each hunk a stop of the cursor.
+ *
+ * A whole file that has no hunk to show is a line of prose the cursor stops on,
+ * since it is still something Space can stage: an untracked file that is binary,
+ * too large to read or empty, a binary file, a rename with no content changes. An
+ * untracked file with text is drawn as added, and its one hunk is the stop. A
+ * commit's hunks are stops too, to move through, and its section has no action.
+ * Every block carries its section, which is how the stop under the cursor says
+ * what Space does to it.
  *
  * @param content - What the pane shows.
- * @returns The hunks.
+ * @returns The blocks.
  */
-export function hunkRefs(content: DiffContent): HunkRef[] {
-  return content.sections.flatMap((section): HunkRef[] => {
+export function blocksOf(content: DiffContent): DiffBlock<DiffSection>[] {
+  if (!content.sections.length) {
+    return [{ class: 'sigil-muted', text: content.note }];
+  }
+  return content.sections.flatMap((section): DiffBlock<DiffSection>[] => {
+    // a whole file with nothing to draw: its lines are the stop, or its heading
+    // where it has none
+    const whole =
+      section.added === undefined && !section.files.length && section.path !== undefined;
+    const blocks: DiffBlock<DiffSection>[] = [
+      {
+        class: 'diff-section sigil-heading',
+        data: section,
+        stop: whole && !section.lines.length,
+        text: section.label,
+      },
+    ];
+    if (section.lines.length) {
+      blocks.push({ data: section, stop: whole, text: section.lines.join('\n') });
+    }
     if (section.added !== undefined) {
-      return [{ section }];
+      const { path, text } = section.added;
+      blocks.push(
+        text === ''
+          ? { class: 'sigil-muted', data: section, stop: true, text: `${path} is empty` }
+          : { data: section, diff: { new: text, newName: path, old: '', oldName: '/dev/null' } }
+      );
     }
-    if (!section.files.length) {
-      return section.path === undefined ? [] : [{ section }];
+    for (const file of section.files) {
+      if (!file.hunks.length && !file.cut) {
+        const what = file.binary ? 'binary, not shown' : 'no lines changed';
+        const path = pathOf(file) ?? section.path ?? 'a file';
+        blocks.push({ class: 'sigil-muted', data: section, stop: true, text: `${path}: ${what}` });
+        continue;
+      }
+      blocks.push({ data: section, diff: { files: [file] } });
+      if (file.cut) {
+        const cut = '... the rest of this diff is too long to show';
+        blocks.push({ class: 'sigil-muted', data: section, text: cut });
+      }
     }
-    return section.files.flatMap((file) =>
-      file.hunks.length
-        ? file.hunks.map((hunk) => ({ file, hunk, section }))
-        : file.cut
-          ? []
-          : [{ file, section }]
-    );
+    return blocks;
   });
 }
 
@@ -235,7 +265,8 @@ export function createModel(): Model {
 
   const content = new State<DiffContent>({ ...NOTHING, note: 'Loading...' });
   const cursor = new State(0);
-  const hunks = new Computed<readonly HunkRef[]>(() => hunkRefs(content.get()));
+  const blocks = new Computed<readonly DiffBlock<DiffSection>[]>(() => blocksOf(content.get()));
+  const hunks = new Computed<readonly DiffStop<DiffSection>[]>(() => diffStops(blocks.get()));
 
   // -- running git, one call at a time ----------------------------------------
   // a key pressed twice quickly asks for two stagings, and two gits writing one
@@ -592,17 +623,18 @@ export function createModel(): Model {
 
   const toggleHunk = (): void => {
     const at = hunks.get()[cursor.get()];
-    const action = at?.section.action;
-    if (!at || !action) {
+    const section = at?.block.data;
+    const action = section?.action;
+    if (!at || !section || !action) {
       return;
     }
     void act(async () => {
-      if (!at.hunk) {
+      if (!at.hunk || !at.file || section.added !== undefined) {
         // an untracked file, one binary or too large to show, or a rename with
         // no content changes: all of it, and a rename's source with it, the way
         // `toggleFile()` resets both
-        const path = (at.file && pathOf(at.file)) ?? at.section.path ?? '';
-        const from = at.section.from;
+        const path = section.path ?? '';
+        const from = section.from;
         await run(
           action === 'stage'
             ? ['add', '--', path]
@@ -610,15 +642,12 @@ export function createModel(): Model {
         );
         return `${action === 'stage' ? 'Staged' : 'Unstaged'} ${path}`;
       }
-      if (!at.file) {
-        return undefined;
-      }
       const args = ['apply', '--cached', '--whitespace=nowarn'];
       await run(
         action === 'unstage' ? [...args, '--reverse', '-'] : [...args, '-'],
         hunkPatch(at.file, at.hunk)
       );
-      const path = pathOf(at.file) ?? at.section.path;
+      const path = pathOf(at.file) ?? section.path;
       return `${action === 'stage' ? 'Staged' : 'Unstaged'} a hunk of ${path}`;
     });
   };
@@ -805,9 +834,10 @@ export function createModel(): Model {
       const name = event.key.name;
       if (name === 'space') {
         toggleHunk();
-      } else if (name === ']' || name === 'n') {
+      } else if (name === 'n') {
+        // `]` and `[` are the view's own; these are the client's second spelling
         moveHunk(1);
-      } else if (name === '[' || name === 'p') {
+      } else if (name === 'p') {
         moveHunk(-1);
       } else if (name === 'escape') {
         focusPane(subject.get());
@@ -848,10 +878,9 @@ export function createModel(): Model {
     say('branches', 'n', 'new');
     say('branches', 'D', 'delete');
     say('diff', 'space', 'stage hunk');
-    say('diff', ']', 'next hunk', 2);
-    say('diff', '[', 'previous hunk', 2);
     say('diff', 'escape', 'back', 1);
     off.push(describeListView(input, lists.files, lists.branches, lists.commits));
+    off.push(describeDiffView(input, given.diff));
 
     // the app's own keys are fallbacks: they come after the focused element, so
     // a letter typed into a dialog's field is a letter, and they run with nothing
@@ -918,7 +947,7 @@ export function createModel(): Model {
     branches,
     commitCursor,
     commits,
-    diff: { content, cursor, hunks },
+    diff: { blocks, content, cursor, hunks },
     empty: {
       // the problem is said once, in the first pane, rather than three times
       branches: () => (problem.get() ? '' : loaded.get() ? 'No branches yet' : 'Loading...'),

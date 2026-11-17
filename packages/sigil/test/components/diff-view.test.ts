@@ -1,0 +1,323 @@
+import { strip } from '../../src/ansi/index.js';
+import { describeDiffView, DiffView, type DiffViewProps } from '../../src/components/diff-view.js';
+import {
+  type DiffBlock,
+  type DiffViewContent,
+  diffStops,
+  diffView,
+  hunkPatch,
+  parsePatch,
+} from '../../src/components/diff.js';
+import type { Key } from '../../src/components/keys.js';
+import { box, type Element, renderToLines } from '../../src/element/index.js';
+import type { DescribeOptions, KeyEvent } from '../../src/input/index.js';
+import { flush, State } from '../../src/signals/index.js';
+import { themedCascade } from '../../src/theme/index.js';
+import { describe, expect, it } from 'vitest';
+
+/**
+ * The diff view: `diffView()` in a scroll box, sized by it, with a cursor on the
+ * hunks. Driven through the handlers a router would call, and drawn with
+ * `renderToLines()`, which lays out and dispatches the resize the view draws from.
+ * `ascii: false` everywhere, so the machine running this cannot choose the mark.
+ */
+
+/** The view as it is drawn, as rows: no colour and no trailing blanks. */
+function picture(root: Element, width: number, height: number): string[] {
+  return renderToLines(root, { cascade: themedCascade(), colorLevel: 0, height, width }).map(
+    (line) => strip(line).trimEnd()
+  );
+}
+
+/** A view in a box of a fixed height, which is what a pane gives it. */
+function mount<T>(props: DiffViewProps<T>, height: number): { host: Element; root: Element } {
+  const host = DiffView({
+    ascii: false,
+    lineNumbers: false,
+    scrollbar: false,
+    ...props,
+    props: { 'flex-grow': 1, 'min-height': 0 },
+  });
+  return { host, root: box({ 'flex-direction': 'column', height }, host) };
+}
+
+/** A key event as the router builds one, with a record of whether it was stopped. */
+function press(host: Element, name: string): boolean {
+  let stopped = false;
+  const key: Key = { ctrl: false, meta: false, name, sequence: '', shift: false };
+  const event: KeyEvent = {
+    current: undefined,
+    key,
+    paste: false,
+    stop(): void {
+      stopped = true;
+    },
+    get stopped() {
+      return stopped;
+    },
+    target: undefined,
+  };
+  host.onKey?.(event);
+  flush();
+  return stopped;
+}
+
+/** Two hunks in one file, far enough apart to stay two. */
+const PATCH = [
+  'diff --git a/a.txt b/a.txt',
+  'index 1111111..2222222 100644',
+  '--- a/a.txt',
+  '+++ b/a.txt',
+  '@@ -1,3 +1,3 @@',
+  ' one',
+  '-two',
+  '+TWO',
+  ' three',
+  '@@ -20,3 +20,3 @@',
+  ' twenty',
+  '-twenty-one',
+  '+TWENTY-ONE',
+  ' twenty-two',
+  '',
+].join('\n');
+
+/** The rows whose mark is lit. */
+function lit(rows: string[]): string[] {
+  return rows.filter((row) => row.startsWith('▌')).map((row) => row.slice(1));
+}
+
+describe('DiffView', () => {
+  it('should draw the diff behind a mark column, with the current hunk marked', () => {
+    const { root } = mount({ content: { patch: PATCH } }, 14);
+
+    expect(picture(root, 30, 14)).toEqual([
+      ' --- a/a.txt',
+      ' +++ b/a.txt',
+      '▌@@ -1,3 +1,3 @@',
+      '▌ one',
+      '▌-two',
+      '▌+TWO',
+      '▌ three',
+      ' @@ -20,3 +20,3 @@',
+      '  twenty',
+      ' -twenty-one',
+      ' +TWENTY-ONE',
+      '  twenty-two',
+      '',
+      '',
+    ]);
+  });
+
+  it('should mark the current hunk in ASCII as well, which is what colour level 0 is left with', () => {
+    const host = DiffView({ ascii: true, content: { patch: PATCH }, lineNumbers: false });
+    const rows = picture(box({ 'flex-direction': 'column', height: 14 }, host), 30, 14);
+
+    expect(rows.filter((row) => row.startsWith('>'))).toHaveLength(5);
+  });
+
+  it('should draw again at the width the layout gives it', () => {
+    const long = { new: `${'x'.repeat(40)}\n`, old: `${'y'.repeat(40)}\n` };
+    const narrow = picture(mount({ content: long }, 6).root, 20, 6);
+    const wide = picture(mount({ content: long }, 6).root, 50, 6);
+
+    // folded to the width less the mark, and not folded where there is room
+    expect(narrow.filter((row) => row.includes('y')).length).toBeGreaterThan(1);
+    expect(wide.filter((row) => row.includes('y'))).toHaveLength(1);
+    expect(Math.max(...narrow.map((row) => row.length))).toBeLessThanOrEqual(20);
+  });
+
+  it('should move the cursor with ] and [, and stop at the ends with the key still claimed', () => {
+    const current = new State(0);
+    const { host, root } = mount({ content: { patch: PATCH }, current }, 14);
+    picture(root, 30, 14);
+
+    expect(press(host, ']')).toBe(true);
+    expect(current.get()).toBe(1);
+    expect(lit(picture(root, 30, 14))[0]).toBe('@@ -20,3 +20,3 @@');
+    expect(press(host, ']')).toBe(true);
+    expect(current.get()).toBe(1);
+    expect(press(host, '[')).toBe(true);
+    expect(current.get()).toBe(0);
+    expect(press(host, '[')).toBe(true);
+    expect(current.get()).toBe(0);
+  });
+
+  it('should leave ] and [ alone where there is nothing to move over', () => {
+    const { host, root } = mount({ content: [{ text: 'nothing here' }] }, 4);
+    picture(root, 30, 4);
+
+    expect(press(host, ']')).toBe(false);
+  });
+
+  it('should move the mark when the app writes the cursor', () => {
+    const current = new State(0);
+    const { root } = mount({ content: { patch: PATCH }, current }, 14);
+    picture(root, 30, 14);
+
+    current.set(1);
+    flush();
+    expect(lit(picture(root, 30, 14))).toEqual([
+      '@@ -20,3 +20,3 @@',
+      ' twenty',
+      '-twenty-one',
+      '+TWENTY-ONE',
+      ' twenty-two',
+    ]);
+  });
+
+  it('should scroll the current hunk into view, with what leads into it where it fits', () => {
+    const current = new State(0);
+    const { root } = mount({ content: { patch: PATCH }, current }, 7);
+    // the first hunk and the file's header above it fit, so nothing scrolls
+    expect(picture(root, 30, 7)[0]).toBe(' --- a/a.txt');
+
+    // by as little as shows the second
+    current.set(1);
+    flush();
+    expect(picture(root, 30, 7)).toEqual([
+      ' +TWO',
+      '  three',
+      '▌@@ -20,3 +20,3 @@',
+      '▌ twenty',
+      '▌-twenty-one',
+      '▌+TWENTY-ONE',
+      '▌ twenty-two',
+    ]);
+
+    // back to the first, and the file's header above it is in view again
+    current.set(0);
+    flush();
+    expect(picture(root, 30, 7)[0]).toBe(' --- a/a.txt');
+  });
+
+  it('should show a hunk from its own first row where it does not fit with its lead', () => {
+    const { root } = mount({ content: { patch: PATCH } }, 5);
+
+    expect(picture(root, 30, 5)).toEqual([
+      '▌@@ -1,3 +1,3 @@',
+      '▌ one',
+      '▌-two',
+      '▌+TWO',
+      '▌ three',
+    ]);
+  });
+
+  it('should scroll with the arrows, which it hands to its scroll box', () => {
+    const { host, root } = mount({ content: { patch: PATCH } }, 7);
+    picture(root, 30, 7);
+
+    expect(press(host, 'down')).toBe(true);
+    expect(picture(root, 30, 7)[0]).toBe(' +++ b/a.txt');
+  });
+
+  it('should draw again when the content changes, and bring a cursor past the end back', () => {
+    const content = new State<DiffViewContent>({ patch: PATCH });
+    const current = new State(1);
+    const { root } = mount({ content, current }, 14);
+    picture(root, 30, 14);
+
+    content.set({ new: 'b\n', old: 'a\n' });
+    flush();
+    expect(current.get()).toBe(0);
+    expect(lit(picture(root, 30, 14))).toEqual(['@@ -1 +1 @@', '-a', '+b']);
+  });
+
+  it('should draw prose between diffs, and stop on prose marked as a stop', () => {
+    const blocks: DiffBlock<string>[] = [
+      { class: 'sigil-heading', data: 'heading', text: 'Unstaged' },
+      { data: 'patch', diff: { patch: PATCH } },
+      { data: 'binary', stop: true, text: 'logo.png: binary' },
+    ];
+    const current = new State(2);
+    const { root } = mount({ content: blocks, current }, 18);
+    const rows = picture(root, 30, 18);
+
+    expect(rows[0]).toBe(' Unstaged');
+    expect(lit(rows)).toEqual(['logo.png: binary']);
+    expect(diffStops(blocks).map((stop) => stop.block.data)).toEqual(['patch', 'patch', 'binary']);
+  });
+
+  it('should cut a line of prose at the width rather than wrap it', () => {
+    const { root } = mount({ content: [{ text: 'a line that is longer than the view' }] }, 2);
+
+    expect(picture(root, 12, 2)[0]).toBe(' a line tha…');
+  });
+
+  it('should refuse an onKey in its props, which is its own', () => {
+    expect(() =>
+      DiffView({ content: { patch: PATCH }, props: { onKey: () => {} } as never })
+    ).toThrow(/onKey/);
+  });
+
+  it('should refuse a cursor that is not a whole number or a State', () => {
+    expect(() => DiffView({ content: { patch: PATCH }, current: 1.5 })).toThrow(/whole number/);
+  });
+});
+
+describe('diffStops()', () => {
+  it('should find every hunk the view draws, in its order, as a patch of its own away', () => {
+    const stops = diffStops({ patch: PATCH });
+
+    expect(stops.map((stop) => stop.hunk?.oldStart)).toEqual([1, 20]);
+    expect(hunkPatch(stops[1]!.file!, stops[1]!.hunk!)).toBe(
+      [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -20,3 +20,3 @@',
+        ' twenty',
+        '-twenty-one',
+        '+TWENTY-ONE',
+        ' twenty-two',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('should count what diffView() draws, a file with no hunk not at all', () => {
+    const patch = `${PATCH}diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n`;
+
+    expect(diffStops({ files: parsePatch(patch) })).toHaveLength(
+      diffView({ patch }, { width: 40 }).hunks.length
+    );
+    expect(diffStops({ patch })).toHaveLength(2);
+  });
+
+  it('should take two texts with the context the view was given', () => {
+    const old = Array.from({ length: 20 }, (_, i) => `${i}`).join('\n');
+    const next = old.replace('2', 'two').replace('17', 'seventeen');
+
+    expect(diffStops({ new: next, old })).toHaveLength(2);
+    expect(diffStops({ new: next, old }, { context: 10 })).toHaveLength(1);
+  });
+});
+
+describe('describeDiffView()', () => {
+  it('should describe the hunk keys and the scroll keys, scoped to the view', () => {
+    const said: [string, DescribeOptions][] = [];
+    const host = DiffView({ content: { patch: PATCH } });
+    const off = describeDiffView(
+      {
+        describe: (keys, opts) => {
+          said.push([keys, opts]);
+          return () => {};
+        },
+      },
+      host
+    );
+
+    expect(said.map(([keys, opts]) => [keys, opts.description])).toEqual([
+      [']', 'next hunk'],
+      ['[', 'previous hunk'],
+      ['up', 'scroll'],
+      ['down', 'scroll'],
+    ]);
+    expect(said.every(([, opts]) => opts.scope === host)).toBe(true);
+    off();
+  });
+
+  it('should refuse an element DiffView() did not build', () => {
+    expect(() => describeDiffView({ describe: () => () => {} }, box())).toThrow(/DiffView/);
+  });
+});

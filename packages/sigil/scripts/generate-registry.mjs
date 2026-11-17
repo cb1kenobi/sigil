@@ -306,6 +306,10 @@ const ENTRIES = [
     name: 'diff',
   },
   {
+    desc: 'A diff view that scrolls: sized by the layout, with a cursor on each hunk and prose between the diffs',
+    name: 'diff-view',
+  },
+  {
     desc: 'An image: a picture resampled to the box layout gave it and drawn in half blocks, alpha mixed over what is under it',
     name: 'image',
   },

@@ -1,0 +1,98 @@
+{
+  "api": {
+    "interface": "DiffViewProps",
+    "options": [
+      {
+        "description": "What to draw: one diff -- two texts, a patch, or files `parsePatch()` read -- or a list of blocks, diffs and prose between them.",
+        "name": "content",
+        "optional": false,
+        "type": "DiffViewContent<T> | { get(): DiffViewContent<T>; } | (() => DiffViewContent<T>)"
+      },
+      {
+        "description": "Whether the hunk mark is drawn in ASCII. Defaults to what the terminal can show.",
+        "default": "what the terminal can show",
+        "name": "ascii",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Lines of context around a change in two texts. Defaults to 3.",
+        "default": "3",
+        "name": "context",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The current stop, as its position among `diffStops(content)`.",
+        "name": "current",
+        "optional": true,
+        "type": "number | State<number>"
+      },
+      {
+        "description": "`diffView()`'s `highlight`.",
+        "name": "highlight",
+        "optional": true,
+        "type": "Highlighter"
+      },
+      {
+        "description": "`diffView()`'s `intraline`.",
+        "name": "intraline",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "`diffView()`'s `lang`.",
+        "name": "lang",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "`diffView()`'s `layout`: side by side where the width allows it.",
+        "name": "layout",
+        "optional": true,
+        "type": "DiffLayout"
+      },
+      {
+        "description": "`diffView()`'s `lineNumbers`.",
+        "name": "lineNumbers",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "The host box's own props: a size, a border, a class.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onKey\">"
+      },
+      {
+        "description": "Whether to draw a scrollbar. Defaults to `true`.",
+        "default": "`true`",
+        "name": "scrollbar",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "shared": [],
+    "signature": "function DiffView<T = unknown>(props: DiffViewProps<T>): Element"
+  },
+  "keys": [
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
+  "registryDescription": "A diff view that scrolls: sized by the layout, with a cursor on each hunk and prose between the diffs",
+  "source": "packages/sigil/src/components/diff-view.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": " \u001b[1m--- a/src/retry.ts\u001b[0m                    \u001b[36m█\u001b[0m\n \u001b[1m+++ b/src/retry.ts\u001b[0m                    \u001b[36m█\u001b[0m\n \u001b[34m@@ -1,4 +1,4 @@\u001b[0m                       \u001b[36m█\u001b[0m\n \u001b[2m 1  1  export function retry(run) {\u001b[0m   \u001b[36m█\u001b[0m\n \u001b[2m 2    \u001b[0m\u001b[31m-  const attempts = \u001b[0m\u001b[31;1m3\u001b[0m\u001b[31m;\u001b[0m          \u001b[36m█\u001b[0m\n \u001b[2m    2 \u001b[0m\u001b[32m+  const attempts = \u001b[0m\u001b[32;1m5\u001b[0m\u001b[32m;\u001b[0m          \u001b[36m█\u001b[0m\n \u001b[2m 3  3    for (let i = 0; i < attempts;\u001b[0m\u001b[36m█\u001b[0m\n \u001b[2m        i++) {\u001b[0m                        \u001b[36m█\u001b[0m\n \u001b[2m 4  4      try {\u001b[0m                      \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[34m@@ -12,3 +12,3 @@\u001b[0m                     \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m12 12    }\u001b[0m                            \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m13    \u001b[0m\u001b[31m-  throw new Error(\u001b[0m\u001b[31;1m'\u001b[0m\u001b[31mgave up\u001b[0m\u001b[31;1m'\u001b[0m\u001b[31m);\u001b[0m  \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m   13 \u001b[0m\u001b[32m+  throw new Error(\u001b[0m\u001b[32;1m`\u001b[0m\u001b[32mgave up\u001b[0m\u001b[32;1m afte\u001b[0m\u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m      \u001b[0m\u001b[32m \u001b[0m\u001b[32;1mr ${attempts} tries`\u001b[0m\u001b[32m);\u001b[0m         \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m14 14  }\u001b[0m                              \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m\n                                       \u001b[36m█\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": " \u001b[1m--- a/src/retry.ts\u001b[0m                                                            \u001b[36m█\u001b[0m\n \u001b[1m+++ b/src/retry.ts\u001b[0m                                                            \u001b[36m█\u001b[0m\n \u001b[34m@@ -1,4 +1,4 @@\u001b[0m                                                               \u001b[36m█\u001b[0m\n \u001b[2m 1  1  export function retry(run) {\u001b[0m                                           \u001b[36m█\u001b[0m\n \u001b[2m 2    \u001b[0m\u001b[31m-  const attempts = \u001b[0m\u001b[31;1m3\u001b[0m\u001b[31m;\u001b[0m                                                  \u001b[36m█\u001b[0m\n \u001b[2m    2 \u001b[0m\u001b[32m+  const attempts = \u001b[0m\u001b[32;1m5\u001b[0m\u001b[32m;\u001b[0m                                                  \u001b[36m█\u001b[0m\n \u001b[2m 3  3    for (let i = 0; i < attempts; i++) {\u001b[0m                                 \u001b[36m█\u001b[0m\n \u001b[2m 4  4      try {\u001b[0m                                                              \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[34m@@ -12,3 +12,3 @@\u001b[0m                                                             \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m12 12    }\u001b[0m                                                                    \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m13    \u001b[0m\u001b[31m-  throw new Error(\u001b[0m\u001b[31;1m'\u001b[0m\u001b[31mgave up\u001b[0m\u001b[31;1m'\u001b[0m\u001b[31m);\u001b[0m                                          \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m   13 \u001b[0m\u001b[32m+  throw new Error(\u001b[0m\u001b[32;1m`\u001b[0m\u001b[32mgave up\u001b[0m\u001b[32;1m after ${attempts} tries`\u001b[0m\u001b[32m);\u001b[0m                  \u001b[36m█\u001b[0m\n\u001b[36m▌\u001b[0m\u001b[2m14 14  }\u001b[0m                                                                      \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m\n                                                                               \u001b[36m█\u001b[0m"
+    }
+  }
+}

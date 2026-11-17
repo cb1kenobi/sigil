@@ -9468,7 +9468,7 @@ exported beside them as pure functions.
   it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
   which the gutter, the marker and the separator take a third; under that two lines
   cannot be compared, which is the only reason to put them side by side. The same
-  call is therefore safe in a terminal of any width, and `DiffView.layout` tells an
+  call is therefore safe in a terminal of any width, and `DiffTree.layout` tells an
   app which one it got. A removed line sits against the added line that replaces it
   and a surplus leaves the other half blank; the halves fold independently and the
   shorter is padded, so the separator stays in one column.
@@ -9497,8 +9497,88 @@ What is deliberately not done: a grammar or a highlighter (SIG-289 has since
 added `highlightCode()`, and the language each side is handed); a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
 multi-file patch; a writer for anything bigger than a hunk (a file's hunks are its
-`header` and their `source`, joined); a character-level pass; and a stateful view that
-scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
+`header` and their `source`, joined); and a character-level pass. A stateful view
+that scrolls was on this list, on the ground that a `diffView()` tree sits in a
+`ScrollBox` like any other -- true for showing a diff and not for acting on one, so
+it is `DiffView` now, in the section below.
+
+### A diff view that scrolls: `DiffView`, sized by its box, with a cursor on the hunks (SIG-367)
+
+`src/components/diff-view.ts`, and `diffStops()` and the blocks in `diff.ts`. The
+git client example wrote all of it by hand in `diff-pane.ts`, which this replaced.
+
+- **A file and a subpath of its own, beside `diff.ts` rather than in it.** The
+  view is a scroll box, a renderer effect and keys; `diff()` is a string. In one
+  module the printed diff would load the scroll box and the renderer to print, which
+  is what "What each entry loads at import" in `src/testing` keeps an eye on, so
+  `@ttylabs/sigil/components/diff-view` is its own entry with its own ceiling, the
+  way `list-view` is beside `list`. What both need -- `diffStops()`, `DiffBlock`,
+  `diffBlocks()` -- is pure and lives in `diff.ts`.
+- **What it draws is one diff or a list of blocks, and prose is a block.** A diff
+  in an app is rarely alone: lazygit puts `Unstaged` and `Staged` over two patches, a
+  commit's message over its diff, a line saying a file is binary where its hunks
+  would be. Without prose the app has to stack a text and a view in a scroll box of
+  its own, and then the view no longer scrolls the whole. A block is `{ diff }`, one
+  `DiffInput`, or `{ text, class }`, lines cut rather than wrapped; `data` on either
+  is the app's and comes back on the stop.
+- **A stop is a hunk, or prose marked `stop`, and a hunkless file is neither until
+  the app says so.** `diffView()` draws nothing for a file a patch holds without a
+  hunk (SIG-370), so a cursor stopping there would mark no rows. What a binary file
+  or a pure rename says is the app's sentence to write -- the git client writes
+  `logo.png: binary, not shown` -- so it is a prose block with `stop: true`, which is
+  also how the client keeps an empty untracked file something Space can stage.
+- **One count: `diffStops()` is what the view counts with, and `diffView()` says
+  where each hunk went.** The example's pane found a hunk by the `sigil-diff-hunk`
+  class on its header row and counted hunks a second way in its model, and threw
+  when the two disagreed. Now `diffView()` returns `hunks`, each hunk's file, the
+  hunk, and the range of `element.children` it took (`first`, `end`), so the view
+  never reads a class; and both `diffView()` and `diffStops()` take their files from
+  one function, so the hunks one draws are the hunks the other counts. An app asks
+  `diffStops(content)[current]` for what is under the cursor, and a hunk's stop
+  carries the `file` and `hunk` that `hunkPatch()` takes -- which is the hand-off
+  the ticket asked for, as two published functions rather than a third. The return
+  type was called `DiffView`, which is this component's name; it is `DiffTree`, a
+  rename of a type with no behaviour behind it.
+- **The current hunk is a column of `▌`, which is there at colour level 0.** Every
+  row sits behind a one-cell mark, blank except on the current stop's rows, where
+  it is `▌` in `sigil-accent` and carries `is-current`; `>` in ASCII. A background
+  on the hunk was the other way and is refused for the reason the diff's emphasis
+  refused one: it is an exception to the role rule, and it is gone at level 0, which
+  is exactly where the mark has to survive. It is the example's own mark, moved.
+- **`current` is a position, a number or a `State`, and the view only ever brings
+  it back inside.** `]` and `[` write it, an app writes it, and when the content
+  changes a position past the last stop becomes the last. It is never reset to the
+  first, because whether new content is the same subject refreshed -- the hunk
+  staged, the cursor wanted where it was -- or a new one is the app's to know; the
+  git client resets it when the file changes. A position rather than a key, because
+  a hunk has no identity across a refresh: staging one renumbers the rest.
+- **A reveal moves the view by as little as shows the stop, with what leads into
+  it where that fits.** The lead is the rows after the stop before -- a section's
+  heading, the next file's `---` and `+++` -- so moving back to the first hunk shows
+  the heading over it rather than cutting it off. A stop taller than the view is
+  shown from its own first row. Content with no stops is shown from its top, since
+  there is nothing to keep in view and a branch log opened after a scrolled diff
+  should not open half way down.
+- **The width is the layout's, through the scroll box's `onResize`, and every row
+  is drawn again when it changes.** Folding is by columns at the width it is built
+  for, so a narrower pane is a new drawing, made before the frame paints and
+  answered as a change. The rows are windowed -- `rows` with a fixed height of one
+  and keyed by the row element, so a drawing that keeps the count and the offset
+  still rebuilds what changed -- since a patch of four thousand lines is the case the
+  git client caps at, and laying out four thousand rows a frame is what windowing
+  is for.
+- **One focus stop, and the scroll keys are the scroll box's.** The host is the
+  focusable element and the scroll box inside it is not -- two stops for one widget
+  is a Tab that seems to do nothing, the pager's reason. `]` and `[` are the view's,
+  claimed at an end as well (Home's rule), and left alone where there is no stop;
+  every other key is handed to the inner scroll box's own `onKey`, so the arrows,
+  the pages and the ends are its rules and not a copy of them. `describeDiffView()`
+  says `]`, `[` and the arrows; Space is an app's, as the git client binds it on
+  the panel around the view.
+
+What is not done: a click to move the cursor to a hunk; an `onActivate`, since the
+one caller acts on Space from its panel and a callback nothing calls is a shape
+designed by guessing; staging part of a hunk; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 

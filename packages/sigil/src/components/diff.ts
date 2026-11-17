@@ -1058,9 +1058,25 @@ function pairLines(lines: readonly DiffLine[]): { left?: DiffLine; right?: DiffL
   return out;
 }
 
+/** Where one hunk was drawn in a {@link DiffTree}. */
+export interface DiffTreeHunk {
+  /** Where its rows end in the tree's `element.children`: one past its last. */
+  end: number;
+  file: DiffFile;
+  /** Its `@@` row, in the tree's `element.children`. */
+  first: number;
+  hunk: DiffHunk;
+}
+
 /** The tree for a diff, the room it was built for, and the arrangement it ended up with. */
-export interface DiffView {
+export interface DiffTree {
   element: Element;
+  /**
+   * Each hunk drawn, in order, and which of the element's rows are its own -- the
+   * `@@` row and every row of its lines -- so that a view built on the tree knows
+   * where a hunk is without reading the rows' classes.
+   */
+  hunks: DiffTreeHunk[];
   /** What was drawn: `side-by-side` only if there was the width for it. */
   layout: DiffLayout;
   width: number;
@@ -1082,6 +1098,33 @@ function headerRow(value: string, className: string, width: number): Element {
     'white-space': 'nowrap',
     width,
   });
+}
+
+/**
+ * The files a diff input holds, as the view draws them: the one file of two
+ * texts, or the files of a patch that have a hunk -- a file a patch holds with
+ * none (binary, renamed, a mode changed) has nothing for the view to draw, not
+ * even its names. One function for `diffView()` and `diffStops()`, so the hunks
+ * one draws are the hunks the other counts.
+ *
+ * @param input - Two texts, a patch, or files already read.
+ * @param context - The context kept around a change in two texts.
+ * @returns The files.
+ */
+function filesOf(input: DiffInput, context: number | undefined): readonly DiffFile[] {
+  if ('patch' in input) {
+    return parsePatch(input.patch).filter((file) => file.hunks.length > 0);
+  }
+  if ('files' in input) {
+    return input.files.filter((file) => file.hunks.length > 0);
+  }
+  return [
+    {
+      hunks: diffHunks(input.old, input.new, { context }),
+      newName: input.newName,
+      oldName: input.oldName,
+    },
+  ];
 }
 
 /**
@@ -1111,7 +1154,7 @@ function hunkHeader(hunk: DiffHunk): string {
  * @param opts - The arrangement, the room, and the highlighter.
  * @returns The tree, the room it was built for, and the arrangement used.
  */
-export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
+export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
   const asked = opts.width === undefined ? NaN : Math.floor(opts.width);
   const width = asked >= 1 ? asked : Math.max(1, terminalWidth({ env: opts.env }));
   const layout: DiffLayout =
@@ -1121,19 +1164,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
   const numbered = opts.lineNumbers !== false;
 
   const twoTexts = 'patch' in input || 'files' in input ? undefined : input;
-  // a file a patch holds with no hunk -- binary, renamed, a mode changed -- has
-  // nothing for the view to draw, not even its names
-  const files: readonly DiffFile[] = twoTexts
-    ? [
-        {
-          hunks: diffHunks(twoTexts.old, twoTexts.new, { context: opts.context }),
-          newName: twoTexts.newName,
-          oldName: twoTexts.oldName,
-        },
-      ]
-    : ('files' in input ? input.files : parsePatch((input as { patch: string }).patch)).filter(
-        (file) => file.hunks.length > 0
-      );
+  const files = filesOf(input, opts.context);
 
   let largest = 0;
   for (const file of files) {
@@ -1167,6 +1198,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
   const half = Math.floor((width - sep.length) / 2);
   const sides = [half, width - sep.length - half] as const;
   const rows: Element[] = [];
+  const hunks: DiffTreeHunk[] = [];
 
   for (const file of files) {
     if (file.oldName !== undefined || file.newName !== undefined) {
@@ -1175,6 +1207,8 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
     }
 
     for (const hunk of file.hunks) {
+      const placed: DiffTreeHunk = { end: 0, file, first: rows.length, hunk };
+      hunks.push(placed);
       rows.push(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
       const drawing = drawingOf(hunk, opts, whole, file);
 
@@ -1189,6 +1223,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
             rows.push(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children));
           }
         }
+        placed.end = rows.length;
         continue;
       }
 
@@ -1223,11 +1258,13 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
           );
         }
       }
+      placed.end = rows.length;
     }
   }
 
   return {
     element: box({ class: 'sigil-diff', 'flex-direction': 'column' }, ...rows),
+    hunks,
     layout,
     width,
   };
@@ -1254,5 +1291,81 @@ export function diff(input: DiffInput, opts: DiffOptions = {}): string {
     colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
+  });
+}
+
+/**
+ * One part of what a `DiffView` draws: a diff, or lines of prose -- a heading, a
+ * commit message, a note that a file is binary -- between diffs.
+ *
+ * `data` is the app's, carried through to the {@link DiffStop} a block's hunks or
+ * prose make, so the app learns which of its own things the cursor is on.
+ */
+export type DiffBlock<T = unknown> =
+  | { readonly data?: T; readonly diff: DiffInput }
+  | {
+      /** The classes of each line: `sigil-muted`, `sigil-heading`, an app's own. */
+      readonly class?: string;
+      readonly data?: T;
+      /** Whether the cursor stops on the lines, as it does on a hunk. Defaults to `false`. */
+      readonly stop?: boolean;
+      /** The prose, a line a row, each cut rather than wrapped. */
+      readonly text: string;
+    };
+
+/** What a `DiffView` draws: one diff, or a list of blocks. */
+export type DiffViewContent<T = unknown> = DiffInput | readonly DiffBlock<T>[];
+
+/**
+ * A place a `DiffView`'s cursor stops: a hunk, or a block of prose marked `stop`.
+ *
+ * A hunk's stop carries the file and the hunk, which is what `hunkPatch()` takes
+ * to write it as a patch of its own -- so the hunk under the cursor is one call
+ * from being staged.
+ */
+export interface DiffStop<T = unknown> {
+  /** The block the stop is in, as it was handed over. */
+  readonly block: DiffBlock<T>;
+  /** The file the hunk is in, for a hunk. */
+  readonly file?: DiffFile;
+  /** The hunk, for a hunk. */
+  readonly hunk?: DiffHunk;
+}
+
+/**
+ * The blocks of what a `DiffView` draws: a single diff is one block.
+ *
+ * @param content - One diff, or blocks.
+ * @returns The blocks.
+ */
+export function diffBlocks<T>(content: DiffViewContent<T>): readonly DiffBlock<T>[] {
+  return Array.isArray(content) ? content : [{ diff: content as DiffInput }];
+}
+
+/**
+ * Every place a `DiffView`'s cursor stops, in the order it draws them: each hunk
+ * of each diff, and each block of prose marked `stop`.
+ *
+ * The view counts its stops with this function too, so an app that keeps the
+ * cursor as a position and asks what is at it gets the stop the view marks --
+ * there is one count, not one per party. A file of a patch with no hunk (binary,
+ * renamed, a mode changed) is not a stop, since the view draws nothing for it; an
+ * app that wants the cursor there says so with a block of prose.
+ *
+ * @param content - What the view draws.
+ * @param opts - The context two texts are diffed with, as the view was given it.
+ * @returns The stops.
+ */
+export function diffStops<T>(
+  content: DiffViewContent<T>,
+  opts: { context?: number } = {}
+): DiffStop<T>[] {
+  return diffBlocks(content).flatMap((block): DiffStop<T>[] => {
+    if ('text' in block) {
+      return block.stop ? [{ block }] : [];
+    }
+    return filesOf(block.diff, opts.context).flatMap((file) =>
+      file.hunks.map((hunk) => ({ block, file, hunk }))
+    );
   });
 }
