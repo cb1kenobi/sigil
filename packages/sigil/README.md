@@ -4604,10 +4604,36 @@ wide characters are measured as the columns they take. A tab is four columns.
 
 The diff is computed here, by Myers' algorithm, and is exported on its own:
 `diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
-with their context, `parsePatch()` reads a patch, and `diffInline()` finds the
-changed words of two lines. Past about two thousand edits `diffSequence()` stops
-searching and reports the middle as replaced, which is a correct script and not the
-shortest one.
+with their context, `parsePatch()` reads a patch, `hunkPatch()` writes one hunk
+of it back, and `diffInline()` finds the changed words of two lines. Past about two
+thousand edits `diffSequence()` stops searching and reports the middle as replaced,
+which is a correct script and not the shortest one.
+
+`parsePatch()` keeps what it read as well as what it understood: each file's
+`header`, from `diff --git` to its first hunk, and each hunk's `source`, exactly as written
+-- a CRLF file's `\r` and `\ No newline at end of file` included -- and each line
+says whether it is its side's last with no newline after it (`noNewline`). A file
+git begins with `diff --git` is kept without hunks too, so a binary file
+(`binary: true`), a rename and a mode change are there to be listed. That is what
+lets one read serve both showing a patch and acting on it: `diffView({ files })`
+draws the files without reading the patch again, and `hunkPatch(file, hunk)`
+writes one hunk under its file's header as a patch of its own, which is how a
+hunk is staged:
+
+```js
+import { diffView, hunkPatch, parsePatch } from '@ttylabs/sigil/components/diff';
+import { execFileSync } from 'node:child_process';
+
+const files = parsePatch(execFileSync('git', ['diff', '--no-color'], { encoding: 'utf8' }));
+const [file] = files;
+const { element } = diffView({ files });
+
+// `git add -p`, for the first hunk
+execFileSync('git', ['apply', '--cached', '-'], { input: hunkPatch(file, file.hunks[0]) });
+```
+
+A hunk that was not read from a patch, such as one from `diffHunks()`, is written
+from its lines and its file's names.
 
 `highlight` is the seam every component shares, so `highlight: highlightCode` is
 enough. It is called with a whole side of the diff -- the old text and the new
@@ -5379,8 +5405,12 @@ nothing to show about it.
 `row(item, key)` returns an element or a string, and is called under an owner of
 its own, so a row may hold effects; they are disposed when the row leaves the view.
 It is not called again when the cursor or the selection moves: those are the
-classes `is-current` and `is-selected` on `.sigil-list-row` around it. Every row is
-`rowHeight` cells tall (1 by default), fixed rather than measured.
+classes `is-current` and `is-selected` on `.sigil-list-row` around it. `rowClass(item)`
+puts classes of the app's own on that box beside them -- a string or an array, as a
+`class` prop takes -- so a stylesheet reaches a row by its state, and a role class
+such as `sigil-error` colours the whole row. It is asked when the row is built, as
+`row` is: again when the item is replaced, and not when a signal it read changes.
+Every row is `rowHeight` cells tall (1 by default), fixed rather than measured.
 
 Filtering is the app's: make `items` a `Computed` over a `TextField`'s value and
 `rankBy()`, and the list sees only that its items changed. `find: true` turns on
@@ -5514,7 +5544,7 @@ htop's process list, k9s's resource view, a database client's result grid: a
 `ListView` whose rows have columns, with a heading over them that sorts. Everything
 the list does it does here -- only the rows on screen are built; **Up**, **Down**,
 **Page Up**, **Page Down**, **Home** and **End** move the cursor; `multiple`,
-`disabled`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
+`disabled`, `rowClass`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
 rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` and
 `selectRow()` call their data.
 
@@ -5556,6 +5586,13 @@ than scrolled sideways, so the columns that say what a row is stay on screen. A
 hidden column's digit does nothing until it is back. `columns` may be a `State`: an
 app hides a column, adds one, reorders them, or changes a width, a format or an
 alignment by replacing the array, and the rows in view are redrawn for it.
+
+**A row coloured by its state**, as k9s draws a crashing pod red across every
+column, is `rowClass`: `(pod) => (pod.status === 'CrashLoopBackOff' ? 'sigil-error' :
+undefined)` puts the role on the row's box and every cell takes its colour from
+there. The cursor's highlight still reads over it, because the focus is `inverse`
+and a role is a colour: the current row of a red row is red reversed. At colour level
+0 neither draws and the pointer says which row is current, as it always does there.
 
 The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 .sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are

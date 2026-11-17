@@ -86,6 +86,12 @@
         "type": "(item: T, key: K) => Element | string"
       },
       {
+        "description": "Classes for an item's row box, beside `is-current` and `is-selected`: a string of them or an array, as a `class` prop takes. A stylesheet reaches the row as `.sigil-list-row.crashing`, and a role class -- `sigil-error` -- colours the whole row through what its cells inherit. Read when the row is built, as `row` is: again when the item is replaced, and not when a signal it read changes.",
+        "name": "rowClass",
+        "optional": true,
+        "type": "(item: T) => string | readonly string[] | undefined"
+      },
+      {
         "description": "Every row's height in cells, fixed rather than measured. Defaults to 1.",
         "default": "1",
         "name": "rowHeight",
