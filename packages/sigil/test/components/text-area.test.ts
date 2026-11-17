@@ -403,18 +403,24 @@ describe('TextArea()', () => {
       expect(stopped).toBe(true);
     });
 
-    // a million lines, because a spread into `splice()` fails at about 124,000
-    // on a main thread and about 494,000 in the vitest worker this runs in: the
-    // 500,000 this was written at was one percent past the worker's limit, and a
-    // slightly larger worker stack would have passed it against the spread
+    // 600,000 lines, because a spread into `splice()` fails at about 110,000 to
+    // 124,000 on a main thread, by node version, and at about 494,000 in the
+    // vitest worker this runs in -- a worker's 4 MB of stack less the 192 KiB
+    // node reserves, over eight bytes an argument. Measured on darwin arm64 for
+    // node 22, 24 and 26, and expected to match elsewhere because node sets a
+    // worker's stack limit itself. That is 20 percent past the worker's limit,
+    // which is the margin a slightly larger stack would need to eat; it was a
+    // million, which on the Windows node 22 job took 10,121ms of a 10,000ms
+    // timeout, twice in one day (SIG-444). What a long paste costs beyond that is
+    // counted rather than timed, in `editing-snap.test.ts`
     it('should take a long file without overflowing the stack', async () => {
       const value = new State('');
       const s = scene({ value });
-      const long = Array.from({ length: 1_000_000 }, (_, i) => `${i}`).join('\n');
+      const long = Array.from({ length: 600_000 }, (_, i) => `${i}`).join('\n');
       await s.term.paste(long);
       expect(value.get()).toBe(long);
       await settle();
-      expect(picture(s.root).at(-1)).toBe('999999');
+      expect(picture(s.root).at(-1)).toBe('599999');
     });
   });
 

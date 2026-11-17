@@ -12205,6 +12205,40 @@ was reached, the measurements and the sabotage pass are in
   always a cluster of its own, so the same rule is two passes of a pattern (the
   fuzz is in the history file). `TextField()` and `multiline()` use the same
   function and their tests are untouched.
+- **A long paste is counted rather than timed, and `snap()` reads one line
+  (SIG-444).** The million-line paste test ran 10,121ms of a 10,000ms timeout on
+  the node 22 Windows job, on two unrelated pull requests in one day. A profile of
+  the paste on the machine it was written on put **252 of its 488ms** in
+  `segment()`, called from `snap()`: `insertAt()` placed the caret by segmenting
+  the _whole_ value, and a value with a line break is not plain ASCII, so it took
+  `Intl.Segmenter` and not the shortcut. What it walked was the block being
+  pasted, since an edit is handed only the lines it spans. A line feed is a control character and the break rules put a
+  boundary on both sides of one (GB4, GB5), so no cluster crosses it and what
+  comes before one cannot change how what follows it divides -- the regional indicator count
+  and the emoji joiner sequence both end there. `snap()` therefore walks from the
+  line feed before the offset to the one after it, the line feed included so that
+  `CR LF` is never cut, and the answer is the same by construction.
+  `editing-snap.test.ts` keeps the whole-value walk verbatim as an oracle over
+  every offset of random strings of line breaks, joiners, flags and combining
+  marks, and counts the code units handed to `graphemes()` -- one line's worth
+  at 100 and at 100,000 lines -- so a clock on a loaded machine decides nothing.
+  What is left of a paste is the work of making a million strings: the split, the
+  collector and the two passes of `pastedBlock()`.
+
+  The test itself is **600,000 lines**, down from a million, for a reason that is
+  also written beside it: the line is not time but the spread into `splice()`,
+  which fails at about 494,000 in the vitest worker -- a worker's 4 MB of stack
+  less the 192 KiB Node reserves (`kStackBufferSize`), over eight bytes an
+  argument. Measured on darwin arm64 for node 22, 24 and 26 (490,000 passes and
+  500,000 overflows on 22 and 24; 494,064 on the worker limit the review found),
+  and **expected, not measured,** to match on Linux and Windows, because Node
+  sets a worker's stack limit itself. On a main thread it fails at about 110,000
+  to 124,000, by node version. 600,000 is 20 percent
+  past that, and with the spread put back it fails on all three with `Maximum call stack size
+  exceeded`. As of this entry on node 24, arm64 macOS, alone: the paste
+  test went from **about 560ms to about 100ms**, 1,000,000 lines through the
+  built paste path from **1,350ms to 415ms**.
+
 - **The highlight seam is `multiline()`'s, unchanged.** `(value) =>
   HighlightSpan[]`, offsets into the whole value so a comment over several lines
   is one span, a token a class and seven of them a role -- so a theme colours an
