@@ -42,9 +42,21 @@
  * `~/.bun/install/cache/bun-<platform>-<arch>-v<version>`, and a host-platform
  * one of those is an ordinary runnable `bun` -- so the cache Bun already fills
  * is the first place to look before fetching anything.
+ *
+ * That is the bundler. The runtime **inside** a binary for another platform is
+ * not Bun's to fetch: `bun build --compile --target=bun-<other>` downloads and
+ * embeds one itself, unchecked, so `bunTargetRuntime()` fetches and verifies it
+ * and `compileBun()` hands it over through `Bun.build()`'s
+ * `compile.executablePath` -- see "Bun cross-targets" in AGENTS.md.
  */
 
-import { NODE_BUILD_SEA, RUNTIMES, type Runtime, type Target } from './compile.ts';
+import {
+  BUN_COMPILES_FROM,
+  NODE_BUILD_SEA,
+  RUNTIMES,
+  type Runtime,
+  type Target,
+} from './compile.ts';
 import { isInside } from './discover.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { cache } from '@ttylabs/sigil/paths';
@@ -79,10 +91,13 @@ const CACHE = 'sigil/runtimes';
  * the lookup cannot disagree, which is how the two would have drifted.
  *
  * @param runtime - Which runtime.
+ * @param platform - The platform the file is for, which is the host's unless a
+ *   cross target's runtime is being named: `bun.exe` is what a Windows target's
+ *   archive holds wherever it was fetched.
  * @returns The file name.
  */
-function executable(runtime: Runtime): string {
-  return process.platform === 'win32' ? `${runtime}.exe` : runtime;
+function executable(runtime: Runtime, platform: Target['platform'] = hostOs()): string {
+  return platform === 'windows' ? `${runtime}.exe` : runtime;
 }
 
 /**
@@ -157,6 +172,16 @@ function example(runtime: Runtime): string {
 
 /** Where Bun keeps the target runtimes it downloads for `--compile`. */
 const BUN_CACHE = '.bun/install/cache';
+
+/**
+ * Where sigil keeps the Bun runtimes it fetched for a **target** that is not the
+ * host: `<cache>/bun-targets/<triple>/<version>/bun`.
+ *
+ * Beside `bun/` rather than inside it, because everything in `bun/` is offered
+ * as a bundler this machine can run -- `local()` lists it -- and a Linux
+ * runtime on a Mac is not one.
+ */
+const TARGETS = 'bun-targets';
 
 /**
  * How long to wait for a **listing**, which blocks the picker.
@@ -666,6 +691,102 @@ export async function resolve(
 }
 
 /**
+ * The release version a `bun` executable is, asked of the executable itself.
+ *
+ * Asked rather than assumed from where it was found, because the bundler's
+ * version is what decides which runtime `bun build --compile` would embed for a
+ * target (see `compileBun()`), and a `bun` on `PATH` has no version in its path.
+ *
+ * `--revision` and not `--version`: a canary prints its release number for the
+ * second -- `1.4.5` -- and only the first says `1.4.5-canary.1+237bba51e`, so
+ * reading `--version` made the canary refusal unreachable. A stable release
+ * prints `1.4.4+38afee6c8`; the `+` is a build id and is dropped. A canary is
+ * refused, because there is no published digest to check its runtime against.
+ *
+ * @param exec - The `bun` executable.
+ * @returns Its version.
+ * @throws If it cannot be run, is a prerelease, does not report a version, or is
+ *   older than one that can embed a runtime it was handed.
+ */
+export function bunVersion(exec: string): string {
+  const run = spawnSync(exec, ['--revision'], { encoding: 'utf-8', timeout: 30_000 });
+
+  if (run.error) {
+    throw new Error(`Failed to run bun at ${exec}: ${escapeControls(run.error.message)}`);
+  }
+
+  const said = run.stdout.trim();
+  const version = said.split('+')[0] ?? '';
+
+  if (run.status !== 0 || !isVersion(version)) {
+    throw new Error(
+      `${exec} did not report a release version (it said "${escapeControls(said.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
+    );
+  }
+
+  // before anything is fetched: a Bun that cannot embed a runtime it was handed
+  // would only be found out after the download, by `assertEmbedded()`
+  if (compare(version, BUN_COMPILES_FROM) < 0) {
+    throw new Error(
+      `${exec} is Bun ${version}, which accepts "compile" in Bun.build() and ignores it, so it cannot embed the runtime sigil verified for another platform; use ${BUN_COMPILES_FROM} or newer.`
+    );
+  }
+
+  return version;
+}
+
+/**
+ * The runtime to embed for a Bun target that is not this machine's, verified.
+ *
+ * `bun build --compile --target=bun-<other>` fetches that target's runtime
+ * itself and embeds it, by rules sigil does not control and cannot see -- so a
+ * cross target is compiled through `Bun.build()`'s `compile.executablePath`
+ * instead (see `compileBun()`), which embeds the file it is given and fetches
+ * nothing. This is what produces that file: the same `@oven/bun-<triple>`
+ * package at the **bundler's** version, checked against npm's `dist.integrity`
+ * for it by `download()`, kept in sigil's cache beside a record that is
+ * re-checked on every use (`distrust()`), and refused on a mismatch.
+ *
+ * The version is the bundler's own because a bundler writing into a runtime of
+ * another version produces a binary that prints Bun's usage text instead of the
+ * app, exit 0 -- the reason `resolve()` exists at all.
+ *
+ * @param version - The bundler's version, from `bunVersion()`, read once by
+ *   the caller for every target rather than once per target.
+ * @param target - The platform and architecture being built for.
+ * @param onFetch - Called before a download starts, so the caller can say so.
+ *   `discarded` is why a cached copy was removed first, when one was.
+ * @returns The runtime's executable.
+ * @throws If the runtime could not be fetched or did not match what npm
+ *   publishes for it.
+ */
+export async function bunTargetRuntime(
+  version: string,
+  target: Target,
+  onFetch?: (version: string, discarded?: string) => void
+): Promise<string> {
+  const root = cache(CACHE, TARGETS, bunTriple(target));
+
+  let discarded: string | undefined;
+
+  if (root) {
+    const at = join(cacheDir(root, 'bun', version), executable('bun', target.platform));
+
+    if (existsSync(at)) {
+      discarded = distrust('bun', version, at, target);
+
+      if (discarded === undefined) {
+        return at;
+      }
+    }
+  }
+
+  onFetch?.(version, discarded);
+
+  return download('bun', version, target);
+}
+
+/**
  * Fetches a runtime into sigil's own cache and returns its executable.
  *
  * Extracted with `tar`, which is not a dependency on any platform this
@@ -697,20 +818,26 @@ export async function resolve(
  *
  * @param runtime - Which runtime.
  * @param version - The version, without a leading `v`.
+ * @param target - The platform the runtime is for, when it is not the host's:
+ *   a Bun cross target's runtime is fetched, checked and cached by exactly the
+ *   same steps, under a directory of its own so that it is never offered as a
+ *   bundler this machine could run.
  * @returns The executable.
  * @throws If the download, the verification or the extraction failed.
  */
-async function download(runtime: Runtime, version: string): Promise<string> {
-  const root = cache(CACHE, runtime);
+async function download(runtime: Runtime, version: string, target?: Target): Promise<string> {
+  const root = target ? cache(CACHE, TARGETS, bunTriple(target)) : cache(CACHE, runtime);
 
   if (!root) {
     throw new Error(
-      `Cannot work out where to cache a runtime: no XDG cache directory, and ${runtime} ${version} is not installed.`
+      target
+        ? `Cannot work out where to cache the ${runtime} ${version} runtime for ${bunTriple(target)}: there is no XDG cache directory.`
+        : `Cannot work out where to cache a runtime: no XDG cache directory, and ${runtime} ${version} is not installed.`
     );
   }
 
   const into = cacheDir(root, runtime, version);
-  const binary = join(into, executable(runtime));
+  const binary = join(into, executable(runtime, target?.platform));
 
   // a directory nothing else has ever used. It was `.partial-<pid>`, which a
   // process killed mid-extraction leaves behind and a later one with the same
@@ -723,7 +850,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
   const partial = mkdtempSync(`${into}.partial-`);
 
   try {
-    const url = downloadUrl(runtime, version);
+    const url = downloadUrl(runtime, version, target);
 
     // the origin's own digest first, so a version it does not list costs a few
     // hundred bytes rather than an archive
@@ -753,9 +880,9 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       );
     }
 
-    const candidates = findBinaries(partial, runtime);
+    const candidates = findBinaries(partial, executable(runtime, target?.platform));
     if (candidates.length === 0) {
-      throw new Error(`Downloaded ${runtime} ${version} but found no ${runtime} executable in it.`);
+      throw new Error(`Downloaded ${runtime} ${version} but found no ${basename(binary)} in it.`);
     }
 
     // one, because the one that is hashed into the record is the one that runs,
@@ -764,7 +891,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
     // `package/bin/bun`
     if (candidates.length > 1) {
       throw new Error(
-        `Downloaded ${runtime} ${version} but its archive holds ${candidates.length} files named ${executable(runtime)}, so there is no telling which is the runtime. Nothing was cached.`
+        `Downloaded ${runtime} ${version} but its archive holds ${candidates.length} files named ${basename(binary)}, so there is no telling which is the runtime. Nothing was cached.`
       );
     }
 
@@ -782,6 +909,9 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       runtime,
       source: expected.source,
       version,
+      // what a cross target's entry is for, so an entry copied into another
+      // triple's directory is not taken for that one's
+      ...(target ? { target: bunTriple(target) } : {}),
     };
 
     // written beside and renamed in rather than written in place: a write in
@@ -797,7 +927,7 @@ async function download(runtime: Runtime, version: string): Promise<string> {
       // build put the same verified bytes there, so what is there is used if it
       // still answers to the record -- and its removal is attempted, and this
       // fails, if not
-      if (existsSync(binary) && distrust(runtime, version, binary) === undefined) {
+      if (existsSync(binary) && distrust(runtime, version, binary, target) === undefined) {
         return binary;
       }
 
@@ -1051,10 +1181,16 @@ function isOwn(runtime: Runtime, path: string): boolean {
  * @param runtime - Which runtime.
  * @param version - The version.
  * @param path - The cached executable.
+ * @param target - The platform it is for, when it is a cross target's.
  * @returns `undefined` when it may be used; otherwise what was wrong with it,
  *   as a clause for a sentence. It has been removed in that case.
  */
-function distrust(runtime: Runtime, version: string, path: string): string | undefined {
+function distrust(
+  runtime: Runtime,
+  version: string,
+  path: string,
+  target?: Target
+): string | undefined {
   let why = 'has no verification record';
 
   try {
@@ -1076,6 +1212,7 @@ function distrust(runtime: Runtime, version: string, path: string): string | und
       const record = JSON.parse(text) as {
         binary?: unknown;
         runtime?: unknown;
+        target?: unknown;
         version?: unknown;
       } | null;
 
@@ -1085,6 +1222,7 @@ function distrust(runtime: Runtime, version: string, path: string): string | und
         if (
           record.runtime === runtime &&
           record.version === version &&
+          record.target === (target ? bunTriple(target) : undefined) &&
           record.binary === `sha256:${hashFile(path)}`
         ) {
           return undefined;
@@ -1111,12 +1249,23 @@ function distrust(runtime: Runtime, version: string, path: string): string | und
  * @param runtime - Which runtime.
  * @param version - The version.
  * @param discarded - Why a cached copy was removed first, when one was.
+ * @param target - The platform, when it is a cross target's runtime being
+ *   fetched, so the line says which of several it is.
  * @returns The line.
  */
-export function fetchNote(runtime: Runtime, version: string, discarded?: string): string {
+export function fetchNote(
+  runtime: Runtime,
+  version: string,
+  discarded?: string,
+  target?: Target
+): string {
+  const what = target
+    ? `${runtime} ${version} runtime for ${bunTriple(target)}`
+    : `${runtime} ${version}`;
+
   return discarded
-    ? `The cached ${runtime} ${version} ${discarded}, so it was removed. Fetching it again...`
-    : `Fetching ${runtime} ${version}, which is not on this machine...`;
+    ? `The cached ${what} ${discarded}, so it was removed. Fetching it again...`
+    : `Fetching ${what}, which is not on this machine...`;
 }
 
 /** How old a `.partial-*` directory must be before it is taken for an interrupted run's. */
@@ -1163,10 +1312,10 @@ function sweep(root: string): void {
   }
 }
 
-/** Where a runtime of this version is published. */
-function downloadUrl(runtime: Runtime, version: string): string {
-  const platform = hostOs();
-  const arch = process.arch === 'x64' ? 'x64' : 'arm64';
+/** Where a runtime of this version is published, for the host or for a named target. */
+function downloadUrl(runtime: Runtime, version: string, target?: Target): string {
+  const platform = target?.platform ?? hostOs();
+  const arch = target?.arch ?? (process.arch === 'x64' ? 'x64' : 'arm64');
 
   if (runtime === 'node') {
     const os = platform === 'windows' ? 'win' : platform;
@@ -1200,12 +1349,10 @@ function downloadUrl(runtime: Runtime, version: string): string {
  * without telling anybody.
  *
  * @param dir - Where it was extracted.
- * @param runtime - The executable's name.
+ * @param wanted - The executable's file name.
  * @returns Every path it is at: one in any real archive.
  */
-function findBinaries(dir: string, runtime: Runtime): string[] {
-  const wanted = executable(runtime);
-
+function findBinaries(dir: string, wanted: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name === wanted)
     .map((entry) => join(entry.parentPath, entry.name));

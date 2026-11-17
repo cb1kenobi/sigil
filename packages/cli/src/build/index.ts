@@ -69,6 +69,7 @@ export {
   compileWithNode,
   hostTarget,
   identityOf,
+  isHostTarget,
   isIdentity,
   label,
   NODE_BUILD_SEA,
@@ -171,7 +172,9 @@ export {
   type UpdateCheckUse,
 } from './update-check.ts';
 export {
+  bunTargetRuntime,
   bunTriple,
+  bunVersion,
   canEmbed,
   choices,
   compare,

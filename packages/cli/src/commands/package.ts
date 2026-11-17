@@ -36,12 +36,15 @@ import {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
   bundleApp,
+  bunTargetRuntime,
+  bunVersion,
   readSchemaUpdateCheck,
   compileWithBun,
   compileWithNode,
   type CompileResult,
   displayPath,
   hostTarget,
+  isHostTarget,
   isIdentity,
   label,
   NODE_BUILD_SEA,
@@ -230,6 +233,12 @@ const pkg: AnyCommand = command({
     // before `clean()`, so a failed download leaves the output directory alone
     const exec = await resolveExec(spec, targets[0] as Target);
 
+    // the runtime inside each Bun binary for a platform other than this one,
+    // fetched and checked here for the reason `exec` is: after the pre-flight
+    // and before `clean()`. Bun would otherwise download it itself while
+    // compiling and embed whatever it got -- see `bunTargetRuntime()`
+    const embeds = await resolveEmbeds(runtime, exec, targets);
+
     // the bundle is an intermediate, so it does not land beside the binaries.
     // Under `node_modules/.sigil/`, which is where `writeEntry()` already puts
     // the generated entry -- a convention this repo has rather than a temp
@@ -322,6 +331,7 @@ const pkg: AnyCommand = command({
       mkdirSync(out, { recursive: true });
 
       const compiled = compileAll(runtime, {
+        embeds,
         entry: result.bin,
         exec,
         identity,
@@ -682,6 +692,46 @@ function assertSignable(identity: string | undefined, targets: readonly Target[]
 }
 
 /**
+ * The verified runtime for every Bun target that is not this machine's.
+ *
+ * Which targets are those is `isHostTarget()`'s to say: the host's own is
+ * embedded from `exec` itself, which is what the SIG-411 checks already cover.
+ * Node never has one, because its `--build-sea` embeds the node that ran it.
+ *
+ * @param runtime - Which runtime is being embedded.
+ * @param exec - The `bun` that does the bundling.
+ * @param targets - What is being built.
+ * @returns The runtime to embed, by target label.
+ * @throws If one could not be fetched or did not match what npm publishes.
+ */
+async function resolveEmbeds(
+  runtime: Runtime,
+  exec: string,
+  targets: readonly Target[]
+): Promise<Map<string, string>> {
+  const embeds = new Map<string, string>();
+  const cross = runtime === 'bun' ? targets.filter((target) => !isHostTarget(target)) : [];
+
+  if (cross.length === 0) {
+    return embeds;
+  }
+
+  // once for the run: it is the bundler's, and it is the same for every target
+  const version = bunVersion(exec);
+
+  for (const target of cross) {
+    embeds.set(
+      label(target),
+      await bunTargetRuntime(version, target, (which, discarded) => {
+        writeNote([fetchNote('bun', which, discarded, target)], process.stderr);
+      })
+    );
+  }
+
+  return embeds;
+}
+
+/**
  * Compiles every target, and leaves nothing behind if one of them fails.
  *
  * The loop used to be a bare `targets.map()`, so a failure on target three of
@@ -703,6 +753,7 @@ function assertSignable(identity: string | undefined, targets: readonly Target[]
 function compileAll(
   runtime: Runtime,
   options: {
+    readonly embeds: ReadonlyMap<string, string>;
     readonly entry: string;
     readonly exec: string;
     readonly identity: string | undefined;
@@ -711,7 +762,7 @@ function compileAll(
     readonly targets: readonly Target[];
   }
 ): Built[] {
-  const { entry, exec, identity, name, out, targets } = options;
+  const { embeds, entry, exec, identity, name, out, targets } = options;
   const compiled: Built[] = [];
 
   for (const target of targets) {
@@ -721,7 +772,14 @@ function compileAll(
       const one = runtime === 'bun' ? compileWithBun : compileWithNode;
 
       compiled.push({
-        ...one({ entry, exec, out: join(out, file), sign: identity, target }),
+        ...one({
+          embed: embeds.get(label(target)),
+          entry,
+          exec,
+          out: join(out, file),
+          sign: identity,
+          target,
+        }),
         file,
         target,
       });

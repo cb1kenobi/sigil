@@ -1,7 +1,17 @@
-import { binaryName, canBuildSea, hostTarget, label } from '../src/build/compile.ts';
-import { displayPath } from '../src/build/index.ts';
+import {
+  binaryName,
+  canBuildSea,
+  hostTarget,
+  isHostTarget,
+  label,
+  outputName,
+  parseTarget,
+  type Target,
+} from '../src/build/compile.ts';
+import { bunTriple, displayPath } from '../src/build/index.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
+import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
 import { copyFixture, linkedFixture } from './copy-fixture.ts';
 import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
@@ -99,6 +109,36 @@ async function sigil(...argv: string[]) {
   }
 
   return { err: chunks.err.join(''), out: chunks.out.join('') };
+}
+
+/**
+ * Targets that are not this machine's and need no signing, which is what a
+ * test of a cross build can ask for on every platform.
+ *
+ * Not `darwin-*`, because signing wants `codesign` and only macOS has it -- the
+ * rule is deliberate and these tests are not about it -- and not the host's own,
+ * which `sigil package` compiles with the bundler itself rather than with a
+ * runtime it fetched. At least two remain whichever host this is.
+ */
+const CROSS = ['linux-x64', 'linux-arm64', 'windows-x64']
+  .map(parseTarget)
+  .filter((one) => !isHostTarget(one));
+
+/**
+ * Runs `work` with `dir` first on `PATH`, so the `bun` there is the one `sigil
+ * package` finds, and puts `PATH` back afterwards.
+ */
+async function withBun<T>(dir: string, work: () => Promise<T>): Promise<T> {
+  const path = process.env.PATH;
+
+  process.env.PATH = `${dir}${delimiter}${path ?? ''}`;
+
+  try {
+    return await work();
+  } finally {
+    process.env.PATH = path;
+    vi.unstubAllGlobals();
+  }
 }
 
 /**
@@ -646,6 +686,40 @@ describe('sigil package', () => {
       }
     }, 60_000);
 
+    it.skipIf(process.platform === 'win32')(
+      "should refuse a cross target's runtime that is not what npm publishes for it, and ship nothing",
+      async () => {
+        // SIG-442: `bun build --compile --target=bun-<other>` fetches that
+        // platform's runtime itself and embeds it unchecked, so sigil fetches it
+        // first, checks it against npm's integrity, and hands it over. Here npm
+        // vouches for one archive and the origin serves another
+        const calls = serveRuntimes({ lying: true });
+        const [other] = CROSS;
+
+        rmSync(out, { force: true, maxRetries: 5, recursive: true });
+
+        const { err } = await withBun(stubBun(), () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            label(other!)
+          )
+        );
+
+        expect(err).toContain('Refusing bun');
+        expect(err).toContain('Nothing was extracted or run');
+        expect(calls[0]).toMatch(/^https:\/\/registry\.npmjs\.org\/@oven%2fbun-/);
+        expect(existsSync(out)).toBe(false);
+        expect(process.exitCode).toBeTruthy();
+      },
+      60_000
+    );
+
     it('should refuse an empty signing identity before building', async () => {
       // `--sign=` is how a value gets deliberately emptied, and it used to pass
       // all three checks that read an identity -- reaching `codesign` as
@@ -895,39 +969,62 @@ describe('sigil package', () => {
       300_000
     );
 
-    it.skipIf(!hasBun)(
+    it.skipIf(process.platform === 'win32')(
       'should name a binary after its target only when there is more than one',
       async () => {
         // one target is the ordinary case and `myapp` is what its users type.
         // Several at once is a release, where every one would otherwise be
         // written to the same path and the last would be the only survivor --
         // reported as several binaries, which is the quiet version of this bug
-        await sigil(
-          'package',
-          join(fixtures, 'buildable'),
-          '--out',
-          out,
-          '--runtime',
-          'bun',
-          '--target',
-          'linux-x64',
-          '--target',
-          'windows-x64'
+        //
+        // Through a stand-in npm and a `bun` that embeds what it is handed: a
+        // platform's runtime is fetched and verified first (SIG-442), and no
+        // test reaches the network
+        serveRuntimes();
+
+        const [one, two] = CROSS as [Target, Target];
+        const among = [one, two];
+        const bun = stubBun();
+        rmSync(join(bun, REVISIONS), { force: true });
+
+        await withBun(bun, () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            label(one),
+            '--target',
+            label(two)
+          )
         );
 
-        expect(existsSync(join(out, 'buildable-linux-x64'))).toBe(true);
-        expect(existsSync(join(out, 'buildable-windows-x64.exe'))).toBe(true);
+        // the bundler's version is the same for every target, so it is asked
+        // once for the run and not once for each
+        expect(readFileSync(join(bun, REVISIONS), 'utf-8').trim().split('\n')).toHaveLength(1);
+
+        for (const target of among) {
+          expect(existsSync(join(out, outputName('buildable', target, among)))).toBe(true);
+        }
+
         expect(existsSync(join(out, BINARY))).toBe(false);
 
-        // and they really are different files rather than one written twice
-        const linux = readFileSync(join(out, 'buildable-linux-x64'));
-        const windows = readFileSync(join(out, 'buildable-windows-x64.exe'));
-        expect(linux.equals(windows)).toBe(false);
+        // and they really are different files rather than one written twice --
+        // each holding the runtime of its own platform, which is what the
+        // stand-in `bun` writes
+        for (const target of among) {
+          expect(readFileSync(join(out, outputName('buildable', target, among)), 'utf-8')).toBe(
+            runtimeFor(bunTriple(target))
+          );
+        }
       },
-      300_000
+      60_000
     );
 
-    it.skipIf(!hasBun)(
+    it.skipIf(!hasBun || label(hostTarget()) !== 'darwin-arm64')(
       'should sign the darwin member of a mixed set and build the rest unsigned',
       async () => {
         // The severe regression round 3 found. Moving the identity refusal down
@@ -935,19 +1032,27 @@ describe('sigil package', () => {
         // per-target one: this invocation built the darwin binary, signed it,
         // refused `linux-x64`, and **deleted the darwin binary** on the way
         // out -- where the commit before produced both correctly.
-        const { out: stdout } = await sigil(
-          'package',
-          join(fixtures, 'buildable'),
-          '--out',
-          out,
-          '--runtime',
-          'bun',
-          '--target',
-          'darwin-arm64',
-          '--target',
-          'linux-x64',
-          '--sign',
-          '-'
+        //
+        // The darwin binary is a real compile, which is what is signed; the
+        // other platform's is a stand-in, through the `bun` that embeds what it
+        // is handed (SIG-442), so nothing here reaches the network
+        serveRuntimes();
+
+        const { out: stdout } = await withBun(stubBun(whichSync('bun')), () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            'darwin-arm64',
+            '--target',
+            'linux-x64',
+            '--sign',
+            '-'
+          )
         );
 
         expect(existsSync(join(out, 'buildable-darwin-arm64'))).toBe(true);
@@ -999,29 +1104,63 @@ describe('sigil package', () => {
       expect(readFileSync(join(out, 'keepme.txt'), 'utf-8')).toBe('bystander');
     }, 120_000);
 
-    it.skipIf(!hasBun)(
+    it.skipIf(process.platform === 'win32')(
+      'should not ask the bundler for its revision when every target is the host',
+      async () => {
+        // the version is only needed to fetch a runtime for another platform,
+        // and a run with none has no use for it
+        serveRuntimes();
+
+        const bun = stubBun();
+        rmSync(join(bun, REVISIONS), { force: true });
+
+        await withBun(bun, () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            label(hostTarget())
+          )
+        );
+
+        // the stand-in cannot sign what it writes on macOS, so the run may
+        // fail late; what is asked is whether it asked
+        expect(existsSync(join(bun, REVISIONS))).toBe(false);
+      },
+      60_000
+    );
+
+    it.skipIf(process.platform === 'win32')(
       'should build one binary per target named once, however often it was named',
       async () => {
         // two spellings of one target would compile twice to one path, the
         // second overwriting the first, and be reported as two binaries
-        const { out: stdout } = await sigil(
-          'package',
-          join(fixtures, 'buildable'),
-          '--out',
-          out,
-          '--runtime',
-          'bun',
-          '--target',
-          'linux-x64',
-          '--target',
-          'linux-x64'
+        serveRuntimes();
+
+        const { out: stdout } = await withBun(stubBun(), () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'bun',
+            '--target',
+            'linux-x64',
+            '--target',
+            'linux-x64'
+          )
         );
 
         expect(stdout.match(/linux-x64/g)).toHaveLength(1);
         // one target after deduplication, so it keeps the unsuffixed name
         expect(existsSync(join(out, BINARY))).toBe(true);
       },
-      300_000
+      60_000
     );
   });
 
