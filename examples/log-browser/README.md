@@ -73,7 +73,8 @@ from `@ttylabs/sigil/components`, so they agree.
 - **A log that follows.** The cursor sits on the newest line, and new lines
   bring it with them. Move up and it stops, and the title says `paused`. End
   or `F` starts it again. With `--mouse`, a wheel scroll up stops it too,
-  rather than the next line pulling you back down.
+  rather than the next line pulling you back down. All of that is the
+  `ListView`'s `tail` prop; the app holds the state for the label and `F`.
 - **Levels in colour.** A line is drawn in its level's role (`sigil-error`,
   `sigil-warn`, `sigil-muted`), so a theme recolours it. What a search matched
   is drawn reversed.

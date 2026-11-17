@@ -671,18 +671,18 @@ screen of code.
   `MAX_MATCHES`, and a filter that stops part way drops lines without saying
   so.
 
-- **Following is the cursor on the newest line, decided when the cursor
-  moves.** An effect over `current` sets `following` to whether the cursor is
-  on the tail. An append while following writes the new tail's key into
-  `current` in the same step as the new rows. That relies on the list's items
-  effect running before its cursor effect, which creation order gives today.
-  The follow tests fail if it changes, and SIG-385 asks for this as a mode of
-  the list. `F` sets `following` itself, because writing the key the cursor is
-  already on wakes nothing; the sabotage that drops it fails the follow test. A
-  wheel moves the view and not the cursor. So an append first asks whether the
-  cursor's row is still on screen, read off `listControl().scroll.viewport`, and
-  stops following if it is not. Otherwise the next line would pull a reader who
-  had wheeled up back down.
+- **Following is the list's `tail` (SIG-385).** The log holds `following` as
+  a `State` for the panel's `following` / `paused` label and for `F`, which
+  writes its opposite, and hands it to `ListView` as `tail`. The list moves the
+  cursor to the newest line as lines arrive, stops on a move off it or a wheel
+  that takes it out of view, and starts again on End. That was about forty lines
+  here: an effect deciding following from the cursor, a write of the new tail's
+  key in the same step as the rows, which relied on the list's items effect
+  running before its cursor effect, a check of the viewport at each append for a
+  wheel the app could not hear, and `F` writing the key itself. The decisions
+  are under "A list view that follows its tail" in
+  `packages/sigil/src/components/AGENTS.md`; the follow tests here are the ones
+  that were written against the app's version, and pass unchanged.
 
 - **The rows of the log are not reactive; a new search refreshes them.** A
   function child is text, not elements, so a row cannot redraw its match runs
@@ -737,7 +737,11 @@ screen of code.
   and from the JSX table. The refresh, the trim, the closed pager and the kept
   filter each survived the first pass. Each then got the test that catches it:
   a search for a line already on screen, a log at a cap of 510, no pager left
-  in the tree, and a describe and back with a filter up.
+  in the tree, and a describe and back with a filter up. Three of the ten -- the
+  in-view check, the refilter that keeps following and `F`'s write -- moved into
+  the list with SIG-385, whose own pass covers them. Here, `tail` dropped from the
+  JSX root fails the follow and the wheel tests for that root, and `F` that only
+  stops fails the follow test.
 
 - **A pod in trouble is coloured across its whole row, by the table's
   `rowClass` (SIG-388).** `resourceClass()` in `src/browser.ts` gives a
@@ -751,5 +755,4 @@ screen of code.
   row is red with no role on any cell of its own, and a running row is not.
   Dropping `rowClass` from either twin fails it for that twin.
 
-- **Not done:** a real cluster; the log as a pager (SIG-387); and following as
-  a list mode (SIG-385).
+- **Not done:** a real cluster; and the log as a pager (SIG-387).

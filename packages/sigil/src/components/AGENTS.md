@@ -11786,7 +11786,8 @@ How each question was settled, the probes and the sabotage pass are in
   the current row elsewhere is a move and is followed. A reveal asked for before
   anything laid the list out waits for the scroll box's `onResize`, so a list that
   starts with `current` on row 300 opens showing it. An offset past the end of a
-  list that shrank is brought back inside it.
+  list that shrank is brought back inside it. A list following its tail (SIG-385, below) is
+  the one exception: there an update is followed to the last row.
 - **Finding: filtering is the app's, and type-to-find is opt-in.** A filter field
   is a second focusable thing with its own keys, layout and editing, and
   `TextField` and `rankBy()` already exist: the items are a `Computed` over the
@@ -11872,6 +11873,106 @@ tier refuses for its own recorded reason; a horizontal axis, which a wide table
 will want and which is a `ScrollRows.width` passed through; wrapping at the ends,
 which `select()` makes an option and nothing here has asked for; and a built-in
 filter field, for the reason above.
+
+### A list view that follows its tail, as `tail -f` and lnav do (SIG-385)
+
+`tail` on `ListView`: while the list is following, a change of the items puts the
+cursor on the last row and reveals it; a move off the last row, or a scroll that
+takes the cursor's row out of view, stops it; End or a move back onto the last row
+starts it again. The log browser built this outside the list in about forty lines,
+and they are the prop now.
+
+- **Its own option, not a third value of `follow`.** The ticket offered either.
+  `follow` is a mode the app picks -- what the cursor keeps across a change of rows
+  -- and a `State` of it is the app's to toggle, as htop's `F` does. Following the
+  tail is a **state the list writes**: the reader's moves and scrolls turn it off
+  and on. One `State<boolean | 'end'>` would hold the app's choice of mode and a
+  flag the list flips, and the list would have to write `true` back into an app's
+  mode to mean "following again". So `tail` is `boolean | State<boolean>`, the
+  value-or-state shape `current` has, and the two compose: while the list is not
+  following, `follow` decides as it always did. `true` follows from the start, for
+  an app with nothing to show about it, and a list control does not hand that
+  state back: `DataTableControl` extends `ListControl`, so a field there is a
+  field every table carries, and an app that reads the state can hand one over.
+  `false` is the same as leaving it out, since there is no mode to start paused
+  in without a state to read it from -- a `State(false)` is that.
+- **Following is decided when the cursor moves to another row, and only then.**
+  The cursor effect also runs when the selection changes and when the rows change
+  under a cursor that stays put, and deciding on every run would undo the two
+  pauses that do not move the cursor: `F` on the last row, and a wheel. Space in a
+  `multiple` list re-ran it and set following back on -- `should not start again
+  when the selection changes and the cursor stays where it was`. A move is a new
+  key, so an append under a paused cursor -- its key unchanged, its position
+  unchanged -- decides nothing either. And a key **the list** put the cursor on is
+  not a move: each re-key records where it left the cursor, so the first row of a
+  list that was empty, or the row that took the place of one that went, does not
+  start a paused list following because it happens to be the last. Review round 1
+  found the first of those as a `State(false)` list fed one line at a time, which
+  followed from its first line on. A list that starts paused on its last row stays
+  paused for the same reason. What tells the two apart is whether the cursor's
+  key is still the one last recorded when the rows change: if not, something moved
+  it, and the re-key neither records over that move nor overrules it. Round 2
+  found the first half missing -- a paused list where Down onto the last row and
+  a new array of the same rows landed in one flush stayed paused, because the
+  re-key recorded the reader's key as its own -- and the second was the same hole
+  while following, where an append in that flush pulled an Up back to the end.
+- **While following, every change of the items goes to the last row, not only an
+  append.** Telling an append from a replacement is SIG-386's question and this
+  does not need its answer: a log re-filtered while following wants the newest
+  line that is left, which is what the log browser's own refilter effect did.
+  Except over a move: a key the reader pressed, or an app wrote, in the same step
+  as the items is a move nothing has decided yet, so the re-key leaves it where it
+  is and the cursor effect decides it.
+  Done right after `setRows()` and before the list clamps or reveals anything, so
+  the scroll hook finds the cursor where it is going.
+- **End starts following on the row it is already on.** `last()` on the last row
+  writes nothing, so nothing would decide anything -- the same hole the log
+  browser's `F` had and closed by writing `following` itself. End writes `tail`,
+  and the tail effect goes to the last row and reveals it **whether or not the
+  cursor moved**, because the view may have been wheeled away from it. An app
+  writing `true` takes the same path, which is all an `F` key is.
+- **The scroll that stops it is any write of the offset, heard through the scroll
+  box's own `onScroll`.** That is the notification the ticket said the list lacked:
+  the list builds its scroll box and now passes one, and every writer of the
+  offset arrives through it -- the wheel, a drag of the thumb, an app's
+  `scrollTo()`. The list's own reveals do too and are harmless, since each one
+  ends with the cursor in view. Its clamp of an offset past the end of rows that
+  shrank does not, and is not heard: the end of the rows is not the cursor where
+  disabled rows end them, so with rows as tall as the view, `['item 19', 'rule']`
+  scrolled to the rule alone and stopped following before the reveal brought the
+  cursor back (review round 1). "Out of view" is **none**
+  of the row on screen, so a one-cell scroll over two-cell rows that leaves half
+  the newest row showing does not stop it. Scrolling back down does not start it
+  again, because scrolling is not a move; End is the way back, which is lnav's
+  `End` too. No `onScroll` was added to `ListView` itself: nothing outside the list
+  needs one now, and the scroll box's hook entry records why a hook nobody declared
+  is a hook designed by guessing.
+- **A view that gets shorter while following keeps the last row in it.** A resize
+  moves no offset, so no scroll hook would hear it, and the last row would fall
+  under the bottom edge. The scroll box's `onResize` reveals while following, as
+  it already did for a reveal asked for before there was a layout.
+- **The effects no longer depend on running in order.** The log browser wrote the
+  new tail's key into `current` in the same step as the rows and relied on the
+  items effect running first, or the cursor effect settled the key against rows
+  that did not hold it. Creation order made that true within one flush, and it is
+  false across passes: an app effect that writes both, in a pass where the
+  cursor effect is already dirty, runs the cursor effect in that pass and the
+  items effect in the next. Measured: the key was lost and the cursor put back on
+  an old row. So the cursor effect and the tail effect each re-key first where
+  `read()` is not the array last keyed, and the items effect then finds nothing to
+  do -- `should keep a key written with the items that hold it, whichever of its
+  effects runs first`. The identity check is the whole cost.
+- **Sabotage: ten, ten caught,** and five more after review rounds 1 and 2 --
+  the clamp heard, the re-key's record of where it put the cursor, that record
+  taken over a move, a move overruled while following, and a move not noticed
+  at all -- each caught. The re-key in the cursor effect; End writing
+  `tail`; the scroll hook; deciding on every run; the reveal on a resize; the move
+  to the last row on a change of items; the tail effect's reveal, and its move;
+  "in view" read as the whole row; and the last row counted without passing over
+  disabled ones.
+- **Not done:** `tail` on `DataTable` and `TreeListView`, which build on
+  `ListView` and pass through what they are asked for -- a table of events wants
+  it, and nothing has asked yet; and an `onScroll` on the list for an app.
 
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 

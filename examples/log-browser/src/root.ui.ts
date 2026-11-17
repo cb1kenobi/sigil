@@ -75,6 +75,7 @@ export function App(): Element {
     key=${(line: LogLine) => line.id}
     props=${{ class: 'grow' }}
     row=${(line: LogLine) => ui`<${LogRow} line=${line} query=${logs.query.get()} />`}
+    tail=${logs.following}
   />`;
 
   const field = ui`<${TextField}

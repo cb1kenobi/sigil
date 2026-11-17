@@ -112,6 +112,12 @@
         "type": "Iterable<K> | State<ReadonlySet<K>>"
       },
       {
+        "description": "Follow the last row as rows are added, the way `tail -f` and lnav do.",
+        "name": "tail",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
         "description": "`j` and `k` to move, and `g` and `G` to the ends, which is `less`'s spelling and the pager's. Off by default for the reason `find` is.",
         "name": "vim",
         "optional": true,

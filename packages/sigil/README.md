@@ -5381,6 +5381,26 @@ row is rebuilt when its item is a different object from the one it was built fro
 so replacing an object is how an update reaches the screen; for items changed in
 place, `listControl(list).refresh()`. The view follows the cursor, and only the
 cursor: an update that does not move the current row does not scroll back to it.
+New items and a `current` key that only they hold can be written in one step, in
+either order: the list keys the rows before it reads the cursor.
+
+`tail` follows the last row as rows are added, the way `tail -f` and lnav do:
+
+```js
+const following = new State(true);
+const log = ListView({ items: lines, key: (line) => line.id, tail: following });
+// a label: () => (following.get() ? 'following' : 'paused')
+// an F key: following.set(!following.get())
+```
+
+While the list is following, every change of the items puts the cursor on the
+last row and scrolls to it. Moving off the last row stops it, and so does a scroll
+-- the wheel, or an app's -- that takes the cursor's row out of view, so a reader
+who wheeled up to read is not pulled back down by the next line. **End**, or a move
+back onto the last row, starts it again. The state is the list's to write as the
+reader moves and the app's to write too: `true` goes to the last row and scrolls to
+it, wherever the view was. `tail: true` follows from the start, for an app that has
+nothing to show about it.
 
 `row(item, key)` returns an element or a string, and is called under an owner of
 its own, so a row may hold effects; they are disposed when the row leaves the view.
