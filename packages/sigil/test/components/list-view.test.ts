@@ -449,6 +449,16 @@ describe('ListView()', () => {
     );
     expect(rowWith(host, 'b').classes).not.toContain('is-current');
     expect(rowWith(host, 'b').classes).not.toContain('sigil-focus');
+
+    // and the selection's, in a list that has one
+    const ticked = list({
+      items: ['a', 'b'],
+      multiple: true,
+      rowClass: () => 'is-selected',
+      selected: ['a'],
+    });
+    expect(rowWith(ticked, 'a').classes).toContain('is-selected');
+    expect(rowWith(ticked, 'b').classes).not.toContain('is-selected');
   });
 
   describe('keys', () => {
