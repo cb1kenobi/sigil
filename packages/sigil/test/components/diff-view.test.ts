@@ -278,8 +278,14 @@ describe('DiffView', () => {
     current.set(7);
     flush();
     expect(current.get()).toBe(1);
+    expect(lit(picture(root, 30, 14))[0]).toBe('@@ -20,3 +20,3 @@');
     // and a key from there steps from the stop it was brought to
     press(host, '[');
+    expect(current.get()).toBe(0);
+
+    // a key that arrives before the write was settled goes to the nearest stop, not past it
+    current.set(-1);
+    press(host, ']');
     expect(current.get()).toBe(0);
   });
 
