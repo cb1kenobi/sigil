@@ -459,6 +459,23 @@ export interface ListViewProps<T, K = T> {
   /** Whether to draw a scrollbar. Defaults to `true`. */
   scrollbar?: boolean;
   /**
+   * Follow the last row as rows are added, the way `tail -f` and lnav do.
+   *
+   * While the list is following, every change of the items puts the cursor on the
+   * last row and scrolls it into view, so an append moves the cursor to the newest
+   * row. A move off the last row stops following, and so does a scroll -- the wheel,
+   * or an app's `scrollTo()` -- that takes the cursor's row out of view; End, `G`,
+   * or a move back onto the last row starts it again.
+   *
+   * `true` follows from the start. A `State` is whether the list is following now,
+   * which the list writes as the reader moves and scrolls and an app reads for a
+   * `following` / `paused` label, so an app that shows it hands one over. An app
+   * writing `true` puts the cursor on the last row and scrolls to it, which is an
+   * `F` key; writing `false` stops. Left out, or `false`, the list never follows the
+   * tail, and `follow` alone says what the cursor keeps when the items change.
+   */
+  tail?: boolean | State<boolean>;
+  /**
    * The selected rows, as keys, or the state that holds them: see
    * {@link ListSelectionOptions.selected}.
    */
@@ -594,6 +611,13 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   if (props.find && props.vim) {
     throw new TypeError(__`A list takes type-to-find or vim keys, and not both`);
   }
+  if (
+    props.tail !== undefined &&
+    typeof props.tail !== 'boolean' &&
+    !(props.tail instanceof State)
+  ) {
+    throw new TypeError(__`Expected list tail to be a boolean or a State`);
+  }
 
   const read = (): readonly T[] =>
     Array.isArray(source) ? source : (source as ListItems<T>).get();
@@ -610,6 +634,10 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     selected: props.selected,
   });
   const { current, selected } = selection;
+  /** Whether the list is following its last row: see {@link ListViewProps.tail}. */
+  const tail =
+    props.tail instanceof State ? props.tail : props.tail === true ? new State(true) : undefined;
+  const tailing = (): boolean => tail !== undefined && untrack(() => tail.get()) === true;
 
   /** The items the rows were last keyed from, and their keys. */
   let items: readonly T[] = [];
@@ -747,7 +775,15 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
       focusable: false,
       'min-height': 0,
     },
-    onResize: () => (pending ? reveal() : false),
+    // a view that got shorter under a list following its tail keeps the tail in it
+    onResize: () => (pending || tailing() ? reveal() : false),
+    // a scroll that takes the cursor's row out of view is a reader reading history:
+    // following stops, or the next row would pull them back down
+    onScroll: () => {
+      if (tailing() && !cursorInView()) {
+        tail?.set(false);
+      }
+    },
     rows: {
       // read on every window, which is what lets the items change under it
       get count() {
@@ -816,6 +852,30 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     return true;
   }
 
+  /**
+   * Whether any of the current row is in the view, or there is nothing to say
+   * either way: no cursor, or no layout yet.
+   */
+  function cursorInView(): boolean {
+    const at = selection.index();
+    const view = viewHeight();
+    if (at < 0 || view <= 0) {
+      return true;
+    }
+    const y = viewport.scroll?.y ?? 0;
+    return at * step < y + view && (at + 1) * step > y;
+  }
+
+  /** The last row the cursor can be on, or `-1`. */
+  const lastRow = (): number => {
+    for (let i = selection.rowCount - 1; i >= 0; i--) {
+      if (!selection.isDisabled(i)) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
   function activate(): boolean {
     const at = selection.index();
     if (props.onActivate === undefined || at < 0 || selection.isDisabled(at)) {
@@ -839,49 +899,111 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     reveal();
   };
 
+  /**
+   * Re-keys the rows from new items, settles the cursor on them -- on the last row,
+   * while following the tail -- and rebuilds the window.
+   */
+  const rekey = (next: readonly T[]): void => {
+    const nextKeys = next.map((item) => keyOf(item));
+    const disabled = props.disabled;
+    selection.setRows(
+      nextKeys,
+      disabled ? (index: number) => disabled(next[index] as T) === true : undefined
+    );
+    // before anything below scrolls, so the scroll hook finds the cursor where it
+    // is going rather than where it was
+    if (tailing()) {
+      selection.last();
+    }
+    items = next;
+    keys = nextKeys;
+    const none = next.length === 0;
+    scroll.setProps({ display: none ? 'none' : 'flex' });
+    empty.setProps({ display: none ? 'flex' : 'none' });
+    // an offset past the end of a list that shrank is put back inside it
+    const view = viewHeight();
+    const offset = viewport.scroll ?? { x: 0, y: 0 };
+    const max = Math.max(0, keys.length * step - view);
+    if (view > 0 && offset.y > max) {
+      viewport.scrollTo(offset.x, max);
+    }
+    control.resync();
+    follow();
+  };
+
+  /**
+   * Re-keys first where the items moved and the items effect has not run yet.
+   *
+   * The effects below are not ordered against one another, or against an app's: an
+   * app that writes new items and a key only they hold in one step has its key
+   * settled against whichever rows were keyed last. So the effects that read the
+   * cursor bring the rows up to date before they read it, and the items effect
+   * then finds nothing left to do.
+   */
+  const sync = (): void => {
+    const next = read();
+    if (next !== items) {
+      rekey(next);
+    }
+  };
+
   // the items: re-keyed, the cursor settled on them, the window rebuilt
   createEffect(() => {
     const next = read();
     untrack(() => {
-      const nextKeys = next.map((item) => keyOf(item));
-      const disabled = props.disabled;
-      selection.setRows(
-        nextKeys,
-        disabled ? (index: number) => disabled(next[index] as T) === true : undefined
-      );
-      items = next;
-      keys = nextKeys;
-      const none = next.length === 0;
-      scroll.setProps({ display: none ? 'none' : 'flex' });
-      empty.setProps({ display: none ? 'flex' : 'none' });
-      // an offset past the end of a list that shrank is put back inside it
-      const view = viewHeight();
-      const offset = viewport.scroll ?? { x: 0, y: 0 };
-      const max = Math.max(0, keys.length * step - view);
-      if (view > 0 && offset.y > max) {
-        viewport.scrollTo(offset.x, max);
+      if (next !== items) {
+        rekey(next);
       }
-      control.resync();
-      follow();
     });
   });
+
+  /** The cursor's key when the tail last looked at it: only a move decides following. */
+  let tailSeen: { key: K | undefined } | undefined;
 
   // the cursor and the selection: restyle the rows on screen, and follow the cursor
   createEffect(() => {
     const now = current.get();
     const chosen = selected.get();
     untrack(() => {
-      // a key an app wrote that is not a row it can be on is put back on one,
-      // which writes `current` and runs this again with that
-      if (selection.settle()) {
+      // rows keyed now may move the cursor, and a key an app wrote that is not a
+      // row it can be on is put back on one: either writes `current`, which runs
+      // this again with that
+      sync();
+      if (current.get() !== now || selection.settle()) {
         return;
       }
       for (const [key, built] of live) {
         paint(key, built, now, chosen);
       }
+      // following is being on the last row, decided when the cursor moves to
+      // another row -- not when a tick or a change of rows leaves it where it is,
+      // which is what lets `F` stop following on the last row, and a wheel stop it
+      // without moving the cursor at all
+      if (tail !== undefined) {
+        const at = selection.index();
+        if (tailSeen !== undefined && tailSeen.key !== now && at >= 0) {
+          tail.set(at === lastRow());
+        }
+        tailSeen = { key: now };
+      }
       follow();
     });
   });
+
+  // an app starting to follow, or End: onto the last row, and into view, whether
+  // or not the cursor was there already -- the view may have been wheeled away
+  if (tail !== undefined) {
+    createEffect(() => {
+      if (tail.get() !== true) {
+        return;
+      }
+      untrack(() => {
+        sync();
+        selection.last();
+        reveal();
+      });
+    });
+  }
 
   host.onFocusChange = (_, now): void => {
     focused = now;
@@ -1010,6 +1132,9 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
       selection.first();
     } else if (by === 'last') {
       selection.last();
+      // End starts following again where the cursor is already on the last row,
+      // which is a move that writes nothing
+      tail?.set(true);
     } else {
       selection.move(by);
     }
