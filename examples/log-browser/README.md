@@ -101,10 +101,30 @@ runs were up to twice as slow at every size.
 
 At 50,000 lines, a batch cost 1.6 ms more than at 500, and the tree held the
 same number of elements. Most of a batch at any size was the frame itself. A
-batch does grow with the lines held. At 200,000 lines, about 11 ms of the 18
-went on `ListView` re-keying every row, which is SIG-386. The search and the
-filter each include a forced frame for opening the prompt line and another
-for closing it.
+batch did grow with the lines held. At 200,000 lines, about 11 ms of the 18
+went on `ListView` re-keying every row. The search and the filter each include
+a forced frame for opening the prompt line and another for closing it.
+
+As of SIG-386, a batch costs about the same at every size. `ListView` tells
+when its new items are the old ones with some dropped off the front and some
+added at the end. Then it keys only the added items, and its selection places
+only their keys. The log also stopped testing every line it shows to find the
+ones the cap dropped, since those are all at the front. The figures are the
+best of six runs of each build, taken in turn on node 26.10.0 on an Apple M5
+Pro, while other agents were running suites on the machine:
+
+| lines   | append ms before | append ms after |
+| ------- | ---------------- | --------------- |
+| 500     | 3.01             | 2.96            |
+| 5,000   | 2.61             | 2.37            |
+| 50,000  | 4.15             | 2.49            |
+| 200,000 | 12.29            | 3.52            |
+
+At 200,000 lines the log is at its cap, so every batch drops lines off the
+front as well as adding them, which is the case the change had to cover. What
+is left at that size is about half a millisecond more than at 500 lines. It is
+copying arrays of 200,000 lines: the log's own, the lines shown, and the
+list's keys. The other columns did not move.
 
 `fifty thousand lines` in `test/app.test.ts` asserts the part that does not
 depend on the machine: the tree holds fewer than 2,000 elements with 50,000

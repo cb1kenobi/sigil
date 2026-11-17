@@ -142,6 +142,10 @@ export interface ListSelection<K> {
    * the selection mean by a row, so two rows with one key are two rows nothing can
    * tell apart.
    *
+   * Rows that are the last ones handed over, with some dropped off the front and
+   * some added at the end, cost what was added and dropped rather than every row:
+   * a log that grows, and one held to a cap. Any other change rebuilds.
+   *
    * @param keys - The rows' keys, in order. Kept, not copied: hand over a new array
    *   rather than changing this one.
    * @param disabled - Whether the row at a position is disabled.
@@ -200,7 +204,13 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
       : new State<ReadonlySet<K>>(new Set(opts.selected ?? []));
 
   let keys: readonly K[] = [];
+  /**
+   * Each key's place, counted from {@link base} rather than from the first row, so
+   * rows dropped off the front move every other row up by moving `base` alone.
+   */
   let positions = new Map<K, number>();
+  /** The place `keys[0]` has in {@link positions}. */
+  let base = 0;
   let off: (index: number) => boolean = () => false;
   /**
    * Where the current row was last seen, which is where the cursor goes when its
@@ -242,8 +252,60 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
     current.set(key);
     return true;
   };
-  const indexOf = (key: K | undefined): number =>
-    key === undefined ? -1 : (positions.get(key) ?? -1);
+  const indexOf = (key: K | undefined): number => {
+    const at = key === undefined ? undefined : positions.get(key);
+    return at === undefined ? -1 : at - base;
+  };
+  const duplicate = (key: K): TypeError =>
+    new TypeError(
+      __`Expected every list row to have a key of its own: ${String(key)} is used twice`
+    );
+
+  /**
+   * Takes new rows that are the old ones with some dropped off the front and some
+   * added at the end -- a log that grows, and one at its cap -- in time for what
+   * changed rather than for every row: the rows kept are compared and not looked
+   * up, and only the new keys are checked and placed.
+   *
+   * @returns Whether the rows were that shape and are taken; `false` leaves
+   *   everything as it was, for a rebuild.
+   */
+  const slide = (next: readonly K[]): boolean => {
+    if (keys.length === 0 || next.length === 0) {
+      return false;
+    }
+    const dropped = indexOf(next[0]);
+    if (dropped < 0) {
+      return false;
+    }
+    const kept = keys.length - dropped;
+    if (kept > next.length) {
+      return false;
+    }
+    for (let i = 0; i < kept; i++) {
+      if (next[i] !== keys[dropped + i]) {
+        return false;
+      }
+    }
+    // checked before anything is written, so a duplicate leaves the rows as they were
+    const added = new Map<K, number>();
+    for (let i = kept; i < next.length; i++) {
+      const key = next[i] as K;
+      const at = indexOf(key);
+      if (at >= dropped || added.has(key)) {
+        throw duplicate(key);
+      }
+      added.set(key, i);
+    }
+    for (let i = 0; i < dropped; i++) {
+      positions.delete(keys[i] as K);
+    }
+    base += dropped;
+    for (const [key, i] of added) {
+      positions.set(key, base + i);
+    }
+    return true;
+  };
 
   const settle = (): boolean => {
     const key = peek();
@@ -299,22 +361,23 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
     },
     selected,
     setRows(next, disabled) {
-      const map = new Map<K, number>();
-      for (const [i, key] of next.entries()) {
-        if (map.has(key)) {
-          throw new TypeError(
-            __`Expected every list row to have a key of its own: ${String(key)} is used twice`
-          );
-        }
-        map.set(key, i);
-      }
       // where the cursor was, by position, before the rows moved under it
       const was = indexOf(peek());
+      if (!slide(next)) {
+        const map = new Map<K, number>();
+        for (const [i, key] of next.entries()) {
+          if (map.has(key)) {
+            throw duplicate(key);
+          }
+          map.set(key, i);
+        }
+        positions = map;
+        base = 0;
+      }
       if (was >= 0) {
         last = was;
       }
       keys = next;
-      positions = map;
       off = disabled ?? (() => false);
       if (was >= 0 && !following()) {
         // the position, not the row: whichever row is there now, or the nearest one
@@ -909,11 +972,36 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   let clamping = false;
 
   /**
+   * The keys of new items. Where they are the items last keyed with some dropped
+   * off the front and some added at the end -- the same objects, compared rather
+   * than keyed -- only the added ones are handed to `key`, and the selection takes
+   * the same shape in time for what changed (SIG-386).
+   */
+  const keysFor = (next: readonly T[]): K[] => {
+    const dropped =
+      items.length > 0 && next.length > 0 ? selection.indexOf(keyOf(next[0] as T)) : -1;
+    const kept = items.length - dropped;
+    if (dropped < 0 || kept > next.length) {
+      return next.map((item) => keyOf(item));
+    }
+    for (let i = 0; i < kept; i++) {
+      if (next[i] !== items[dropped + i]) {
+        return next.map((item) => keyOf(item));
+      }
+    }
+    const out = keys.slice(dropped);
+    for (let i = kept; i < next.length; i++) {
+      out.push(keyOf(next[i] as T));
+    }
+    return out;
+  };
+
+  /**
    * Re-keys the rows from new items, settles the cursor on them -- on the last row,
    * while following the tail -- and rebuilds the window.
    */
   const rekey = (next: readonly T[]): void => {
-    const nextKeys = next.map((item) => keyOf(item));
+    const nextKeys = keysFor(next);
     // a move made since following was last decided -- a key, a click, an app
     // writing `current` in the same step as the items -- is the reader's, and the
     // cursor effect decides it: the rows changing neither overrules it nor hides it

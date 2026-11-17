@@ -11913,6 +11913,56 @@ and they are the prop now.
   `ListView` and pass through what they are asked for -- a table of events wants
   it, and nothing has asked yet; and an `onScroll` on the list for an app.
 
+### Rows that grow at the end and drop off the front cost what changed (SIG-386)
+
+`ListView` keyed every item and `setRows()` rebuilt a map of every key on each
+change of the items, and an append is a change. So a log paid for every line it
+held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
+
+- **The list notices the shape. Nothing new tells it.** Triage suggested
+  this, and the alternative was an `appendRows()` beside `setRows()`. That is a
+  second way to say one thing, and every caller would have to know which one
+  to use. Both layers check the shape themselves. `ListView` finds the new first
+  item's key among its rows and compares the items after it, by identity, with
+  the items it last keyed. Then `key` is asked only for the added items, plus
+  the first one, which is how the list finds where the old rows start.
+  `setRows()` does the same with keys. It drops the keys that went off the front
+  from its map, and checks and places only the added ones. A table and a tree
+  get the second half for free, through the same function.
+- **Front and end, not only the end.** The ticket asked about an append. A log
+  at its cap, which the log browser's 200,000 is, drops lines off the front on
+  every batch. An append-only check would never match there, and that is the
+  size the figures were bad at. Rows dropped off the front would move every
+  other row's position, which is O(n) again. So a key's place is counted from a
+  `base`, and the rows that went move `base` rather than every entry. A rebuild
+  sets `base` back to 0.
+- **The kept rows are compared, which is O(n), and that is deliberate.** It is
+  one `!==` per row, with no hashing and no call into the app. Skipping it
+  would mean trusting that nothing between the ends was replaced. An immutable
+  update to a middle row is exactly how a live list changes one row, and a
+  replaced row with a new key would then sit at a stale position. What is left
+  at 200,000 rows is array copies: the app's, and `keys.slice()`. The README of
+  the log browser has the figures, before and after, from one session.
+- **A duplicate is checked before anything is written.** An added key that a
+  kept row holds, or two added keys alike, throws the same error as before and
+  leaves the map, `base` and the rows as they were. A key that went off the
+  front may come back on the end.
+- **The log browser's trim stopped testing every line.** It used `filter()` over
+  every shown line to drop the ones the cap took. Those lines are all at the
+  front, so it counts them from there and slices. That was about 1.5 of the
+  remaining ms at 200,000.
+- **Pinned without a clock.** `should place only the added keys, however many
+  rows it holds` counts `Map.prototype.set` and `delete` calls over 10,000 rows.
+  `should hand only the added items to key` counts calls to `key`. Both fail
+  if either layer falls back to a rebuild, and neither depends on the machine.
+  The layout fuzzer's deadline entry records why no test here asserts a time.
+- **Sabotage: nine.** The shape check removed in each layer, the comparison of
+  the kept rows removed in each, the duplicate check, the delete of rows that
+  went, `base` not moved, and `base` not reset on a rebuild. Eight were caught.
+  The ninth, the early exit when the new rows are fewer than the kept ones,
+  survives, because the comparison after it returns `false` anyway. It is kept
+  because it saves that loop.
+
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 
 `src/components/tree-list-view.ts`. An interactive tree in a full-screen app -- an
