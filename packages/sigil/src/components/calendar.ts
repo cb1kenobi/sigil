@@ -462,69 +462,237 @@ export function calendar(opts: CalendarOptions = {}): string {
   });
 }
 
-/** `2024-06-05`, which is how the field and the answer are written. */
-function isoOf(d: Day): string {
-  return `${String(d.year).padStart(4, '0')}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
+/**
+ * A field of a date prompt. `date()` shows all six or the first three, and
+ * `pickDate()`'s line form asks for the first three.
+ */
+export type DateField = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
+
+/**
+ * A local date-time as the fields a date prompt shows. A `Day` is one, with no
+ * clock; a clock field not given is 0.
+ */
+export interface DateParts extends Day {
+  hour?: number;
+  minute?: number;
+  second?: number;
+}
+
+/** What an answer is held to besides being a date: the range, and the caller's check. */
+export interface DateCheck {
+  /** The latest answer, inclusive, at the precision shown. */
+  max?: DateParts;
+  /** The earliest answer, inclusive, at the precision shown. */
+  min?: DateParts;
+  /** The caller's own check: a string refuses with that message, anything falsy accepts. */
+  validate?: (value: Date) => string | undefined | false | Promise<string | undefined | false>;
+}
+
+/** How a date prompt writes, reads and judges the fields it shows. */
+export interface DateFormat {
+  /** The fields shown, in ISO order: the order they are drawn, typed and compared. */
+  readonly fields: readonly DateField[];
+  /** What is drawn in front of each field, which is ISO's separators and nothing else. */
+  readonly lead: Readonly<Record<DateField, string>>;
+  /** How many digits each field is written with. */
+  readonly width: Readonly<Record<DateField, number>>;
+  /**
+   * Asks for the fields as one line, for a screen reader: `2024-06-15`, or
+   * `2024-06-15 13:45` with the clock. Enter alone answers `start`, judged as
+   * a typed reply is.
+   */
+  ask(opts: PromptOptions, start: DateParts, check?: DateCheck): Promise<Date>;
+  /**
+   * The answer the fields make, or why they make none: the parser's `date`
+   * reader, then `min`, then `max`, then `validate`.
+   */
+  judge(at: DateParts, check?: DateCheck): Promise<Date | string>;
+  /** One number that sorts the way the fields do. */
+  key(at: DateParts): number;
+  /** A field's number, written with its digits. */
+  pad(field: DateField, value: number): string;
+  /** A `Date` as the fields shown, by the local getters, the rest 0. */
+  partsOf(d: Date): Record<DateField, number>;
+  /** The fields shown, as they are drawn: `2024-06-15`, `2024-06-15 13:45`. */
+  shown(at: DateParts): string;
+}
+
+/** The six fields in ISO order, which is the order they are compared in. */
+const DATE_FIELDS: readonly DateField[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+
+/** What is written in front of a field. */
+const LEAD: Record<DateField, string> = {
+  day: '-',
+  hour: ' ',
+  minute: ':',
+  month: '-',
+  second: ':',
+  year: '',
+};
+
+/** How many digits a field has. */
+const DIGITS: Record<DateField, number> = {
+  day: 2,
+  hour: 2,
+  minute: 2,
+  month: 2,
+  second: 2,
+  year: 4,
+};
+
+/** What each field is called in the picture of the format a line asks for. */
+const PICTURE: Record<DateField, string> = {
+  day: 'DD',
+  hour: 'HH',
+  minute: 'MM',
+  month: 'MM',
+  second: 'SS',
+  year: 'YYYY',
+};
+
+/** A field's number, with its digits. */
+function padField(field: DateField, value: number): string {
+  return String(value).padStart(DIGITS[field], '0');
 }
 
 /**
- * `pickDate()` as a line: the day typed as `date()`'s line form types one.
+ * Writes fields one after another, each behind its separator: the one ISO
+ * formatter, which the field, the answer, the range and the parser's text are
+ * all written with.
  *
- * A grid is a picture of a month to move through, and a line has neither the
- * picture nor anywhere to move, so the day is said as its digits, the range is
- * said in the question -- the grid dims what is outside it -- and Enter alone
- * takes the day the cursor would have opened on. What a day is, is the parser's
- * `date` reader's to say, as it is for `date()`; the answer is that day at local
- * midnight, as the drawn prompt's is. `highlight` marks a picture and is not
- * said, since a line of every marked day would be a second question.
- *
- * @param opts - What to ask.
- * @param start - The day Enter alone answers.
- * @param min - The earliest day, if any.
- * @param max - The latest day, if any.
- * @returns The day.
+ * @param at - The fields.
+ * @param fields - Which of them, in order.
+ * @param clock - What separates the day from the hour: a space to be read, a
+ *   `T` for the parser.
+ * @returns The text.
  */
-function lineDay(opts: PickDateOptions, start: Day, min?: Day, max?: Day): Promise<Date> {
-  const picture = 'YYYY-MM-DD';
-  const range =
-    min && max
-      ? __`from ${isoOf(min)} to ${isoOf(max)}`
-      : min
-        ? __`from ${isoOf(min)}`
-        : max
-          ? __`until ${isoOf(max)}`
-          : undefined;
-  const hint = [picture, range, __`default: ${isoOf(start)}`].filter(Boolean).join(', ');
+function written(at: DateParts, fields: readonly DateField[], clock = LEAD.hour): string {
+  return fields.map((f) => `${f === 'hour' ? clock : LEAD[f]}${padField(f, at[f] ?? 0)}`).join('');
+}
 
-  return runLinePrompt<Date>(opts, {
-    ask: promptLineQuestion(opts.message, `(${hint})`),
-    echo: true,
-    keep: true,
-    read(reply) {
-      const said = reply.trim();
-      let day = start;
-      if (said !== '') {
-        const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(said);
-        if (!match) {
-          return __`Enter a date as ${picture}`;
-        }
-        day = { day: Number(match[3]), month: Number(match[2]), year: Number(match[1]) };
-        try {
-          // the parser's reader, which refuses a day the month does not have
-          transformValue(isoOf(day), 'date');
-        } catch (cause) {
-          return (cause as Error).message;
-        }
-      }
-      if (min && dayKey(day) < dayKey(min)) {
-        return __`Date must not be before ${isoOf(min)}`;
-      }
-      if (max && dayKey(day) > dayKey(max)) {
-        return __`Date must not be after ${isoOf(max)}`;
-      }
-      return { value: localDate(day.year, day.month, day.day) };
+/** `2024-06-05`, which is how `pickDate()`'s field and every date are written. */
+function isoOf(d: Day): string {
+  return written(d, DATE_FIELDS.slice(0, 3));
+}
+
+/**
+ * How a date prompt writes, reads and judges its fields.
+ *
+ * This is what `date()` and `pickDate()` share, so that their line forms are one
+ * reader: the same picture, the same range and default in the question, the
+ * same refusal of a reply of the wrong shape, and the same checks in the same
+ * order with the same messages. What a date is stays the parser's `date`
+ * reader's to say. See "A calendar" in this directory's AGENTS.md.
+ *
+ * @param opts - `time` for the hour and minute, `seconds` for the second too,
+ *   which implies `time`.
+ * @returns The format.
+ */
+export function dateFormat(opts: { seconds?: boolean; time?: boolean } = {}): DateFormat {
+  const seconds = opts.seconds === true;
+  const clock = opts.time === true || seconds;
+  const fields = DATE_FIELDS.filter((f) =>
+    f === 'second' ? seconds : f === 'hour' || f === 'minute' ? clock : true
+  );
+
+  function key(at: DateParts): number {
+    // compared as fields rather than as `Date`s: a wall-clock time a daylight
+    // saving gap skipped is another wall-clock time as a `Date`, so a range
+    // check through one would move with the time zone. 9999 * 1e10 at most
+    return dayKey(at) * 1e6 + (at.hour ?? 0) * 1e4 + (at.minute ?? 0) * 1e2 + (at.second ?? 0);
+  }
+
+  function shown(at: DateParts): string {
+    return written(at, fields);
+  }
+
+  async function judge(at: DateParts, check: DateCheck = {}): Promise<Date | string> {
+    let answer: Date;
+    try {
+      // the parser's own reader, from local text with no offset, which is what
+      // refuses a day or a clock that does not exist -- and is asked first, so
+      // a reply that is not a date is told so rather than compared with a range
+      answer = transformValue(written(at, clock ? DATE_FIELDS : fields, 'T'), 'date') as Date;
+    } catch (cause) {
+      return (cause as Error).message;
+    }
+    if (check.min && key(at) < key(check.min)) {
+      return __`Date must not be before ${shown(check.min)}`;
+    }
+    if (check.max && key(at) > key(check.max)) {
+      return __`Date must not be after ${shown(check.max)}`;
+    }
+    const failed = await check.validate?.(answer);
+    return typeof failed === 'string' && failed ? failed : answer;
+  }
+
+  return {
+    ask(prompt, start, check = {}) {
+      // the fields typed whole, in the order they are drawn: a date is said as
+      // its digits far more readily than it is stepped to, and a line has no
+      // segment to step. The picture names the format, the range is said rather
+      // than found by refusal -- the drawn grid dims what is outside it, which a
+      // line cannot -- and Enter alone takes where the prompt would have opened
+      const picture = fields.map((f) => `${LEAD[f]}${PICTURE[f]}`).join('');
+      const shape = new RegExp(
+        `^${fields
+          .map((f) => `${LEAD[f] === ' ' ? '[ T]' : LEAD[f]}(\\d{${f === 'year' ? 4 : '1,2'}})`)
+          .join('')}$`
+      );
+      const { max, min } = check;
+      const range =
+        min && max
+          ? __`from ${shown(min)} to ${shown(max)}`
+          : min
+            ? __`from ${shown(min)}`
+            : max
+              ? __`until ${shown(max)}`
+              : undefined;
+      const hint = [picture, range, __`default: ${shown(start)}`].filter(Boolean).join(', ');
+
+      return runLinePrompt<Date>(prompt, {
+        ask: promptLineQuestion(prompt.message, `(${hint})`),
+        echo: true,
+        keep: true,
+        async read(reply) {
+          const said = reply.trim();
+          let at = start;
+          if (said !== '') {
+            const match = shape.exec(said);
+            if (!match) {
+              return __`Enter a date as ${picture}`;
+            }
+            at = { ...start };
+            fields.forEach((f, i) => {
+              at[f] = Number(match[i + 1]);
+            });
+          }
+          const answer = await judge(at, check);
+          return typeof answer === 'string' ? answer : { value: answer };
+        },
+      });
     },
-  });
+    fields,
+    judge,
+    key,
+    lead: LEAD,
+    pad: padField,
+    partsOf(d) {
+      // the local getters, which are right here and nowhere the parser reads:
+      // a date prompt builds its answer local, so a `Date` handed in is read
+      // back the same way
+      return {
+        day: d.getDate(),
+        hour: clock ? d.getHours() : 0,
+        minute: clock ? d.getMinutes() : 0,
+        month: d.getMonth() + 1,
+        second: seconds ? d.getSeconds() : 0,
+        year: d.getFullYear(),
+      };
+    },
+    shown,
+    width: DIGITS,
+  };
 }
 
 /**
@@ -581,7 +749,12 @@ export function pickDate(opts: PickDateOptions): Promise<Date> {
   let cursor = bounded(dayOf(given ?? new Date()));
 
   if (promptAsLines(opts)) {
-    return lineDay(opts, cursor, minDay, maxDay);
+    // `date()`'s line form, date only: a grid is a picture of a month to move
+    // through, and a line has neither the picture nor anywhere to move. The
+    // answer is the parser's, which for a day is local midnight, as drawn.
+    // `highlight` marks a picture and is not said, since a line of every
+    // marked day would be a second question
+    return dateFormat().ask(opts, cursor, { max: maxDay, min: minDay });
   }
 
   return runPrompt<Date>(opts, () => {

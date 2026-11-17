@@ -5811,9 +5811,11 @@ field.
   through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
   two new names on that subpath for good. What was left alone: an
   `initial`, `min` or `max` that is itself outside 0-9999 is still drawn as
-  given (`10000-06-15`, and Enter answers it, in the drawn form and the line
-  form), because it neither throws nor hangs; the first arrow or page key pulls
-  it into the range. And year 0's title reads `January 1`, since `Intl` writes
+  given (`10000-06-15`, and Enter answers it in the drawn form), because it
+  neither throws nor hangs; the first arrow or page key pulls
+  it into the range. The line form refuses it in the parser's words since
+  SIG-407, because its reader is `date()`'s and judges Enter alone as it judges
+  a typed reply (see below). And year 0's title reads `January 1`, since `Intl` writes
   1 BC there -- the title is `Intl`'s, as the entry above says.
 - **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
   Enter.** The date prompt keeps an explicit `initial` out of range so that the
@@ -5843,10 +5845,53 @@ field.
   change is `date.ts`, which now builds on `calendarGrid()`, `addMonths()` and
   `dayKey()`. An ejected `date` imports them from `@ttylabs/sigil/components`
   because a sibling import is rewritten there, so the barrel exports them -- with
-  `Day`, `CalendarGrid` and `GridView`, the types in their signatures -- and
+  `Day`, `CalendarGrid` and `GridView`, the types in their signatures; SIG-407
+  added `dateFormat()` and its four types the same way -- and
   `should import only names the published subpath exports, for date` is the test
   that failed when SIG-187 and SIG-201 met without it. Neither branch was wrong
   alone: one made `date` an entry and the other made it import the calendar.
+- **The two line forms are one reader, `dateFormat()`, and it lives here** (SIG-407).
+  `pickDate()`'s line form and `date()`'s had each built the same range hint,
+  default hint and `Enter a date as` refusal and checked `min` and `max` with the
+  same two messages, and `isoOf()` was the date half of `date()`'s `textOf()`
+  written again -- and the copies had already drifted: `pickDate()` asked the
+  parser before the range and `date()` after it, so `2026-02-30` under a `min` of
+  October was `Invalid date` from one and `Date must not be before` from the
+  other. `dateFormat({ time, seconds })` now holds the field table (the order,
+  what is drawn in front of each field, its digits, its picture), the one writer
+  every date text goes through (`isoOf()`, the shown form and the parser's `T`
+  form are all `written()`), the key the range is compared on, `judge()` and the
+  line form `ask()`. `pickDate()` calls `dateFormat().ask()`; `date()` draws its
+  segments from the same table and judges both its drawn Enter and its line with
+  the same `judge()`.
+  - **Here rather than in a module of their own, or in `date.ts`.** `date.ts`
+    already imports this file, so this direction has no cycle, and `pickDate()`
+    cannot call into `date.ts` without one. A third module would cost the same
+    barrel names -- an ejected `date` rewrites every sibling import to
+    `@ttylabs/sigil/components` -- and add a file for nothing. One factory
+    rather than five functions, so the barrel gains one value, not five.
+  - **The parser first, then `min`, then `max`, then `validate`.** A reply that
+    is not a date is told so rather than compared with a range: `2026-13-01`
+    under a `max` of December used to be `Date must not be after` from
+    `date()`. The drawn field cannot reach the parser's refusal (it clamps), so
+    the order only shows on a line -- and where a test replaces the parser,
+    which `date-parser.test.ts` does to pin it.
+  - **Enter alone is judged as a typed reply is, for both.** `date()`'s always
+    was, so its explicit `initial` outside the range is refused on a line as it
+    is drawn. `pickDate()`'s start is already pulled into the range, so the
+    only start the judging refuses is one outside 0000-9999, which neither
+    `\d{4}` nor the parser can say -- refused rather than answered on a line,
+    while the drawn form still answers it as recorded above.
+  - **The answer is the parser's `Date`, which for a day is local midnight.**
+    `pickDate()`'s line form used to build it with `localDate()`; the two are
+    the same instant -- measured over 653,319 days spanning years 0-9999 (every
+    day of 1901-2099, every seventh outside it) in seven zones, São Paulo's,
+    Santiago's and Havana's midnight daylight-saving gaps among them, with no
+    difference; in a gap both resolve forward to 01:00. So one reader
+    needs no answer callback.
+  - `prompt-accessible.test.ts` asks both prompts the same replies under each
+    shape of range and compares the transcripts, which fails on `main`'s two
+    readers in three of the four.
 - **Deliberately not done:** week numbers; a range selection; marking today
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
@@ -9198,9 +9243,10 @@ nothing already written is moved, erased or coloured.
     a picture (`YYYY-MM-DD HH:MM`), says the range -- the drawn grid dims what is
     outside it, which a line cannot -- and the default, which is where the field
     or cursor would have opened. What a date is stays the parser's `date`
-    reader's to say, so `2024-02-30` is refused in its words; `date()` shares one
-    `judged()` between the drawn Enter and the line, so the two refuse in the
-    same order. `pickDate()` answers at local midnight, as drawn; its `highlight`
+    reader's to say, so `2024-02-30` is refused in its words. Both are one
+    reader, `dateFormat()`'s (SIG-407, under "A calendar"), and `date()` judges
+    its drawn Enter with the same `judge()`, so every form refuses in the same
+    order. `pickDate()` answers at local midnight, as drawn; its `highlight`
     marks a picture and is not said.
   - `selectTree()` and `directoryTree()` (SIG-228): **one level at a time**, not
     the whole tree flattened. Flattening was the ticket's starting point and it

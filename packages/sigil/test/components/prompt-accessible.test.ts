@@ -2152,6 +2152,87 @@ describe('a line pickDate()', () => {
   });
 });
 
+describe('date() and pickDate() as lines, which are one reader', () => {
+  /** Asks one of the two the same question, types the same replies, and keeps what it wrote. */
+  async function asked(
+    ask: typeof date | typeof pickDate,
+    opts: { max?: Date; min?: Date; value: Date },
+    ...replies: string[]
+  ): Promise<{ answer: Date; log: string[] }> {
+    const ui = lines();
+    const answer = ask({ accessible: true, message: 'Day', terminal: ui.terminal, ...opts });
+    for (const reply of replies) {
+      await type(ui.stdin, CTRL_U, reply, ENTER);
+    }
+    return { answer: await answer, log: ui.log };
+  }
+
+  const range = { max: new Date(2026, 11, 31), min: new Date(2026, 9, 1) };
+
+  it.each([
+    ['a range', { ...range, value: new Date(2026, 9, 15) }, new Date(2026, 10, 5)],
+    ['a min alone', { min: range.min, value: new Date(2026, 9, 15) }, new Date(2027, 0, 1)],
+    ['a max alone', { max: range.max, value: new Date(2026, 9, 15) }, new Date(2026, 8, 30)],
+    ['no range', { value: new Date(2026, 9, 15) }, new Date(2026, 8, 30)],
+  ])('should write the same transcript and answer the same day under %s', async (_, opts, day) => {
+    // every refusal the reader has, then a day it takes: the wrong shape, a day
+    // the parser refuses, a day before min and one after max -- the replies after
+    // the one a range lets through go to a prompt that has answered
+    const replies = [
+      'October',
+      '2026-10-32',
+      '2026-02-30',
+      '2026-13-01',
+      '2026-09-30',
+      '2027-01-01',
+      '2026-11-5',
+    ];
+    const drawn = await asked(date, opts, ...replies);
+    const picked = await asked(pickDate, opts, ...replies);
+
+    expect(picked.log).toEqual(drawn.log);
+    expect(picked.answer).toEqual(drawn.answer);
+    expect(drawn.answer).toEqual(day);
+  });
+
+  it("should say the range, refuse in the reader's order and words, and answer at local midnight", async () => {
+    const { answer, log } = await asked(
+      pickDate,
+      { ...range, value: new Date(2026, 9, 15) },
+      'October',
+      '2026-02-30',
+      '2026-13-01',
+      '2026-09-30',
+      '2027-01-01',
+      '2026-11-5'
+    );
+
+    expect(answer).toEqual(new Date(2026, 10, 5));
+    expect(log[0]).toBe(
+      'Day (YYYY-MM-DD, from 2026-10-01 to 2026-12-31, default: 2026-10-15) October'
+    );
+    expect(log.filter((line) => !line.startsWith('Day'))).toEqual([
+      'Enter a date as YYYY-MM-DD',
+      // the parser is asked first, so a day that is not one is told so rather
+      // than compared with a range it is outside of
+      'Invalid date: "2026-02-30"',
+      'Invalid date: "2026-13-01"',
+      'Date must not be before 2026-10-01',
+      'Date must not be after 2026-12-31',
+    ]);
+  });
+
+  it('should judge Enter alone as it judges a reply, so a start the parser cannot read is refused by both', async () => {
+    const opts = { value: new Date(10000, 5, 15) };
+    const drawn = await asked(date, opts, '', '2024-06-15');
+    const picked = await asked(pickDate, opts, '', '2024-06-15');
+
+    expect(picked.log).toEqual(drawn.log);
+    expect(drawn.log[1]).toBe('Invalid date: "10000-06-15"');
+    expect(picked.answer).toEqual(new Date(2024, 5, 15));
+  });
+});
+
 describe('a line selectTree()', () => {
   const items = [
     { items: ['Apple', 'Pear'], text: 'Fruit' },
