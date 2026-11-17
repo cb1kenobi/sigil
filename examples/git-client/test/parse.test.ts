@@ -124,6 +124,19 @@ describe('pathOf', () => {
     );
   });
 
+  it('should undo every escape git quotes a path with', () => {
+    expect(pathOf(fileOf('diff --git "a/a\\r.txt" "b/a\\r.txt"\n'))).toBe('a\r.txt');
+    expect(pathOf(fileOf('diff --git "a/\\033[31m" "b/\\033[31m"\n'))).toBe('\x1b[31m');
+    // an octal escape is a byte of the name's UTF-8, and a run of them is one character
+    expect(pathOf(fileOf('diff --git "a/\\303\\251\\a" "b/\\303\\251\\a"\n'))).toBe('é\x07');
+  });
+
+  it('should read a rename with spaces in its names off the diff line', () => {
+    expect(pathOf(fileOf('diff --git a/dir/my file b/dir/my\nsimilarity index 100%\n'))).toBe(
+      'dir/my'
+    );
+  });
+
   it('should read a quoted path off the diff line', () => {
     expect(pathOf(fileOf('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"\n'))).toBe(
       'say "hi".txt'

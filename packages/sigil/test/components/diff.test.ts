@@ -405,8 +405,17 @@ describe('parsePatch() and what it keeps to write back', () => {
       'a/plain.txt',
       '"b/tab\\there.txt"',
     ]);
-    // a rename with spaces in its names is the line git cannot split either
-    expect(names('diff --git a/one two b/three four')).to.deep.equal([undefined, undefined]);
+    // a second name starts with a prefix, so a space inside the first is not a split
+    expect(names('diff --git a/dir/my file b/dir/my')).to.deep.equal(['a/dir/my file', 'b/dir/my']);
+    expect(names('diff --git a/old.txt b/new file.txt')).to.deep.equal([
+      'a/old.txt',
+      'b/new file.txt',
+    ]);
+    // with diff.noprefix, one space or two equal halves
+    expect(names('diff --git old new')).to.deep.equal(['old', 'new']);
+    expect(names('diff --git my file my file')).to.deep.equal(['my file', 'my file']);
+    // and where two splits each start a prefixed name and neither is the same path, nothing
+    expect(names('diff --git a/x b/y b/z')).to.deep.equal([undefined, undefined]);
   });
 
   it('should take the names from --- and +++ where a file has them', () => {
@@ -425,6 +434,13 @@ describe('parsePatch() and what it keeps to write back', () => {
     const shape = (files: typeof lf): unknown =>
       files.map((file) => [file.newName, file.binary, file.hunks.map((hunk) => hunk.lines)]);
     expect(shape(crlf)).to.deep.equal(shape(lf));
+    // and what it keeps to write back is what it read, every carriage return in place
+    const crlfPatch = GIT_PATCH.replace(/\r?\n/g, '\r\n');
+    const written = crlf
+      .map((file) => [...file.header!, ...file.hunks.flatMap((hunk) => hunk.source!)].join('\n'))
+      .join('\n');
+    expect(`${written}\n`).to.equal(crlfPatch);
+    expect(crlf[0]!.header![0]).to.equal('diff --git a/a.txt b/a.txt\r');
   });
 
   it('should draw the files it read the same as the patch, and nothing of a file with no hunk', () => {

@@ -9405,10 +9405,16 @@ exported beside them as pure functions.
   empty new file are each a file git said something about, and an app listing or
   staging a patch needs them. Their names are the two on the `diff --git` line,
   spelled as the line spells them -- a quoted name still quoted, as `---` would
-  quote it -- and split where both halves name the same path under their
-  prefixes, which is how git splits it; an unquoted rename with spaces in both
-  names cannot be split that way and has none, which is git's own limit on that
-  line. `diffView()` draws none of them, not even their names, so its output for
+  quote it. An unquoted line is split at a space after which the second name
+  begins with a prefix -- a segment with no space, then a `/` -- and where several
+  spaces do, at the one whose halves name the same path under their prefixes;
+  where that still leaves none or several, there are no names rather than a
+  guess. Splitting only where the halves agree, which is git's own reading of the
+  line, was the first version and was wrong for a rename: `a/dir/my file b/dir/my`
+  agrees at the space before `file` and named the new side `file b/dir/my`, which
+  an app then staged (review round 1). Git does not read a rename's names off
+  this line at all, it reads `rename from` and `rename to` -- which carry no
+  prefix and so are not names in the spelling `---` gives. `diffView()` draws none of them, not even their names, so its output for
   any patch is what it was. This changes what `parsePatch()` returns for a patch
   of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
   the old answer threw away a fact git printed.

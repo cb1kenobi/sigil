@@ -200,12 +200,11 @@ export function parseLog(out: string): Commit[] {
  * What is read here is the client's own choice rather than the format: every
  * patch is asked for with `--src-prefix=a/ --dst-prefix=b/`, so the prefix is
  * known, and `core.quotepath` is turned off where git is run, so only a path with
- * a quote, a backslash or a control character in it arrives quoted, and those
- * escapes are undone.
+ * a quote, a backslash or a control character in it arrives quoted -- in C's
+ * escapes, a control character as `\r` or in octal -- and those are undone.
  *
  * @param file - The file.
- * @returns The path, or nothing where the patch did not name it -- a rename with
- *   spaces in both names, which git's own `diff --git` line cannot say either.
+ * @returns The path, or nothing where the patch did not name it.
  */
 export function pathOf(file: DiffFile): string | undefined {
   const name = file.newName === '/dev/null' ? file.oldName : (file.newName ?? file.oldName);
@@ -213,9 +212,39 @@ export function pathOf(file: DiffFile): string | undefined {
     return undefined;
   }
   const quoted = /^"((?:[^"\\]|\\.)*)"$/.exec(name);
-  const escapes: Record<string, string> = { '"': '"', '\\': '\\', n: '\n', t: '\t' };
-  const plain = quoted
-    ? (quoted[1] ?? '').replace(/\\(.)/g, (all, c: string) => escapes[c] ?? all)
-    : name;
-  return plain.replace(/^[ab]\//, '');
+  return (quoted ? unquote(quoted[1] ?? '') : name).replace(/^[ab]\//, '');
+}
+
+/** What each of C's one-letter escapes stands for. */
+const ESCAPES: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11 };
+
+/**
+ * The text between the quotes of a name git quoted. An octal escape is a byte of
+ * the name's UTF-8, so the bytes are gathered and decoded together.
+ *
+ * @param text - The name, without its quotes.
+ * @returns The name.
+ */
+function unquote(text: string): string {
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  // by code point, so a character outside the BMP is encoded whole
+  const chars = [...text];
+  for (let at = 0; at < chars.length; at++) {
+    const c = chars[at] ?? '';
+    if (c !== '\\') {
+      bytes.push(...encoder.encode(c));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(chars.slice(at + 1, at + 4).join(''));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      at += 3;
+    } else {
+      const next = chars[at + 1] ?? '';
+      bytes.push(...(ESCAPES[next] === undefined ? encoder.encode(next) : [ESCAPES[next]]));
+      at += 1;
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
 }
