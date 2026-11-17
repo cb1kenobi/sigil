@@ -77,6 +77,16 @@ export function write(dir: string, spec: Tree): void {
   }
 }
 
+/** Every manager {@link mount} started, so a failed assertion still gives its terminal back. */
+const mounted: App[] = [];
+
+/** Ends every manager {@link mount} started and a test did not end itself. */
+export function exitMounted(): void {
+  for (const app of mounted.splice(0)) {
+    app.exit(0);
+  }
+}
+
 /** What {@link write} writes. */
 export interface Tree {
   readonly [name: string]: string | Uint8Array | Tree;
@@ -105,15 +115,21 @@ export interface Mounted {
  *
  * @param App - The root.
  * @param start - Where it opens.
- * @param opts - The terminal's size and colour level.
+ * @param opts - The terminal's size and colour level, and a wrapper for the file
+ *   system when a test needs one call to behave differently.
  * @returns The mounted manager.
  */
 export async function mount(
   App: () => Element,
   start: string,
-  opts: { colorLevel?: 0 | 1 | 2 | 3; columns?: number; rows?: number } = {}
+  opts: {
+    colorLevel?: 0 | 1 | 2 | 3;
+    columns?: number;
+    rows?: number;
+    wrap?: (files: Files) => Files;
+  } = {}
 ): Promise<Mounted> {
-  const real = createFiles({ start });
+  const real = (opts.wrap ?? ((files: Files) => files))(createFiles({ start }));
   let running = 0;
   const counted =
     <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
@@ -144,6 +160,7 @@ export async function mount(
     sheets: [stylesheet],
     terminal: term.terminal,
   });
+  mounted.push(app);
 
   // idle for three frames running: a read that resolves starts the next one
   // within a turn, so one quiet frame is not yet quiet

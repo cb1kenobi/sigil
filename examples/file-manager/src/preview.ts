@@ -169,7 +169,10 @@ export async function readPreview(
  * kept for the pane, and every other control character is drawn as `�`.
  */
 function topOf(bytes: Uint8Array, partial: boolean): { cut: boolean; text: string } {
-  let text = new TextDecoder('utf-8').decode(bytes);
+  // `stream` holds back a character the read stopped inside, rather than
+  // decoding its first bytes as a `�` the file does not have; and a CRLF is a
+  // newline before anything is cut at one, so no cut leaves its `\r` behind
+  let text = new TextDecoder('utf-8').decode(bytes, { stream: partial }).replace(/\r\n/g, '\n');
   let cut = partial;
   if (partial) {
     const end = text.lastIndexOf('\n');
@@ -186,7 +189,7 @@ function topOf(bytes: Uint8Array, partial: boolean): { cut: boolean; text: strin
     text = text.slice(0, at);
     cut = true;
   }
-  return { cut, text: printable(text.replace(/\r\n/g, '\n').replace(/\n$/, ''), '\n\t') };
+  return { cut, text: printable(text.replace(/\n$/, ''), '\n\t') };
 }
 
 /** `1 item`, `3 items`. */

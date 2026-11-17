@@ -868,7 +868,7 @@ in half blocks from the start.
   an object to take a subset of, and it has no enumerable properties. Every such
   value here is `expect.stringMatching()`.
 
-- **Sabotage: fourteen, two survived and have tests now.** The `printable()` in a
+- **Sabotage before review: fourteen, two survived and have tests now.** The `printable()` in a
   name, the parent column keeping the directory the manager is in, the delete
   confirm starting on Yes, the cursor remembered per directory, the taken-name
   check on a move, the next free copy name, the filter cleared on leaving a
@@ -877,6 +877,24 @@ in half blocks from the start.
   a regular file survived behind the vacuous `toMatchObject()` above, and the
   move's second look at the name survived until the test that writes a file
   while the confirm is open.
+
+- **Review round 1: ten findings, all fixed, eight with a test that fails
+  without the fix and two by construction.** A rename is planned inside the
+  operation chain rather than before it, so a copy still running ahead of it
+  cannot take the name in between -- no test, since the window is the chain's
+  and there is nothing left to hold open. A CRLF is a newline before anything is
+  cut at one, so a cut no longer leaves its `\r` as a `�`; a read that stopped
+  inside a character is decoded with `stream`, so its first bytes are held back
+  rather than drawn; a directory read overtaken by a newer one says nothing even
+  when it failed; a start spelled in another case is respelled from its
+  directory's listing (the last name only), so `./readme.md` selects
+  `README.md`; a rename onto another name of the same hard link is refused,
+  since `rename()` would succeed and change nothing; a delete's next row is
+  found by name, since a change that finished during the confirm replaced every
+  entry (the second one without a test); a filter typed in the same read as `/`
+  is now tested, which is what pins the forced frame; a real FIFO is listed and
+  previewed by a test, which would hang rather than fail if one were opened; and
+  the gutter goes where the pane cannot hold it and a cell of text.
 
 - **Not done:** selecting several files, a trash, making a file or a directory,
   opening one in `$EDITOR`, and watching a directory (`R` reads it again).

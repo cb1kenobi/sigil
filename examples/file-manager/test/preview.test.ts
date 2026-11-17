@@ -3,6 +3,7 @@ import { codeRows } from '../src/preview-pane.ts';
 import { MAX_TEXT_BYTES, MAX_TEXT_LINES, type Preview, readPreview } from '../src/preview.ts';
 import { PICTURE, removeTempDirs, tempDir, write } from './fixture.ts';
 import type { Element } from '@ttylabs/sigil/element';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -97,6 +98,42 @@ describe('a preview', () => {
     expect(cut.text).not.toContain('�');
   });
 
+  it("should not leave a CRLF's carriage return behind where the preview is cut", async () => {
+    const root = tempDir();
+    write(root, { 'crlf.txt': 'hello\r\n'.repeat(MAX_TEXT_LINES + 1) });
+    const read = (await previewOf(root, 'crlf.txt')) as { cut: boolean; text: string };
+    expect(read.cut).toBe(true);
+    expect(read.text).not.toContain('\uFFFD');
+    expect(read.text.split('\n').at(-1)).toBe('hello');
+  });
+
+  it('should not draw half a character where the read stopped inside one', async () => {
+    // three bytes a character, so 64 KB ends a byte into one, and no newline
+    // for the cut to fall back to
+    const root = tempDir();
+    write(root, { 'wide.txt': '\u4f60'.repeat(30_000) });
+    const read = (await previewOf(root, 'wide.txt')) as { cut: boolean; text: string };
+    expect(read.cut).toBe(true);
+    expect(read.text).not.toContain('\uFFFD');
+    expect(read.text).toHaveLength(Math.floor(MAX_TEXT_BYTES / 3));
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'should list a FIFO as neither a file nor a directory, and preview it without opening it',
+    async () => {
+      // a read of a FIFO nobody writes to never returns, so this test would
+      // hang rather than fail if the preview opened it. No FIFO on Windows
+      const root = tempDir();
+      execFileSync('mkfifo', [join(root, 'pipe')]);
+      const fifo = await entryOf(root, 'pipe');
+      expect(fifo.kind).toBe('other');
+      expect((await readPreview(files, fifo, { hidden: false })).preview).toMatchObject({
+        kind: 'note',
+        note: expect.stringMatching(/Not a regular file/),
+      });
+    }
+  );
+
   it('should never open what is not a regular file, which might be a FIFO nobody writes to', async () => {
     const opened: string[] = [];
     const watching: Files = {
@@ -153,6 +190,12 @@ describe('the text of a preview', () => {
     expect(runs(row as Element).find((run) => run.text.includes('1'))?.classes).toContain(
       'sigil-token-number'
     );
+  });
+
+  it('should leave out the gutter in a pane too narrow for it and some text', () => {
+    const rows = codeRows(Array.from({ length: 1000 }, () => 'x').join('\n'), undefined, 4);
+    const row = rows[0] as Element;
+    expect(row.children.map((child) => child.text)).toStrictEqual(['x']);
   });
 
   it('should leave a language it does not know plain', () => {

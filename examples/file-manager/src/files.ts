@@ -394,7 +394,12 @@ export async function planRename(files: Files, from: string, name: string): Prom
   }
   const to = join(dirname(from), name);
   if (await files.taken(to)) {
-    if (!(await files.same(from, to)) || basename(from) === name) {
+    // taken by the file itself is a case-only rename on a file system that
+    // ignores case. Two names of one hard link are taken by the same file too,
+    // and a rename of one onto the other does nothing, so only a name that
+    // differs in case alone gets through
+    const caseOnly = basename(from) !== name && basename(from).toLowerCase() === name.toLowerCase();
+    if (!caseOnly || !(await files.same(from, to))) {
       return { ok: false, reason: `${name} is already taken` };
     }
   }

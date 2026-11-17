@@ -1,10 +1,10 @@
 import { App as JsxApp } from '../src/root.tsx';
 import { App as UiApp } from '../src/root.ui.ts';
-import { mount, PICTURE, removeTempDirs, tempDir, write } from './fixture.ts';
+import { exitMounted, mount, PICTURE, removeTempDirs, tempDir, write } from './fixture.ts';
 import { KEYS } from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The manager run by `runApp()` over a test terminal, opened in a directory each
@@ -15,6 +15,19 @@ import { afterAll, describe, expect, it } from 'vitest';
  */
 
 afterAll(removeTempDirs);
+
+// the borders and the list's pointer are drawn from the environment, and a
+// Windows runner says ASCII: these say what a terminal that draws box characters
+// is, so the screens below are the same on every runner -- the settings
+// example's answer to the same thing
+beforeEach(() => {
+  vi.stubEnv('TERM', 'xterm-256color');
+  vi.stubEnv('WT_SESSION', '1');
+});
+afterEach(() => {
+  exitMounted();
+  vi.unstubAllEnvs();
+});
 
 /**
  * `work/`, the directory the manager opens in: two directories, a dot file, a
@@ -37,6 +50,13 @@ function workspace(): { root: string; work: string } {
 }
 
 const LONG = 30_000;
+
+/** Whether the temp directory's file system ignores case, as macOS's and Windows' do by default. */
+function ignoresCase(): boolean {
+  const dir = tempDir();
+  write(dir, { probe: '' });
+  return existsSync(join(dir, 'PROBE'));
+}
 
 for (const [syntax, App] of [
   ['jsx', JsxApp],
@@ -165,6 +185,21 @@ for (const [syntax, App] of [
         await m.escape();
         expect(m.screen()).toMatch(/docs\//);
         expect(m.screen()).toContain('3/5');
+        m.app.exit(0);
+      },
+      LONG
+    );
+
+    it(
+      'should take a filter typed in the same read as the / that opened it',
+      async () => {
+        // pasted, or typed fast: the bar is shown and its field focused before
+        // the rest of the read is routed, or the letters go to the list
+        const { work } = workspace();
+        const m = await mount(App, work);
+        await m.press('/txt');
+        expect(m.screen()).toContain('filter "txt"');
+        expect(m.screen()).toMatch(/❯ a\.txt/);
         m.app.exit(0);
       },
       LONG
@@ -329,6 +364,50 @@ for (const [syntax, App] of [
         expect(m.screen()).toMatch(/❯ bad\uFFFD\[31mname\.txt/u);
         expect(m.screen()).toMatch(/─ bad\uFFFD\[31mname\.txt · 1 B/u);
         m.app.exit(0);
+      },
+      LONG
+    );
+
+    it(
+      'should say nothing of a directory read that failed after the manager had moved on',
+      async () => {
+        // `docs` fails, slowly; `h` is pressed before it does, and the error
+        // is about a directory nobody is going to any more
+        const { work } = workspace();
+        const docs = join(work, 'docs');
+        const m = await mount(App, work, {
+          wrap: (files) => ({
+            ...files,
+            list: async (dir) => {
+              if (dir === docs) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+              }
+              return files.list(dir);
+            },
+          }),
+        });
+        await m.term.press('l', 'h');
+        await m.settle();
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        await m.settle();
+        expect(m.screen()).not.toMatch(/permission denied/);
+        m.app.exit(0);
+      },
+      LONG
+    );
+
+    it.skipIf(!ignoresCase())(
+      'should take a start spelled in another case as the directory spells it',
+      async () => {
+        const { work } = workspace();
+        const m = await mount(App, join(work, 'A.TXT'));
+        expect(m.screen()).toMatch(/❯ a\.txt/);
+        m.app.exit(0);
+        const n = await mount(App, join(work, 'DOCS'));
+        expect(n.screen()).toMatch(/❯ docs\//);
+        expect(n.screen()).toMatch(/─ docs ─/u);
+        n.app.exit(0);
       },
       LONG
     );

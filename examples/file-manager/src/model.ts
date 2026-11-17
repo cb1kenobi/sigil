@@ -237,7 +237,9 @@ export function createModel(): Model {
     try {
       next = sortEntries(await files.list(to));
     } catch (err) {
-      return err;
+      // a read overtaken by a newer one is dropped whether it failed or not: its
+      // error is about a directory the manager is no longer going to
+      return token === opening ? err : undefined;
     }
     const up = dirname(to);
     let above: Entry[] = [];
@@ -463,21 +465,25 @@ export function createModel(): Model {
     if (name === undefined || name === entry.name) {
       return;
     }
-    const plan = await planRename(files, entry.path, name);
-    if (!plan.ok) {
-      toast(plan.reason, 'warning');
-      return;
-    }
+    let renamed = false;
     await act(
       async () => {
+        // planned inside the chain rather than before it: a change still running
+        // ahead of this one -- a copy onto the same name -- or another program can
+        // take the name in between, and `rename()` would replace what it made
+        const plan = await planRename(files, entry.path, name);
+        if (!plan.ok) {
+          throw new Error(plan.reason);
+        }
         await files.move(entry.path, plan.to);
+        renamed = true;
         if (untrack(() => clip.get())?.entry.path === entry.path) {
           clip.set(undefined);
           status.set('');
         }
         return `Renamed ${entry.name} to ${name}`;
       },
-      () => name
+      () => (renamed ? name : entry.name)
     );
   };
 
@@ -502,7 +508,9 @@ export function createModel(): Model {
     }
     // the cursor goes to the row after, or before when it was the last one
     const rows = shown.get();
-    const at = rows.indexOf(entry);
+    // by name: a change that finished while the confirm was open has replaced
+    // every entry with a new object
+    const at = rows.findIndex((row) => row.name === entry.name);
     const neighbour = (rows[at + 1] ?? rows[at - 1])?.name;
     await act(
       async () => {
@@ -650,7 +658,24 @@ export function createModel(): Model {
   };
 
   void (async () => {
-    const err = await openDir(files.start);
+    // the start as the directory above spells it: `./readme.md` on a file system
+    // that ignores case is `README.md`, and a cursor or a parent column put on
+    // the typed spelling finds no row. Only the last name is respelled
+    const above = dirname(files.start);
+    const typed = basename(files.start);
+    const beside = above === files.start ? [] : await files.list(above).catch(() => []);
+    let found = beside.find((entry) => entry.name === typed);
+    for (const entry of beside) {
+      if (
+        !found &&
+        entry.name.toLowerCase() === typed.toLowerCase() &&
+        (await files.same(entry.path, files.start))
+      ) {
+        found = entry;
+      }
+    }
+    const start = found ? found.path : files.start;
+    const err = await openDir(start);
     if (err === undefined) {
       return;
     }
@@ -658,11 +683,8 @@ export function createModel(): Model {
     // selected. Asked of the directory's listing rather than read off the
     // error's code, which for a directory read of a file is not the same on
     // every platform
-    const above = dirname(files.start);
-    const name = basename(files.start);
-    const beside = await files.list(above).catch(() => []);
-    if (beside.some((entry) => entry.name === name && entry.kind !== 'directory')) {
-      if ((await openDir(above, name)) === undefined) {
+    if (found && found.kind !== 'directory') {
+      if ((await openDir(above, found.name)) === undefined) {
         return;
       }
     }

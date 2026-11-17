@@ -12,7 +12,7 @@ import {
   visibleEntries,
 } from '../src/files.ts';
 import { removeTempDirs, tempDir, write } from './fixture.ts';
-import { existsSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
+import { existsSync, linkSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -222,6 +222,17 @@ describe('renaming', () => {
     expect(plan).toStrictEqual({ ok: true, to: join(root, 'A.txt') });
     await files.move(join(root, 'a.txt'), join(root, 'A.txt'));
     expect(readdirSync(root)).toStrictEqual(['A.txt']);
+  });
+
+  it('should refuse to rename one hard link onto another, which would do nothing', async () => {
+    // both names are one file, so `rename()` succeeds and leaves both
+    const root = tempDir();
+    write(root, { 'a.txt': 'a' });
+    linkSync(join(root, 'a.txt'), join(root, 'b.txt'));
+    expect(await planRename(files, join(root, 'a.txt'), 'b.txt')).toMatchObject({
+      ok: false,
+      reason: 'b.txt is already taken',
+    });
   });
 
   it('should refuse a separator, so a rename never moves a file', async () => {

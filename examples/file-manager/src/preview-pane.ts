@@ -178,8 +178,9 @@ export function codeRows(source: string, lang: string | undefined, width: number
   }
 
   const lines = source.split('\n');
-  const gutter = String(lines.length).length;
-  const room = Math.max(1, width - gutter - 1);
+  // no gutter in a pane too narrow to hold one and a cell of text
+  const gutter = width > String(lines.length).length + 1 ? String(lines.length).length : 0;
+  const room = Math.max(1, width - (gutter ? gutter + 1 : 0));
   const rows: Element[] = [];
   let offset = 0;
   lines.forEach((value, n) => {
@@ -207,12 +208,16 @@ export function codeRows(source: string, lang: string | undefined, width: number
     rows.push(
       box(
         { class: 'code-row', 'flex-direction': 'row', 'flex-shrink': 0 },
-        text(String(n + 1).padStart(gutter), {
-          class: 'gutter sigil-muted',
-          'flex-shrink': 0,
-          'margin-right': 1,
-          width: gutter,
-        }),
+        ...(gutter
+          ? [
+              text(String(n + 1).padStart(gutter), {
+                class: 'gutter sigil-muted',
+                'flex-shrink': 0,
+                'margin-right': 1,
+                width: gutter,
+              }),
+            ]
+          : []),
         ...runs.map(({ text: value, token }) => {
           const role = token === undefined ? undefined : TOKEN_ROLE.get(token);
           const classes = ['code'];
