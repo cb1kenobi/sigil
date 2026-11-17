@@ -762,6 +762,20 @@ describe('DataTable()', () => {
     expect(opened).toEqual([7]);
   });
 
+  it('should tick the rows it is handed as selected, and keep the ticks in a State it is handed', () => {
+    // the prop was declared, documented and dropped on the way to the list, so a
+    // table started with nothing ticked and an app's State never heard a Space
+    const ticked = picture(procs({ multiple: true, selected: [42] }), 48);
+    expect(ticked[2]).toBe('  ◉    42  chris            12.5  node');
+
+    const selected = new State<ReadonlySet<number>>(new Set([7]));
+    const host = procs({ multiple: true, selected });
+    picture(host, 48);
+    expect(control(host).selection.selected).toBe(selected);
+    press(host, 'space');
+    expect([...selected.get()].sort((a, b) => a - b)).toEqual([1, 7]);
+  });
+
   it('should refuse what it cannot use', () => {
     expect(() => DataTable({ columns: [], rows: 'abc' as never })).toThrow(
       'Expected data table rows to be an array, a State or a Computed'

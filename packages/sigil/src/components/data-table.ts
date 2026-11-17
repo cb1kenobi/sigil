@@ -660,6 +660,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       );
     },
     scrollbar: props.scrollbar,
+    selected: props.selected,
     vim: props.vim,
   });
   const control = listControl<K>(list_) as ListControl<K>;
