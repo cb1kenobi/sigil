@@ -16,13 +16,6 @@
         "type": "boolean"
       },
       {
-        "description": "Lines of context around a change in two texts. Defaults to 3.",
-        "default": "3",
-        "name": "context",
-        "optional": true,
-        "type": "number"
-      },
-      {
         "description": "The current stop, as its position among `diffStops(content)`.",
         "name": "current",
         "optional": true,

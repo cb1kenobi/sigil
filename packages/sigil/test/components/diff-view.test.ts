@@ -3,6 +3,7 @@ import { describeDiffView, DiffView, type DiffViewProps } from '../../src/compon
 import {
   type DiffBlock,
   type DiffViewContent,
+  diffHunks,
   diffStops,
   diffView,
   hunkPatch,
@@ -115,6 +116,14 @@ describe('DiffView', () => {
     expect(rows.filter((row) => row.startsWith('>'))).toHaveLength(5);
   });
 
+  it('should draw again when the layout gives the same view another width', () => {
+    const long = { new: `${'x'.repeat(40)}\n`, old: `${'y'.repeat(40)}\n` };
+    const { root } = mount({ content: long }, 6);
+
+    expect(picture(root, 20, 6).filter((row) => row.includes('y')).length).toBeGreaterThan(1);
+    expect(picture(root, 50, 6).filter((row) => row.includes('y'))).toHaveLength(1);
+  });
+
   it('should draw again at the width the layout gives it', () => {
     const long = { new: `${'x'.repeat(40)}\n`, old: `${'y'.repeat(40)}\n` };
     const narrow = picture(mount({ content: long }, 6).root, 20, 6);
@@ -222,6 +231,55 @@ describe('DiffView', () => {
     expect(lit(picture(root, 30, 14))).toEqual(['@@ -1 +1 @@', '-a', '+b']);
   });
 
+  it('should mark the stop diffStops() finds at the cursor, whichever it is', () => {
+    const blocks: DiffBlock<string>[] = [
+      { text: 'Unstaged' },
+      { data: 'patch', diff: { patch: PATCH } },
+      { data: 'binary', stop: true, text: 'logo.png: binary' },
+      { data: 'texts', diff: { new: 'b\n', old: 'a\n' } },
+    ];
+    const current = new State(0);
+    const { root } = mount({ content: blocks, current }, 30);
+    const stops = diffStops(blocks);
+
+    expect(stops).toHaveLength(4);
+    for (const [at, stop] of stops.entries()) {
+      current.set(at);
+      flush();
+      const first = lit(picture(root, 30, 30))[0] ?? '';
+      // a hunk's own header row, or the prose that is the stop
+      expect(first.startsWith(stop.hunk ? `@@ -${stop.hunk.oldStart}` : 'logo.png')).toBe(true);
+    }
+  });
+
+  it('should bring a cursor that is not a stop to the nearest one', () => {
+    for (const [given, settled] of [
+      [-1, 0],
+      [1.4, 1],
+      [7, 1],
+    ] as const) {
+      const current = new State<number>(given);
+      const { root } = mount({ content: { patch: PATCH }, current }, 14);
+      picture(root, 30, 14);
+      expect(current.get()).toBe(settled);
+    }
+  });
+
+  it('should put is-current on the marks of the current stop, for a theme to reach', () => {
+    const { host, root } = mount({ content: { patch: PATCH } }, 14);
+    picture(root, 30, 14);
+    const marks: Element[] = [];
+    const walk = (at: Element): void => {
+      if (at.classes.includes('sigil-diff-view-mark') && at.classes.includes('is-current')) {
+        marks.push(at);
+      }
+      at.children.forEach(walk);
+    };
+    walk(host);
+
+    expect(marks).toHaveLength(5);
+  });
+
   it('should draw prose between diffs, and stop on prose marked as a stop', () => {
     const blocks: DiffBlock<string>[] = [
       { class: 'sigil-heading', data: 'heading', text: 'Unstaged' },
@@ -284,12 +342,14 @@ describe('diffStops()', () => {
     expect(diffStops({ patch })).toHaveLength(2);
   });
 
-  it('should take two texts with the context the view was given', () => {
+  it('should count two texts with the default context, as the view draws them', () => {
     const old = Array.from({ length: 20 }, (_, i) => `${i}`).join('\n');
     const next = old.replace('2', 'two').replace('17', 'seventeen');
 
     expect(diffStops({ new: next, old })).toHaveLength(2);
-    expect(diffStops({ new: next, old }, { context: 10 })).toHaveLength(1);
+    // another context is hunks handed over as files, which both count as they are
+    const files = [{ hunks: diffHunks(old, next, { context: 10 }) }];
+    expect(diffStops({ files })).toHaveLength(1);
   });
 });
 

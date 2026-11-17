@@ -4687,8 +4687,11 @@ for a `keyHelp()` footer.
 | `scrollbar` | Draw a scrollbar. Defaults to `true`                                               |
 | `props`     | The host's own props: a size, a border, a class                                    |
 
-`lineNumbers`, `intraline`, `highlight`, `lang` and `context` are handed to
-`diffView()` as they are.
+`lineNumbers`, `intraline`, `highlight` and `lang` are handed to `diffView()` as
+they are. `context` is not: two texts are diffed with the default context in the
+view and in `diffStops()` alike, so the two count the same hunks, and hunks of
+another context are handed over already made, as
+`{ files: [{ hunks: diffHunks(old, next, { context }) }] }`.
 
 `content` can be blocks rather than one diff: a diff (`{ diff }`) or a line or more
 of prose (`{ text, class }`) between them -- a section's heading, a commit message, a
@@ -4696,12 +4699,14 @@ note that a file is binary. Prose marked `stop: true` is a stop of the cursor as
 hunk is, which is how a file with nothing to draw is still something to act on.
 Each block's `data` is the app's and comes back on the stop.
 
-The cursor is a position among `diffStops(content)`, and the view counts its stops
-with that same function, so what an app finds at the cursor is what the view marks.
+The cursor is a position among `diffStops(content)`, and the view takes each diff's
+hunks the way that function does, so what an app finds at the cursor is what the
+view marks.
 A hunk's stop carries its `file` and `hunk`, which is what `hunkPatch()` takes: the
 hunk under the cursor is one call from a patch `git apply --cached` stages. A
-position past the last stop is brought back to it when the content changes, and
-content with no stops is shown from its start.
+position that is not a stop -- past the last, negative, fractional -- is brought to
+the nearest one when the content changes and by `]` and `[`, and content with no
+stops is shown from its start.
 
 `diffView()` also says where each hunk went, as `hunks` -- the file, the hunk, and
 the range of its rows -- which is what the view is built on, rather than on the

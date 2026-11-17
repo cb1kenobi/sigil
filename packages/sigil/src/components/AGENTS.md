@@ -9545,7 +9545,11 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   when the two disagreed. Now `diffView()` returns `hunks`, each hunk's file, the
   hunk, and the range of `element.children` it took (`first`, `end`), so the view
   never reads a class; and both `diffView()` and `diffStops()` take their files from
-  one function, so the hunks one draws are the hunks the other counts. An app asks
+  one function, so the hunks one draws are the hunks the other counts. Which is
+  why the view takes no `context`: two texts are diffed at the default in both,
+  and an option only one of them was handed made the view mark a merged hunk
+  while `diffStops()` named the first half of it (review round 1). Hunks of
+  another context are handed over made, as `{ files }`. An app asks
   `diffStops(content)[current]` for what is under the cursor, and a hunk's stop
   carries the `file` and `hunk` that `hunkPatch()` takes -- which is the hand-off
   the ticket asked for, as two published functions rather than a third. The return
@@ -9558,8 +9562,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   refused one: it is an exception to the role rule, and it is gone at level 0, which
   is exactly where the mark has to survive. It is the example's own mark, moved.
 - **`current` is a position, a number or a `State`, and the view only ever brings
-  it back inside.** `]` and `[` write it, an app writes it, and when the content
-  changes a position past the last stop becomes the last. It is never reset to the
+  it back to a stop.** `]` and `[` write it, an app writes it, and when the content
+  changes, or a key moves it, a position that is not a stop -- past the last,
+  negative, fractional, which a `State` lets an app write -- becomes the nearest
+  one. It is never reset to the
   first, because whether new content is the same subject refreshed -- the hunk
   staged, the cursor wanted where it was -- or a new one is the app's to know; the
   git client resets it when the file changes. A position rather than a key, because

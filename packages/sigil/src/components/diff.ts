@@ -1399,25 +1399,23 @@ export function diffBlocks<T>(content: DiffViewContent<T>): readonly DiffBlock<T
  * Every place a `DiffView`'s cursor stops, in the order it draws them: each hunk
  * of each diff, and each block of prose marked `stop`.
  *
- * The view counts its stops with this function too, so an app that keeps the
- * cursor as a position and asks what is at it gets the stop the view marks --
- * there is one count, not one per party. A file of a patch with no hunk (binary,
- * renamed, a mode changed) is not a stop, since the view draws nothing for it; an
- * app that wants the cursor there says so with a block of prose.
+ * The view takes each diff's hunks from the same function this does, with nothing
+ * else that could change them -- two texts are diffed with the default context in
+ * both -- so an app that keeps the cursor as a position and asks what is at it
+ * gets the stop the view marks: there is one count, not one per party. A file of
+ * a patch with no hunk (binary, renamed, a mode changed) is not a stop, since the
+ * view draws nothing for it; an app that wants the cursor there says so with a
+ * block of prose.
  *
  * @param content - What the view draws.
- * @param opts - The context two texts are diffed with, as the view was given it.
  * @returns The stops.
  */
-export function diffStops<T>(
-  content: DiffViewContent<T>,
-  opts: { context?: number } = {}
-): DiffStop<T>[] {
+export function diffStops<T>(content: DiffViewContent<T>): DiffStop<T>[] {
   return diffBlocks(content).flatMap((block): DiffStop<T>[] => {
     if ('text' in block) {
       return block.stop ? [{ block }] : [];
     }
-    return filesOf(block.diff, opts.context).flatMap((file) =>
+    return filesOf(block.diff, undefined).flatMap((file) =>
       file.hunks.map((hunk) => ({ block, file, hunk }))
     );
   });

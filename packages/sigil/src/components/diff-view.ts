@@ -43,14 +43,17 @@ export interface DiffViewProps<T = unknown> {
    * inside an effect, so the view is drawn again when it changes.
    */
   content: DiffViewContent<T> | { get(): DiffViewContent<T> } | (() => DiffViewContent<T>);
-  /** Lines of context around a change in two texts. Defaults to 3. */
-  context?: number;
   /**
    * The current stop, as its position among `diffStops(content)`.
    *
    * A number is where the cursor starts; a `State` is the state itself, which `]`
-   * and `[` write and an app writes to move the cursor. A position past the last
-   * stop is brought back to it when the content changes.
+   * and `[` write and an app writes to move the cursor. A position that is not
+   * one of the stops -- past the last, negative, between two -- is brought to the
+   * nearest that is when the content changes, and by `]` and `[`.
+   *
+   * Two texts are diffed with the default context, 3, as `diffStops()` diffs
+   * them, so the two count the same hunks; hunks of another context are handed
+   * over as `{ files: [{ hunks: diffHunks(old, new, { context }) }] }`.
    */
   current?: number | State<number>;
   /** `diffView()`'s `highlight`. */
@@ -177,6 +180,15 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   host.append(scroll);
   HOSTS.add(host);
 
+  /**
+   * The stop nearest a position: a whole one, inside the stops there are.
+   *
+   * @param at - The position, which an app may have written as anything.
+   * @returns The position of a stop.
+   */
+  const nearest = (at: number): number =>
+    Math.min(drawn.length - 1, Math.max(0, Number.isFinite(at) ? Math.round(at) : 0));
+
   /** The viewport's height in cells, from the last layout, or zero before one. */
   const viewHeight = (): number => (viewport.content ?? viewport.box)?.height ?? 0;
 
@@ -226,7 +238,6 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         continue;
       }
       const tree = diffView(block.diff, {
-        context: props.context,
         highlight: props.highlight,
         intraline: props.intraline,
         lang: props.lang,
@@ -254,9 +265,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
     lit = -1;
     const at = untrack(() => current.get());
-    if (drawn.length > 0 && at >= drawn.length) {
-      // the effect over the cursor lights it; this only brings it back inside
-      current.set(drawn.length - 1);
+    if (drawn.length > 0 && nearest(at) !== at) {
+      // the effect over the cursor lights it; this only brings it back to a stop
+      current.set(nearest(at));
     }
     light(untrack(() => current.get()));
     if (drawn.length === 0) {
@@ -345,7 +356,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         return;
       }
       const at = untrack(() => current.get());
-      const next = Math.min(drawn.length - 1, Math.max(0, at + (k.name === ']' ? 1 : -1)));
+      const next = nearest(nearest(at) + (k.name === ']' ? 1 : -1));
       if (next !== at) {
         current.set(next);
       }
