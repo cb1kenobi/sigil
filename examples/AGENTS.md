@@ -764,3 +764,119 @@ screen of code.
   Dropping `rowClass` from either twin fails it for that twin.
 
 - **Not done:** a real cluster; and the log as a pager (SIG-387).
+
+### A file manager in Miller columns, with a preview (SIG-294)
+
+`examples/file-manager`, in the shape of yazi and ranger and borrowing nothing
+of theirs but the shape: the directory above, the one the manager is in, and a
+preview of the selection, moved through with the arrows or `h`/`j`/`k`/`l`.
+Copy, move, rename and delete behind confirms, a filter, and dot files toggled.
+The ticket asked whether to ship before highlighting and images landed; both had
+(SIG-289, SIG-326), so it previews text highlighted, Markdown rendered and a PNG
+in half blocks from the start.
+
+- **Written twice, over a model neither root is.** The git client's shape and
+  for its reason: `createModel()` in `src/model.ts` holds the states, the reads,
+  the keys and the dialogs, and `root.tsx` and `root.ui.ts` build the three
+  panels, the two `ListView`s, the filter bar and the footer, handing back what
+  a key reaches through `attach()`. Each panel's `onKey` is assigned in
+  `attach()` rather than spelled in both trees, which is one fewer thing for the
+  twins to disagree on. The preview is a component in a shared module,
+  `src/preview-pane.ts`, named by both.
+
+- **The real file system, through a context, inside directories the tests make.**
+  `FilesContext` is `GitContext` again: the directory the manager opens in and
+  every call it makes to the disk, which `src/ui.ts` and `src/index.ts` provide
+  with `[dir]` or the working directory. `test/fixture.ts` wraps each call to
+  count it, so `settle()` waits for what the manager asked of the disk rather
+  than for a time. Every copy, move, rename and delete a test runs is inside a
+  directory `tempDir()` made, and the assertions read the disk. The contract tests
+  run it in the repository with no provider, and it only reads there: Tab, `.`,
+  `q` and Ctrl-C change nothing on disk. The `KEYED` entry presses `.` and waits
+  for `Hidden files: shown`, which the status line says whatever the directory
+  holds.
+
+- **Three test files make directories, so the helper is the example's own
+  module.** The git client's entry put the point at which the helper earns its
+  place at a second file. `test/fixture.ts` exports `tempDir()` and
+  `removeTempDirs()`, and each file registers the `afterAll` itself, since an
+  example has no `vitest.config.ts` and so no `setupFiles` to hang it on.
+  `tempDir()` resolves the directory's links, because macOS's temp directory is
+  behind `/var`, a link, and a path the manager reads back is compared with one
+  the test built.
+
+- **Nothing is written over, and only a delete starts its confirm on No.** A
+  copy whose name is taken gets the next free one, `a copy.txt` and then
+  `a copy 2.txt`, which is what makes copying a file beside itself work. A move
+  onto a taken name is refused: a rename of one of them first is the user's
+  call, not the manager's. Neither puts a directory inside itself. A move asks
+  again whether its name is free after the confirm, because `rename()` replaces
+  a file on POSIX and on Windows without a word, and the confirm was time for one
+  to appear; `should not write over a file that appeared while the confirm was
+  open` writes one there. So copy and move lose nothing and start on Yes, and a
+  delete -- which does not go to the trash -- starts on No, the git client's rule
+  for what loses work. The checks are plain functions in `src/files.ts`
+  (`planPaste()`, `planRename()`, `nameProblem()`, `isInside()`), asked before a
+  confirm is shown, and tested without an app.
+
+- **A rename takes a name, never a path.** A `/` is refused everywhere and a `\`
+  on Windows, where it separates too, so a rename can never move a file. A name
+  that differs only in case is still a rename: on a file system that ignores case
+  the new name is "taken" by the file itself, which `same()` asks by device and
+  inode.
+
+- **Hidden means a dot file, on every platform.** Windows also has a hidden
+  attribute and Node does not read it, so a file Explorer hides is shown unless
+  its name starts with a dot. The parent column always shows the directory the
+  manager is in, dot directory or not, since that is where it is.
+
+- **Every control character in a name or a file is drawn as `�`.** Not for the
+  terminal's sake: a text element drops a control character before it is
+  painted, so none reaches the terminal either way (measured, with a raw `ESC` in
+  a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
+  that is not the one on disk, and a tab vanishes rather than indents.
+  `printable()` replaces one for one, so the highlighter's offsets still line up,
+  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
+  the next stop of four.
+
+- **A preview reads the top of a regular file, and never opens anything else.**
+  64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
+  first 8,000 bytes is binary (git's test); a PNG is decoded whole under 8 MB. A
+  FIFO, a socket or a device is a note without being opened, since a read of a
+  FIFO waits for a writer that may never come. A read is one at a time and a read
+  the cursor overtook is done again for wherever it is when the first ends, so
+  holding `j` reads two files rather than one per row.
+
+- **Text is cut, not folded, and drawn by `codeRows()`.** A line is cut at the
+  pane's edge behind a gutter of line numbers, the way a pager shows code, and
+  drawn as runs of cells that share a token -- which is markdown's private
+  `codeRow()` and `diff()`'s highlighted line written a third time, here. That is
+  a duplicate of a decision and is recorded as one: a published code view, lines
+  with a gutter over `highlightCode()`, is the gap. Markdown and the picture are
+  built for the size `onResize` reports, the diff pane's way; the picture asks for
+  no more than its own pixels and no more than the pane, inside `contain`.
+
+- **The filter bar is shown with an inline `display` and a forced frame**, the
+  log browser's workaround for SIG-384, and the lit column is a class an effect
+  toggles for SIG-372. The rename dialog's field is built under a branch of the
+  component's owner and focused once the dialog is open (SIG-335, SIG-337), the
+  git client's `owned()`.
+
+- **`toMatchObject()` with a regular expression as a value matches any string.**
+  Found by the sabotage pass: a test asserting `note: /Not a regular file/` passed
+  against a preview that said something else, because vitest reads a `RegExp` as
+  an object to take a subset of, and it has no enumerable properties. Every such
+  value here is `expect.stringMatching()`.
+
+- **Sabotage: fourteen, two survived and have tests now.** The `printable()` in a
+  name, the parent column keeping the directory the manager is in, the delete
+  confirm starting on Yes, the cursor remembered per directory, the taken-name
+  check on a move, the next free copy name, the filter cleared on leaving a
+  directory, the tab stop, a file's `l` going to its preview, the `..` test in
+  `isInside()`, and the NUL test for binary each fail a test. Opening what is not
+  a regular file survived behind the vacuous `toMatchObject()` above, and the
+  move's second look at the name survived until the test that writes a file
+  while the confirm is open.
+
+- **Not done:** selecting several files, a trash, making a file or a directory,
+  opening one in `$EDITOR`, and watching a directory (`R` reads it again).
