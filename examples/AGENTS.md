@@ -733,6 +733,17 @@ screen of code.
   a search for a line already on screen, a log at a cap of 510, no pager left
   in the tree, and a describe and back with a filter up.
 
-- **Not done:** a real cluster; a row coloured whole by its status (SIG-388),
-  so the STATUS cell carries the colour as a `TableCellView`; the log as a
-  pager (SIG-387); and following as a list mode (SIG-385).
+- **A pod in trouble is coloured across its whole row, by the table's
+  `rowClass` (SIG-388).** `resourceClass()` in `src/browser.ts` gives a
+  `CrashLoopBackOff` pod `sigil-error` and a `Pending` or `ContainerCreating` one
+  `sigil-warn`, and both twins pass it to `DataTable`. It replaced `statusCell()`,
+  a `format` that drew the STATUS cell as a `TableCellView` carrying the role, so
+  the column is plain text now and measured as text. A role rather than a colour,
+  so a theme recolours it. `should keep the table live, and draw a pod in trouble
+  in its role across the row` mounts at colour level 1, where a role is a colour
+  the resolved style can be read back for, and asserts every word of the crashing
+  row is red with no role on any cell of its own, and a running row is not.
+  Dropping `rowClass` from either twin fails it for that twin.
+
+- **Not done:** a real cluster; the log as a pager (SIG-387); and following as
+  a list mode (SIG-385).

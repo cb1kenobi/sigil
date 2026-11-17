@@ -12081,7 +12081,8 @@ the probes and the sabotage pass are in
   `list-view.ts`'s, so the one change to that file is an additive export,
   `listRowInset({ ascii, multiple })`, counted in code points rather than through
   `stringWidth()`, which would have put the width tables on the list's graph for
-  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed.
+  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed
+  for SIG-281; SIG-388's `rowClass`, below, is the second change to the list.
 - **Keys, focus and the describer.** The list inside the host is the focusable
   element, which Tab reaches and `dataTableControl(table).list` names for an app's
   `focus()`; the host owns `onKey` (the digits) and `onResize`, and refuses both in
@@ -12089,6 +12090,53 @@ the probes and the sabotage pass are in
   screen that sorts, from an effect over the shown columns, so a resize that hides
   a column takes its digit out of the footer and a resize that brings it back puts
   it back: `selectRow()`'s "the footer names no digit that does nothing".
+
+- **A row takes classes from its row, by `rowClass(row)`, on the list's row box
+  (SIG-388).** k9s colours a crashing pod red across every column, and the log
+  browser could only colour its STATUS cell. `rowClass` returns a string or an
+  array, as a `class` prop takes, and the classes go on `.sigil-list-row` beside
+  `is-current`, `is-selected` and `is-disabled`, so `.sigil-list-row.crashing` is
+  the selector and a role class colours the row through what its cells inherit.
+  It is a `ListView` prop that `DataTable` passes through, beside `disabled`,
+  rather than the table's alone: the row box is the list's, built in `buildRow()`
+  around whatever `row` returned, and a class on what `row` returns lands on
+  `.sigil-list-content`'s child -- not beside `is-current`, and not reachable as
+  one compound selector with it. That is also why the ticket's other spelling, a
+  `class` on the row hook passed through, was not taken: the hook returns the
+  content, not the box. The change to `list-view.ts` is the prop, its entry in
+  the function check, and a loop in `buildRow()`.
+
+  **It is asked when the row is built, which is when its row object is
+  replaced, and not reactively.** That is `row`'s rule, and the ticket's first
+  question: a live table changes a row by replacing it, which already rebuilds it,
+  so the class follows a new reading for free; a row changed in place keeps its
+  class until `refresh()`, as its cells do. A reactive class would be an effect per
+  row in view for a value that only changes when the row does. Pinned by `should
+  ask again when a row object is replaced, and not when one changes in place`.
+
+  **The focus still reads over a coloured row, because the two set different
+  properties.** Measured rather than reasoned, at sixteen colours with the
+  framework sheet: a hot row off the cursor is red in every cell; the cursor on
+  it is red **and** inverse, the focus's own declaration, so it reads as the
+  cursor over a red row and not as one more red row; and the row under the cursor
+  elsewhere is inverse in the terminal's own colour. Every role is a colour and
+  `.sigil-focus` is `inverse`, so no rule had to be reordered and none was added,
+  which keeps the framework sheet's every-rule-is-(0,1,0) promise. At colour level
+  0 a row class draws nothing -- the picture is a table without one -- and the
+  pointer says which row is current, as it always did there. Both are tests.
+
+  Two limits, written down rather than mechanised. **`MONO` spells `.sigil-error`
+  as `inverse`**, the focus's declaration, and inverse on inverse is still inverse,
+  so there a crashing row looks like the focused one and the pointer is what tells
+  them apart -- a theme's choice that no rule order can undo. And a **disabled row that is also given a
+  role** carries two roles, which is the case the framework sheet's comment warns
+  about: where a theme gives both `sigil-muted` and the role a colour, that
+  sheet's source order decides. An app that wants a disabled row muted returns no
+  role for it. A class an app returns that the list also toggles -- `is-current`,
+  `sigil-focus`, and `is-selected` in a `multiple` list -- is the list's to take
+  off again, because the cursor's and the selection's classes are put on after
+  `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
+  classes to the cursor, whatever rowClass says` pins that order.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a

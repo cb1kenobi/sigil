@@ -86,6 +86,12 @@
         "type": "ElementPropsWithout<\"onKey\" | \"onResize\">"
       },
       {
+        "description": "Classes for a row's box, beside `is-current` and `is-selected`: `ListView`'s `rowClass`. A role class colours the row across every column -- k9s's red for a crashing pod is `(pod) => pod.status === 'CrashLoopBackOff' ? 'sigil-error' : undefined` -- and an app's own class is reached as `.sigil-list-row.crashing`. Read when the row is built: again when its row object is replaced, which is how a live table changes a row, and not when a signal it read changes.",
+        "name": "rowClass",
+        "optional": true,
+        "type": "(row: T) => string | readonly string[] | undefined"
+      },
+      {
         "description": "Whether to draw a scrollbar. Defaults to `true`.",
         "default": "`true`",
         "name": "scrollbar",
