@@ -249,7 +249,7 @@ export function createEditor(): Editor {
       return false;
     }
     if (!untrack(() => doc.dirty.get())) {
-      status.set(`No changes to save in ${doc.name}`);
+      status.set(`No changes to save in ${shownPath(doc.path, workspace.root)}`);
       return true;
     }
     try {

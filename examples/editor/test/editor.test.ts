@@ -258,13 +258,16 @@ describe('the editor', () => {
   });
 
   it('should write a file back with the line endings it was read with', async () => {
-    const it = await mount(workspace({ 'dos.txt': 'one\r\ntwo\r\n', 'mac.txt': 'one\rtwo' }));
+    const it = await mount(
+      workspace({ 'dos.txt': 'one\r\ntwo\r\n', 'mac.txt': 'one\rtwo\nthree' })
+    );
     await open(it, 'dos.txt');
     await it.press(KEYS.end, '!', ctrl('s'));
     expect(it.read('dos.txt')).toBe('one!\r\ntwo\r\n');
     await open(it, 'mac.txt');
     await it.press(KEYS.end, '!', ctrl('s'));
-    expect(it.read('mac.txt')).toBe('one!\rtwo');
+    // the first break decides, and a later one of another kind follows it
+    expect(it.read('mac.txt')).toBe('one!\rtwo\rthree');
   });
 
   it('should not write a file that has not changed, so its mixed line endings stay', async () => {
