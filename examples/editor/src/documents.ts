@@ -25,11 +25,13 @@ export interface Doc {
   /** Whether it is Markdown, which is what the preview is shown for. */
   readonly markdown: boolean;
   /**
-   * The line ending it was read with. The text area keeps `\n` and nothing else,
-   * so a file that came in with `\r\n` is written back with it rather than
-   * converted by being saved.
+   * The line ending it is written with: the first one in the file as it was
+   * read, or `\n` for a file of one line. The text area keeps `\n` and nothing
+   * else, so a file that came in with `\r\n` is written back with it rather
+   * than converted by being saved -- and a file with more than one kind is
+   * written with the first, once it has been edited.
    */
-  readonly eol: '\n' | '\r\n';
+  readonly eol: '\n' | '\r\n' | '\r';
   /** The text, with `\n` line endings: the text area's value. */
   readonly value: State<string>;
   /** The text as it is on disk, with `\n` line endings: what `value` is compared to. */
@@ -46,7 +48,8 @@ export interface Doc {
  * @returns The document, not dirty.
  */
 export function createDoc(path: string, text: string): Doc {
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const first = /\r\n|\r|\n/u.exec(text)?.[0];
+  const eol = first === '\r\n' || first === '\r' ? first : '\n';
   const normalized = text.replace(/\r\n?/g, '\n');
   const value = new State(normalized);
   const saved = new State(normalized);
@@ -73,7 +76,7 @@ export function createDoc(path: string, text: string): Doc {
  */
 export function diskText(doc: Doc): string {
   const value = doc.value.get();
-  return doc.eol === '\n' ? value : value.replace(/\n/g, '\r\n');
+  return doc.eol === '\n' ? value : value.replace(/\n/gu, doc.eol);
 }
 
 /**

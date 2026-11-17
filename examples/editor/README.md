@@ -26,14 +26,15 @@ Without a terminal on both ends `runApp()` refuses: one line on stderr, exit 1.
 | Escape               | the text area | Back to the tree                                                |
 | Shift with a move    | the text area | Select                                                          |
 | Ctrl-Y, Ctrl-X       | the text area | Copy and cut the selection to the terminal's clipboard (OSC 52) |
-| Ctrl-S               | anywhere      | Save the file showing                                           |
+| Ctrl-S               | anywhere      | Save the file showing, if it has changed                        |
 | Ctrl-W               | anywhere      | Close the tab showing; asks first if it has unsaved changes     |
 | Ctrl-PgDn, Ctrl-PgUp | anywhere      | The next and previous tab, wrapping                             |
 | ← →, `1`-`9`         | the tab row   | Another tab                                                     |
 | Ctrl-P               | anywhere      | The command palette                                             |
 | `q`                  | not typing    | Quit                                                            |
 
-A paste goes in whole, line breaks and all. Ctrl-W closes a tab rather than
+The chords are quiet while a dialog is open: the dialog has the keys. A paste
+goes in whole, line breaks and all. Ctrl-W closes a tab rather than
 deleting the word before the caret, which the text area would otherwise do with
 it; Alt-Backspace still deletes a word.
 
@@ -42,13 +43,15 @@ it; Alt-Backspace still deletes a word.
 - **The text area as an editor's.** One `TextArea` per open file, each over the
   document's text as a `State`, with `lineNumbers`, `tab: '  '` and
   `highlightCode()` for the languages the lexer reads (TypeScript, JavaScript,
-  JSON, shell, YAML, Markdown, a diff). A file whose extension it does not read
-  is given no highlighter at all. The areas of the tabs not showing are hidden
+  JSON, shell, YAML, Markdown, a diff), which marks nothing in a file whose
+  extension it does not read. The areas of the tabs not showing are hidden
   rather than built again, so each keeps its caret, selection and scroll.
 - **Dirty, as a comparison.** A document is dirty while its text differs from
   what was last read or saved, so typing a change back out makes it clean again.
-  The mark is `●` on the tab and in the panel title (`*` in ASCII). A file read
-  with `\r\n` line endings is written back with them.
+  The mark is `●` on the tab and in the panel title (`*` in ASCII). A file is
+  written back with the line ending it was read with -- the first one in it,
+  for a file with more than one kind -- and a file with no changes is not
+  written at all, so a habitual Ctrl-S converts nothing.
 - **Closing and quitting ask.** Closing a dirty tab asks Save, Don't save or
   Cancel, starting on Save; Escape is Cancel. Quitting over unsaved changes asks
   Quit or Cancel, starting on Cancel, because that is the answer that loses

@@ -93,8 +93,10 @@ export function Preview(props: PreviewProps): Element {
     }
     if (subject !== shown) {
       control?.viewport.scrollTo(0, 0);
-      shown = subject;
     }
+    // a preview put away has drawn nothing, so the same document shown again is
+    // drawn at once rather than after a pause, as a document opened is
+    shown = source === undefined ? undefined : subject;
   };
 
   const host = ScrollBox({

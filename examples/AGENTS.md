@@ -777,10 +777,14 @@ below with the measurements.
   branch it disposes with the old one, over the one `active` state -- so the
   showing tab survives the rebuild, and a focused row is focused again.
 
-- **Dirty is a comparison, not a flag.** A document holds the text as read or
-  last saved and compares, so typing a change back out is clean, the settings
-  form's rule. A file read with `\r\n` is written back with it: the area keeps
-  `\n` and nothing else, and saving a file is not a reason to convert it.
+- **Dirty is a comparison, not a flag, and a clean file is not written.** A
+  document holds the text as read or last saved and compares, so typing a change
+  back out is clean, the settings form's rule. The area keeps `\n` and nothing
+  else, so a file is written back with the line ending it was read with -- the
+  first in it, `\r\n`, `\r` or `\n` -- and a file with more than one kind is
+  made one kind by the first save that writes it. Which is why Ctrl-S on a file
+  with no changes writes nothing: review round 1 found the first version
+  converting a mixed file on a habitual save while the tab said it was clean.
 
 - **`q` is an `onKey` on the root, not a fallback.** Quitting over unsaved work
   asks first, and a fallback could not: every fallback on a key runs, so
@@ -808,6 +812,10 @@ below with the measurements.
   best match when Enter comes before the next frame` is the regression.
   `commandPalette()` is not used because it is a prompt over a CLI's command
   tree; `rankBy()` and `highlightRuns()` are the half an app's own actions need.
+  `openPalette()` hands back the command chosen and the caller runs it, after it
+  has put down the flag that keeps a second dialog from opening under the first:
+  run inside, Close and Quit -- which ask with dialogs of their own, and so refuse
+  while one is open -- did nothing from the palette (review round 1).
 
 - **A preview costs its element count on every key, so it is drawn live only
   while it is small.** Measured as of this change, on arm64 macOS: a key beside
@@ -830,6 +838,16 @@ below with the measurements.
 - **Its temp directories are removed by the test file**, the git client's
   arrangement and its reason: one file makes directories, and an `afterAll`
   says what a `tempDir()` copy would.
+
+- **Review round 1 found five things, and each has a test that fails without
+  its fix:** Close and Quit doing nothing from the palette; `▸ src/` asserted
+  where Windows lists `src\`; the line endings above; a long document's preview
+  turned off and on again waiting for a pause, because the preview still
+  remembered drawing it -- a preview put away has drawn nothing now; and a
+  close test of three tabs, where the tab to the right of the middle one is also
+  the last, so "always the last" passed it -- it has four. A paste test that a
+  paste typed as keys would also have passed now pastes a tab, which a paste
+  keeps and a typed Tab indents.
 
 - **Sabotage: nineteen, none survived once a test was added for the one that
   did.** The Ctrl-Home, the line endings, dirty never true, the tab mark, closing

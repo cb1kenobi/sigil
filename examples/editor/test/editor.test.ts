@@ -8,7 +8,7 @@ import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, ctrl, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -193,7 +193,8 @@ afterEach(async () => {
 describe('the editor', () => {
   it('should list the directory, and say how to open a file while none is open', async () => {
     const it = await mount(workspace({ 'README.md': '# Hi\n', 'src/a.ts': 'a\n' }));
-    expect(it.screen()).toContain('▸ src/');
+    // a directory is listed with the platform's separator after it
+    expect(it.screen()).toContain(`▸ src${sep}`);
     expect(it.screen()).toContain('README.md');
     expect(it.screen()).toContain('Pick a file in the tree and press Enter to open it.');
     expect(it.screen()).not.toContain('─ Preview');
@@ -257,10 +258,25 @@ describe('the editor', () => {
   });
 
   it('should write a file back with the line endings it was read with', async () => {
-    const it = await mount(workspace({ 'dos.txt': 'one\r\ntwo\r\n' }));
+    const it = await mount(workspace({ 'dos.txt': 'one\r\ntwo\r\n', 'mac.txt': 'one\rtwo' }));
     await open(it, 'dos.txt');
     await it.press(KEYS.end, '!', ctrl('s'));
     expect(it.read('dos.txt')).toBe('one!\r\ntwo\r\n');
+    await open(it, 'mac.txt');
+    await it.press(KEYS.end, '!', ctrl('s'));
+    expect(it.read('mac.txt')).toBe('one!\rtwo');
+  });
+
+  it('should not write a file that has not changed, so its mixed line endings stay', async () => {
+    const it = await mount(workspace({ 'mixed.txt': 'one\ntwo\r\nthree\n' }));
+    await open(it, 'mixed.txt');
+    await it.press(ctrl('s'));
+    expect(it.writes).toStrictEqual([]);
+    expect(it.read('mixed.txt')).toBe('one\ntwo\r\nthree\n');
+    expect(it.screen()).toContain('No changes to save in mixed.txt');
+    // edited, it is written with the first ending it had
+    await it.press('!', ctrl('s'));
+    expect(it.read('mixed.txt')).toBe('!one\ntwo\nthree\n');
   });
 
   it('should close a clean tab without asking', async () => {
@@ -277,14 +293,17 @@ describe('the editor', () => {
   });
 
   it('should show the tab to the right of one closed, or the one to its left for the last', async () => {
-    const it = await mount(workspace({ 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n' }));
-    await open(it, 'a.txt');
-    await open(it, 'b.txt');
-    await open(it, 'c.txt');
-    await it.press(CTRL_PAGE_UP, ctrl('w'), '1');
+    const files = { 'a.txt': 'a\n', 'b.txt': 'b\n', 'c.txt': 'c\n', 'd.txt': 'd\n' };
+    const it = await mount(workspace(files));
+    for (const name of Object.keys(files)) {
+      await open(it, name);
+    }
+    // closing b shows c, the one that was to its right -- not the first, nor the last
+    await it.press(CTRL_PAGE_UP, CTRL_PAGE_UP, ctrl('w'), '1');
+    expect(sourceText(it)).toMatch(/ a\.txt +c\.txt ● +d\.txt /u);
+    // closing d, the last, shows c, the one to its left
+    await it.press(ctrl('s'), CTRL_PAGE_DOWN, ctrl('w'), '2');
     expect(sourceText(it)).toMatch(/ a\.txt +c\.txt ● /u);
-    await it.press(ctrl('s'), ctrl('w'), '2');
-    expect(sourceText(it)).toMatch(/ a\.txt ● /u);
   });
 
   describe('closing an unsaved file', () => {
@@ -419,6 +438,19 @@ describe('the editor', () => {
       expect(it.screen()).not.toContain('second.txt ●');
     });
 
+    it('should close a tab and quit, which ask with dialogs of their own', async () => {
+      const it = await mount(workspace({ 'a.txt': 'a\n', 'b.txt': 'b\n' }));
+      await open(it, 'a.txt');
+      await open(it, 'b.txt');
+      await it.press(ctrl('p'), ...'close tab', KEYS.enter);
+      expect(sourceText(it)).not.toContain('b.txt');
+      await it.press('!', ctrl('p'), ...'quit', KEYS.enter);
+      expect(it.screen()).toContain('Quit without saving?');
+      await it.press(KEYS.tab, KEYS.enter);
+      expect(await it.app.exited).toBe(0);
+      running = undefined;
+    });
+
     it('should hide the preview and show it again', async () => {
       const it = await mount(workspace({ 'README.md': '# Title\n' }));
       await open(it, 'README.md');
@@ -478,9 +510,11 @@ describe('the editor', () => {
     it('should take a paste of several lines whole', async () => {
       const it = await mount(workspace({ 'a.txt': 'end\n' }));
       await open(it, 'a.txt');
-      await it.term.paste('one\ntwo\nthree\n');
+      // a tab in a paste is content, where a typed Tab indents with two spaces --
+      // which is what tells a paste taken whole from one typed in as keys
+      await it.term.paste('one\ttab\ntwo\nthree\n');
       await it.press(ctrl('s'));
-      expect(it.read('a.txt')).toBe('one\ntwo\nthree\nend\n');
+      expect(it.read('a.txt')).toBe('one\ttab\ntwo\nthree\nend\n');
     });
 
     it('should indent with Tab, and leave for the tree with Escape', async () => {
@@ -534,6 +568,12 @@ describe('the editor', () => {
       await it.press(KEYS.right, KEYS.right, KEYS.right, 'X');
       expect(previewText(it)).not.toContain('LXong');
       await vi.waitFor(() => expect(previewText(it)).toContain('LXong'), { timeout: 3000 });
+
+      // a preview put away and shown again is a new drawing, and does not wait
+      await it.press(ctrl('p'), ...'preview', KEYS.enter);
+      expect(it.screen()).not.toContain('─ Preview');
+      await it.press(ctrl('p'), ...'preview', KEYS.enter);
+      expect(previewText(it)).toContain('LXong');
     });
   });
 });

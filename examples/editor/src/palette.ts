@@ -33,7 +33,7 @@ export interface Command {
   readonly title: string;
   /** The key that does the same thing outside the palette, as a spec: `ctrl+s`. */
   readonly keys?: string;
-  /** Does it. Called after the palette has closed. */
+  /** Does it. Called by whoever opened the palette, once it has closed. */
   run(): void;
 }
 
@@ -57,9 +57,14 @@ export interface PaletteHost {
  *
  * @param host - The renderer, the router, and an owner for the body.
  * @param commands - What it offers, in the order they are listed before anything is typed.
- * @returns Settles once it has closed and whatever was chosen has run.
+ * @returns The command chosen, once the palette has closed, or nothing for Escape. Not run
+ *   here: the caller runs it once it has put away whatever it set while the palette was
+ *   open, which a command that opens a dialog of its own has to find put away.
  */
-export async function openPalette(host: PaletteHost, commands: readonly Command[]): Promise<void> {
+export async function openPalette(
+  host: PaletteHost,
+  commands: readonly Command[]
+): Promise<Command | undefined> {
   let close: (id: string | undefined) => void = () => {};
   const built = host.owned(() => {
     const query = new State('');
@@ -142,5 +147,5 @@ export async function openPalette(host: PaletteHost, commands: readonly Command[
   host.input.focus.focus(built.value.field);
   const id = await dialog.result;
   built.dispose();
-  commands.find((command) => command.id === id)?.run();
+  return commands.find((command) => command.id === id);
 }

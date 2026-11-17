@@ -238,10 +238,19 @@ export function createEditor(): Editor {
     input.feed(CTRL_HOME);
   };
 
-  /** Writes a document to disk. */
+  /**
+   * Writes a document to disk, if it has changed. A clean one is not written,
+   * because writing is not free of consequence: a file whose line endings are
+   * mixed is written with one of them, and a Ctrl-S out of habit should not be
+   * what converts it.
+   */
   const save = (doc: Doc | undefined = untrack(current)): boolean => {
     if (doc === undefined) {
       return false;
+    }
+    if (!untrack(() => doc.dirty.get())) {
+      status.set(`No changes to save in ${doc.name}`);
+      return true;
     }
     try {
       workspace.write(doc.path, diskText(doc));
@@ -428,11 +437,15 @@ export function createEditor(): Editor {
       return;
     }
     busy = true;
+    let chosen: Command | undefined;
     try {
-      await openPalette({ app, input, owned }, commands());
+      chosen = await openPalette({ app, input, owned }, commands());
     } finally {
       busy = false;
     }
+    // after `busy` is put down, or Close and Quit -- which ask with a dialog of
+    // their own, and so refuse to while one is open -- would do nothing
+    chosen?.run();
   };
 
   const files = directoryRoot({ root: workspace.root });
