@@ -186,13 +186,14 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
     return d.projects.get().filter((p) => set.has(p.id));
   };
 
+  // the figures are the last day's, which a project paused just now did serve,
+  // so pausing leaves them alone -- and resuming reads its error rate back to
+  // say whether it comes back degraded
   const pause = (list: readonly Project[], paused: boolean): void => {
     d.update(
       list.map((p) => p.id),
       (p) =>
-        paused
-          ? { errorRate: 0, requests: 0, status: 'paused' }
-          : { status: p.errorRate > 0.015 ? 'degraded' : 'healthy' }
+        paused ? { status: 'paused' } : { status: p.errorRate > 0.015 ? 'degraded' : 'healthy' }
     );
     say(`${paused ? 'Paused' : 'Resumed'} ${names(list)}`, 'info');
   };
@@ -236,14 +237,22 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
       { label: '&Delete...', value: () => void remove([p]) },
     ];
 
+    // the ticked rows' actions are a submenu, so their letters are a level of
+    // their own: two items sharing one at a level is a letter that steps between
+    // them rather than choosing either, and `p` has to pause this row
     const ticked = byIds(d.selected.get());
     if (ticked.length > 0) {
       items.push(
-        { separator: `${ticked.length} selected` },
-        { label: 'Pause selected', value: () => pause(ticked, true) },
-        { label: 'Resume selected', value: () => pause(ticked, false) },
-        { label: 'Clear selection', value: () => d.selected.set(new Set()) },
-        { label: 'Delete selected...', value: () => void remove(ticked) }
+        { separator: '' },
+        {
+          items: [
+            { label: '&Pause', value: () => pause(ticked, true) },
+            { label: '&Resume', value: () => pause(ticked, false) },
+            { label: '&Clear selection', value: () => d.selected.set(new Set()) },
+            { label: '&Delete...', value: () => void remove(ticked) },
+          ],
+          label: `&Ticked (${ticked.length})`,
+        }
       );
     }
     return items;
@@ -256,10 +265,16 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
       return;
     }
     // at the row's last cell, so the menu opens under the row's right end, as
-    // the menu at the end of a web table's row does, and leaves its name in view
+    // the menu at the end of a web table's row does, and leaves its name in view.
+    // A double click moves the cursor and activates in one handler, before the
+    // effect that moves `is-current` has run, so a frame is settled first: it
+    // runs that effect, and lays the row out where it is now
+    app.view.frame();
     const row = currentRow(table)?.box;
     openMenu<() => void>(app.view, {
-      at: row === undefined ? table : { x: row.x + row.width - 1, y: row.y },
+      // a cell is a point the menu's corner goes at, so the one under the row's
+      // end: placed below it, and past the screen's edge, so it right-aligns
+      at: row === undefined ? table : { x: row.x + row.width, y: row.y + row.height },
       input,
       items: entries(p),
       onSelect: (item) => item.value?.(),

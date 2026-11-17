@@ -54,12 +54,12 @@ a row to tick or a button, and a double click on a row opens its menu.
   heading orders every project and the page is cut from that, so page two carries
   on from page one. The search narrows the same list, and goes back to page one.
   Ticks are kept by project, so rows ticked on two pages are still ticked on a
-  third, the bar under the table counts them, and the row menu offers to pause,
-  resume or delete all of them.
+  third, the bar under the table counts them, and the row menu's Ticked submenu
+  pauses, resumes or deletes all of them.
 - **The row menu changes the data.** Pause and Resume, Redeploy and Star write to
-  the project, and every region that reads it follows: a paused project serves
-  nothing, so it sorts to the end, and the last card counts one fewer. Delete asks
-  first, and the question opens on No.
+  the project, and every region that reads it follows: the row's status, the
+  last card's count, and a resumed project comes back degraded if its error rate
+  says so. Delete asks first, and the question opens on No.
 - **Light and dark are the app's, not the terminal's.** The terminal's own
   colours are the first theme. Light and Dark paint their own background, set
   every role the framework draws with, and fill the menus, the dialog and the

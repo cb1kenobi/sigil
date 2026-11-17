@@ -227,13 +227,55 @@ describe('the table', () => {
     expect(s.screen()).toContain('Redeploy');
     await s.press('p');
     expect(s.screen()).toContain(`Paused ${name}`);
-    // the table sorts by requests from the top and a paused project serves none,
-    // so it has gone to the last page: the search finds it there
-    expect(s.rows()).not.toContain(name);
+    expect(s.line(`◯ ${name}`)).toContain('○ Paused');
     expect(active(s.screen())).toBe(before - 1);
+  });
+
+  it('should pause the row on p with rows ticked, the ticked rows being a submenu of their own', async () => {
+    const s = mount();
+    await s.toTable();
+    const [first, second] = s.rows();
+    await s.press(KEYS.down, KEYS.space, KEYS.up, KEYS.enter);
+    expect(s.screen()).toContain('Ticked (1)');
+    // one press: a letter two items at one level share only steps between them
+    await s.press('p');
+    expect(s.screen()).toContain(`Paused ${first}`);
+    expect(s.line(`${second}`)).toContain('Healthy');
+  });
+
+  it('should bring a degraded project back degraded when it is resumed', async () => {
+    const s = mount();
+    await s.toTable();
+    // the status column, degraded first
+    await s.press('2');
+    const name = s.rows()[0] ?? '';
+    expect(s.line(`◯ ${name}`)).toContain('Degraded');
+    await s.press(KEYS.enter, 'p');
+    expect(s.line(`◯ ${name}`)).toContain('Paused');
+    // a paused project sorts after the degraded ones, so find it by name
     await s.press('/');
     await s.type(name);
-    expect(s.line(`◯ ${name}`)).toContain('○ Paused');
+    await s.press(KEYS.enter, KEYS.enter, 'r');
+    expect(s.screen()).toContain(`Resumed ${name}`);
+    expect(s.line(`◯ ${name}`)).toContain('Degraded');
+  });
+
+  it('should open the menu under the row that was double-clicked', async () => {
+    const s = mount();
+    await s.toTable();
+    const name = s.rows()[3] ?? '';
+    const y = s.term.viewport.findIndex((each) => each.includes(`◯ ${name}`));
+    const x = (s.term.viewport[y] ?? '').indexOf(name) + 1;
+    const row = (s.term.viewport[y] ?? '').slice(x - 1);
+    const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
+    // both clicks in one read, as a fast double click arrives: the cursor moves
+    // and the row activates before the effect that moves `is-current` has run
+    await s.press(click + click);
+    // the menu opens under the clicked row, not under the row the cursor was on
+    expect(s.term.viewport[y + 1]).toMatch(/╭─+╮/);
+    expect(s.term.viewport[y + 2]).toContain('Pause');
+    // and leaves the row itself, its name and every figure in it, in view
+    expect((s.term.viewport[y] ?? '').slice(x - 1)).toBe(row);
   });
 
   it('should ask before deleting, take No for an answer, and delete on Yes', async () => {
@@ -257,8 +299,9 @@ describe('the table', () => {
     const s = mount();
     await s.toTable();
     await s.press(KEYS.space, KEYS.down, KEYS.space, KEYS.enter);
-    expect(s.screen()).toContain('2 selected');
-    expect(s.screen()).toContain('Pause selected');
+    expect(s.screen()).toContain('Ticked (2)');
+    await s.press('t', 'p');
+    expect(s.screen()).toContain('Paused 2 projects');
   });
 });
 

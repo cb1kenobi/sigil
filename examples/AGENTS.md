@@ -791,8 +791,15 @@ dark -- built from sigil's own components, with its own data, names and colours.
   name in view -- where a web table's row menu is. Nothing hands out the element a
   row was built as, so `currentRow()` walks the table for the `sigil-list-row`
   that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
-  entry's mnemonic is distinct (`R&edeploy` beside `&Delete...`), because a
-  repeated one picks the first.
+  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
+  because a letter two items share only steps the highlight between them; the
+  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
+  pauses the row the menu is about. A double click moves the cursor and activates
+  in one handler, before the effect that moves `is-current` has run, so the menu
+  settles a frame with `app.view.frame()` before it looks for the row --
+  `flush()` from the signals is not enough, since the renderer runs its own
+  effects. Both clicks have to arrive in one read for the gap to show, which is
+  how the test sends them.
 
 - **A card's badge is rebuilt when its figure moves.** `badgeView()` draws a
   fixed label, so `LiveBadge()` replaces it in an effect. The table's status cell
@@ -820,8 +827,11 @@ dark -- built from sigil's own components, with its own data, names and colours.
 
 - **Focus order, and the smoke test.** The sidebar has the focus on mount, so the
   arrows move between pages, and Tab goes to the search, the account menu, the
-  range and the table. The harness Tabs four times and presses `q`, which lands on
-  the table rather than in the search, where a `q` is a letter. The spawned run
+  range and the table. The harness Tabs four times from there and presses `q`, so
+  the search must stay the first stop and not the last: a `q` is a letter there.
+  At the harness's 16 rows the chart is not drawn, so its range is no stop and the
+  fourth Tab is the rows-per-page dropdown, which takes a letter only where it
+  starts an option, and its options are numbers. The spawned run
   presses Down and waits for `Analytics`, which at 60 columns is only in the
   header, since the sidebar starts collapsed there.
 
