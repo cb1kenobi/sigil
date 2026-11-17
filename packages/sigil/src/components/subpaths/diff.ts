@@ -16,5 +16,6 @@ export {
   diffSequence,
   type DiffView,
   diffView,
+  hunkPatch,
   parsePatch,
 } from '../diff.js';

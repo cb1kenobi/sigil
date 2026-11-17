@@ -9386,12 +9386,72 @@ exported beside them as pure functions.
 - **Input is two texts or a unified patch, and the patch reader is the narrow cut.**
   `---`/`+++` name a file, `@@` opens a hunk, and **the hunk's own counts say where
   it ends**: that is the only way to tell a removed line that starts `-- ` (whose
-  patch line is `--- `) from a file header. Everything outside a file header and a
-  hunk is skipped, so `diff --git`, `index` and a commit message are harmless, and
-  `\ No newline at end of file` is dropped. Not read: renames and binary files as
-  anything but skipped text, combined diffs, the context format, and the
-  no-newline fact itself -- two texts that differ only in a final newline are the
-  same lines here.
+  patch line is `--- `) from a file header. A commit message and anything else
+  outside a file and a hunk is skipped. Not read: what a rename or a mode line
+  says, a binary patch's data, combined diffs and the context format; and two
+  _texts_ that differ only in a final newline are still the same lines here, since
+  `diffLines()` splits them.
+- **What was read is kept beside what was understood, so one read shows a patch
+  and applies it (SIG-370).** Each file keeps its `header` -- from `diff --git`,
+  or from `---` where git did not begin it, to the first hunk, which is `+++`
+  where there is one and the binary or rename lines where there is not -- and each hunk its
+  `source`, the `@@` line first, each line exactly as written but for its `\n`.
+  The patch is split on `\n` alone and a `\r` stripped only from the copy that is
+  read, so a CRLF file's carriage returns are in the source and not in
+  `DiffLine.text`. `\ No newline at end of file` is `noNewline` on the line above
+  it, and is read after a hunk's counts have run out, since the line it is about
+  is usually the hunk's last. A `diff --git` line begins a file, because it is
+  git's own boundary and because a file git begins is kept **with no hunks**: a
+  binary file (`binary`), a rename with no change of content, a mode change and an
+  empty new file are each a file git said something about, and an app listing or
+  staging a patch needs them. Their names are the two on the `diff --git` line,
+  spelled as the line spells them -- a quoted name still quoted, as `---` would
+  quote it. An unquoted line holds two names that may both have spaces in them,
+  and a prefix may too (`--src-prefix='src prefix/'`) or may not end in a `/`
+  (`src:`), so where it splits is read from what else the header says rather
+  than from the line's own text. A rename or a copy names its two paths in
+  `rename from` and `rename to`, unprefixed, and the line splits where its halves
+  end in them. A binary file repeats both names in `Binary files X and Y differ`
+  (one of them `/dev/null` for a file added or deleted), and the line splits
+  where that sentence is the one its halves make -- which is what names two blobs,
+  or two files outside a repository, whose paths differ with no rename lines.
+  Anything else, a mode change or an empty file added, is one path on both sides,
+  and the line splits where its halves share the longest tail -- a tail that is at
+  least half of each half, since two binaries written with `--binary` print
+  `GIT binary patch` rather than the sentence and so say their two names nowhere
+  but this line, and a tail of one letter they happen to share named one of them
+  `Code.app/.../Code Helper b/bin/echo` (review round 4). Where the rule that
+  applies does not settle on one split there are no names rather than a guess,
+  which is what those two binaries get. So does a rename whose `--src-prefix`
+  holds its own old path and a space, which matches two splits; that is left
+  as it is, as a configuration nobody has.
+  Three earlier versions read the line's own text and each was wrong somewhere:
+  splitting where the halves agree after their first `/` named a rename
+  `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review
+  round 1); requiring the second name to start with a space-free prefix refused
+  `src prefix/` and misread `a/x b/y z/x b/y`, a rename from `x b/y z/x` (round 2);
+  and leaving every file but a rename to the agreeing split lost the names of two
+  different binaries and of prefixes like `a/x/` and `b/y/` (round 3). The names
+  are read once the header is, because those lines come after `diff --git`.
+  `diffView()` draws none of them, not even their names, so its output for
+  any patch is what it was. This changes what `parsePatch()` returns for a patch
+  of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
+  the old answer threw away a fact git printed.
+- **`hunkPatch()` writes one hunk under its file's header, and what was kept is
+  what is written.** The header and the source go back verbatim -- `new file mode`
+  and `--- /dev/null` are what make `git apply --cached` create the path, a
+  missing `\ No newline` is a hunk `git apply` refuses or applies with a newline
+  nobody wrote, and a dropped `\r` is a different line -- with the hunk's counts
+  unchanged, since applying it alone is what they describe. A file or hunk that
+  was not read from a patch, such as `diffHunks()`'s, is written from what it
+  holds: `---`/`+++` from its names and a sign and the text a line, with
+  `noNewline` written as git writes it; it round-trips through `parsePatch()`. The
+  source wins while it is there, so an app that edits a hunk's `lines` deletes its
+  `source` to have them written -- the rule rather than a comparison of the two,
+  which would be a guess at which one the app meant. `diffView()` takes the read
+  files (`{ files }`) as its third kind of input, so a patch that is shown and
+  then staged is read once. The git client example is the caller this waited for,
+  and its own reader, `splitPatch()`, is gone.
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -9455,7 +9515,8 @@ exported beside them as pure functions.
 What is deliberately not done: a grammar or a highlighter (SIG-289 has since
 added `highlightCode()`, and the language each side is handed); a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
-multi-file patch; a patch writer; a character-level pass; and a stateful view that
+multi-file patch; a writer for anything bigger than a hunk (a file's hunks are its
+`header` and their `source`, joined); a character-level pass; and a stateful view that
 scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
 
 ### A modal: a dialog over the screen, and who has the input while it is open
