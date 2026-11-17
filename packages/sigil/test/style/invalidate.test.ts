@@ -717,23 +717,37 @@ describe('a focus-within change', () => {
     move([a.panel, a.body, a.list], [b.panel, b.body, b.list]);
     b.list.states.push('focus');
     // what the renderer hands over: each end's own `focus` is a class change,
-    // and every ancestor below the root, which stays lit, is a state change
+    // and every ancestor is a state change -- the root too, which stays lit but
+    // passes through nought between the blur and the focus, the order the
+    // router writes them in (`should move with the focus` in the element tests)
     restyler.touchClasses(as(a.list));
     restyler.touchClasses(as(b.list));
-    for (const node of [a.panel, a.body, b.panel, b.body]) {
+    for (const node of [root, a.panel, a.body, b.panel, b.body]) {
       restyler.touchState(as(node), 'focus-within');
     }
     restyler.update(as(root));
 
     expect(restyler.styleOf(as(a.panel))?.borderColor).toBe(8);
     expect(restyler.styleOf(as(b.panel))?.borderColor).toBe(2);
-    // each chain, each end's subtree, and the children of a panel whose border
-    // changed -- forced, because a child may read anything through `inherit` --
-    // which stop there, since nothing they resolve to moved
+    // each chain up to the root, each end's subtree, and the children of a
+    // panel whose border changed -- forced, because a child may read anything
+    // through `inherit` -- which stop there, since nothing they resolve to
+    // moved. The root resolved to what it was, so nothing under it is forced
     expect(seen).toEqual(
-      new Set([a.panel, a.header, a.body, a.list, a.row, b.panel, b.header, b.body, b.list, b.row])
+      new Set([
+        root,
+        a.panel,
+        a.header,
+        a.body,
+        a.list,
+        a.row,
+        b.panel,
+        b.header,
+        b.body,
+        b.list,
+        b.row,
+      ])
     );
-    expect(seen.has(root)).toBe(false);
     expect(seen.has(footer)).toBe(false);
   });
 

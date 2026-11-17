@@ -1305,14 +1305,16 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   those siblings changed in any way an element-level check would see.
 - **A `focus-within` change restyles the element it is on, unless a selector reads
   it through a combinator (SIG-372).** A focus move flips `focus-within` on every
-  ancestor of both ends below the one they share, so handing each of those to
-  `touchClasses()` would restyle each one's subtree and siblings -- near the root,
-  the whole tree, on every Tab. The class-change rule is wide because a
+  ancestor of both ends -- the ones they share included, since the router blurs
+  before it focuses and their count passes through nought in between -- so
+  handing each of those to `touchClasses()` would restyle each one's subtree and
+  siblings: from the root, the whole tree, on every Tab. The class-change rule is wide because a
   combinator can carry a change down or sideways; a state that no selector asks
   about left of a combinator can carry it nowhere, so `touchState()` re-matches
   the element alone when `Cascade.reaches(state)` says no rule does, and falls
   back to `touchClasses()` when one does -- `.panel:focus-within .title` is still
-  right, it just costs what a class change costs. `reaches()` reads every rule,
+  right, it just costs what a class change costs, which with the root among the
+  flipped is the whole tree per move. `reaches()` reads every rule,
   inside a media query that does not apply included, so a resize cannot make it
   stale, and it is thrown away with the bucket index when a sheet is added,
   removed or replaced. `:not()` is read through, since `.a:not(:focus-within) .b`
@@ -1324,12 +1326,15 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   Putting it in the marked set was the obvious way to write it and is wrong: a
   marked element's subtree is taken to be marked too, so its children would keep
   the colour they inherited before the move. So what a move from one pane to
-  another costs is the two chains, each end's own subtree and siblings (its
-  `focus`, which is still a class change), and the children of a link whose style
-  changed, which stop there if nothing they resolve to moved. `should restyle the
-  two chains a focus move flips, not the tree` in `test/style/invalidate.test.ts`
-  lists them -- and lists that the root and a thirty-row footer beside the panes
-  are not among them.
+  another costs is the two chains up to the root, each end's own subtree and
+  siblings (its `focus`, which is still a class change), and the children of a
+  link whose style changed, which stop there if nothing they resolve to moved --
+  the root and the other shared ancestors resolve to what they were, so nothing
+  under them is forced. `should restyle the two chains a focus move flips, not the
+  tree` in `test/style/invalidate.test.ts` lists them, and lists that a thirty-row
+  footer beside the panes is not among them. Review round 2 found the first
+  version of that test leaving the root out of what it touched, which a real move
+  does not.
 
   Measured nothing, because the claim is about which elements and not how fast:
   the full re-match this avoids is already under a millisecond for a large tree.

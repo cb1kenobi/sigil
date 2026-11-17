@@ -141,8 +141,9 @@ export interface RawOptions {
  * Everything an element records for the layers above, in one place so that a
  * frame can drain it and know what to do.
  *
- * These are the four questions the style invalidator asks, plus the two the
- * layout and paint passes ask, and nothing else: the tree records *what
+ * These are the questions the style invalidator asks -- props, classes,
+ * children, and `within` -- plus the two the layout and paint passes ask, and
+ * nothing else, plus the removals a restyler forgets: the tree records *what
  * changed*, and what that implies is `Restyler`'s. Keeping the two apart is what
  * lets either be tested without the other.
  */
@@ -151,8 +152,9 @@ export interface Marks {
   classes: Set<Element>;
   /**
    * Elements whose `focus-within` turned on or off because the focus moved into
-   * or out of their subtree -- every ancestor of both ends of a move, up to the
-   * one they share. Kept apart from `classes` because what it implies is
+   * or out of their subtree -- every ancestor of both ends of a move, and the
+   * ones they share as well when the router's blur takes the count through
+   * nought before its focus puts it back. Kept apart from `classes` because what it implies is
    * narrower: the restyler's `touchState()` re-matches the element alone unless
    * a sheet reads `:focus-within` through a combinator.
    */
