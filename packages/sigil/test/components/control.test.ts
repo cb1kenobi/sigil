@@ -138,6 +138,24 @@ describe('controlCondition()', () => {
     expect(seen).toEqual([true, false]);
   });
 
+  it('should ask again on every read, so a reader that touches no signal is not cached', () => {
+    // a `Computed` around these would answer from its cache: neither reads a signal,
+    // so nothing would ever tell it to look again
+    let ready = false;
+    const box = {
+      on: false,
+      get(): boolean {
+        return this.on;
+      },
+    };
+    const byFunction = controlCondition(() => ready, 'x');
+    const byGet = controlCondition(box, 'x');
+    expect([byFunction.get(), byGet.get()]).toEqual([false, false]);
+    ready = true;
+    box.on = true;
+    expect([byFunction.get(), byGet.get()]).toEqual([true, true]);
+  });
+
   it('should make a boolean or nothing a fixed answer', () => {
     expect(controlCondition(true, 'x').get()).toBe(true);
     expect(controlCondition(false, 'x').get()).toBe(false);

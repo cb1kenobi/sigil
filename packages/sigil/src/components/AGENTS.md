@@ -12612,10 +12612,14 @@ own: `examples/settings` had a `follow()` for it, used five times, and
 - **`disabled` is read, so it takes what reads.** A control never writes it, so
   it takes `ControlCondition`: a boolean, a `LiveFlag` -- anything with a `get()`,
   which a `State` and a `Computed` both are, the duck `ListItems<T>` already uses
-  -- or a function. `checked` and `value` are written by the keys and the mouse, so
-  they stay `controlFlag()`'s and a `Computed` there is still refused; that is why
-  this is a second function beside `controlFlag()` rather than `controlFlag()`
-  widened, which would have let a `Computed` reach a `set()` it does not have.
+  -- or a function. A checkbox's `checked` and a switch's `value` are written by
+  the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
+  still refused; that is why this is a second function beside `controlFlag()`
+  rather than `controlFlag()` widened, which would have let a `Computed` reach a
+  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
+  and `Dropdown` still read anything that is not a `State` as a value to start
+  from, so a `Computed` there becomes the value rather than being refused -- left
+  as it was, since it is a `value` question and not a `disabled` one.
 - **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
   open. `() => boolean` is the template's convention for a reactive prop
   (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,

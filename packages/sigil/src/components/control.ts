@@ -37,7 +37,9 @@ export interface ControlKey {
 /**
  * A boolean to start from, or the `State<boolean>` that is the value, as a state.
  *
- * The shape `Collapsible`'s `open` and `TextField`'s `disabled` have. A truthy
+ * For what the control writes -- a checkbox's `checked`, a switch's `value` --
+ * and the shape `Collapsible`'s `open` has; a `disabled`, which is only read, is
+ * `controlCondition()`'s. A truthy
  * string is refused rather than read as `true`, because the value is compared to
  * `true` afterwards and would never be equal to it again -- the hole `toggle()`
  * refuses its `initial` over.

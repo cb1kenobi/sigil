@@ -6031,8 +6031,8 @@ Button({ disabled: unchanged, label: 'Save', onPress: save });
 ```
 
 A control never writes `disabled`, which is why it can be a `Computed`; `checked`
-and `value` are written by the keys and the mouse, so they stay a boolean or a
-`State`.
+and `value` are written by the keys and the mouse, so they stay a value to start
+from or a `State`.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`

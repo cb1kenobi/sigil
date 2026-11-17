@@ -610,8 +610,9 @@ describe('disabled', () => {
     await settle();
     expect(s.input.focus.ring()).toEqual([]);
     expect(field.classes).toContain('is-disabled');
-    // it kept the focus, and types nothing with it
+    // it kept the focus, and types and pastes nothing with it
     await s.term.press('b');
+    await s.term.paste('pasted');
     expect(value.get()).toBe('a');
     valid.set(true);
     await settle();
