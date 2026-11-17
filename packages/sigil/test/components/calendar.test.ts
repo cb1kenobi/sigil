@@ -426,7 +426,7 @@ describe('pickDate()', () => {
     // and this is what says the drawn Enter was not routed through that judging
     it.each([
       ['10000', 10000, '10000-06-15'],
-      ['-1', -1, '-0001-06-15'],
+      ['-1', -1, '-001-06-15'],
     ])('should answer an initial in year %s on Enter, drawn as given', async (_, y, shown) => {
       const { answer, ui } = ask({ initial: localDate(y, 6, 15) });
 
@@ -656,5 +656,14 @@ describe('pickDate() at a narrow width', () => {
     expect(await answer).toEqual(new Date(2026, 9, 16));
     // it is the answer, so it settles where it was drawn
     expect(ui.log).toEqual(['? When does the', '  release go out?', '  2026-10-16']);
+  });
+
+  // the field is reserved as `0000-00-00`, and a year before 0 is written in the
+  // same four columns: `-0001` was cut to `-0001-06-1` at the width that just fits
+  it('should fit a year before 0 in the width reserved for any year', async () => {
+    const { ui } = ask({ initial: localDate(-1, 6, 15) }, { columns: 18, rows: 14 });
+
+    await tick();
+    expect(ui.log[0]).to.equal('? When? -001-06-15');
   });
 });

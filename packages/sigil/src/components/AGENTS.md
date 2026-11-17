@@ -5886,7 +5886,13 @@ field.
   - **A year before 0 is written with its sign in front.** The one writer
     padded `-1` as `00-1`, in `date()` on `main` as much as here, so a refusal
     quoted text the fields never were and the drawn field showed no year at
-    all. It is `-0001` now, which the parser refuses in words that say why.
+    all. It is `-001` now, which the parser refuses in words that say why. The
+    sign takes the first digit's column rather than adding one, because every
+    width a drawn prompt reserves for a year is four columns -- `date()`'s
+    reservation, `pickDate()`'s `0000-00-00` and a pending year's `____` --
+    and `-0001` was clipped at a width that just fit and moved the month and
+    day a column when a digit was typed. A year past -999 or past 9999 is wider
+    than that anyway, as recorded above for `10000-06-15`.
   - **The answer is the parser's `Date`, which for a day is local midnight.**
     `pickDate()`'s line form used to build it with `localDate()`; the two are
     the same instant -- measured over 653,319 days spanning years 0-9999 (every

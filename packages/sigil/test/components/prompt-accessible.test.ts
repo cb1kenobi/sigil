@@ -2244,8 +2244,8 @@ describe('date() and pickDate() as lines, which are one reader', () => {
     const picked = await asked(pickDate, opts, '', '2024-06-15');
 
     expect(picked.log).toEqual(drawn.log);
-    expect(drawn.log[0]).toMatch(/default: -0001-06-15\)/);
-    expect(drawn.log[1]).toBe('Invalid date: "-0001-06-15"');
+    expect(drawn.log[0]).toMatch(/default: -001-06-15\)/);
+    expect(drawn.log[1]).toBe('Invalid date: "-001-06-15"');
   });
 
   it('should read the clock, a T between it and the day, and the second', async () => {

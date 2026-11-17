@@ -553,14 +553,17 @@ const PICTURE: Record<DateField, string> = {
 /**
  * A field's number, with its digits.
  *
- * The sign goes in front of the digits rather than among them: a year before 0
- * can only arrive as an `initial`, `min` or `max` that was given, and padding
- * `-1` wrote `00-1`, which is no year at all -- so a refusal quoted text the
- * fields never were. `-0001` is refused all the same, in words that say why.
+ * A sign goes in front of the digits rather than among them, and takes the
+ * place of the first: a year before 0 can only arrive as an `initial`, `min`
+ * or `max` that was given, and padding `-1` wrote `00-1`, which is no year at
+ * all -- so a refusal quoted text the fields never were. `-001` is refused all
+ * the same, in words that say why, and keeps the four columns every width
+ * reserved for a year is counted in, as `00-1` did.
  */
 function padField(field: DateField, value: number): string {
-  const digits = String(Math.abs(value)).padStart(DIGITS[field], '0');
-  return value < 0 ? `-${digits}` : digits;
+  return value < 0
+    ? `-${String(-value).padStart(DIGITS[field] - 1, '0')}`
+    : String(value).padStart(DIGITS[field], '0');
 }
 
 /**
