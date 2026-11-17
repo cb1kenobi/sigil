@@ -16,7 +16,13 @@
 import type { ColorLevel } from '../ansi/color-support.js';
 import { readSettings, resolveKeyword } from './declaration.js';
 import { degradeInto } from './degrade.js';
-import { inheritFrom, initialStyle, type PropertyName, type Style } from './properties.js';
+import {
+  inheritFrom,
+  initialStyle,
+  PROPERTY_NAMES,
+  type PropertyName,
+  type Style,
+} from './properties.js';
 import {
   compareSpecificity,
   keysFor,
@@ -68,6 +74,10 @@ export interface CascadeResult {
    * with `resolve()` on exactly the terminals degradation exists for.
    */
   readonly colorLevel: ColorLevel;
+  /**
+   * The properties an `!important` declaration won. One empty set is shared by
+   * every result that has none, so it is read and never written.
+   */
   readonly locked: ReadonlySet<PropertyName>;
   readonly style: Style;
 }
@@ -95,47 +105,85 @@ interface Candidate {
 }
 
 /**
- * Where a declaration sits in the cascade.
+ * Whether a declaration from `a` outranks one from `b` for the same property:
+ * positive if it does, negative if it does not, zero for one rule against
+ * itself.
  *
- * Compared field by field, in this order. `band` is what `!important` moves a
- * declaration into, and inside an important band the origin and the layer are
- * read backwards -- an app sheet's `!important` beats a component's props, and
- * within one origin an earlier layer's `!important` beats a later one's. That
- * inversion is CSS's, and it is the reason `!important` is worth keeping: a
- * component copied in by `sigil add` that bakes `color="red"` into its template
- * would otherwise be unthemeable, with no recourse.
+ * Compared field by field: the band, then origin, then layer, then specificity,
+ * then source order. `!important` is what moves a declaration into the upper
+ * band, and inside it the origin and the layer are read backwards -- an app
+ * sheet's `!important` beats a component's props, and within one origin an
+ * earlier layer's `!important` beats a later one's. That inversion is CSS's, and
+ * it is the reason `!important` is worth keeping: a component copied in by
+ * `sigil add` that bakes `color="red"` into its template would otherwise be
+ * unthemeable, with no recourse.
  *
  * Specificity and source order are never inverted, which is also CSS.
- */
-interface Precedence {
-  readonly band: number;
-  readonly layer: number;
-  readonly order: number;
-  readonly origin: number;
-  readonly specificity: Specificity;
-}
-
-/** Normal declarations from a sheet: the bottom band. */
-const NORMAL = 0;
-/**
- * `!important`, wherever it came from.
  *
- * Band 1 is props, and nothing here carries it: props are applied after the
- * sheets have been resolved and are gated by `locked`, which says the same
- * thing -- above every normal declaration, below every important one -- while
- * being the fast path rather than another pass over the rules.
+ * Props are the band between the two, and nothing here carries it: they are
+ * applied after the sheets have been resolved and are gated by `locked`, which
+ * says the same thing -- above every normal declaration, below every important
+ * one -- while being the fast path rather than another pass over the rules.
+ *
+ * Read off the two matched rules rather than off a precedence built per
+ * declaration, because it is only ever asked when two declarations want one
+ * property, and most declarations have no rival (SIG-381).
  */
-const IMPORTANT = 2;
-
-function compare(a: Precedence, b: Precedence): number {
+function outranks(a: Matched, aImportant: boolean, b: Matched, bImportant: boolean): number {
+  if (aImportant !== bImportant) {
+    return aImportant ? 1 : -1;
+  }
+  // read backwards inside the important band
+  const direction = aImportant ? -1 : 1;
   return (
-    a.band - b.band ||
-    a.origin - b.origin ||
-    a.layer - b.layer ||
+    direction * (ORIGINS.indexOf(a.origin) - ORIGINS.indexOf(b.origin)) ||
+    direction * (LAYERS.indexOf(a.rule.layer) - LAYERS.indexOf(b.rule.layer)) ||
     compareSpecificity(a.specificity, b.specificity) ||
     a.order - b.order
   );
 }
+
+/** Each property's place in the scratch tables below. */
+const SLOT = new Map<PropertyName, number>(PROPERTY_NAMES.map((name, at) => [name, at]));
+
+/**
+ * Which declaration is winning each property, for the one resolve using it.
+ *
+ * `winner[slot]` is the index of the matched rule, doubled, plus one if the
+ * declaration was `!important`; it means something only while `stamp[slot]` is
+ * the resolve's own `generation`, so a resolve starts by bumping the generation
+ * rather than by clearing anything. That is what makes it reusable: a fresh
+ * `Map` per resolve, and a `Set` of locked properties beside it, were the two
+ * allocations every restyle paid whatever it matched (SIG-381).
+ */
+interface Scratch {
+  generation: number;
+  readonly stamp: Int32Array;
+  readonly winner: Int32Array;
+}
+
+/**
+ * The scratch not in use, or `undefined` while a resolve holds it.
+ *
+ * Borrowed rather than shared, so that a resolve which somehow started inside
+ * another one gets a table of its own instead of overwriting the winners of the
+ * one it interrupted. Nothing does that today -- once `match()` has returned,
+ * everything a resolve calls is a pure function of the declarations, the parent
+ * style and the colour level -- but a `Stylesheet` is a plain object an app can
+ * build by hand, and a getter on one of its declarations would be the way in.
+ * One resolve that throws simply never hands it back, and the next one makes
+ * another.
+ */
+let spare: Scratch | undefined;
+
+/**
+ * What a result with nothing `!important` locks, shared by every such result.
+ *
+ * Most elements match no important declaration, and a `Set` built per resolve
+ * to say so was the other allocation every restyle paid. It is a `ReadonlySet`
+ * in `CascadeResult` already, which is what makes sharing it safe to promise.
+ */
+const UNLOCKED: ReadonlySet<PropertyName> = new Set();
 
 /**
  * The cascade: a set of stylesheets, and the answer for any one element.
@@ -363,53 +411,62 @@ export class Cascade {
    */
   resolveSheets(node: StyleNode, parent?: Style): CascadeResult {
     const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
-    const winners = new Map<PropertyName, Precedence>();
-    const locked = new Set<PropertyName>();
+    const matched = this.match(node);
 
-    for (const matched of this.match(node)) {
-      const layer = LAYERS.indexOf(matched.rule.layer);
-      const origin = ORIGINS.indexOf(matched.origin);
+    // borrowed only once matching is over, so the window it is held across
+    // calls nothing that is not this file's or a pure helper's
+    const scratch = spare ?? {
+      generation: 0,
+      stamp: new Int32Array(PROPERTY_NAMES.length),
+      winner: new Int32Array(PROPERTY_NAMES.length),
+    };
+    spare = undefined;
+    if (scratch.generation === 0x7fffffff) {
+      scratch.generation = 0;
+      scratch.stamp.fill(0);
+    }
+    const generation = ++scratch.generation;
+    const { stamp, winner } = scratch;
+    let locked: Set<PropertyName> | undefined;
 
-      for (const declaration of matched.rule.declarations) {
-        const here: Precedence = declaration.important
-          ? {
-              band: IMPORTANT,
-              // read backwards inside the important band
-              layer: LAYERS.length - 1 - layer,
-              order: matched.order,
-              origin: ORIGINS.length - 1 - origin,
-              specificity: matched.specificity,
-            }
-          : {
-              band: NORMAL,
-              layer,
-              order: matched.order,
-              origin,
-              specificity: matched.specificity,
-            };
+    for (let at = 0; at < matched.length; at++) {
+      const rule = matched[at] as Matched;
+      for (const declaration of rule.rule.declarations) {
+        const property = declaration.property;
+        const important = declaration.important;
+        const slot = SLOT.get(property) as number;
 
-        const winner = winners.get(declaration.property);
-        if (winner && compare(here, winner) < 0) {
-          continue;
+        if (stamp[slot] === generation) {
+          const held = winner[slot] as number;
+          if (outranks(rule, important, matched[held >> 1] as Matched, (held & 1) === 1) < 0) {
+            continue;
+          }
         }
 
-        winners.set(declaration.property, here);
-        style[declaration.property] = declaration.keyword
-          ? resolveKeyword(declaration.keyword, declaration.property, parent)
+        stamp[slot] = generation;
+        winner[slot] = (at << 1) | (important ? 1 : 0);
+        style[property] = declaration.keyword
+          ? resolveKeyword(declaration.keyword, property, parent)
           : declaration.value;
-        if (declaration.important) {
+        if (important) {
           // nothing outside the important band can take it back, so this only
           // ever grows
-          locked.add(declaration.property);
+          (locked ??= new Set()).add(property);
         }
       }
     }
+
+    spare = scratch;
 
     // the last pass over a resolved style, so nothing downstream ever holds a
     // colour the terminal cannot emit and the diff never compares a colour
     // against its own approximation
     const level = this.media.colorLevel as ColorLevel;
-    return { colorLevel: level, locked, style: degradeInto(style as Style, level) };
+    return {
+      colorLevel: level,
+      locked: locked ?? UNLOCKED,
+      style: degradeInto(style as Style, level),
+    };
   }
 
   /**

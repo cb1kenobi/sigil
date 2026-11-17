@@ -595,6 +595,56 @@ the entry it belongs to.
   would not have. This is the case that named the defect, and the entry it
   replaced said the fix "means `measure()` taking a used size as well, which is
   every caller": it was, and it is.
+- **What a pass allocates per item is the item, its measurement and little else
+  (SIG-381).** On SIG-290's stress workload the layout was about 16% of what a
+  frame allocated, in `makeItem` 5.5%, `measureUncached` 4.7%, `margins` 3.0% and
+  `remeasureLine` 2.4%. Four things went, each giving the same answer it gave
+  before, and together they were about 2.8 MiB of the 7.3 MiB a frame lost --
+  22.1 MiB to 14.8 MiB, the rest being the cascade's, under "Stylesheets and the
+  cascade" in `src/style`. Measured one after another with the heap profiler on
+  node 26.10.0, so these are the steps rather than separate trials:
+
+  - **A box with no margins shares one frozen `NO_MARGINS`** (about 0.7 MiB).
+    `margins()` built two objects and a closure per item per pass, and nearly
+    every box has none. "None" is all four a plain `cells` zero by `Object.is`,
+    so a `-0` margin still gets an object of its own and keeps its sign. Frozen
+    so that the day something writes to an item's margins it throws rather than
+    moving every box.
+  - **The items are sorted by `order` only when they are out of order**, which
+    nobody's are unless an `order` was written: a stable sort of a sequence
+    already in order is that sequence, and the copy and the sort's own scratch
+    were paid per container per pass. `placementOrder()` hands back the array it
+    was given, which is safe because nothing writes to it -- the lines are built
+    from it and flexing writes to the items. With `largest()`, which is
+    `maxOf(items.map(...), 0)` without the array, about 0.55 MiB.
+  - **`maxOf()` and `minOf()` read an array by index** (about 0.5 MiB). `for...of`
+    over an array is an iterator result per element wherever V8 cannot see the
+    loop's whole life, and a helper called from twenty-odd places is one it cannot.
+    Anything else is still iterated, and `test/width/extent.test.ts` holds the
+    two paths to one answer, a hole included.
+  - **The measure cache is a list per node rather than a map from a key string**
+    (about 0.95 MiB, with the map per node it replaced). The string was built on
+    every lookup, hit or miss; a node has one to three entries on an ordinary
+    screen, and the bound recorded above -- tens in practice -- is a scan that
+    costs less than hashing the string did. Two widths are the same question by
+    `===` with `NaN` equal to `NaN`, which is exactly what `String()` made of
+    them, `-0` and `0` included.
+
+  **No test pinned which fields the cache is keyed on, before or after.**
+  Dropping `containing`, `definite` or `crossWidth` from the comparison passes the
+  whole of `packages/sigil`'s suite, and laying out 3,000 generated trees at four
+  sizes gave byte-identical results with each one dropped. So what holds the four
+  fields in place is that the comparison is the old key's equality written out
+  field by field, not a test -- recorded rather than papered over, since a test
+  for it needs a tree nobody has found yet.
+
+  What was left, and why. **An item is still a fresh object per pass**, which
+  the ticket asked about keeping on the node: one node is an item in a measure
+  and in a placement within the same pass, and in a measure of each ancestor
+  that sizes itself around it, so a kept item is a shared mutable record whose
+  `mainSize` and `crossSize` one pass would overwrite under another. The
+  `MeasureAt` literal per call is left for the same reason the cache now keeps
+  it: it is the record of what was asked.
 
 ### Out of flow, paint order, and clipping
 

@@ -27,6 +27,16 @@
  */
 export function maxOf(values: Iterable<number>, floor: number = -Infinity): number {
   let max = floor;
+  if (Array.isArray(values)) {
+    // indexed, because the iterator protocol over an array is a result object
+    // per element wherever V8 cannot see the loop's whole life -- and this is
+    // called from enough places that it cannot. It was 2.6% of what a busy
+    // frame allocated (SIG-381); a hole reads `undefined` either way
+    for (let at = 0; at < values.length; at++) {
+      max = Math.max(max, values[at] as number);
+    }
+    return max;
+  }
   for (const value of values) {
     max = Math.max(max, value);
   }
@@ -43,6 +53,13 @@ export function maxOf(values: Iterable<number>, floor: number = -Infinity): numb
  */
 export function minOf(values: Iterable<number>, ceiling: number = Infinity): number {
   let min = ceiling;
+  if (Array.isArray(values)) {
+    // indexed, for the reason `maxOf()` gives
+    for (let at = 0; at < values.length; at++) {
+      min = Math.min(min, values[at] as number);
+    }
+    return min;
+  }
   for (const value of values) {
     min = Math.min(min, value);
   }

@@ -198,6 +198,15 @@ the entry it belongs to.
   one, in this engine, today. It is measured here rather than reasoned about
   because the reasoning was what got it wrong.
 
+  **SIG-381 made the change anyway, and it is faster, because the template has a
+  shape.** A template built by the same loop is a dictionary too, and a spread of
+  a dictionary is the slow path: 3.6 times the cost of building by the loop, and
+  `Object.assign()` 5 times, which is the 27% and 47% above once the rest of a
+  render is around them. A spread of the loop's result is shaped, and copying
+  that is a twenty-eighth of building. Measured, again: a 200-row `table()` went
+  from 4.3 to 4.5 ms to 3.1 to 3.3 ms. See "A restyle allocates the style it hands
+  back and very little else" in `src/style`.
+
 - **The media queries are the caller's, apart from the width and the colour
   level.** Those two this call is the authority on; the other half of a query is
   "how much screen is there", which a string being built has no answer to that the
@@ -1589,6 +1598,10 @@ Run it with `pnpm build && node examples/system-monitor/stress/benchmark.js`.
   - **A live chart builds a new element for every segment of every row on every
     sample** (SIG-379). The charts alone were 6.2 ms.
   - **A frame allocated 21.5 MiB**, most of it in restyling and laying out what
-    the two above built (SIG-381).
+    the two above built (SIG-381). That took it to 14.8 MiB and the frame's p50
+    from about 8 ms to about 6.5 ms on the same machine, over a main that had
+    moved to 22.1 MiB in between; the figures are under "Stylesheets and the
+    cascade" in `src/style` and "Layout" in `src/layout`, and the table above
+    is left as it was measured.
   - **Porting the monitor onto the components waits for SIG-378 and SIG-379**
     (SIG-383). Today the port would make it about three times slower per frame.

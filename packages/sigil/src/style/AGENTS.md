@@ -877,6 +877,83 @@ toolchain's one reader.
   declaration won says exactly the same thing as giving them a band of their
   own, and it is the fast path rather than a second pass over the rules.
   `CascadeResult.locked` is how that survives being cached.
+- **A restyle allocates the style it hands back and very little else (SIG-381).**
+  On SIG-290's stress workload -- about 900 elements restyled a frame -- a frame
+  allocated 22.1 to 22.2 MiB as this change started, and `resolveSheets()` was 20%
+  of it as self allocation. Three things went, and the first was nearly all of it:
+
+  - **`initialStyle()` built a dictionary.** Fifty-odd properties written by
+    computed key onto `{}` is past the dozen or so keyed additions after which
+    V8 gives up on a shape and makes the object a hash table: about 5.4 KB to
+    build each one, against about 560 bytes for a spread of a template built
+    once, which V8 copies shape and all. Every resolved style was one, so every
+    reader of a style was doing a hash lookup too. That was 4.1 MiB a frame on
+    its own, and a 200-row `table()` went from 4.3 to 4.5 ms to 3.1 to 3.3 ms in
+    three interleaved runs on node 26.10.0.
+
+    The renderer's "Rendering a tree to a string" records this change as tried
+    and **27% slower**, and both measurements are right: what matters is what
+    the template _is_. Built by the same loop, the template is itself a
+    dictionary, and a spread of a dictionary is the slow path every time --
+    200,000 copies took about 1,040 ms against about 290 ms to build them by the
+    loop, and `Object.assign()` about 1,420 ms, which is that entry's "slower
+    again". The template here is a spread of the loop's result, which has a
+    shape, and 200,000 spreads of _that_ took 10 ms. The line that says so is
+    the one comment in `initialStyle()` that matters.
+
+  - **Precedence is compared off the two matched rules, only when two
+    declarations want one property.** It was an object per declaration, built
+    whether or not anything competed, and most declarations have no rival.
+    `outranks()` reads the band, origin, layer, specificity and order straight
+    off the `Matched`, with the inversion `!important` applies.
+  - **The winners table is reused, and the locked set is made only when
+    something is important.** A `Map` and a `Set` per resolve were the other two
+    allocations every restyle paid. The table is two typed arrays indexed by
+    property, valid where a stamp matches the resolve's own generation, so it is
+    reset by counting rather than clearing. A result with nothing locked shares
+    one empty set, which `CascadeResult.locked` being a `ReadonlySet` already
+    promised nobody writes to.
+
+  **Whether anything can re-enter a resolve was checked rather than assumed,
+  because reuse is only safe if nothing does.** Nothing in the library does:
+  `match()` is the one call that reaches outside this file -- through the
+  `StyleNode`, which an app may implement -- and it has returned before the table
+  is taken, while everything the declaration loop calls is a pure function of the
+  declaration, the parent style and the colour level. What is not closed is a
+  `Stylesheet`, which is a plain object an app can build by hand, so a getter on a
+  declaration is a way in. So the table is **borrowed** rather than shared: a
+  resolve takes it and hands it back, and one that starts while it is out makes
+  its own. `a resolve started inside another one` in
+  `test/style/cascade-precedence.test.ts` re-enters through exactly that getter,
+  and fails with the borrow taken out.
+
+  The cascade's answers did not move, and the evidence is that same file: it
+  writes the old algorithm out -- a precedence tuple per declaration, a fresh map
+  per call -- and holds `resolveSheets()` to it over 400 seeded sets of sheets,
+  each resolved for five elements in a row on one cascade, with layers, origins,
+  `!important`, wide keywords, shorthands and selector lists in the mix. Five
+  sabotages were run against it -- no borrow, no new generation per resolve, no
+  inversion in the important band, a tie going to the declaration already
+  holding the property, and the shared empty set written to -- and every one
+  failed something.
+
+  The frame went from 22.1 to 22.2 MiB to **14.8 MiB**, with the layout's half of
+  it under "Layout" in `src/layout`; of the 7.3 MiB, `initialStyle()` was 4.1,
+  the cascade's tables and precedence 0.35, and the layout the rest. The frame's
+  p50 went from 7.97 to 8.63 ms to 6.22 to 6.96 ms, in four interleaved runs of
+  `benchmark.js --only stress` each on node 26.10.0, Apple M5 Pro, with other
+  agents' builds running beside it -- so a busy machine's figures, best and worst
+  of four given. The collector's share of the frame went _up_, 8% to 10%: its
+  total time stayed about 190 to 215 ms per run while the pauses fell from 277 to
+  199, because a scavenge costs what survives it rather than what it frees, so
+  the time came out of the frame and not out of the collector.
+
+  What was left: `readSettings()` parses every prop's text on every restyle and
+  is now the largest single allocator in the style layer, and `match()` builds a
+  map, an array and an object per matched rule. Neither was in the ticket, and a
+  cache of parsed prop values would share value objects between styles that
+  today each have their own.
+
 - **The cascade hands back a plain resolved style per element; interning is the
   canvas's business.** That settles the question the ticket left open. A
   resolved `Style` is fifty-odd properties that mostly differ per element, while

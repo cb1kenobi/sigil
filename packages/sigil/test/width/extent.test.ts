@@ -1,6 +1,14 @@
 import { maxOf, minOf } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
 
+/** `[1, , 3]`, written so that a linter does not take it for a typo. */
+function holey(): number[] {
+  const values: number[] = [];
+  values[0] = 1;
+  values[2] = 3;
+  return values;
+}
+
 /**
  * `maxOf()` and `minOf()` replace `Math.max(...values)` and `Math.min(...values)`
  * wherever the list is as long as somebody's data, so the one thing they must
@@ -17,7 +25,21 @@ const LISTS: Record<string, number[]> = {
   one: [5],
   'signed zeros': [-0, 0],
   'signed zeros, the other way': [0, -0],
+  // a hole, which a spread reads as `undefined` and so does an index
+  holey: holey(),
 };
+
+/**
+ * The same values, through the iterator protocol rather than as an array.
+ *
+ * An array is read by index and anything else by `for...of` (SIG-381), so the
+ * two paths are held to one answer.
+ */
+function* iterate(values: readonly number[]): Generator<number> {
+  for (let at = 0; at < values.length; at++) {
+    yield values[at] as number;
+  }
+}
 
 describe('maxOf()', () => {
   it('should answer exactly what Math.max(...values) answers', () => {
@@ -45,6 +67,12 @@ describe('maxOf()', () => {
   it('should read any iterable', () => {
     expect(maxOf(new Set([1, 9, 4]))).to.equal(9);
   });
+
+  it('should answer the same for an iterable as for an array of the same values', () => {
+    for (const [name, values] of Object.entries(LISTS)) {
+      expect(Object.is(maxOf(iterate(values)), maxOf(values)), name).to.equal(true);
+    }
+  });
 });
 
 describe('minOf()', () => {
@@ -68,5 +96,11 @@ describe('minOf()', () => {
     const values = Array.from({ length: 1_000_000 }, (_, i) => (i === 123_456 ? -7 : i % 3));
 
     expect(minOf(values)).to.equal(-7);
+  });
+
+  it('should answer the same for an iterable as for an array of the same values', () => {
+    for (const [name, values] of Object.entries(LISTS)) {
+      expect(Object.is(minOf(iterate(values)), minOf(values)), name).to.equal(true);
+    }
   });
 });
