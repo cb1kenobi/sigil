@@ -930,9 +930,44 @@ describe('ListView()', () => {
 
     it('should keep the cursor on the last row when the items are replaced rather than appended', () => {
       const { host, items } = tailing(20);
-      items.set(items.get().filter((item) => item.endsWith('5')));
+      // the cursor's own row is kept, and not at the end: following its key would
+      // leave the cursor on it
+      items.set(['item 19', 'item 5']);
       flush();
-      expect(picture(host).slice(0, 2)).toEqual(['  item 5', '❯ item 15']);
+      expect(picture(host).slice(0, 2)).toEqual(['  item 19', '❯ item 5']);
+    });
+
+    it('should not stop for its own scroll back inside a list that shrank, where disabled rows end it', () => {
+      // rows as tall as the view, and the cursor on the last that can be the
+      // cursor: bringing the offset back inside the list shows the disabled row
+      // after it, which is the list's scroll and not the reader's
+      const { host, items, tail } = tailing(20, new State(true), {
+        disabled: (item) => item.startsWith('rule'),
+        rowHeight: 5,
+      });
+      expect(control(host).scroll.viewport.scroll?.y).toBe(95);
+      items.set(['item 19', 'rule']);
+      flush();
+      expect(tail.get()).toBe(true);
+      items.set(['item 19', 'rule', 'item 20']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 20');
+    });
+
+    it('should stay paused when the list places the cursor on its own, as on the first row of an empty one', () => {
+      const { append, host, items, tail } = tailing(0, new State(false));
+      append('item 0');
+      expect(control(host).selection.current.get()).toBe('item 0');
+      expect(tail.get()).toBe(false);
+      append('item 1');
+      expect(control(host).selection.current.get()).toBe('item 0');
+
+      // and where the cursor's row goes and the row that takes its place is the last
+      press(host, 'up');
+      items.set(['item 1']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 1');
+      expect(tail.get()).toBe(false);
     });
 
     it('should follow the last row that is not disabled', () => {

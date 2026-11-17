@@ -463,7 +463,7 @@ export interface ListViewProps<T, K = T> {
    *
    * While the list is following, every change of the items puts the cursor on the
    * last row and scrolls it into view, so an append moves the cursor to the newest
-   * row. A move off the last row stops following, and so does a scroll -- the wheel,
+   * row -- over a key written in the same step, which an app writes on its own. A move off the last row stops following, and so does a scroll -- the wheel,
    * or an app's `scrollTo()` -- that takes the cursor's row out of view; End, `G`,
    * or a move back onto the last row starts it again.
    *
@@ -780,7 +780,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     // a scroll that takes the cursor's row out of view is a reader reading history:
     // following stops, or the next row would pull them back down
     onScroll: () => {
-      if (tailing() && !cursorInView()) {
+      if (tailing() && !clamping && !cursorInView()) {
         tail?.set(false);
       }
     },
@@ -900,6 +900,14 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   };
 
   /**
+   * The cursor's key when following was last decided or the list last placed the
+   * cursor itself: a key other than this one is a move, which decides following.
+   */
+  let tailSeen: { key: K | undefined } | undefined;
+  /** Whether the list is bringing its own offset back inside rows that shrank. */
+  let clamping = false;
+
+  /**
    * Re-keys the rows from new items, settles the cursor on them -- on the last row,
    * while following the tail -- and rebuilds the window.
    */
@@ -915,6 +923,9 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     if (tailing()) {
       selection.last();
     }
+    // where the list put the cursor is not a move: settling it on the row that
+    // took its place, or on the first row of a list that was empty, decides nothing
+    tailSeen = { key: untrack(() => current.get()) };
     items = next;
     keys = nextKeys;
     const none = next.length === 0;
@@ -925,7 +936,14 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     const offset = viewport.scroll ?? { x: 0, y: 0 };
     const max = Math.max(0, keys.length * step - view);
     if (view > 0 && offset.y > max) {
-      viewport.scrollTo(offset.x, max);
+      // the end of the rows, which is not the cursor where disabled rows end them:
+      // the reveal below brings the cursor back, and the reader did not scroll
+      clamping = true;
+      try {
+        viewport.scrollTo(offset.x, max);
+      } finally {
+        clamping = false;
+      }
     }
     control.resync();
     follow();
@@ -957,9 +975,6 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     });
   });
 
-  /** The cursor's key when the tail last looked at it: only a move decides following. */
-  let tailSeen: { key: K | undefined } | undefined;
-
   // the cursor and the selection: restyle the rows on screen, and follow the cursor
   createEffect(() => {
     const now = current.get();
@@ -981,7 +996,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
       // without moving the cursor at all
       if (tail !== undefined) {
         const at = selection.index();
-        if (tailSeen !== undefined && tailSeen.key !== now && at >= 0) {
+        if (tailSeen?.key !== now && at >= 0) {
           tail.set(at === lastRow());
         }
         tailSeen = { key: now };

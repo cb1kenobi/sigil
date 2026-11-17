@@ -11842,13 +11842,19 @@ and they are the prop now.
   `multiple` list re-ran it and set following back on -- `should not start again
   when the selection changes and the cursor stays where it was`. A move is a new
   key, so an append under a paused cursor -- its key unchanged, its position
-  unchanged -- decides nothing either. The first run only records the key: where
-  the cursor starts is not a move, and a list that starts paused on its last row
-  stays paused.
+  unchanged -- decides nothing either. And a key **the list** put the cursor on is
+  not a move: each re-key records where it left the cursor, so the first row of a
+  list that was empty, or the row that took the place of one that went, does not
+  start a paused list following because it happens to be the last. Review round 1
+  found the first of those as a `State(false)` list fed one line at a time, which
+  followed from its first line on. A list that starts paused on its last row stays
+  paused for the same reason.
 - **While following, every change of the items goes to the last row, not only an
   append.** Telling an append from a replacement is SIG-386's question and this
   does not need its answer: a log re-filtered while following wants the newest
-  line that is left, which is what the log browser's own refilter effect did.
+  line that is left, which is what the log browser's own refilter effect did. A
+  key an app writes in the same step as the items is overruled by it too; an app
+  that moves the cursor while following writes it on its own, or stops first.
   Done right after `setRows()` and before the list clamps or reveals anything, so
   the scroll hook finds the cursor where it is going.
 - **End starts following on the row it is already on.** `last()` on the last row
@@ -11861,8 +11867,12 @@ and they are the prop now.
   box's own `onScroll`.** That is the notification the ticket said the list lacked:
   the list builds its scroll box and now passes one, and every writer of the
   offset arrives through it -- the wheel, a drag of the thumb, an app's
-  `scrollTo()`. The list's own scrolls do too and are harmless: each one reveals
-  or clamps to a cursor that is already on the last row. "Out of view" is **none**
+  `scrollTo()`. The list's own reveals do too and are harmless, since each one
+  ends with the cursor in view. Its clamp of an offset past the end of rows that
+  shrank does not, and is not heard: the end of the rows is not the cursor where
+  disabled rows end them, so with rows as tall as the view, `['item 19', 'rule']`
+  scrolled to the rule alone and stopped following before the reveal brought the
+  cursor back (review round 1). "Out of view" is **none**
   of the row on screen, so a one-cell scroll over two-cell rows that leaves half
   the newest row showing does not stop it. Scrolling back down does not start it
   again, because scrolling is not a move; End is the way back, which is lnav's
@@ -11884,7 +11894,8 @@ and they are the prop now.
   `read()` is not the array last keyed, and the items effect then finds nothing to
   do -- `should keep a key written with the items that hold it, whichever of its
   effects runs first`. The identity check is the whole cost.
-- **Sabotage: ten, ten caught.** The re-key in the cursor effect; End writing
+- **Sabotage: ten, ten caught,** and two more after review round 1 -- the clamp
+  heard, and the re-key's record of where it put the cursor -- each caught. The re-key in the cursor effect; End writing
   `tail`; the scroll hook; deciding on every run; the reveal on a resize; the move
   to the last row on a change of items; the tail effect's reveal, and its move;
   "in view" read as the whole row; and the last row counted without passing over
