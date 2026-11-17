@@ -492,7 +492,7 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
   // two `index` modules already are
   if (found.length > 1) {
     throw new Error(
-      `Directory "${dir}" has more than one commands manifest: ${found.map((name) => `"${name}"`).join(', ')}`
+      `Directory "${escapeControls(dir)}" has more than one commands manifest: ${found.map((name) => `"${name}"`).join(', ')}`
     );
   }
 
@@ -500,7 +500,9 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
   const { value } = parseJsonc(readFileSync(file, 'utf-8'), file);
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new TypeError(`Expected ${file} to be an object of commands, keyed by route name`);
+    throw new TypeError(
+      `Expected ${escapeControls(file)} to be an object of commands, keyed by route name`
+    );
   }
 
   const parsed = new Map<string, RouteEntry>();
@@ -509,7 +511,9 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
 
   for (const [name, declared] of Object.entries(value as Record<string, unknown>)) {
     if (!declared || typeof declared !== 'object' || Array.isArray(declared)) {
-      throw new TypeError(`Expected "${name}" in ${file} to be an object`);
+      throw new TypeError(
+        `Expected "${escapeControls(name)}" in ${escapeControls(file)} to be an object`
+      );
     }
 
     const { alias, default: isDefault, desc, hidden } = declared as Record<string, unknown>;
@@ -521,15 +525,21 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
     }
 
     if (desc !== undefined && typeof desc !== 'string') {
-      throw new TypeError(`Expected desc for "${name}" in ${file} to be a string`);
+      throw new TypeError(
+        `Expected desc for "${escapeControls(name)}" in ${escapeControls(file)} to be a string`
+      );
     }
 
     if (hidden !== undefined && typeof hidden !== 'boolean') {
-      throw new TypeError(`Expected hidden for "${name}" in ${file} to be a boolean`);
+      throw new TypeError(
+        `Expected hidden for "${escapeControls(name)}" in ${escapeControls(file)} to be a boolean`
+      );
     }
 
     if (isDefault !== undefined && typeof isDefault !== 'boolean') {
-      throw new TypeError(`Expected default for "${name}" in ${file} to be a boolean`);
+      throw new TypeError(
+        `Expected default for "${escapeControls(name)}" in ${escapeControls(file)} to be a boolean`
+      );
     }
 
     const aliases = typeof alias === 'string' ? [alias] : alias;
@@ -538,7 +548,7 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
       (!Array.isArray(aliases) || aliases.some((each) => typeof each !== 'string'))
     ) {
       throw new TypeError(
-        `Expected alias for "${name}" in ${file} to be a string or list of strings`
+        `Expected alias for "${escapeControls(name)}" in ${escapeControls(file)} to be a string or list of strings`
       );
     }
 
@@ -548,7 +558,7 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
     for (const each of (aliases ?? []) as string[]) {
       if (each[0] === '!' || each[0] === '@') {
         throw new Error(
-          `Invalid alias "${each}" for "${name}" in ${file}: "${each[0]}" is name-string syntax and an alias is a plain name`
+          `Invalid alias "${escapeControls(each)}" for "${escapeControls(name)}" in ${escapeControls(file)}: "${each[0]}" is name-string syntax and an alias is a plain name`
         );
       }
     }
@@ -560,7 +570,7 @@ export function readRouteManifest(dir: string, entries: Dirent[]): RouteManifest
       if (fallback !== undefined) {
         const [a, b] = [fallback, name].sort(byCodeUnit);
         throw new Error(
-          `Only one default command is allowed: "${a}" and "${b}" are both default in ${file}`
+          `Only one default command is allowed: "${escapeControls(a)}" and "${escapeControls(b)}" are both default in ${escapeControls(file)}`
         );
       }
       fallback = name;

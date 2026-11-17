@@ -35,6 +35,7 @@ import {
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
 import { walk } from './walk.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { type Catalog, templateKey } from '@ttylabs/sigil/i18n';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -303,7 +304,7 @@ export function checkCatalogs(input: CatalogCheck): readonly Diagnostic[] {
       if (!carried.has(key) && !framework.has(key)) {
         diagnostics.push({
           file,
-          message: `"${locale}" has no translation for ${JSON.stringify(key)}; it will render in English`,
+          message: `"${escapeControls(locale)}" has no translation for ${JSON.stringify(key)}; it will render in English`,
           severity: 'warning',
         });
       }
@@ -315,7 +316,7 @@ export function checkCatalogs(input: CatalogCheck): readonly Diagnostic[] {
       diagnostics.push({
         file,
         message:
-          `"${locale}" translates ${framework.size - missing.length} of sigil's own ${framework.size} ` +
+          `"${escapeControls(locale)}" translates ${framework.size - missing.length} of sigil's own ${framework.size} ` +
           `messages; the other ${missing.length} render in English. ` +
           `SIGIL_KEYS from "@ttylabs/sigil/i18n-keys" is the list.`,
         severity: 'warning',
@@ -326,7 +327,7 @@ export function checkCatalogs(input: CatalogCheck): readonly Diagnostic[] {
       if (!own.has(key) && !framework.has(key)) {
         diagnostics.push({
           file,
-          message: `"${locale}" translates ${JSON.stringify(key)}, which nothing asks for; the English may have been reworded`,
+          message: `"${escapeControls(locale)}" translates ${JSON.stringify(key)}, which nothing asks for; the English may have been reworded`,
           severity: 'warning',
         });
       }
@@ -420,7 +421,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
         column,
         file,
         line,
-        message: `the loader for "${locale}" is not \`() => import('...')\` of a literal, so its catalog cannot be read at build time and is not checked`,
+        message: `the loader for "${escapeControls(locale)}" is not \`() => import('...')\` of a literal, so its catalog cannot be read at build time and is not checked`,
         severity: 'warning',
       });
       continue;
@@ -448,7 +449,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
         column,
         file,
         line,
-        message: `the catalog for "${locale}" could not be read from ${displayPath(path)}: ${(e as Error).message}`,
+        message: `the catalog for "${escapeControls(locale)}" could not be read from ${escapeControls(displayPath(path))}: ${escapeControls((e as Error).message)}`,
         severity: 'warning',
       });
     }

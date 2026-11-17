@@ -1677,6 +1677,14 @@ the thing this file keeps refusing. A leftover `routeInfo` is custom data and is
 ignored, with no compatibility read and no warning. Pinned by `a commands.json`
 in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md`.
 
+**A refusal of a `commands.json` echoes a key the file holds, so it escapes it
+where it throws (SIG-443).** An entry name, an alias, the file's path and the two
+names of a double `default` go through `escapeControls()` in `readRouteManifest()`,
+by the rule at the top of this file. It is a message the runtime prints and
+`sigil check` turns into a diagnostic line, so a newline in a key was both a raw
+terminal byte and a second line a log parser reads as an error. Pinned by `should
+escape a control character in a key it echoes` in `test/parser/routing.test.ts`.
+
 ### A route's name is the file system's, taken literally (SIG-389)
 
 - **A name a file, a directory or a manifest gave is never a name string.** It
@@ -1739,8 +1747,9 @@ in `test/parser/routing.test.ts`; the build's half is in `packages/cli/AGENTS.md
   carry the escape through to stderr twice. `escapeControls()` goes round the file,
   directory, path, manifest name and the two names a collision echoes where the
   message is built, so the build's diagnostic, which reuses the text, is inert in
-  its message. Its location prefix is the build's own and is not touched here. A control character is not
-  itself grounds for refusal -- that is a larger decision than this entry.
+  its message. Its location prefix is the build's own and is escaped there, by
+  `diagnosticLocation()` (SIG-443). A control character is not itself grounds for
+  refusal -- that is a larger decision than this entry.
 - **Only a space is said to separate.** `parseName()` splits at `[, ]` and nowhere
   else, so a tab or a no-break space is refused with its own reason -- it cannot be
   typed reliably as part of one word -- and not with a claim about aliases it does

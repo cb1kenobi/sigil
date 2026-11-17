@@ -46,6 +46,7 @@
 import type { Diagnostic } from './diagnostic.ts';
 import { factsOf, type CommandFacts, type RoutedBy } from './extract.ts';
 import { parseModule } from './parse-module.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import {
   type DirectoryRoutes,
   MANIFEST_FILES,
@@ -230,9 +231,9 @@ function warnManifest(found: DirectoryRoutes, diagnostics: Diagnostic[]): void {
     diagnostics.push({
       file: manifest.file,
       message:
-        `"${name}" names no command in this directory, so its entry is ignored` +
+        `"${escapeControls(name)}" names no command in this directory, so its entry is ignored` +
         (alias.length
-          ? ` and ${alias.map((spelling) => `"${spelling}"`).join(', ')} does not route`
+          ? ` and ${alias.map((spelling) => `"${escapeControls(spelling)}"`).join(', ')} does not route`
           : '') +
         `; key it by a file or subdirectory name here, without the extension, or remove it`,
       severity: 'warning',
@@ -242,7 +243,7 @@ function warnManifest(found: DirectoryRoutes, diagnostics: Diagnostic[]): void {
   for (const { name, property } of manifest.unknown) {
     diagnostics.push({
       file: manifest.file,
-      message: `"${property}" on "${name}" is not something an entry takes, so it is ignored; an entry takes "desc", "hidden", "alias" and "default"`,
+      message: `"${escapeControls(property)}" on "${escapeControls(name)}" is not something an entry takes, so it is ignored; an entry takes "desc", "hidden", "alias" and "default"`,
       severity: 'warning',
     });
   }

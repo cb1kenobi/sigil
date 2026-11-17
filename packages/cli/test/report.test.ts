@@ -270,9 +270,13 @@ describe('the toolchain report', () => {
     });
 
     it('should measure the prefix as it will be drawn, not as it was given', () => {
-      // a tab measures nothing and draws a space, so a path holding one leaves
+      // a tab measures nothing and draws a space, so a path holding one left
       // the message column a column out -- which is the defect `table()`
-      // already carries an entry for, met here through a file name
+      // already carries an entry for, met here through a file name. The location
+      // is escaped now (SIG-443), so the tab arrives as the four characters
+      // `\x09` and the prefix holds nothing that measures differently from how it
+      // draws; what this still pins is that the column comes from the width of
+      // the prefix *as printed*, whatever that turns out to be
       // real words rather than one 200-character run: a single word longer than
       // the line now overflows by design, which is the rule below, so a
       // pathological one would fail this for the wrong reason
@@ -291,7 +295,7 @@ describe('the toolchain report', () => {
       for (const line of out) {
         expect(stringWidth(line)).toBeLessThanOrEqual(60);
       }
-      expect(out[0]).toContain('a b.ts');
+      expect(out[0]).toContain('a\\x09b.ts');
     });
 
     it('should never break a path inside a message either', () => {

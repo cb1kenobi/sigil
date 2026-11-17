@@ -36,6 +36,7 @@
  * quadratic in its own length.
  */
 
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import {
   type Comment,
   type EcmaScriptModule,
@@ -150,7 +151,7 @@ export function parseModule(file: string, source: string): ParsedModule {
   if (failure) {
     const at = failure.labels[0]?.start;
     const where = at === undefined ? file : `${file}:${formatPosition(position(source, at))}`;
-    throw new Error(`Failed to parse ${where}: ${failure.message}`);
+    throw new Error(`Failed to parse ${escapeControls(where)}: ${escapeControls(failure.message)}`);
   }
 
   const parsed: ParsedModule = {

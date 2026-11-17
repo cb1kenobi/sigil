@@ -68,6 +68,7 @@ import { compile, renderImports } from '../template/emit.ts';
 import { byLocation, type Diagnostic } from './diagnostic.ts';
 import { parseModule } from './parse-module.ts';
 import { TAG_MODULE, templatesIn, type FoundTemplate, type TemplatesOptions } from './templates.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { Expr, parse, type IRNode } from '@ttylabs/sigil/template';
 import MagicString from 'magic-string';
 
@@ -304,7 +305,12 @@ export function compileTemplates(
  * @returns The failure.
  */
 function failureAt(file: string, template: FoundTemplate, error: Error): TemplateFailure {
-  return { column: template.column, file, line: template.line, message: error.message };
+  return {
+    column: template.column,
+    file,
+    line: template.line,
+    message: escapeControls(error.message),
+  };
 }
 
 /**

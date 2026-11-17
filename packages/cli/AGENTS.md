@@ -1152,6 +1152,65 @@ makes it testable with a fixture directory and no bundler at all.
   was fatal. The type checker's paths are made absolute on the way in, because
   it is run with the app as its cwd and writes relative ones, and a report
   holding both spellings is one nobody can sort.
+- **A diagnostic is escaped where it is printed, which is the opposite of a
+  framework error, and a newline is the one thing that rule cannot reach
+  (SIG-443).** The location printed its file exactly as it is on disk, so a
+  routed directory named `c<ESC>]0;T<BEL>d` made a piped `sigil build` print an
+  OSC that retitles the reader's window -- while the message after it was already
+  escaped, because the route refusals escape what they echo where they are
+  thrown. `diagnosticLocation()` now escapes the file and `diagnosticMessage()`
+  escapes the message, both in `diagnostic.ts`, and both forms read them:
+  `formatDiagnostic()` for a pipe and `diagnosticRow()` for a terminal, so the two
+  still say one thing. The sink and not only the producers because there are
+  dozens of producers, because a message quotes names the app's own source chose
+  (a command called `'\x1b]0;T\x07'` is a string literal) as readily as ones the
+  file system did, and because nothing here is styled: a framework error is
+  escaped at its throw site since the handler may be printing an app's own SGR,
+  and a diagnostic is the toolchain's text.
+  The message keeps `\n` and `\t` and escapes every other control character. A
+  newline is how a message carries a type checker's whole output; a tab moves
+  the cursor and acts on nothing, which is why the build's own escape pass spares
+  it, and TypeScript 7's compiler is a native binary whose Go panic indents each
+  frame with one. `\r` is escaped, because it can overwrite a line. The
+  **location** escapes a tab too, since a file name has no business holding one.
+  Escaped **after** `displayPath()`, since the escape is spelled with a
+  backslash. A producer that escaped first is safe: `escapeControls()` writes
+  printable characters and no control one, so the second pass changes nothing --
+  asserted by `should not escape twice what a producer already escaped`.
+
+  **The sink handles everything but a newline, and a newline in an echoed value
+  is the producer's to escape.** The sink cannot tell a message's own line break
+  from one inside a name it quotes, and a command declared as
+  `'a\nsrc/forged.ts:1:1: error: ...'` made `sigil check` print a second line
+  that an editor's problem matcher or a CI log parser reads as a real
+  diagnostic. So every producer that echoes a value from the app's source or the
+  file system escapes it with `escapeControls()` where the message is built:
+  `discover.ts` (command names and name strings through `commandName()`, keys,
+  package names, import specifiers, and the messages of the errors it catches),
+  `i18n.ts` (locales, and the catalog path and parse error), `extract.ts` (the
+  route a module is reached by, the spellings it declares and the manifest's
+  path), `tree.ts` (a `commands.json` key, alias and property),
+  `compile-templates.ts` (a template error, which quotes the source of an
+  interpolation, and that can be a nested template literal holding a newline),
+  `main-settings.ts` (the keys of a `main()` call's settings) and
+  `parse-module.ts` (a parse failure's path and message). The route rules'
+  refusals of a `commands.json` are escaped at their throw site in
+  `packages/sigil/src/parser/command/routes.ts`, which is the parser's own rule
+  and fixes the runtime's raw message too; `_inspect.ts` turns that thrown
+  message into a diagnostic and needs no change. That list is what has been
+  audited, not a promise about every producer. The guards are the tests in
+  the `a name in the source that holds a newline` block of
+  `test/diagnostic-escape.test.ts`, and `should escape a control character in a
+  key it echoes` in `packages/sigil/test/parser/routing.test.ts`.
+
+  On a terminal the canvas already strips a raw sequence, so the visible change
+  there is that the name is shown as `\x1B` instead of vanishing. Not covered by
+  this entry, because they are thrown rather than reported as a diagnostic:
+  what rolldown and the bundle step throw. The `Failed to parse` of a manifest
+  (`discover.ts`) and of a routed module (`parse-module.ts`, caught in
+  `_inspect.ts` and turned into a diagnostic) escape their path and message at
+  the throw. The summary lines are not diagnostics either.
+
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
   Ending it `\r\n` made `DIAGNOSTIC_RE`'s `.*$` miss every line, since `.` does
