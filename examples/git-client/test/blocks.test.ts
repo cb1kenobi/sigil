@@ -1,4 +1,4 @@
-import { blocksOf, type DiffSection } from '../src/model.ts';
+import { blocksOf, type DiffSection, wholePath } from '../src/model.ts';
 import { diffStops, parsePatch } from '@ttylabs/sigil/components';
 import { describe, expect, it } from 'vitest';
 
@@ -39,6 +39,20 @@ describe('blocksOf', () => {
     expect(stops[0]?.hunk).toBeDefined();
     // the binary file's line: Space has to stage `old.bin`, not the section's path
     expect(stops[1]?.hunk).toBeUndefined();
-    expect(stops[1]?.block.data?.file?.oldName).toBe('a/old.bin');
+    expect(stops[1] && wholePath(stops[1])).toBe('old.bin');
+  });
+
+  it('should stage an untracked file by its own path, a b/ at its start and all', () => {
+    const section: DiffSection = {
+      action: 'stage',
+      added: { path: 'b/notes.txt', text: 'hello\n' },
+      files: [],
+      label: 'Untracked',
+      lines: [],
+      path: 'b/notes.txt',
+    };
+    const [stop] = diffStops(blocksOf({ key: 'k', note: '', sections: [section], title: 't' }));
+
+    expect(stop && wholePath(stop)).toBe('b/notes.txt');
   });
 });

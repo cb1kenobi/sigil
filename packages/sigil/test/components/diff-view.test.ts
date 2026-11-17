@@ -265,6 +265,24 @@ describe('DiffView', () => {
     }
   });
 
+  it('should bring a cursor the app writes between stops to the nearest, and mark it', () => {
+    const current = new State(0);
+    const { host, root } = mount({ content: { patch: PATCH }, current }, 14);
+    picture(root, 30, 14);
+
+    current.set(-1);
+    flush();
+    expect(current.get()).toBe(0);
+    expect(lit(picture(root, 30, 14))[0]).toBe('@@ -1,3 +1,3 @@');
+
+    current.set(7);
+    flush();
+    expect(current.get()).toBe(1);
+    // and a key from there steps from the stop it was brought to
+    press(host, '[');
+    expect(current.get()).toBe(0);
+  });
+
   it('should put is-current on the marks of the current stop, for a theme to reach', () => {
     const { host, root } = mount({ content: { patch: PATCH } }, 14);
     picture(root, 30, 14);
@@ -345,8 +363,20 @@ describe('diffStops()', () => {
   it('should count two texts with the default context, as the view draws them', () => {
     const old = Array.from({ length: 20 }, (_, i) => `${i}`).join('\n');
     const next = old.replace('2', 'two').replace('17', 'seventeen');
+    const stops = diffStops({ new: next, old });
 
-    expect(diffStops({ new: next, old })).toHaveLength(2);
+    // two hunks at the default context, one at ten: the view draws the two
+    expect(stops).toHaveLength(2);
+    const current = new State(0);
+    const { host, root } = mount({ content: { new: next, old }, current }, 30);
+    picture(root, 30, 30);
+    press(host, ']');
+    expect(current.get()).toBe(1);
+    const hunk = stops[1]!.hunk!;
+    expect(lit(picture(root, 30, 30))[0]).toBe(
+      `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`
+    );
+
     // another context is hunks handed over as files, which both count as they are
     const files = [{ hunks: diffHunks(old, next, { context: 10 }) }];
     expect(diffStops({ files })).toHaveLength(1);

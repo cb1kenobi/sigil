@@ -9563,9 +9563,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   is exactly where the mark has to survive. It is the example's own mark, moved.
 - **`current` is a position, a number or a `State`, and the view only ever brings
   it back to a stop.** `]` and `[` write it, an app writes it, and when the content
-  changes, or a key moves it, a position that is not a stop -- past the last,
+  changes or the app writes it, a position that is not a stop -- past the last,
   negative, fractional, which a `State` lets an app write -- becomes the nearest
-  one. It is never reset to the
+  one, and `]` or `[` from one goes there rather than a step past it (review
+  round 2). It is never reset to the
   first, because whether new content is the same subject refreshed -- the hunk
   staged, the cursor wanted where it was -- or a new one is the app's to know; the
   git client resets it when the file changes. A position rather than a key, because

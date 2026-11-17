@@ -241,6 +241,21 @@ export function blocksOf(content: DiffContent): DiffBlock<Place>[] {
 }
 
 /**
+ * The path Space stages or unstages whole for a stop with no hunk to apply: the
+ * file a line stands for, which a section of two files -- an unstaged rename, as a
+ * deletion and an addition -- says apart, or else the section's own path. Never
+ * the file of an untracked one's added text, whose name is the path itself with
+ * no `b/` for {@link pathOf} to take off.
+ *
+ * @param stop - The stop under the cursor.
+ * @returns The path.
+ */
+export function wholePath(stop: DiffStop<Place>): string {
+  const file = stop.block.data?.file;
+  return (file && pathOf(file)) ?? stop.block.data?.section.path ?? '';
+}
+
+/**
  * Builds the client's state, git calls and keys. Called once, from a root's body,
  * which is where the app and the context are there to be read.
  *
@@ -639,7 +654,6 @@ export function createModel(): Model {
   const toggleHunk = (): void => {
     const at = hunks.get()[cursor.get()];
     const section = at?.block.data?.section;
-    const file = at?.file ?? at?.block.data?.file;
     const action = section?.action;
     if (!at || !section || !action) {
       return;
@@ -649,8 +663,7 @@ export function createModel(): Model {
         // an untracked file, one binary or too large to show, or a rename with
         // no content changes: all of it, and a rename's source with it, the way
         // `toggleFile()` resets both
-        // the file the line stands for, which a section of two files says apart
-        const path = (file && pathOf(file)) ?? section.path ?? '';
+        const path = wholePath(at);
         const from = section.from;
         await run(
           action === 'stage'

@@ -4705,8 +4705,8 @@ view marks.
 A hunk's stop carries its `file` and `hunk`, which is what `hunkPatch()` takes: the
 hunk under the cursor is one call from a patch `git apply --cached` stages. A
 position that is not a stop -- past the last, negative, fractional -- is brought to
-the nearest one when the content changes and by `]` and `[`, and content with no
-stops is shown from its start.
+the nearest one, whether the content changed or the app wrote it, and content with
+no stops is shown from its start.
 
 `diffView()` also says where each hunk went, as `hunks` -- the file, the hunk, and
 the range of its rows -- which is what the view is built on, rather than on the

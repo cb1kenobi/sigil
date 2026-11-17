@@ -49,7 +49,8 @@ export interface DiffViewProps<T = unknown> {
    * A number is where the cursor starts; a `State` is the state itself, which `]`
    * and `[` write and an app writes to move the cursor. A position that is not
    * one of the stops -- past the last, negative, between two -- is brought to the
-   * nearest that is when the content changes, and by `]` and `[`.
+   * nearest that is, whether the content changed or the app wrote it, and `]` or
+   * `[` from one goes there before it steps.
    *
    * Two texts are diffed with the default context, 3, as `diffStops()` diffs
    * them, so the two count the same hunks; hunks of another context are handed
@@ -356,7 +357,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         return;
       }
       const at = untrack(() => current.get());
-      const next = nearest(nearest(at) + (k.name === ']' ? 1 : -1));
+      // a cursor an app left between stops goes to the nearest before it steps
+      const from = nearest(at);
+      const next = from === at ? nearest(at + (k.name === ']' ? 1 : -1)) : from;
       if (next !== at) {
         current.set(next);
       }
@@ -377,6 +380,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   createEffect(() => {
     const at = current.get();
     untrack(() => {
+      // a position an app wrote that is not a stop is brought to one, and this
+      // runs again for it
+      if (drawn.length > 0 && nearest(at) !== at) {
+        current.set(nearest(at));
+        return;
+      }
       light(at);
       reveal();
     });
