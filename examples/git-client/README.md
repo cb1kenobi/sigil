@@ -58,7 +58,7 @@ bottom-right corner.
 | `src/model.ts`     | Everything but the tree: state, git calls, keys, dialogs, toasts               |
 | `src/diff-pane.ts` | The diff pane: `diffView()` in a scroll box, with a hunk cursor                |
 | `src/git.ts`       | `GitContext`: how git is run, and where, replaceable in tests                  |
-| `src/parse.ts`     | Pure readers of git's output, and a hunk written back as a patch               |
+| `src/parse.ts`     | Pure readers of git's status, branches and log, and a patch file's path        |
 | `src/common.ts`    | The stylesheet, and the classes a file's status letters are drawn in           |
 | `test/`            | The parsers against git's output, and the app against repositories it makes    |
 
@@ -98,6 +98,6 @@ it lost.
   conflict (Space marks a file resolved, which is `git add`).
 - Refreshing on its own: `r` reads the repository again, and every action does.
 - What the library does not do yet, and this does by hand: a diff view that
-  scrolls and has a hunk cursor (SIG-367), a patch that survives a round trip
-  (SIG-370), `:focus-within` for the lit pane (SIG-372), and a dialog that builds
-  its own body and opens on a field (SIG-335, SIG-337).
+  scrolls and has a hunk cursor (SIG-367), `:focus-within` for the lit pane
+  (SIG-372), and a dialog that builds its own body and opens on a field (SIG-335,
+  SIG-337).
