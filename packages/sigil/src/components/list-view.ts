@@ -484,9 +484,9 @@ export interface ListViewProps<T, K = T> {
    * selection on their keys, and rebuilds the
    * rows on screen whose item is a different object than when they were built.
    * Where the new array is the old one with items dropped off the front and added
-   * at the end, the items it kept keep the keys they had and only the added ones
-   * are handed to `key`, so an item's key is the one it was first given: give an
-   * item a new key by replacing it.
+   * at the end, `key` is handed the added items and the first one, which is how
+   * the list finds where the old ones start, and the other items it kept keep the
+   * keys they had: give an item a new key by replacing it.
    * Replace the array to change it, since a `State` hears a new value and not a
    * mutated one; for items changed in place, `listControl(host).refresh()`.
    */
@@ -982,8 +982,8 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   /**
    * The keys of new items. Where they are the items last keyed with some dropped
    * off the front and some added at the end -- the same objects, compared rather
-   * than keyed -- only the added ones are handed to `key`, and the selection takes
-   * the same shape in time for what changed (SIG-386).
+   * than keyed -- only the added ones and the first are handed to `key`, and the
+   * selection takes the same shape in time for what changed (SIG-386).
    */
   const keysFor = (next: readonly T[]): K[] => {
     const dropped =

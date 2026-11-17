@@ -109,9 +109,10 @@ As of SIG-386, a batch costs about the same at every size. `ListView` tells
 when its new items are the old ones with some dropped off the front and some
 added at the end. Then it keys only the added items and the first one, which
 is how it finds where the old ones start, and its selection places only the
-added keys. It still compares every kept item with the one it had, which is
-one comparison a line and no hashing. The log also stopped testing every line it shows to find the
-ones the cap dropped, since those are all at the front. The figures are the
+added keys. It still compares every kept item and every kept key with the
+ones it had, which is two comparisons a line and no hashing. The log also
+stopped testing every line it shows to find the ones the cap dropped, since
+those are all at the front. The figures are the
 best of six runs of each build, taken in turn on node 26.10.0 on an Apple M5
 Pro, while other agents were running suites on the machine:
 

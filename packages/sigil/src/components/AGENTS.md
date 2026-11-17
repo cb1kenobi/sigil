@@ -11937,8 +11937,8 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   `base`, and the rows that went move `base` rather than every entry. A rebuild
   sets `base` back to 0.
 - **The kept rows are compared, which is O(n), and that is deliberate.** It is
-  one `!==` per row, with no hashing and no call into the app. Skipping it
-  would mean trusting that nothing between the ends was replaced. An immutable
+  one `!==` per row in each layer, with no hashing and no call into the app.
+  Skipping it would mean trusting that nothing between the ends was replaced. An immutable
   update to a middle row is exactly how a live list changes one row, and a
   replaced row with a new key would then sit at a stale position. What is left
   at 200,000 rows is array copies: the app's, and `keys.slice()`. The README of
@@ -11954,8 +11954,10 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   equal to itself everywhere, and a push would be read as kept rows that the
   map never placed. The docs say to hand over a new array, but the rebuild used
   to forgive a push, so this still does (review round 1).
-- **A kept item keeps its key.** `key` is asked only for the added items, so an
-  object whose key changed in place keeps the old one until it is replaced.
+- **A kept item keeps its key.** `key` is asked only for the added items and the
+  first one, so any other object whose key changed in place keeps the old one
+  until it is replaced. A first item whose key moved finds no old rows to
+  start from, and everything is keyed again.
   The `items` prop says so. Asking again would put the O(n) calls into the app
   back, and replacing an object is already how a row is rebuilt.
 - **The log browser's trim stopped testing every line.** It used `filter()` over
@@ -11976,7 +11978,10 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   duplicate check by `indexOf()` and the same array taken as a slide are each
   caught. `should rebuild a row whose item was replaced while rows were also
   appended` checks that the answer is right and does not pin the fast path. The
-  two counting tests do that.
+  two counting tests do that. Review round 2 found that `undefined` or `NaN` as
+  the new first key, or a kept `NaN`, always rebuilds, since `indexOf()` reads
+  `undefined` as no key and `NaN !== NaN`. The answer is right, and it is only
+  slower for keys no app chooses, so it is left alone.
 
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 

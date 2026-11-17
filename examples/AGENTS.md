@@ -717,7 +717,7 @@ screen of code.
   fuzzer's deadline is recorded. A batch grew with the lines held, about 11 of
   18 ms at 200,000, in `ListView` re-keying every row. SIG-386 made the keying
   and the map proportional to the lines that came and went. What still grows
-  with the lines held is a comparison per kept line and the array copies, about
+  with the lines held is two comparisons per kept line and the array copies, about
   half a millisecond at 200,000. The README records the figures from before and
   after, both from the same session.
 
