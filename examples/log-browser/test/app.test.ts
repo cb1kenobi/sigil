@@ -43,9 +43,18 @@ afterEach(async () => {
 
 async function mount(
   root: { App: () => Element; stylesheet: string },
-  opts: Partial<Environment> & { columns?: number; mouse?: boolean; rows?: number } = {}
+  opts: Partial<Environment> & {
+    colorLevel?: 0 | 1;
+    columns?: number;
+    mouse?: boolean;
+    rows?: number;
+  } = {}
 ): Promise<Mounted> {
-  const term = createTestTerminal({ columns: opts.columns ?? 100, rows: opts.rows ?? 20 });
+  const term = createTestTerminal({
+    colorLevel: opts.colorLevel ?? 0,
+    columns: opts.columns ?? 100,
+    rows: opts.rows ?? 20,
+  });
   let tick: (() => void) | undefined;
   const env: Environment = {
     ...REAL,
@@ -168,8 +177,9 @@ describe.each([
     expect(it.screen()).toMatch(/services · 10/);
   });
 
-  it('should keep the table live, and draw a pod in trouble in its role', async () => {
-    const it = await mount(root, { rows: 30 });
+  it('should keep the table live, and draw a pod in trouble in its role across the row', async () => {
+    // at sixteen colours, where a role is a colour to read back
+    const it = await mount(root, { colorLevel: 1, rows: 30 });
     const before = it.screen();
     // a second at a time until a pod crashes, which the seeded cluster does early
     let crashed: string | undefined;
@@ -180,10 +190,20 @@ describe.each([
     expect(it.screen()).not.toBe(before);
     const app = /\b([a-z]+)-\S+ +CrashLoopBackOff +1 /.exec(crashed ?? '')?.[1];
     expect(app).toBeDefined();
-    const cell = walk(it.app.view.root).find(
-      (el) => el.text === 'CrashLoopBackOff' && el.classes.includes('sigil-error')
-    );
-    expect(cell).toBeDefined();
+    // the role is the row's, and every cell takes its colour from there: the name,
+    // the status, the restarts and the age alike, and nothing on the cell itself
+    const rows = walk(it.app.view.root).filter((el) => el.classes.includes('sigil-list-row'));
+    const words = (row: Element): Element[] => walk(row).filter((el) => /\w/.test(el.text ?? ''));
+    const crashing = rows.find((row) => words(row).some((el) => el.text === 'CrashLoopBackOff'));
+    const running = rows.find((row) => words(row).some((el) => el.text === 'Running'));
+    expect(crashing?.classes).toContain('sigil-error');
+    expect(running?.classes).not.toContain('sigil-error');
+    const red = words(crashing as Element);
+    expect(red.length).toBeGreaterThan(5);
+    expect(red.filter((el) => el.classes.includes('sigil-error'))).toEqual([]);
+    // red is the first of the basic sixteen, and the terminal's own colour is -1
+    expect(new Set(red.map((el) => el.style.color))).toEqual(new Set([1]));
+    expect(new Set(words(running as Element).map((el) => el.style.color))).toEqual(new Set([-1]));
 
     // and its deployment is a replica short
     await it.press(':', 'd', 'e', 'p', 'l', 'o', 'y', KEYS.enter);

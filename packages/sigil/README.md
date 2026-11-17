@@ -5359,8 +5359,12 @@ cursor: an update that does not move the current row does not scroll back to it.
 `row(item, key)` returns an element or a string, and is called under an owner of
 its own, so a row may hold effects; they are disposed when the row leaves the view.
 It is not called again when the cursor or the selection moves: those are the
-classes `is-current` and `is-selected` on `.sigil-list-row` around it. Every row is
-`rowHeight` cells tall (1 by default), fixed rather than measured.
+classes `is-current` and `is-selected` on `.sigil-list-row` around it. `rowClass(item)`
+puts classes of the app's own on that box beside them -- a string or an array, as a
+`class` prop takes -- so a stylesheet reaches a row by its state, and a role class
+such as `sigil-error` colours the whole row. It is asked when the row is built, as
+`row` is: again when the item is replaced, and not when a signal it read changes.
+Every row is `rowHeight` cells tall (1 by default), fixed rather than measured.
 
 Filtering is the app's: make `items` a `Computed` over a `TextField`'s value and
 `rankBy()`, and the list sees only that its items changed. `find: true` turns on
@@ -5494,7 +5498,7 @@ htop's process list, k9s's resource view, a database client's result grid: a
 `ListView` whose rows have columns, with a heading over them that sorts. Everything
 the list does it does here -- only the rows on screen are built; **Up**, **Down**,
 **Page Up**, **Page Down**, **Home** and **End** move the cursor; `multiple`,
-`disabled`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
+`disabled`, `rowClass`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
 rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` and
 `selectRow()` call their data.
 
@@ -5536,6 +5540,13 @@ than scrolled sideways, so the columns that say what a row is stay on screen. A
 hidden column's digit does nothing until it is back. `columns` may be a `State`: an
 app hides a column, adds one, reorders them, or changes a width, a format or an
 alignment by replacing the array, and the rows in view are redrawn for it.
+
+**A row coloured by its state**, as k9s draws a crashing pod red across every
+column, is `rowClass`: `(pod) => (pod.status === 'CrashLoopBackOff' ? 'sigil-error' :
+undefined)` puts the role on the row's box and every cell takes its colour from
+there. The cursor's highlight still reads over it, because the focus is `inverse`
+and a role is a colour: the current row of a red row is red reversed. At colour level
+0 neither draws and the pointer says which row is current, as it always does there.
 
 The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 .sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are

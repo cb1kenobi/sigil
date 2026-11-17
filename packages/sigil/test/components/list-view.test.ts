@@ -406,6 +406,40 @@ describe('ListView()', () => {
     expect(control(host).selection.current.get()).toBe('b');
   });
 
+  it('should put rowClass on the row box beside is-current, as a string or an array, read when the row is built', () => {
+    const items = new State<readonly { id: string; state: string }[]>([
+      { id: 'a', state: 'ok' },
+      { id: 'b', state: 'crashing' },
+      { id: 'c', state: 'pending' },
+    ]);
+    const host = list({
+      items,
+      key: (item) => item.id,
+      row: (item) => item.id,
+      rowClass: (item) =>
+        item.state === 'crashing'
+          ? ' crashing  sigil-error '
+          : item.state === 'pending'
+            ? ['pending', 'sigil-warn']
+            : undefined,
+    });
+
+    expect(rowWith(host, 'a').classes).toEqual(['sigil-list-row', 'is-current']);
+    expect(rowWith(host, 'b').classes).toEqual(['sigil-list-row', 'crashing', 'sigil-error']);
+    expect(rowWith(host, 'c').classes).toEqual(['sigil-list-row', 'pending', 'sigil-warn']);
+    press(host, 'down');
+    expect(rowWith(host, 'b').classes).toEqual(
+      expect.arrayContaining(['crashing', 'sigil-error', 'is-current'])
+    );
+
+    // a row is rebuilt when its item is replaced, which is when the class is asked again
+    items.set(items.get().map((item) => (item.id === 'b' ? { ...item, state: 'ok' } : item)));
+    flush();
+    picture(host);
+    expect(rowWith(host, 'b').classes).not.toContain('sigil-error');
+    expect(rowWith(host, 'b').classes).toContain('is-current');
+  });
+
   describe('keys', () => {
     it('should move on the arrows, a page on Page Up and Page Down, and to the ends on Home and End', () => {
       const host = list({ items: numbered(20) }, 5);
@@ -837,6 +871,9 @@ describe('ListView()', () => {
     );
     expect(() => ListView({ items: [], row: 'x' as never })).toThrow(
       'Expected list row to be a function'
+    );
+    expect(() => ListView({ items: [], rowClass: 'crashing' as never })).toThrow(
+      'Expected list rowClass to be a function'
     );
     expect(() => ListView({ empty: 3 as never, items: [] })).toThrow('Expected list empty');
     expect(() => ListView({ items: [], props: { onKey: () => {} } as never })).toThrow('onKey');

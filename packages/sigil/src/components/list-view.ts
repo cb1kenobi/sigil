@@ -454,6 +454,14 @@ export interface ListViewProps<T, K = T> {
    * row may hold effects; they are disposed when the row leaves the view.
    */
   row?: (item: T, key: K) => Element | string;
+  /**
+   * Classes for an item's row box, beside `is-current` and `is-selected`: a string
+   * of them or an array, as a `class` prop takes. A stylesheet reaches the row as
+   * `.sigil-list-row.crashing`, and a role class -- `sigil-error` -- colours the
+   * whole row through what its cells inherit. Read when the row is built, as `row`
+   * is: again when the item is replaced, and not when a signal it read changes.
+   */
+  rowClass?: (item: T) => string | readonly string[] | undefined;
   /** Every row's height in cells, fixed rather than measured. Defaults to 1. */
   rowHeight?: number;
   /** Whether to draw a scrollbar. Defaults to `true`. */
@@ -577,7 +585,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   if (!Array.isArray(source) && typeof (source as ListItems<T> | undefined)?.get !== 'function') {
     throw new TypeError(__`Expected list items to be an array, a State or a Computed`);
   }
-  for (const name of ['disabled', 'key', 'label', 'onActivate', 'row'] as const) {
+  for (const name of ['disabled', 'key', 'label', 'onActivate', 'row', 'rowClass'] as const) {
     if (props[name] !== undefined && typeof props[name] !== 'function') {
       throw new TypeError(__`Expected list ${name} to be a function`);
     }
@@ -681,6 +689,12 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
       ...(mark ? [mark] : []),
       body
     );
+    const extra = props.rowClass?.(item);
+    for (const name of typeof extra === 'string' ? extra.split(/\s+/) : (extra ?? [])) {
+      if (name !== '') {
+        row.addClass(name);
+      }
+    }
     const off = props.disabled?.(item) === true;
     if (off) {
       row.addClass('is-disabled');
