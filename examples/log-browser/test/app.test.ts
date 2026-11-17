@@ -1,4 +1,10 @@
-import { EnvironmentContext, type Environment, REAL } from '../src/browser.ts';
+import {
+  EnvironmentContext,
+  type Environment,
+  REAL,
+  type Resource,
+  resourceClass,
+} from '../src/browser.ts';
 import * as jsx from '../src/root.tsx';
 import * as tag from '../src/root.ui.ts';
 import { type App, runApp } from '@ttylabs/sigil/app';
@@ -543,5 +549,17 @@ describe('fifty thousand lines', () => {
     // per line would be fifty thousand of them
     expect(last?.elements).toBeLessThan(2000);
     expect(it.screen()).toMatch(/50,0\d\d lines/);
+  });
+});
+
+describe('resourceClass()', () => {
+  it('should put a pod in trouble in its role, and leave everything else as it is', () => {
+    const pod = (status: string): Resource => ({ status }) as unknown as Resource;
+    expect(resourceClass(pod('CrashLoopBackOff'))).toBe('sigil-error');
+    expect(resourceClass(pod('Pending'))).toBe('sigil-warn');
+    expect(resourceClass(pod('ContainerCreating'))).toBe('sigil-warn');
+    expect(resourceClass(pod('Running'))).toBeUndefined();
+    // a service and a deployment have no status
+    expect(resourceClass({ name: 'api' } as unknown as Resource)).toBeUndefined();
   });
 });

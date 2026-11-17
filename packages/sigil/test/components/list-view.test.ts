@@ -440,6 +440,17 @@ describe('ListView()', () => {
     expect(rowWith(host, 'b').classes).toContain('is-current');
   });
 
+  it("should leave the cursor's classes to the cursor, whatever rowClass says", () => {
+    const host = list({ items: ['a', 'b'], rowClass: () => ['is-current', 'sigil-focus'] });
+    host.onFocusChange?.(host, true);
+
+    expect(rowWith(host, 'a').classes).toEqual(
+      expect.arrayContaining(['is-current', 'sigil-focus'])
+    );
+    expect(rowWith(host, 'b').classes).not.toContain('is-current');
+    expect(rowWith(host, 'b').classes).not.toContain('sigil-focus');
+  });
+
   describe('keys', () => {
     it('should move on the arrows, a page on Page Up and Page Down, and to the ends on Home and End', () => {
       const host = list({ items: numbered(20) }, 5);

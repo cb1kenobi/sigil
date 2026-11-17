@@ -12133,8 +12133,10 @@ the probes and the sabotage pass are in
   about: where a theme gives both `sigil-muted` and the role a colour, that
   sheet's source order decides. An app that wants a disabled row muted returns no
   role for it. A class an app returns that the list also toggles -- `is-current`,
-  `sigil-focus` -- is the list's to take off again, so it is not refused, only
-  pointless.
+  `sigil-focus`, and `is-selected` in a `multiple` list -- is the list's to take
+  off again, because the cursor's and the selection's classes are put on after
+  `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
+  classes to the cursor, whatever rowClass says` pins that order.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a
