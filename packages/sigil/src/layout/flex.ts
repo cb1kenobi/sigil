@@ -133,9 +133,12 @@ function largest(items: readonly Item[], axis: Axis, size: (item: Item, axis: Ax
  * way: the lines are built from it and flexing writes to the items.
  */
 function placementOrder(items: Item[]): Item[] {
+  const byOrder = (a: Item, b: Item): number => a.style.order - b.style.order;
   for (let at = 1; at < items.length; at++) {
-    if ((items[at - 1] as Item).style.order > (items[at] as Item).style.order) {
-      return [...items].sort((a, b) => a.style.order - b.style.order);
+    // asked with the comparator itself, so "in order" means what the sort means
+    // by it whatever `order` holds
+    if (byOrder(items[at - 1] as Item, items[at] as Item) > 0) {
+      return [...items].sort(byOrder);
     }
   }
   return items;

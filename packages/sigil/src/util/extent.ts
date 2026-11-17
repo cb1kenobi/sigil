@@ -1,3 +1,15 @@
+/** How every array iterates, as it was when this module loaded. */
+const ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+/**
+ * Whether reading `values` by index is the same as iterating it: an array that
+ * still iterates the way every array does. One with an iterator of its own is
+ * read through it, because that is what the spread these stand in for reads.
+ */
+function indexable(values: Iterable<number>): values is readonly number[] {
+  return Array.isArray(values) && values[Symbol.iterator] === ARRAY_ITERATOR;
+}
+
 /**
  * The largest of a list of numbers, for a list of any length.
  *
@@ -27,7 +39,7 @@
  */
 export function maxOf(values: Iterable<number>, floor: number = -Infinity): number {
   let max = floor;
-  if (Array.isArray(values)) {
+  if (indexable(values)) {
     // indexed, because the iterator protocol over an array is a result object
     // per element wherever V8 cannot see the loop's whole life -- and this is
     // called from enough places that it cannot. It was 2.6% of what a busy
@@ -53,7 +65,7 @@ export function maxOf(values: Iterable<number>, floor: number = -Infinity): numb
  */
 export function minOf(values: Iterable<number>, ceiling: number = Infinity): number {
   let min = ceiling;
-  if (Array.isArray(values)) {
+  if (indexable(values)) {
     // indexed, for the reason `maxOf()` gives
     for (let at = 0; at < values.length; at++) {
       min = Math.min(min, values[at] as number);

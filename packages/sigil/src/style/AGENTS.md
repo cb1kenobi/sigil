@@ -910,9 +910,14 @@ toolchain's one reader.
     something is important.** A `Map` and a `Set` per resolve were the other two
     allocations every restyle paid. The table is two typed arrays indexed by
     property, valid where a stamp matches the resolve's own generation, so it is
-    reset by counting rather than clearing. A result with nothing locked shares
-    one empty set, which `CascadeResult.locked` being a `ReadonlySet` already
-    promised nobody writes to.
+    reset by counting rather than clearing. The stamps are doubles, so the count
+    is exact for 2^53 resolves and never has to wrap -- a reset would be code no
+    test can reach. A property name with no slot, which only a hand-built sheet
+    can carry, is kept by name in a map made the first time one turns up: the
+    first version gave every such name one shared slot, so `foo` could lose to
+    `bar`'s `!important`, which review found. A result with nothing locked
+    shares one empty set, which `CascadeResult.locked` being a `ReadonlySet`
+    already promised nobody writes to.
 
   **Whether anything can re-enter a resolve was checked rather than assumed,
   because reuse is only safe if nothing does.** Nothing in the library does:

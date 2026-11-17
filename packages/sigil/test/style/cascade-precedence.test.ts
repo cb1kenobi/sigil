@@ -247,6 +247,49 @@ describe('what a resolve leaves behind for the next one', () => {
   });
 });
 
+describe('a property the table has no slot for', () => {
+  // only a hand-built sheet can carry one, since the parser refuses a name it
+  // does not know -- and two of them were once a single expando on the table, so
+  // one name could lose to another's important declaration
+  const box = node({ type: 'box' });
+
+  /** A sheet of the rules given, each declaration renamed by its value. */
+  function strays(source: string, rename: Record<string, string>): Stylesheet {
+    const parsed = parseStylesheet(source);
+    return {
+      ...parsed,
+      rules: parsed.rules.map((rule) => ({
+        ...rule,
+        declarations: rule.declarations.map((declaration) => ({
+          ...declaration,
+          property: (rename[String(declaration.important)] ?? declaration.property) as PropertyName,
+        })),
+      })),
+    };
+  }
+
+  it('should never let two different names compete', () => {
+    const cascade = new Cascade([
+      strays('box { width: 4 !important } box { width: 5 }', { false: 'bar', true: 'foo' }),
+    ]);
+    const result = cascade.resolveSheets(box);
+    const style = result.style as unknown as Record<string, unknown>;
+
+    expect(style.foo).toEqual({ type: 'cells', value: 4 });
+    expect(style.bar).toEqual({ type: 'cells', value: 5 });
+    expect([...result.locked]).toEqual(['foo']);
+  });
+
+  it('should still rank two declarations of the same name', () => {
+    const cascade = new Cascade([
+      strays('box { width: 4 !important } #x, box { width: 5 }', { false: 'foo', true: 'foo' }),
+    ]);
+    const style = cascade.resolveSheets(box).style as unknown as Record<string, unknown>;
+
+    expect(style.foo).toEqual({ type: 'cells', value: 4 });
+  });
+});
+
 describe('a resolve started inside another one', () => {
   it('should give the interrupted resolve the answer it would have had', () => {
     const outer = node({ id: 'x', type: 'box' });

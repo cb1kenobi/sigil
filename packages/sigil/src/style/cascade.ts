@@ -155,10 +155,14 @@ const SLOT = new Map<PropertyName, number>(PROPERTY_NAMES.map((name, at) => [nam
  * rather than by clearing anything. That is what makes it reusable: a fresh
  * `Map` per resolve, and a `Set` of locked properties beside it, were the two
  * allocations every restyle paid whatever it matched (SIG-381).
+ *
+ * The stamps are doubles so that the generation never has to wrap: it is exact
+ * to 2^53, which at a million resolves a second is 285 years. A 32-bit counter
+ * needs a reset, and a reset is code no test can reach.
  */
 interface Scratch {
   generation: number;
-  readonly stamp: Int32Array;
+  readonly stamp: Float64Array;
   readonly winner: Int32Array;
 }
 
@@ -171,8 +175,10 @@ interface Scratch {
  * everything a resolve calls is a pure function of the declarations, the parent
  * style and the colour level -- but a `Stylesheet` is a plain object an app can
  * build by hand, and a getter on one of its declarations would be the way in.
- * One resolve that throws simply never hands it back, and the next one makes
- * another.
+ * A resolve that throws while it holds the table never hands it back, and the
+ * next one makes another; one that throws after, from `degradeInto()`, has
+ * already handed it back with its generation spent, which is all a later
+ * resolve needs of it.
  */
 let spare: Scratch | undefined;
 
@@ -417,34 +423,44 @@ export class Cascade {
     // calls nothing that is not this file's or a pure helper's
     const scratch = spare ?? {
       generation: 0,
-      stamp: new Int32Array(PROPERTY_NAMES.length),
+      stamp: new Float64Array(PROPERTY_NAMES.length),
       winner: new Int32Array(PROPERTY_NAMES.length),
     };
     spare = undefined;
-    if (scratch.generation === 0x7fffffff) {
-      scratch.generation = 0;
-      scratch.stamp.fill(0);
-    }
     const generation = ++scratch.generation;
     const { stamp, winner } = scratch;
     let locked: Set<PropertyName> | undefined;
+    // a name the table has no slot for, which only a hand-built sheet can carry:
+    // kept by name, as every property was before, so two of them never compete
+    let strays: Map<string, number> | undefined;
 
     for (let at = 0; at < matched.length; at++) {
       const rule = matched[at] as Matched;
       for (const declaration of rule.rule.declarations) {
         const property = declaration.property;
         const important = declaration.important;
-        const slot = SLOT.get(property) as number;
+        const slot = SLOT.get(property);
 
-        if (stamp[slot] === generation) {
-          const held = winner[slot] as number;
-          if (outranks(rule, important, matched[held >> 1] as Matched, (held & 1) === 1) < 0) {
-            continue;
-          }
+        const held =
+          slot === undefined
+            ? strays?.get(property)
+            : stamp[slot] === generation
+              ? winner[slot]
+              : undefined;
+        if (
+          held !== undefined &&
+          outranks(rule, important, matched[held >> 1] as Matched, (held & 1) === 1) < 0
+        ) {
+          continue;
         }
 
-        stamp[slot] = generation;
-        winner[slot] = (at << 1) | (important ? 1 : 0);
+        const code = (at << 1) | (important ? 1 : 0);
+        if (slot === undefined) {
+          (strays ??= new Map()).set(property, code);
+        } else {
+          stamp[slot] = generation;
+          winner[slot] = code;
+        }
         style[property] = declaration.keyword
           ? resolveKeyword(declaration.keyword, property, parent)
           : declaration.value;

@@ -29,6 +29,15 @@ const LISTS: Record<string, number[]> = {
   holey: holey(),
 };
 
+/** An array holding `stored` that iterates as `yielded`. */
+function ownIterator(stored: number[], yielded: number[]): number[] {
+  return Object.assign(stored, {
+    *[Symbol.iterator]() {
+      yield* yielded;
+    },
+  });
+}
+
 /**
  * The same values, through the iterator protocol rather than as an array.
  *
@@ -72,6 +81,17 @@ describe('maxOf()', () => {
     for (const [name, values] of Object.entries(LISTS)) {
       expect(Object.is(maxOf(iterate(values)), maxOf(values)), name).to.equal(true);
     }
+  });
+
+  // what the spread reads is the iterator, so an array that has its own is read
+  // through it rather than by index
+  it('should read an array through an iterator of its own, as the spread does', () => {
+    const values = ownIterator([1, 100, 3], [5]);
+
+    expect(maxOf(values)).to.equal(Math.max(...values));
+    expect(maxOf(values)).to.equal(5);
+    expect(minOf(values)).to.equal(Math.min(...values));
+    expect(minOf(values)).to.equal(5);
   });
 });
 

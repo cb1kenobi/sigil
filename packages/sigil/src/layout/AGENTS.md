@@ -615,13 +615,17 @@ the entry it belongs to.
     already in order is that sequence, and the copy and the sort's own scratch
     were paid per container per pass. `placementOrder()` hands back the array it
     was given, which is safe because nothing writes to it -- the lines are built
-    from it and flexing writes to the items. With `largest()`, which is
+    from it and flexing writes to the items. "In order" is asked with the sort's
+    own comparator rather than with `>`, which compares two strings as strings:
+    a hand-built node with `order: '10'` before `'2'` was sorted by the
+    subtraction and would have been left alone by the `>`. With `largest()`, which is
     `maxOf(items.map(...), 0)` without the array, about 0.55 MiB.
   - **`maxOf()` and `minOf()` read an array by index** (about 0.5 MiB). `for...of`
     over an array is an iterator result per element wherever V8 cannot see the
     loop's whole life, and a helper called from twenty-odd places is one it cannot.
-    Anything else is still iterated, and `test/width/extent.test.ts` holds the
-    two paths to one answer, a hole included.
+    Anything else is still iterated, and so is an array with an iterator of its
+    own, since that is what the spread these stand in for reads.
+    `test/width/extent.test.ts` holds the paths to one answer, a hole included.
   - **The measure cache is a list per node rather than a map from a key string**
     (about 0.95 MiB, with the map per node it replaced). The string was built on
     every lookup, hit or miss; a node has one to three entries on an ordinary
