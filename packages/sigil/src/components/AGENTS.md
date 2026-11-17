@@ -9416,8 +9416,15 @@ exported beside them as pure functions.
   where that sentence is the one its halves make -- which is what names two blobs,
   or two files outside a repository, whose paths differ with no rename lines.
   Anything else, a mode change or an empty file added, is one path on both sides,
-  and the line splits where its halves share the longest tail. Where the rule that
-  applies does not settle on one split there are no names rather than a guess.
+  and the line splits where its halves share the longest tail -- a tail that is at
+  least half of each half, since two binaries written with `--binary` print
+  `GIT binary patch` rather than the sentence and so say their two names nowhere
+  but this line, and a tail of one letter they happen to share named one of them
+  `Code.app/.../Code Helper b/bin/echo` (review round 4). Where the rule that
+  applies does not settle on one split there are no names rather than a guess,
+  which is what those two binaries get. So does a rename whose `--src-prefix`
+  holds its own old path and a space, which matches two splits; that is left
+  as it is, as a configuration nobody has.
   Three earlier versions read the line's own text and each was wrong somewhere:
   splitting where the halves agree after their first `/` named a rename
   `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review

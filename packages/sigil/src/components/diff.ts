@@ -619,7 +619,9 @@ function moved(header: readonly string[]): [string, string] | undefined {
  *   sentence is the one its halves make. Two blobs or two files outside a
  *   repository are two paths with no rename lines, and are named this way.
  * - Anything else -- a mode change, an empty file added -- is one path on both
- *   sides, so the line splits where its halves share the longest tail.
+ *   sides, so the line splits where its halves share the longest tail, and only
+ *   where that tail is at least half of each: two different binaries written
+ *   with `--binary` say their names nowhere else, and are left unnamed.
  *
  * Where the rule that applies does not settle on one split, there are no names
  * rather than a guess.
@@ -663,8 +665,14 @@ function gitNames(rest: string, header: readonly string[]): [string, string] | u
     }
     return length;
   };
+  // the tail is the path and the rest the prefixes, so it is most of each half: a
+  // tail of a letter or two is two different paths that happen to end alike, as
+  // two binaries of `git diff --binary` do, which have no other line to go by
   const longest = Math.max(0, ...splits.map(tail));
-  return longest > 0 ? one(splits.filter((split) => tail(split) === longest)) : undefined;
+  const found = splits.filter(
+    (split) => tail(split) === longest && 2 * longest >= Math.max(split[0].length, split[1].length)
+  );
+  return longest > 0 ? one(found) : undefined;
 }
 
 /**
