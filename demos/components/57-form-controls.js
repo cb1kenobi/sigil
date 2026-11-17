@@ -35,41 +35,43 @@ import {
 } from '@ttylabs/sigil/components';
 import { box, renderToString, text } from '@ttylabs/sigil/element';
 import { createInput, isAbort } from '@ttylabs/sigil/input';
-import { createEffect, render } from '@ttylabs/sigil/renderer';
-import { State } from '@ttylabs/sigil/signals';
+import { render } from '@ttylabs/sigil/renderer';
+import { Computed, State } from '@ttylabs/sigil/signals';
 import { createTestTerminal, KEYS } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
 const WIDTH = 48;
 
-/** What is saved, and what the form is editing. */
-const SAVED = { digest: true, dark: false, level: 'info', telemetry: false };
-
 /** The form, its values, and the controls in it. */
 function scene() {
-  const values = {
-    dark: new State(SAVED.dark),
-    digest: new State(SAVED.digest),
-    level: new State(SAVED.level),
-    telemetry: new State(SAVED.telemetry),
-  };
-  /** Whether the form differs from what was saved, which is what enables the buttons. */
-  const clean = new State(true);
+  /** What was last saved: a state too, so a save is something the buttons see. */
+  const saved = new State({ dark: false, digest: true, level: 'info', telemetry: false });
+  const values = Object.fromEntries(
+    Object.entries(saved.get()).map(([key, value]) => [key, new State(value)])
+  );
+  /**
+   * Whether the form is what was saved, which is what disables the buttons: a
+   * `Computed`, handed to them as their `disabled` as it is.
+   */
+  const clean = new Computed(() =>
+    Object.entries(values).every(([key, state]) => state.get() === saved.get()[key])
+  );
   const status = text('', { class: 'sigil-muted', height: 1 });
 
   const save = () => {
-    for (const [key, state] of Object.entries(values)) {
-      SAVED[key] = state.get();
-    }
+    const now = Object.fromEntries(
+      Object.entries(values).map(([key, state]) => [key, state.get()])
+    );
+    saved.set(now);
     const on = (flag) => (flag ? 'on' : 'off');
     status.setText(
-      `saved: digest ${on(SAVED.digest)}, usage ${on(SAVED.telemetry)}, ${SAVED.dark ? 'dark' : 'light'}, ${SAVED.level}`
+      `saved: digest ${on(now.digest)}, usage ${on(now.telemetry)}, ${now.dark ? 'dark' : 'light'}, ${now.level}`
     );
   };
   const revert = () => {
     for (const [key, state] of Object.entries(values)) {
-      state.set(SAVED[key]);
+      state.set(saved.get()[key]);
     }
     status.setText('reverted');
   };
@@ -86,10 +88,6 @@ function scene() {
     save: Button({ disabled: clean, label: 'Save', onPress: save }),
     telemetry: Checkbox({ checked: values.telemetry, label: 'Send anonymous usage data' }),
   };
-
-  createEffect(() => {
-    clean.set(Object.entries(values).every(([key, state]) => state.get() === SAVED[key]));
-  });
 
   const root = box(
     { 'flex-direction': 'column', width: WIDTH },
@@ -203,6 +201,9 @@ if (live) {
 
   await term.press(KEYS.space, KEYS.enter);
   await show('Space, Enter: a checkbox leaves Enter to the form, whose own handler saves');
+
+  await term.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+  await show('Tab four times: saved, so Save and Revert are disabled again and skipped');
 
   input.stop();
 }

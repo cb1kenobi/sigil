@@ -437,15 +437,20 @@ was tested, and the sabotage pass, are in
   often as typed at, and `runApp()` leaves it off unless asked. The contract
   line above now says an entry may pass options.
 
-- **What is worked around, each with a ticket.** `follow()` mirrors a `Computed`
-  into a `State` for a control's `disabled`, used five times (SIG-334). The login
-  dialog's Sign in and Cancel are in its body with `actions: []`, because an
-  action cannot be disabled and a dialog with actions opens on a button rather
-  than on the first field (SIG-337). And the dialog borrows an owner: it is opened
-  from `onPress`, which has none, so its body is built under a branch of the
-  Account section's owner and disposed when `result` settles -- without that, the
-  effect following the focus runs for the rest of the app, which was measured
-  (SIG-335).
+- **What is worked around, each with a ticket.** The login dialog's Sign in and
+  Cancel are in its body with `actions: []`, because an action cannot be disabled
+  and a dialog with actions opens on a button rather than on the first field
+  (SIG-337). And the dialog borrows an owner: it is opened from `onPress`, which
+  has none, so its body is built under a branch of the Account section's owner and
+  disposed when `result` settles -- without that, the effect following the focus
+  runs for the rest of the app, which was measured (SIG-335).
+
+- **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
+  in and the Account section's two buttons each take one --
+  `disabled: () => !form.dirty.get()` -- which the control reads inside its own
+  effect. It was a `follow()` helper that mirrored the condition into a `State`
+  through an effect of the example's, five times over, until SIG-334 let a
+  control's `disabled` be a `Computed` or a function.
 
 - **The status line is cut with an ellipsis, never wrapped.** At 60 columns the
   SMS reason is wider than the bar, and the text wrapped: its second line drew

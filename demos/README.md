@@ -657,7 +657,8 @@ collapse and back.
 
 `57-form-controls.js` is a settings form: two `Checkbox`es, a `Switch` between
 `light` and `dark`, a `RadioSet` of log levels with `trace` disabled, and Save and
-Revert `Button`s that stay disabled until something has changed. Tab stops once on
+Revert `Button`s that stay disabled until something has changed -- their `disabled`
+is a `Computed` over the values and what was saved, handed over as it is. Tab stops once on
 each control -- the radio set is one stop, and the arrows select inside it -- and
 skips a disabled button. Space ticks, flips and selects; Left and Right pick a state
 of the switch; a click does what Space does. Enter is the form's everywhere but on a

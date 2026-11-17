@@ -7,7 +7,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "What is drawn in place of each column of the value, for a password.",

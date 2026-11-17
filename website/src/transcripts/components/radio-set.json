@@ -20,7 +20,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "Called with the option's value after a key or a click selected it. Not called for a write the app made.",

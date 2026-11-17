@@ -20,7 +20,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "Called with the new value after Space or a click changed it. Not called for a write the app made.",
