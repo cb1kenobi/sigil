@@ -574,7 +574,7 @@ export function parsePatch(patch: string): DiffFile[] {
     // a file with no `---` and `+++` is named off its `diff --git` line
     if (entry.oldName === undefined && entry.newName === undefined) {
       const rows = entry.header!.map((line) => line.replace(/\r$/, ''));
-      const names = gitNames(rows[0]!.slice('diff --git '.length), moved(rows));
+      const names = gitNames(rows[0]!.slice('diff --git '.length), rows);
       if (names) {
         [entry.oldName, entry.newName] = names;
       }
@@ -608,20 +608,27 @@ function moved(header: readonly string[]): [string, string] | undefined {
  * The two names on a `diff --git` line, spelled as the line spells them -- a quoted
  * one still quoted, as it would be on a `---` line.
  *
- * Unquoted names may hold spaces, and a prefix may too (`--src-prefix`), so where
- * the line splits is read from what else git said. A rename or a copy names its
- * paths in the header, unprefixed, and the line is split where the halves end in
- * them -- `a/dir/my file b/dir/my` for `dir/my file` moved to `dir/my`, which the
- * halves' text alone cannot settle. Anything else is one path on both sides, and
- * the line is split where the halves name the same path under their prefixes,
- * which is how git reads it. Where neither settles on one split, there are no
- * names rather than a guess.
+ * Unquoted names may hold spaces, and a prefix may too or may not end in a `/`
+ * (`--src-prefix`), so where the line splits is read from what else the header
+ * says rather than from the line's own text, in this order:
+ *
+ * - A rename or a copy names its two paths, unprefixed, in `rename from` and
+ *   `rename to`: the line splits where its halves end in them.
+ * - A binary file repeats both names in `Binary files X and Y differ`, one of
+ *   them `/dev/null` for a file added or deleted: the line splits where that
+ *   sentence is the one its halves make. Two blobs or two files outside a
+ *   repository are two paths with no rename lines, and are named this way.
+ * - Anything else -- a mode change, an empty file added -- is one path on both
+ *   sides, so the line splits where its halves share the longest tail.
+ *
+ * Where the rule that applies does not settle on one split, there are no names
+ * rather than a guess.
  *
  * @param rest - The line after `diff --git `.
- * @param paths - The rename's or copy's two paths, where the header gave them.
+ * @param header - The file's header, without line endings.
  * @returns The old name and the new one, or nothing where the line does not say.
  */
-function gitNames(rest: string, paths: [string, string] | undefined): [string, string] | undefined {
+function gitNames(rest: string, header: readonly string[]): [string, string] | undefined {
   const quoted =
     new RegExp(`^(${QUOTED}) (.+)$`).exec(rest) ?? new RegExp(`^([^"]+) (${QUOTED})$`).exec(rest);
   if (quoted) {
@@ -631,13 +638,33 @@ function gitNames(rest: string, paths: [string, string] | undefined): [string, s
     rest.slice(0, match.index),
     rest.slice(match.index + 1),
   ]);
-  /** Whether a name is a path under a prefix, or the path itself with no prefix. */
-  const names = (name: string, path: string): boolean => name === path || name.endsWith(`/${path}`);
-  const path = (name: string): string => name.slice(name.indexOf('/') + 1);
-  const found = paths
-    ? splits.filter(([old, next]) => names(old, paths[0]) && names(next, paths[1]))
-    : splits.filter(([old, next]) => path(old) === path(next));
-  return found.length === 1 ? found[0] : undefined;
+  const one = (found: [string, string][]): [string, string] | undefined =>
+    found.length === 1 ? found[0] : undefined;
+
+  const paths = moved(header);
+  if (paths) {
+    return one(splits.filter(([old, next]) => old.endsWith(paths[0]) && next.endsWith(paths[1])));
+  }
+  const binary = header.find((line) => line.startsWith('Binary files '));
+  if (binary !== undefined) {
+    const says = (old: string, next: string): boolean =>
+      [old, '/dev/null'].some((a) =>
+        [next, '/dev/null'].some((b) => binary === `Binary files ${a} and ${b} differ`)
+      );
+    return one(splits.filter(([old, next]) => says(old, next)));
+  }
+  const tail = ([old, next]: [string, string]): number => {
+    let length = 0;
+    while (
+      length < Math.min(old.length, next.length) &&
+      old.at(-1 - length) === next.at(-1 - length)
+    ) {
+      length++;
+    }
+    return length;
+  };
+  const longest = Math.max(0, ...splits.map(tail));
+  return longest > 0 ? one(splits.filter((split) => tail(split) === longest)) : undefined;
 }
 
 /**

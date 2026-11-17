@@ -404,6 +404,9 @@ describe('parsePatch() and what it keeps to write back', () => {
     ]);
     // with diff.noprefix the two halves are the path itself
     expect(names('diff --git my file my file')).to.deep.equal(['my file', 'my file']);
+    // and a prefix need not be a directory's
+    expect(names('diff --git a/x/f.txt b/y/f.txt')).to.deep.equal(['a/x/f.txt', 'b/y/f.txt']);
+    expect(names('diff --git src:f.txt dst:f.txt')).to.deep.equal(['src:f.txt', 'dst:f.txt']);
     // quoted as a `---` line would quote it, which is the spelling the names have
     expect(names('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"')).to.deep.equal([
       '"a/say \\"hi\\".txt"',
@@ -434,6 +437,33 @@ describe('parsePatch() and what it keeps to write back', () => {
     expect(renamed('dir/my file', 'other/new file', ['', ''])).to.deep.equal([
       'dir/my file',
       'other/new file',
+    ]);
+    expect(renamed('README.md', 'NOTES.md', ['src:', 'dst:'])).to.deep.equal([
+      'src:README.md',
+      'dst:NOTES.md',
+    ]);
+  });
+
+  it('should split a binary file where its Binary files line says the same names', () => {
+    /** The names of a binary file, as `git diff` prints one with no `---` or `+++`. */
+    const binary = (old: string, next: string, said = [old, next]): (string | undefined)[] => {
+      const [file] = parsePatch(
+        `diff --git ${old} ${next}\nindex 1111111..2222222 100644\nBinary files ${said[0]} and ${said[1]} differ\n`
+      );
+      return [file?.oldName, file?.newName];
+    };
+
+    // two blobs, or two files outside a repository: two paths, and no rename lines
+    expect(binary('a/4b60195c', 'b/390e34a6')).to.deep.equal(['a/4b60195c', 'b/390e34a6']);
+    expect(binary('a/foo bar', 'b/foo')).to.deep.equal(['a/foo bar', 'b/foo']);
+    expect(binary('src prefix/x.png', 'dst prefix/y.png')).to.deep.equal([
+      'src prefix/x.png',
+      'dst prefix/y.png',
+    ]);
+    // a file added, whose old side the sentence calls /dev/null
+    expect(binary('a/x/i.png', 'b/y/i.png', ['/dev/null', 'b/y/i.png'])).to.deep.equal([
+      'a/x/i.png',
+      'b/y/i.png',
     ]);
   });
 
