@@ -3,7 +3,7 @@ import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -129,6 +129,37 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
     expect(stderr).toContain(
       `which holds ${escapeControls(displayPath(join(dir, 'helper.js')))}, a module the app is built from`
     );
+  }, 60_000);
+  it('should not print one from a warning rolldown prints itself', async () => {
+    // a warning that is not an unresolved import is rolldown's own to print, and
+    // its printer names the module before the message -- on a build that goes
+    // on to succeed as readily as on one that fails
+    const app = appWithHelper(join('src', TITLE), "export const x = eval('1');\n");
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain('[EVAL]');
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from an error rolldown did not locate', async () => {
+    // an entry that is not there is an error with no file to pin it on, so it is
+    // thrown as rolldown's sentence -- escaped by `diagnosticMessage()`'s rule
+    // and `--bin` refuses a routed command directory, so the schema says it all
+    const app = linkedFixture(buildable, 'sigil-bundle-escape-entry-');
+    rmSync(join(app, 'src', 'commands'), { force: true, recursive: true });
+    writeFileSync(
+      join(app, 'src', 'index.ts'),
+      "export default { name: 'buildable', run() {} };\n"
+    );
+
+    const { code, stderr } = await build(app, '0', '--bin', `${TITLE}.js`);
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('UNRESOLVED_ENTRY');
+    expect(stderr).toContain(escapeControls(TITLE));
+    expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
 });
 

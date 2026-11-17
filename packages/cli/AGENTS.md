@@ -1245,6 +1245,18 @@ makes it testable with a fixture directory and no bundler at all.
   show, and an SGR inside a file name goes with rolldown's, which costs it only a
   sequence the terminal would have hidden anyway.
 
+  **A warning rolldown prints itself is escaped before it is handed over.** Every
+  log but an unresolved import and the one suppressed conflict goes to
+  rolldown's own printer, which names `loc.file` and then the message as they
+  stand -- so a module at that path calling `eval` wrote the retitle on a build
+  that succeeded, found by review. `onLog` hands it a copy with the file through
+  `escapeControls()` and the message through `escapeMessage()`; turning warnings
+  into diagnostics was the larger answer and would change what every warning
+  looks like, which is not this ticket's. A log counts as located only when its
+  file is a non-empty string, because a JavaScript plugin's error comes back as
+  the object it threw and `loc: null` beside an `id` threw a `TypeError` over
+  the error it was meant to report.
+
   The audit of everything else a failed bundle prints, each escaped where its
   sentence is built: the build's own refusal to write over a module the bundle
   read, a chunk that still holds JSX, `clean()`'s and `assertCleanable()`'s

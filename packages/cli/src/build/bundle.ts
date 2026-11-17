@@ -470,7 +470,21 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
         return;
       }
 
-      handler(level, log);
+      // every other log is rolldown's to print, and rolldown prints the file
+      // it is about and its message as they stand: a module at
+      // `h<ESC>]0;T<BEL>d/helper.js` that calls `eval` wrote the retitle to
+      // stderr on a build that went on to succeed, or to fail on something else
+      // (SIG-447, found in review). So the two app-supplied halves of what
+      // rolldown's printer reads are escaped before it reads them -- the file
+      // with `escapeControls()`, the message with `diagnosticMessage()`'s rule --
+      // and the rest of the log is handed over untouched
+      handler(level, {
+        ...log,
+        message: escapeMessage(unstyled(message)),
+        ...(log.loc?.file !== undefined && {
+          loc: { ...log.loc, file: escapeValue(log.loc.file) },
+        }),
+      });
     },
     platform: 'node',
     plugins: [
@@ -960,7 +974,7 @@ function bundleError(error: unknown): Error {
       ? (error as { errors: RolldownLog[] }).errors
       : [{ message: error instanceof Error ? error.message : String(error) }];
 
-  if (errors.length && errors.every((log) => (log.loc?.file ?? log.id) !== undefined)) {
+  if (errors.length && errors.every((log) => located(log) !== undefined)) {
     return new DiagnosticError(
       errors
         .map((log) => {
@@ -991,12 +1005,29 @@ function bundleError(error: unknown): Error {
  */
 function logDiagnostic(log: RolldownLog, message: string, fallback: string): Diagnostic {
   return {
-    column: log.loc === undefined ? undefined : log.loc.column + 1,
-    file: log.loc?.file ?? log.id ?? fallback,
-    line: log.loc?.line,
+    column: log.loc ? log.loc.column + 1 : undefined,
+    file: located(log) ?? fallback,
+    line: log.loc ? log.loc.line : undefined,
     message,
     severity: 'error',
   };
+}
+
+/**
+ * The file a rolldown log is about, or `undefined` when it names none.
+ *
+ * Asked of anything that is not a non-empty string rather than of `undefined`
+ * alone, because a log is not only rolldown's: a JavaScript plugin's error is
+ * handed back as the object it threw, and one carrying `loc: null` beside an
+ * `id` read as located and then threw a `TypeError` over `null.column` -- an
+ * error about the error, in place of it.
+ *
+ * @param log - What rolldown reported.
+ * @returns The file.
+ */
+function located(log: RolldownLog): string | undefined {
+  const file: unknown = log.loc?.file ?? log.id;
+  return typeof file === 'string' && file !== '' ? file : undefined;
 }
 
 /**
