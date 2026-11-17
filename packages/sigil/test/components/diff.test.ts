@@ -471,6 +471,13 @@ describe('parsePatch() and what it keeps to write back', () => {
     const [file] = parsePatch('diff --git a/x b/y b/z\nold mode 100644\nnew mode 100755\n');
 
     expect([file!.oldName, file!.newName]).to.deep.equal([undefined, undefined]);
+
+    // two binaries written with --binary, whose names are nowhere else: a split
+    // after "Visual Studio" is the only one whose halves end alike, and is wrong
+    const [binary] = parsePatch(
+      'diff --git a/Visual Studio Code.app/Code Helper b/bin/echo\nindex 1..2 100755\nGIT binary patch\nliteral 1\n'
+    );
+    expect([binary!.oldName, binary!.newName]).to.deep.equal([undefined, undefined]);
   });
 
   it('should take the names from --- and +++ where a file has them', () => {
