@@ -463,7 +463,8 @@ export interface ListViewProps<T, K = T> {
    *
    * While the list is following, every change of the items puts the cursor on the
    * last row and scrolls it into view, so an append moves the cursor to the newest
-   * row -- over a key written in the same step, which an app writes on its own. A move off the last row stops following, and so does a scroll -- the wheel,
+   * row. A move made in the same step as the items -- a key, or an app writing
+   * `current` -- is kept, and decides following as any move does. A move off the last row stops following, and so does a scroll -- the wheel,
    * or an app's `scrollTo()` -- that takes the cursor's row out of view; End, `G`,
    * or a move back onto the last row starts it again.
    *
@@ -913,6 +914,10 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
    */
   const rekey = (next: readonly T[]): void => {
     const nextKeys = next.map((item) => keyOf(item));
+    // a move made since following was last decided -- a key, a click, an app
+    // writing `current` in the same step as the items -- is the reader's, and the
+    // cursor effect decides it: the rows changing neither overrules it nor hides it
+    const moved = tailSeen !== undefined && untrack(() => current.get()) !== tailSeen.key;
     const disabled = props.disabled;
     selection.setRows(
       nextKeys,
@@ -920,12 +925,14 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     );
     // before anything below scrolls, so the scroll hook finds the cursor where it
     // is going rather than where it was
-    if (tailing()) {
-      selection.last();
+    if (!moved) {
+      if (tailing()) {
+        selection.last();
+      }
+      // where the list put the cursor is not a move: settling it on the row that
+      // took its place, or on the first row of a list that was empty, decides nothing
+      tailSeen = { key: untrack(() => current.get()) };
     }
-    // where the list put the cursor is not a move: settling it on the row that
-    // took its place, or on the first row of a list that was empty, decides nothing
-    tailSeen = { key: untrack(() => current.get()) };
     items = next;
     keys = nextKeys;
     const none = next.length === 0;

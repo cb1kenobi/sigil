@@ -11848,13 +11848,20 @@ and they are the prop now.
   start a paused list following because it happens to be the last. Review round 1
   found the first of those as a `State(false)` list fed one line at a time, which
   followed from its first line on. A list that starts paused on its last row stays
-  paused for the same reason.
+  paused for the same reason. What tells the two apart is whether the cursor's
+  key is still the one last recorded when the rows change: if not, something moved
+  it, and the re-key neither records over that move nor overrules it. Round 2
+  found the first half missing -- a paused list where Down onto the last row and
+  a new array of the same rows landed in one flush stayed paused, because the
+  re-key recorded the reader's key as its own -- and the second was the same hole
+  while following, where an append in that flush pulled an Up back to the end.
 - **While following, every change of the items goes to the last row, not only an
   append.** Telling an append from a replacement is SIG-386's question and this
   does not need its answer: a log re-filtered while following wants the newest
-  line that is left, which is what the log browser's own refilter effect did. A
-  key an app writes in the same step as the items is overruled by it too; an app
-  that moves the cursor while following writes it on its own, or stops first.
+  line that is left, which is what the log browser's own refilter effect did.
+  Except over a move: a key the reader pressed, or an app wrote, in the same step
+  as the items is a move nothing has decided yet, so the re-key leaves it where it
+  is and the cursor effect decides it.
   Done right after `setRows()` and before the list clamps or reveals anything, so
   the scroll hook finds the cursor where it is going.
 - **End starts following on the row it is already on.** `last()` on the last row
@@ -11894,8 +11901,10 @@ and they are the prop now.
   `read()` is not the array last keyed, and the items effect then finds nothing to
   do -- `should keep a key written with the items that hold it, whichever of its
   effects runs first`. The identity check is the whole cost.
-- **Sabotage: ten, ten caught,** and two more after review round 1 -- the clamp
-  heard, and the re-key's record of where it put the cursor -- each caught. The re-key in the cursor effect; End writing
+- **Sabotage: ten, ten caught,** and five more after review rounds 1 and 2 --
+  the clamp heard, the re-key's record of where it put the cursor, that record
+  taken over a move, a move overruled while following, and a move not noticed
+  at all -- each caught. The re-key in the cursor effect; End writing
   `tail`; the scroll hook; deciding on every run; the reveal on a resize; the move
   to the last row on a change of items; the tail effect's reveal, and its move;
   "in view" read as the whole row; and the last row counted without passing over

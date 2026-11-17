@@ -989,6 +989,29 @@ describe('ListView()', () => {
       expect(tail.get()).toBe(true);
     });
 
+    it('should decide a move made in the same step as the items, and not overrule it', () => {
+      // paused, the reader moves onto the last row while a new array of the same
+      // rows arrives: the move starts following
+      const paused = tailing(3, new State(false));
+      const at = control(paused.host).selection.current;
+      expect(at.get()).toBe('item 0');
+      at.set('item 2');
+      paused.items.set(numbered(3));
+      flush();
+      expect(paused.tail.get()).toBe(true);
+      paused.append('item 3');
+      expect(at.get()).toBe('item 3');
+
+      // following, the reader moves up while a line arrives: the move stays, and
+      // following stops
+      const following = tailing(20);
+      const cursor = control(following.host).selection.current;
+      following.host.onKey?.(keyEvent('up'));
+      following.append('item 20');
+      expect(cursor.get()).toBe('item 18');
+      expect(following.tail.get()).toBe(false);
+    });
+
     it('should keep the last row in view when the view gets shorter', () => {
       const { host, viewport } = tailing(20);
       host.setProps({ height: 3 });
