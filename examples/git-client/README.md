@@ -82,9 +82,11 @@ the index lock from whatever else is using the repository.
 Space in the diff pane writes the hunk under the cursor back as a patch of its
 own -- the file's header and that one hunk, every line as git wrote it -- and
 hands it to `git apply --cached`, or `git apply --cached --reverse` for a hunk
-under `Staged`. That is what `git add -p` does. The patch is read by the
-example's own `splitPatch()` rather than by `parsePatch()`, which drops
-`\ No newline at end of file` and would stage a different hunk (SIG-370).
+under `Staged`. That is what `git add -p` does. The patch is read by
+`parsePatch()` and the hunk written back by `hunkPatch()`, both from
+`@ttylabs/sigil/components`: the reader keeps every file's header and every
+hunk's lines as git wrote them, `\r` and `\ No newline at end of file` included,
+so the same read is what the pane draws and what Space stages.
 
 A patch longer than 4,000 lines is cut, and the hunk the cut went through is
 left out rather than offered to Space, since its header still counts the lines

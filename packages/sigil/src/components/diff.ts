@@ -31,6 +31,12 @@ export interface DiffLine {
   newNumber?: number;
   /** The line number in the old file. Absent for an added line. */
   oldNumber?: number;
+  /**
+   * Whether the line ends its side of the file with no newline after it, which a
+   * patch says with `\ No newline at end of file` under it. A context line that
+   * has it is the last line of both sides. Set only where a patch said so.
+   */
+  noNewline?: boolean;
   /** The line, with no line ending. */
   text: string;
 }
@@ -44,19 +50,42 @@ export interface DiffHunk {
   newStart: number;
   oldLines: number;
   oldStart: number;
+  /**
+   * The hunk as its patch wrote it, the `@@` line first: each line without its
+   * `\n` and exactly as it was otherwise, a `\r` and `\ No newline at end of
+   * file` included. Set by `parsePatch()`, and what `hunkPatch()` writes back.
+   */
+  source?: string[];
 }
 
 /** The hunks of one file, and the names its patch gave the two sides. */
 export interface DiffFile {
+  /**
+   * Whether git said the file is binary (`Binary files ... differ`, or a `GIT
+   * binary patch`), which leaves it no hunks to show or apply.
+   */
+  binary?: boolean;
+  /**
+   * The lines before the file's first hunk, as its patch wrote them: from
+   * `diff --git` where git began the file, through `index`, the mode, rename and
+   * binary lines, to `---` and `+++`. Set by `parsePatch()`, and what
+   * `hunkPatch()` puts above a hunk -- `new file mode` and `--- /dev/null` are what
+   * tell `git apply` to create the path rather than look for it.
+   */
+  header?: string[];
   hunks: DiffHunk[];
   newName?: string;
   oldName?: string;
 }
 
-/** What `diffView()` is asked to show: two texts, or a unified patch. */
+/**
+ * What `diffView()` is asked to show: two texts, a unified patch, or the files of
+ * one that `parsePatch()` has already read.
+ */
 export type DiffInput =
   | { new: string; newName?: string; old: string; oldName?: string }
-  | { patch: string };
+  | { patch: string }
+  | { files: readonly DiffFile[] };
 
 /** How the two sides are set out. */
 export type DiffLayout = 'side-by-side' | 'unified';
@@ -402,57 +431,78 @@ const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/;
  * The narrowest reading that covers `diff -u` and `git diff`: `---` and `+++`
  * name a file, `@@` opens a hunk, and the hunk's own line counts say where it
  * ends -- which is what lets a removed line that starts `-- ` be told from a file
- * header. Everything outside a hunk and a file header (`diff --git`, `index`,
- * mode lines, a commit message) is skipped, and `\ No newline at end of file` is
- * dropped. Not read: renames and binary markers as anything but skipped text,
+ * header. A `diff --git` line also begins a file, since that is git's own
+ * boundary, and a file git began is kept with no hunks at all: a binary file, a
+ * rename with no change of content, a mode change and an empty new file are each
+ * a file git said something about. Its names are the two on that line until a
+ * `---` and `+++` give them. `\ No newline at end of file` is the
+ * {@link DiffLine.noNewline} of the line above it.
+ *
+ * Every file keeps the lines before its first hunk as {@link DiffFile.header} and
+ * every hunk its own lines as {@link DiffHunk.source}, each exactly as written but
+ * for the `\n`, which is what lets `hunkPatch()` write one hunk back for
+ * `git apply`. Everything else outside a hunk (a commit message, a signature) is
+ * skipped. Not read: what a rename or a mode line says, a binary patch's data,
  * combined diffs, and the context format.
  *
  * @param patch - The patch.
- * @returns The files in it, none where it holds no hunk.
+ * @returns The files in it: none where it holds no hunk and no `diff --git`.
  */
 export function parsePatch(patch: string): DiffFile[] {
-  const rows = patch.split(/\r?\n/);
-  if (rows.at(-1) === '') {
-    rows.pop();
+  // split on `\n` alone, so a `\r` stays on the line it came on: it is a CRLF
+  // file's content, and a hunk written back without it is a different hunk
+  const raws = patch.split('\n');
+  if (raws.at(-1) === '') {
+    raws.pop();
   }
 
   const files: DiffFile[] = [];
+  /** The files `diff --git` began, which are kept without a hunk. */
+  const git = new Set<DiffFile>();
   let file: DiffFile | undefined;
   let hunk: DiffHunk | undefined;
+  /** The line last read into `hunk`, which a `\` row under it is about. */
+  let last: DiffLine | undefined;
   let oldLeft = 0;
   let newLeft = 0;
   let oldNumber = 0;
   let newNumber = 0;
 
-  for (let index = 0; index < rows.length; index++) {
-    const row = rows[index]!;
+  for (let index = 0; index < raws.length; index++) {
+    const raw = raws[index]!;
+    const row = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+
+    if (hunk && row.startsWith('\\') && (last || oldLeft > 0 || newLeft > 0)) {
+      // `\ No newline at end of file`, about the line above it, which may be the
+      // hunk's last: so it is read after the counts have run out as well
+      if (last) {
+        last.noNewline = true;
+      }
+      hunk.source!.push(raw);
+      continue;
+    }
+    last = undefined;
 
     if (hunk && (oldLeft > 0 || newLeft > 0)) {
       const sign = row[0];
       const rest = row.slice(1);
-      if (sign === '\\') {
-        continue;
-      }
+      let line: DiffLine | undefined;
       if (sign === '+' && newLeft > 0) {
-        hunk.lines.push({ kind: 'add', newNumber: newNumber++, text: rest });
+        line = { kind: 'add', newNumber: newNumber++, text: rest };
         newLeft--;
-        continue;
-      }
-      if (sign === '-' && oldLeft > 0) {
-        hunk.lines.push({ kind: 'remove', oldNumber: oldNumber++, text: rest });
+      } else if (sign === '-' && oldLeft > 0) {
+        line = { kind: 'remove', oldNumber: oldNumber++, text: rest };
         oldLeft--;
-        continue;
-      }
-      if ((sign === ' ' || row === '') && oldLeft > 0 && newLeft > 0) {
+      } else if ((sign === ' ' || row === '') && oldLeft > 0 && newLeft > 0) {
         // an editor strips the one space of a blank context line
-        hunk.lines.push({
-          kind: 'context',
-          newNumber: newNumber++,
-          oldNumber: oldNumber++,
-          text: rest,
-        });
+        line = { kind: 'context', newNumber: newNumber++, oldNumber: oldNumber++, text: rest };
         oldLeft--;
         newLeft--;
+      }
+      if (line) {
+        hunk.lines.push(line);
+        hunk.source!.push(raw);
+        last = line;
         continue;
       }
       // a hunk that stops short of its counts ends where the patch stops agreeing
@@ -460,9 +510,26 @@ export function parsePatch(patch: string): DiffFile[] {
       newLeft = 0;
     }
 
-    if (row.startsWith('--- ') && rows[index + 1]?.startsWith('+++ ')) {
-      file = { hunks: [], newName: fileName(rows[index + 1]!), oldName: fileName(row) };
+    if (row.startsWith('diff --git ')) {
+      const names = gitNames(row.slice('diff --git '.length));
+      file = { header: [raw], hunks: [], newName: names?.[1], oldName: names?.[0] };
       files.push(file);
+      git.add(file);
+      hunk = undefined;
+      continue;
+    }
+
+    if (row.startsWith('--- ') && raws[index + 1]?.replace(/\r$/, '').startsWith('+++ ')) {
+      const next = raws[index + 1]!;
+      const names = { newName: fileName(next.replace(/\r$/, '')), oldName: fileName(row) };
+      // the `---` and `+++` of a file `diff --git` began are its own, until a hunk
+      if (file && git.has(file) && !file.hunks.length) {
+        Object.assign(file, names);
+        file.header!.push(raw, next);
+      } else {
+        file = { header: [raw, next], hunks: [], ...names };
+        files.push(file);
+      }
       hunk = undefined;
       index++;
       continue;
@@ -471,7 +538,7 @@ export function parsePatch(patch: string): DiffFile[] {
     const header = HUNK_HEADER.exec(row);
     if (header) {
       if (!file) {
-        file = { hunks: [] };
+        file = { header: [], hunks: [] };
         files.push(file);
       }
       const count = (value: string | undefined): number =>
@@ -487,12 +554,53 @@ export function parsePatch(patch: string): DiffFile[] {
         newStart: newNumber,
         oldLines: oldLeft,
         oldStart: oldNumber,
+        source: [raw],
       };
       file.hunks.push(hunk);
+      continue;
+    }
+
+    // the extended header of a file git began: `index`, the modes, a rename, binary
+    if (file && git.has(file) && !file.hunks.length) {
+      file.header!.push(raw);
+      if (row.startsWith('Binary files ') || row === 'GIT binary patch') {
+        file.binary = true;
+      }
     }
   }
 
-  return files.filter((entry) => entry.hunks.length > 0);
+  return files.filter((entry) => entry.hunks.length > 0 || git.has(entry));
+}
+
+/** A name as git writes one that needs quoting: in double quotes, with C escapes. */
+const QUOTED = '"(?:[^"\\\\]|\\\\.)*"';
+
+/**
+ * The two names on a `diff --git` line, spelled as the line spells them -- a quoted
+ * one still quoted, as it would be on a `---` line.
+ *
+ * Unquoted names may hold spaces, so the line is split where the two halves name
+ * the same path under their prefixes (`a/x y b/x y`), which is how git reads it.
+ * A rename whose names hold spaces is the one line that cannot be split that way,
+ * and git does not read it from this line either: it has no names here.
+ *
+ * @param rest - The line after `diff --git `.
+ * @returns The old name and the new one, or nothing where the line does not say.
+ */
+function gitNames(rest: string): [string, string] | undefined {
+  const quoted =
+    new RegExp(`^(${QUOTED}) (.+)$`).exec(rest) ?? new RegExp(`^([^"]+) (${QUOTED})$`).exec(rest);
+  if (quoted) {
+    return [quoted[1]!, quoted[2]!];
+  }
+  const path = (name: string): string => name.slice(name.indexOf('/') + 1);
+  const spaces = [...rest.matchAll(/ /g)].map((match) => match.index);
+  for (const at of spaces) {
+    if (path(rest.slice(0, at)) === path(rest.slice(at + 1))) {
+      return [rest.slice(0, at), rest.slice(at + 1)];
+    }
+  }
+  return spaces.length === 1 ? [rest.slice(0, spaces[0]), rest.slice(spaces[0]! + 1)] : undefined;
 }
 
 /**
@@ -503,6 +611,47 @@ export function parsePatch(patch: string): DiffFile[] {
  */
 function fileName(row: string): string {
   return row.slice(4).split('\t')[0]!.trim();
+}
+
+/** The sign a patch puts in front of each kind of line. */
+const SIGN: Record<DiffLineKind, string> = { add: '+', context: ' ', remove: '-' };
+
+/**
+ * One hunk as a patch of its own, under its file's header: what `git apply`
+ * takes to apply that hunk and no other, which is how a hunk is staged
+ * (`git apply --cached`) and unstaged (`--cached --reverse`), the way
+ * `git add -p` does it.
+ *
+ * What `parsePatch()` kept is written back exactly: the file's
+ * {@link DiffFile.header} -- a new file's `new file mode` and `--- /dev/null` are
+ * what make git create the path rather than look for it -- and the hunk's
+ * {@link DiffHunk.source}, its counts unchanged, since applying it alone is what
+ * they describe, and its `\r` and `\ No newline at end of file` kept, since a
+ * hunk without them is a different hunk. A file or a hunk that was not read from
+ * a patch, such as one from `diffHunks()`, is written from what it holds: `---`
+ * and `+++` from its names, and a line a sign and its text, with
+ * {@link DiffLine.noNewline} written as the line git writes for it. So a hunk
+ * whose `lines` an app has changed is written from them once its `source` is
+ * deleted, and from the source while it is there.
+ *
+ * @param file - The file the hunk is in.
+ * @param hunk - The hunk.
+ * @returns The patch, ending in a newline as git's own do.
+ */
+export function hunkPatch(file: DiffFile, hunk: DiffHunk): string {
+  const oldName = file.oldName ?? file.newName;
+  const newName = file.newName ?? file.oldName;
+  const header =
+    file.header ??
+    (oldName === undefined || newName === undefined ? [] : [`--- ${oldName}`, `+++ ${newName}`]);
+  const body = hunk.source ?? [
+    hunkHeader(hunk),
+    ...hunk.lines.flatMap((line) => {
+      const row = `${SIGN[line.kind]}${line.text}`;
+      return line.noNewline ? [row, '\\ No newline at end of file'] : [row];
+    }),
+  ];
+  return `${[...header, ...body].join('\n')}\n`;
 }
 
 const WORD = /[\p{L}\p{N}\p{M}_]+|\s+|[^\p{L}\p{N}\p{M}_\s]/gu;
@@ -960,8 +1109,10 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
       : 'unified';
   const numbered = opts.lineNumbers !== false;
 
-  const twoTexts = 'patch' in input ? undefined : input;
-  const files: DiffFile[] = twoTexts
+  const twoTexts = 'patch' in input || 'files' in input ? undefined : input;
+  // a file a patch holds with no hunk -- binary, renamed, a mode changed -- has
+  // nothing for the view to draw, not even its names
+  const files: readonly DiffFile[] = twoTexts
     ? [
         {
           hunks: diffHunks(twoTexts.old, twoTexts.new, { context: opts.context }),
@@ -969,7 +1120,9 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
           oldName: twoTexts.oldName,
         },
       ]
-    : parsePatch((input as { patch: string }).patch);
+    : ('files' in input ? input.files : parsePatch((input as { patch: string }).patch)).filter(
+        (file) => file.hunks.length > 0
+      );
 
   let largest = 0;
   for (const file of files) {
