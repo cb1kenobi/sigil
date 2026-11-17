@@ -463,8 +463,8 @@ export function calendar(opts: CalendarOptions = {}): string {
 }
 
 /**
- * A field of a date prompt. `date()` shows all six or the first three, and
- * `pickDate()`'s line form asks for the first three.
+ * A field of a date prompt. `date()` shows the first three, five or all six,
+ * and `pickDate()`'s line form asks for the first three.
  */
 export type DateField = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
 
@@ -550,9 +550,17 @@ const PICTURE: Record<DateField, string> = {
   year: 'YYYY',
 };
 
-/** A field's number, with its digits. */
+/**
+ * A field's number, with its digits.
+ *
+ * The sign goes in front of the digits rather than among them: a year before 0
+ * can only arrive as an `initial`, `min` or `max` that was given, and padding
+ * `-1` wrote `00-1`, which is no year at all -- so a refusal quoted text the
+ * fields never were. `-0001` is refused all the same, in words that say why.
+ */
 function padField(field: DateField, value: number): string {
-  return String(value).padStart(DIGITS[field], '0');
+  const digits = String(Math.abs(value)).padStart(DIGITS[field], '0');
+  return value < 0 ? `-${digits}` : digits;
 }
 
 /**

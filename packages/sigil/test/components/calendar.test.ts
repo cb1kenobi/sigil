@@ -421,6 +421,20 @@ describe('pickDate()', () => {
       expect(dayOf(await answer)).toEqual({ day: 15, month: m, year: y });
     });
 
+    // drawn, an `initial` outside the years is answered as given, which the
+    // AGENTS.md entry records as left alone; the line form refuses it (SIG-407),
+    // and this is what says the drawn Enter was not routed through that judging
+    it.each([
+      ['10000', 10000, '10000-06-15'],
+      ['-1', -1, '-0001-06-15'],
+    ])('should answer an initial in year %s on Enter, drawn as given', async (_, y, shown) => {
+      const { answer, ui } = ask({ initial: localDate(y, 6, 15) });
+
+      expect(ui.log[0]).to.equal(`? When? ${shown}`);
+      await type(ui.stdin, ENTER);
+      expect(dayOf(await answer)).toEqual({ day: 15, month: 6, year: y });
+    });
+
     it('should move back off an end it stopped at', async () => {
       const { answer, ui } = ask({ initial: localDate(9999, 12, 31) });
 

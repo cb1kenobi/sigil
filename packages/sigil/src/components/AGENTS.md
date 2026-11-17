@@ -5881,7 +5881,12 @@ field.
     is drawn. `pickDate()`'s start is already pulled into the range, so the
     only start the judging refuses is one outside 0000-9999, which neither
     `\d{4}` nor the parser can say -- refused rather than answered on a line,
-    while the drawn form still answers it as recorded above.
+    while the drawn form still answers it as recorded above (pinned in
+    `calendar.test.ts`, so the drawn Enter cannot quietly start judging too).
+  - **A year before 0 is written with its sign in front.** The one writer
+    padded `-1` as `00-1`, in `date()` on `main` as much as here, so a refusal
+    quoted text the fields never were and the drawn field showed no year at
+    all. It is `-0001` now, which the parser refuses in words that say why.
   - **The answer is the parser's `Date`, which for a day is local midnight.**
     `pickDate()`'s line form used to build it with `localDate()`; the two are
     the same instant -- measured over 653,319 days spanning years 0-9999 (every
@@ -5890,8 +5895,13 @@ field.
     difference; in a gap both resolve forward to 01:00. So one reader
     needs no answer callback.
   - `prompt-accessible.test.ts` asks both prompts the same replies under each
-    shape of range and compares the transcripts, which fails on `main`'s two
-    readers in three of the four.
+    shape of range and compares the transcripts and the exact refusals, which
+    fails on `main`'s two readers in three of the four -- the one without a
+    range never reached the order. What is not in the suite is the instant in a
+    daylight-saving gap: CI runs in UTC, where local and UTC midnight are one,
+    and `vi.stubEnv('TZ')` does not move a vitest worker's zone (tried: an
+    answer for 2018-11-04 in São Paulo still read 00:00). The measurement above
+    is the evidence for that half.
 - **Deliberately not done:** week numbers; a range selection; marking today
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
