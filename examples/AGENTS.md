@@ -437,15 +437,20 @@ was tested, and the sabotage pass, are in
   often as typed at, and `runApp()` leaves it off unless asked. The contract
   line above now says an entry may pass options.
 
-- **What is worked around, each with a ticket.** `follow()` mirrors a `Computed`
-  into a `State` for a control's `disabled`, used five times (SIG-334). The login
-  dialog's Sign in and Cancel are in its body with `actions: []`, because an
-  action cannot be disabled and a dialog with actions opens on a button rather
-  than on the first field (SIG-337). And the dialog borrows an owner: it is opened
-  from `onPress`, which has none, so its body is built under a branch of the
-  Account section's owner and disposed when `result` settles -- without that, the
-  effect following the focus runs for the rest of the app, which was measured
-  (SIG-335).
+- **What is worked around, each with a ticket.** The login dialog's Sign in and
+  Cancel are in its body with `actions: []`, because an action cannot be disabled
+  and a dialog with actions opens on a button rather than on the first field
+  (SIG-337). And the dialog borrows an owner: it is opened from `onPress`, which
+  has none, so its body is built under a branch of the Account section's owner and
+  disposed when `result` settles -- without that, the effect following the focus
+  runs for the rest of the app, which was measured (SIG-335).
+
+- **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
+  in and the Account section's two buttons each take one --
+  `disabled: () => !form.dirty.get()` -- which the control reads inside its own
+  effect. It was a `follow()` helper that mirrored the condition into a `State`
+  through an effect of the example's, five times over, until SIG-334 let a
+  control's `disabled` be a `Computed` or a function.
 
 - **The status line is cut with an ellipsis, never wrapped.** At 60 columns the
   SMS reason is wider than the bar, and the text wrapped: its second line drew
@@ -560,17 +565,22 @@ commit message in a text area. What it settled:
   so when there is nothing unstaged, because throwing away what somebody staged
   deliberately is the one discard nobody means.
 
-- **A hunk is staged as a patch of its own, read by the example's own reader.**
+- **A hunk is staged as a patch of its own, read and written by the library.**
   Space writes the file's header and the one hunk back, every line as git wrote
   it, to `git apply --cached` (and `--reverse` under `Staged`), which is
-  `git add -p`. `parsePatch()` keeps neither the raw lines nor
-  `\ No newline at end of file`, so a hunk at the end of a file with no final
-  newline would be a different hunk -- `should stage a file with no final newline
-  a hunk at a time` is the case -- and `splitPatch()` in `src/parse.ts` is a
-  second reader for it. That is a duplicate of a decision and is recorded as one:
-  SIG-370 is the ticket for a reader that does both. A patch over 4,000 lines is
-  cut, and the hunk the cut went through is dropped rather than offered to Space,
-  since its header still counts lines it no longer has.
+  `git add -p`. The patch is read once, by `parsePatch()`, and that read is both
+  what the pane draws (`diffView({ files })`) and what `hunkPatch()` writes back:
+  the reader keeps each file's header and each hunk's source lines, `\r` and
+  `\ No newline at end of file` included, since a hunk at the end of a file with
+  no final newline is a different hunk without that line -- `should stage a file
+  with no final newline a hunk at a time` is the case. The example had a second
+  reader, `splitPatch()`, until SIG-370 gave the library's one the text to write
+  back. What is left in `src/parse.ts` is `pathOf()`, which reads the path off
+  the names `parsePatch()` returns: the `a/` and `b/` prefixes and the unquoting
+  are the client's own `--src-prefix`, `--dst-prefix` and `core.quotepath`
+  choices rather than the format. A patch over 4,000 lines is cut, and the hunk
+  the cut went through is dropped rather than offered to Space, since its header
+  still counts lines it no longer has.
 
 - **The diff pane rebuilds `diffView()` at the width the layout gives it.**
   `diffView()` draws for a width it is told and has no view that scrolls, so the
@@ -627,7 +637,8 @@ commit message in a text area. What it settled:
   patch `git apply` will not take back.
 
 - **Sabotage: seventeen, one survived and has a test now.** A patch reader that
-  drops `\ No newline`, a hunk written back without its file header, unstaging
+  drops `\ No newline` (since SIG-370 the library's, and its own tests fail as
+  well), a hunk written back without its file header, unstaging
   without `--reverse`, a discard confirm that starts on Yes, a discard and a
   branch delete with no confirm at all, deleting the branch checked out, a branch
   cursor that does not start on it, a hunk cursor that never moves, Ctrl-S
@@ -668,18 +679,18 @@ screen of code.
   `MAX_MATCHES`, and a filter that stops part way drops lines without saying
   so.
 
-- **Following is the cursor on the newest line, decided when the cursor
-  moves.** An effect over `current` sets `following` to whether the cursor is
-  on the tail. An append while following writes the new tail's key into
-  `current` in the same step as the new rows. That relies on the list's items
-  effect running before its cursor effect, which creation order gives today.
-  The follow tests fail if it changes, and SIG-385 asks for this as a mode of
-  the list. `F` sets `following` itself, because writing the key the cursor is
-  already on wakes nothing; the sabotage that drops it fails the follow test. A
-  wheel moves the view and not the cursor. So an append first asks whether the
-  cursor's row is still on screen, read off `listControl().scroll.viewport`, and
-  stops following if it is not. Otherwise the next line would pull a reader who
-  had wheeled up back down.
+- **Following is the list's `tail` (SIG-385).** The log holds `following` as
+  a `State` for the panel's `following` / `paused` label and for `F`, which
+  writes its opposite, and hands it to `ListView` as `tail`. The list moves the
+  cursor to the newest line as lines arrive, stops on a move off it or a wheel
+  that takes it out of view, and starts again on End. That was about forty lines
+  here: an effect deciding following from the cursor, a write of the new tail's
+  key in the same step as the rows, which relied on the list's items effect
+  running before its cursor effect, a check of the viewport at each append for a
+  wheel the app could not hear, and `F` writing the key itself. The decisions
+  are under "A list view that follows its tail" in
+  `packages/sigil/src/components/AGENTS.md`; the follow tests here are the ones
+  that were written against the app's version, and pass unchanged.
 
 - **The rows of the log are not reactive; a new search refreshes them.** A
   function child is text, not elements, so a row cannot redraw its match runs
@@ -734,8 +745,22 @@ screen of code.
   and from the JSX table. The refresh, the trim, the closed pager and the kept
   filter each survived the first pass. Each then got the test that catches it:
   a search for a line already on screen, a log at a cap of 510, no pager left
-  in the tree, and a describe and back with a filter up.
+  in the tree, and a describe and back with a filter up. Three of the ten -- the
+  in-view check, the refilter that keeps following and `F`'s write -- moved into
+  the list with SIG-385, whose own pass covers them. Here, `tail` dropped from the
+  JSX root fails the follow and the wheel tests for that root, and `F` that only
+  stops fails the follow test.
 
-- **Not done:** a real cluster; a row coloured whole by its status (SIG-388),
-  so the STATUS cell carries the colour as a `TableCellView`; the log as a
-  pager (SIG-387); and following as a list mode (SIG-385).
+- **A pod in trouble is coloured across its whole row, by the table's
+  `rowClass` (SIG-388).** `resourceClass()` in `src/browser.ts` gives a
+  `CrashLoopBackOff` pod `sigil-error` and a `Pending` or `ContainerCreating` one
+  `sigil-warn`, and both twins pass it to `DataTable`. It replaced `statusCell()`,
+  a `format` that drew the STATUS cell as a `TableCellView` carrying the role, so
+  the column is plain text now and measured as text. A role rather than a colour,
+  so a theme recolours it. `should keep the table live, and draw a pod in trouble
+  in its role across the row` mounts at colour level 1, where a role is a colour
+  the resolved style can be read back for, and asserts every word of the crashing
+  row is red with no role on any cell of its own, and a running row is not.
+  Dropping `rowClass` from either twin fails it for that twin.
+
+- **Not done:** a real cluster; and the log as a pager (SIG-387).

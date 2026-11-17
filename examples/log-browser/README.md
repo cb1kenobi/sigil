@@ -64,8 +64,8 @@ from `@ttylabs/sigil/components`, so they agree.
 - **A table that changes under you and keeps its place.** The pods get a new
   reading every second, and a pod crashes now and then. Each table is a
   `DataTable` keyed by namespace and name, so the cursor stays on its row
-  through every reading. A pod in trouble has its status drawn in the error or
-  warning role.
+  through every reading. A pod in trouble is drawn in the error or warning role
+  across its whole row, as k9s draws one, through the table's `rowClass`.
 - **A command bar with fuzzy matching.** `:dpl` finds `deployments`. Commands
   are matched with `rankBy()`, the ranking the command palette uses.
 - **A drill-in.** Enter on a row opens `kubectl describe` for it in a pager,
@@ -73,7 +73,8 @@ from `@ttylabs/sigil/components`, so they agree.
 - **A log that follows.** The cursor sits on the newest line, and new lines
   bring it with them. Move up and it stops, and the title says `paused`. End
   or `F` starts it again. With `--mouse`, a wheel scroll up stops it too,
-  rather than the next line pulling you back down.
+  rather than the next line pulling you back down. All of that is the
+  `ListView`'s `tail` prop; the app holds the state for the label and `F`.
 - **Levels in colour.** A line is drawn in its level's role (`sigil-error`,
   `sigil-warn`, `sigil-muted`), so a theme recolours it. What a search matched
   is drawn reversed.
@@ -135,7 +136,5 @@ smoke test compare the two syntaxes' first screens.
 
 - A real cluster. The resource and log shapes are `kubectl`'s, and that is as
   far as it goes.
-- A pod's row coloured whole, as k9s does it. A data table has no class per row
-  yet (SIG-388), so the status cell carries the colour.
 - The log in a pager. The pager reads its document once, and has no filter and
   no colour per line (SIG-387), so the log is a `ListView` with its own search.

@@ -421,6 +421,20 @@ describe('pickDate()', () => {
       expect(dayOf(await answer)).toEqual({ day: 15, month: m, year: y });
     });
 
+    // drawn, an `initial` outside the years is answered as given, which the
+    // AGENTS.md entry records as left alone; the line form refuses it (SIG-407),
+    // and this is what says the drawn Enter was not routed through that judging
+    it.each([
+      ['10000', 10000, '10000-06-15'],
+      ['-1', -1, '-001-06-15'],
+    ])('should answer an initial in year %s on Enter, drawn as given', async (_, y, shown) => {
+      const { answer, ui } = ask({ initial: localDate(y, 6, 15) });
+
+      expect(ui.log[0]).to.equal(`? When? ${shown}`);
+      await type(ui.stdin, ENTER);
+      expect(dayOf(await answer)).toEqual({ day: 15, month: 6, year: y });
+    });
+
     it('should move back off an end it stopped at', async () => {
       const { answer, ui } = ask({ initial: localDate(9999, 12, 31) });
 
@@ -642,5 +656,14 @@ describe('pickDate() at a narrow width', () => {
     expect(await answer).toEqual(new Date(2026, 9, 16));
     // it is the answer, so it settles where it was drawn
     expect(ui.log).toEqual(['? When does the', '  release go out?', '  2026-10-16']);
+  });
+
+  // the field is reserved as `0000-00-00`, and a year before 0 is written in the
+  // same four columns: `-0001` was cut to `-0001-06-1` at the width that just fits
+  it('should fit a year before 0 in the width reserved for any year', async () => {
+    const { ui } = ask({ initial: localDate(-1, 6, 15) }, { columns: 18, rows: 14 });
+
+    await tick();
+    expect(ui.log[0]).to.equal('? When? -001-06-15');
   });
 });

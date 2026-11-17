@@ -5819,9 +5819,11 @@ field.
   through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
   two new names on that subpath for good. What was left alone: an
   `initial`, `min` or `max` that is itself outside 0-9999 is still drawn as
-  given (`10000-06-15`, and Enter answers it, in the drawn form and the line
-  form), because it neither throws nor hangs; the first arrow or page key pulls
-  it into the range. And year 0's title reads `January 1`, since `Intl` writes
+  given (`10000-06-15`, and Enter answers it in the drawn form), because it
+  neither throws nor hangs; the first arrow or page key pulls
+  it into the range. The line form refuses it in the parser's words since
+  SIG-407, because its reader is `date()`'s and judges Enter alone as it judges
+  a typed reply (see below). And year 0's title reads `January 1`, since `Intl` writes
   1 BC there -- the title is `Intl`'s, as the entry above says.
 - **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
   Enter.** The date prompt keeps an explicit `initial` out of range so that the
@@ -5851,10 +5853,69 @@ field.
   change is `date.ts`, which now builds on `calendarGrid()`, `addMonths()` and
   `dayKey()`. An ejected `date` imports them from `@ttylabs/sigil/components`
   because a sibling import is rewritten there, so the barrel exports them -- with
-  `Day`, `CalendarGrid` and `GridView`, the types in their signatures -- and
+  `Day`, `CalendarGrid` and `GridView`, the types in their signatures; SIG-407
+  added `dateFormat()` and its four types the same way -- and
   `should import only names the published subpath exports, for date` is the test
   that failed when SIG-187 and SIG-201 met without it. Neither branch was wrong
   alone: one made `date` an entry and the other made it import the calendar.
+- **The two line forms are one reader, `dateFormat()`, and it lives here** (SIG-407).
+  `pickDate()`'s line form and `date()`'s had each built the same range hint,
+  default hint and `Enter a date as` refusal and checked `min` and `max` with the
+  same two messages, and `isoOf()` was the date half of `date()`'s `textOf()`
+  written again -- and the copies had already drifted: `pickDate()` asked the
+  parser before the range and `date()` after it, so `2026-02-30` under a `min` of
+  October was `Invalid date` from one and `Date must not be before` from the
+  other. `dateFormat({ time, seconds })` now holds the field table (the order,
+  what is drawn in front of each field, its digits, its picture), the one writer
+  every date text goes through (`isoOf()`, the shown form and the parser's `T`
+  form are all `written()`), the key the range is compared on, `judge()` and the
+  line form `ask()`. `pickDate()` calls `dateFormat().ask()`; `date()` draws its
+  segments from the same table and judges both its drawn Enter and its line with
+  the same `judge()`.
+  - **Here rather than in a module of their own, or in `date.ts`.** `date.ts`
+    already imports this file, so this direction has no cycle, and `pickDate()`
+    cannot call into `date.ts` without one. A third module would cost the same
+    barrel names -- an ejected `date` rewrites every sibling import to
+    `@ttylabs/sigil/components` -- and add a file for nothing. One factory
+    rather than five functions, so the barrel gains one value, not five.
+  - **The parser first, then `min`, then `max`, then `validate`.** A reply that
+    is not a date is told so rather than compared with a range: `2026-13-01`
+    under a `max` of December used to be `Date must not be after` from
+    `date()`. The drawn field cannot reach the parser's refusal (it clamps), so
+    the order only shows on a line -- and where a test replaces the parser,
+    which `date-parser.test.ts` does to pin it.
+  - **Enter alone is judged as a typed reply is, for both.** `date()`'s always
+    was, so its explicit `initial` outside the range is refused on a line as it
+    is drawn. `pickDate()`'s start is already pulled into the range, so the
+    only start the judging refuses is one outside 0000-9999, which neither
+    `\d{4}` nor the parser can say -- refused rather than answered on a line,
+    while the drawn form still answers it as recorded above (pinned in
+    `calendar.test.ts`, so the drawn Enter cannot quietly start judging too).
+  - **A year before 0 is written with its sign in front.** The one writer
+    padded `-1` as `00-1`, in `date()` on `main` as much as here, so a refusal
+    quoted text the fields never were and the drawn field showed no year at
+    all. It is `-001` now, which the parser refuses in words that say why. The
+    sign takes the first digit's column rather than adding one, because every
+    width a drawn prompt reserves for a year is four columns -- `date()`'s
+    reservation, `pickDate()`'s `0000-00-00` and a pending year's `____` --
+    and `-0001` was clipped at a width that just fit and moved the month and
+    day a column when a digit was typed. A year past -999 or past 9999 is wider
+    than that anyway, as recorded above for `10000-06-15`.
+  - **The answer is the parser's `Date`, which for a day is local midnight.**
+    `pickDate()`'s line form used to build it with `localDate()`; the two are
+    the same instant -- measured over 653,319 days spanning years 0-9999 (every
+    day of 1901-2099, every seventh outside it) in seven zones, São Paulo's,
+    Santiago's and Havana's midnight daylight-saving gaps among them, with no
+    difference; in a gap both resolve forward to 01:00. So one reader
+    needs no answer callback.
+  - `prompt-accessible.test.ts` asks both prompts the same replies under each
+    shape of range and compares the transcripts and the exact refusals, which
+    fails on `main`'s two readers in three of the four -- the one without a
+    range never reached the order. What is not in the suite is the instant in a
+    daylight-saving gap: CI runs in UTC, where local and UTC midnight are one,
+    and `vi.stubEnv('TZ')` does not move a vitest worker's zone (tried: an
+    answer for 2018-11-04 in São Paulo still read 00:00). The measurement above
+    is the evidence for that half.
 - **Deliberately not done:** week numbers; a range selection; marking today
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
@@ -9206,9 +9267,10 @@ nothing already written is moved, erased or coloured.
     a picture (`YYYY-MM-DD HH:MM`), says the range -- the drawn grid dims what is
     outside it, which a line cannot -- and the default, which is where the field
     or cursor would have opened. What a date is stays the parser's `date`
-    reader's to say, so `2024-02-30` is refused in its words; `date()` shares one
-    `judged()` between the drawn Enter and the line, so the two refuse in the
-    same order. `pickDate()` answers at local midnight, as drawn; its `highlight`
+    reader's to say, so `2024-02-30` is refused in its words. Both are one
+    reader, `dateFormat()`'s (SIG-407, under "A calendar"), and `date()` judges
+    its drawn Enter with the same `judge()`, so every form refuses in the same
+    order. `pickDate()` answers at local midnight, as drawn; its `highlight`
     marks a picture and is not said.
   - `selectTree()` and `directoryTree()` (SIG-228): **one level at a time**, not
     the whole tree flattened. Flattening was the ticket's starting point and it
@@ -9394,12 +9456,72 @@ exported beside them as pure functions.
 - **Input is two texts or a unified patch, and the patch reader is the narrow cut.**
   `---`/`+++` name a file, `@@` opens a hunk, and **the hunk's own counts say where
   it ends**: that is the only way to tell a removed line that starts `-- ` (whose
-  patch line is `--- `) from a file header. Everything outside a file header and a
-  hunk is skipped, so `diff --git`, `index` and a commit message are harmless, and
-  `\ No newline at end of file` is dropped. Not read: renames and binary files as
-  anything but skipped text, combined diffs, the context format, and the
-  no-newline fact itself -- two texts that differ only in a final newline are the
-  same lines here.
+  patch line is `--- `) from a file header. A commit message and anything else
+  outside a file and a hunk is skipped. Not read: what a rename or a mode line
+  says, a binary patch's data, combined diffs and the context format; and two
+  _texts_ that differ only in a final newline are still the same lines here, since
+  `diffLines()` splits them.
+- **What was read is kept beside what was understood, so one read shows a patch
+  and applies it (SIG-370).** Each file keeps its `header` -- from `diff --git`,
+  or from `---` where git did not begin it, to the first hunk, which is `+++`
+  where there is one and the binary or rename lines where there is not -- and each hunk its
+  `source`, the `@@` line first, each line exactly as written but for its `\n`.
+  The patch is split on `\n` alone and a `\r` stripped only from the copy that is
+  read, so a CRLF file's carriage returns are in the source and not in
+  `DiffLine.text`. `\ No newline at end of file` is `noNewline` on the line above
+  it, and is read after a hunk's counts have run out, since the line it is about
+  is usually the hunk's last. A `diff --git` line begins a file, because it is
+  git's own boundary and because a file git begins is kept **with no hunks**: a
+  binary file (`binary`), a rename with no change of content, a mode change and an
+  empty new file are each a file git said something about, and an app listing or
+  staging a patch needs them. Their names are the two on the `diff --git` line,
+  spelled as the line spells them -- a quoted name still quoted, as `---` would
+  quote it. An unquoted line holds two names that may both have spaces in them,
+  and a prefix may too (`--src-prefix='src prefix/'`) or may not end in a `/`
+  (`src:`), so where it splits is read from what else the header says rather
+  than from the line's own text. A rename or a copy names its two paths in
+  `rename from` and `rename to`, unprefixed, and the line splits where its halves
+  end in them. A binary file repeats both names in `Binary files X and Y differ`
+  (one of them `/dev/null` for a file added or deleted), and the line splits
+  where that sentence is the one its halves make -- which is what names two blobs,
+  or two files outside a repository, whose paths differ with no rename lines.
+  Anything else, a mode change or an empty file added, is one path on both sides,
+  and the line splits where its halves share the longest tail -- a tail that is at
+  least half of each half, since two binaries written with `--binary` print
+  `GIT binary patch` rather than the sentence and so say their two names nowhere
+  but this line, and a tail of one letter they happen to share named one of them
+  `Code.app/.../Code Helper b/bin/echo` (review round 4). Where the rule that
+  applies does not settle on one split there are no names rather than a guess,
+  which is what those two binaries get. So does a rename whose `--src-prefix`
+  holds its own old path and a space, which matches two splits; that is left
+  as it is, as a configuration nobody has.
+  Three earlier versions read the line's own text and each was wrong somewhere:
+  splitting where the halves agree after their first `/` named a rename
+  `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review
+  round 1); requiring the second name to start with a space-free prefix refused
+  `src prefix/` and misread `a/x b/y z/x b/y`, a rename from `x b/y z/x` (round 2);
+  and leaving every file but a rename to the agreeing split lost the names of two
+  different binaries and of prefixes like `a/x/` and `b/y/` (round 3). The names
+  are read once the header is, because those lines come after `diff --git`.
+  `diffView()` draws none of them, not even their names, so its output for
+  any patch is what it was. This changes what `parsePatch()` returns for a patch
+  of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
+  the old answer threw away a fact git printed.
+- **`hunkPatch()` writes one hunk under its file's header, and what was kept is
+  what is written.** The header and the source go back verbatim -- `new file mode`
+  and `--- /dev/null` are what make `git apply --cached` create the path, a
+  missing `\ No newline` is a hunk `git apply` refuses or applies with a newline
+  nobody wrote, and a dropped `\r` is a different line -- with the hunk's counts
+  unchanged, since applying it alone is what they describe. A file or hunk that
+  was not read from a patch, such as `diffHunks()`'s, is written from what it
+  holds: `---`/`+++` from its names and a sign and the text a line, with
+  `noNewline` written as git writes it; it round-trips through `parsePatch()`. The
+  source wins while it is there, so an app that edits a hunk's `lines` deletes its
+  `source` to have them written -- the rule rather than a comparison of the two,
+  which would be a guess at which one the app meant. `diffView()` takes the read
+  files (`{ files }`) as its third kind of input, so a patch that is shown and
+  then staged is read once. The git client example is the caller this waited for,
+  and its own reader, `splitPatch()`, is gone.
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -9463,7 +9585,8 @@ exported beside them as pure functions.
 What is deliberately not done: a grammar or a highlighter (SIG-289 has since
 added `highlightCode()`, and the language each side is handed); a hunk-level fold
 ("12 unchanged lines"); word wrapping of code; collapsing identical files in a
-multi-file patch; a patch writer; a character-level pass; and a stateful view that
+multi-file patch; a writer for anything bigger than a hunk (a file's hunks are its
+`header` and their `source`, joined); a character-level pass; and a stateful view that
 scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
 
 ### A modal: a dialog over the screen, and who has the input while it is open
@@ -11734,7 +11857,8 @@ How each question was settled, the probes and the sabotage pass are in
   the current row elsewhere is a move and is followed. A reveal asked for before
   anything laid the list out waits for the scroll box's `onResize`, so a list that
   starts with `current` on row 300 opens showing it. An offset past the end of a
-  list that shrank is brought back inside it.
+  list that shrank is brought back inside it. A list following its tail (SIG-385, below) is
+  the one exception: there an update is followed to the last row.
 - **Finding: filtering is the app's, and type-to-find is opt-in.** A filter field
   is a second focusable thing with its own keys, layout and editing, and
   `TextField` and `rankBy()` already exist: the items are a `Computed` over the
@@ -11820,6 +11944,106 @@ tier refuses for its own recorded reason; a horizontal axis, which a wide table
 will want and which is a `ScrollRows.width` passed through; wrapping at the ends,
 which `select()` makes an option and nothing here has asked for; and a built-in
 filter field, for the reason above.
+
+### A list view that follows its tail, as `tail -f` and lnav do (SIG-385)
+
+`tail` on `ListView`: while the list is following, a change of the items puts the
+cursor on the last row and reveals it; a move off the last row, or a scroll that
+takes the cursor's row out of view, stops it; End or a move back onto the last row
+starts it again. The log browser built this outside the list in about forty lines,
+and they are the prop now.
+
+- **Its own option, not a third value of `follow`.** The ticket offered either.
+  `follow` is a mode the app picks -- what the cursor keeps across a change of rows
+  -- and a `State` of it is the app's to toggle, as htop's `F` does. Following the
+  tail is a **state the list writes**: the reader's moves and scrolls turn it off
+  and on. One `State<boolean | 'end'>` would hold the app's choice of mode and a
+  flag the list flips, and the list would have to write `true` back into an app's
+  mode to mean "following again". So `tail` is `boolean | State<boolean>`, the
+  value-or-state shape `current` has, and the two compose: while the list is not
+  following, `follow` decides as it always did. `true` follows from the start, for
+  an app with nothing to show about it, and a list control does not hand that
+  state back: `DataTableControl` extends `ListControl`, so a field there is a
+  field every table carries, and an app that reads the state can hand one over.
+  `false` is the same as leaving it out, since there is no mode to start paused
+  in without a state to read it from -- a `State(false)` is that.
+- **Following is decided when the cursor moves to another row, and only then.**
+  The cursor effect also runs when the selection changes and when the rows change
+  under a cursor that stays put, and deciding on every run would undo the two
+  pauses that do not move the cursor: `F` on the last row, and a wheel. Space in a
+  `multiple` list re-ran it and set following back on -- `should not start again
+  when the selection changes and the cursor stays where it was`. A move is a new
+  key, so an append under a paused cursor -- its key unchanged, its position
+  unchanged -- decides nothing either. And a key **the list** put the cursor on is
+  not a move: each re-key records where it left the cursor, so the first row of a
+  list that was empty, or the row that took the place of one that went, does not
+  start a paused list following because it happens to be the last. Review round 1
+  found the first of those as a `State(false)` list fed one line at a time, which
+  followed from its first line on. A list that starts paused on its last row stays
+  paused for the same reason. What tells the two apart is whether the cursor's
+  key is still the one last recorded when the rows change: if not, something moved
+  it, and the re-key neither records over that move nor overrules it. Round 2
+  found the first half missing -- a paused list where Down onto the last row and
+  a new array of the same rows landed in one flush stayed paused, because the
+  re-key recorded the reader's key as its own -- and the second was the same hole
+  while following, where an append in that flush pulled an Up back to the end.
+- **While following, every change of the items goes to the last row, not only an
+  append.** Telling an append from a replacement is SIG-386's question and this
+  does not need its answer: a log re-filtered while following wants the newest
+  line that is left, which is what the log browser's own refilter effect did.
+  Except over a move: a key the reader pressed, or an app wrote, in the same step
+  as the items is a move nothing has decided yet, so the re-key leaves it where it
+  is and the cursor effect decides it.
+  Done right after `setRows()` and before the list clamps or reveals anything, so
+  the scroll hook finds the cursor where it is going.
+- **End starts following on the row it is already on.** `last()` on the last row
+  writes nothing, so nothing would decide anything -- the same hole the log
+  browser's `F` had and closed by writing `following` itself. End writes `tail`,
+  and the tail effect goes to the last row and reveals it **whether or not the
+  cursor moved**, because the view may have been wheeled away from it. An app
+  writing `true` takes the same path, which is all an `F` key is.
+- **The scroll that stops it is any write of the offset, heard through the scroll
+  box's own `onScroll`.** That is the notification the ticket said the list lacked:
+  the list builds its scroll box and now passes one, and every writer of the
+  offset arrives through it -- the wheel, a drag of the thumb, an app's
+  `scrollTo()`. The list's own reveals do too and are harmless, since each one
+  ends with the cursor in view. Its clamp of an offset past the end of rows that
+  shrank does not, and is not heard: the end of the rows is not the cursor where
+  disabled rows end them, so with rows as tall as the view, `['item 19', 'rule']`
+  scrolled to the rule alone and stopped following before the reveal brought the
+  cursor back (review round 1). "Out of view" is **none**
+  of the row on screen, so a one-cell scroll over two-cell rows that leaves half
+  the newest row showing does not stop it. Scrolling back down does not start it
+  again, because scrolling is not a move; End is the way back, which is lnav's
+  `End` too. No `onScroll` was added to `ListView` itself: nothing outside the list
+  needs one now, and the scroll box's hook entry records why a hook nobody declared
+  is a hook designed by guessing.
+- **A view that gets shorter while following keeps the last row in it.** A resize
+  moves no offset, so no scroll hook would hear it, and the last row would fall
+  under the bottom edge. The scroll box's `onResize` reveals while following, as
+  it already did for a reveal asked for before there was a layout.
+- **The effects no longer depend on running in order.** The log browser wrote the
+  new tail's key into `current` in the same step as the rows and relied on the
+  items effect running first, or the cursor effect settled the key against rows
+  that did not hold it. Creation order made that true within one flush, and it is
+  false across passes: an app effect that writes both, in a pass where the
+  cursor effect is already dirty, runs the cursor effect in that pass and the
+  items effect in the next. Measured: the key was lost and the cursor put back on
+  an old row. So the cursor effect and the tail effect each re-key first where
+  `read()` is not the array last keyed, and the items effect then finds nothing to
+  do -- `should keep a key written with the items that hold it, whichever of its
+  effects runs first`. The identity check is the whole cost.
+- **Sabotage: ten, ten caught,** and five more after review rounds 1 and 2 --
+  the clamp heard, the re-key's record of where it put the cursor, that record
+  taken over a move, a move overruled while following, and a move not noticed
+  at all -- each caught. The re-key in the cursor effect; End writing
+  `tail`; the scroll hook; deciding on every run; the reveal on a resize; the move
+  to the last row on a change of items; the tail effect's reveal, and its move;
+  "in view" read as the whole row; and the last row counted without passing over
+  disabled ones.
+- **Not done:** `tail` on `DataTable` and `TreeListView`, which build on
+  `ListView` and pass through what they are asked for -- a table of events wants
+  it, and nothing has asked yet; and an `onScroll` on the list for an app.
 
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 
@@ -12090,7 +12314,8 @@ the probes and the sabotage pass are in
   `list-view.ts`'s, so the one change to that file is an additive export,
   `listRowInset({ ascii, multiple })`, counted in code points rather than through
   `stringWidth()`, which would have put the width tables on the list's graph for
-  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed.
+  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed
+  for SIG-281; SIG-388's `rowClass`, below, is the second change to the list.
 - **Keys, focus and the describer.** The list inside the host is the focusable
   element, which Tab reaches and `dataTableControl(table).list` names for an app's
   `focus()`; the host owns `onKey` (the digits) and `onResize`, and refuses both in
@@ -12098,6 +12323,53 @@ the probes and the sabotage pass are in
   screen that sorts, from an effect over the shown columns, so a resize that hides
   a column takes its digit out of the footer and a resize that brings it back puts
   it back: `selectRow()`'s "the footer names no digit that does nothing".
+
+- **A row takes classes from its row, by `rowClass(row)`, on the list's row box
+  (SIG-388).** k9s colours a crashing pod red across every column, and the log
+  browser could only colour its STATUS cell. `rowClass` returns a string or an
+  array, as a `class` prop takes, and the classes go on `.sigil-list-row` beside
+  `is-current`, `is-selected` and `is-disabled`, so `.sigil-list-row.crashing` is
+  the selector and a role class colours the row through what its cells inherit.
+  It is a `ListView` prop that `DataTable` passes through, beside `disabled`,
+  rather than the table's alone: the row box is the list's, built in `buildRow()`
+  around whatever `row` returned, and a class on what `row` returns lands on
+  `.sigil-list-content`'s child -- not beside `is-current`, and not reachable as
+  one compound selector with it. That is also why the ticket's other spelling, a
+  `class` on the row hook passed through, was not taken: the hook returns the
+  content, not the box. The change to `list-view.ts` is the prop, its entry in
+  the function check, and a loop in `buildRow()`.
+
+  **It is asked when the row is built, which is when its row object is
+  replaced, and not reactively.** That is `row`'s rule, and the ticket's first
+  question: a live table changes a row by replacing it, which already rebuilds it,
+  so the class follows a new reading for free; a row changed in place keeps its
+  class until `refresh()`, as its cells do. A reactive class would be an effect per
+  row in view for a value that only changes when the row does. Pinned by `should
+  ask again when a row object is replaced, and not when one changes in place`.
+
+  **The focus still reads over a coloured row, because the two set different
+  properties.** Measured rather than reasoned, at sixteen colours with the
+  framework sheet: a hot row off the cursor is red in every cell; the cursor on
+  it is red **and** inverse, the focus's own declaration, so it reads as the
+  cursor over a red row and not as one more red row; and the row under the cursor
+  elsewhere is inverse in the terminal's own colour. Every role is a colour and
+  `.sigil-focus` is `inverse`, so no rule had to be reordered and none was added,
+  which keeps the framework sheet's every-rule-is-(0,1,0) promise. At colour level
+  0 a row class draws nothing -- the picture is a table without one -- and the
+  pointer says which row is current, as it always did there. Both are tests.
+
+  Two limits, written down rather than mechanised. **`MONO` spells `.sigil-error`
+  as `inverse`**, the focus's declaration, and inverse on inverse is still inverse,
+  so there a crashing row looks like the focused one and the pointer is what tells
+  them apart -- a theme's choice that no rule order can undo. And a **disabled row that is also given a
+  role** carries two roles, which is the case the framework sheet's comment warns
+  about: where a theme gives both `sigil-muted` and the role a colour, that
+  sheet's source order decides. An app that wants a disabled row muted returns no
+  role for it. A class an app returns that the list also toggles -- `is-current`,
+  `sigil-focus`, and `is-selected` in a `multiple` list -- is the list's to take
+  off again, because the cursor's and the selection's classes are put on after
+  `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
+  classes to the cursor, whatever rowClass says` pins that order.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a
@@ -12483,7 +12755,8 @@ sabotage pass -- is in
   `toggle()` prompt's `on` and `off`. Nothing in `prompt.ts` or `toggle.ts` moved.
 - **What the four share is one module, `control.ts`, and it is published.**
   `controlFlag()` (a boolean or a `State<boolean>`, a truthy string refused),
-  `controlDisabled()` and `describeControls()`, each called four times or more.
+  `controlCondition()` (SIG-334, below), `controlDisabled()` and
+  `describeControls()`, each called four times or more.
   Published at `@ttylabs/sigil/components/control` because every sibling a
   component imports has to be, for `sigil add` to rewrite the import, and because
   a control an app writes for itself can then follow the same rules by calling
@@ -12604,8 +12877,69 @@ sabotage pass -- is in
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
   validation, which `examples/settings` writes for itself and SIG-338 would
-  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
-  `TextField`.
+  publish; and `:disabled` on `TextField`. A `Computed` as `disabled` was on
+  this list and is SIG-334's, below.
+
+### A derived `disabled`: a `Computed` or a function (SIG-334)
+
+`controlCondition()` and its types in `control.ts`. Every control's `disabled` was
+`boolean | State<boolean>`, and `controlFlag()` and the four hand-written checks in
+`TextField`, `TextArea`, `Slider` and `Dropdown` asked `instanceof State` -- so a
+`Computed` was refused with a `TypeError`, while a disabled flag is nearly always
+derived. Apps mirrored the condition into a `State` through an effect of their
+own: `examples/settings` had a `follow()` for it, used five times, and
+`demos/components/57-form-controls.js` wrote one inline.
+
+- **`disabled` is read, so it takes what reads.** A control never writes it, so
+  it takes `ControlCondition`: a boolean, a `LiveFlag` -- anything with a `get()`,
+  which a `State` and a `Computed` both are, the duck `ListItems<T>` already uses
+  -- or a function. A checkbox's `checked` and a switch's `value` are written by
+  the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
+  still refused; that is why this is a second function beside `controlFlag()`
+  rather than `controlFlag()` widened, which would have let a `Computed` reach a
+  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
+  and `Dropdown` still read anything that is not a `State` as a value to start
+  from, so a `Computed` there becomes the value rather than being refused -- left
+  as it was, since it is a `value` question and not a `disabled` one.
+- **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
+  open. `() => boolean` is the template's convention for a reactive prop
+  (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
+  so `disabled={() => !valid.get()}` is what an author writes first and now works
+  in JSX and in the `ui` tag alike. `ChartSource<T>` already takes the same three
+  shapes, value, `get()` and function, for the same reason, so this is a second
+  instance of a shape rather than a new one. Reversing it is deleting one branch
+  and one member of the union.
+- **Read live, never memoized.** What `controlCondition()` hands back calls the
+  caller's `get()` or function on every read, inside the control's effect --
+  which is what tracks it -- and in each handler, so a key and the drawing ask
+  the same question at the same moment. Wrapping a function in a `Computed` was
+  the alternative, and it buys a cache that a condition re-read once per key does
+  not need, and a stale answer from a `get()` that reads something other than
+  signals.
+- **A reading is read for its truth.** `Boolean()` on every read. The handlers
+  already asked `if (disabled.get())`, and the effect handed the reading to
+  `toggleClass(name, on)`, which _flips_ the class when `on` is `undefined` -- so a
+  function returning `undefined` would have drawn a control disabled that every
+  handler treats as enabled. A string, a number or `null` handed _as_ `disabled`
+  is still refused, as `controlFlag()` refuses it; a reading cannot be checked
+  there, since it does not exist until it is asked for.
+- **All eight controls, not the ticket's seven.** `Dropdown` has a `disabled` of
+  the same shape and the same `instanceof State` check, and leaving it out would
+  make "every control" false the day it shipped. `TextField`, `TextArea`, `Slider`
+  and `Dropdown` now call `controlCondition()` where they validated by hand, in
+  the same place, so the order their refusals come in is unchanged; their own
+  effects are untouched, since they only ever called `get()`.
+- **A published signature widened, not changed.** `controlDisabled(host,
+  disabled)` takes a `LiveFlag` where it took a `State<boolean>`, which every
+  caller still satisfies. The refusal messages changed -- `Expected button
+  disabled to be a boolean, a State, a Computed or a function` -- which moves eight
+  keys in `src/i18n/keys.ts`, regenerated.
+- **Tests per control, both shapes.** `DERIVED` in `test/components/form-harness.ts`
+  is a `Computed` and a function over one `State`; each control's file runs it
+  through `it.each`: disabled, enabled, takes a key, disabled again and ignores it.
+  `control.test.ts` pins the four readable shapes, the tracking, the truth reading
+  and the refusals; `button.test.ts` drives a function through the `ui` tag; and
+  `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

@@ -13,7 +13,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "Called when it is pressed: Enter or Space while it has the focus, or a left click.",

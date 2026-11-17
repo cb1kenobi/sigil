@@ -1,9 +1,9 @@
 import { Button, describeButton } from '../../src/components/button.js';
 import { Checkbox, describeCheckbox } from '../../src/components/checkbox.js';
-import { controlFlag } from '../../src/components/control.js';
+import { controlCondition, controlFlag } from '../../src/components/control.js';
 import { describeRadioSet, RadioSet } from '../../src/components/radio-set.js';
 import { describeSwitch, Switch } from '../../src/components/switch.js';
-import { State } from '../../src/signals/index.js';
+import { Computed, effect, flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
 import { form, picture, stopForms } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -112,5 +112,68 @@ describe('controlFlag()', () => {
     expect(() => controlFlag('true', 'no strings')).toThrow(TypeError);
     expect(() => controlFlag('true', 'no strings')).toThrow('no strings');
     expect(() => controlFlag(1, 'no numbers')).toThrow('no numbers');
+  });
+});
+
+describe('controlCondition()', () => {
+  it('should read a State, a Computed, anything with get() and a function, live', () => {
+    const on = new State(false);
+    const shapes = [on, new Computed(() => on.get()), { get: () => on.get() }, () => on.get()];
+    const read = shapes.map((shape) => controlCondition(shape, 'x'));
+    expect(read.map((flag) => flag.get())).toEqual([false, false, false, false]);
+    on.set(true);
+    expect(read.map((flag) => flag.get())).toEqual([true, true, true, true]);
+  });
+
+  it('should be tracked where it is read, so an effect follows what the condition reads', () => {
+    const valid = new State(false);
+    const flag = controlCondition(() => !valid.get(), 'x');
+    const seen: boolean[] = [];
+    const stop = effect(() => {
+      seen.push(flag.get());
+    });
+    valid.set(true);
+    flush();
+    stop();
+    expect(seen).toEqual([true, false]);
+  });
+
+  it('should ask again on every read, so a reader that touches no signal is not cached', () => {
+    // a `Computed` around these would answer from its cache: neither reads a signal,
+    // so nothing would ever tell it to look again
+    let ready = false;
+    const box = {
+      on: false,
+      get(): boolean {
+        return this.on;
+      },
+    };
+    const byFunction = controlCondition(() => ready, 'x');
+    const byGet = controlCondition(box, 'x');
+    expect([byFunction.get(), byGet.get()]).toEqual([false, false]);
+    ready = true;
+    box.on = true;
+    expect([byFunction.get(), byGet.get()]).toEqual([true, true]);
+  });
+
+  it('should make a boolean or nothing a fixed answer', () => {
+    expect(controlCondition(true, 'x').get()).toBe(true);
+    expect(controlCondition(false, 'x').get()).toBe(false);
+    expect(controlCondition(undefined, 'x').get()).toBe(false);
+  });
+
+  it('should read a reading for its truth, so the drawing and the keys agree about it', () => {
+    // `toggleClass(name, undefined)` flips the class, so an `undefined` reaching the
+    // effect would draw a control disabled that every handler treats as enabled
+    expect(controlCondition(() => undefined, 'x').get()).toBe(false);
+    expect(controlCondition({ get: () => 'yes' }, 'x').get()).toBe(true);
+  });
+
+  it('should refuse anything else with the message it was given', () => {
+    expect(() => controlCondition('true', 'no strings')).toThrow(TypeError);
+    expect(() => controlCondition('true', 'no strings')).toThrow('no strings');
+    expect(() => controlCondition(1, 'no numbers')).toThrow('no numbers');
+    expect(() => controlCondition(null, 'no null')).toThrow('no null');
+    expect(() => controlCondition({ get: true }, 'no get')).toThrow('no get');
   });
 });

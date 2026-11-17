@@ -15,6 +15,7 @@ import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/in
 import { flush, State } from '../../src/signals/index.js';
 import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { DERIVED } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -152,7 +153,9 @@ describe('TextArea()', () => {
 
   it('should refuse props it cannot use', () => {
     expect(() => TextArea({ value: 3 as never })).toThrow(/value to be a string or a State/);
-    expect(() => TextArea({ disabled: 'yes' as never })).toThrow(/boolean or a State/);
+    expect(() => TextArea({ disabled: 'yes' as never })).toThrow(
+      /boolean, a State, a Computed or a function/
+    );
     expect(() => TextArea({ placeholder: 1 as never })).toThrow(/placeholder to be a string/);
     expect(() => TextArea({ gutter: '\u001b' })).toThrow(/gutter to be a string/);
     expect(() => TextArea({ tab: '' })).toThrow(/tab to be a non-empty string/);
@@ -369,6 +372,27 @@ describe('TextArea()', () => {
       expect(value.get()).toBe('ab');
       expect(s.seen.slice(0, 2)).toEqual(['x', 'left']);
       expect(s.input.focus.ring()).toEqual([]);
+    });
+
+    it.each(DERIVED)('should follow %s, off and on again', async (_, derive) => {
+      const valid = new State(true);
+      const value = new State('');
+      const s = scene({ disabled: derive(valid), value });
+      await s.term.press('a');
+      expect(value.get()).toBe('a');
+      valid.set(false);
+      await settle();
+      expect(s.input.focus.ring()).toEqual([]);
+      expect(s.area.classes).toContain('is-disabled');
+      // it kept the focus, and types and pastes nothing with it
+      await s.term.press('b');
+      await s.term.paste('pasted');
+      expect(value.get()).toBe('a');
+      valid.set(true);
+      await settle();
+      expect(s.input.focus.ring()).toEqual([s.area]);
+      await s.term.press('c');
+      expect(value.get()).toBe('ac');
     });
   });
 

@@ -26,7 +26,7 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import { createEffect, onCleanup } from '../../src/renderer/index.js';
-import { Computed, flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State, untrack } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -404,6 +404,61 @@ describe('ListView()', () => {
     );
     press(host, 'up');
     expect(control(host).selection.current.get()).toBe('b');
+  });
+
+  it('should put rowClass on the row box beside is-current, as a string or an array, read when the row is built', () => {
+    const items = new State<readonly { id: string; state: string }[]>([
+      { id: 'a', state: 'ok' },
+      { id: 'b', state: 'crashing' },
+      { id: 'c', state: 'pending' },
+    ]);
+    const host = list({
+      items,
+      key: (item) => item.id,
+      row: (item) => item.id,
+      rowClass: (item) =>
+        item.state === 'crashing'
+          ? ' crashing  sigil-error '
+          : item.state === 'pending'
+            ? ['pending', 'sigil-warn']
+            : undefined,
+    });
+
+    expect(rowWith(host, 'a').classes).toEqual(['sigil-list-row', 'is-current']);
+    expect(rowWith(host, 'b').classes).toEqual(['sigil-list-row', 'crashing', 'sigil-error']);
+    expect(rowWith(host, 'c').classes).toEqual(['sigil-list-row', 'pending', 'sigil-warn']);
+    press(host, 'down');
+    expect(rowWith(host, 'b').classes).toEqual(
+      expect.arrayContaining(['crashing', 'sigil-error', 'is-current'])
+    );
+
+    // a row is rebuilt when its item is replaced, which is when the class is asked again
+    items.set(items.get().map((item) => (item.id === 'b' ? { ...item, state: 'ok' } : item)));
+    flush();
+    picture(host);
+    expect(rowWith(host, 'b').classes).not.toContain('sigil-error');
+    expect(rowWith(host, 'b').classes).toContain('is-current');
+  });
+
+  it("should leave the cursor's classes to the cursor, whatever rowClass says", () => {
+    const host = list({ items: ['a', 'b'], rowClass: () => ['is-current', 'sigil-focus'] });
+    host.onFocusChange?.(host, true);
+
+    expect(rowWith(host, 'a').classes).toEqual(
+      expect.arrayContaining(['is-current', 'sigil-focus'])
+    );
+    expect(rowWith(host, 'b').classes).not.toContain('is-current');
+    expect(rowWith(host, 'b').classes).not.toContain('sigil-focus');
+
+    // and the selection's, in a list that has one
+    const ticked = list({
+      items: ['a', 'b'],
+      multiple: true,
+      rowClass: () => 'is-selected',
+      selected: ['a'],
+    });
+    expect(rowWith(ticked, 'a').classes).toContain('is-selected');
+    expect(rowWith(ticked, 'b').classes).not.toContain('is-selected');
   });
 
   describe('keys', () => {
@@ -812,6 +867,264 @@ describe('ListView()', () => {
     });
   });
 
+  describe('following the tail', () => {
+    /** A list of `n` rows five tall, following its tail through a state the test holds. */
+    function tailing(n: number, tail = new State(true), over: Partial<ListViewProps<string>> = {}) {
+      const items = new State(numbered(n));
+      const host = list({ items, tail, ...over }, 5);
+      const append = (...more: string[]): void => {
+        items.set([...items.get(), ...more]);
+        flush();
+        picture(host);
+      };
+      return { append, host, items, tail, viewport: control(host).scroll.viewport };
+    }
+
+    it('should start on the last row, and move to each new last row as rows are appended', () => {
+      const { append, host, viewport } = tailing(20);
+      expect(picture(host).at(-1)).toBe('❯ item 19');
+
+      append('item 20', 'item 21');
+      expect(control(host).selection.current.get()).toBe('item 21');
+      expect(viewport.scroll?.y).toBe(17);
+      expect(picture(host).at(-1)).toBe('❯ item 21');
+    });
+
+    it('should stop when the cursor moves off the last row, and start again on a move back onto it', () => {
+      const { append, host, tail } = tailing(20);
+
+      press(host, 'up');
+      expect(tail.get()).toBe(false);
+      append('item 20');
+      expect(control(host).selection.current.get()).toBe('item 18');
+
+      // Down onto what is the last row now is a move back
+      press(host, 'down');
+      press(host, 'down');
+      expect(control(host).selection.current.get()).toBe('item 20');
+      expect(tail.get()).toBe(true);
+      append('item 21');
+      expect(control(host).selection.current.get()).toBe('item 21');
+    });
+
+    it('should start again on End, even where the cursor is on the last row already', () => {
+      const { append, host, tail } = tailing(20);
+      // stopped where it stands, as an `F` key does: a move that writes nothing
+      tail.set(false);
+      flush();
+      append('item 20');
+      expect(control(host).selection.current.get()).toBe('item 19');
+
+      press(host, 'end');
+      expect(tail.get()).toBe(true);
+      append('item 21');
+      expect(control(host).selection.current.get()).toBe('item 21');
+
+      tail.set(false);
+      flush();
+      // nothing moved, and a press of End on the last row is still a start
+      expect(control(host).selection.current.get()).toBe('item 21');
+      press(host, 'end');
+      expect(tail.get()).toBe(true);
+    });
+
+    it('should not start again when the selection changes and the cursor stays where it was', () => {
+      const { host, tail } = tailing(20, new State(true), { multiple: true });
+      tail.set(false);
+      flush();
+      press(host, 'space');
+      expect(control(host).selection.isSelected('item 19')).toBe(true);
+      expect(tail.get()).toBe(false);
+    });
+
+    it('should stop when a scroll takes the cursor out of view, and stay stopped when one brings it back', () => {
+      const { append, host, tail, viewport } = tailing(20);
+      expect(viewport.scroll?.y).toBe(15);
+
+      // the wheel moves the view and not the cursor: a reader reading history
+      viewport.scrollTo(0, 10);
+      expect(tail.get()).toBe(false);
+      const reading = picture(host);
+      append('item 20');
+      expect(picture(host)).toEqual(reading);
+      expect(control(host).selection.current.get()).toBe('item 19');
+
+      // scrolling back is not a move, so End or a key is what starts it again
+      viewport.scrollTo(0, 16);
+      expect(tail.get()).toBe(false);
+    });
+
+    it('should not stop for a scroll that leaves the cursor in view', () => {
+      // rows two cells tall: a scroll of one cell leaves half the last row on
+      // screen, which is still the row the reader is looking at
+      const { tail, viewport } = tailing(20, new State(true), { rowHeight: 2 });
+      expect(viewport.scroll?.y).toBe(35);
+      viewport.scrollTo(0, 34);
+      expect(tail.get()).toBe(true);
+      viewport.scrollTo(0, 33);
+      expect(tail.get()).toBe(false);
+    });
+
+    it('should go to the last row and scroll to it when an app starts it, wherever the view was', () => {
+      const { host, tail, viewport } = tailing(20);
+      viewport.scrollTo(0, 0);
+      expect(tail.get()).toBe(false);
+
+      tail.set(true);
+      flush();
+      expect(viewport.scroll?.y).toBe(15);
+      expect(picture(host).at(-1)).toBe('❯ item 19');
+
+      press(host, 'home');
+      expect(tail.get()).toBe(false);
+      tail.set(true);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 19');
+      expect(viewport.scroll?.y).toBe(15);
+    });
+
+    it('should keep the cursor on the last row when the items are replaced rather than appended', () => {
+      const { host, items } = tailing(20);
+      // the cursor's own row is kept, and not at the end: following its key would
+      // leave the cursor on it
+      items.set(['item 19', 'item 5']);
+      flush();
+      expect(picture(host).slice(0, 2)).toEqual(['  item 19', '❯ item 5']);
+    });
+
+    it('should not stop for its own scroll back inside a list that shrank, where disabled rows end it', () => {
+      // rows as tall as the view, and the cursor on the last that can be the
+      // cursor: bringing the offset back inside the list shows the disabled row
+      // after it, which is the list's scroll and not the reader's
+      const { host, items, tail } = tailing(20, new State(true), {
+        disabled: (item) => item.startsWith('rule'),
+        rowHeight: 5,
+      });
+      expect(control(host).scroll.viewport.scroll?.y).toBe(95);
+      items.set(['item 19', 'rule']);
+      flush();
+      expect(tail.get()).toBe(true);
+      items.set(['item 19', 'rule', 'item 20']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 20');
+    });
+
+    it('should stay paused when the list places the cursor on its own, as on the first row of an empty one', () => {
+      const { append, host, items, tail } = tailing(0, new State(false));
+      append('item 0');
+      expect(control(host).selection.current.get()).toBe('item 0');
+      expect(tail.get()).toBe(false);
+      append('item 1');
+      expect(control(host).selection.current.get()).toBe('item 0');
+
+      // and where the cursor's row goes and the row that takes its place is the last
+      press(host, 'up');
+      items.set(['item 1']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 1');
+      expect(tail.get()).toBe(false);
+    });
+
+    it('should follow the last row that is not disabled', () => {
+      const { append, host, tail } = tailing(5, new State(true), {
+        disabled: (item) => item.startsWith('rule'),
+      });
+      append('item 5', 'rule');
+      expect(control(host).selection.current.get()).toBe('item 5');
+      expect(tail.get()).toBe(true);
+    });
+
+    it('should keep following through a list that was empty', () => {
+      const { append, host, items, tail } = tailing(0);
+      expect(tail.get()).toBe(true);
+      append('item 0', 'item 1');
+      expect(control(host).selection.current.get()).toBe('item 1');
+      items.set([]);
+      flush();
+      expect(tail.get()).toBe(true);
+    });
+
+    it('should decide a move made in the same step as the items, and not overrule it', () => {
+      // paused, the reader moves onto the last row while a new array of the same
+      // rows arrives: the move starts following
+      const paused = tailing(3, new State(false));
+      const at = control(paused.host).selection.current;
+      expect(at.get()).toBe('item 0');
+      at.set('item 2');
+      paused.items.set(numbered(3));
+      flush();
+      expect(paused.tail.get()).toBe(true);
+      paused.append('item 3');
+      expect(at.get()).toBe('item 3');
+
+      // following, the reader moves up while a line arrives: the move stays, and
+      // following stops
+      const following = tailing(20);
+      const cursor = control(following.host).selection.current;
+      following.host.onKey?.(keyEvent('up'));
+      following.append('item 20');
+      expect(cursor.get()).toBe('item 18');
+      expect(following.tail.get()).toBe(false);
+    });
+
+    it('should keep the last row in view when the view gets shorter', () => {
+      const { host, viewport } = tailing(20);
+      host.setProps({ height: 3 });
+      picture(host);
+      expect(viewport.scroll?.y).toBe(17);
+      expect(picture(host).at(-1)).toBe('❯ item 19');
+    });
+
+    it('should follow from the start for tail: true, with a state of its own', () => {
+      const items = new State(numbered(20));
+      const host = list({ items, tail: true });
+      expect(picture(host).at(-1)).toBe('❯ item 19');
+      items.set([...items.get(), 'item 20']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 20');
+      press(host, 'up');
+      items.set([...items.get(), 'item 21']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 19');
+    });
+
+    it('should never follow without it: an append leaves the cursor on its row', () => {
+      const items = new State(numbered(5));
+      const host = list({ items });
+      press(host, 'end');
+      items.set([...items.get(), 'item 5']);
+      flush();
+      expect(control(host).selection.current.get()).toBe('item 4');
+    });
+  });
+
+  it('should keep a key written with the items that hold it, whichever of its effects runs first', () => {
+    // an app's effect, made before the list, that appends a row and moves the
+    // cursor onto it in one step. The list's cursor effect is dirty already, so it
+    // runs in the same pass -- after this one and before the list's items effect,
+    // which only this write made dirty -- and used to settle the new key against
+    // the rows it held, which do not have it
+    const items = new State(numbered(5));
+    const current = new State<string | undefined>('item 0');
+    const trigger = new State(0);
+    createEffect(() => {
+      if (trigger.get() > 0) {
+        untrack(() => {
+          items.set([...items.get(), 'new']);
+          current.set('new');
+        });
+      }
+    });
+    const host = list({ current, items });
+
+    current.set('item 1');
+    trigger.set(1);
+    flush();
+
+    expect(current.get()).toBe('new');
+    expect(picture(host).at(-1)).toBe('❯ new');
+  });
+
   describe('the focus', () => {
     it('should put the focus role across the current row while the list has the focus, and move it with the cursor', () => {
       const host = list({ items: ['a', 'b'] });
@@ -838,8 +1151,14 @@ describe('ListView()', () => {
     expect(() => ListView({ items: [], row: 'x' as never })).toThrow(
       'Expected list row to be a function'
     );
+    expect(() => ListView({ items: [], rowClass: 'crashing' as never })).toThrow(
+      'Expected list rowClass to be a function'
+    );
     expect(() => ListView({ empty: 3 as never, items: [] })).toThrow('Expected list empty');
     expect(() => ListView({ items: [], props: { onKey: () => {} } as never })).toThrow('onKey');
+    expect(() => ListView({ items: [], tail: 'end' as never })).toThrow(
+      'Expected list tail to be a boolean or a State'
+    );
   });
 
   it('should hand nothing to listControl() for an element no list built', () => {
