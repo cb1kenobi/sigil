@@ -579,10 +579,15 @@ const QUOTED = '"(?:[^"\\\\]|\\\\.)*"';
  * The two names on a `diff --git` line, spelled as the line spells them -- a quoted
  * one still quoted, as it would be on a `---` line.
  *
- * Unquoted names may hold spaces, so the line is split where the two halves name
- * the same path under their prefixes (`a/x y b/x y`), which is how git reads it.
- * A rename whose names hold spaces is the one line that cannot be split that way,
- * and git does not read it from this line either: it has no names here.
+ * Unquoted names may hold spaces, so the line is split at a space after which a
+ * second name begins with a prefix: a segment with no space in it, then a `/`
+ * (`b/`, `w/`). Where more than one split does that, the one whose halves name
+ * the same path under their prefixes wins (`a/x b/y b/x b/y`), which is how git
+ * reads the line; where none or several still do, there are no names, rather
+ * than a guess. So `a/dir/my file b/dir/my`, a rename, is `a/dir/my file` and
+ * `b/dir/my`: the space before `file` is not followed by a prefix. With no
+ * prefixes at all (`diff.noprefix`) a line of one space is split there, and a
+ * line of two equal halves between them.
  *
  * @param rest - The line after `diff --git `.
  * @returns The old name and the new one, or nothing where the line does not say.
@@ -593,14 +598,20 @@ function gitNames(rest: string): [string, string] | undefined {
   if (quoted) {
     return [quoted[1]!, quoted[2]!];
   }
+  const prefixed = /^[^ /]+\//;
   const path = (name: string): string => name.slice(name.indexOf('/') + 1);
-  const spaces = [...rest.matchAll(/ /g)].map((match) => match.index);
-  for (const at of spaces) {
-    if (path(rest.slice(0, at)) === path(rest.slice(at + 1))) {
-      return [rest.slice(0, at), rest.slice(at + 1)];
-    }
+  const splits = [...rest.matchAll(/ /g)].map((match): [string, string] => [
+    rest.slice(0, match.index),
+    rest.slice(match.index + 1),
+  ]);
+  const named = splits.filter(([old, next]) => prefixed.test(old) && prefixed.test(next));
+  const same = named.filter(([old, next]) => path(old) === path(next));
+  const unprefixed = splits.filter(([old, next]) => old === next);
+  const found = same.length === 1 ? same : named.length === 1 ? named : unprefixed;
+  if (found.length === 1) {
+    return found[0];
   }
-  return spaces.length === 1 ? [rest.slice(0, spaces[0]), rest.slice(spaces[0]! + 1)] : undefined;
+  return splits.length === 1 ? splits[0] : undefined;
 }
 
 /**

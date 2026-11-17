@@ -132,7 +132,7 @@ export function DiffPane(props: DiffPaneProps): Element {
           begin();
           push(
             line(
-              `${pathOf(file) ?? section.path}: ${file.binary ? 'binary, not shown' : 'no lines changed'}`,
+              `${pathOf(file) ?? section.path ?? 'a file'}: ${file.binary ? 'binary, not shown' : 'no lines changed'}`,
               'sigil-muted'
             )
           );
