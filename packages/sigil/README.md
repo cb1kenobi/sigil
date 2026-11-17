@@ -4604,10 +4604,36 @@ wide characters are measured as the columns they take. A tab is four columns.
 
 The diff is computed here, by Myers' algorithm, and is exported on its own:
 `diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
-with their context, `parsePatch()` reads a patch, and `diffInline()` finds the
-changed words of two lines. Past about two thousand edits `diffSequence()` stops
-searching and reports the middle as replaced, which is a correct script and not the
-shortest one.
+with their context, `parsePatch()` reads a patch, `hunkPatch()` writes one hunk
+of it back, and `diffInline()` finds the changed words of two lines. Past about two
+thousand edits `diffSequence()` stops searching and reports the middle as replaced,
+which is a correct script and not the shortest one.
+
+`parsePatch()` keeps what it read as well as what it understood: each file's
+`header`, from `diff --git` to `+++`, and each hunk's `source`, exactly as written
+-- a CRLF file's `\r` and `\ No newline at end of file` included -- and each line
+says whether it is its side's last with no newline after it (`noNewline`). A file
+git begins with `diff --git` is kept without hunks too, so a binary file
+(`binary: true`), a rename and a mode change are there to be listed. That is what
+lets one read serve both showing a patch and acting on it: `diffView({ files })`
+draws the files without reading the patch again, and `hunkPatch(file, hunk)`
+writes one hunk under its file's header as a patch of its own, which is how a
+hunk is staged:
+
+```js
+import { diffView, hunkPatch, parsePatch } from '@ttylabs/sigil/components/diff';
+import { execFileSync } from 'node:child_process';
+
+const files = parsePatch(execFileSync('git', ['diff', '--no-color'], { encoding: 'utf8' }));
+const [file] = files;
+const { element } = diffView({ files });
+
+// `git add -p`, for the first hunk
+execFileSync('git', ['apply', '--cached', '-'], { input: hunkPatch(file, file.hunks[0]) });
+```
+
+A hunk that was not read from a patch, such as one from `diffHunks()`, is written
+from its lines and its file's names.
 
 `highlight` is the seam every component shares, so `highlight: highlightCode` is
 enough. It is called with a whole side of the diff -- the old text and the new

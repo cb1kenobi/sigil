@@ -560,17 +560,22 @@ commit message in a text area. What it settled:
   so when there is nothing unstaged, because throwing away what somebody staged
   deliberately is the one discard nobody means.
 
-- **A hunk is staged as a patch of its own, read by the example's own reader.**
+- **A hunk is staged as a patch of its own, read and written by the library.**
   Space writes the file's header and the one hunk back, every line as git wrote
   it, to `git apply --cached` (and `--reverse` under `Staged`), which is
-  `git add -p`. `parsePatch()` keeps neither the raw lines nor
-  `\ No newline at end of file`, so a hunk at the end of a file with no final
-  newline would be a different hunk -- `should stage a file with no final newline
-  a hunk at a time` is the case -- and `splitPatch()` in `src/parse.ts` is a
-  second reader for it. That is a duplicate of a decision and is recorded as one:
-  SIG-370 is the ticket for a reader that does both. A patch over 4,000 lines is
-  cut, and the hunk the cut went through is dropped rather than offered to Space,
-  since its header still counts lines it no longer has.
+  `git add -p`. The patch is read once, by `parsePatch()`, and that read is both
+  what the pane draws (`diffView({ files })`) and what `hunkPatch()` writes back:
+  the reader keeps each file's header and each hunk's source lines, `\r` and
+  `\ No newline at end of file` included, since a hunk at the end of a file with
+  no final newline is a different hunk without that line -- `should stage a file
+  with no final newline a hunk at a time` is the case. The example had a second
+  reader, `splitPatch()`, until SIG-370 gave the library's one the text to write
+  back. What is left in `src/parse.ts` is `pathOf()`, which reads the path off
+  the names `parsePatch()` returns: the `a/` and `b/` prefixes and the unquoting
+  are the client's own `--src-prefix`, `--dst-prefix` and `core.quotepath`
+  choices rather than the format. A patch over 4,000 lines is cut, and the hunk
+  the cut went through is dropped rather than offered to Space, since its header
+  still counts lines it no longer has.
 
 - **The diff pane rebuilds `diffView()` at the width the layout gives it.**
   `diffView()` draws for a width it is told and has no view that scrolls, so the
@@ -624,7 +629,8 @@ commit message in a text area. What it settled:
   patch `git apply` will not take back.
 
 - **Sabotage: seventeen, one survived and has a test now.** A patch reader that
-  drops `\ No newline`, a hunk written back without its file header, unstaging
+  drops `\ No newline` (since SIG-370 the library's, and its own tests fail as
+  well), a hunk written back without its file header, unstaging
   without `--reverse`, a discard confirm that starts on Yes, a discard and a
   branch delete with no confirm at all, deleting the branch checked out, a branch
   cursor that does not start on it, a hunk cursor that never moves, Ctrl-S

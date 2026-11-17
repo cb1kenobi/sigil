@@ -9,6 +9,7 @@ import {
   type DiffOptions,
   diffSequence,
   diffView,
+  hunkPatch,
   parsePatch,
 } from '../../src/components/diff.js';
 import { stringWidth } from '../../src/width/index.js';
@@ -236,7 +237,7 @@ describe('parsePatch()', () => {
     expect(file!.hunks[0]!.heading).to.equal('function main()');
     expect(file!.hunks[0]!.lines).to.deep.equal([
       { kind: 'context', newNumber: 1, oldNumber: 1, text: 'one' },
-      { kind: 'remove', oldNumber: 2, text: 'two' },
+      { kind: 'remove', noNewline: true, oldNumber: 2, text: 'two' },
       { kind: 'add', newNumber: 2, text: 'TWO' },
       { kind: 'context', newNumber: 3, oldNumber: 3, text: '' },
       { kind: 'context', newNumber: 4, oldNumber: 4, text: 'four' },
@@ -300,6 +301,218 @@ describe('parsePatch()', () => {
   it('should find nothing in text that is not a patch', () => {
     expect(parsePatch('just some words\nand more')).to.deep.equal([]);
     expect(parsePatch('')).to.deep.equal([]);
+  });
+});
+
+/** What `git diff` prints for three files: two hunks, no final newline, and a binary. */
+const GIT_PATCH = [
+  'diff --git a/a.txt b/a.txt',
+  'index 1111111..2222222 100644',
+  '--- a/a.txt',
+  '+++ b/a.txt',
+  '@@ -1,3 +1,3 @@',
+  ' 1',
+  '-2',
+  '+two',
+  ' 3',
+  '@@ -9,2 +9,2 @@ heading',
+  ' 9',
+  '-10',
+  '+ten\r',
+  'diff --git a/nn.txt b/nn.txt',
+  'index 3333333..4444444 100644',
+  '--- a/nn.txt',
+  '+++ b/nn.txt',
+  '@@ -1 +1 @@',
+  '-no newline',
+  '\\ No newline at end of file',
+  '+no newline2',
+  '\\ No newline at end of file',
+  'diff --git a/logo.png b/logo.png',
+  'index 5555555..6666666 100644',
+  'Binary files a/logo.png and b/logo.png differ',
+  '',
+].join('\n');
+
+describe('parsePatch() and what it keeps to write back', () => {
+  it('should say which line has no newline after it, after the counts have run out too', () => {
+    const [, file] = parsePatch(GIT_PATCH);
+
+    expect(file!.hunks[0]!.lines).to.deep.equal([
+      { kind: 'remove', noNewline: true, oldNumber: 1, text: 'no newline' },
+      { kind: 'add', newNumber: 1, noNewline: true, text: 'no newline2' },
+    ]);
+  });
+
+  it('should keep a carriage return in the source and out of the text', () => {
+    const [file] = parsePatch(GIT_PATCH);
+
+    expect(file!.hunks[1]!.lines.at(-1)!.text).to.equal('ten');
+    expect(file!.hunks[1]!.source).to.deep.equal([
+      '@@ -9,2 +9,2 @@ heading',
+      ' 9',
+      '-10',
+      '+ten\r',
+    ]);
+  });
+
+  it('should keep a file git began with no hunks, and say when it is binary', () => {
+    const files = parsePatch(GIT_PATCH);
+
+    expect(files.map((file) => [file.newName, file.hunks.length, file.binary])).to.deep.equal([
+      ['b/a.txt', 2, undefined],
+      ['b/nn.txt', 1, undefined],
+      ['b/logo.png', 0, true],
+    ]);
+  });
+
+  it('should keep the lines above the first hunk from diff --git, and no commit message', () => {
+    const [file] = parsePatch(`commit 123\nAuthor: me\n\n    A message\n\n${GIT_PATCH}`);
+
+    expect(file!.header).to.deep.equal([
+      'diff --git a/a.txt b/a.txt',
+      'index 1111111..2222222 100644',
+      '--- a/a.txt',
+      '+++ b/a.txt',
+    ]);
+  });
+
+  it('should give back the patch it read, file by file and hunk by hunk', () => {
+    const written = parsePatch(GIT_PATCH)
+      .map((file) => [...file.header!, ...file.hunks.flatMap((hunk) => hunk.source!)].join('\n'))
+      .join('\n');
+
+    expect(`${written}\n`).to.equal(GIT_PATCH);
+  });
+
+  it('should read the names of a file with no hunk off its diff --git line', () => {
+    const names = (line: string): (string | undefined)[] => {
+      const [file] = parsePatch(`${line}\nsimilarity index 100%\n`);
+      return [file?.oldName, file?.newName];
+    };
+
+    expect(names('diff --git a/old.txt b/new.txt')).to.deep.equal(['a/old.txt', 'b/new.txt']);
+    expect(names('diff --git a/with space.txt b/with space.txt')).to.deep.equal([
+      'a/with space.txt',
+      'b/with space.txt',
+    ]);
+    // quoted as a `---` line would quote it, which is the spelling the names have
+    expect(names('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"')).to.deep.equal([
+      '"a/say \\"hi\\".txt"',
+      '"b/say \\"hi\\".txt"',
+    ]);
+    expect(names('diff --git a/plain.txt "b/tab\\there.txt"')).to.deep.equal([
+      'a/plain.txt',
+      '"b/tab\\there.txt"',
+    ]);
+    // a rename with spaces in its names is the line git cannot split either
+    expect(names('diff --git a/one two b/three four')).to.deep.equal([undefined, undefined]);
+  });
+
+  it('should take the names from --- and +++ where a file has them', () => {
+    const [file] = parsePatch(
+      'diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n'
+    );
+
+    expect([file!.oldName, file!.newName]).to.deep.equal(['a/gone.txt', '/dev/null']);
+    expect(file!.header).to.have.length(4);
+  });
+
+  it('should read a patch with CRLF line endings throughout the same as one without', () => {
+    const crlf = parsePatch(GIT_PATCH.replace(/\r?\n/g, '\r\n'));
+    const lf = parsePatch(GIT_PATCH);
+
+    const shape = (files: typeof lf): unknown =>
+      files.map((file) => [file.newName, file.binary, file.hunks.map((hunk) => hunk.lines)]);
+    expect(shape(crlf)).to.deep.equal(shape(lf));
+  });
+
+  it('should draw the files it read the same as the patch, and nothing of a file with no hunk', () => {
+    const drawn = lines({ patch: GIT_PATCH });
+
+    expect(lines({ files: parsePatch(GIT_PATCH) })).to.deep.equal(drawn);
+    expect(drawn.join('\n')).to.contain('b/nn.txt');
+    expect(drawn.join('\n')).not.to.contain('logo.png');
+  });
+});
+
+describe('hunkPatch()', () => {
+  it('should write one hunk back under its file header, as git wrote both', () => {
+    const [file] = parsePatch(GIT_PATCH);
+
+    expect(hunkPatch(file!, file!.hunks[1]!)).to.equal(
+      [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -9,2 +9,2 @@ heading',
+        ' 9',
+        '-10',
+        '+ten\r',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('should keep the no newline lines of a hunk at the end of a file', () => {
+    const [, file] = parsePatch(GIT_PATCH);
+
+    expect(hunkPatch(file!, file!.hunks[0]!)).to.equal(
+      `${GIT_PATCH.split('\n').slice(13, 22).join('\n')}\n`
+    );
+  });
+
+  it('should write a new file under the header that makes git create it', () => {
+    const patch = [
+      'diff --git a/new.txt b/new.txt',
+      'new file mode 100644',
+      'index 0000000..3b18e51',
+      '--- /dev/null',
+      '+++ b/new.txt',
+      '@@ -0,0 +1 @@',
+      '+hello',
+      '',
+    ].join('\n');
+    const [file] = parsePatch(patch);
+
+    expect(hunkPatch(file!, file!.hunks[0]!)).to.equal(patch);
+  });
+
+  it('should write a hunk no patch was read for from its lines, and read back the same', () => {
+    const hunks = diffHunks('one\ntwo\nthree\n', 'one\n2\nthree\n');
+    const file = { hunks, newName: 'b/x.txt', oldName: 'a/x.txt' };
+    const written = hunkPatch(file, hunks[0]!);
+
+    expect(written).to.equal(
+      ['--- a/x.txt', '+++ b/x.txt', '@@ -1,3 +1,3 @@', ' one', '-two', '+2', ' three', ''].join(
+        '\n'
+      )
+    );
+    expect(parsePatch(written)[0]!.hunks[0]!.lines).to.deep.equal(hunks[0]!.lines);
+  });
+
+  it('should write a line with no newline after it the way git does', () => {
+    const file = {
+      hunks: [],
+      newName: 'b/x',
+      oldName: 'a/x',
+    };
+    const hunk = {
+      lines: [
+        { kind: 'remove' as const, noNewline: true, oldNumber: 1, text: 'x' },
+        { kind: 'add' as const, newNumber: 1, text: 'x' },
+      ],
+      newLines: 1,
+      newStart: 1,
+      oldLines: 1,
+      oldStart: 1,
+    };
+
+    expect(hunkPatch(file, hunk)).to.equal(
+      '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n\\ No newline at end of file\n+x\n'
+    );
+    expect(parsePatch(hunkPatch(file, hunk))[0]!.hunks[0]!.lines).to.deep.equal(hunk.lines);
   });
 });
 
