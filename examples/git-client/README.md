@@ -97,5 +97,5 @@ it lost.
 - Refreshing on its own: `r` reads the repository again, and every action does.
 - What the library does not do yet, and this does by hand: a diff view that
   scrolls and has a hunk cursor (SIG-367), a patch that survives a round trip
-  (SIG-370), `:focus-within` for the lit pane (SIG-372), and a dialog that builds
-  its own body and opens on a field (SIG-335, SIG-337).
+  (SIG-370), and a dialog that builds its own body and opens on a field (SIG-335,
+  SIG-337).

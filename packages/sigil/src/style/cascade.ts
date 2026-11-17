@@ -24,6 +24,8 @@ import {
   type Selector,
   type Specificity,
   type StyleNode,
+  type StyleState,
+  statesBeyondSubject,
 } from './selector.js';
 import {
   DEFAULT_MEDIA,
@@ -152,6 +154,7 @@ export class Cascade {
 
   #buckets: Map<string, Candidate[]> | undefined;
   #keyframes: Map<string, Keyframes> | undefined;
+  #reaching: Set<StyleState> | undefined;
   readonly #listeners = new Set<() => void>();
   readonly #sheets: Stylesheet[] = [];
 
@@ -268,6 +271,7 @@ export class Cascade {
   #changed(): void {
     this.#buckets = undefined;
     this.#keyframes = undefined;
+    this.#reaching = undefined;
     // a copy, so that one subscribing or leaving mid-dispatch cannot change who is called
     const listeners = [...this.#listeners];
     for (const listener of listeners) {
@@ -314,6 +318,37 @@ export class Cascade {
       this.#keyframes = found;
     }
     return this.#keyframes.get(name);
+  }
+
+  /**
+   * Whether any rule asks about `state` on an element other than the one it
+   * styles -- left of a combinator, as in `.panel:focus-within .title`.
+   *
+   * What a restyler reads to decide how far a change to that state reaches. When
+   * no rule does, the state is only ever a question about the element it is on,
+   * and a change to it restyles that element alone; when one does, it restyles
+   * what a class change would. Every sheet is read, a rule inside a media query
+   * that does not apply included, so the answer cannot go stale on a resize.
+   * Built on the first ask and thrown away with the bucket index.
+   *
+   * @param state - The state.
+   * @returns Whether a combinator can carry a change to it to another element.
+   */
+  reaches(state: StyleState): boolean {
+    if (!this.#reaching) {
+      const found = new Set<StyleState>();
+      for (const sheet of this.#sheets) {
+        for (const rule of sheet.rules) {
+          for (const selector of rule.selectors) {
+            for (const name of statesBeyondSubject(selector)) {
+              found.add(name);
+            }
+          }
+        }
+      }
+      this.#reaching = found;
+    }
+    return this.#reaching.has(state);
   }
 
   /**

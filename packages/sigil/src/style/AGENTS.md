@@ -975,6 +975,12 @@ toolchain's one reader.
   the selector engine must not assume it never will; a selector that reads
   correctly and matches nothing is an answer, and one that throws is a missing
   feature somebody works around with a class they then cannot remove.
+- **`:focus-within` is a state to the engine, and the element tree decides who is
+  in it (SIG-372).** Matching it as "this node or a descendant has `:focus`" here
+  would walk a subtree per match and make the engine know what a descendant is
+  for; a node that reports `focus-within` in `states` keeps the engine a set
+  lookup and lets a test literal say it. The tree's half -- the focused element and
+  every ancestor, carried as a count -- is in `src/element`.
 - **Types, classes, and ids match case-sensitively; keywords do not.** They are
   JavaScript-land names rather than CSS keywords, so `Box` and `box` are
   different elements, while `:FOCUS` and `inherit` are read in any case the way
@@ -1297,6 +1303,42 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   is easy to forget and visible immediately when wrong: `:nth-child()` and
   `+`/`~` mean inserting a child changes what its siblings match, and none of
   those siblings changed in any way an element-level check would see.
+- **A `focus-within` change restyles the element it is on, unless a selector reads
+  it through a combinator (SIG-372).** A focus move flips `focus-within` on every
+  ancestor of both ends below the one they share, so handing each of those to
+  `touchClasses()` would restyle each one's subtree and siblings -- near the root,
+  the whole tree, on every Tab. The class-change rule is wide because a
+  combinator can carry a change down or sideways; a state that no selector asks
+  about left of a combinator can carry it nowhere, so `touchState()` re-matches
+  the element alone when `Cascade.reaches(state)` says no rule does, and falls
+  back to `touchClasses()` when one does -- `.panel:focus-within .title` is still
+  right, it just costs what a class change costs. `reaches()` reads every rule,
+  inside a media query that does not apply included, so a resize cannot make it
+  stale, and it is thrown away with the bucket index when a sheet is added,
+  removed or replaced. `:not()` is read through, since `.a:not(:focus-within) .b`
+  is a question about `.a`.
+
+  An element re-matched alone is **not** in the marked set, so its children are
+  forced exactly when its style changed -- the prop path's rule, and the one that
+  carries `.panel:focus-within { color: green }` down to a title no mark named.
+  Putting it in the marked set was the obvious way to write it and is wrong: a
+  marked element's subtree is taken to be marked too, so its children would keep
+  the colour they inherited before the move. So what a move from one pane to
+  another costs is the two chains, each end's own subtree and siblings (its
+  `focus`, which is still a class change), and the children of a link whose style
+  changed, which stop there if nothing they resolve to moved. `should restyle the
+  two chains a focus move flips, not the tree` in `test/style/invalidate.test.ts`
+  lists them -- and lists that the root and a thirty-row footer beside the panes
+  are not among them.
+
+  Measured nothing, because the claim is about which elements and not how fast:
+  the full re-match this avoids is already under a millisecond for a large tree.
+  What it avoids is that number becoming the price of every focus move, which is
+  the same reason `~` was made linear before anybody had a slow sheet. Only
+  `focus-within` goes through `touchState()`; `:focus` and `:hover` are still
+  class changes, which is right for an element whose own subtree a
+  `:focus .x` rule restyles and is a narrowing nobody has measured a need for.
+
 - **The walk is in document order, because a child's inherited values come from
   its parent's _resolved_ style.** The parent has to have been resolved first,
   which is also why the prop path is a branch inside the walk rather than a pass

@@ -5596,9 +5596,11 @@ border-color: cyan }`, or your own class on it with `class`. The title is
 `.sigil-heading` and the three others `.sigil-muted`; `.sigil-panel`, `-title`,
 `-annotation`, `-footer`, `-footer-annotation` and `-body` are the theme hooks. The
 border is ASCII where `unicodeSupported()` says so (`ascii: true` forces it), and
-`border` picks another character set. There is no `:focus-within`, so a panel cannot
-light up because something inside it has the focus; the app says which panel is
-current by giving it a class.
+`border` picks another character set. To light the panel the focus is in, say so in
+the app's sheet or a theme: `.sigil-panel:focus-within { border-color: green }`.
+`:focus-within` matches the focused element and every ancestor of it, so the panel
+is lit whichever control inside it has the focus, and the framework sheet sets no
+colour for it.
 
 #### A pane
 

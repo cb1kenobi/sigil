@@ -5390,12 +5390,20 @@ border, which is what every dashboard, file manager and log viewer is made of.
   the entry above. The classes `sigil-panel`, `-title`,
   `-annotation`, `-footer`, `-footer-annotation` and `-body` are named in the sheet's
   vocabulary comment, which `should name every class a built-in draws with` holds.
-- **`:focus-within` was in the ticket and does not exist.** "Focus on a control"
-  records why the selector engine has no such state, and nothing here changes that: a
-  panel cannot light up because something in it holds the focus. The app says which
-  panel is current with a class, or the panel's own contents show their focus. A
-  `focus-within` state would be the selector engine's ticket, and it would be wanted
-  by exactly this.
+- **A panel the focus is in is lit by `:focus-within`, and the framework sheet does
+  not light it (SIG-372).** The state is the element tree's and the selector the
+  engine's -- "`focus-within` is carried, not searched for" in `src/element` and the
+  matching entry under "Style invalidation" in `src/style` -- and the panel needed
+  nothing of its own for it: `.sigil-panel:focus-within { border-color: green }` in
+  an app's sheet or a theme lights whichever panel holds the focus, which is what
+  the git client does now in place of an effect toggling `is-active`. **No rule for
+  it in the framework sheet**, for the reason the entry above gives for the border
+  colour: it would be a colour, and the sheet sets none on a panel. The colour of a
+  lit pane is a decision a palette makes, and a rule saying "lit" with no colour in
+  it -- `bold`, `inverse` on a border -- would be a role in all but name, which
+  "Focus on a control" refuses to add per widget. At colour level 0 a lit border
+  and an unlit one look alike, so an app that wants the difference there writes it
+  as content, as the git client's title pointer does.
 - **Content as arguments or as `children`.** `Panel(props, ...children)` is the
   shape the monitor's stand-in had and the ticket asked for; a template hands a
   component its content as `props.children`, so both are read.
@@ -11376,11 +11384,12 @@ exception per widget. This is the one answer, and every widget below follows it.
   one more exception to the role rule for every widget, and it still cannot draw
   anything at colour level 0: there are no pseudo-elements and no `content`
   property here, so a selector can only restyle, never add a marker. `:focus-within`
-  is not supported by the selector engine (its states are `:checked`, `:disabled`,
-  `:focus` and `:hover`), and it would not help if it were: it matches every
-  ancestor of the focused element, which is the same leak from the other side --
-  a focused checkbox inside a list would mark the list as well. Told rather than
-  matched, the class is on the one part and nowhere else.
+  exists since SIG-372 and does not help either: it matches every ancestor of the
+  focused element, which is the same leak from the other side -- a focused checkbox
+  inside a list would mark the list as well. It is the answer for a container that
+  should show the focus is somewhere inside it, which is a panel's question and
+  not a control's. Told rather than matched, the class is on the one part and
+  nowhere else.
 - **The shipped themes leave it alone.** A theme is a palette, and the focus is
   the terminal's own two colours swapped, which is the same under every palette:
   `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
@@ -11466,8 +11475,8 @@ exception per widget. This is the one answer, and every widget below follows it.
   sabotages are in its history file.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
   replaces its inline buttons (it did: "Form controls" below); level-0 markers for the three existing controls,
-  which have no blank to put one in; and `:focus-within`, which would not solve
-  this, as above, and which nothing has asked for for any other reason.
+  which have no blank to put one in. `:focus-within` would not solve this, as
+  above; it arrived for the panel instead (SIG-372).
 
 ### Menus: a dropdown select, a context menu and a menubar (SIG-285)
 

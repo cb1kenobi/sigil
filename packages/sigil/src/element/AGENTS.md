@@ -33,8 +33,9 @@ the entry it belongs to.
   key into a shipped tree is worse than carrying an unused prop, which is the
   whole of why it exists before anything reads it.
 - **The tree records what changed; what that implies is the `Restyler`'s.**
-  `Marks` is exactly the four questions the invalidator asks -- props, classes,
-  children, sheets -- plus the layout and paint ones, and nothing else. Keeping
+  `Marks` is exactly the questions the invalidator asks -- props, classes,
+  children, sheets, and since SIG-372 `within` -- plus the layout and paint ones,
+  and nothing else. Keeping
   the two apart is what lets either be tested without the other, and it is why a
   mutation is a set membership rather than a call into the cascade.
 - **An element carries the colour depth its style was resolved at, for a `raw`
@@ -82,6 +83,32 @@ the entry it belongs to.
   the wrong place. `append()` with several children is one `insertBefore()` per
   child, so a throw part-way leaves the earlier ones appended; that is per-call
   atomicity, not a batch. See `test/element/element.test.ts`.
+- **`focus-within` is carried, not searched for, and it is reported rather than
+  set (SIG-372).** An element is in it while it or a descendant holds `focus`,
+  which is CSS's rule -- the focused element matches `:focus-within` too. Each
+  element keeps a count of the focused elements in its subtree, itself included:
+  a `focus` change adds or takes one along the chain above it, and a subtree that
+  `insertBefore()` or `removeChild()` moves carries its count out of one chain and
+  into the other, so `states` reads a number rather than walking a subtree and no
+  ancestor is left lit by a focused child taken out from under it. A count rather
+  than a flag because a direct `setState('focus')` outside the router can leave
+  two elements focused, and taking one of them away must not put the shared
+  ancestors out. A detached subtree keeps its own count, since inside it the focus
+  is where it was. `setState('focus-within')` throws -- a type error too -- because
+  a written one would disagree with the count the first time the focus moved.
+
+  Each element a change turned on or off is recorded under `within`, and **not**
+  under `classes`: `touchClasses()` restyles an element's subtree and siblings,
+  and on every link of two chains reaching up to the root that is the whole
+  screen per focus move. What `within` implies is the restyler's `touchState()`,
+  under "Style invalidation" in `src/style`. The end of a move that changed
+  `focus` itself is left out, because its `classes` mark already reaches further.
+  The ancestors are recorded with no call to the tree's callback, and the mark
+  that follows -- `classes` in `setState()`, `children` in a move -- runs it
+  once: so a callback that throws throws once, as it did before there were
+  ancestors to record, and it finds every count already carried when it runs.
+  See `test/element/element.test.ts`.
+
 - **A text is wrapped once, and paint reads the lines rather than making them
   again.** The cache used to hold the height a text came to and throw away the
   lines it came to -- which is the one thing paint needs, so paint wrapped the

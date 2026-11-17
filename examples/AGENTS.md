@@ -592,13 +592,16 @@ commit message in a text area. What it settled:
   `1/2/3/4 pane`. While a dialog is open the footer still lists the app's keys,
   which the dialog swallows: SIG-374.
 
-- **The lit pane is a class an effect puts on, because there is no
-  `:focus-within`.** An effect over `input.focus.current` asks each panel whether
-  it `contains()` the focused element and toggles `is-active`, and the sheet gives
-  that a green border -- the one colour in the sheet the roles do not give, since a
-  role class on the panel would colour its contents too. The title also gains a
-  `▸` (`>` in ASCII), which is what is left of it at colour level 0. SIG-372 is the
-  selector this stands in for.
+- **The lit pane is a selector: `.sigil-panel:focus-within { border-color: green
+  }`.** It was a class an effect put on -- an effect over `input.focus.current`
+  asked each panel whether it `contains()` the focused element and toggled
+  `is-active` -- until SIG-372 gave the selector engine the state. The green is the
+  one colour in the sheet the roles do not give, since a role class on the panel
+  would colour its contents too, and `border-color` does not inherit, so the
+  contents keep theirs. The effect is still there for the two things a sheet cannot
+  do: the title gains a `▸` (`>` in ASCII), which is what is left of the light at
+  colour level 0, and a list taking the focus is what the diff pane shows from then
+  on.
 
 - **A dialog's body is built under a branch of the component's owner.** The
   commit dialog's `TextArea` is over the app's draft and the new-branch dialog's
