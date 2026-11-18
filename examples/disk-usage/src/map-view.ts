@@ -4,7 +4,8 @@
  * Both are `raw` elements, the trapdoor the image component is built on: measured
  * like a text, placed by the layout, and painting their own cells. The map lays
  * its tree out again only when the tree, its root or its size moved -- a move of
- * the selection repaints over the same layout.
+ * the selection repaints over the same layout. The map is a `trackedRaw()`, so
+ * what its paint reads is what it is repainted for, with nothing listing it again.
  */
 
 import type { Category } from './disk.ts';
@@ -13,7 +14,7 @@ import { categoryColor, layoutMap, type MapLayout, markFor, paintMap, tileAt } f
 import { DEFAULT_COLOR } from '@ttylabs/sigil/canvas';
 import { type Element, raw } from '@ttylabs/sigil/element';
 import type { MouseEvent } from '@ttylabs/sigil/input';
-import { createEffect } from '@ttylabs/sigil/renderer';
+import { trackedRaw } from '@ttylabs/sigil/renderer';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { truncate } from '@ttylabs/sigil/wrap';
 
@@ -53,7 +54,7 @@ export function MapView(props: MapViewProps): Element {
     return laid.layout;
   };
 
-  const element = raw(
+  const element = trackedRaw(
     {
       // it takes whatever room the panel gives it, and asks for none of its own
       measure: () => ({ height: 0, minHeight: 0, minWidth: 0, width: 0 }),
@@ -91,15 +92,6 @@ export function MapView(props: MapViewProps): Element {
     },
     { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 }
   );
-
-  // a paint reads no signal the renderer can see, so what it draws is asked for
-  // again whenever one of them moves
-  createEffect(() => {
-    props.root.get();
-    props.selected.get();
-    props.message();
-    element.invalidatePaint();
-  });
 
   element.onMouse = (event: MouseEvent): void => {
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {

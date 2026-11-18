@@ -1247,10 +1247,12 @@ about where the space went.
   where it is picked, as the image component does, because degradation happens at
   resolve time and a `raw` paints after it.
 
-- **A `raw` element repaints when an effect says so.** The map and the swatch
-  beside each file are `raw`, the image component's trapdoor; a paint reads no
-  signal the renderer can see, so an effect over the root, the selection and the
-  message calls `invalidatePaint()`. The layout is cached by the tree's identity
+- **The map repaints for what its paint reads (SIG-477).** The map and the swatch
+  beside each file are `raw`, the image component's trapdoor. The map is built with
+  `trackedRaw()`, so the root, the selection and the message it reads while it
+  paints are what it is repainted for; it used to be `raw()` beside an effect that
+  read the three again and called `invalidatePaint()`. The swatch reads no signal
+  and is `raw()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
   short of the outline, which would otherwise lose its corner to a name.
@@ -1325,11 +1327,12 @@ about where the space went.
   selected tile drawn solid at level 0, and a failed delete not scanning again each
   fail a test. The hard links counted at whichever name the walk reached first
   survived, because a directory lists in byte order on the machines the suite runs
-  on; the test now lists it reversed. The effect that calls `invalidatePaint()`
-  survives by design: a frame paints the whole tree once anything changed, and
-  nothing in the app changes the map without changing a line of text beside it, so
-  removing it changes no screen today. It stays, because the map being right should
-  not rest on that.
+  on; the test now lists it reversed. The effect that called `invalidatePaint()`
+  survived: a frame paints the whole tree once anything changed, and nothing in the
+  app changes the map without changing a line of text beside it, so removing it
+  changed no screen. SIG-477 replaced it with `trackedRaw()`, and
+  `test/map-view.test.ts` mounts the map with nothing beside it, so building it with
+  `raw()` again fails both of that file's tests.
 
 - **Review round 1: eight findings, six fixed, each with a test that fails
   without its fix.** `r` and a second `d` were let through once the confirm
