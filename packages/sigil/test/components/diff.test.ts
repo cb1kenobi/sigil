@@ -887,11 +887,15 @@ describe('diff()', () => {
       expect(folded.rowOverflow).to.have.length(folded.element.children.length);
       // every row of a folded line is its whole line's width
       expect(folded.rowWidth).to.deep.equal([0, 10, 10]);
+      // side by side, the wider half: the long line is the old one, on the left,
+      // so a row that took whichever half came last would say 5
       const sides = diffView(
-        { new: 'x'.repeat(60), old: 'short' },
+        { new: 'short', old: 'x'.repeat(60) },
         { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
       );
       expect(sides.rowWidth).to.deep.equal([0, 60]);
+      // and its overflow is that half's: 60 columns against the left half's room of 25
+      expect(sides.rowOverflow).to.deep.equal([0, 35]);
     });
 
     it('should report no overflow while folding', () => {
