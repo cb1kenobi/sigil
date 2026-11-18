@@ -2,7 +2,7 @@ import { describeSwitch, Switch } from '../../src/components/switch.js';
 import { type Element, text } from '../../src/element/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
-import { clickOn, form, part, picture, recorder, stopForms } from './form-harness.js';
+import { clickOn, DERIVED, form, part, picture, recorder, stopForms } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -84,7 +84,7 @@ describe('Switch', () => {
     );
     expect(() => Switch({ label: 3 as never })).toThrow('Expected a switch label to be a string');
     expect(() => Switch({ disabled: {} as never })).toThrow(
-      'Expected switch disabled to be a boolean or a State'
+      'Expected switch disabled to be a boolean, a State, a Computed or a function'
     );
   });
 });
@@ -196,6 +196,28 @@ describe('a disabled switch', () => {
     disabled.set(false);
     flush();
     expect(part(control, 'is-active').classes).toContain('sigil-accent');
+  });
+
+  it.each(DERIVED)('should follow %s as its disabled, off and on again', async (_, derive) => {
+    const valid = new State(false);
+    const { control, told } = switched({ disabled: derive(valid) });
+    const f = form(control);
+    expect(control.focusable).toBe(false);
+    expect(control.states).toContain('disabled');
+    valid.set(true);
+    flush();
+    expect(control.focusable).toBe(true);
+    expect(control.states).not.toContain('disabled');
+    f.input.focus.focus(control);
+    await f.press(KEYS.space);
+    expect(told).toEqual([true]);
+    valid.set(false);
+    flush();
+    expect(control.focusable).toBe(false);
+    expect(part(control, 'is-active').classes).not.toContain('sigil-accent');
+    await f.press(KEYS.space);
+    expect(clickOn(control).claimed()).toBe(false);
+    expect(told).toEqual([true]);
   });
 });
 

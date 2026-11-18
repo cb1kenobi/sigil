@@ -437,15 +437,20 @@ was tested, and the sabotage pass, are in
   often as typed at, and `runApp()` leaves it off unless asked. The contract
   line above now says an entry may pass options.
 
-- **What is worked around, each with a ticket.** `follow()` mirrors a `Computed`
-  into a `State` for a control's `disabled`, used five times (SIG-334). The login
-  dialog's Sign in and Cancel are in its body with `actions: []`, because an
-  action cannot be disabled and a dialog with actions opens on a button rather
-  than on the first field (SIG-337). And the dialog borrows an owner: it is opened
-  from `onPress`, which has none, so its body is built under a branch of the
-  Account section's owner and disposed when `result` settles -- without that, the
-  effect following the focus runs for the rest of the app, which was measured
-  (SIG-335).
+- **What is worked around, each with a ticket.** The login dialog's Sign in and
+  Cancel are in its body with `actions: []`, because an action cannot be disabled
+  and a dialog with actions opens on a button rather than on the first field
+  (SIG-337). And the dialog borrows an owner: it is opened from `onPress`, which
+  has none, so its body is built under a branch of the Account section's owner and
+  disposed when `result` settles -- without that, the effect following the focus
+  runs for the rest of the app, which was measured (SIG-335).
+
+- **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
+  in and the Account section's two buttons each take one --
+  `disabled: () => !form.dirty.get()` -- which the control reads inside its own
+  effect. It was a `follow()` helper that mirrored the condition into a `State`
+  through an effect of the example's, five times over, until SIG-334 let a
+  control's `disabled` be a `Computed` or a function.
 
 - **The status line is cut with an ellipsis, never wrapped.** At 60 columns the
   SMS reason is wider than the bar, and the text wrapped: its second line drew
@@ -560,17 +565,22 @@ commit message in a text area. What it settled:
   so when there is nothing unstaged, because throwing away what somebody staged
   deliberately is the one discard nobody means.
 
-- **A hunk is staged as a patch of its own, read by the example's own reader.**
+- **A hunk is staged as a patch of its own, read and written by the library.**
   Space writes the file's header and the one hunk back, every line as git wrote
   it, to `git apply --cached` (and `--reverse` under `Staged`), which is
-  `git add -p`. `parsePatch()` keeps neither the raw lines nor
-  `\ No newline at end of file`, so a hunk at the end of a file with no final
-  newline would be a different hunk -- `should stage a file with no final newline
-  a hunk at a time` is the case -- and `splitPatch()` in `src/parse.ts` is a
-  second reader for it. That is a duplicate of a decision and is recorded as one:
-  SIG-370 is the ticket for a reader that does both. A patch over 4,000 lines is
-  cut, and the hunk the cut went through is dropped rather than offered to Space,
-  since its header still counts lines it no longer has.
+  `git add -p`. The patch is read once, by `parsePatch()`, and that read is both
+  what the pane draws (`diffView({ files })`) and what `hunkPatch()` writes back:
+  the reader keeps each file's header and each hunk's source lines, `\r` and
+  `\ No newline at end of file` included, since a hunk at the end of a file with
+  no final newline is a different hunk without that line -- `should stage a file
+  with no final newline a hunk at a time` is the case. The example had a second
+  reader, `splitPatch()`, until SIG-370 gave the library's one the text to write
+  back. What is left in `src/parse.ts` is `pathOf()`, which reads the path off
+  the names `parsePatch()` returns: the `a/` and `b/` prefixes and the unquoting
+  are the client's own `--src-prefix`, `--dst-prefix` and `core.quotepath`
+  choices rather than the format. A patch over 4,000 lines is cut, and the hunk
+  the cut went through is dropped rather than offered to Space, since its header
+  still counts lines it no longer has.
 
 - **The diff pane rebuilds `diffView()` at the width the layout gives it.**
   `diffView()` draws for a width it is told and has no view that scrolls, so the
@@ -592,13 +602,16 @@ commit message in a text area. What it settled:
   `1/2/3/4 pane`. While a dialog is open the footer still lists the app's keys,
   which the dialog swallows: SIG-374.
 
-- **The lit pane is a class an effect puts on, because there is no
-  `:focus-within`.** An effect over `input.focus.current` asks each panel whether
-  it `contains()` the focused element and toggles `is-active`, and the sheet gives
-  that a green border -- the one colour in the sheet the roles do not give, since a
-  role class on the panel would colour its contents too. The title also gains a
-  `▸` (`>` in ASCII), which is what is left of it at colour level 0. SIG-372 is the
-  selector this stands in for.
+- **The lit pane is a selector: `.sigil-panel:focus-within { border-color: green
+  }`.** It was a class an effect put on -- an effect over `input.focus.current`
+  asked each panel whether it `contains()` the focused element and toggled
+  `is-active` -- until SIG-372 gave the selector engine the state. The green is the
+  one colour in the sheet the roles do not give, since a role class on the panel
+  would colour its contents too, and `border-color` does not inherit, so the
+  contents keep theirs. The effect is still there for the two things a sheet cannot
+  do: the title gains a `▸` (`>` in ASCII), which is what is left of the light at
+  colour level 0, and a list taking the focus is what the diff pane shows from then
+  on.
 
 - **A dialog's body is built under a branch of the component's owner.** The
   commit dialog's `TextArea` is over the app's draft and the new-branch dialog's
@@ -624,7 +637,8 @@ commit message in a text area. What it settled:
   patch `git apply` will not take back.
 
 - **Sabotage: seventeen, one survived and has a test now.** A patch reader that
-  drops `\ No newline`, a hunk written back without its file header, unstaging
+  drops `\ No newline` (since SIG-370 the library's, and its own tests fail as
+  well), a hunk written back without its file header, unstaging
   without `--reverse`, a discard confirm that starts on Yes, a discard and a
   branch delete with no confirm at all, deleting the branch checked out, a branch
   cursor that does not start on it, a hunk cursor that never moves, Ctrl-S
@@ -665,18 +679,18 @@ screen of code.
   `MAX_MATCHES`, and a filter that stops part way drops lines without saying
   so.
 
-- **Following is the cursor on the newest line, decided when the cursor
-  moves.** An effect over `current` sets `following` to whether the cursor is
-  on the tail. An append while following writes the new tail's key into
-  `current` in the same step as the new rows. That relies on the list's items
-  effect running before its cursor effect, which creation order gives today.
-  The follow tests fail if it changes, and SIG-385 asks for this as a mode of
-  the list. `F` sets `following` itself, because writing the key the cursor is
-  already on wakes nothing; the sabotage that drops it fails the follow test. A
-  wheel moves the view and not the cursor. So an append first asks whether the
-  cursor's row is still on screen, read off `listControl().scroll.viewport`, and
-  stops following if it is not. Otherwise the next line would pull a reader who
-  had wheeled up back down.
+- **Following is the list's `tail` (SIG-385).** The log holds `following` as
+  a `State` for the panel's `following` / `paused` label and for `F`, which
+  writes its opposite, and hands it to `ListView` as `tail`. The list moves the
+  cursor to the newest line as lines arrive, stops on a move off it or a wheel
+  that takes it out of view, and starts again on End. That was about forty lines
+  here: an effect deciding following from the cursor, a write of the new tail's
+  key in the same step as the rows, which relied on the list's items effect
+  running before its cursor effect, a check of the viewport at each append for a
+  wheel the app could not hear, and `F` writing the key itself. The decisions
+  are under "A list view that follows its tail" in
+  `packages/sigil/src/components/AGENTS.md`; the follow tests here are the ones
+  that were written against the app's version, and pass unchanged.
 
 - **The rows of the log are not reactive; a new search refreshes them.** A
   function child is text, not elements, so a row cannot redraw its match runs
@@ -731,11 +745,282 @@ screen of code.
   and from the JSX table. The refresh, the trim, the closed pager and the kept
   filter each survived the first pass. Each then got the test that catches it:
   a search for a line already on screen, a log at a cap of 510, no pager left
-  in the tree, and a describe and back with a filter up.
+  in the tree, and a describe and back with a filter up. Three of the ten -- the
+  in-view check, the refilter that keeps following and `F`'s write -- moved into
+  the list with SIG-385, whose own pass covers them. Here, `tail` dropped from the
+  JSX root fails the follow and the wheel tests for that root, and `F` that only
+  stops fails the follow test.
 
-- **Not done:** a real cluster; a row coloured whole by its status (SIG-388),
-  so the STATUS cell carries the colour as a `TableCellView`; the log as a
-  pager (SIG-387); and following as a list mode (SIG-385).
+- **A pod in trouble is coloured across its whole row, by the table's
+  `rowClass` (SIG-388).** `resourceClass()` in `src/browser.ts` gives a
+  `CrashLoopBackOff` pod `sigil-error` and a `Pending` or `ContainerCreating` one
+  `sigil-warn`, and both twins pass it to `DataTable`. It replaced `statusCell()`,
+  a `format` that drew the STATUS cell as a `TableCellView` carrying the role, so
+  the column is plain text now and measured as text. A role rather than a colour,
+  so a theme recolours it. `should keep the table live, and draw a pod in trouble
+  in its role across the row` mounts at colour level 1, where a role is a colour
+  the resolved style can be read back for, and asserts every word of the crashing
+  row is red with no role on any cell of its own, and a running row is not.
+  Dropping `rowClass` from either twin fails it for that twin.
+
+- **Not done:** a real cluster; and the log as a pager (SIG-387).
+
+### A file manager in Miller columns, with a preview (SIG-294)
+
+`examples/file-manager`, in the shape of yazi and ranger and borrowing nothing
+of theirs but the shape: the directory above, the one the manager is in, and a
+preview of the selection, moved through with the arrows or `h`/`j`/`k`/`l`.
+Copy, move, rename and delete behind confirms, a filter, and dot files toggled.
+The ticket asked whether to ship before highlighting and images landed; both had
+(SIG-289, SIG-326), so it previews text highlighted, Markdown rendered and a PNG
+in half blocks from the start.
+
+- **Written twice, over a model neither root is.** The git client's shape and
+  for its reason: `createModel()` in `src/model.ts` holds the states, the reads,
+  the keys and the dialogs, and `root.tsx` and `root.ui.ts` build the three
+  panels, the two `ListView`s, the filter bar and the footer, handing back what
+  a key reaches through `attach()`. Each panel's `onKey` is assigned in
+  `attach()` rather than spelled in both trees, which is one fewer thing for the
+  twins to disagree on. The preview is a component in a shared module,
+  `src/preview-pane.ts`, named by both.
+
+- **The real file system, through a context, inside directories the tests make.**
+  `FilesContext` is `GitContext` again: the directory the manager opens in and
+  every call it makes to the disk, which `src/ui.ts` and `src/index.ts` provide
+  with `[dir]` or the working directory. `test/fixture.ts` wraps each call to
+  count it, so `settle()` waits for what the manager asked of the disk rather
+  than for a time. Every copy, move, rename and delete a test runs is inside a
+  directory `tempDir()` made, and the assertions read the disk. The contract tests
+  run it in the repository with no provider, and it only reads there: Tab, `.`,
+  `q` and Ctrl-C change nothing on disk. The `KEYED` entry presses `.` and waits
+  for `Hidden files: shown`, which the status line says whatever the directory
+  holds.
+
+- **Three test files make directories, so the helper is the example's own
+  module.** The git client's entry put the point at which the helper earns its
+  place at a second file. `test/fixture.ts` exports `tempDir()` and
+  `removeTempDirs()`, and each file registers the `afterAll` itself, since an
+  example has no `vitest.config.ts` and so no `setupFiles` to hang it on.
+  `tempDir()` resolves the directory's links, because macOS's temp directory is
+  behind `/var`, a link, and a path the manager reads back is compared with one
+  the test built.
+
+- **Nothing is written over, and only a delete starts its confirm on No.** A
+  copy whose name is taken gets the next free one, `a copy.txt` and then
+  `a copy 2.txt`, which is what makes copying a file beside itself work. A move
+  onto a taken name is refused: a rename of one of them first is the user's
+  call, not the manager's. Neither puts a directory inside itself. A move asks
+  again whether its name is free after the confirm, because `rename()` replaces
+  a file on POSIX and on Windows without a word, and the confirm was time for one
+  to appear; `should not write over a file that appeared while the confirm was
+  open` writes one there. So copy and move lose nothing and start on Yes, and a
+  delete -- which does not go to the trash -- starts on No, the git client's rule
+  for what loses work. The checks are plain functions in `src/files.ts`
+  (`planPaste()`, `planRename()`, `nameProblem()`, `isInside()`), asked before a
+  confirm is shown, and tested without an app.
+
+- **A rename takes a name, never a path.** A `/` is refused everywhere and a `\`
+  on Windows, where it separates too, so a rename can never move a file. A name
+  that differs only in case is still a rename: on a file system that ignores case
+  the new name is "taken" by the file itself, which `same()` asks by device and
+  inode.
+
+- **Hidden means a dot file, on every platform.** Windows also has a hidden
+  attribute and Node does not read it, so a file Explorer hides is shown unless
+  its name starts with a dot. The parent column always shows the directory the
+  manager is in, dot directory or not, since that is where it is.
+
+- **Every control character in a name or a file is drawn as `�`.** Not for the
+  terminal's sake: a text element drops a control character before it is
+  painted, so none reaches the terminal either way (measured, with a raw `ESC` in
+  a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
+  that is not the one on disk, and a tab vanishes rather than indents.
+  `printable()` replaces one for one, so the highlighter's offsets still line up,
+  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
+  the next stop of four.
+
+- **A preview reads the top of a regular file, and never opens anything else.**
+  64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
+  first 8,000 bytes is binary (git's test); a PNG is decoded whole under 8 MB. A
+  FIFO, a socket or a device is a note without being opened, since a read of a
+  FIFO waits for a writer that may never come. A read is one at a time and a read
+  the cursor overtook is done again for wherever it is when the first ends, so
+  holding `j` reads two files rather than one per row.
+
+- **Text is cut, not folded, and drawn by `codeRows()`.** A line is cut at the
+  pane's edge behind a gutter of line numbers, the way a pager shows code, and
+  drawn as runs of cells that share a token -- which is markdown's private
+  `codeRow()` and `diff()`'s highlighted line written a third time, here. That is
+  a duplicate of a decision and is recorded as one: a published code view, lines
+  with a gutter over `highlightCode()`, is the gap. Markdown and the picture are
+  built for the size `onResize` reports, the diff pane's way; the picture asks for
+  no more than its own pixels and no more than the pane, inside `contain`.
+
+- **The filter bar is shown with an inline `display` and a forced frame**, the
+  log browser's workaround for SIG-384. The rename dialog's field is built under
+  a branch of the component's owner and focused once the dialog is open (SIG-335,
+  SIG-337), the git client's `owned()`.
+
+- **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
+  client's rule since SIG-372, and with nothing in the model: the column a key
+  moved the focus into is lit, the preview once a file's `l` hands it over, and
+  neither while the filter bar has it, since the bar is under no panel. `should
+  light the column the focus is in, from the sheet` asks the cascade which panels
+  the rule matches rather than reading the screen, because the test terminal is
+  at colour level 0 and a border colour does not survive to it there.
+
+- **`toMatchObject()` with a regular expression as a value matches any string.**
+  Found by the sabotage pass: a test asserting `note: /Not a regular file/` passed
+  against a preview that said something else, because vitest reads a `RegExp` as
+  an object to take a subset of, and it has no enumerable properties. Every such
+  value here is `expect.stringMatching()`.
+
+- **Sabotage before review: fourteen, two survived and have tests now.** The `printable()` in a
+  name, the parent column keeping the directory the manager is in, the delete
+  confirm starting on Yes, the cursor remembered per directory, the taken-name
+  check on a move, the next free copy name, the filter cleared on leaving a
+  directory, the tab stop, a file's `l` going to its preview, the `..` test in
+  `isInside()`, and the NUL test for binary each fail a test. Opening what is not
+  a regular file survived behind the vacuous `toMatchObject()` above, and the
+  move's second look at the name survived until the test that writes a file
+  while the confirm is open.
+
+- **Review round 1: ten findings, all fixed, eight with a test that fails
+  without the fix and two by construction.** A rename is planned inside the
+  operation chain rather than before it, so a copy still running ahead of it
+  cannot take the name in between -- no test, since the window is the chain's
+  and there is nothing left to hold open. A CRLF is a newline before anything is
+  cut at one, so a cut no longer leaves its `\r` as a `�`; a read that stopped
+  inside a character is decoded with `stream`, so its first bytes are held back
+  rather than drawn; a directory read overtaken by a newer one says nothing even
+  when it failed; a start spelled in another case is respelled from its
+  directory's listing (the last name only), so `./readme.md` selects
+  `README.md`; a rename onto another name of the same hard link is refused,
+  since `rename()` would succeed and change nothing; a delete's next row is
+  found by name, since a change that finished during the confirm replaced every
+  entry (the second one without a test); a filter typed in the same read as `/`
+  is now tested, which is what pins the forced frame; a real FIFO is listed and
+  previewed by a test, which would hang rather than fail if one were opened; and
+  the gutter goes where the pane cannot hold it and a cell of text.
+
+- **Review round 2, over round 1's fixes: four findings, three fixed.** A
+  case-only rename onto another hard link of the same file passed the inode
+  check and did nothing, so a name the directory already lists exactly as typed
+  is now taken whatever file it is -- on a file system that ignores case the
+  directory lists only the old spelling. Its test can only run where case is
+  kept, so it is skipped on a Mac and runs on Linux. A read that ended on a `\r`
+  with no newline before it drew half a CRLF as `�`, and drops it now. A refused
+  rename or move is a warning, as a refused paste always was, rather than an
+  error. Not fixed: case is compared with `toLowerCase()`, not Unicode case
+  folding, so a pair a file system folds and JavaScript does not (`i` and `İ`)
+  is a name that is taken rather than a case-only rename, and a start spelled
+  that way is not respelled. That is the safe direction to be wrong in.
+
+- **Not done:** selecting several files, a trash, making a file or a directory,
+  opening one in `$EDITOR`, and watching a directory (`R` reads it again).
+
+### A dashboard, in the shape of shadcn's dashboard-01 (SIG-297)
+
+`examples/dashboard`. shadcn's featured block as a list of parts -- a collapsible
+sidebar, a header with a search and a menu, cards with trend badges, a chart with
+a range selector, a table with sorting, selection, pages and a row menu, light and
+dark -- built from sigil's own components, with its own data, names and colours.
+
+- **JSX alone, and built,** for the settings screen's reason: a screen of a dozen
+  components whose props are spelled out, all of them checked by the build's
+  `tsc`. So there is no `src/ui.ts`.
+
+- **The state is `createDashboard()` in `src/model.ts`, and each region is built
+  over it in a module of its own.** The log browser's shape (`useBrowser()`)
+  without the twin: the model has no elements, so `test/model.test.ts` drives the
+  sort, the search and the pages without a screen, and `test/app.test.ts` drives
+  the same state through the keys.
+
+- **The table is sorted, searched and paged before `DataTable` sees it.** A
+  `DataTable` sorts the rows it is handed and has no pages, so a page handed to
+  it sorts as ten rows and the order stops at the page's edge. The model holds the
+  `sort` State the table writes on a heading or a digit, orders the whole list with
+  `cellOrder()` -- the table's own comparator, published from
+  `components/table` -- over `SORT_VALUES`, which the table's columns read too, and
+  cuts a page with `createPaginator()`. The table sorting that page again is a
+  no-op that agrees, and `should sort every page by a heading digit` checks that
+  page two carries on from page one. A status sorts by how much it needs looking
+  at, not by its spelling. A new search goes back to page one.
+
+- **The selection is ids, and outlives a page.** `ListView` never prunes
+  `selected`, so ticks on two pages are still there on a third and the row menu
+  acts on all of them. Building that found `DataTable` dropping its documented
+  `selected` prop on the way to the list -- a table started with nothing ticked and
+  an app's State never heard a Space -- which is fixed in
+  `packages/sigil/src/components/data-table.ts`, with the regression test beside
+  the table's own. A removed project leaves the selection with it.
+
+- **System, Light and Dark, and the two named ones paint their own background.**
+  `System` is no theme sheet: the framework's roles over the terminal's colours,
+  light or dark as it reports. `Light` and `Dark` are the app saying which it is,
+  which `prefers-color-scheme` cannot say -- it asks what the _terminal_ is, and the
+  renderer fixes that at start -- so each sheet fills `.sigil-app`, sets every role
+  (one left out would fall back to a default chosen for the terminal's scheme, a
+  dim grey meant for black drawn on white), and fills the menu, the dialog, the
+  toast and the tooltip, which are drawn on the root in the terminal's own colours
+  otherwise and would punch a black hole in a white screen. Truecolor, since an
+  app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
+  theme's State, so `t`, the account menu and a test all reach the screen one way.
+
+- **The row menu opens under the row's right end, found by its classes.** Enter or
+  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+  the current row's last cell, an element rather than a point, so it right-aligns
+  under the row -- or above it, where the row is too low for it -- and leaves the
+  row in view, where a web table's row menu is. Nothing hands out the element a
+  row was built as, so `currentRow()` walks the table for the `sigil-list-row`
+  that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
+  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
+  because a letter two items share only steps the highlight between them; the
+  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
+  pauses the row the menu is about. A double click moves the cursor and activates
+  in one handler, before the effect that moves `is-current` has run, so the menu
+  settles a frame with `app.view.frame()` before it looks for the row --
+  `flush()` from the signals is not enough, since the renderer runs its own
+  effects. Both clicks have to arrive in one read for the gap to show, which is
+  how the test sends them.
+
+- **A card's badge is rebuilt when its figure moves.** `badgeView()` draws a
+  fixed label, so `LiveBadge()` replaces it in an effect. The table's status cell
+  is not a badge: ten solid green blocks down one column outshouted everything on
+  the screen, so it is a mark and a word in the status's role, as a
+  `{ element, width }` cell.
+
+- **The sidebar collapses by a class, and starts collapsed under 100 columns.**
+  Ctrl-B, which is shadcn's chord, toggles `is-collapsed` on the panel, and the
+  sheet narrows it to 7 -- the panel's padding, the list's pointer and a glyph --
+  and hides the labels, the usage gauge and the border's words. The list, its
+  cursor and the page are untouched. The width is read once, from
+  `app.terminal.width`, and not re-asked on a resize, the system monitor's
+  footer's limit.
+
+- **A short terminal gives up the chart before the table.** Media queries on the
+  height drop the sparklines at 27 rows, the chart at 21 and the line beside each
+  badge at 17; the table's own priorities drop the owner and then the region on a
+  narrow one. The legend is in the chart's head, beside the range, rather than
+  under the plot, where it would cost a row.
+
+- **The data is generated and the calendar ends on a fixed day.** A seeded
+  generator and 16 November 2026, so the tests assert on figures and a
+  screenshot does not go stale. Nothing reads `Date.now()` or `Math.random()`.
+
+- **Focus order, and the smoke test.** The sidebar has the focus on mount, so the
+  arrows move between pages, and Tab goes to the search, the account menu, the
+  range and the table. The harness Tabs four times from there and presses `q`, so
+  the search must stay the first stop and not the last: a `q` is a letter there.
+  At the harness's 16 rows the chart is not drawn, so its range is no stop and the
+  fourth Tab is the rows-per-page dropdown, which takes a letter only where it
+  starts an option, and its options are numbers. The spawned run
+  presses Down and waits for `Analytics`, which at 60 columns is only in the
+  header, since the sidebar starts collapsed there.
+
+- **Not done:** the pages other than the overview, which say they are not drawn;
+  re-collapsing the sidebar on a resize; a hover crosshair or an area fill on the
+  chart, which shadcn's has and `LineChart` does not; and a `ui`-tag twin.
 
 ### A text editor with a Markdown preview (SIG-296)
 

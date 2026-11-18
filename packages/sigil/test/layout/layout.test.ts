@@ -1,4 +1,4 @@
-import { distribute, layout, measureNode } from '../../src/layout/index.js';
+import { distribute, layout, type LayoutNode, measureNode } from '../../src/layout/index.js';
 import { declare } from '../../src/style/index.js';
 import { box, boxes, checkInvariants, picture, text } from './helpers.js';
 import { describe, expect, it } from 'vitest';
@@ -521,6 +521,19 @@ describe('order', () => {
     );
 
     expect(picture(tree, 3, 1)).toBe('bcd');
+  });
+
+  // a node built by hand is the one way a string reaches `order`, and the sort
+  // subtracts, so `'10'` comes after `'2'`. Deciding whether to sort at all has
+  // to read it the same way, or a `>` that compares strings skips it (SIG-381)
+  it('should place by the order the sort reads, for a hand-built node', () => {
+    const ordered = (order: string): LayoutNode => {
+      const node = box({ width: '2', height: '1' });
+      return { ...node, style: { ...node.style, order: order as unknown as number } };
+    };
+    const tree = box({ 'flex-direction': 'row' }, ordered('10'), ordered('2'));
+
+    expect(picture(tree, 4, 1)).toBe('ccbb');
   });
 });
 

@@ -38,9 +38,8 @@ import {
   describeListView,
   listControl,
   rankBy,
-  type TableCellView,
 } from '@ttylabs/sigil/components';
-import { type Element, text } from '@ttylabs/sigil/element';
+import type { Element } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
 import {
   type Context,
@@ -161,22 +160,19 @@ export type Resource = Deployment | Pod | Service;
 export const resourceKey = (row: Resource): string => `${row.namespace}/${row.name}`;
 
 /**
- * A status the eye should stop on, in its role's colour, and `Running` as plain
- * text. A cell that is an element is a `TableCellView`, measured by the width it
- * says it has -- so the column is as wide as the longest status it has shown and
- * no wider, where a declared width would have been the longest one possible.
+ * A pod in trouble, in its role's colour across the whole row, as k9s draws one:
+ * a crashing pod in the error role, one not up yet in the warning role, and a
+ * running pod, a service and a deployment as they are. A role rather than a
+ * colour, so a theme recolours it; the table puts it on the row's box, and every
+ * cell takes it from there. Asked when a row is built, which a new reading is.
  */
-function statusCell(value: unknown): string | TableCellView {
-  const word = String(value);
-  const role =
-    word === 'CrashLoopBackOff'
-      ? 'sigil-error'
-      : word === 'Pending' || word === 'ContainerCreating'
-        ? 'sigil-warn'
-        : undefined;
-  return role === undefined
-    ? word
-    : { element: text(word, { class: role, 'white-space': 'nowrap' }), width: word.length };
+export function resourceClass(row: Resource): string | undefined {
+  const status = (row as Partial<Pod>).status;
+  return status === 'CrashLoopBackOff'
+    ? 'sigil-error'
+    : status === 'Pending' || status === 'ContainerCreating'
+      ? 'sigil-warn'
+      : undefined;
 }
 
 /** Where a level is drawn from: a role, so a theme recolours it. */
@@ -310,7 +306,7 @@ export function useBrowser(): Browser {
     pods: [
       { header: 'NAMESPACE', key: 'namespace', priority: 1 },
       { grow: 1, header: 'NAME', key: 'name', minWidth: 12, priority: 3 },
-      { format: statusCell, header: 'STATUS', key: 'status', priority: 2 },
+      { header: 'STATUS', key: 'status', priority: 2 },
       {
         align: 'right',
         descendingFirst: true,
@@ -362,32 +358,21 @@ export function useBrowser(): Browser {
   const query = new State('');
   const shown = new State<readonly LogLine[]>([]);
   const current = new State<number | undefined>(undefined);
+  /**
+   * Whether the log follows its newest line: the list's `tail`, which the list
+   * writes as the reader moves and scrolls, and `F` writes.
+   */
   const following = new State(true);
   /** The test the shown lines passed, kept so a new batch is tested without the old ones. */
   let keep = lineTest({ filter: '', level: 'debug', source: undefined });
 
-  const tail = (): number | undefined => untrack(() => shown.get()).at(-1)?.id;
-
-  // a filter that changed tests every line again; the cursor goes to the newest
-  // line if it was following, and stays on its line otherwise
+  // a filter that changed tests every line again; the list keeps the cursor on the
+  // newest line if it was following, and on its line otherwise
   createEffect(() => {
     const by = { filter: grep.get(), level: level.get(), source: source.get() };
     untrack(() => {
       keep = lineTest(by);
       shown.set(filterLines(lines.get(), by));
-      if (following.get()) {
-        current.set(tail());
-      }
-    });
-  });
-
-  // following is being on the newest line: a move off it stops, End and `F`
-  // start again. Decided when the cursor moves, which a new line does not do
-  createEffect(() => {
-    const at = current.get();
-    untrack(() => {
-      const last = tail();
-      following.set(last === undefined || at === last);
     });
   });
 
@@ -618,7 +603,7 @@ export function useBrowser(): Browser {
     append(feed === undefined ? batch : feed.read());
   };
 
-  /** Adds lines to the log and, while following, moves to the newest of them. */
+  /** Adds lines to the log; the list moves to the newest of them while it is following. */
   const append = (batch: readonly LogLine[]): void => {
     if (batch.length === 0) {
       return;
@@ -638,32 +623,8 @@ export function useBrowser(): Browser {
     }
     const kept = keep === undefined ? [] : batch.filter(keep);
     if (kept.length > 0 || next !== untrack(() => shown.get())) {
-      const still = untrack(() => following.get()) && cursorInView();
       shown.set(next.concat(kept));
-      if (still) {
-        current.set(kept.at(-1)?.id ?? untrack(() => current.get()));
-      } else {
-        following.set(false);
-      }
     }
-  };
-
-  /**
-   * Whether the cursor's line is on screen, which while following is the newest.
-   * A wheel scrolls the view and not the cursor, so a reader who wheeled up while
-   * following is reading history: the next line stops following rather than
-   * pulling them back down.
-   */
-  const cursorInView = (): boolean => {
-    const control = logControl();
-    if (control === undefined) {
-      return true;
-    }
-    const viewport = control.scroll.viewport;
-    const height = (viewport.content ?? viewport.box)?.height ?? 0;
-    const top = viewport.scroll?.y ?? 0;
-    const at = control.selection.index();
-    return height === 0 || at < 0 || (at >= top && at < top + height);
   };
 
   // a row is built once, as it scrolls into view, and draws the search it was
@@ -736,14 +697,7 @@ export function useBrowser(): Browser {
       }
       case 'F': {
         event.stop();
-        if (untrack(() => following.get())) {
-          following.set(false);
-        } else {
-          // the cursor may be on the newest line already, which writes nothing and
-          // so decides nothing
-          following.set(true);
-          current.set(tail());
-        }
+        following.set(!untrack(() => following.get()));
         return;
       }
       case 'L': {
@@ -841,9 +795,6 @@ export function useBrowser(): Browser {
     });
 
     show(untrack(() => view.get()));
-    if (untrack(() => following.get())) {
-      current.set(tail());
-    }
   };
 
   const plural = (n: number, one: string): string =>

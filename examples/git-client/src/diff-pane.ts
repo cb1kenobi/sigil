@@ -16,7 +16,7 @@
  */
 
 import { type DiffContent, type DiffState, hunkRefs } from './model.ts';
-import { patchText } from './parse.ts';
+import { pathOf } from './parse.ts';
 import {
   diffView,
   ScrollBox,
@@ -132,13 +132,13 @@ export function DiffPane(props: DiffPaneProps): Element {
           begin();
           push(
             line(
-              `${file.path}: ${file.binary ? 'binary, not shown' : 'no lines changed'}`,
+              `${pathOf(file) ?? section.path ?? 'a file'}: ${file.binary ? 'binary, not shown' : 'no lines changed'}`,
               'sigil-muted'
             )
           );
           continue;
         }
-        view(diffView({ patch: patchText(file) }, { width: room }).element, false);
+        view(diffView({ files: [file] }, { width: room }).element, false);
         if (file.cut) {
           open = undefined;
           push(line('... the rest of this diff is too long to show', 'sigil-muted'), false);

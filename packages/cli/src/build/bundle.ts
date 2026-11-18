@@ -36,7 +36,13 @@ import {
   TemplateCompileError,
   templateDiagnostics,
 } from './compile-templates.ts';
-import { byLocation, DiagnosticError, displayPath, type Diagnostic } from './diagnostic.ts';
+import {
+  byLocation,
+  DiagnosticError,
+  displayPath,
+  escapeMessage,
+  type Diagnostic,
+} from './diagnostic.ts';
 import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
@@ -45,12 +51,17 @@ import { TAG_MODULE } from './templates.ts';
 import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
+import { ansiMatcher } from '@ttylabs/sigil/ansi';
+// aliased because this module already has an `escapeControls()` of its own --
+// the pass over the bundle's bytes -- and the two are not the same rule
+import { escapeControls as escapeValue } from '@ttylabs/sigil/error-handler';
 import { byCodeUnit, escapeRegExp } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
+import { isSgr } from '@ttylabs/sigil/wrap';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { Plugin } from 'rolldown';
+import type { Plugin, RolldownLog } from 'rolldown';
 
 /**
  * Where a build's generated entry goes, relative to the app.
@@ -397,7 +408,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   const generated = bin ? undefined : entryLocation(app, out);
   const input = bin ?? generated!.file;
 
-  const unresolved: string[] = [];
+  const unresolved: RolldownLog[] = [];
   // a template that cannot be compiled, collected rather than thrown out of the
   // hook: rolldown folds a hook's throw into an aggregated message with the
   // toolchain's own stack in it, and one throw stops at the first module where
@@ -429,7 +440,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       const message = String(log.message ?? '');
 
       if (log.code === 'UNRESOLVED_IMPORT') {
-        unresolved.push(message);
+        unresolved.push(log);
         return;
       }
 
@@ -459,7 +470,26 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
         return;
       }
 
-      handler(level, log);
+      // every other log is rolldown's to print, and rolldown prints the file
+      // it is about and its message as they stand: a module at
+      // `h<ESC>]0;T<BEL>d/helper.js` that calls `eval` wrote the retitle to
+      // stderr on a build that went on to succeed, or to fail on something else
+      // (SIG-447, found in review). So the two app-supplied halves of what
+      // rolldown's printer reads are escaped before it reads them -- the file
+      // with `escapeControls()`, the message with `diagnosticMessage()`'s rule --
+      // and the rest of the log is handed over untouched. The message is its
+      // first line only, for the reason `bundleError()` gives: the rest is the
+      // boxed frame, which names the file again, and a newline in that name is
+      // the one character the rule keeps -- measured, a directory called
+      // `h<LF>WARN forged` printed a line of its own. The file is still named,
+      // escaped, by the `loc` the printer leads with
+      handler(level, {
+        ...log,
+        message: escapeMessage(firstLine(message)),
+        ...(log.loc?.file !== undefined && {
+          loc: { ...log.loc, file: escapeValue(log.loc.file) },
+        }),
+      });
     },
     platform: 'node',
     plugins: [
@@ -655,7 +685,9 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             const path = resolve(dir, fileName);
             const landing = landsAt(path);
             if (real.has(landing)) {
-              refused = `Refusing to write ${displayPath(path)}, which is ${displayPath(relative(root, landing) || landing)}, a module the app is built from. Name a directory that holds none of the app's source.`;
+              // both paths escaped where the sentence is built, because it is
+              // thrown as itself and the file name is the app's (SIG-447)
+              refused = `Refusing to write ${escapeValue(displayPath(path))}, which is ${escapeValue(displayPath(relative(root, landing) || landing))}, a module the app is built from. Name a directory that holds none of the app's source.`;
               this.error(refused);
             }
           }
@@ -762,8 +794,11 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       })
       .catch((e: unknown) => {
         // a refusal is thrown as itself, so the user reads the sentence and
-        // not rolldown's wrapping of it with six frames of its own stack
-        throw refused === undefined ? e : new Error(refused);
+        // not rolldown's wrapping of it with six frames of its own stack. What
+        // rolldown found itself -- a module that does not parse, an export that
+        // is not there -- is located in the app's source, so it is reported the
+        // way a template that cannot be compiled is: see `bundleError()`
+        throw refused === undefined ? bundleError(e) : new Error(refused);
       });
 
     // a template that could not be compiled, asked first because it is about
@@ -793,10 +828,23 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // second call, which would double `templates` and compile every template
     // twice. So one write, and what it wrote is unwound: exactly the files
     // rolldown reported, which is where the `.map`s are too.
+    //
+    // Reported as diagnostics rather than as rolldown's own messages, which
+    // quote the module's path and the specifier exactly as they are and so
+    // printed a file named `h<ESC>]0;T<BEL>d` as a sequence that retitles the
+    // reader's window (SIG-447). Sorted for the reason `uncompiled` is.
     if (unresolved.length) {
       undo(out, written.output);
-      throw new Error(
-        `Cannot build: ${unresolved.length} import${unresolved.length === 1 ? '' : 's'} could not be resolved, and an unresolved import is one the built app would reach for at run time.\n${unresolved.map((message) => `  ${message}`).join('\n')}`
+      throw new DiagnosticError(
+        unresolved
+          .map((log) =>
+            logDiagnostic(
+              log,
+              `${unresolvedImport(log)}, and an unresolved import is one the built app would reach for at run time`,
+              input
+            )
+          )
+          .toSorted(byLocation)
       );
     }
 
@@ -807,7 +855,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     if (preserved) {
       undo(out, written.output);
       throw new Error(
-        `Cannot build: ${preserved} still holds JSX, so the built app would die with "Unexpected token '<'" the first time it was loaded.\n  Set "jsx" in the app's tsconfig.json to "react-jsx" or "react-jsxdev". "preserve" leaves JSX for a later tool to compile, and a bundle is the end of the pipeline -- there is no later tool.`
+        `Cannot build: ${escapeValue(preserved)} still holds JSX, so the built app would die with "Unexpected token '<'" the first time it was loaded.\n  Set "jsx" in the app's tsconfig.json to "react-jsx" or "react-jsxdev". "preserve" leaves JSX for a later tool to compile, and a bundle is the end of the pipeline -- there is no later tool.`
       );
     }
 
@@ -888,6 +936,149 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       // argument.
     }
   }
+}
+
+/**
+ * What a bundle that rolldown refused throws: diagnostics where rolldown said
+ * where, and its own sentence escaped where it did not (SIG-447).
+ *
+ * rolldown's message quotes the module it is about exactly as the file system
+ * spells it, and the source line it frames exactly as the app wrote it -- so a
+ * helper at `src/h<ESC>]0;PWN<BEL>d/helper.js` with a syntax error made a piped
+ * `sigil build` retitle the reader's window, after the build had passed every
+ * check of sigil's own. SIG-443 escaped every diagnostic where it is printed, and
+ * this was not one: it was rethrown as rolldown wrote it.
+ *
+ * Each error rolldown located becomes a diagnostic, so it is printed by the one
+ * writer every other finding goes through and escaped by `diagnosticLocation()`
+ * and `diagnosticMessage()` -- which is the rule the ticket asked to be kept as
+ * one. The location comes from `loc` and `id` rather than from rolldown's text,
+ * and the message is built from the first line of rolldown's and its plain
+ * `frame`, never from the boxed code frame in `message`: that frame names the
+ * file again, and a newline in a file name is the one character the sink lets
+ * through, so a frame carrying one could still forge a line a CI log reads as a
+ * diagnostic. The first line can quote a file too -- `"x" is not exported by
+ * "b.js"` -- and is cut at its first newline for the same reason, which loses the
+ * rest of a name only when the name held a newline.
+ *
+ * An error rolldown did not locate -- an entry it could not resolve, a write the
+ * file system refused -- is not a diagnostic, because pinning it on a file it is
+ * not about would be a wrong answer said confidently. The whole message is thrown
+ * instead, through `escapeMessage()`, which is `diagnosticMessage()`'s rule by
+ * name. What that leaves is a newline inside a path quoted by such an error,
+ * which the rule cannot tell from rolldown's own line breaks.
+ *
+ * Exported for the reason `undo()` is: one shape it has to survive -- a plugin's
+ * error carrying `loc: null` -- is not one this build's own plugins produce.
+ *
+ * @param error - What `write()` rejected with.
+ * @returns The error to throw.
+ */
+export function bundleError(error: unknown): Error {
+  const errors: readonly RolldownLog[] =
+    error !== null &&
+    typeof error === 'object' &&
+    Array.isArray((error as { errors?: unknown }).errors)
+      ? (error as { errors: RolldownLog[] }).errors
+      : [{ message: error instanceof Error ? error.message : String(error) }];
+
+  if (errors.length && errors.every((log) => located(log) !== undefined)) {
+    return new DiagnosticError(
+      errors
+        .map((log) => {
+          const message =
+            log.code === 'UNRESOLVED_IMPORT' && log.exporter !== undefined
+              ? unresolvedImport(log)
+              : firstLine(log.message);
+          return logDiagnostic(log, log.frame ? `${message}\n${log.frame}` : message, '');
+        })
+        .toSorted(byLocation)
+    );
+  }
+
+  return new Error(escapeMessage(unstyled(error instanceof Error ? error.message : String(error))));
+}
+
+/**
+ * A rolldown log as a diagnostic, where rolldown said it was.
+ *
+ * `loc.column` is zero-based and a diagnostic's is one-based -- rolldown's own
+ * frame prints `1:18` for a `loc.column` of 17 -- and `loc.file` is preferred over
+ * `id` because it is the file the position is in.
+ *
+ * @param log - What rolldown reported.
+ * @param message - What to say about it.
+ * @param fallback - The file to name when rolldown named none.
+ * @returns The diagnostic, always fatal.
+ */
+function logDiagnostic(log: RolldownLog, message: string, fallback: string): Diagnostic {
+  return {
+    column: log.loc ? log.loc.column + 1 : undefined,
+    file: located(log) ?? fallback,
+    line: log.loc ? log.loc.line : undefined,
+    message,
+    severity: 'error',
+  };
+}
+
+/**
+ * The file a rolldown log is about, or `undefined` when it names none.
+ *
+ * Asked of anything that is not a non-empty string rather than of `undefined`
+ * alone, because a log is not only rolldown's: a JavaScript plugin's error is
+ * handed back as the object it threw, and one carrying `loc: null` beside an
+ * `id` read as located and then threw a `TypeError` over `null.column` -- an
+ * error about the error, in place of it.
+ *
+ * @param log - What rolldown reported.
+ * @returns The file.
+ */
+function located(log: RolldownLog): string | undefined {
+  const file: unknown = log.loc?.file ?? log.id;
+  return typeof file === 'string' && file !== '' ? file : undefined;
+}
+
+/**
+ * What an import that could not be resolved is called: the specifier, quoted
+ * and escaped by the producer, since a specifier is the app's string and an
+ * escape sequence in it may be a newline (SIG-443's rule for what a producer
+ * owes the sink).
+ *
+ * @param log - An `UNRESOLVED_IMPORT` log.
+ * @returns The phrase.
+ */
+function unresolvedImport(log: RolldownLog): string {
+  return `"${escapeValue(log.exporter ?? '')}" could not be resolved`;
+}
+
+/**
+ * The first line of rolldown's message, without rolldown's colour.
+ *
+ * @param message - The message.
+ * @returns Its first line.
+ */
+function firstLine(message: string): string {
+  return unstyled(message).split('\n', 1)[0]!;
+}
+
+/**
+ * Text without the SGR rolldown styles it with.
+ *
+ * rolldown colours its messages itself, from the environment -- `FORCE_COLOR`,
+ * or a CI it recognises -- and escaping that colour would print
+ * `\x1B[31m[PARSE_ERROR] \x1B[0m` to exactly the CI log the colour was meant
+ * for. So SGR is taken off first, and only SGR: it is the one kind of sequence
+ * that does nothing but style, and every other sequence, the retitle among them,
+ * is left for the escape to show. An SGR inside a file name goes with rolldown's,
+ * which costs that name a sequence the terminal would have hidden anyway.
+ * `ansiMatcher()` and `isSgr()` say what a sequence and an SGR are, so this holds
+ * no third reading of either.
+ *
+ * @param text - The text.
+ * @returns The text with no SGR in it.
+ */
+function unstyled(text: string): string {
+  return text.replaceAll(ansiMatcher(), (sequence) => (isSgr(sequence) ? '' : sequence));
 }
 
 /**

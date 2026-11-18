@@ -219,6 +219,47 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should light the border of the pane the focus is in, from the sheet',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', TWO_HUNKS);
+        const client = await mount(App, repo);
+
+        // which panels `.sigil-panel:focus-within` matches, by their pane's class:
+        // asked of the cascade, since the test terminal is at colour level 0 and
+        // a border colour does not survive to the screen there
+        const lit = (): string[] => {
+          const out: string[] = [];
+          const walk = (element: Element): void => {
+            if (
+              element.classes.includes('sigil-panel') &&
+              client.app.cascade
+                .match(element)
+                .some(({ rule }) =>
+                  rule.selectors.some(({ source }) => source === '.sigil-panel:focus-within')
+                )
+            ) {
+              out.push(element.classes.filter((name) => !name.startsWith('sigil-')).join('.'));
+            }
+            element.children.forEach(walk);
+          };
+          walk(client.app.view.root);
+          return out;
+        };
+
+        expect(lit()).toEqual(['files']);
+        await client.press('3');
+        expect(lit()).toEqual(['commits']);
+        await client.press('4');
+        expect(lit()).toEqual(['diff']);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should stage a file with Space, and unstage it with Space again',
       async () => {
         const repo = repository();

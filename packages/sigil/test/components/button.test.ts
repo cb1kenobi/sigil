@@ -2,8 +2,19 @@ import { Button, describeButton } from '../../src/components/button.js';
 import { text } from '../../src/element/index.js';
 import { ESCAPE_TIMEOUT } from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
+import { ui } from '../../src/template/index.js';
 import { KEYS } from '../../src/testing/index.js';
-import { clickOn, colored, ESC, form, part, picture, recorder, stopForms } from './form-harness.js';
+import {
+  clickOn,
+  colored,
+  DERIVED,
+  ESC,
+  form,
+  part,
+  picture,
+  recorder,
+  stopForms,
+} from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -73,7 +84,7 @@ describe('Button', () => {
       'Expected a button onPress to be a function'
     );
     expect(() => Button({ disabled: 'yes' as never, label: 'x' })).toThrow(
-      'Expected button disabled to be a boolean or a State'
+      'Expected button disabled to be a boolean, a State, a Computed or a function'
     );
   });
 
@@ -182,6 +193,38 @@ describe('a disabled button', () => {
     f.input.focus.focus(button);
     await f.press(KEYS.enter);
     expect(presses).toHaveLength(1);
+  });
+
+  it.each(DERIVED)('should follow %s as its disabled, off and on again', async (_, derive) => {
+    const valid = new State(false);
+    const { button, presses } = counted({ disabled: derive(valid) });
+    const f = form(button);
+    expect(button.focusable).toBe(false);
+    expect(button.states).toContain('disabled');
+    valid.set(true);
+    flush();
+    expect(button.focusable).toBe(true);
+    expect(button.states).not.toContain('disabled');
+    f.input.focus.focus(button);
+    await f.press(KEYS.enter);
+    expect(presses).toHaveLength(1);
+    valid.set(false);
+    flush();
+    expect(button.focusable).toBe(false);
+    expect(button.classes).toEqual(expect.arrayContaining(['is-disabled', 'sigil-muted']));
+    await f.press(KEYS.enter);
+    expect(clickOn(button).claimed()).toBe(false);
+    expect(presses).toHaveLength(1);
+  });
+
+  it('should take a function from a template, which hands a component its props as written', () => {
+    const valid = new State(false);
+    const button = ui`<${Button} disabled=${() => !valid.get()} label="Save" />`;
+    expect(button.classes).toContain('sigil-button');
+    expect(button.focusable).toBe(false);
+    valid.set(true);
+    flush();
+    expect(button.focusable).toBe(true);
   });
 });
 

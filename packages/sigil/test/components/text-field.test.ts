@@ -25,6 +25,7 @@ import { flush, State } from '../../src/signals/index.js';
 import { type ColorScheme, Restyler } from '../../src/style/index.js';
 import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { DERIVED } from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -112,7 +113,9 @@ describe('TextField()', () => {
 
   it('should refuse props it cannot use', () => {
     expect(() => TextField({ value: 3 as never })).toThrow(/value to be a string or a State/);
-    expect(() => TextField({ disabled: 'yes' as never })).toThrow(/boolean or a State/);
+    expect(() => TextField({ disabled: 'yes' as never })).toThrow(
+      /boolean, a State, a Computed or a function/
+    );
     expect(() => TextField({ mask: '' })).toThrow(/mask to be a non-empty string/);
     expect(() => TextField({ placeholder: 1 as never })).toThrow(/placeholder to be a string/);
     expect(() => TextField({ width: 0 })).toThrow(/positive whole number/);
@@ -590,6 +593,28 @@ describe('disabled', () => {
     expect(s.input.focus.ring()).toEqual([]);
     expect(field.classes).toContain('is-disabled');
     disabled.set(false);
+    await settle();
+    expect(s.input.focus.ring()).toEqual([field]);
+    expect(field.classes).not.toContain('sigil-muted');
+  });
+
+  it.each(DERIVED)('should follow %s, off and on again', async (_, derive) => {
+    const valid = new State(true);
+    const value = new State('');
+    const field = TextField({ disabled: derive(valid), value });
+    const s = scene(field);
+
+    await s.term.press('a');
+    expect(value.get()).toBe('a');
+    valid.set(false);
+    await settle();
+    expect(s.input.focus.ring()).toEqual([]);
+    expect(field.classes).toContain('is-disabled');
+    // it kept the focus, and types and pastes nothing with it
+    await s.term.press('b');
+    await s.term.paste('pasted');
+    expect(value.get()).toBe('a');
+    valid.set(true);
     await settle();
     expect(s.input.focus.ring()).toEqual([field]);
     expect(field.classes).not.toContain('sigil-muted');

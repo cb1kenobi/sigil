@@ -27,6 +27,8 @@ import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import type { State } from '../signals/index.js';
 import {
+  controlCondition,
+  type ControlCondition,
   type ControlDescriber,
   controlDisabled,
   controlFlag,
@@ -43,9 +45,10 @@ export interface SwitchProps {
    * Whether it refuses to change.
    *
    * A disabled switch is out of the focus ring, ignores keys and clicks, and is
-   * drawn in the muted role. A `State<boolean>` is read live. Defaults to `false`.
+   * drawn in the muted role. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /** What the `false` state is called. Defaults to `off`. */
   inactive?: string;
   /**
@@ -107,9 +110,9 @@ export function Switch(props: SwitchProps = {}): Element {
     throw new TypeError(__`Expected a switch's two states to have different names`);
   }
   const value = controlFlag(props.value, __`Expected switch value to be a boolean or a State`);
-  const disabled = controlFlag(
+  const disabled = controlCondition(
     props.disabled,
-    __`Expected switch disabled to be a boolean or a State`
+    __`Expected switch disabled to be a boolean, a State, a Computed or a function`
   );
   const { onChange } = props;
   const words = props.label === undefined ? '' : labelLine(props.label);

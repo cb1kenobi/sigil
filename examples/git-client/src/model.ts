@@ -16,21 +16,22 @@ import {
   type Commit,
   type FileChange,
   type Head,
-  hunkPatch,
   LOG_FORMAT,
   parseBranches,
   parseLog,
   parseStatus,
-  type PatchFile,
-  type PatchHunk,
-  splitPatch,
+  pathOf,
 } from './parse.ts';
 import { useApp } from '@ttylabs/sigil/app';
 import {
   confirmModal,
   describeListView,
+  type DiffFile,
+  type DiffHunk,
+  hunkPatch,
   type NoteVariant,
   openModal,
+  parsePatch,
   showToast,
   TextArea,
   TextField,
@@ -54,6 +55,12 @@ export type PaneName = 'branches' | 'commits' | 'diff' | 'files';
 
 /** A list pane, which is what the diff pane shows the selection of. */
 export type Subject = 'branches' | 'commits' | 'files';
+
+/**
+ * A file of a patch as `parsePatch()` read it, and whether the patch was cut short
+ * inside it, so that hunks after its last are missing.
+ */
+export type PatchFile = DiffFile & { readonly cut?: boolean };
 
 /** One run of the diff pane: a heading, some lines of prose, and patches. */
 export interface DiffSection {
@@ -93,7 +100,7 @@ export interface DiffContent {
 /** One hunk the cursor can be on, in the order the pane draws them. */
 export interface HunkRef {
   readonly file?: PatchFile;
-  readonly hunk?: PatchHunk;
+  readonly hunk?: DiffHunk;
   readonly section: DiffSection;
 }
 
@@ -594,7 +601,7 @@ export function createModel(): Model {
         // an untracked file, one binary or too large to show, or a rename with
         // no content changes: all of it, and a rename's source with it, the way
         // `toggleFile()` resets both
-        const path = at.file?.path ?? at.section.path ?? '';
+        const path = (at.file && pathOf(at.file)) ?? at.section.path ?? '';
         const from = at.section.from;
         await run(
           action === 'stage'
@@ -611,7 +618,8 @@ export function createModel(): Model {
         action === 'unstage' ? [...args, '--reverse', '-'] : [...args, '-'],
         hunkPatch(at.file, at.hunk)
       );
-      return `${action === 'stage' ? 'Staged' : 'Unstaged'} a hunk of ${at.file.path}`;
+      const path = pathOf(at.file) ?? at.section.path;
+      return `${action === 'stage' ? 'Staged' : 'Unstaged'} a hunk of ${path}`;
     });
   };
 
@@ -864,19 +872,17 @@ export function createModel(): Model {
       }
     });
 
-    // which pane has the focus: its panel is lit, and a list that takes it is
-    // what the diff pane shows from then on. A class rather than a selector,
-    // because there is no `:focus-within` (SIG-372)
+    // which pane has the focus, for its title's pointer, and a list that takes
+    // it is what the diff pane shows from then on. The border is the sheet's:
+    // `.sigil-panel:focus-within` lights it with no help from here
     createEffect(() => {
       const focused = input.focus.current.get();
-      let found: PaneName | undefined;
-      for (const name of ['files', 'branches', 'commits', 'diff'] as const) {
-        const on = focused !== undefined && panels[name].contains(focused);
-        panels[name].toggleClass('is-active', on);
-        if (on) {
-          found = name;
-        }
-      }
+      const found =
+        focused === undefined
+          ? undefined
+          : (['files', 'branches', 'commits', 'diff'] as const).find((name) =>
+              panels[name].contains(focused)
+            );
       active.set(found);
       if (found !== undefined && found !== 'diff' && found !== untrack(() => subject.get())) {
         subject.set(found);
@@ -966,10 +972,10 @@ function readPatch(patch: string): PatchFile[] {
   for (let n = 0; n < MAX_PATCH_LINES; n++) {
     at = patch.indexOf('\n', at + 1);
     if (at === -1) {
-      return splitPatch(patch);
+      return parsePatch(patch);
     }
   }
-  const files = splitPatch(patch.slice(0, at + 1));
+  const files: PatchFile[] = parsePatch(patch.slice(0, at + 1));
   const last = files.at(-1);
   if (last !== undefined) {
     files[files.length - 1] = { ...last, cut: true, hunks: last.hunks.slice(0, -1) };

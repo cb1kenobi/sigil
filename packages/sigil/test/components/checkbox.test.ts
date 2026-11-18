@@ -1,8 +1,18 @@
 import { Checkbox, describeCheckbox } from '../../src/components/checkbox.js';
 import { text } from '../../src/element/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
-import { clickOn, colored, ESC, form, part, picture, recorder, stopForms } from './form-harness.js';
+import {
+  clickOn,
+  colored,
+  DERIVED,
+  ESC,
+  form,
+  part,
+  picture,
+  recorder,
+  stopForms,
+} from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -79,7 +89,7 @@ describe('Checkbox', () => {
       'Expected checkbox checked to be a boolean or a State'
     );
     expect(() => Checkbox({ disabled: 1 as never, label: 'x' })).toThrow(
-      'Expected checkbox disabled to be a boolean or a State'
+      'Expected checkbox disabled to be a boolean, a State, a Computed or a function'
     );
     expect(() => Checkbox({ label: 'x', onChange: true as never })).toThrow(
       'Expected a checkbox onChange to be a function'
@@ -194,6 +204,38 @@ describe('a disabled checkbox', () => {
     expect(clickOn(checkbox).claimed()).toBe(false);
     expect(told).toEqual([]);
     expect(f.seen).toEqual(['space']);
+  });
+
+  it.each(DERIVED)('should follow %s as its disabled, off and on again', async (_, derive) => {
+    const valid = new State(false);
+    const { checkbox, told } = ticked({ disabled: derive(valid) });
+    const f = form(checkbox);
+    expect(checkbox.focusable).toBe(false);
+    expect(checkbox.states).toContain('disabled');
+    valid.set(true);
+    flush();
+    expect(checkbox.focusable).toBe(true);
+    expect(checkbox.states).not.toContain('disabled');
+    f.input.focus.focus(checkbox);
+    await f.press(KEYS.space);
+    expect(told).toEqual([true]);
+    valid.set(false);
+    flush();
+    expect(checkbox.focusable).toBe(false);
+    expect(part(checkbox, 'sigil-checkbox-mark').classes).not.toContain('sigil-accent');
+    await f.press(KEYS.space);
+    expect(clickOn(checkbox).claimed()).toBe(false);
+    expect(told).toEqual([true]);
+  });
+
+  it('should refuse a Computed or a function as checked, which it writes', () => {
+    const on = new State(true);
+    expect(() => Checkbox({ checked: new Computed(() => on.get()) as never, label: 'x' })).toThrow(
+      'Expected checkbox checked to be a boolean or a State'
+    );
+    expect(() => Checkbox({ checked: (() => true) as never, label: 'x' })).toThrow(
+      'Expected checkbox checked to be a boolean or a State'
+    );
   });
 });
 

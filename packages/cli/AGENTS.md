@@ -1204,12 +1204,84 @@ makes it testable with a fixture directory and no bundler at all.
   key it echoes` in `packages/sigil/test/parser/routing.test.ts`.
 
   On a terminal the canvas already strips a raw sequence, so the visible change
-  there is that the name is shown as `\x1B` instead of vanishing. Not covered by
-  this entry, because they are thrown rather than reported as a diagnostic:
-  what rolldown and the bundle step throw. The `Failed to parse` of a manifest
-  (`discover.ts`) and of a routed module (`parse-module.ts`, caught in
+  there is that the name is shown as `\x1B` instead of vanishing. What rolldown
+  and the bundle step throw is the next entry's. The `Failed to parse` of a
+  manifest (`discover.ts`) and of a routed module (`parse-module.ts`, caught in
   `_inspect.ts` and turned into a diagnostic) escape their path and message at
   the throw. The summary lines are not diagnostics either.
+
+- **What rolldown refused is a diagnostic where rolldown said where, and its own
+  sentence escaped where it did not (SIG-447).** `bundleApp()` rethrew
+  rolldown's error as rolldown wrote it, so a helper at
+  `src/h<ESC>]0;PWN<BEL>d/helper.js` with a syntax error passed every check of
+  sigil's own and then retitled the reader's window from a piped `sigil build`.
+  Unresolved imports took the same road through a message of the build's own
+  that quoted rolldown's. Both now go through the diagnostic writer, which was
+  the ticket's other option and is the one that keeps one rule: `bundleError()`
+  turns each error rolldown **located** into a `Diagnostic`, the unresolved
+  imports become one each, and `bundleFailure()` writes them the way it writes
+  a template that cannot be compiled, ending in the same `N errors in <app>`.
+
+  The location comes from rolldown's `loc` and `id`, never its text, and the
+  message from the first line of rolldown's plus its plain `frame` -- **not** the
+  boxed code frame in `message`, which names the file again: a newline is the one
+  character `diagnosticMessage()` lets through, so a file name holding one would
+  still forge a line through that frame. The first line can quote a file too
+  (`"x" is not exported by "b.js"`) and is cut at its first newline for the same
+  reason. An unresolved import is named by its specifier, escaped by the
+  producer for SIG-443's newline rule, rather than by rolldown's sentence, which
+  quotes the importer's path. An error rolldown did not locate -- an entry it
+  could not resolve, a write the file system refused -- stays a sentence, because
+  pinning it on a file it is not about is a wrong answer said confidently; it is
+  escaped with `escapeMessage()`, which is `diagnosticMessage()`'s rule given a
+  name rather than a second copy of it, and a newline inside a path it quotes is
+  the one thing left that the rule cannot tell from rolldown's own line breaks.
+
+  **rolldown colours its messages itself** -- under `FORCE_COLOR`, and in a CI it
+  recognises -- so SGR is taken off before the escape, with `ansiMatcher()` and
+  `isSgr()` saying what a sequence and an SGR are. Escaping it instead printed
+  `\x1B[31m[PARSE_ERROR] \x1B[0m` into exactly the log the colour was for. Only
+  SGR: every other sequence, the retitle among them, is left for the escape to
+  show, and an SGR inside a file name goes with rolldown's, which costs it only a
+  sequence the terminal would have hidden anyway.
+
+  **A warning rolldown prints itself is escaped before it is handed over.** Every
+  log but an unresolved import and the one suppressed conflict goes to
+  rolldown's own printer, which names `loc.file` and then the message as they
+  stand -- so a module at that path calling `eval` wrote the retitle on a build
+  that succeeded, found by review. `onLog` hands it a copy with the file through
+  `escapeControls()` and the **first line** of the message through
+  `escapeMessage()` -- the rest is the boxed frame, and a directory called
+  `h<LF>WARN forged` printed a line of its own through it. Turning warnings
+  into diagnostics was the larger answer and would change what every warning
+  looks like, which is not this ticket's. A log counts as located only when its
+  file is a non-empty string, because a JavaScript plugin's error comes back as
+  the object it threw and `loc: null` beside an `id` threw a `TypeError` over
+  the error it was meant to report.
+
+  **And `bundleFailure()` escapes what it passes through**, which is the sink
+  for the bundle step the way `writeDiagnostics()` is for a diagnostic: a file
+  system error is Node's text and quotes its path as it stands, and an app root
+  holding a retitle with a `node_modules/.sigil` that was a file printed
+  `ENOTDIR: ... mkdir '.../h<ESC>]0;PWN<BEL>d/...'` raw (review round 2). It
+  runs `escapeMessage()` over the message and keeps the error itself, so its
+  class, `code` and `exitCode` survive; a sentence already escaped passes
+  through unchanged. A newline inside such a path is the residual the rule
+  cannot tell from a line break, as above.
+
+  The audit of everything else a failed bundle prints, each escaped where its
+  sentence is built: the build's own refusal to write over a module the bundle
+  read, a chunk that still holds JSX, `clean()`'s and `assertCleanable()`'s
+  refusals in `_inspect.ts` (reached through `beforeWrite`, and naming both the
+  output directory and an app module), the `N errors in <name>` line that ends
+  every failed `check`, `build` and `package` -- the manifest's name is the
+  app's -- and the `Not type-checked: no tsconfig.json in <root>` note. And
+  `relativeTo()` names a file against the app's real root when the root as
+  spelled does not hold it, because rolldown reports a module by its real path,
+  and an app under a link was told about `../../../private/var/...`.
+  `test/bundle-escape.test.ts` is the guard, spawned and piped, with rolldown's
+  colour both off and on. The success path's tables and summary -- chunk names
+  among them -- are not this entry's.
 
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.

@@ -2,7 +2,16 @@ import { describeRadioSet, RadioSet } from '../../src/components/radio-set.js';
 import { type Element, text } from '../../src/element/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
-import { clickOn, colored, ESC, form, picture, recorder, stopForms } from './form-harness.js';
+import {
+  clickOn,
+  colored,
+  DERIVED,
+  ESC,
+  form,
+  picture,
+  recorder,
+  stopForms,
+} from './form-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -121,7 +130,7 @@ describe('RadioSet', () => {
       'Expected a radio set direction to be column or row'
     );
     expect(() => RadioSet({ disabled: 'no' as never, options: ['a'] })).toThrow(
-      'Expected radio set disabled to be a boolean or a State'
+      'Expected radio set disabled to be a boolean, a State, a Computed or a function'
     );
   });
 });
@@ -314,6 +323,27 @@ describe('a disabled radio set', () => {
     const set = RadioSet({ options: [{ disabled: true, label: 'a' }] });
     expect(set.focusable).toBe(false);
     expect(set.classes).toContain('is-disabled');
+  });
+
+  it.each(DERIVED)('should follow %s as its disabled, off and on again', async (_, derive) => {
+    const valid = new State(false);
+    const { set, told } = levels({ disabled: derive(valid), value: 'debug' });
+    const f = form(set);
+    expect(set.focusable).toBe(false);
+    expect(set.states).toContain('disabled');
+    valid.set(true);
+    flush();
+    expect(set.focusable).toBe(true);
+    expect(set.states).not.toContain('disabled');
+    f.input.focus.focus(set);
+    await f.press(KEYS.down);
+    expect(told).toEqual(['info']);
+    valid.set(false);
+    flush();
+    expect(set.focusable).toBe(false);
+    await f.press(KEYS.down);
+    expect(clickOn(rows(set)[0] as Element).claimed()).toBe(false);
+    expect(told).toEqual(['info']);
   });
 });
 

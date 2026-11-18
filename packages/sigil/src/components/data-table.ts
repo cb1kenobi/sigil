@@ -174,6 +174,15 @@ export interface DataTableProps<T, K = T> {
    * replace a row to change that row.
    */
   rows: readonly T[] | ListItems<T>;
+  /**
+   * Classes for a row's box, beside `is-current` and `is-selected`: `ListView`'s
+   * `rowClass`. A role class colours the row across every column -- k9s's red for
+   * a crashing pod is `(pod) => pod.status === 'CrashLoopBackOff' ? 'sigil-error' :
+   * undefined` -- and an app's own class is reached as `.sigil-list-row.crashing`.
+   * Read when the row is built: again when its row object is replaced, which is how
+   * a live table changes a row, and not when a signal it read changes.
+   */
+  rowClass?: (row: T) => string | readonly string[] | undefined;
   /** Whether to draw a scrollbar. Defaults to `true`. */
   scrollbar?: boolean;
   /** The selected rows, as keys, or the state that holds them: `ListView`'s `selected`. */
@@ -361,7 +370,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   if (!isSource(props.columns)) {
     throw new TypeError(__`Expected data table columns to be an array, a State or a Computed`);
   }
-  for (const name of ['disabled', 'key', 'onActivate'] as const) {
+  for (const name of ['disabled', 'key', 'onActivate', 'rowClass'] as const) {
     if (props[name] !== undefined && typeof props[name] !== 'function') {
       throw new TypeError(__`Expected data table ${name} to be a function`);
     }
@@ -659,7 +668,9 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
         'sigil-table-cell'
       );
     },
+    rowClass: props.rowClass,
     scrollbar: props.scrollbar,
+    selected: props.selected,
     vim: props.vim,
   });
   const control = listControl<K>(list_) as ListControl<K>;

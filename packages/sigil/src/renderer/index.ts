@@ -1004,6 +1004,9 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     for (const element of marks.classes) {
       restyler.touchClasses(element);
     }
+    for (const element of marks.within) {
+      restyler.touchState(element, 'focus-within');
+    }
     for (const element of marks.props) {
       restyler.touchProps(element);
     }

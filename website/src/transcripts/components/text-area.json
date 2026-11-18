@@ -7,7 +7,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "A mark drawn at the start of every row, after the line number when there is one -- `'│ '` or `'> '`. Drawn muted, and never part of the value.",

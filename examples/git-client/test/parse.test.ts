@@ -1,11 +1,5 @@
-import {
-  hunkPatch,
-  parseBranches,
-  parseLog,
-  parseStatus,
-  patchText,
-  splitPatch,
-} from '../src/parse.ts';
+import { parseBranches, parseLog, parseStatus, pathOf } from '../src/parse.ts';
+import { parsePatch } from '@ttylabs/sigil/components';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -99,76 +93,63 @@ describe('parseLog', () => {
   });
 });
 
-const PATCH = [
-  'diff --git a/a.txt b/a.txt',
-  'index 1111111..2222222 100644',
-  '--- a/a.txt',
-  '+++ b/a.txt',
-  '@@ -1,3 +1,3 @@',
-  ' 1',
-  '-2',
-  '+two',
-  ' 3',
-  '@@ -9,2 +9,2 @@ heading',
-  ' 9',
-  '-10',
-  '+ten\r',
-  'diff --git a/nn.txt b/nn.txt',
-  'index 3333333..4444444 100644',
-  '--- a/nn.txt',
-  '+++ b/nn.txt',
-  '@@ -1 +1 @@',
-  '-no newline',
-  '\\ No newline at end of file',
-  '+no newline2',
-  '\\ No newline at end of file',
-  'diff --git a/logo.png b/logo.png',
-  'index 5555555..6666666 100644',
-  'Binary files a/logo.png and b/logo.png differ',
-  '',
-].join('\n');
+/** The first file of a patch, as `parsePatch()` reads it. */
+function fileOf(patch: string) {
+  const [file] = parsePatch(patch);
+  if (!file) {
+    throw new Error('no file in the patch');
+  }
+  return file;
+}
 
-describe('splitPatch', () => {
-  it('should split files and hunks, keeping every line as git wrote it', () => {
-    const files = splitPatch(PATCH);
-    expect(files.map((file) => [file.path, file.hunks.length, file.binary])).toStrictEqual([
-      ['a.txt', 2, false],
-      ['nn.txt', 1, false],
-      ['logo.png', 0, true],
-    ]);
-    // the carriage return is content, and staging a hunk without it is a different hunk
-    expect(files[0]?.hunks[1]?.lines.at(-1)).toBe('+ten\r');
-    // and so is the line git adds for a file with no final newline
-    expect(files[1]?.hunks[0]?.lines).toContain('\\ No newline at end of file');
+// the patch itself is read and written back by `parsePatch()` and `hunkPatch()`,
+// whose tests are in `packages/sigil/test/components/diff.test.ts`
+describe('pathOf', () => {
+  it('should read the new side without its prefix', () => {
+    expect(pathOf(fileOf('diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n'))).toBe('a.txt');
   });
 
-  it('should write one hunk back as a patch of its own', () => {
-    const [file] = splitPatch(PATCH);
-    expect(file && hunkPatch(file, file.hunks[1]!)).toBe(
-      [
-        'diff --git a/a.txt b/a.txt',
-        'index 1111111..2222222 100644',
-        '--- a/a.txt',
-        '+++ b/a.txt',
-        '@@ -9,2 +9,2 @@ heading',
-        ' 9',
-        '-10',
-        '+ten\r',
-        '',
-      ].join('\n')
-    );
-  });
-
-  it('should give back the text it was given, file by file', () => {
+  it('should read the old side of a deletion', () => {
     expect(
-      splitPatch(PATCH)
-        .map((file) => `${patchText(file)}\n`)
-        .join('')
-    ).toBe(PATCH);
+      pathOf(fileOf('diff --git a/gone.txt b/gone.txt\n--- a/gone.txt\n+++ /dev/null\n'))
+    ).toBe('gone.txt');
+  });
+
+  it('should read a file with no hunks off its diff line, a rename to where it went', () => {
+    expect(
+      pathOf(
+        fileOf(
+          'diff --git a/a.txt b/moved.txt\nsimilarity index 100%\nrename from a.txt\nrename to moved.txt\n'
+        )
+      )
+    ).toBe('moved.txt');
+    expect(
+      pathOf(
+        fileOf('diff --git a/logo.png b/logo.png\nBinary files a/logo.png and b/logo.png differ\n')
+      )
+    ).toBe('logo.png');
+  });
+
+  it('should undo every escape git quotes a path with', () => {
+    expect(pathOf(fileOf('diff --git "a/a\\r.txt" "b/a\\r.txt"\n'))).toBe('a\r.txt');
+    expect(pathOf(fileOf('diff --git "a/\\033[31m" "b/\\033[31m"\n'))).toBe('\x1b[31m');
+    // an octal escape is a byte of the name's UTF-8, and a run of them is one character
+    expect(pathOf(fileOf('diff --git "a/\\303\\251\\a" "b/\\303\\251\\a"\n'))).toBe('é\x07');
+  });
+
+  it('should read a rename with spaces in its names off the diff line', () => {
+    expect(
+      pathOf(
+        fileOf(
+          'diff --git a/dir/my file b/dir/my\nsimilarity index 100%\nrename from dir/my file\nrename to dir/my\n'
+        )
+      )
+    ).toBe('dir/my');
   });
 
   it('should read a quoted path off the diff line', () => {
-    const [file] = splitPatch('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"\n');
-    expect(file?.path).toBe('say "hi".txt');
+    expect(pathOf(fileOf('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"\n'))).toBe(
+      'say "hi".txt'
+    );
   });
 });
