@@ -872,19 +872,17 @@ export function createModel(): Model {
       }
     });
 
-    // which pane has the focus: its panel is lit, and a list that takes it is
-    // what the diff pane shows from then on. A class rather than a selector,
-    // because there is no `:focus-within` (SIG-372)
+    // which pane has the focus, for its title's pointer, and a list that takes
+    // it is what the diff pane shows from then on. The border is the sheet's:
+    // `.sigil-panel:focus-within` lights it with no help from here
     createEffect(() => {
       const focused = input.focus.current.get();
-      let found: PaneName | undefined;
-      for (const name of ['files', 'branches', 'commits', 'diff'] as const) {
-        const on = focused !== undefined && panels[name].contains(focused);
-        panels[name].toggleClass('is-active', on);
-        if (on) {
-          found = name;
-        }
-      }
+      const found =
+        focused === undefined
+          ? undefined
+          : (['files', 'branches', 'commits', 'diff'] as const).find((name) =>
+              panels[name].contains(focused)
+            );
       active.set(found);
       if (found !== undefined && found !== 'diff' && found !== untrack(() => subject.get())) {
         subject.set(found);

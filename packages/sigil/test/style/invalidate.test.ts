@@ -647,3 +647,163 @@ describe('an inherit chain', () => {
     }
   });
 });
+
+describe('a focus-within change', () => {
+  /**
+   * Two panels and a footer of thirty rows, each panel a header over a body over
+   * a list -- deep enough that the list and the title are not siblings, so a
+   * restyle that reached the title got there through the panel and nothing else.
+   */
+  function screen() {
+    const side = (name: string) => {
+      const row = el(`text.${name}-row`);
+      const list = el(`box.${name}-list`, [row]);
+      const body = el(`box.${name}-body`, [list]);
+      const title = el(`text.${name}-title`);
+      const header = el(`box.${name}-header`, [title]);
+      const panel = el(`box.panel.${name}`, [header, body]);
+      return { body, header, list, panel, row, title };
+    };
+    const a = side('a');
+    const b = side('b');
+    const footer = el(
+      'box.footer',
+      Array.from({ length: 30 }, () => el('text.key'))
+    );
+    const root = el('box.root', [a.panel, b.panel, footer]);
+    return { a, b, footer, root };
+  }
+
+  /** Moves the focus from one list to the other, as the element tree reports it. */
+  function move(from: Node[], to: Node[]): void {
+    for (const node of from) {
+      node.states = node.states.filter((state) => state !== 'focus' && state !== 'focus-within');
+    }
+    for (const node of to) {
+      node.states.push('focus-within');
+    }
+  }
+
+  /** Every node `update()` re-resolved, read off the cascade it asked. */
+  function spy(cascade: Cascade): Set<Node> {
+    const seen = new Set<Node>();
+    const resolve = cascade.resolveSheets.bind(cascade);
+    cascade.resolveSheets = (node, parent) => {
+      seen.add(node as unknown as Node);
+      return resolve(node, parent);
+    };
+    return seen;
+  }
+
+  it('should restyle the two chains a focus move flips, not the tree', () => {
+    // SIG-372: the root is an ancestor of everything, so `touchClasses()` on
+    // every link of both chains would restyle the whole screen on every move
+    const { a, b, footer, root } = screen();
+    const cascade = new Cascade([
+      parseStylesheet(`
+        .panel { border-color: gray }
+        .panel:focus-within { border-color: green }
+      `),
+    ]);
+    const restyler = new Restyler(cascade);
+    a.list.states.push('focus');
+    for (const node of [root, a.panel, a.body, a.list]) {
+      node.states.push('focus-within');
+    }
+    restyler.update(as(root));
+    expect(restyler.styleOf(as(a.panel))?.borderColor).toBe(2);
+
+    const seen = spy(cascade);
+    move([a.panel, a.body, a.list], [b.panel, b.body, b.list]);
+    b.list.states.push('focus');
+    // what the renderer hands over: each end's own `focus` is a class change,
+    // and every ancestor is a state change -- the root too, which stays lit but
+    // passes through nought between the blur and the focus, the order the
+    // router writes them in (`should move with the focus` in the element tests)
+    restyler.touchClasses(as(a.list));
+    restyler.touchClasses(as(b.list));
+    for (const node of [root, a.panel, a.body, b.panel, b.body]) {
+      restyler.touchState(as(node), 'focus-within');
+    }
+    restyler.update(as(root));
+
+    expect(restyler.styleOf(as(a.panel))?.borderColor).toBe(8);
+    expect(restyler.styleOf(as(b.panel))?.borderColor).toBe(2);
+    // each chain up to the root, each end's subtree, and the children of a
+    // panel whose border changed -- forced, because a child may read anything
+    // through `inherit` -- which stop there, since nothing they resolve to
+    // moved. The root resolved to what it was, so nothing under it is forced
+    expect(seen).toEqual(
+      new Set([
+        root,
+        a.panel,
+        a.header,
+        a.body,
+        a.list,
+        a.row,
+        b.panel,
+        b.header,
+        b.body,
+        b.list,
+        b.row,
+      ])
+    );
+    expect(seen.has(footer)).toBe(false);
+  });
+
+  it('should carry an inherited colour down from a panel restyled alone', () => {
+    // a node restyled on its own has no marked subtree under it, so its children
+    // are forced exactly when its style changed -- the prop path's rule, and the
+    // one that brings an inherited `color` to a title nothing else touched
+    const { a, b, root } = screen();
+    const cascade = new Cascade([parseStylesheet('.panel:focus-within { color: green }')]);
+    const restyler = new Restyler(cascade);
+    a.panel.states.push('focus-within');
+    restyler.update(as(root));
+    expect(restyler.styleOf(as(a.title))?.color).toBe(2);
+
+    move([a.panel], [b.panel]);
+    restyler.touchState(as(a.panel), 'focus-within');
+    restyler.touchState(as(b.panel), 'focus-within');
+    restyler.update(as(root));
+
+    expect(restyler.styleOf(as(a.title))?.color).not.toBe(2);
+    expect(restyler.styleOf(as(b.title))?.color).toBe(2);
+    expect(restyler.styleOf(as(b.row))?.color).toBe(2);
+  });
+
+  it('should restyle what a class change would once a selector reads it through a combinator', () => {
+    // `.panel:focus-within .title` makes the panel's state a question its title
+    // asks, so restyling the panel alone would leave the title on the old answer
+    const { a, b, footer, root } = screen();
+    const cascade = new Cascade([parseStylesheet('.panel:focus-within .a-title { bold: true }')]);
+    const restyler = new Restyler(cascade);
+    a.panel.states.push('focus-within');
+    restyler.update(as(root));
+    expect(restyler.styleOf(as(a.title))?.bold).toBe(true);
+
+    const seen = spy(cascade);
+    move([a.panel], [b.panel]);
+    restyler.touchState(as(a.panel), 'focus-within');
+    restyler.touchState(as(b.panel), 'focus-within');
+    restyler.update(as(root));
+
+    expect(restyler.styleOf(as(a.title))?.bold).toBe(false);
+    // the subtree and the siblings, which is `touchClasses()`
+    expect(seen.has(a.title)).toBe(true);
+    expect(seen.has(footer)).toBe(true);
+    expect(seen.has(root)).toBe(false);
+  });
+
+  it('should read the sheets again once they change', () => {
+    const cascade = new Cascade([parseStylesheet('.panel:focus-within { bold: true }')]);
+    expect(cascade.reaches('focus-within')).toBe(false);
+    cascade.add(
+      parseStylesheet('@media (min-width: 999) { .panel:focus-within text { bold: true } }')
+    );
+    // a rule whose media query does not apply still counts, so a resize -- which
+    // is not a change to the sheet set -- cannot make the answer stale
+    expect(cascade.reaches('focus-within')).toBe(true);
+    expect(cascade.reaches('focus')).toBe(false);
+  });
+});

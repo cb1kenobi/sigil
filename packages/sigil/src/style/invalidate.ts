@@ -9,6 +9,7 @@
  * | `color` via the sheet | that element's paint |
  * | `width` via the sheet | that subtree's layout, then paint |
  * | a class on one element | restyle it, and anything a selector relates to it |
+ * | `focus-within` on one element | that element, unless a selector reaches past it |
  * | a child added or removed | its siblings too, sideways |
  * | the terminal resized | everything, media queries included |
  *
@@ -37,7 +38,7 @@
 import type { ColorLevel } from '../ansi/color-support.js';
 import { applyProps, type Cascade, type CascadeResult, type PropValues } from './cascade.js';
 import { LAYOUT_PROPERTIES, type PropertyName, PROPERTY_NAMES, type Style } from './properties.js';
-import type { StyleNode } from './selector.js';
+import type { StyleNode, StyleState } from './selector.js';
 
 /**
  * An element, as the invalidator needs it: a `StyleNode` that also carries its
@@ -91,6 +92,11 @@ export class Restyler {
   #style = new Set<StyleTarget>();
   /** Elements whose props changed, which is re-applied without re-matching. */
   #props = new Set<StyleTarget>();
+  /**
+   * Elements re-matched on their own, with their children forced only if the
+   * answer changed -- the prop path's rule for descendants, with a re-match.
+   */
+  #alone = new Set<StyleTarget>();
   /** Everything is stale: the sheets changed, or the terminal did. */
   #all = true;
 
@@ -156,6 +162,32 @@ export class Restyler {
   }
 
   /**
+   * A state changed on an element, and the cascade decides how far that reaches.
+   *
+   * What the element tree calls for `focus-within`, which moves on every
+   * ancestor whose subtree the focus entered or left -- so a focus move from one
+   * pane to another flips it on two whole chains, and `touchClasses()` on each
+   * link would restyle each link's subtree and siblings, which near the root is
+   * the tree. That is the price of a selector that reads the state through a
+   * combinator, and only such a selector makes it worth paying. When no rule
+   * asks about `state` left of a combinator -- `Cascade.reaches()` -- the state
+   * is a question about the element it is on and nothing else, so only that
+   * element is re-matched, and its children are forced only if its style
+   * changed, which is what carries an inherited `color` down. A sheet with
+   * `.panel:focus-within .title` gets the class-change answer.
+   *
+   * @param node - The element whose state changed.
+   * @param state - The state.
+   */
+  touchState(node: StyleTarget, state: StyleState): void {
+    if (this.#cascade.reaches(state)) {
+      this.touchClasses(node);
+    } else {
+      this.#alone.add(node);
+    }
+  }
+
+  /**
    * A child was added to or removed from an element.
    *
    * This invalidates *sideways*, which is the case that is easy to forget and
@@ -207,13 +239,14 @@ export class Restyler {
     const layout = new Set<StyleTarget>();
     const paint = new Set<StyleTarget>();
     const wanted = this.#all ? undefined : this.#style;
+    const alone = this.#alone;
 
     let restyled = 0;
 
     // document order, because a child's inherited values come from its
     // parent's *resolved* style and the parent has to have been resolved first
     const walk = (node: StyleTarget, parent: Style | undefined, forced: boolean): void => {
-      const restyle = forced || wanted === undefined || wanted.has(node);
+      const restyle = forced || wanted === undefined || wanted.has(node) || alone.has(node);
       const before = this.#styles.get(node);
       let style = before;
       let changed: readonly PropertyName[] = [];
@@ -249,8 +282,9 @@ export class Restyler {
       // going to be re-resolved anyway. They are when everything is stale,
       // and when this node was marked -- `#markSubtree()` marks a subtree,
       // not a node. Otherwise -- a node reached because its own parent forced
-      // it, or one that took the prop path -- nothing has marked the
-      // children, and anything having changed is the answer, because which
+      // it, one that took the prop path, or one `touchState()` re-matched
+      // alone -- nothing has marked the children, and anything having changed
+      // is the answer, because which
       // properties a child reads through `inherit` is not visible from here.
       //
       // The precise version records, per element, the properties it resolved
@@ -271,6 +305,7 @@ export class Restyler {
 
     this.#style = new Set();
     this.#props = new Set();
+    this.#alone = new Set();
     this.#all = false;
 
     return { layout, paint, restyled };
@@ -298,6 +333,7 @@ export class Restyler {
     this.#styles.delete(node);
     this.#style.delete(node);
     this.#props.delete(node);
+    this.#alone.delete(node);
     for (const child of node.children ?? []) {
       this.forget(child);
     }

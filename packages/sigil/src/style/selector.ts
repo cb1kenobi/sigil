@@ -25,11 +25,23 @@ import { StyleError } from './value.js';
  * selector engine must not assume mouse tracking will never exist; nothing
  * reports it yet, so it matches nothing yet, which is the correct answer rather
  * than a missing one.
+ *
+ * `focus-within` is the one an element is never *given*: the element tree reports
+ * it on the focused element and on every ancestor of it, which is CSS's
+ * `:focus-within`. To this engine it is a state like the others -- a node says it
+ * is in it and the selector matches -- which keeps the engine from knowing what a
+ * descendant is for, and keeps a literal in a test able to say it.
  */
-export type StyleState = 'checked' | 'disabled' | 'focus' | 'hover';
+export type StyleState = 'checked' | 'disabled' | 'focus' | 'focus-within' | 'hover';
 
 /** Every state pseudo-class, for documentation and for tests that walk them. */
-export const STATES: readonly StyleState[] = ['checked', 'disabled', 'focus', 'hover'];
+export const STATES: readonly StyleState[] = [
+  'checked',
+  'disabled',
+  'focus',
+  'focus-within',
+  'hover',
+];
 
 /**
  * What the selector engine needs from an element, and nothing more.
@@ -515,6 +527,35 @@ function specificityOf(steps: readonly Step[]): Specificity {
     (total, step) => add(total, specificityOfCompound(step.compound)),
     NOTHING
   );
+}
+
+/**
+ * The states a selector asks about on an element other than the one it styles.
+ *
+ * A state in the rightmost compound is a question about the element being
+ * styled, so a change to it can only restyle that element. Anywhere to the left
+ * of a combinator it is a question about an ancestor or an earlier sibling, and
+ * then a change restyles whatever the combinator reaches from there. `:not()` is
+ * read through, since `.a:not(:focus) .b` asks about `.a`'s state all the same.
+ *
+ * @param selector - The selector.
+ * @returns Each state tested left of the rightmost compound, once.
+ */
+export function statesBeyondSubject(selector: Selector): Set<StyleState> {
+  const out = new Set<StyleState>();
+  const collect = (compound: Compound): void => {
+    for (const simple of compound.simples) {
+      if (simple.kind === 'state') {
+        out.add(simple.name);
+      } else if (simple.kind === 'not') {
+        simple.selectors.forEach(collect);
+      }
+    }
+  };
+  for (let i = 0; i < selector.steps.length - 1; i++) {
+    collect(selector.steps[i].compound);
+  }
+  return out;
 }
 
 /** The children of a node's parent, which is the list it is positioned within. */
