@@ -436,7 +436,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       draw(untrack(() => read(props.content)));
       return true;
     }
-    return pending ? reveal() : false;
+    const moved = pending ? reveal() : false;
+    // a height that changed alone changes which rows are in view, and so how far
+    // right they go, without drawing anything or moving the offset
+    report();
+    return moved;
   }
 
   /** Writes where the view is to `position`, where there is one and it moved. */

@@ -436,6 +436,21 @@ describe('DiffView', () => {
       expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
     });
 
+    it('should write the position again when only the height changed', () => {
+      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const { root } = mount({ content: LONG, position, wrap: false }, 4);
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+
+      // two rows tall, the long line is out of view: nowhere to go from here
+      root.setProp('height', 2);
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+      root.setProp('height', 4);
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+    });
+
     it('should not scroll sideways while no row is in view', () => {
       // laid out at a width with no height: a view that can see nothing has nowhere
       // to go, whatever the lines it is not showing run to

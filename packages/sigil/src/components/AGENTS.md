@@ -9738,9 +9738,11 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   than `x` after scrolling down to shorter lines. Asked for to see the limit above
   working: with a 1,300-column table row on screen the honest limit really is a
   hundred and fifty presses away, which reads as no limit until a number says so.
-  The git client prints it in the diff pane's bottom border. Written on a draw and
-  on the scroll box's `onScroll`, and only when one of the three moved, so it asks
-  for no frame of its own while nothing changes. A `State` the app hands in rather
+  The git client prints it in the diff pane's bottom border. Written on a draw, on the scroll box's `onScroll` and on every resize, and
+  only when one of the three moved, so it asks for no frame of its own while
+  nothing changes. The resize is review round 4's: a height that changes alone
+  draws nothing and moves no offset, but it changes which rows are in view, and
+  `maxX` stayed at the old one's limit. A `State` the app hands in rather
   than one the view hands out, `current`'s shape, since `DiffView()` returns the
   element.
 - **A sideways scroll keeps the rows where they are, and the offset is clamped by
