@@ -212,9 +212,16 @@ the entry it belongs to.
   own, drew nothing at all. Every half-block user that wanted a picture to mean
   something with no colour wrote its own monochrome blit; SIG-474's treemap was
   the one that made it a ticket (SIG-476). `blit(painter, x, y, { colorLevel })`
-  at `0` (or below) draws each cell as `█`, `▀` or `▄` by which halves are on, in
-  the default style, and still skips a cell with neither half on -- the rule above
-  for every level, and what the treemap's own blit did. Three things were decided:
+  at `0` (or below) draws each cell as `█`, `▀` or `▄` by which halves are on,
+  with no style of its own, and still skips a cell with neither half on -- the rule
+  above for every level, and what the treemap's own blit did. A shape is a glyph
+  `text()` writes, so it keeps the background under it ("A glyph keeps the
+  background under it"): over a cell a caller filled, the shape carries that
+  background and the diff writes it. That is the rule every glyph follows, and at
+  level 0 inside a tree there is no background to keep, since degradation dropped
+  it; `should keep the background under a shape, as any glyph does` pins it.
+  `NaN` is not `<= 0`, so it takes the colour path, which is the one that was
+  there. Three things were decided:
 
   - **On is any colour but `DEFAULT_COLOR`, with no predicate.** It is the same
     test the skip already makes, and a caller with an opinion -- a checker's second
@@ -240,8 +247,9 @@ the entry it belongs to.
     treemap's own output, old blit against new, matched on 800 maps at levels 0 to 3.
 
   The shape path writes a run of drawn cells as one `text()`, as `Dots.blit()`
-  does, and does not ask `inside()` first: there is one style however many cells,
-  so the style table has nothing to lose to a cell off the grid. `imageView()`
+  does, and does not ask `inside()` first: it interns no style per pixel -- the
+  default, and one per background it lands on -- so the style table has nothing to
+  lose to a cell off the grid. `imageView()`
   still draws nothing at level 0, on purpose -- a photograph thresholded to on and
   off is not the picture, and the component entry says why -- so this is for a
   picture whose meaning is its shapes, which a treemap's is.

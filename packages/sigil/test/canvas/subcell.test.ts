@@ -367,9 +367,24 @@ describe('Pixels at colour level 0', () => {
       )
     );
     expect(shape).toEqual(expected);
-    // the picture has every kind of cell, so the comparison covers them all
-    const chars = new Set(lit.buffer.toLines().join(''));
-    expect([...chars].sort()).toEqual([' ', '▀', '▄', '█'].sort());
+    // the picture has every kind of cell at both levels, so the comparison
+    // covers them all
+    for (const { buffer } of [lit, plain]) {
+      expect([...new Set(buffer.toLines().join(''))].sort()).toEqual([' ', '▀', '▄', '█'].sort());
+    }
+    // and the two are drawn differently: a cell in two colours is an upper block
+    // over a background at level 3, and a full block at level 0
+    const twoColour = lit.buffer
+      .toLines()
+      .flatMap((line, y) => [...line].map((char, x) => ({ char, x, y })))
+      .filter(
+        ({ char, x, y }) =>
+          char === '▀' && lit.styles.get(lit.buffer.styleAt(x, y)).bg !== DEFAULT_COLOR
+      );
+    expect(twoColour.length).toBeGreaterThan(0);
+    for (const { x, y } of twoColour) {
+      expect(plain.buffer.charAt(x, y)).toBe('█');
+    }
   });
 
   // a colour at level 0 is an escape sequence `NO_COLOR` and a pipe asked not
@@ -407,6 +422,48 @@ describe('Pixels at colour level 0', () => {
     expect(buffer.toLines()).toEqual(['▀b▄']);
   });
 
+  it('should draw shapes below 0, and colours for a level that is not a number', () => {
+    const pixels = new Pixels(1, 1);
+    pixels.set(0, 0, palette(1));
+    pixels.set(0, 1, palette(4));
+    const below = surface(1, 1);
+    pixels.blit(below.painter, 0, 0, { colorLevel: -1 });
+    expect(below.buffer.charAt(0, 0)).toBe('█');
+    // `NaN <= 0` is false, so it is the colour path that was always there
+    const nan = surface(1, 1);
+    pixels.blit(nan.painter, 0, 0, { colorLevel: Number.NaN });
+    expect(nan.buffer.charAt(0, 0)).toBe('▀');
+  });
+
+  // a shape is a glyph `text()` writes, and a glyph keeps the background under it
+  // -- the canvas rule for every glyph, so it is not a colour level 0 added
+  it('should keep the background under a shape, as any glyph does', () => {
+    const { buffer, painter, styles } = surface(2, 1);
+    painter.fill(0, 0, 2, 1, { bg: palette(4) });
+    const pixels = new Pixels(2, 1);
+    pixels.set(0, 0, palette(1));
+    pixels.set(0, 1, palette(1));
+    pixels.blit(painter, 0, 0, { colorLevel: 0 });
+    expect(buffer.charAt(0, 0)).toBe('█');
+    expect(styles.get(buffer.styleAt(0, 0))).toMatchObject({ bg: palette(4), fg: DEFAULT_COLOR });
+  });
+
+  it('should paint a run with a gap that starts left of the grid and the clip', () => {
+    const pixels = new Pixels(6, 1);
+    for (const x of [0, 1, 2, 4, 5]) {
+      pixels.set(x, 0, palette(2));
+    }
+    const off = surface(6, 1);
+    pixels.blit(off.painter, -1, 0, { colorLevel: 0 });
+    expect(off.buffer.toLines()).toEqual(['▀▀ ▀▀ ']);
+
+    const { buffer, painter } = surface(6, 1);
+    painter.clip({ height: 1, width: 4, x: 2, y: 0 }, (inner) => {
+      pixels.blit(inner, 0, 0, { colorLevel: 0 });
+    });
+    expect(buffer.toLines()).toEqual(['  ▀ ▀▀']);
+  });
+
   it('should paint at the offset it was given and stay inside the clip', () => {
     const pixels = new Pixels(4, 1);
     for (let x = 0; x < 4; x++) {
@@ -422,8 +479,10 @@ describe('Pixels at colour level 0', () => {
   });
 
   // the ticket's other half: levels 1 to 3 are what they were. Painted with no
-  // option, which is the code this option did not touch, and with each level
-  // named, over pictures that run off the grid and through a clip
+  // option, which is the code this option did not touch, and with `{}` and each
+  // level named, over pictures that run off the grid and through a clip. What
+  // the colour path itself draws is pinned by the cases in `Pixels` above; this
+  // says the option does not reach it
   it('should paint exactly what it painted before at levels 1 to 3', () => {
     const random = seeded(3);
     for (let round = 0; round < 20; round++) {
@@ -435,10 +494,12 @@ describe('Pixels at colour level 0', () => {
 
       const before = surface(10, 4);
       before.painter.clip(clip, (inner) => pixels.blit(inner, at, at));
-      for (const colorLevel of [1, 2, 3]) {
+      for (const opts of [{}, { colorLevel: 1 }, { colorLevel: 2 }, { colorLevel: 3 }]) {
         const after = surface(10, 4);
-        after.painter.clip(clip, (inner) => pixels.blit(inner, at, at, { colorLevel }));
-        expect(after.styles.size, `round ${round} level ${colorLevel}`).toBe(before.styles.size);
+        after.painter.clip(clip, (inner) => pixels.blit(inner, at, at, opts));
+        expect(after.styles.size, `round ${round} ${JSON.stringify(opts)}`).toBe(
+          before.styles.size
+        );
         for (let y = 0; y < 4; y++) {
           for (let x = 0; x < 10; x++) {
             expect(after.buffer.charAt(x, y)).toBe(before.buffer.charAt(x, y));

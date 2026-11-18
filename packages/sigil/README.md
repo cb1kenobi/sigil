@@ -6866,9 +6866,10 @@ canvas.paint((p) => pixels.blit(p, 0, 0, { colorLevel }));
 ```
 
 `blit()` takes the colour level, and only level 0 changes anything. With no
-colour to write, a picture is drawn as **shapes** in the terminal's own colours:
-a pixel set to anything but `DEFAULT_COLOR` is on, a cell is `█`, `▀` or `▄` by
-which of its halves are on, and nothing in it is an escape sequence. So a caller
+colour to write, a picture is drawn as **shapes** with no colour of their own: a
+pixel set to anything but `DEFAULT_COLOR` is on, and a cell is `█`, `▀` or `▄` by
+which of its halves are on. A shape keeps the background under it, as any text
+does, which at level 0 is the terminal's own unless you filled one. So a caller
 that wants a picture to mean something in a pipe or under `NO_COLOR` decides
 there which pixels are on, setting the others to `DEFAULT_COLOR`. At every other
 level, and with no options, each half keeps its colour; `Pixels` does not

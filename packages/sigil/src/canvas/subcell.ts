@@ -311,12 +311,13 @@ export class Dots {
 /** How {@link Pixels.blit} draws. */
 export interface PixelsBlitOptions {
   /**
-   * The colour level the picture is drawn at. Only `0` changes anything: there
-   * is no colour to write, so the picture is drawn as **shapes** in the
-   * terminal's own colours -- a pixel that is not `DEFAULT_COLOR` is on, one
+   * The colour level the picture is drawn at. Only `0` (or below) changes
+   * anything: there is no colour to write, so the picture is drawn as **shapes**
+   * with no colour of its own -- a pixel that is not `DEFAULT_COLOR` is on, one
    * that is is off, and a cell is `█`, `▀` or `▄` by which of its halves are on.
-   * At every other level, and when this is left out, each half keeps its own
-   * colour as it always has. `Pixels` never quantizes: a caller at 256 or 16
+   * A shape keeps the background already under it, as any glyph `text()` writes
+   * does. At every other level, `NaN` included, and when this is left out, each
+   * half keeps its own colour as it always has. `Pixels` never quantizes: a caller at 256 or 16
    * colours sets colours it has already quantized, as `imageView()` does.
    */
   readonly colorLevel?: number;
@@ -450,9 +451,11 @@ export class Pixels {
    *
    * A colour written there would be an escape sequence that `NO_COLOR` and a pipe
    * asked not to get, and the canvas does not degrade what it is handed -- so
-   * every half block goes out in the default style, and a run of drawn cells is
-   * one write, as in `Dots.blit`. There is one style however many cells, so
-   * there is nothing for `inside()` to save here: `text()` clips on its own.
+   * every half block is written with no style of its own, and a run of drawn
+   * cells is one write, as in `Dots.blit`. `text()` keeps the background under
+   * each glyph, which at level 0 is the terminal's own unless the caller filled
+   * one. Nothing here interns a style per pixel, so there is nothing for
+   * `inside()` to save: `text()` clips on its own.
    *
    * @param painter - Where to paint.
    * @param x - The canvas column of this grid's left edge.
