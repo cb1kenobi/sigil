@@ -162,6 +162,18 @@ describe('the disk usage visualizer', () => {
       expect(m.screen()).toMatch(/Map: work[\\/]src/);
       expect(mapPart(m)).toMatch(/main\.ts/);
       expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+
+      // a file maps the directory it is in: back up to the root, then into `src`
+      // by a double click on one of its files
+      await m.press(KEYS.backspace, KEYS.right);
+      expect(m.screen()).toMatch(/Map: work /);
+      const at = m.term.viewport.findIndex((row) => row.includes('util.ts'));
+      expect(at).toBeGreaterThan(0);
+      const column = (m.term.viewport[at] as string).indexOf('util.ts') + 1;
+      const onFile = `\x1b[<0;${column};${at + 1}M\x1b[<0;${column};${at + 1}m`;
+      await m.press(onFile + onFile);
+      expect(info(m)).toMatch(/util\.ts · 3\.0 kB/);
+      expect(m.screen()).toMatch(/Map: work[\\/]src(?![\\/])/);
       m.app.exit(0);
     },
     LONG

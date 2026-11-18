@@ -20,6 +20,7 @@ import {
   resolveStyles,
   text,
 } from '../../src/element/index.js';
+import { loadCatalog } from '../../src/i18n/index.js';
 import {
   createInput,
   type DescribeOptions,
@@ -1371,12 +1372,52 @@ describe('describeListView()', () => {
   });
 
   it('should take options only last, and refuse them anywhere else as not a list', () => {
-    const { router } = recorder();
-    const list = ListView({ items: [] });
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    const other = ListView({ items: [], onActivate: () => {} });
+    // between two lists, where a describer that looked for options anywhere would
+    // find them
     expect(() =>
       // @ts-expect-error -- the options go after the lists
-      describeListView(router, { activate: 'show' }, list)
+      describeListView(router, list, { activate: 'show' }, other)
     ).toThrow('Expected an element that ListView() returned');
+    expect(live).toHaveLength(0);
+  });
+
+  it('should refuse a last argument that is an object but not options, rather than drop it', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    // an element from a second copy of the package is not an Element here, and an
+    // array of lists is a spread somebody forgot: neither is options with no word
+    class Element {}
+    for (const last of [[list], new Element(), new Map()]) {
+      expect(() => describeListView(router, last as never)).toThrow(
+        'Expected an element that ListView() returned'
+      );
+      expect(() => describeListView(router, list, last as never)).toThrow(
+        'Expected an element that ListView() returned'
+      );
+    }
+    expect(live).toHaveLength(0);
+    // a null-prototype object is still a plain one
+    describeListView(router, list, Object.assign(Object.create(null), { activate: 'show' }));
+    expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+  });
+
+  it("should translate the default open, and leave the caller's word as given", async () => {
+    await loadCatalog({ de: async () => ({ open: 'öffnen', show: 'zeigen' }) }, {}, 'de');
+    try {
+      const { live, router } = recorder();
+      const list = ListView({ items: [], onActivate: () => {} });
+      const off = describeListView(router, list);
+      expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('öffnen');
+      off();
+      // the app's word is the app's to translate: sigil's catalog is not asked
+      describeListView(router, list, { activate: 'show' });
+      expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+    } finally {
+      await loadCatalog(undefined, {});
+    }
   });
 });
 

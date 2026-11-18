@@ -1017,9 +1017,16 @@ describe('describeDataTable()', () => {
     describeDataTable(router, host, { activate: 'inspect' });
     flush();
     expect(enter()).toEqual(['inspect']);
+  });
+
+  it('should refuse an empty word for Enter before describing anything', () => {
+    const host = procs({ onActivate: () => {} });
+    const { live, router } = recorder();
     expect(() => describeDataTable(router, host, { activate: '' })).toThrow(
       'Expected activate to be a non-empty string'
     );
+    flush();
+    expect(live).toHaveLength(0);
   });
 
   it('should refuse an element that is not a table', () => {

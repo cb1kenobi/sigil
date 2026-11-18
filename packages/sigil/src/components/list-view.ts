@@ -26,7 +26,7 @@
  * reasons under "A list view".
  */
 
-import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
+import { box, type Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import {
   type DescribeOptions,
@@ -618,9 +618,11 @@ export interface DescribeListViewOptions {
 /**
  * The hosts a describer was handed and the options after them, the options checked.
  *
- * An options object is told from a host by not being an `Element`, and only the last
- * argument may be one: anything else that is not a host is left among the hosts, for
- * the describer to refuse by its own name. Shared by every describer that takes
+ * Only the last argument may be options, and only a plain object is: anything else
+ * is left among the hosts for the describer to refuse by its own name -- an array
+ * of hosts, or an element from a second copy of the package, which is not an
+ * `Element` here and would otherwise be taken for options with no word and
+ * dropped. Shared by every describer that takes
  * {@link DescribeListViewOptions}, so the three cannot come to read it differently.
  *
  * @param args - What followed the router.
@@ -631,10 +633,11 @@ export function describedHosts(args: readonly (Element | DescribeListViewOptions
   options: DescribeListViewOptions;
 } {
   const last = args.at(-1);
-  if (last === undefined || last === null || typeof last !== 'object' || last instanceof Element) {
+  const proto = typeof last === 'object' && last !== null ? Object.getPrototypeOf(last) : false;
+  if (proto !== Object.prototype && proto !== null) {
     return { hosts: args as readonly Element[], options: {} };
   }
-  const { activate } = last;
+  const { activate } = last as DescribeListViewOptions;
   if (activate !== undefined && (typeof activate !== 'string' || activate === '')) {
     throw new TypeError(__`Expected activate to be a non-empty string`);
   }

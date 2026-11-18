@@ -954,6 +954,15 @@ describe('describeTreeListView()', () => {
     expect(live.every(([, opts]) => opts.scope === tree)).toBe(true);
   });
 
+  it('should refuse an empty word for Enter before describing anything', () => {
+    const tree = TreeListView({ items: [], onActivate: () => {} });
+    const { live, router } = recorder();
+    expect(() => describeTreeListView(router, tree, { activate: '' })).toThrow(
+      'Expected activate to be a non-empty string'
+    );
+    expect(live).toHaveLength(0);
+  });
+
   it('should refuse an element that is not a tree, before describing anything', () => {
     const { live, router } = recorder();
     expect(() => describeTreeListView(router, TreeListView({ items: [] }), box())).toThrow(
