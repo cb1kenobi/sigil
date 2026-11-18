@@ -357,9 +357,86 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   let parents = new Map<T, T | undefined>();
   let shown = new Set<T>();
 
-  const accept = (value: T, items: unknown): void => {
+  /**
+   * Marks one read out of date. What it found is kept to be shown until the read
+   * that replaces it lands, and a read in flight is superseded either way: one that
+   * carries an earlier answer goes back to it, and one that has none, or a failure,
+   * is forgotten.
+   */
+  const forget = (value: T): boolean => {
+    const held = loads.get(value);
+    if (held === undefined || (held.state === 'loaded' && held.stale === true)) {
+      return false;
+    }
+    if (held.state !== 'failed' && held.items !== undefined) {
+      loads.set(value, { items: held.items, stale: true, state: 'loaded' });
+    } else {
+      loads.delete(value);
+    }
+    return true;
+  };
+
+  /**
+   * The branches that have a read among some nodes and under them: through the
+   * lists the nodes hold and through what each read found, so a branch that is
+   * closed is reached as surely as one that is open. With `from`, only that value's
+   * and those under it.
+   */
+  const readsIn = (items: readonly TreeChoiceItem<T>[], from?: { value: T }): T[] => {
+    const found: T[] = [];
+    const been = new Set<T>();
+    const visit = (list: readonly TreeChoiceItem<T>[], inside: boolean): void => {
+      for (const item of list) {
+        const parts = treeChoiceOf(item);
+        const key = parts.value;
+        // a read that hands back an ancestor's value would otherwise go round
+        if (!parts.branch || been.has(key)) {
+          continue;
+        }
+        been.add(key);
+        const within = inside || key === from?.value;
+        const what = parts.choice.items;
+        let children: readonly TreeChoiceItem<T>[] | undefined;
+        if (typeof what === 'function') {
+          const held = loads.get(key);
+          if (held === undefined) {
+            continue;
+          }
+          if (within) {
+            found.push(key);
+          }
+          children = held.state === 'failed' ? undefined : held.items;
+        } else if (Array.isArray(what)) {
+          children = what;
+        }
+        if (children !== undefined) {
+          visit(children, within);
+        }
+      }
+    };
+    visit(items, from === undefined);
+    return found;
+  };
+
+  /**
+   * A read that failed. One that was a read again takes every read under the
+   * answer it replaced out of date with it: what they hung from is no longer known,
+   * and with the items gone a subtree reload could no longer find them.
+   */
+  const fail = (value: T, message: string, before?: readonly TreeChoiceItem<T>[]): void => {
+    loads.set(value, { message, state: 'failed' });
+    if (before !== undefined) {
+      for (const key of readsIn(before)) {
+        if (key !== value) {
+          forget(key);
+        }
+      }
+    }
+  };
+
+  const accept = (value: T, items: unknown, before?: readonly TreeChoiceItem<T>[]): void => {
     if (!Array.isArray(items)) {
-      loads.set(value, { message: __`Expected items to be an array`, state: 'failed' });
+      fail(value, __`Expected items to be an array`, before);
       return;
     }
     try {
@@ -367,7 +444,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         treeChoiceOf(item);
       }
     } catch (err) {
-      loads.set(value, { message: errorMessage(err), state: 'failed' });
+      fail(value, errorMessage(err), before);
       return;
     }
     loads.set(value, { items: items as readonly TreeChoiceItem<T>[], state: 'loaded' });
@@ -384,11 +461,11 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     try {
       result = fn();
     } catch (err) {
-      loads.set(value, { message: errorMessage(err), state: 'failed' });
+      fail(value, errorMessage(err), before);
       return;
     }
     if (!isThenable(result)) {
-      accept(value, result);
+      accept(value, result, before);
       return;
     }
     loads.set(value, { items: before, run, state: 'loading' });
@@ -401,9 +478,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       landed.set(untrack(() => landed.get()) + 1);
     };
     Promise.resolve(result).then(
-      (items) => land(() => accept(value, items)),
-      (err: unknown) =>
-        land(() => loads.set(value, { message: errorMessage(err), state: 'failed' }))
+      (items) => land(() => accept(value, items, before)),
+      (err: unknown) => land(() => fail(value, errorMessage(err), before))
     );
   };
 
@@ -426,7 +502,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       depth: number,
       base: string,
       parent: T | undefined,
-      root: boolean
+      root: boolean,
+      waiting: boolean
     ): void => {
       for (const [index, item] of items.entries()) {
         const parts = treeChoiceOf(item);
@@ -462,10 +539,16 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
               loads.delete(key);
               held = undefined;
             }
-            // read for the first time, or again over what the last read found
+            // read for the first time, or again over what the last read found --
+            // unless a branch above is being read again: its answer may hand over a
+            // new node here, whose function is the one to call, so this waits
             if (isOpen && (held === undefined || (held.state === 'loaded' && held.stale))) {
-              start(key, what, held?.items);
-              held = loads.get(key);
+              if (!waiting) {
+                start(key, what, held?.items);
+                held = loads.get(key);
+              } else if (held === undefined) {
+                status = 'loading';
+              }
             }
             if (held !== undefined) {
               status = held.state;
@@ -498,7 +581,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         }
         if (children !== undefined) {
           opened.add(key);
-          visit(children, depth + 1, rest, key, false);
+          // what a read again in flight shows is the last answer, and what is
+          // under it waits for the new one
+          visit(children, depth + 1, rest, key, false, waiting || status === 'loading');
         } else if (status === 'loading' || status === 'failed') {
           const kind = status === 'loading' ? 'loading' : 'error';
           out.push({
@@ -512,9 +597,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     };
 
     if (Array.isArray(top)) {
-      visit(top, 0, '', undefined, false);
+      visit(top, 0, '', undefined, false, false);
     } else {
-      visit([top as TreeChoice<T>], 0, '', undefined, true);
+      visit([top as TreeChoice<T>], 0, '', undefined, true, false);
     }
     return { parents: up, rows: out, shown: opened };
   };
@@ -608,67 +693,6 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   const collapse = (value = here()): boolean => value !== undefined && setOpen(value, false);
   const toggle = (value = here()): boolean =>
     value !== undefined && setOpen(value, !untrack(() => expanded.get()).has(value));
-  /**
-   * Marks one read out of date. What it found is kept to be shown until the read
-   * that replaces it lands, and a read in flight is superseded either way: one that
-   * carries an earlier answer goes back to it, and one that has none, or a failure,
-   * is forgotten.
-   */
-  const forget = (value: T): boolean => {
-    const held = loads.get(value);
-    if (held === undefined || (held.state === 'loaded' && held.stale === true)) {
-      return false;
-    }
-    if (held.state !== 'failed' && held.items !== undefined) {
-      loads.set(value, { items: held.items, stale: true, state: 'loaded' });
-    } else {
-      loads.delete(value);
-    }
-    return true;
-  };
-
-  /**
-   * The branches under a value that have a read, it among them: found in the tree
-   * as it is now, through the lists it holds and through what each read found, so
-   * a branch that is closed is reached as surely as one that is open.
-   */
-  const readUnder = (value: T): T[] => {
-    const found: T[] = [];
-    const been = new Set<T>();
-    const visit = (items: readonly TreeChoiceItem<T>[], inside: boolean): void => {
-      for (const item of items) {
-        const parts = treeChoiceOf(item);
-        const key = parts.value;
-        // a read that hands back an ancestor's value would otherwise go round
-        if (!parts.branch || been.has(key)) {
-          continue;
-        }
-        been.add(key);
-        const within = inside || key === value;
-        const what = parts.choice.items;
-        let children: readonly TreeChoiceItem<T>[] | undefined;
-        if (typeof what === 'function') {
-          const held = loads.get(key);
-          if (held === undefined) {
-            continue;
-          }
-          if (within) {
-            found.push(key);
-          }
-          children = held.state === 'failed' ? undefined : held.items;
-        } else if (Array.isArray(what)) {
-          children = what;
-        }
-        if (children !== undefined) {
-          visit(children, within);
-        }
-      }
-    };
-    const top = untrack(read);
-    visit(Array.isArray(top) ? top : [top as TreeChoice<T>], false);
-    return found;
-  };
-
   const reread = (values: Iterable<T>): boolean => {
     let any = false;
     for (const value of values) {
@@ -679,8 +703,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
     return any;
   };
-  const reload = (value: T, options?: { subtree?: boolean }): boolean =>
-    reread(options?.subtree === true ? readUnder(value) : [value]);
+  const reload = (value: T, options?: { subtree?: boolean }): boolean => {
+    if (options?.subtree !== true) {
+      return reread([value]);
+    }
+    const top = untrack(read);
+    return reread(readsIn(Array.isArray(top) ? top : [top as TreeChoice<T>], { value }));
+  };
   const reloadAll = (): boolean => reread([...loads.keys()]);
 
   const drawRow = (row: Row<T>): Element => {

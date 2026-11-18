@@ -1076,6 +1076,77 @@ describe('TreeListView()', () => {
       expect(picture(host)).toEqual(['❯ └── ▾ dir', '      └──   after']);
     });
 
+    it('should wait for a branch read again before reading what is under it, which may be a new node', async () => {
+      // an immutable tree: the answer above hands over a new node under the same
+      // value, and its function -- not the one the cached node had -- is the one to call
+      let oldCalls = 0;
+      const mid = (kids: string[], count = false): TreeChoiceItem => ({
+        items: () => {
+          if (count) {
+            oldCalls++;
+          }
+          return kids;
+        },
+        text: 'mid',
+      });
+      let kids = [mid(['v1'], true)];
+      const host = tree({
+        expanded: ['root', 'mid'],
+        items: [{ items: async () => kids, text: 'root' }],
+      });
+      await landed();
+      expect(picture(host)).toEqual(['❯ └── ▾ root', '      └── ▾ mid', '          └──   v1']);
+      expect(oldCalls).toBe(1);
+
+      kids = [mid(['v2'])];
+      expect(control(host).reloadAll()).toBe(true);
+      flush();
+      // still the last answer while the one above is out, and the old function
+      // is not called for it
+      expect(picture(host)).toEqual(['❯ └── ▾ root', '      └── ▾ mid', '          └──   v1']);
+      expect(oldCalls).toBe(1);
+      await landed();
+      expect(picture(host)).toEqual(['❯ └── ▾ root', '      └── ▾ mid', '          └──   v2']);
+      expect(control(host).status('mid')).toBe('loaded');
+      expect(oldCalls).toBe(1);
+    });
+
+    it('should take the reads under a branch out of date when its read again fails', async () => {
+      let fail = false;
+      let leaf = 'leaf';
+      const host = tree({
+        expanded: ['top', 'mid'],
+        items: [
+          {
+            items: async () => {
+              if (fail) {
+                throw new Error('offline');
+              }
+              return [{ items: () => [leaf], text: 'mid' }];
+            },
+            text: 'top',
+          },
+        ],
+      });
+      await landed();
+      expect(picture(host)).toContain('          └──   leaf');
+
+      fail = true;
+      control(host).reload('top');
+      flush();
+      await landed();
+      expect(picture(host, 40)).toEqual(['❯ └── ▾ top', '      └──   Could not load: offline']);
+
+      // the answer is gone, so a subtree reload can no longer find what was
+      // under it -- which is why the failure marked it
+      fail = false;
+      leaf = 'new';
+      expect(control(host).reload('top', { subtree: true })).toBe(true);
+      flush();
+      await landed();
+      expect(picture(host)).toEqual(['❯ └── ▾ top', '      └── ▾ mid', '          └──   new']);
+    });
+
     it('should reload a subtree: every read branch under one, open or closed', () => {
       const calls: Record<string, number> = { closed: 0, open: 0, other: 0, top: 0 };
       const counted = (name: string, items: TreeChoiceItem[]) => (): TreeChoiceItem[] => {

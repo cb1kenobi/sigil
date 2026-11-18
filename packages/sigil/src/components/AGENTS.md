@@ -12498,9 +12498,27 @@ makes a new tree under the same paths, and routed around it with getters.
   `parts.choice.items` at walk time -- not the one it was first read with, which is
   what an immutable tree needs: a new node under the same value carries the new
   children.
+- **Nothing under a branch being read again is read until that answer lands.**
+  Review round 1 found it: `reloadAll()` marks a branch and the branches under it,
+  the walk reads the top one again and, while that promise is out, walks the last
+  answer -- whose nodes are the old ones, so a branch under it was read again with
+  the **old** function, landed fresh, and the new node the top read handed over was
+  never called. So the walk passes `waiting` down from a branch showing a stale
+  answer: under it a stale read is shown as it is and not started, and an open
+  branch never read draws the loading line without a read behind it. When the
+  answer above lands, the walk meets the new nodes and reads them with their own
+  functions. `status()` says `idle` for that last kind until then, since nothing has
+  been asked; the row's `info.status` says `loading`, which is what it shows.
+- **A read again that fails takes the reads under its last answer out of date.**
+  Also round 1: a failed read keeps no items, so a later
+  `reload(value, { subtree: true })` could not get down to the branches under it,
+  and when the branch was read successfully again they came back as fresh, from
+  before. What they hung from is no longer known, so `fail()` marks them as it
+  records the failure, which is the one moment the old answer is still there to
+  walk.
 - **A subtree is found in the data, not in the last walk.** The walk records only
   what is shown, and a read branch under a closed one is exactly what a subtree
-  reload is for, so `readUnder()` goes down the tree as it is now, through its
+  reload is for, so `readsIn()` goes down the tree as it is now, through its
   lists and through what each read found -- the same places the cache holds. A
   value met twice on the way is skipped, so a read that hands back an ancestor's
   value cannot loop.
