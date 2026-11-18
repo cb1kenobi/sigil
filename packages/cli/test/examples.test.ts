@@ -171,11 +171,14 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
  * lists -- whether or not the directory it was started in is a repository --
  * the settings screen's sidebar has the focus and Down shows the next section,
  * as the dashboard's does -- whose sidebar is down to its glyphs at this width, so
- * the page's name in the header is the only `Analytics` on screen -- and `.` shows
- * the file manager's hidden files and says so, whatever directory it is in.
+ * the page's name in the header is the only `Analytics` on screen -- `.` shows
+ * the file manager's hidden files and says so, whatever directory it is in, and
+ * `r` has the disk usage visualizer scan again and say `Rescanned`, which the
+ * first scan says as `Scanned`.
  */
 const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
   dashboard: { keys: [KEYS.down], shows: 'Analytics' },
+  'disk-usage': { keys: ['r'], shows: 'Rescanned' },
   'file-manager': { keys: ['.'], shows: 'Hidden files: shown' },
   'git-client': { keys: ['2'], shows: 'checkout' },
   hello: { keys: [KEYS.enter], shows: '1 press' },
