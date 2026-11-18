@@ -31,7 +31,11 @@ examples offer it on `t`.
 - **The error's message names the whole path, and its `cause` is the reason
   alone.** `Could not move /abs/path to the trash: <reason>` is what a CLI should
   print. A screen that already shows the name wants the reason beside it, which is
-  `cause.message`; both examples read it that way. A path that is not there is
+  `cause.message`; both examples read it that way. For an errno error the paths
+  node appends are cut from the reason, and the original error is the `cause`'s
+  own `cause`; any other error is the `cause` itself. A program that fails says
+  what it wrote to stderr, or its exit code -- never `execFile`'s `Command
+  failed:` line, which is the whole command, the path included. A path that is not there is
   `lstat()`'s `ENOENT`, asked first on every platform, so the three do not phrase
   it three ways. An empty path is a `TypeError`: `resolve('')` is the working
   directory, the last thing to move by accident.
@@ -179,3 +183,24 @@ did not make.
   answered with the path on every CI run.
 - Not fixed: no test proves a copy-then-delete would be caught, since a test
   cannot make `EXDEV`. There is no copy in the code; every move is one `rename()`.
+
+#### Review round 2, over round 1's fixes: seven findings, six fixed
+
+- **The home trash itself may not be a link either:** round 1 checked `files/`
+  and `info/` and not `Trash`. `should refuse a trash that is itself a link`.
+- **Round 1's owner check refused the setup the shared `.Trash` is for.** Over NFS
+  with root squashed, root's `.Trash` reads as `nobody`'s, and the mount's top is
+  usually not writable, so `.Trash-$uid` cannot be made either. Another user's
+  `.Trash` is now refused only where the top is writable by everyone -- where
+  anyone could have made it -- and accepted otherwise, as the spec does.
+  `should use another user's .Trash only where the top is not writable by all`
+  pins both halves by asking as a uid that is not the user's.
+- The `ENOENT` test read a Windows path as a regular expression; it is
+  `toContain()` now.
+- A program that failed with nothing on stderr reported `execFile`'s message,
+  which is the command line with the path in it; it says the exit code instead.
+- The package README says the result can be `''` on Windows, and the disk usage
+  README says that case is scanned again.
+- Not fixed: the disk usage example's case fold on Windows has no test. It needs
+  the platform to be Windows while the app renders, and the fold is one
+  `toLowerCase()`.

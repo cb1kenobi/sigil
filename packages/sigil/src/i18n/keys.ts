@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 437 keys, which is what a catalog has to carry to translate sigil's own
+ * 439 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -358,6 +358,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'exited with {0}',
   'expand',
   'first',
   'first tab',
@@ -373,6 +374,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'it is on another device, and there is no user id to name a trash there',
   'it is on another device, whose trash at {0} cannot be used',
   'it is the top of a mount',
+  'its trash at {0} holds a link where a directory should be',
   'last',
   'last tab',
   'less',

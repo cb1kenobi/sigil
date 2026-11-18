@@ -70,7 +70,7 @@ export async function trashFreedesktop(path: string, opts: FreedesktopOptions): 
   if ((await device(await nearest(home))) === dev) {
     await mkdir(join(home, 'files'), { mode: 0o700, recursive: true });
     await mkdir(join(home, 'info'), { mode: 0o700, recursive: true });
-    if (!(await realDirs(home))) {
+    if ((await lstat(home)).isSymbolicLink() || !(await realDirs(home))) {
       throw new Error(__`its trash at ${home} holds a link where a directory should be`);
     }
     // the home trash records an absolute path: the spec allows a relative one
@@ -158,16 +158,32 @@ const STICKY = 0o1000;
 async function topTrash(top: string, uid: number): Promise<string | undefined> {
   const shared = join(top, '.Trash');
   const info = await lstat(shared).catch(() => undefined);
-  // owned by root or by the user: the sticky bit stops other users renaming what
-  // is inside, but never the directory's owner, so a `.Trash` another user made
-  // is one they can empty by renaming `$uid` out of it
-  if (info?.isDirectory() && info.mode & STICKY && (info.uid === 0 || info.uid === uid)) {
+  if (info?.isDirectory() && info.mode & STICKY && (await trusted(top, info.uid, uid))) {
     const own = await ownDir(join(shared, String(uid)), uid);
     if (own) {
       return own;
     }
   }
   return ownDir(join(top, `.Trash-${uid}`), uid);
+}
+
+/**
+ * Whether a `.Trash` was made by someone the user can trust with what goes in it.
+ * The sticky bit stops other users renaming what is inside, but never the
+ * directory's owner -- so on a mount whose top anyone can write, a `.Trash`
+ * another user made is one they can empty by renaming `$uid` out of it, and only
+ * root's or the user's own is used. Where the top is not writable by everyone,
+ * whoever made `.Trash` already had the say over the mount, and an owner that
+ * reads as somebody else -- root squashed to `nobody` over NFS -- is accepted, as
+ * the spec accepts it: there the shared `.Trash` is often the only place a user
+ * can make a trash at all.
+ */
+async function trusted(top: string, owner: number, uid: number): Promise<boolean> {
+  if (owner === 0 || owner === uid) {
+    return true;
+  }
+  const info = await lstat(top).catch(() => undefined);
+  return info !== undefined && (info.mode & 0o002) === 0;
 }
 
 /**

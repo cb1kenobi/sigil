@@ -74,9 +74,9 @@ so what is selected is always on the map.
 - **Trash can be undone**: `t` moves the selection to the trash -- the Finder's,
   the Recycle Bin, or the freedesktop trash a Linux desktop reads -- so its
   confirm starts on Yes. The tree loses it as a delete does, but the line says
-  nothing is freed until the trash is emptied, and a trash inside the directory
-  scanned (a home directory on Linux) is scanned again, since the space only
-  moved. Where the trash will not take it, it stays and the reason is shown: it is
+  nothing is freed until the trash is emptied. A trash inside the directory
+  scanned (a home directory on Linux) is scanned again instead, since the space
+  only moved, and so is one Windows did not say the place of. Where the trash will not take it, it stays and the reason is shown: it is
   never deleted instead.
 - **A name is drawn as it is**, except that a control character in it is drawn as
   `�`, so a name that holds an escape is not a different name on screen.

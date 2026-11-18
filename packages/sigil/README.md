@@ -7993,9 +7993,11 @@ device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where
 that mount has no trash you may use, it throws.
 
-The promise settles with the path the item has in the trash. Restoring it is the
-file manager's job: each platform keeps where an item came from in a record of
-its own beside it.
+The promise settles with the path the item has in the trash -- or with `''` on
+Windows, in the rare case the shell recycles an item without handing back where
+it went, so check before using it as a path. Restoring it is the file manager's
+job: each platform keeps where an item came from in a record of its own beside
+it.
 
 ### `sigil/coerce`
 

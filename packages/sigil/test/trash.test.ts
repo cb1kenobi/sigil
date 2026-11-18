@@ -182,6 +182,20 @@ describe.runIf(FREEDESKTOP)('the freedesktop trash', () => {
     expect(existsSync(join(root, 'elsewhere', 'a'))).toBe(false);
   });
 
+  it('should refuse a trash that is itself a link', async () => {
+    const root = made('sigil-trash-linked-home-');
+    const dataHome = join(root, 'data');
+    mkdirSync(dataHome);
+    mkdirSync(join(root, 'elsewhere'));
+    symlinkSync(join(root, 'elsewhere'), join(dataHome, 'Trash'));
+    writeFileSync(join(root, 'a'), 'kept');
+
+    await expect(trashFreedesktop(join(root, 'a'), { dataHome })).rejects.toThrow(/a link/);
+
+    expect(readFileSync(join(root, 'a'), 'utf8')).toBe('kept');
+    expect(existsSync(join(root, 'elsewhere', 'files', 'a'))).toBe(false);
+  });
+
   it('should throw for a path that is not there, and make no trash for it', async () => {
     const root = made('sigil-trash-missing-');
     const dataHome = join(root, 'data');
@@ -263,6 +277,36 @@ describe.runIf(FREEDESKTOP)('the freedesktop trash', () => {
       expect(existsSync(join(root, 'elsewhere', String(uid)))).toBe(false);
     });
 
+    /**
+     * A `.Trash` somebody else made, by asking as a uid one past the real one: it
+     * and everything this makes is then "somebody else's", so the user-owned
+     * trashes are refused too and the call throws either way. What differs is
+     * whether `.Trash/$uid` was tried, which is the decision being pinned.
+     */
+    it("should use another user's .Trash only where the top is not writable by all", async () => {
+      const other = uid + 1;
+      const tried = async (topMode: number): Promise<boolean> => {
+        const { dataHome, device, mount } = fixture('sigil-trash-owner-');
+        mkdirSync(join(mount, '.Trash'));
+        chmodSync(join(mount, '.Trash'), 0o1777);
+        writeFileSync(join(mount, 'a'), '');
+        chmodSync(mount, topMode);
+        try {
+          await expect(
+            trashFreedesktop(join(mount, 'a'), { dataHome, device, uid: other })
+          ).rejects.toThrow(/cannot be used/);
+          return existsSync(join(mount, '.Trash', String(other)));
+        } finally {
+          chmodSync(mount, 0o755);
+        }
+      };
+
+      // anyone could have made it, and anyone who did could empty it
+      expect(await tried(0o777)).toBe(false);
+      // root squashed to `nobody` over NFS reads like this, and is the spec's case
+      expect(await tried(0o755)).toBe(true);
+    });
+
     it('should throw and leave the item where there is no trash it can use', async () => {
       const { dataHome, device, mount } = fixture('sigil-trash-none-');
       // a file where the trash would be made, so it cannot be
@@ -320,7 +364,9 @@ describe('trash()', () => {
 
     const err = await trash(join(root, 'nope')).catch((e: Error) => e);
 
-    expect((err as Error).message).toMatch(
+    // a string to `toContain()`, not to `toMatch()`, which would read a Windows
+    // path's backslashes as escapes
+    expect((err as Error).message).toContain(
       `Could not move ${join(root, 'nope')} to the trash: ENOENT`
     );
     // the `cause` is the reason alone, for a screen that already shows the name:

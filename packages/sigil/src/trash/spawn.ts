@@ -23,7 +23,10 @@ export function run(file: string, args: string[], env?: Record<string, string>):
       },
       (err, stdout, stderr) => {
         if (err) {
-          const said = stderr.trim() || stdout.trim() || err.message;
+          // not `err.message`, which is `Command failed:` and the whole command
+          // line -- the script, and the path it was handed
+          const code = (err as { code?: unknown }).code;
+          const said = stderr.trim() || stdout.trim() || __`exited with ${String(code)}`;
           reject(new Error(__`${file} failed: ${said}`, { cause: err }));
           return;
         }
