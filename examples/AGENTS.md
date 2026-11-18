@@ -1021,3 +1021,142 @@ dark -- built from sigil's own components, with its own data, names and colours.
 - **Not done:** the pages other than the overview, which say they are not drawn;
   re-collapsing the sidebar on a resize; a hover crosshair or an area fill on the
   chart, which shadcn's has and `LineChart` does not; and a `ui`-tag twin.
+
+### A text editor with a Markdown preview (SIG-296)
+
+`examples/editor`. A file tree, tabs over a text area with line numbers and
+highlighting, the Markdown drawn beside its source as it is typed, save, a dirty
+mark, a dialog before closing or quitting over unsaved work, and a command
+palette. It is the hardest test the text area has had, and what it found is
+below with the measurements.
+
+- **JSX alone, and built.** The settings example's reason: one screen of props
+  spelled out each time, all of them checked by the build's `tsc`. There is no
+  `src/ui.ts`, so the harness's same-screen and unbuilt-entry checks do not run
+  for it. The model is still a module of its own, `src/editor.ts`, with the root
+  handing back what a key reaches through `attach()`, because a text area is
+  built per file when it is opened -- which no template says.
+
+- **SIG-289 is done, so the ticket's open question is moot.** The area is handed
+  `highlightCode()` and the file's extension as its `lang`, for every file:
+  `highlightCode()` marks nothing in a language it does not read, and the
+  conditional that withheld it from such a file was deleted for surviving its
+  sabotage, since a `State` value is joined on every key either way.
+
+- **One text area per open file, hidden rather than rebuilt.** `Tabs`' rule for
+  its panels, applied by hand: each keeps its caret, selection and scroll while
+  another file shows. Each is built under a branch of the component's owner,
+  because it is built from a key handler (SIG-335), and disposed when its tab
+  closes. Showing one paints a frame before the next key, the log browser's
+  `redraw()` for SIG-384.
+
+- **A file opens at its first line because the editor types Ctrl-Home.** A text
+  area puts the caret at the end of what it is given -- `TextField`'s rule, right
+  for a field -- and has no handle to move it ("Not done" in the area's entry), so
+  a 50,000-line file opened on its last line. The editor feeds `ESC [1;5H`
+  through the router after the area has the focus. Sabotaged, sixteen tests fail.
+
+- **The tab row is built again whenever a label changes.** `tabRowView()` reads
+  its labels once ("Tabs", under "Not done"), and a dirty mark changes a label.
+  An effect over the labels joined into one string builds a new row, under a
+  branch it disposes with the old one, over the one `active` state -- so the
+  showing tab survives the rebuild, and a focused row is focused again.
+
+- **Dirty is a comparison, not a flag, and a clean file is not written.** A
+  document holds the text as read or last saved and compares, so typing a change
+  back out is clean, the settings form's rule. The area keeps `\n` and nothing
+  else, so a file is written back with the line ending it was read with -- the
+  first in it, `\r\n`, `\r` or `\n` -- and a file with more than one kind is
+  made one kind by the first save that writes it. Which is why Ctrl-S on a file
+  with no changes writes nothing: review round 1 found the first version
+  converting a mixed file on a habitual save while the tab said it was clean.
+
+- **A file that is not UTF-8 is refused, the way a binary one is.**
+  `readFileSync(path, 'utf8')` puts U+FFFD in place of every byte it cannot
+  decode and says nothing, so a Latin-1 `café` opened as `caf�`, and the first
+  save wrote `EF BF BD` over the `E9` -- the same silent conversion as the line
+  endings above, with nothing left to convert back from. `read()` decodes with a
+  `fatal` `TextDecoder` and says `is not UTF-8`. It keeps the BOM
+  (`ignoreBOM: true`), which is what the lenient read did, so a file that has
+  one is written back with it. The NUL check reads the bytes first, so a binary
+  file is still called binary. A lenient decode fails `should refuse a file that
+  is not UTF-8, rather than save U+FFFD over it`, and a stripped BOM fails `should
+  write a byte order mark back with the file it was read with`.
+
+- **`q` is an `onKey` on the root, not a fallback.** Quitting over unsaved work
+  asks first, and a fallback could not: every fallback on a key runs, so
+  `runApp()`'s own `q` would quit beside it without asking. The root's `onKey`
+  hears `q` from the tree, the tabs, the preview and the panes' edges, and stops
+  it there; a text area and the palette's field type it. The quit dialog starts
+  on Cancel and the close dialog on Save, since Save loses nothing and Cancel is
+  Escape. With nothing focused, which the editor never leaves it, the runner's
+  `q` would still quit unasked.
+
+- **App-wide chords are sequences, and Ctrl-W is one of them.** `bind('ctrl+s')`
+  and its siblings come before the focused element, so they work from inside the
+  area, and after a dialog's own function binding, so they are quiet while one
+  is open. That takes Ctrl-W from the area, which reads it as delete-word; an
+  editor's Ctrl-W closes a tab, and Alt-Backspace still deletes a word.
+
+- **The palette reads its cursor in the key handler, never through an effect.**
+  The first version moved the cursor to the best match in an effect over the
+  ranking, and an Enter that arrived before the next frame -- typing and Enter in
+  one burst, which a test's `press()` is and a fast typist is too -- ran the row
+  the cursor had been on: `Save`, for a query of `reload`. Effects run with the
+  frame. So the field's `onChange` writes the cursor, Up and Down move it over the
+  ranking rather than through the list's selection, whose rows are its last
+  frame's, and Enter refuses a row the query has since dropped. `should run the
+  best match when Enter comes before the next frame` is the regression.
+  `commandPalette()` is not used because it is a prompt over a CLI's command
+  tree; `rankBy()` and `highlightRuns()` are the half an app's own actions need.
+  `openPalette()` hands back the command chosen and the caller runs it, after it
+  has put down the flag that keeps a second dialog from opening under the first:
+  run inside, Close and Quit -- which ask with dialogs of their own, and so refuse
+  while one is open -- did nothing from the palette (review round 1).
+
+- **A preview costs its element count on every key, so it is drawn live only
+  while it is small.** Measured as of this change, on arm64 macOS: a key beside
+  a 2 kB README is 6.4 ms; beside this file at 51 kB, about 9,000 elements, 145
+  ms drawn live and 44.5 ms with the rebuild waiting for a pause -- because a
+  frame lays the whole tree out again once any text in it changes, and the area
+  changing is a text changing, so the preview is laid out on every key whether
+  or not it was rebuilt. So `LIVE_LIMIT` is 16 kB, past it the rebuild waits for
+  200 ms without a change, and past 256 kB the preview says it is too long: the
+  components' 919 kB decisions file took seven seconds to build and a second a
+  key with it showing. Windowing the preview by block was measured and refused:
+  most of a decisions file is one list, which is one block. The README has the
+  full table.
+
+- **A highlighted 50,000-line file is 29.5 ms a key, and the same file as text is
+  2.3.** The difference is `highlightCode()` over the whole value on every key,
+  which is SIG-382's incremental highlight, measured and reported rather than
+  built here.
+
+- **Its temp directories are removed by the test file**, the git client's
+  arrangement and its reason: one file makes directories, and an `afterAll`
+  says what a `tempDir()` copy would.
+
+- **Review round 1 found five things, and each has a test that fails without
+  its fix:** Close and Quit doing nothing from the palette; `▸ src/` asserted
+  where Windows lists `src\`; the line endings above; a long document's preview
+  turned off and on again waiting for a pause, because the preview still
+  remembered drawing it -- a preview put away has drawn nothing now; and a
+  close test of three tabs, where the tab to the right of the middle one is also
+  the last, so "always the last" passed it -- it has four. A paste test that a
+  paste typed as keys would also have passed now pastes a tab, which a paste
+  keeps and a typed Tab indents.
+
+- **Sabotage: nineteen, none survived once a test was added for the one that
+  did.** The Ctrl-Home, the line endings, dirty never true, the tab mark, closing
+  without asking, the quit dialog starting on Quit, `q` no longer the root's, the
+  palette's `onChange` and arrows, the preview always and never waiting, no
+  preview limit, no highlighter, no `onCopy`, opening a file twice, the binary
+  check, and Ctrl-PageDown not wrapping each fail a named test. Closing a tab
+  always showing the first one survived, and `should show the tab to the right of
+  one closed, or the one to its left for the last` is what catches it now.
+  Highlighting every file rather than only the ones the lexer reads survived and
+  the conditional was deleted, above.
+
+- **Not done:** undo, which the area does not have; a new file, a rename and a
+  delete from the tree; a search; reading a file changed on disk again; and
+  showing the caret's line and column, which the area has no handle to read.

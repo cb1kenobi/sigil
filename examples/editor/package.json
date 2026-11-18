@@ -1,0 +1,25 @@
+{
+  "name": "@ttylabs/example-editor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A text editor with a Markdown preview, in JSX: a file tree, tabs, a highlighted text area, save, and a command palette",
+  "bin": {
+    "editor": "./dist/editor.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "sigil build",
+    "start": "node dist/editor.mjs",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  },
+  "devDependencies": {
+    "@ttylabs/cli": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
