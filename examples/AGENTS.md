@@ -1203,8 +1203,9 @@ about where the space went.
   wide and half a cell tall, which a cell twice as tall as it is wide makes about
   square, so the layout is done in those and square means square on screen. Edges
   are rounded rather than sizes, so two neighbours round their shared edge the same
-  way and meet with no gap and no overlap; `squarify()` and `layoutMap()` are plain
-  functions, and `test/treemap.test.ts` asks them at sizes from 3 by 3 up.
+  way and meet with no gap and no overlap; `squarify()` and `layoutTreemap()` are
+  plain functions, and the library's `test/components/treemap.test.ts` asks them at
+  sizes from 3 by 3 up.
 
 - **The depth limit is the cell, not a number.** An item that would get fewer than
   nine pixels (`MIN_AREA`: three by three, two by two of colour inside its edge) is
@@ -1212,7 +1213,7 @@ about where the space went.
   `37 more` or `+37`. A directory is divided only where it is at least three pixels
   a side and its largest item has room of its own; otherwise it is one tile under
   its own name. So a deep tree on a big screen is drawn deep, and a selection with
-  no tile of its own outlines the tile it went into (`markFor()`).
+  no tile of its own outlines the tile it went into (`treemapMark()`).
 
 - **Colour is the kind of file, never depth.** Seven kinds -- code, text and
   documents, images, audio and video, archives, binaries, other -- because at 16
@@ -1236,7 +1237,7 @@ about where the space went.
   a selected tile is drawn hollow.
 
 - **Level 0 is `Pixels`' shapes.** At level 0 there is no colour to write, so
-  `paintMap()` hands `Pixels.blit()` the level and it draws which pixels are on --
+  `paintTreemap()` hands `Pixels.blit()` the level and it draws which pixels are on --
   `█`, `▀` or `▄` in the terminal's own colours -- rather than their colours. The
   map decides what is on itself: at level 0 it sets a pixel it wants lit to any
   colour and one it wants dark, a checker's second square and the inside of a
@@ -1256,6 +1257,23 @@ about where the space went.
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
   short of the outline, which would otherwise lose its corner to a name.
+
+- **The map is the library's `Treemap` (SIG-480).** The layout, the gathering,
+  the mark, the paint and the click moved into `@ttylabs/sigil/components/treemap`
+  with every decision above, and `src/treemap.ts` went with them. What stayed in
+  `map-view.ts` is what is about files: a `DiskNode` read by its `bytes`,
+  `children` and `path`; a label with a `/` on a directory drawn whole; the seven
+  kinds' colours, handed over as the RGB above 16 colours and the hue of the
+  sixteen at 16 (the map works out the darker shade and the bright twin, which are
+  the pairs this example used to list); `parent` as `dirname()`, so a file deep in a
+  directory drawn whole still outlines that tile; and `moreColor`, which colours a
+  tile of gathered items by summing each directory's `mix` rather than counting it
+  as its main kind -- the library adds up whole items, and on this repository's own
+  scan that turned one tile from code-blue to image-magenta. Measured on that scan
+  (28,375 files) at 150 by 45 and 300 by 80, the frame is what it was within the
+  noise, and the cells are identical at every level; the bytes are too, but at
+  256 colours, where a name is now drawn in black or white as at truecolor rather
+  than in the terminal's own foreground. The figures are in the library's entry.
 
 - **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
   through a limiter of 48 in flight and nothing waits on a read while holding a

@@ -1,7 +1,8 @@
 import { CATEGORIES } from '../src/disk.ts';
-import { MapView } from '../src/map-view.ts';
+import { categoryColor, gatheredCategory, MapView } from '../src/map-view.ts';
 import type { DiskNode } from '../src/scan.ts';
 import { runApp } from '@ttylabs/sigil/app';
+import { DEFAULT_COLOR, palette } from '@ttylabs/sigil/canvas';
 import { State } from '@ttylabs/sigil/signals';
 import { createTestTerminal, frame } from '@ttylabs/sigil/testing';
 import { join, sep } from 'node:path';
@@ -99,5 +100,42 @@ describe('MapView', () => {
     expect(term.viewport.join('\n')).toBe(before);
     app.exit(0);
     await app.exited;
+  });
+});
+
+describe('categoryColor()', () => {
+  it('should give each category a colour of its own at every level with colour', () => {
+    for (const level of [1, 2, 3] as const) {
+      const colours = CATEGORIES.map((category) => categoryColor(category, level));
+      expect(new Set(colours).size, `level ${level}`).toBe(CATEGORIES.length);
+      // the selection is bright white, which no category is at 16 colours
+      if (level === 1) {
+        expect(colours).not.toContain(palette(15));
+      }
+    }
+  });
+
+  it("should be the terminal's own at level 0", () => {
+    expect(categoryColor('code', 0)).toBe(DEFAULT_COLOR);
+  });
+});
+
+describe('gatheredCategory()', () => {
+  it('should count each kind a gathered directory holds, not only the kind it mostly is', () => {
+    // the directory is mostly code, and so is the pair counted whole -- but by
+    // what is in them, there is more image than code
+    const mixed: DiskNode = {
+      bytes: 11,
+      category: 'code',
+      children: [],
+      files: 2,
+      kind: 'directory',
+      mix: CATEGORIES.map((c) => (c === 'code' ? 6 : c === 'image' ? 5 : 0)),
+      name: 'mixed',
+      path: join(ROOT, 'mixed'),
+      size: 0,
+    };
+    const picture: DiskNode = { ...file('photo.png', 7), category: 'image' };
+    expect(gatheredCategory([mixed, picture])).toBe('image');
   });
 });

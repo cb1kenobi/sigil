@@ -630,6 +630,16 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     related: ['diff', 'scroll-box'],
   },
   {
+    slug: 'treemap',
+    name: 'Treemap',
+    family: 'fullscreen',
+    exports: ['Treemap'],
+    registry: 'treemap',
+    // nothing in it takes a key: a click is how it is pointed at
+    example: { probe: false },
+    related: ['image', 'bar-chart', 'tree-list-view'],
+  },
+  {
     slug: 'data-table',
     name: 'DataTable',
     family: 'fullscreen',

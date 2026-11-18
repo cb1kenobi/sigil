@@ -1,28 +1,100 @@
 /**
- * The map as an element, and the swatch the tree draws beside a file.
+ * The map, the swatch the tree draws beside a file, and the colour of each kind
+ * of file, which both of them show.
  *
- * Both are `raw` elements, the trapdoor the image component is built on: measured
- * like a text, placed by the layout, and painting their own cells. The map lays
- * its tree out again only when the tree, its root or its size moved -- a move of
- * the selection repaints over the same layout. The map is a `trackedRaw()`, so
- * what its paint reads is what it is repainted for, with nothing listing it again.
+ * The map is the library's `Treemap` over the scan's tree: squarified, in half
+ * blocks, laid out again only when the tree, its root or its size moved, and
+ * repainted for what its paint reads. What is this app's is how a `DiskNode` is
+ * read -- its bytes, its children, its path -- and what colour a kind of file is.
+ * The swatch is a `raw` of its own, the trapdoor the image component is built on.
  */
 
-import type { Category } from './disk.ts';
+import { type Category, CATEGORIES, printable } from './disk.ts';
 import type { DiskNode } from './scan.ts';
-import { categoryColor, layoutMap, type MapLayout, markFor, paintMap, tileAt } from './treemap.ts';
-import { DEFAULT_COLOR } from '@ttylabs/sigil/canvas';
+import { type Color, DEFAULT_COLOR, palette, rgb } from '@ttylabs/sigil/canvas';
+import { Treemap } from '@ttylabs/sigil/components/treemap';
 import { type Element, raw } from '@ttylabs/sigil/element';
-import type { MouseEvent } from '@ttylabs/sigil/input';
-import { trackedRaw } from '@ttylabs/sigil/renderer';
-import { stringWidth } from '@ttylabs/sigil/width';
-import { truncate } from '@ttylabs/sigil/wrap';
+import type { State } from '@ttylabs/sigil/signals';
+import { quantizeColor } from '@ttylabs/sigil/style';
+import { dirname } from 'node:path';
+
+/**
+ * Each category's colour: an RGB for 256 colours and up, and one of the sixteen
+ * for 16. The six hues are the six the sixteen have, so at 16 colours no two
+ * categories share one -- nor do the bright twins the map draws a tile of many
+ * files with -- and the selection is bright white, which none of them is.
+ */
+const COLOURS: Readonly<Record<Category, { ansi: number; rgb: Color }>> = {
+  archive: { ansi: 2, rgb: rgb(92, 178, 96) },
+  binary: { ansi: 3, rgb: rgb(206, 170, 64) },
+  code: { ansi: 4, rgb: rgb(78, 128, 226) },
+  image: { ansi: 5, rgb: rgb(190, 96, 200) },
+  media: { ansi: 1, rgb: rgb(214, 86, 78) },
+  other: { ansi: 8, rgb: rgb(134, 136, 146) },
+  text: { ansi: 6, rgb: rgb(64, 182, 192) },
+};
+
+/**
+ * A category's colour as the map is told it: one of the sixteen at 16, and the
+ * RGB above that, which the map degrades and shades itself.
+ */
+function mapColor(category: Category, level: number): Color {
+  const { ansi, rgb: base } = COLOURS[category];
+  return level === 1 ? palette(ansi) : base;
+}
+
+/**
+ * A category's colour at a colour level, ready to paint: the RGB at truecolor,
+ * quantized at 256, the hue of the sixteen at 16, and the terminal's own at 0,
+ * where nothing is coloured.
+ *
+ * @param category - What kind of file.
+ * @param level - The colour level.
+ * @returns The colour.
+ */
+export function categoryColor(category: Category, level: 0 | 1 | 2 | 3): Color {
+  return level === 0 ? DEFAULT_COLOR : quantizeColor(mapColor(category, level), level);
+}
+
+/**
+ * The category with the most bytes among some nodes, a directory counting each
+ * kind it holds rather than only the kind it is mostly: the colour of a tile of
+ * gathered items, which the map would otherwise colour by adding up whole nodes.
+ *
+ * @param nodes - What a tile gathers.
+ * @returns The kind it is coloured as.
+ */
+export function gatheredCategory(nodes: readonly DiskNode[]): Category {
+  const sums = CATEGORIES.map(() => 0);
+  for (const node of nodes) {
+    if (node.mix === undefined) {
+      sums[CATEGORIES.indexOf(node.category)] += node.bytes;
+    } else {
+      for (const [i, n] of node.mix.entries()) {
+        sums[i] += n;
+      }
+    }
+  }
+  let most = CATEGORIES.length - 1;
+  for (const [i, n] of sums.entries()) {
+    if (n > (sums[most] as number)) {
+      most = i;
+    }
+  }
+  return CATEGORIES[most] as Category;
+}
+
+/** The directory a path is in, or nothing above the top of the file system. */
+function parentOf(path: string): string | undefined {
+  const up = dirname(path);
+  return up === path ? undefined : up;
+}
 
 export interface MapViewProps {
   /** What the map draws, or nothing while there is nothing to draw. */
   readonly root: { get(): DiskNode | undefined };
-  /** The path whose tile is outlined. */
-  readonly selected: { get(): string | undefined };
+  /** The path whose tile is outlined, which a click on the map moves. */
+  readonly selected: State<string | undefined>;
   /** What to say where there is no map: the scan's progress, or why it is empty. */
   readonly message: () => string;
   /** A click on a tile: the path of what it is, or the largest of what it gathers. */
@@ -38,80 +110,20 @@ export interface MapViewProps {
  * @returns The element.
  */
 export function MapView(props: MapViewProps): Element {
-  let laid: { layout: MapLayout; root: DiskNode } | undefined;
-  /** Where the last paint put the map, for a click to be read against. */
-  let at = { x: 0, y: 0 };
-
-  const layoutFor = (root: DiskNode, width: number, height: number): MapLayout => {
-    if (
-      laid === undefined ||
-      laid.root !== root ||
-      laid.layout.width !== width ||
-      laid.layout.height !== height
-    ) {
-      laid = { layout: layoutMap(root, width, height), root };
-    }
-    return laid.layout;
-  };
-
-  const element = trackedRaw(
-    {
-      // it takes whatever room the panel gives it, and asks for none of its own
-      measure: () => ({ height: 0, minHeight: 0, minWidth: 0, width: 0 }),
-      paint: (painter, box, self) => {
-        at = { x: box.x, y: box.y };
-        const root = props.root.get();
-        if (box.width <= 0 || box.height <= 0) {
-          return;
-        }
-        if (root === undefined || root.bytes <= 0) {
-          laid = undefined;
-          const lines = props.message().split('\n');
-          const top = box.y + Math.max(0, Math.floor((box.height - lines.length) / 2));
-          for (const [i, line] of lines.entries()) {
-            if (i >= box.height) {
-              break;
-            }
-            const cut = truncate(line, Math.max(0, box.width - 2));
-            const left = box.x + Math.max(1, Math.floor((box.width - stringWidth(cut)) / 2));
-            painter.text(left, top + i, cut, { fg: DEFAULT_COLOR });
-          }
-          return;
-        }
-        const layout = layoutFor(root, box.width, box.height * 2);
-        const selected = props.selected.get();
-        paintMap(painter, box.x, box.y, layout, {
-          level: self.colorLevel,
-          // the map's own root is the whole map, which an outline says nothing about
-          mark:
-            selected === undefined || selected === root.path
-              ? undefined
-              : markFor(layout, selected, root.path),
-        });
-      },
-    },
-    { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 }
-  );
-
-  element.onMouse = (event: MouseEvent): void => {
-    if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {
-      return;
-    }
-    const x = event.x - at.x;
-    // either half of the cell clicked: the upper is as good a guess as any, and
-    // the lower is the one under it when the upper is an edge
-    const tile =
-      tileAt(laid.layout, x, (event.y - at.y) * 2) ??
-      tileAt(laid.layout, x, (event.y - at.y) * 2 + 1);
-    if (tile === undefined) {
-      return;
-    }
-    event.stop();
-    props.onPick?.(
-      tile.kind === 'rest' ? (tile.rest?.[0]?.path ?? tile.node.path) : tile.node.path
-    );
-  };
-  return element;
+  return Treemap<DiskNode, string>({
+    children: (node) => node.children,
+    color: (node, level) => mapColor(node.category, level),
+    current: props.selected,
+    empty: props.message,
+    key: (node) => node.path,
+    label: (node) => printable(node.name) + (node.children === undefined ? '' : '/'),
+    moreColor: (nodes, level) => mapColor(gatheredCategory(nodes), level),
+    onPick: (path) => props.onPick?.(path),
+    parent: parentOf,
+    props: { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 },
+    root: props.root,
+    size: (node) => node.bytes,
+  });
 }
 
 /**

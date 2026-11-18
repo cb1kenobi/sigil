@@ -1,0 +1,105 @@
+{
+  "api": {
+    "interface": "TreemapProps",
+    "options": [
+      {
+        "description": "The tree: its root item, or a `State`, a `Computed` or a function that gives it. `undefined` is nothing to draw. A new root is laid out again; the same root at the same size is not.",
+        "name": "root",
+        "optional": false,
+        "type": "T | undefined | { get(): T | undefined; } | (() => T | undefined)"
+      },
+      {
+        "description": "An item's size, in any unit. Nothing above `0` takes no room at all. An item with children is divided among them by theirs, so its own size only decides its share beside its siblings.",
+        "name": "size",
+        "optional": false,
+        "type": "(item: T) => number"
+      },
+      {
+        "description": "An item's children, or `undefined` for an item that has none. Defaults to none, which draws the root as one tile.",
+        "default": "none",
+        "name": "children",
+        "optional": true,
+        "type": "(item: T) => readonly T[] | undefined"
+      },
+      {
+        "description": "The colour of an item's tile, at the colour level the frame is drawn at. An RGB is degraded to the level by the library's quantizer; a palette index the level can show is left as it is, which is how an app keeps sixteen hues of its own choosing apart at 16 colours. Not called at level 0, where the map is drawn as shapes in the terminal's own colours.",
+        "default": "one blue for everything",
+        "name": "color",
+        "optional": true,
+        "type": "(item: T, level: ColorLevel) => Color"
+      },
+      {
+        "description": "The item marked with an outline, as its key, or the state that holds it -- the shape `ListView`'s `current` has. A click writes it. An item with no tile of its own outlines what it was drawn in: the tile it was gathered into, or the tile of an ancestor drawn in one piece -- which takes `parent` to find. The root is the whole map and is not outlined.",
+        "name": "current",
+        "optional": true,
+        "type": "K | State<K | undefined>"
+      },
+      {
+        "description": "What to say where there is no map: no root, or a root of no size. A function is called as the map paints, so a signal it reads -- a scan's progress -- is followed. Lines are centred. Defaults to \"Nothing to show\".",
+        "default": "\"Nothing to show\"",
+        "name": "empty",
+        "optional": true,
+        "type": "string | (() => string)"
+      },
+      {
+        "description": "What identifies an item, which `current` holds. Defaults to the item itself.",
+        "default": "the item itself",
+        "name": "key",
+        "optional": true,
+        "type": "(item: T) => K"
+      },
+      {
+        "description": "The name written on an item's tile, on its first whole row where the tile is wide enough. Defaults to the item itself for a string or a number, and no name otherwise. Drawn as a text draws it, without control characters.",
+        "default": "the item itself for a string or a number",
+        "name": "label",
+        "optional": true,
+        "type": "(item: T) => string"
+      },
+      {
+        "description": "The colour of a tile of gathered items, given them, largest first, and the level -- for an app that knows better than adding up `color` over them, as one whose items each carry a mix of kinds does. Degraded and drawn as `color`'s answer is, and called when it would be.",
+        "name": "moreColor",
+        "optional": true,
+        "type": "(items: readonly T[], level: ColorLevel) => Color"
+      },
+      {
+        "description": "The name written on a tile of gathered items, given them, largest first, and the columns there are for it. Defaults to `37 more`, or `+37` where that does not fit.",
+        "default": "`37 more`",
+        "name": "moreLabel",
+        "optional": true,
+        "type": "(items: readonly T[], room: number) => string"
+      },
+      {
+        "description": "Called on a left click on a tile, after `current` has moved to it, with the item's key and the item. A click on a tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
+        "name": "onPick",
+        "optional": true,
+        "type": "(key: K, item: T, gathered?: readonly T[]) => void"
+      },
+      {
+        "description": "The key of an item's parent, or `undefined` at the top. Lets an item that has no tile of its own -- one deep inside a tile drawn in one piece -- outline the tile it is in; without it, only an item with a tile, or one gathered straight into a tile of gathered items, is outlined.",
+        "name": "parent",
+        "optional": true,
+        "type": "(key: K) => K | undefined"
+      },
+      {
+        "description": "The element's own props: a size, a class, `flex-grow`.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementPropsWithout<\"onMouse\">"
+      }
+    ],
+    "shared": [],
+    "signature": "function Treemap<T, K = T>(props: TreemapProps<T, K>): Element"
+  },
+  "registryDescription": "A treemap: a tree of sized items as squarified rectangles in half blocks, coloured by a callback, with the current item outlined",
+  "source": "packages/sigil/src/components/treemap.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[30;45mreact-dom 132k\u001b[0m\u001b[35m████\u001b[0m \u001b[30;45mlodash 71k\u001b[0m\u001b[35m█████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[35m▄▄▄▄▄▄▄\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[30;45mdate-fns …\u001b[0m\u001b[35m█\u001b[0m \u001b[30;45mzod 2…\u001b[0m\u001b[35m█\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\n\u001b[97m▄▄▄▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[34m▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m▄▄▄▄▄▄\u001b[0m\n\u001b[97m█\u001b[0m\u001b[30meditor 46k\u001b[0m\u001b[34m▄\u001b[0m \u001b[97m█\u001b[0m \u001b[30;44mcharts …\u001b[0m\u001b[34m█\u001b[0m \u001b[30;44mapp …\u001b[0m\u001b[34m█\u001b[0m  \u001b[30;44masse…\u001b[0m\u001b[34m█\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[30;44mrout…\u001b[0m\u001b[34m█\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█▄▄▄▄▄▄▄▄▄▄▄▄█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n                                 \u001b[34m▀▀▀▀▀▀\u001b[0m"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[30;45mreact-dom 132k\u001b[0m\u001b[35m████████████\u001b[0m \u001b[30;45mlodash 71k\u001b[0m\u001b[35m████████████████\u001b[0m  \u001b[97m█▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m\u001b[30meditor 46k\u001b[0m\u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m███████████████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m███████████████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m███████████████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m███████████████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m███████████████████\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m█\u001b[0m \u001b[34m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[97m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[97m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[30;44mcharts 31k\u001b[0m\u001b[34m███\u001b[0m \u001b[30;44mapp 12k\u001b[0m\u001b[34m██\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m██████████████████████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[35m▄▄▄▄▄▄▄▄▄▄\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[30;45mdate-fns 38k\u001b[0m\u001b[35m███\u001b[0m \u001b[30;45mzod 24k\u001b[0m\u001b[35m███\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m▄▄▄▄▄▄▄▄▄\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[30;44mroutes …\u001b[0m\u001b[34m█\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m█████████████\u001b[0m \u001b[34m█████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[34m▀▀▀▀▀▀▀▀▀\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[30;44massets 22k\u001b[0m\u001b[34m██████████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m██████████\u001b[0m  \u001b[34m████████████████████████\u001b[0m\n\u001b[35m██████████████████████████\u001b[0m \u001b[35m███████████████\u001b[0m \u001b[35m▀▀▀▀▀▀▀▀▀▀\u001b[0m  \u001b[34m████████████████████████\u001b[0m\n                                           \u001b[35m▀▀▀▀▀▀▀▀▀▀\u001b[0m  \u001b[34m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m"
+    }
+  }
+}

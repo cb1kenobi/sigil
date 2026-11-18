@@ -13382,3 +13382,125 @@ duplicates, and each pair was compared before it was folded.
   not audited, and three are in `prompt.ts` code another change is rewriting.
   `test/components/shared-helpers.test.ts` pins each helper's behaviour and counts
   the definitions across `src/`, so a copy that comes back fails there.
+
+### A treemap: any sized tree as squarified rectangles in half blocks (SIG-480)
+
+`src/components/treemap.ts`, `@ttylabs/sigil/components/treemap`. The disk usage
+example (SIG-474) wrote one by hand in `treemap.ts` and `map-view.ts`; this is
+that, with nothing about files left in it, and the example is rewritten on it.
+Every layout and paint decision recorded under "A disk space visualizer" in
+`examples/AGENTS.md` came across unchanged unless it is named below: the
+squarified layout in half-block pixels, edges rounded rather than sizes, the depth
+limit at the cell (`TREEMAP_MIN_AREA`, nine pixels), a tile of many things drawn
+as a checker, every tile's last column and row in the terminal's own background
+and one more inside an item directly under the root, the cushion at truecolor only
+(the example's measurement at 256 is why), level 0 as `Pixels`' shapes with a
+marked tile hollow, and names written after the pixels and kept off the outline.
+
+- **The tree is read through accessors over the app's own nodes**: `size`,
+  `children` and `key`, `ListView`'s `key` shape, with `T` the app's node and `K`
+  what identifies one. A tree of `{ size, children }` was the other shape the
+  ticket offered, and it costs an app a copy of its whole tree on every change --
+  180,000 nodes for the example's `/Applications`, rebuilt after every delete --
+  where the layout reads only as deep as there is room to draw. `TreeListView`'s
+  node shape is a choice to print, not a size. The accessors are read when the map
+  is laid out, untracked, and taken as fixed for a root: a tree that changed is a
+  new `root`, the rule `TreeListView` keeps for what a branch returned. Children in
+  any order are laid largest first -- checked in one pass, sorted only where they
+  are not -- and two arrays rather than an object per child, because a directory of
+  twenty thousand small files is read whole to learn that all of it is gathered.
+- **An item is divided among its children by theirs.** The example compared each
+  child with its directory's `bytes`, which is the children's sum on a disk. A
+  generic parent can count something of its own beside its children (memory: an
+  object and what it holds), so a child's share is its size over the children's
+  sum, and its parent's own size only decides the parent's share among its
+  siblings. Identical on a disk; documented on `size`.
+- **`current` is a key or a `State` of one**, `ListView`'s shape, and a left click
+  writes it and then calls `onPick(key, item, gathered?)`. The click is the
+  component's because a treemap is pointed at -- the example had it, and a picture
+  with no way to point at its parts is half a widget -- and it writes `current`
+  first so that an app keeping a list beside the map in step (the example opens the
+  tree down to the item) acts on what is already selected. A click on a tile of
+  gathered items picks the largest of them and hands over the whole list, which is
+  how an app intercepts that tile: zoom instead of selecting, say. The root is the
+  whole map and is never outlined.
+- **What an item with no tile of its own outlines needs `parent`.** Its own tile;
+  the tile it was gathered into; a tile of an ancestor drawn in one piece; or, for
+  an item divided into its children, its whole box -- `treemapMark()`, the
+  example's `markFor()` with `dirname()` turned into an accessor on keys. Without
+  `parent` only the item and the tile it was gathered into straight away can be
+  found, because the layout never reads below a tile drawn whole and searching the
+  subtree for a key is the whole tree a frame. The walk is bounded at 10,000 steps,
+  so a `parent` that cycles outlines nothing rather than hanging the frame. It asks
+  the one rest under the divided ancestor whether it holds the step below, as the
+  example did; the map of every gathered key to its tile is built only for the walk
+  without `parent`, and only the first time, because building it on every new
+  layout cost a quarter of a millisecond a frame on the measurement below.
+- **No keys.** Moving between tiles by arrow is a spatial question with no one
+  right answer over rectangles of every shape, and the one caller moves `current`
+  from a tree list beside the map, which is the keyboard's way in. A key nobody
+  asked for is a shape designed by guessing; the map is not focusable, so it takes
+  no Tab stop either.
+- **Colour is a callback, `(item, level) => Color`, and the map degrades it.** It
+  is told the level so an app can hand back one of the sixteen at 16 -- which the
+  quantizer leaves alone, at 256 too -- and an RGB elsewhere: the example's seven
+  kinds stay seven distinct hues at 16 that way, where quantizing seven RGBs to
+  sixteen could put two on one. Not called at level 0. The texture's second colour
+  is worked out rather than asked for: the first darkened by 0.74 where the level
+  has the colours for it, and at 16 its bright twin, `n` and `n ± 8` -- with grey's
+  (8) being light grey (7) rather than black, which on a dark terminal is a checker
+  of grey and nothing. Those are exactly the pairs the example listed by hand. A
+  tile of gathered items is the colour covering the most size among them, the
+  largest winning a tie; `moreColor` replaces that for an app that knows better,
+  as the example does from each directory's `mix`. A colour the app returns is
+  read while the map paints, so a signal behind it repaints the map. With no
+  `color` every tile is one blue, which is enough: the edges are what separate
+  tiles, and a hue means something only the app knows. The outline is bright white
+  (`palette(15)` at 16), which the docs say no item should be.
+- **A name on a colour is black or white at 256 too.** The example's ink read the
+  fill's channels with `rgbChannels()`, which has none for a palette index -- and at
+  256 every fill had been quantized to one -- so every name at 256 was drawn in the
+  terminal's own foreground on whatever colour the tile was. It reads `colorRgb()`
+  now, the cube's channels, which is the one change to what the example draws: the
+  cells are identical at every level and the bytes differ only at 256.
+- **`label` and `moreLabel` are the names, drawn as a text draws them.**
+  `toDisplayLine()` takes the control characters out, since `painter.text()`
+  refuses one; the example still turns them into `�` with `printable()` before
+  handing them over. `label` defaults to the item itself for a string or a number
+  and to no name otherwise, `ListView`'s rule. A tile of gathered items says
+  `37 more`, `__n`, or `+37` where that does not fit; `moreLabel` is handed the
+  items and the room.
+- **`empty` is a string or a function**, centred, and a function is read in the
+  paint, so a scan's progress in it repaints the map, which the example's message
+  test and one of this file's both hold it to. `ListView`'s `empty` takes a function that builds an
+  element; a `raw` cannot hold one, and a map that switched between a `raw` and an
+  element would be a host box and a `Show` for a line of text. The default is
+  `ListView`'s "Nothing to show", one key for both.
+- **A `trackedRaw()`, asking for 40 by 12 and taking what it is given.** Both
+  minimums are zero, as the image's and the charts' are, and there is no
+  `flex-grow` by default, the charts' rule: `flex-grow: 1` is one prop. The example
+  asked for nothing at all, which in a column without a grow is a map no rows tall.
+  The layout is kept while the root object and the size are the same, so moving
+  `current` repaints over the same rectangles, as before.
+- **Measured, before and after, on the example's own scan of this repository**
+  (28,375 files, read-only), with the old `MapView` and the new one mounted on a
+  test terminal and `app.view.frame()` timed: medians of 30, at a load average of
+  about 2.5 on arm64 macOS, so relative rather than absolute. A paint-only frame
+  (the selection moved) and a layout frame (a new root object) at 150 by 45 and 300
+  by 80, at every level:
+
+  | frame, 150 x 45    | L0 old / new | L1          | L2          | L3           |
+  | ------------------ | ------------ | ----------- | ----------- | ------------ |
+  | paint only, ms     | 2.15 / 2.08  | 1.93 / 2.06 | 2.30 / 2.41 | 2.91 / 3.00  |
+  | layout and paint   | 2.40 / 2.17  | 1.92 / 2.06 | 2.38 / 2.35 | 2.75 / 2.85  |
+  | **300 x 80** paint | 6.50 / 6.55  | 6.15 / 6.22 | 7.08 / 7.27 | 10.09 / 9.84 |
+
+  The same within the run-to-run spread, which was about 0.2 ms; the layout on its
+  own went from 0.22 to 0.17 ms at 150 by 90 pixels. Level 2's extra tenth is the
+  black and white ink above, about 2% more bytes written.
+
+- **Not done:** keys between tiles (above); a tooltip or a line for the tile under
+  the pointer; zooming, which is an app writing a new `root` -- the example's Enter
+  and Backspace; animating one layout into the next; a tile for a parent's own size
+  beside its children; and a legend, which is the app's, as the example's swatches
+  are.

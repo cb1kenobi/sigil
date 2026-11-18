@@ -5264,6 +5264,57 @@ says otherwise -- a height alone gives the width from the proportions, terminal
 or not. `.sigil-image` is the
 class on the element.
 
+#### A treemap
+
+```js
+import { palette, rgb } from '@ttylabs/sigil/canvas';
+import { Treemap } from '@ttylabs/sigil/components/treemap';
+
+const map = Treemap({
+  root: tree, // or a State or a Computed of one
+  size: (node) => node.bytes,
+  children: (node) => node.children,
+  key: (node) => node.path,
+  label: (node) => node.name,
+  color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
+  current, // a State of a key: the item outlined, which a click moves
+  onPick: (key, node) => reveal(key),
+  props: { 'flex-grow': 1 },
+});
+```
+
+Any tree with sizes -- disk use, a bundle's modules, memory by owner -- as nested
+rectangles, each as big as its share and inside its parent's. The layout is
+squarified, which keeps the rectangles near square, and done in half-block
+pixels, which are about square on screen; edges are rounded rather than sizes,
+so neighbours meet with no gap and no overlap.
+
+- **The tree is read through accessors.** `size`, `children` and `key` over your
+  own nodes, so nothing is copied into a shape of ours, and only as deep as there
+  is room to draw: a tree of a hundred thousand items costs what is on screen. An
+  item drawn smaller than three pixels a side is one tile, textured as "many
+  things"; the children of an item too small to draw on their own are gathered
+  into one tile named `37 more` (`moreLabel` and `moreColor` say otherwise). A
+  new tree is a new `root`; the same root at the same size is not laid out again.
+- **Colour is yours, and it degrades.** `color(item, level)` returns a colour for
+  the level the frame is drawn at: an RGB is quantized to 256 or 16 colours, and a
+  palette index the level can show is kept, which is how sixteen hues of your own
+  choosing stay apart at 16. At truecolor each tile is shaded as a cushion, so the
+  nesting shows inside a colour. At level 0 -- a pipe, `NO_COLOR` -- the map is
+  blocks and spaces in the terminal's own colours and the edges between tiles are
+  what show. Every tile keeps its last column and row in the terminal's own
+  background, so two tiles never run together at any level.
+- **`current` is outlined**, in bright white, and a left click on a tile moves it
+  and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
+  the whole list as a third argument. An item with no tile of its own outlines
+  what it was drawn in, and `parent(key)` is what lets one deep inside a tile
+  drawn whole find it.
+- **`empty`** is what is said where there is nothing to draw, and a function is
+  followed, so a scan's progress can live there. The element asks for 40 by 12 and
+  takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
+  is its class. It takes no keys: a list beside it, moving the same `current`, is
+  how the keyboard reaches it.
+
 #### A paginator
 
 ```js
