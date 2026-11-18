@@ -614,16 +614,22 @@ export function useBrowser(): Browser {
       env.maxLines
     );
     lines.set(all);
-    let next = untrack(() => shown.get());
+    const held = untrack(() => shown.get());
     // the oldest dropped from the log go from the view too: ids rise, so the first
-    // still held says where the view starts
+    // still held says where the view starts, and the lines before it are all at
+    // the front -- counted from there, in time for what went rather than for the
+    // whole view
     const first = all[0]?.id ?? 0;
-    if (next.length > 0 && (next[0] as LogLine).id < first) {
-      next = next.filter((line) => line.id >= first);
+    let gone = 0;
+    while (gone < held.length && (held[gone] as LogLine).id < first) {
+      gone++;
     }
     const kept = keep === undefined ? [] : batch.filter(keep);
-    if (kept.length > 0 || next !== untrack(() => shown.get())) {
-      shown.set(next.concat(kept));
+    if (kept.length > 0 || gone > 0) {
+      // the lines that stay and then the new ones, which the list takes as the
+      // rows it had with some off the front and some on the end, and keys in time
+      // for those (SIG-386)
+      shown.set(gone === 0 ? held.concat(kept) : held.slice(gone).concat(kept));
     }
   };
 

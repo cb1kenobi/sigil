@@ -733,8 +733,12 @@ screen of code.
   change. The suite asserts the element count with 50,000 lines (under 2,000
   against about 600 measured), which a log that built a row per line would miss
   by two orders of magnitude, and no time at all, for the reason the layout
-  fuzzer's deadline is recorded. A batch grows with the lines held, about 11 of
-  18 ms at 200,000, in `ListView` re-keying every row: SIG-386.
+  fuzzer's deadline is recorded. A batch grew with the lines held, about 11 of
+  18 ms at 200,000, in `ListView` re-keying every row. SIG-386 made the keying
+  and the map proportional to the lines that came and went. What still grows
+  with the lines held is two comparisons per kept line and the array copies, about
+  half a millisecond at 200,000. The README records the figures from before and
+  after, both from the same session.
 
 - **The mouse is off, and `--mouse` turns it on.** A terminal that reports the
   mouse stops selecting text, and copying a line out of a log matters more here

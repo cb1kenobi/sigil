@@ -262,6 +262,81 @@ describe('createListSelection()', () => {
     expect(() => sel.setRows(['a', 'b', 'a'])).toThrow('a is used twice');
   });
 
+  describe('rows that grow at the end and drop off the front', () => {
+    it('should find every row where it now is, after rows went off the front and came on the end', () => {
+      const sel = createListSelection<string>({ current: 'c' });
+      sel.setRows(['a', 'b', 'c', 'd']);
+
+      sel.setRows(['c', 'd', 'e', 'f']);
+      expect(sel.index()).toBe(0);
+      expect(sel.current.get()).toBe('c');
+      expect(['a', 'b', 'c', 'd', 'e', 'f'].map((key) => sel.indexOf(key))).toEqual([
+        -1, -1, 0, 1, 2, 3,
+      ]);
+      expect(sel.keyAt(3)).toBe('f');
+
+      // and again, then a rebuild of a different shape, which starts the count over
+      sel.setRows(['e', 'f', 'g']);
+      expect(sel.indexOf('g')).toBe(2);
+      expect(sel.indexOf('c')).toBe(-1);
+      sel.setRows(['g', 'x', 'e']);
+      expect(['g', 'x', 'e', 'f'].map((key) => sel.indexOf(key))).toEqual([0, 1, 2, -1]);
+    });
+
+    it('should put the cursor on the row that took the place of one that went off the front', () => {
+      const sel = createListSelection<string>({ current: 'b' });
+      sel.setRows(['a', 'b', 'c', 'd']);
+      sel.setRows(['c', 'd', 'e']);
+      expect(sel.current.get()).toBe('d');
+    });
+
+    it('should refuse an added key that a kept row holds, or two added keys alike, and change nothing', () => {
+      const sel = createListSelection<string>({ current: 'b' });
+      sel.setRows(['a', 'b', 'c']);
+      expect(() => sel.setRows(['b', 'c', 'c'])).toThrow('c is used twice');
+      expect(() => sel.setRows(['b', 'c', 'x', 'x'])).toThrow('x is used twice');
+      expect(['a', 'b', 'c', 'x'].map((key) => sel.indexOf(key))).toEqual([0, 1, 2, -1]);
+
+      // a key that went off the front may come back on the end
+      sel.setRows(['b', 'c', 'a']);
+      expect(['a', 'b', 'c'].map((key) => sel.indexOf(key))).toEqual([2, 0, 1]);
+    });
+
+    it('should refuse an added undefined key that a kept row holds, as a rebuild does', () => {
+      const sel = createListSelection<string | undefined>({ current: 'a' });
+      sel.setRows(['a', undefined]);
+      expect(() => sel.setRows(['a', undefined, undefined])).toThrow('undefined is used twice');
+      expect(sel.rowCount).toBe(2);
+    });
+
+    it('should rebuild for the array it holds, changed in place and handed back', () => {
+      const rows = ['a', 'b', 'c'];
+      const sel = createListSelection<string>({ current: 'a' });
+      sel.setRows(rows);
+      rows.push('d');
+      sel.setRows(rows);
+      expect(sel.indexOf('d')).toBe(3);
+    });
+
+    it('should place only the added keys, however many rows it holds', () => {
+      const sel = createListSelection<number>();
+      const held = Array.from({ length: 10_000 }, (_, i) => i);
+      sel.setRows(held);
+      const set = vi.spyOn(Map.prototype, 'set');
+      const del = vi.spyOn(Map.prototype, 'delete');
+      try {
+        sel.setRows([...held.slice(3), 10_000, 10_001, 10_002, 10_003]);
+        expect(set.mock.calls.length).toBeLessThanOrEqual(8);
+        expect(del.mock.calls.length).toBe(3);
+      } finally {
+        set.mockRestore();
+        del.mockRestore();
+      }
+      expect(sel.indexOf(10_003)).toBe(10_000);
+      expect(sel.indexOf(3)).toBe(0);
+    });
+  });
+
   it('should be the states it was handed, and write them', () => {
     const current = new State<string | undefined>('b');
     const selected = new State<ReadonlySet<string>>(new Set(['a']));
@@ -768,6 +843,59 @@ describe('ListView()', () => {
 
       expect(rowWith(host, 'a')).toBe(a);
       expect(rowsOf(host).at(-1)).toBe(a);
+    });
+
+    it('should hand only the added items to key when items are appended, and every item otherwise', () => {
+      const seen: number[] = [];
+      const items = new State(Array.from({ length: 1000 }, (_, i) => ({ id: i })));
+      const host = list({
+        items,
+        key: (item) => {
+          seen.push(item.id);
+          return item.id;
+        },
+        row: (item) => String(item.id),
+      });
+      seen.length = 0;
+      // the first is asked for once, to find where the rows it had start
+      items.set([...items.get().slice(2), { id: 1000 }, { id: 1001 }]);
+      flush();
+      expect(seen).toEqual([2, 1000, 1001]);
+      expect(control<number>(host).selection.indexOf(1001)).toBe(999);
+
+      // an item replaced in the middle is not the rows it had, so every one is keyed
+      seen.length = 0;
+      const now = items.get();
+      items.set([...now.slice(0, 5), { id: 7 }, ...now.slice(6)]);
+      flush();
+      expect(seen).toHaveLength(1000 + 1);
+    });
+
+    it('should rebuild a row whose item was replaced while rows were also appended', () => {
+      const items = new State([
+        { id: 'a', n: 1 },
+        { id: 'b', n: 1 },
+      ]);
+      const host = list({ items, key: (item) => item.id, row: (item) => `${item.id} ${item.n}` });
+      items.set([
+        items.get()[0] as { id: string; n: number },
+        { id: 'b', n: 2 },
+        { id: 'c', n: 1 },
+      ]);
+      flush();
+      expect(picture(host).slice(0, 3)).toEqual(['❯ a 1', '  b 2', '  c 1']);
+    });
+
+    it('should key the kept rows anew when a replaced item has a key of its own', () => {
+      const items = new State([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+      const host = list({ items, key: (item) => item.id, row: (item) => item.id });
+      const { selection } = control(host);
+      const now = items.get();
+      items.set([now[0] as { id: string }, { id: 'x' }, now[2] as { id: string }, { id: 'd' }]);
+      flush();
+      expect(['a', 'b', 'x', 'c', 'd'].map((key) => selection.indexOf(key))).toEqual([
+        0, -1, 1, 2, 3,
+      ]);
     });
 
     it('should rebuild the rows in view with refresh(), for items changed in place', () => {
