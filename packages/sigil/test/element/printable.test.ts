@@ -23,13 +23,13 @@ describe('printable()', () => {
     const name = 'bad\u001b[31mname';
     // the defect: a text drops the ESC, and what is left is a different name
     expect(drawn(name)).toBe('bad[31mname');
-    expect(drawn(printable(name))).toBe('bad�[31mname');
+    expect(drawn(printable(name))).toBe('bad\uFFFD[31mname');
   });
 
   it('should replace one code unit with one, so an offset into the result is an offset into the original', () => {
     const name = 'a\u0000b\u001bc\u007fd\u0085e\u009ff\tg\nh';
     const shown = printable(name);
-    expect(shown).toBe('a�b�c�d�e�f�g�h');
+    expect(shown).toBe('a\uFFFDb\uFFFDc\uFFFDd\uFFFDe\uFFFDf\uFFFDg\uFFFDh');
     expect(shown).toHaveLength(name.length);
     expect(shown.indexOf('h')).toBe(name.indexOf('h'));
     // and each replacement takes a column, where the character it replaced took none
@@ -38,16 +38,16 @@ describe('printable()', () => {
 
   it('should mark DEL and the C1 controls as well as C0', () => {
     for (const code of [0x00, 0x1b, 0x1f, 0x7f, 0x80, 0x85, 0x9b, 0x9f]) {
-      expect(printable(String.fromCharCode(code)), code.toString(16)).toBe('�');
+      expect(printable(String.fromCharCode(code)), code.toString(16)).toBe('\uFFFD');
     }
     // the edges of the set, from outside
-    expect(printable(' ~ ')).toBe(' ~ ');
+    expect(printable(' ~\u00a0')).toBe(' ~\u00a0');
   });
 
   it('should keep the control characters the caller names and only those', () => {
-    expect(printable('one\ntwo\tthree', '\n')).toBe('one\ntwo�three');
+    expect(printable('one\ntwo\tthree', '\n')).toBe('one\ntwo\uFFFDthree');
     expect(printable('one\ntwo\tthree', '\n\t')).toBe('one\ntwo\tthree');
-    expect(printable('a\u001bb', '\n\t')).toBe('a�b');
+    expect(printable('a\u001bb', '\n\t')).toBe('a\uFFFDb');
   });
 
   it('should leave what a text draws as it is', () => {
@@ -60,17 +60,29 @@ describe('printable()', () => {
     // U+200D joins a family emoji, U+200C is how Persian spells some words, and a
     // bidi control is zero width and never reaches the terminal; none is a
     // control character, and widening the set to `\p{Cf}` would break the first two
-    const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
     expect(printable(family)).toBe(family);
-    expect(printable('a‌b')).toBe('a‌b');
-    expect(printable('a‮b⁦c‏d')).toBe('a‮b⁦c‏d');
+    expect(printable('a\u200Cb')).toBe('a\u200Cb');
+    expect(printable('a\u202Eb\u2066c\u200Fd')).toBe('a\u202Eb\u2066c\u200Fd');
+  });
+
+  it('should leave a bidi control out because a text never sends one to the terminal', () => {
+    // the reason the set can leave it alone: zero width, so the grid stores no
+    // cell for it and nothing reorders the line. If a zero-width cluster ever
+    // starts reaching the terminal, `file<RLO>txt.exe` shows as `fileexe.txt`,
+    // and this set has to be decided again
+    for (const control of ['\u061C', '\u200E', '\u200F', '\u202A', '\u202E', '\u2066', '\u2069']) {
+      expect(drawn(`file${control}txt.exe`), control.codePointAt(0)!.toString(16)).toBe(
+        'filetxt.exe'
+      );
+    }
   });
 
   it('should leave a lone surrogate alone, since it already draws as a replacement', () => {
     expect(printable('a\uD800b')).toBe('a\uD800b');
     // one column, and UTF-8 has no lone surrogate to write, so it goes out as U+FFFD
     expect(stringWidth('\uD800')).toBe(1);
-    expect(Buffer.from('\uD800', 'utf8')).toEqual(Buffer.from('�', 'utf8'));
+    expect(Buffer.from('\uD800', 'utf8')).toEqual(Buffer.from('\uFFFD', 'utf8'));
   });
 });
 
@@ -98,6 +110,6 @@ describe('the one set of control characters', () => {
 
   it('should draw the newline and the tab as a text always has', () => {
     expect(toDisplayText('a\nb\tc\u001bd\u0085e')).toBe('a\nb cde');
-    expect(printable('a\nb')).toBe('a�b');
+    expect(printable('a\nb')).toBe('a\uFFFDb');
   });
 });

@@ -1545,7 +1545,9 @@ const CONTROL = /\p{Cc}/gu;
  * unit is replaced by one, so an offset into the result is the same offset into
  * the original, which is what a highlighter or a match position reads.
  *
- * The set is the one a text drops: C0, `DEL` and C1. A lone surrogate is not in
+ * The set is the one a text decides about: C0, `DEL` and C1, every one of which
+ * a text drops but the newline it splits on and the tab it draws as a space --
+ * which is what `keep` is for. A lone surrogate is not in
  * it and already reaches the terminal as `�`, which is what encoding it as UTF-8
  * writes; a format character -- a bidi control, a zero-width joiner -- is not in
  * it either, since a joiner is part of an emoji and a mark is part of a script.
@@ -1556,7 +1558,7 @@ const CONTROL = /\p{Cc}/gu;
  * @returns The text, with what is not kept marked.
  */
 export function printable(text: string, keep = ''): string {
-  return text.replace(CONTROL, (char) => (keep.includes(char) ? char : '�'));
+  return text.replace(CONTROL, (char) => (keep.includes(char) ? char : '\uFFFD'));
 }
 
 /**

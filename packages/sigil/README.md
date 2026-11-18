@@ -2658,9 +2658,10 @@ instead. A `text` element drops one before it paints, so none reaches the
 terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
 `bad[31mname`, which is not the name on disk. Each character is replaced by one,
 so an offset into the result is the same offset into the original, which is what
-a highlighter reads. The set is exactly the one a `text` drops: C0, `DEL` and
-C1. `keep` names control characters to leave alone, such as `'\n\t'` for a
-file's contents, which a `text` lays out in lines and draws a tab of as a space.
+a highlighter reads. The set is the one a `text` decides about: C0, `DEL` and
+C1, all of which it drops but the newline and the tab. `keep` names control
+characters to leave alone, such as `'\n\t'` for a file's contents, which a
+`text` lays out in lines and draws a tab of as a space.
 
 ```js
 import { printable, text } from '@ttylabs/sigil/element';
