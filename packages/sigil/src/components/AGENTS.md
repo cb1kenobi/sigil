@@ -9575,7 +9575,10 @@ exported beside them as pure functions.
   space and a tab: `trim()` was the first test, and it dropped a no-break space and
   an ideographic space at a fold as though they were padding. The indentation is
   what comes before anything with a width, so a byte order mark at the start of a
-  file does not make its indentation a fold (both review round 1).
+  file does not make its indentation a fold (both review round 1). And a row is
+  empty until something with a width is on it, in both folds: a tab is a cell of
+  four columns, so in a room of three after a byte order mark it started a row of
+  its own and left one blank (review round 2, the `columns` fold too).
 - **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
   it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
   which the gutter, the marker and the separator take a third; under that two lines

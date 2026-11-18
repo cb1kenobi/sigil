@@ -796,6 +796,14 @@ describe('diff()', () => {
       expect(at(`\uFEFF${' '.repeat(8)}code`, 8, { wrap: 'words' })).to.deep.equal(['+', '  code']);
     });
 
+    it('should not start a row for a character wider than the room after one with no width', () => {
+      // a tab is a cell of four columns, wider than this room of three; a byte order
+      // mark before it is no width, so the tab is the first row's, as without the mark
+      for (const wrap of ['columns', 'words'] as const) {
+        expect(at('\uFEFF\tcode', 4, { wrap }), wrap).to.deep.equal(at('\tcode', 4, { wrap }));
+      }
+    });
+
     it('should fold at a space or a tab and nowhere else, so a no-break space is kept', () => {
       // the break spaces wrap() breaks at: a no-break space is part of its word
       expect(at('hello\u00A0world', 6, { wrap: 'words' })).to.deep.equal([

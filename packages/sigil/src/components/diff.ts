@@ -866,7 +866,7 @@ function cellsOf(
  *
  * The row boundary falls wherever the width says, so the reader can count it. A
  * wide character that does not fit starts the next row; one that cannot fit
- * anywhere is put on its own row anyway and the box clips it.
+ * anywhere is put on a row with nothing else of any width, and the box clips it.
  *
  * @param cells - The line's cells.
  * @param room - The columns a row holds.
@@ -876,7 +876,8 @@ function fold(cells: readonly Cell[], room: number): Cell[][] {
   const rows: Cell[][] = [[]];
   let used = 0;
   for (const cell of cells) {
-    if (used + cell.width > room && rows.at(-1)!.length > 0) {
+    // a row holding only cells with no width is still empty: they take no room
+    if (used + cell.width > room && used > 0) {
       rows.push([]);
       used = 0;
     }
@@ -918,7 +919,8 @@ function foldWords(cells: readonly Cell[], room: number): Cell[][] {
   let broken = false;
   const byColumns = (run: readonly Cell[]): void => {
     for (const cell of run) {
-      if (used + cell.width > room && rows.at(-1)!.length > 0) {
+      // a row holding only cells with no width is still empty: they take no room
+      if (used + cell.width > room && used > 0) {
         rows.push([]);
         used = 0;
       }

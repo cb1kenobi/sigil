@@ -4602,8 +4602,10 @@ rows each hunk took.
 
 Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
 below it, so the same call is safe in a narrow terminal. A line wider than its room
-is folded by columns onto the rows below, under the code and not the gutter, and
-wide characters are measured as the columns they take. A tab is four columns.
+is folded onto the rows below, under the code and not the gutter: by columns unless
+`wrap` says otherwise, at a space with `words`, which drops the run of spaces the
+fold lands in, and not at all with `none`, which cuts the line at the edge with `…`.
+Wide characters are measured as the columns they take. A tab is four columns.
 
 The diff is computed here, by Myers' algorithm, and is exported on its own:
 `diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
@@ -4681,7 +4683,8 @@ and Down, Home and End scroll. A line too long for the view is wrapped at words,
 with the spaces a fold lands in dropped, so a padded table row does not become
 rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
 and the left and right arrows then scroll every line sideways together, eight columns
-a press, with the line numbers staying put, as far as the widest line in view. `describeDiffView(router, view)`
+a press, as far as the widest line in view. The line numbers and the markers stay
+put, and so do the `---`, `+++` and `@@` rows, which say which file and where. `describeDiffView(router, view)`
 describes the keys for a `keyHelp()` footer.
 
 | Prop        | Meaning                                                                            |
