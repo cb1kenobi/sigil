@@ -166,6 +166,22 @@ describe.runIf(FREEDESKTOP)('the freedesktop trash', () => {
     expect(existsSync(join(dataHome, 'Trash', 'info', 'dir.trashinfo'))).toBe(false);
   });
 
+  it('should refuse a trash whose files/ is a link, and leave the item', async () => {
+    const root = made('sigil-trash-linked-');
+    const dataHome = join(root, 'data');
+    mkdirSync(join(dataHome, 'Trash', 'info'), { recursive: true });
+    mkdirSync(join(root, 'elsewhere'));
+    // `mkdir()` and `rename()` follow a link mid-path, so this would take the
+    // item to `elsewhere` and call it trashed
+    symlinkSync(join(root, 'elsewhere'), join(dataHome, 'Trash', 'files'));
+    writeFileSync(join(root, 'a'), 'kept');
+
+    await expect(trashFreedesktop(join(root, 'a'), { dataHome })).rejects.toThrow(/a link/);
+
+    expect(readFileSync(join(root, 'a'), 'utf8')).toBe('kept');
+    expect(existsSync(join(root, 'elsewhere', 'a'))).toBe(false);
+  });
+
   it('should throw for a path that is not there, and make no trash for it', async () => {
     const root = made('sigil-trash-missing-');
     const dataHome = join(root, 'data');
@@ -302,9 +318,15 @@ describe('trash()', () => {
   it('should say which path it could not move, and why', async () => {
     const root = made('sigil-trash-gone-');
 
-    await expect(trash(join(root, 'nope'))).rejects.toThrow(
+    const err = await trash(join(root, 'nope')).catch((e: Error) => e);
+
+    expect((err as Error).message).toMatch(
       `Could not move ${join(root, 'nope')} to the trash: ENOENT`
     );
+    // the `cause` is the reason alone, for a screen that already shows the name:
+    // node's own message ends with the path
+    expect(((err as Error).cause as Error).message).toBe('ENOENT: no such file or directory');
+    expect((((err as Error).cause as Error).cause as NodeJS.ErrnoException).code).toBe('ENOENT');
   });
 
   it.runIf(FREEDESKTOP)('should use the freedesktop trash on Linux, at XDG_DATA_HOME', async () => {

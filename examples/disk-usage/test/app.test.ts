@@ -230,6 +230,34 @@ describe('the disk usage visualizer', () => {
   );
 
   it(
+    'should scan again when the trash does not say where it moved to',
+    async () => {
+      const work = workspace();
+      let lists = 0;
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            lists++;
+            return disk.list(dir);
+          },
+          // Windows, when the shell recycles an item without handing it back
+          trash: async (path) => {
+            await disk.trash(path);
+            return '';
+          },
+        }),
+      });
+      const scanned = lists;
+      await m.press(KEYS.down, 't', KEYS.enter);
+      expect(lists).toBeGreaterThan(scanned);
+      expect(m.screen()).toMatch(/Rescanned 3 files/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
     'should scan again when the trash it moved to is inside the directory scanned',
     async () => {
       const work = workspace();

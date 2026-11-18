@@ -70,6 +70,9 @@ export async function trashFreedesktop(path: string, opts: FreedesktopOptions): 
   if ((await device(await nearest(home))) === dev) {
     await mkdir(join(home, 'files'), { mode: 0o700, recursive: true });
     await mkdir(join(home, 'info'), { mode: 0o700, recursive: true });
+    if (!(await realDirs(home))) {
+      throw new Error(__`its trash at ${home} holds a link where a directory should be`);
+    }
     // the home trash records an absolute path: the spec allows a relative one
     // only from `$XDG_DATA_HOME`, and a file under it is the rare case
     return move(item, home, item, opts.now);
@@ -155,7 +158,10 @@ const STICKY = 0o1000;
 async function topTrash(top: string, uid: number): Promise<string | undefined> {
   const shared = join(top, '.Trash');
   const info = await lstat(shared).catch(() => undefined);
-  if (info?.isDirectory() && info.mode & STICKY) {
+  // owned by root or by the user: the sticky bit stops other users renaming what
+  // is inside, but never the directory's owner, so a `.Trash` another user made
+  // is one they can empty by renaming `$uid` out of it
+  if (info?.isDirectory() && info.mode & STICKY && (info.uid === 0 || info.uid === uid)) {
     const own = await ownDir(join(shared, String(uid)), uid);
     if (own) {
       return own;
@@ -187,7 +193,23 @@ async function ownDir(dir: string, uid: number): Promise<string | undefined> {
   } catch {
     return;
   }
-  return dir;
+  return (await realDirs(dir)) ? dir : undefined;
+}
+
+/**
+ * Whether a trash's `files/` and `info/` are directories rather than links to
+ * one: `mkdir()` and `rename()` follow a link in the middle of a path, so a
+ * `files` that points somewhere else -- somewhere a cleaner empties -- would take
+ * the item there and report it trashed.
+ */
+async function realDirs(trash: string): Promise<boolean> {
+  for (const sub of ['files', 'info']) {
+    const info = await lstat(join(trash, sub)).catch(() => undefined);
+    if (!info?.isDirectory()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

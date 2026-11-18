@@ -74,8 +74,25 @@ export async function trash(path: string): Promise<string> {
     }
     return (await trashFreedesktop(absolute, { dataHome })).path;
   } catch (err) {
-    throw new Error(__`Could not move ${absolute} to the trash: ${(err as Error).message}`, {
-      cause: err,
+    const why = reasonOf(err);
+    throw new Error(__`Could not move ${absolute} to the trash: ${why}`, {
+      cause: why === (err as Error).message ? err : new Error(why, { cause: err }),
     });
   }
+}
+
+/**
+ * Why, without the paths: node puts them at the end of an errno error's message
+ * -- `ENOENT: no such file or directory, lstat '/a/b'` -- and the `cause` is for a
+ * screen that already shows the name. `err.code` and `err.path` are kept on the
+ * error the reason wraps.
+ */
+function reasonOf(err: unknown): string {
+  const e = err as NodeJS.ErrnoException;
+  const message = e instanceof Error ? e.message : String(err);
+  if (e?.code && e.syscall) {
+    const at = message.indexOf(`, ${e.syscall} `);
+    return at === -1 ? message : message.slice(0, at);
+  }
+  return message;
 }

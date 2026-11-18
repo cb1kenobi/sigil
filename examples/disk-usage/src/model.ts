@@ -453,8 +453,10 @@ export function createModel(): Model {
     }
     // a trash inside the directory scanned -- scanning a home directory on Linux,
     // whose trash is under it -- still holds every byte, somewhere else in the
-    // tree: that is read rather than worked out
-    if (where !== '' && isInside(where, found.root.path)) {
+    // tree: that is read rather than worked out. So is an empty answer, which is
+    // Windows not saying where; and Windows compares paths without case
+    const fold = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p);
+    if (trashing && (where === '' || isInside(fold(where), fold(found.root.path)))) {
       void rescan(true);
       toast(`Moved ${node.name} to the trash`, 'success');
       return;

@@ -149,3 +149,33 @@ with spaces, quotes and more than ASCII among them -- and once for a directory,
 and each test removes exactly the path `trash()` reported, in a `finally`, along
 with the `$I` record beside it on Windows. Nothing in the suite moves anything it
 did not make.
+
+#### Review round 1: eight findings, four fixed
+
+- **A `.Trash` another user made is not used.** The sticky bit stops other users
+  renaming what is inside, never the directory's owner, so a `.Trash` made by
+  someone else on a `1777` mount was one they could empty by renaming `$uid` out
+  of it. It has to be owned by root or by the user now, which the spec does not
+  ask and costs nothing: the next method is `.Trash-$uid`. No test, since a test
+  cannot make a directory another user owns.
+- **A trash whose `files/` or `info/` is a link is refused,** home trash
+  included: `mkdir()` and `rename()` follow a link mid-path, so the item would go
+  wherever it pointed and be reported trashed. `should refuse a trash whose
+  files/ is a link`.
+- **The `cause` of an errno error has no path in it.** Node ends the message with
+  the paths, so the examples' toasts still printed the absolute path the `cause`
+  exists to leave out. The original error is the `cause`'s own `cause`.
+- **The disk usage example scans again when Windows does not say where** an item
+  went, and folds case on Windows before asking whether it went under the root.
+- Not fixed: the `files/` entry is checked and then renamed over, and POSIX
+  `rename()` replaces a file, so a program that writes `files/<name>` without
+  reserving its `.trashinfo` between the two can lose what it wrote. That
+  program is breaking the spec, and `node:fs` has no `RENAME_NOREPLACE`.
+- Not fixed: no timeout on the spawned `osascript` or PowerShell. A timeout would
+  report a failure for a move that may still happen; `FOF_NO_UI` and
+  `NSFileManager` open no dialog to wait on.
+- Not fixed: a real-trash test whose `trash()` answers `''` on Windows leaves its
+  item in the runner's bin, since there is no path to take back. The shell has
+  answered with the path on every CI run.
+- Not fixed: no test proves a copy-then-delete would be caught, since a test
+  cannot make `EXDEV`. There is no copy in the code; every move is one `rename()`.
