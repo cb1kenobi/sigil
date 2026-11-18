@@ -90,8 +90,17 @@ export interface DiffViewProps<T = unknown> {
 
 /** Where a diff view is scrolled to, which it writes to its `position`. */
 export interface DiffViewPosition {
-  /** How far right of the edge the widest line in view ends: as far as `x` goes from here. */
+  /**
+   * How far right of the edge the widest line that has been in view ends: as far
+   * as `x` goes. The line's width less the room the view gives it, so a wider
+   * terminal makes it smaller; `width` is the line's own.
+   */
   readonly maxX: number;
+  /**
+   * How wide the widest line that has been in view is, in columns, whole. It does
+   * not depend on the terminal.
+   */
+  readonly width: number;
   /** How many columns every line is scrolled sideways: always 0 while lines are wrapped. */
   readonly x: number;
   /** The row at the top of the view, counting every row the view draws from 0. */
@@ -198,12 +207,16 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let overflow = 0;
   /** How far each row's line runs past its room, beside `lines`. */
   let runs: number[] = [];
+  /** How wide each row's line is, whole, beside `lines`. */
+  let widths: number[] = [];
   /**
-   * The furthest any line that has been in view runs past its room, since this
-   * drawing of these lines: as far as the right arrow goes. Kept, so scrolling down
-   * to shorter lines does not take back what the reader has seen.
+   * The furthest any line that has been in view runs past its room, since the
+   * content or the width last changed: as far as the right arrow goes. Kept, so
+   * scrolling down to shorter lines does not take back what the reader has seen.
    */
   let seen = 0;
+  /** How wide the widest line that has been in view is, over the same span as `seen`. */
+  let seenWidth = 0;
 
   const scroll = ScrollBox({
     // the view holds the focus and every key, so the box inside it holds neither
@@ -251,30 +264,34 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const viewHeight = (): number => (viewport.content ?? viewport.box)?.height ?? 0;
 
   /**
-   * How far the widest line in view runs past its room. A view with no height has
-   * no row in view: there is always a layout by now, since nothing is drawn until
-   * one has given the view a width.
+   * The largest of a row-by-row list among the rows in view. A view with no height
+   * has no row in view: there is always a layout by now, since nothing is drawn
+   * until one has given the view a width.
+   *
+   * @param values - One number a row, beside `lines`.
+   * @returns The largest in view, or 0.
    */
-  const reach = (): number => {
+  const inView = (values: readonly number[]): number => {
     const height = viewHeight();
     const top = Math.max(0, Math.floor(viewport.scroll?.y ?? 0));
     let most = 0;
-    for (let at = top; at < Math.min(runs.length, top + height); at++) {
-      most = Math.max(most, runs[at] ?? 0);
+    for (let at = top; at < Math.min(values.length, top + height); at++) {
+      most = Math.max(most, values[at] ?? 0);
     }
     return most;
   };
 
   /**
    * Takes the rows in view into what has been seen, and answers how far right the
-   * view may go: the widest line seen since the lines were last drawn afresh.
+   * view may go: the widest line seen since the content or the width changed.
    * Asked whenever the rows in view may have changed -- a draw, a scroll, a
    * resize, a press -- so it is never behind them.
    *
    * @returns The limit.
    */
   const look = (): number => {
-    seen = Math.max(seen, reach());
+    seen = Math.max(seen, inView(runs));
+    seenWidth = Math.max(seenWidth, inView(widths));
     return seen;
   };
 
@@ -293,9 +310,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     const rows: Element[] = [];
     const marks: Element[] = [];
     const reaches: number[] = [];
+    const wides: number[] = [];
     const stops: { first: number; last: number }[] = [];
-    const push = (row: Element, reach = 0): void => {
+    const push = (row: Element, reach = 0, wide = 0): void => {
       reaches.push(reach);
+      wides.push(wide);
       const mark = text(' ', {
         class: 'sigil-diff-view-mark sigil-accent',
         'flex-shrink': 0,
@@ -344,7 +363,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       const base = rows.length;
       // a copy, since each row is moved out of the tree into a line of the view's
       for (const [at, row] of tree.element.children.slice().entries()) {
-        push(row, tree.rowOverflow[at]);
+        push(row, tree.rowOverflow[at], tree.rowWidth[at]);
       }
       for (const hunk of tree.hunks) {
         stops.push({ first: base + hunk.first, last: base + hunk.end - 1 });
@@ -352,20 +371,15 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     }
 
     overflow = widest;
-    if (offset > overflow) {
-      // narrower content, or a wider view: scrolled past every line's end, so it
-      // is drawn again from as far as there is still something to show
-      offset = overflow;
-      draw(content, sideways);
-      return;
-    }
-    // what was seen stays seen across new content -- a refresh hands the same lines
-    // back -- as far as the lines now drawn go; wrapped, nothing overflows, so it is
-    // 0. It is never short of the offset: right is the only thing that raises the
-    // offset and stops at it, and both are brought down to the overflow together
-    seen = Math.min(seen, overflow);
     lines = rows;
     runs = reaches;
+    widths = wides;
+    if (!sideways) {
+      // new content, a new width or wrapped: what was seen was other lines, or the
+      // same lines in another room, so it is seen again from the rows now in view
+      seen = 0;
+      seenWidth = 0;
+    }
     drawn = stops.map((stop, at) => ({
       ...stop,
       lead: at === 0 ? 0 : (stops[at - 1] as { last: number }).last + 1,
@@ -386,6 +400,13 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         viewport.scrollTo(0, 0);
       }
       reveal();
+      if (look() < offset) {
+        // scrolled further than any line now in view goes -- narrower content, a
+        // wider view, wrapped -- so drawn again from as far as one does
+        offset = seen;
+        draw(content, true);
+        return;
+      }
     }
     report();
   };
@@ -476,11 +497,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     }
     const next: DiffViewPosition = {
       maxX: untrack(() => wrapping.get()) ? 0 : limit,
+      width: seenWidth,
       x: offset,
       y: Math.max(0, Math.floor(viewport.scroll?.y ?? 0)),
     };
     const was = untrack(() => props.position!.get());
-    if (was.maxX !== next.maxX || was.x !== next.x || was.y !== next.y) {
+    if (
+      was.maxX !== next.maxX ||
+      was.width !== next.width ||
+      was.x !== next.x ||
+      was.y !== next.y
+    ) {
       props.position.set(next);
     }
   }

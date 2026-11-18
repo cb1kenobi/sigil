@@ -1,5 +1,10 @@
 import { strip } from '../../src/ansi/index.js';
-import { describeDiffView, DiffView, type DiffViewProps } from '../../src/components/diff-view.js';
+import {
+  describeDiffView,
+  DiffView,
+  type DiffViewPosition,
+  type DiffViewProps,
+} from '../../src/components/diff-view.js';
 import {
   type DiffBlock,
   type DiffViewContent,
@@ -410,74 +415,86 @@ describe('DiffView', () => {
 
     it('should write where it is scrolled to into a position State', () => {
       const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
-      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
       const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
       // the long line is in view: 45 columns against a room of 18
-      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 0, y: 0 });
 
       press(host, 'right');
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 8, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 8, y: 0 });
 
       for (let at = 0; at < 4; at++) {
         press(host, 'down');
       }
       picture(root, 20, 4);
       // scrolled past it, and still remembered
-      expect(position.get()).toEqual({ maxX: 27, x: 8, y: 4 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 8, y: 4 });
 
       press(host, 'w');
       picture(root, 20, 4);
       expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
     });
 
-    it('should keep what it has seen across new content, as far as the new lines go', () => {
-      const lines = `${'short\n'.repeat(10)}${LONG.new}`;
+    it('should see the rows in view again when the content changes, and come back to them', () => {
+      const lines = `${LONG.new}${'short\n'.repeat(10)}`;
       const content = new State<DiffViewContent>({ new: lines, old: '' });
-      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
       const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
-      press(host, 'end');
       press(host, 'right');
       press(host, 'right');
-      for (let at = 0; at < 8; at++) {
-        press(host, 'up');
-      }
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 16, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 16, y: 0 });
 
-      // the same lines again, as a refresh hands them: still seen, still reachable
+      // the same lines again, as a refresh hands them, the long one in view: kept
       content.set({ new: lines, old: '' });
       flush();
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 16, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 16, y: 0 });
 
-      // narrower lines: no further than they go, and the offset brought back with it
-      content.set({ new: `${'short\n'.repeat(10)}abcdefghijklmnopqrstuvwxyz\n`, old: '' });
+      // other lines, the long one out of view: nothing in view has been seen past the
+      // edge, so the view comes back to the start rather than carrying another
+      // content's width over
+      content.set({ new: `${'short\n'.repeat(10)}${LONG.new}`, old: '' });
       flush();
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 8, x: 8, y: 0 });
+      expect(position.get()).toEqual({ maxX: 0, width: 5, x: 0, y: 0 });
+      expect(picture(root, 20, 4)[1]).toBe('▌+short');
+    });
+
+    it('should say how wide the widest line is whatever the width of the view', () => {
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
+      const narrow = mount({ content: LONG, position, wrap: false }, 4);
+      picture(narrow.root, 20, 4);
+      expect(position.get()).toMatchObject({ maxX: 27, width: 45 });
+
+      const wider = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
+      const wide = mount({ content: LONG, position: wider, wrap: false }, 4);
+      picture(wide.root, 30, 4);
+      // the room is ten columns more, so the limit is ten less; the line is the line
+      expect(wider.get()).toMatchObject({ maxX: 17, width: 45 });
     });
 
     it('should take in the rows a taller view shows, and keep them when it is shorter again', () => {
-      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
       const { root } = mount({ content: LONG, position, wrap: false }, 2);
       picture(root, 20, 4);
       // two rows tall: the hunk header and the removed line, and nothing past the edge
-      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+      expect(position.get()).toEqual({ maxX: 0, width: 1, x: 0, y: 0 });
 
       root.setProp('height', 4);
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 0, y: 0 });
       root.setProp('height', 2);
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+      expect(position.get()).toEqual({ maxX: 27, width: 45, x: 0, y: 0 });
     });
 
     it('should go back to the start of the lines with Home and End', () => {
       const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
-      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
       const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
       press(host, 'right');
@@ -514,13 +531,13 @@ describe('DiffView', () => {
     it('should not scroll sideways while no row is in view', () => {
       // laid out at a width with no height: a view that can see nothing has nowhere
       // to go, whatever the lines it is not showing run to
-      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const position = new State<DiffViewPosition>({ maxX: -1, width: -1, x: -1, y: -1 });
       const { host, root } = mount({ content: LONG, position, wrap: false }, 0);
       picture(root, 20, 2);
 
       expect(press(host, 'right')).toBe(true);
       picture(root, 20, 2);
-      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+      expect(position.get()).toEqual({ maxX: 0, width: 0, x: 0, y: 0 });
     });
 
     it('should refuse a position that is not a State', () => {

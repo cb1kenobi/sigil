@@ -300,7 +300,7 @@ export function createModel(): Model {
 
   const content = new State<DiffContent>({ ...NOTHING, note: 'Loading...' });
   const cursor = new State(0);
-  const position = new State<DiffViewPosition>({ maxX: 0, x: 0, y: 0 });
+  const position = new State<DiffViewPosition>({ maxX: 0, width: 0, x: 0, y: 0 });
   const blocks = new Computed<readonly DiffBlock<Place>[]>(() => blocksOf(content.get()));
   const hunks = new Computed<readonly DiffStop<Place>[]>(() => diffStops(blocks.get()));
 
@@ -984,7 +984,7 @@ export function createModel(): Model {
     diff: { blocks, content, cursor, hunks, position },
     diffFooter: () => {
       const at = position.get();
-      return `x ${at.x} (max ${at.maxX}) · y ${at.y}`;
+      return `x ${at.x} · widest ${at.width} · y ${at.y}`;
     },
     empty: {
       // the problem is said once, in the first pane, rather than three times

@@ -1038,7 +1038,8 @@ interface Drawing {
  * @param gutter - What leads the first row, and its width.
  * @param room - The columns for the code.
  * @param cutting - How a line too long for the room is cut.
- * @returns Each row's elements, and how far the line runs past the room.
+ * @returns Each row's elements, how wide the line is, and how far it runs past
+ *   the room.
  */
 function lineRows(
   line: DiffLine,
@@ -1046,14 +1047,15 @@ function lineRows(
   gutter: string,
   room: number,
   cutting: Cutting
-): { overflow: number; rows: Element[][] } {
+): { overflow: number; rows: Element[][]; width: number } {
   const kind = KINDS[line.kind];
   const cells = cellsOf(line.text, drawing.tokens.get(line), drawing.changes.get(line) ?? []);
+  const width = cells.reduce((sum, cell) => sum + cell.width, 0);
   let overflow = 0;
   let more = false;
   let rows: Cell[][];
   if (cutting.wrap === 'none') {
-    overflow = Math.max(0, cells.reduce((sum, cell) => sum + cell.width, 0) - room);
+    overflow = Math.max(0, width - room);
     const cut = cutRow(cells, room, cutting.offset);
     rows = [cut.cells];
     more = cut.more;
@@ -1113,7 +1115,7 @@ function lineRows(
   if (more) {
     drawn[0]!.push(piece(ELLIPSIS, 'sigil-diff-more sigil-muted'));
   }
-  return { overflow, rows: drawn };
+  return { overflow, rows: drawn, width };
 }
 
 /**
@@ -1326,6 +1328,13 @@ export interface DiffTree {
    * showing rather than the widest in the whole diff.
    */
   rowOverflow: number[];
+  /**
+   * How wide each row's line is, in columns, whole, one for each of
+   * `element.children`: the wider of the two halves side by side, every row of a
+   * folded line its whole line's, and 0 for a header. Unlike `rowOverflow` it
+   * does not depend on the room, so it is what to show a reader as a line's width.
+   */
+  rowWidth: number[];
   width: number;
 }
 
@@ -1455,10 +1464,12 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
   const sides = [half, width - sep.length - half] as const;
   const rows: Element[] = [];
   const rowOverflow: number[] = [];
+  const rowWidth: number[] = [];
   const hunks: DiffTreeHunk[] = [];
-  const add = (row: Element, runs = 0): void => {
+  const add = (row: Element, runs = 0, wide = 0): void => {
     rows.push(row);
     rowOverflow.push(runs);
+    rowWidth.push(wide);
   };
 
   for (const file of files) {
@@ -1483,7 +1494,11 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
           const drawn = lineRows(line, drawing, lead, room, cutting);
           overflow = Math.max(overflow, drawn.overflow);
           for (const children of drawn.rows) {
-            add(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children), drawn.overflow);
+            add(
+              box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children),
+              drawn.overflow,
+              drawn.width
+            );
           }
         }
         placed.end = rows.length;
@@ -1493,6 +1508,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
       const gutter = numbered ? digits + 1 : 0;
       for (const pair of pairLines(hunk.lines)) {
         let runs = 0;
+        let wide = 0;
         const drawn = [pair.left, pair.right].map((line, side) => {
           if (!line) {
             return [];
@@ -1507,6 +1523,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
             cutting
           );
           runs = Math.max(runs, half.overflow);
+          wide = Math.max(wide, half.width);
           return half.rows;
         });
         overflow = Math.max(overflow, runs);
@@ -1524,7 +1541,8 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
                 ...(drawn[1]![at] ?? [])
               )
             ),
-            runs
+            runs,
+            wide
           );
         }
       }
@@ -1538,6 +1556,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     layout,
     overflow,
     rowOverflow,
+    rowWidth,
     width,
   };
 }

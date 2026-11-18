@@ -880,9 +880,18 @@ describe('diff()', () => {
       // ---, +++, @@, then +abcdefghij, then the context line ab
       expect(tree.rowOverflow).to.deep.equal([0, 0, 0, 5, 0]);
       expect(tree.rowOverflow).to.have.length(tree.element.children.length);
-      const folded = diffView({ new: 'abcdefghij', old: '' }, { width: 6 });
+      // and how wide each row's line is, whatever the room
+      expect(tree.rowWidth).to.deep.equal([0, 0, 0, 10, 2]);
+      const folded = diffView({ new: 'abcdefghij', old: '' }, { lineNumbers: false, width: 6 });
       expect(folded.rowOverflow.every((run) => run === 0)).to.equal(true);
       expect(folded.rowOverflow).to.have.length(folded.element.children.length);
+      // every row of a folded line is its whole line's width
+      expect(folded.rowWidth).to.deep.equal([0, 10, 10]);
+      const sides = diffView(
+        { new: 'x'.repeat(60), old: 'short' },
+        { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+      );
+      expect(sides.rowWidth).to.deep.equal([0, 60]);
     });
 
     it('should report no overflow while folding', () => {
