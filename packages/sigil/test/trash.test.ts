@@ -43,7 +43,9 @@ function infoOf(file: string): string[] {
 }
 
 describe.runIf(FREEDESKTOP)('the freedesktop trash', () => {
-  const uid = process.getuid!();
+  // a skipped describe still runs its body to collect what it skips, and Windows
+  // has no `getuid`
+  const uid = process.getuid?.() ?? 0;
   const now = new Date(2024, 5, 15, 9, 5, 7);
 
   it('should move a file into the home trash and say where it came from', async () => {
