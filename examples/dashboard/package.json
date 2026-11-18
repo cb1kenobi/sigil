@@ -1,0 +1,25 @@
+{
+  "name": "@ttylabs/example-dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A dashboard in JSX: a collapsible sidebar, KPI cards with trend badges, a chart with a range selector, and a sortable, paginated project table with a row menu, in light and dark",
+  "bin": {
+    "dashboard": "./dist/dashboard.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "sigil build",
+    "start": "node dist/dashboard.mjs",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  },
+  "devDependencies": {
+    "@ttylabs/cli": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

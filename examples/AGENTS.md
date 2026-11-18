@@ -918,3 +918,106 @@ in half blocks from the start.
 
 - **Not done:** selecting several files, a trash, making a file or a directory,
   opening one in `$EDITOR`, and watching a directory (`R` reads it again).
+
+### A dashboard, in the shape of shadcn's dashboard-01 (SIG-297)
+
+`examples/dashboard`. shadcn's featured block as a list of parts -- a collapsible
+sidebar, a header with a search and a menu, cards with trend badges, a chart with
+a range selector, a table with sorting, selection, pages and a row menu, light and
+dark -- built from sigil's own components, with its own data, names and colours.
+
+- **JSX alone, and built,** for the settings screen's reason: a screen of a dozen
+  components whose props are spelled out, all of them checked by the build's
+  `tsc`. So there is no `src/ui.ts`.
+
+- **The state is `createDashboard()` in `src/model.ts`, and each region is built
+  over it in a module of its own.** The log browser's shape (`useBrowser()`)
+  without the twin: the model has no elements, so `test/model.test.ts` drives the
+  sort, the search and the pages without a screen, and `test/app.test.ts` drives
+  the same state through the keys.
+
+- **The table is sorted, searched and paged before `DataTable` sees it.** A
+  `DataTable` sorts the rows it is handed and has no pages, so a page handed to
+  it sorts as ten rows and the order stops at the page's edge. The model holds the
+  `sort` State the table writes on a heading or a digit, orders the whole list with
+  `cellOrder()` -- the table's own comparator, published from
+  `components/table` -- over `SORT_VALUES`, which the table's columns read too, and
+  cuts a page with `createPaginator()`. The table sorting that page again is a
+  no-op that agrees, and `should sort every page by a heading digit` checks that
+  page two carries on from page one. A status sorts by how much it needs looking
+  at, not by its spelling. A new search goes back to page one.
+
+- **The selection is ids, and outlives a page.** `ListView` never prunes
+  `selected`, so ticks on two pages are still there on a third and the row menu
+  acts on all of them. Building that found `DataTable` dropping its documented
+  `selected` prop on the way to the list -- a table started with nothing ticked and
+  an app's State never heard a Space -- which is fixed in
+  `packages/sigil/src/components/data-table.ts`, with the regression test beside
+  the table's own. A removed project leaves the selection with it.
+
+- **System, Light and Dark, and the two named ones paint their own background.**
+  `System` is no theme sheet: the framework's roles over the terminal's colours,
+  light or dark as it reports. `Light` and `Dark` are the app saying which it is,
+  which `prefers-color-scheme` cannot say -- it asks what the _terminal_ is, and the
+  renderer fixes that at start -- so each sheet fills `.sigil-app`, sets every role
+  (one left out would fall back to a default chosen for the terminal's scheme, a
+  dim grey meant for black drawn on white), and fills the menu, the dialog, the
+  toast and the tooltip, which are drawn on the root in the terminal's own colours
+  otherwise and would punch a black hole in a white screen. Truecolor, since an
+  app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
+  theme's State, so `t`, the account menu and a test all reach the screen one way.
+
+- **The row menu opens under the row's right end, found by its classes.** Enter or
+  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+  the current row's last cell, an element rather than a point, so it right-aligns
+  under the row -- or above it, where the row is too low for it -- and leaves the
+  row in view, where a web table's row menu is. Nothing hands out the element a
+  row was built as, so `currentRow()` walks the table for the `sigil-list-row`
+  that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
+  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
+  because a letter two items share only steps the highlight between them; the
+  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
+  pauses the row the menu is about. A double click moves the cursor and activates
+  in one handler, before the effect that moves `is-current` has run, so the menu
+  settles a frame with `app.view.frame()` before it looks for the row --
+  `flush()` from the signals is not enough, since the renderer runs its own
+  effects. Both clicks have to arrive in one read for the gap to show, which is
+  how the test sends them.
+
+- **A card's badge is rebuilt when its figure moves.** `badgeView()` draws a
+  fixed label, so `LiveBadge()` replaces it in an effect. The table's status cell
+  is not a badge: ten solid green blocks down one column outshouted everything on
+  the screen, so it is a mark and a word in the status's role, as a
+  `{ element, width }` cell.
+
+- **The sidebar collapses by a class, and starts collapsed under 100 columns.**
+  Ctrl-B, which is shadcn's chord, toggles `is-collapsed` on the panel, and the
+  sheet narrows it to 7 -- the panel's padding, the list's pointer and a glyph --
+  and hides the labels, the usage gauge and the border's words. The list, its
+  cursor and the page are untouched. The width is read once, from
+  `app.terminal.width`, and not re-asked on a resize, the system monitor's
+  footer's limit.
+
+- **A short terminal gives up the chart before the table.** Media queries on the
+  height drop the sparklines at 27 rows, the chart at 21 and the line beside each
+  badge at 17; the table's own priorities drop the owner and then the region on a
+  narrow one. The legend is in the chart's head, beside the range, rather than
+  under the plot, where it would cost a row.
+
+- **The data is generated and the calendar ends on a fixed day.** A seeded
+  generator and 16 November 2026, so the tests assert on figures and a
+  screenshot does not go stale. Nothing reads `Date.now()` or `Math.random()`.
+
+- **Focus order, and the smoke test.** The sidebar has the focus on mount, so the
+  arrows move between pages, and Tab goes to the search, the account menu, the
+  range and the table. The harness Tabs four times from there and presses `q`, so
+  the search must stay the first stop and not the last: a `q` is a letter there.
+  At the harness's 16 rows the chart is not drawn, so its range is no stop and the
+  fourth Tab is the rows-per-page dropdown, which takes a letter only where it
+  starts an option, and its options are numbers. The spawned run
+  presses Down and waits for `Analytics`, which at 60 columns is only in the
+  header, since the sidebar starts collapsed there.
+
+- **Not done:** the pages other than the overview, which say they are not drawn;
+  re-collapsing the sidebar on a resize; a hover crosshair or an area fill on the
+  chart, which shadcn's has and `LineChart` does not; and a `ui`-tag twin.
