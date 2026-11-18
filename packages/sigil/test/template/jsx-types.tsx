@@ -22,9 +22,10 @@
  * fail loudly.
  */
 
+import { Button } from '../../src/components/button.js';
 import { type Element, HANDLER_PROPS, type HandlerProp } from '../../src/element/index.js';
 import { For, Show } from '../../src/renderer/index.js';
-import { State } from '../../src/signals/index.js';
+import { Computed, State } from '../../src/signals/index.js';
 import type { ReservedProps } from '../../src/template/props.js';
 import type { HostProps } from '../../src/template/runtime.js';
 
@@ -52,6 +53,15 @@ const notAThunk = <Show when={'not a thunk'}>{() => <text>x</text>}</Show>;
 
 const thunk = <Show when={() => true}>{() => <text>x</text>}</Show>;
 const list = <For each={() => ['a']}>{(item: string) => <text>{item}</text>}</For>;
+
+// --- a control's `disabled` is read, so anything that reads as a boolean will do ---
+
+const valid = new State(false);
+const disabledByThunk = <Button disabled={() => !valid.get()} label="Save" />;
+const disabledByComputed = <Button disabled={new Computed(() => !valid.get())} label="Save" />;
+
+// @ts-expect-error -- a string is refused, `'false'` above all
+const disabledByString = <Button disabled="false" label="Save" />;
 
 // --- a colour is spelled, never counted ---
 
@@ -154,5 +164,8 @@ export type Checked = typeof unknownElement &
   typeof refToState &
   typeof refState &
   typeof refValue &
+  typeof disabledByThunk &
+  typeof disabledByComputed &
+  typeof disabledByString &
   EveryHookIsAProp &
   typeof hookNames;

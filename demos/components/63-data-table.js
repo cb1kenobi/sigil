@@ -150,7 +150,7 @@ function scene() {
         // build a badge for every row it had not seen, to learn it is 7 wide
         format: (state) =>
           badgeView(state === 'running' ? 'RUN' : 'STOP', {
-            kind: state === 'running' ? 'success' : 'warn',
+            variant: state === 'running' ? 'success' : 'warning',
           }),
         header: 'STATE',
         key: 'state',

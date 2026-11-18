@@ -218,6 +218,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-diff  .sigil-diff-file  .sigil-diff-hunk  .sigil-diff-row
  *   .sigil-diff-number  .sigil-diff-marker  .sigil-diff-text  .sigil-diff-change
  *   .sigil-diff-separator  .sigil-diff-add  .sigil-diff-remove  .sigil-diff-context
+ *   .sigil-diff-more, the ellipsis on a line cut at the edge
+ *   .sigil-diff-view  .sigil-diff-view-scroll  .sigil-diff-view-line  .sigil-diff-view-mark
  *   .sigil-modal  .sigil-modal-backdrop  .sigil-modal-fill  .sigil-modal-title
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
  *   .sigil-text-field  .sigil-text-field-before  .sigil-text-field-caret

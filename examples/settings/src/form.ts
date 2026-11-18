@@ -135,26 +135,6 @@ export function createForm<V extends object>(
 }
 
 /**
- * A `State` that follows a `Computed`, for a control's `disabled`.
- *
- * Every control's `disabled` takes a boolean or a `State<boolean>` and not a
- * `Computed` (SIG-334), and a disabled flag is nearly always derived -- "until
- * something changed", "until the form is valid". So it is mirrored through an
- * effect, which is what `demos/components/57-form-controls.js` does by hand. Call
- * it in a component body, where the effect has an owner to be disposed with.
- *
- * @param compute - What the state should hold.
- * @returns The state, kept in step.
- */
-export function follow(compute: () => boolean): State<boolean> {
-  const state = new State(untrack(compute));
-  createEffect(() => {
-    state.set(compute());
-  });
-  return state;
-}
-
-/**
  * Touches a field when the focus leaves it, so its error shows from then on.
  *
  * Leaving rather than typing, because an error that appears at the first key --

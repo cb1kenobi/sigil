@@ -9,6 +9,7 @@ import {
   StyleError,
   UNIVERSAL_KEY,
 } from '../../src/style/index.js';
+import { statesBeyondSubject } from '../../src/style/selector.js';
 import { describe, expect, it } from 'vitest';
 
 /** A node, written the way a selector is: `box#main.panel:focus`. */
@@ -276,6 +277,31 @@ describe('matching', () => {
     // gave -- the difference since the mouse landed is that something now can,
     // which is the input router setting the state from its hit test
     expect(hits(':hover')).toEqual([]);
+  });
+
+  it('should read :focus-within as a state, worth a class', () => {
+    // the element tree reports it; to the engine it is a state like `:focus`
+    expect(parseSelector('.panel:FOCUS-WITHIN').steps[0].compound.simples).toEqual([
+      { kind: 'class', name: 'panel' },
+      { kind: 'state', name: 'focus-within' },
+    ]);
+    expect(parseSelector(':focus-within').specificity).toEqual([0, 1, 0]);
+    const lit = el('box.panel:focus-within', [el('text.title')]);
+    expect(matches(parseSelector('.panel:focus-within'), lit)).toBe(true);
+    expect(matches(parseSelector('.panel:focus-within > .title'), lit.children[0])).toBe(true);
+    expect(matches(parseSelector('.panel:focus-within'), el('box.panel:focus'))).toBe(false);
+  });
+
+  it('should say which states a selector asks about beyond the element it styles', () => {
+    // what decides how far a change to the state has to restyle
+    const beyond = (source: string): string[] => [...statesBeyondSubject(parseSelector(source))];
+    expect(beyond('.panel:focus-within')).toEqual([]);
+    expect(beyond('.panel:not(:focus-within)')).toEqual([]);
+    expect(beyond('.a + .b:focus-within')).toEqual([]);
+    expect(beyond('.panel:focus-within .title')).toEqual(['focus-within']);
+    expect(beyond('.panel:focus-within ~ .title')).toEqual(['focus-within']);
+    expect(beyond('.panel:not(.x, :focus-within) > text:focus')).toEqual(['focus-within']);
+    expect(beyond(':checked + :disabled .x')).toEqual(['checked', 'disabled']);
   });
 
   it('should match the structural pseudo-classes', () => {

@@ -22,7 +22,7 @@ export const stylesheet = `
   .files { flex-grow: 2; flex-basis: 0; min-height: 4 }
   .branches, .commits { flex-grow: 1; flex-basis: 0; min-height: 4 }
   .diff { flex-grow: 1; min-width: 0 }
-  .list { flex-grow: 1; min-height: 0 }
+  .list, .diff-pane { flex-grow: 1; min-height: 0 }
   .row { flex-direction: row; column-gap: 1 }
   .letters { flex-direction: row; flex-shrink: 0 }
   .letter { width: 1; white-space: pre }
@@ -31,9 +31,8 @@ export const stylesheet = `
   .footer { flex-direction: row; height: 1; padding-left: 1; column-gap: 2 }
   /* where HEAD is says more than the last key listed, so it keeps its width */
   .status { flex-shrink: 0 }
-  /* the pane with the focus, which a panel cannot see for itself: there is no
-     :focus-within, so the model puts this class on it */
-  .is-active { border-color: green }
+  /* the pane with the focus: lit while anything inside it has the focus */
+  .sigil-panel:focus-within { border-color: green }
 `;
 
 /**

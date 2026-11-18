@@ -38,9 +38,8 @@ import {
   describeListView,
   listControl,
   rankBy,
-  type TableCellView,
 } from '@ttylabs/sigil/components';
-import { type Element, text } from '@ttylabs/sigil/element';
+import type { Element } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
 import {
   type Context,
@@ -161,22 +160,19 @@ export type Resource = Deployment | Pod | Service;
 export const resourceKey = (row: Resource): string => `${row.namespace}/${row.name}`;
 
 /**
- * A status the eye should stop on, in its role's colour, and `Running` as plain
- * text. A cell that is an element is a `TableCellView`, measured by the width it
- * says it has -- so the column is as wide as the longest status it has shown and
- * no wider, where a declared width would have been the longest one possible.
+ * A pod in trouble, in its role's colour across the whole row, as k9s draws one:
+ * a crashing pod in the error role, one not up yet in the warning role, and a
+ * running pod, a service and a deployment as they are. A role rather than a
+ * colour, so a theme recolours it; the table puts it on the row's box, and every
+ * cell takes it from there. Asked when a row is built, which a new reading is.
  */
-function statusCell(value: unknown): string | TableCellView {
-  const word = String(value);
-  const role =
-    word === 'CrashLoopBackOff'
-      ? 'sigil-error'
-      : word === 'Pending' || word === 'ContainerCreating'
-        ? 'sigil-warn'
-        : undefined;
-  return role === undefined
-    ? word
-    : { element: text(word, { class: role, 'white-space': 'nowrap' }), width: word.length };
+export function resourceClass(row: Resource): string | undefined {
+  const status = (row as Partial<Pod>).status;
+  return status === 'CrashLoopBackOff'
+    ? 'sigil-error'
+    : status === 'Pending' || status === 'ContainerCreating'
+      ? 'sigil-warn'
+      : undefined;
 }
 
 /** Where a level is drawn from: a role, so a theme recolours it. */
@@ -310,7 +306,7 @@ export function useBrowser(): Browser {
     pods: [
       { header: 'NAMESPACE', key: 'namespace', priority: 1 },
       { grow: 1, header: 'NAME', key: 'name', minWidth: 12, priority: 3 },
-      { format: statusCell, header: 'STATUS', key: 'status', priority: 2 },
+      { header: 'STATUS', key: 'status', priority: 2 },
       {
         align: 'right',
         descendingFirst: true,

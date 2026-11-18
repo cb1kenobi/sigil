@@ -392,6 +392,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/63-data-table.js`](components/63-data-table.js)                             | A process table re-read every second: sorted, ticked, narrowed                      |
 | [`components/64-tree-list-view.js`](components/64-tree-list-view.js)                     | A tree list view: a directory read as it opens, a slow branch and a failing one     |
 | [`components/65-highlight.js`](components/65-highlight.js)                               | One highlighter for markdown, a diff and a text area, and a theme that recolours it |
+| [`components/66-diff-view.js`](components/66-diff-view.js)                               | A diff that scrolls, with a cursor on its hunks and a hunk written back to stage    |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -657,7 +658,8 @@ collapse and back.
 
 `57-form-controls.js` is a settings form: two `Checkbox`es, a `Switch` between
 `light` and `dark`, a `RadioSet` of log levels with `trace` disabled, and Save and
-Revert `Button`s that stay disabled until something has changed. Tab stops once on
+Revert `Button`s that stay disabled until something has changed -- their `disabled`
+is a `Computed` over the values and what was saved, handed over as it is. Tab stops once on
 each control -- the radio set is one stop, and the arrows select inside it -- and
 skips a disabled button. Space ticks, flips and selects; Left and Right pick a state
 of the switch; a click does what Space does. Enter is the form's everywhere but on a
@@ -761,6 +763,15 @@ a `TextArea` with `lang: 'yaml'`. The last block is drawn under a theme that
 restyles three roles and names no token, and the code changes colour anyway,
 because a token draws in a role. Piped there is no colour, and what is left is the
 text each seam drew.
+
+`66-diff-view.js` is one `DiffView` over blocks: a heading, a patch of two files and
+a line about a binary file that the cursor stops on as it does on a hunk. `]` and `[`
+move the cursor, whose hunk is marked down the left with `▌` -- `>` in ASCII, and
+there at colour level 0 -- and scrolled into view with its file's header where that
+fits; the arrows scroll. The cursor is a `State` the demo holds, and Space asks
+`diffStops()` over the same blocks what is under it and writes it with
+`hunkPatch()`, which is what `git apply --cached` would stage. Piped, a scripted
+keyboard moves through the stops and prints the view after each step.
 
 ### Try them without a terminal
 

@@ -5390,12 +5390,20 @@ border, which is what every dashboard, file manager and log viewer is made of.
   the entry above. The classes `sigil-panel`, `-title`,
   `-annotation`, `-footer`, `-footer-annotation` and `-body` are named in the sheet's
   vocabulary comment, which `should name every class a built-in draws with` holds.
-- **`:focus-within` was in the ticket and does not exist.** "Focus on a control"
-  records why the selector engine has no such state, and nothing here changes that: a
-  panel cannot light up because something in it holds the focus. The app says which
-  panel is current with a class, or the panel's own contents show their focus. A
-  `focus-within` state would be the selector engine's ticket, and it would be wanted
-  by exactly this.
+- **A panel the focus is in is lit by `:focus-within`, and the framework sheet does
+  not light it (SIG-372).** The state is the element tree's and the selector the
+  engine's -- "`focus-within` is carried, not searched for" in `src/element` and the
+  matching entry under "Style invalidation" in `src/style` -- and the panel needed
+  nothing of its own for it: `.sigil-panel:focus-within { border-color: green }` in
+  an app's sheet or a theme lights whichever panel holds the focus, which is what
+  the git client does now in place of an effect toggling `is-active`. **No rule for
+  it in the framework sheet**, for the reason the entry above gives for the border
+  colour: it would be a colour, and the sheet sets none on a panel. The colour of a
+  lit pane is a decision a palette makes, and a rule saying "lit" with no colour in
+  it -- `bold`, `inverse` on a border -- would be a role in all but name, which
+  "Focus on a control" refuses to add per widget. At colour level 0 a lit border
+  and an unlit one look alike, so an app that wants the difference there writes it
+  as content, as the git client's title pointer does.
 - **Content as arguments or as `children`.** `Panel(props, ...children)` is the
   shape the monitor's stand-in had and the ticket asked for; a template hands a
   component its content as `props.children`, so both are read.
@@ -5811,9 +5819,11 @@ field.
   through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
   two new names on that subpath for good. What was left alone: an
   `initial`, `min` or `max` that is itself outside 0-9999 is still drawn as
-  given (`10000-06-15`, and Enter answers it, in the drawn form and the line
-  form), because it neither throws nor hangs; the first arrow or page key pulls
-  it into the range. And year 0's title reads `January 1`, since `Intl` writes
+  given (`10000-06-15`, and Enter answers it in the drawn form), because it
+  neither throws nor hangs; the first arrow or page key pulls
+  it into the range. The line form refuses it in the parser's words since
+  SIG-407, because its reader is `date()`'s and judges Enter alone as it judges
+  a typed reply (see below). And year 0's title reads `January 1`, since `Intl` writes
   1 BC there -- the title is `Intl`'s, as the entry above says.
 - **`pickDate()` clamps an `initial` outside `min`/`max`; `date()` refuses it on
   Enter.** The date prompt keeps an explicit `initial` out of range so that the
@@ -5843,10 +5853,69 @@ field.
   change is `date.ts`, which now builds on `calendarGrid()`, `addMonths()` and
   `dayKey()`. An ejected `date` imports them from `@ttylabs/sigil/components`
   because a sibling import is rewritten there, so the barrel exports them -- with
-  `Day`, `CalendarGrid` and `GridView`, the types in their signatures -- and
+  `Day`, `CalendarGrid` and `GridView`, the types in their signatures; SIG-407
+  added `dateFormat()` and its four types the same way -- and
   `should import only names the published subpath exports, for date` is the test
   that failed when SIG-187 and SIG-201 met without it. Neither branch was wrong
   alone: one made `date` an entry and the other made it import the calendar.
+- **The two line forms are one reader, `dateFormat()`, and it lives here** (SIG-407).
+  `pickDate()`'s line form and `date()`'s had each built the same range hint,
+  default hint and `Enter a date as` refusal and checked `min` and `max` with the
+  same two messages, and `isoOf()` was the date half of `date()`'s `textOf()`
+  written again -- and the copies had already drifted: `pickDate()` asked the
+  parser before the range and `date()` after it, so `2026-02-30` under a `min` of
+  October was `Invalid date` from one and `Date must not be before` from the
+  other. `dateFormat({ time, seconds })` now holds the field table (the order,
+  what is drawn in front of each field, its digits, its picture), the one writer
+  every date text goes through (`isoOf()`, the shown form and the parser's `T`
+  form are all `written()`), the key the range is compared on, `judge()` and the
+  line form `ask()`. `pickDate()` calls `dateFormat().ask()`; `date()` draws its
+  segments from the same table and judges both its drawn Enter and its line with
+  the same `judge()`.
+  - **Here rather than in a module of their own, or in `date.ts`.** `date.ts`
+    already imports this file, so this direction has no cycle, and `pickDate()`
+    cannot call into `date.ts` without one. A third module would cost the same
+    barrel names -- an ejected `date` rewrites every sibling import to
+    `@ttylabs/sigil/components` -- and add a file for nothing. One factory
+    rather than five functions, so the barrel gains one value, not five.
+  - **The parser first, then `min`, then `max`, then `validate`.** A reply that
+    is not a date is told so rather than compared with a range: `2026-13-01`
+    under a `max` of December used to be `Date must not be after` from
+    `date()`. The drawn field cannot reach the parser's refusal (it clamps), so
+    the order only shows on a line -- and where a test replaces the parser,
+    which `date-parser.test.ts` does to pin it.
+  - **Enter alone is judged as a typed reply is, for both.** `date()`'s always
+    was, so its explicit `initial` outside the range is refused on a line as it
+    is drawn. `pickDate()`'s start is already pulled into the range, so the
+    only start the judging refuses is one outside 0000-9999, which neither
+    `\d{4}` nor the parser can say -- refused rather than answered on a line,
+    while the drawn form still answers it as recorded above (pinned in
+    `calendar.test.ts`, so the drawn Enter cannot quietly start judging too).
+  - **A year before 0 is written with its sign in front.** The one writer
+    padded `-1` as `00-1`, in `date()` on `main` as much as here, so a refusal
+    quoted text the fields never were and the drawn field showed no year at
+    all. It is `-001` now, which the parser refuses in words that say why. The
+    sign takes the first digit's column rather than adding one, because every
+    width a drawn prompt reserves for a year is four columns -- `date()`'s
+    reservation, `pickDate()`'s `0000-00-00` and a pending year's `____` --
+    and `-0001` was clipped at a width that just fit and moved the month and
+    day a column when a digit was typed. A year past -999 or past 9999 is wider
+    than that anyway, as recorded above for `10000-06-15`.
+  - **The answer is the parser's `Date`, which for a day is local midnight.**
+    `pickDate()`'s line form used to build it with `localDate()`; the two are
+    the same instant -- measured over 653,319 days spanning years 0-9999 (every
+    day of 1901-2099, every seventh outside it) in seven zones, São Paulo's,
+    Santiago's and Havana's midnight daylight-saving gaps among them, with no
+    difference; in a gap both resolve forward to 01:00. So one reader
+    needs no answer callback.
+  - `prompt-accessible.test.ts` asks both prompts the same replies under each
+    shape of range and compares the transcripts and the exact refusals, which
+    fails on `main`'s two readers in three of the four -- the one without a
+    range never reached the order. What is not in the suite is the instant in a
+    daylight-saving gap: CI runs in UTC, where local and UTC midnight are one,
+    and `vi.stubEnv('TZ')` does not move a vitest worker's zone (tried: an
+    answer for 2018-11-04 in São Paulo still read 00:00). The measurement above
+    is the evidence for that half.
 - **Deliberately not done:** week numbers; a range selection; marking today
   automatically (pass it as `selected`); leading and trailing days from the
   neighbouring months; mouse; a time of day in `pickDate()` (the date prompt is
@@ -9198,9 +9267,10 @@ nothing already written is moved, erased or coloured.
     a picture (`YYYY-MM-DD HH:MM`), says the range -- the drawn grid dims what is
     outside it, which a line cannot -- and the default, which is where the field
     or cursor would have opened. What a date is stays the parser's `date`
-    reader's to say, so `2024-02-30` is refused in its words; `date()` shares one
-    `judged()` between the drawn Enter and the line, so the two refuse in the
-    same order. `pickDate()` answers at local midnight, as drawn; its `highlight`
+    reader's to say, so `2024-02-30` is refused in its words. Both are one
+    reader, `dateFormat()`'s (SIG-407, under "A calendar"), and `date()` judges
+    its drawn Enter with the same `judge()`, so every form refuses in the same
+    order. `pickDate()` answers at local midnight, as drawn; its `highlight`
     marks a picture and is not said.
   - `selectTree()` and `directoryTree()` (SIG-228): **one level at a time**, not
     the whole tree flattened. Flattening was the ticket's starting point and it
@@ -9386,12 +9456,72 @@ exported beside them as pure functions.
 - **Input is two texts or a unified patch, and the patch reader is the narrow cut.**
   `---`/`+++` name a file, `@@` opens a hunk, and **the hunk's own counts say where
   it ends**: that is the only way to tell a removed line that starts `-- ` (whose
-  patch line is `--- `) from a file header. Everything outside a file header and a
-  hunk is skipped, so `diff --git`, `index` and a commit message are harmless, and
-  `\ No newline at end of file` is dropped. Not read: renames and binary files as
-  anything but skipped text, combined diffs, the context format, and the
-  no-newline fact itself -- two texts that differ only in a final newline are the
-  same lines here.
+  patch line is `--- `) from a file header. A commit message and anything else
+  outside a file and a hunk is skipped. Not read: what a rename or a mode line
+  says, a binary patch's data, combined diffs and the context format; and two
+  _texts_ that differ only in a final newline are still the same lines here, since
+  `diffLines()` splits them.
+- **What was read is kept beside what was understood, so one read shows a patch
+  and applies it (SIG-370).** Each file keeps its `header` -- from `diff --git`,
+  or from `---` where git did not begin it, to the first hunk, which is `+++`
+  where there is one and the binary or rename lines where there is not -- and each hunk its
+  `source`, the `@@` line first, each line exactly as written but for its `\n`.
+  The patch is split on `\n` alone and a `\r` stripped only from the copy that is
+  read, so a CRLF file's carriage returns are in the source and not in
+  `DiffLine.text`. `\ No newline at end of file` is `noNewline` on the line above
+  it, and is read after a hunk's counts have run out, since the line it is about
+  is usually the hunk's last. A `diff --git` line begins a file, because it is
+  git's own boundary and because a file git begins is kept **with no hunks**: a
+  binary file (`binary`), a rename with no change of content, a mode change and an
+  empty new file are each a file git said something about, and an app listing or
+  staging a patch needs them. Their names are the two on the `diff --git` line,
+  spelled as the line spells them -- a quoted name still quoted, as `---` would
+  quote it. An unquoted line holds two names that may both have spaces in them,
+  and a prefix may too (`--src-prefix='src prefix/'`) or may not end in a `/`
+  (`src:`), so where it splits is read from what else the header says rather
+  than from the line's own text. A rename or a copy names its two paths in
+  `rename from` and `rename to`, unprefixed, and the line splits where its halves
+  end in them. A binary file repeats both names in `Binary files X and Y differ`
+  (one of them `/dev/null` for a file added or deleted), and the line splits
+  where that sentence is the one its halves make -- which is what names two blobs,
+  or two files outside a repository, whose paths differ with no rename lines.
+  Anything else, a mode change or an empty file added, is one path on both sides,
+  and the line splits where its halves share the longest tail -- a tail that is at
+  least half of each half, since two binaries written with `--binary` print
+  `GIT binary patch` rather than the sentence and so say their two names nowhere
+  but this line, and a tail of one letter they happen to share named one of them
+  `Code.app/.../Code Helper b/bin/echo` (review round 4). Where the rule that
+  applies does not settle on one split there are no names rather than a guess,
+  which is what those two binaries get. So does a rename whose `--src-prefix`
+  holds its own old path and a space, which matches two splits; that is left
+  as it is, as a configuration nobody has.
+  Three earlier versions read the line's own text and each was wrong somewhere:
+  splitting where the halves agree after their first `/` named a rename
+  `a/dir/my file b/dir/my` as `file b/dir/my`, which an app then staged (review
+  round 1); requiring the second name to start with a space-free prefix refused
+  `src prefix/` and misread `a/x b/y z/x b/y`, a rename from `x b/y z/x` (round 2);
+  and leaving every file but a rename to the agreeing split lost the names of two
+  different binaries and of prefixes like `a/x/` and `b/y/` (round 3). The names
+  are read once the header is, because those lines come after `diff --git`.
+  `diffView()` draws none of them, not even their names, so its output for
+  any patch is what it was. This changes what `parsePatch()` returns for a patch
+  of nothing but a binary file, from `[]` to one file, and it was taken knowingly:
+  the old answer threw away a fact git printed.
+- **`hunkPatch()` writes one hunk under its file's header, and what was kept is
+  what is written.** The header and the source go back verbatim -- `new file mode`
+  and `--- /dev/null` are what make `git apply --cached` create the path, a
+  missing `\ No newline` is a hunk `git apply` refuses or applies with a newline
+  nobody wrote, and a dropped `\r` is a different line -- with the hunk's counts
+  unchanged, since applying it alone is what they describe. A file or hunk that
+  was not read from a patch, such as `diffHunks()`'s, is written from what it
+  holds: `---`/`+++` from its names and a sign and the text a line, with
+  `noNewline` written as git writes it; it round-trips through `parsePatch()`. The
+  source wins while it is there, so an app that edits a hunk's `lines` deletes its
+  `source` to have them written -- the rule rather than a comparison of the two,
+  which would be a guess at which one the app meant. `diffView()` takes the read
+  files (`{ files }`) as its third kind of input, so a patch that is shown and
+  then staged is read once. The git client example is the caller this waited for,
+  and its own reader, `splitPatch()`, is gone.
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -9418,16 +9548,42 @@ exported beside them as pure functions.
   before it is built.** There is no inline layout, so the gutter, the marker and each
   run of differently-looking cells are siblings that have already been fitted (the
   rule's shape and the paginator's reason), and leading spaces survive because `pre`
-  keeps them. Folding is by column and not by word, because it is code and the
-  reader should be able to count; a fold row has a blank gutter and no marker so a
-  continuation reads as one. A wide character that does not fit starts the next row,
+  keeps them. Folding is by column by default, because it is code and the reader
+  should be able to count -- `wrap: 'words'` and `wrap: 'none'` are the entry
+  below; a fold row has a blank gutter and no marker so a continuation reads as
+  one. A wide character that does not fit starts the next row,
   and one wider than the room is drawn alone and clipped rather than looped on. A
   tab is four columns wherever it falls, because the grid has no tab stops.
+- **`wrap` is `columns`, `words` or `none`, and `columns` stays the default.**
+  `diff()` prints what it always printed. `words` was asked for by a real diff:
+  this repository's own `AGENTS.md` index pads a Markdown table's cells with
+  hundreds of spaces, and folded by columns a row of it is thirteen rows, eleven
+  of them blank -- every space kept, exactly as `git diff` through `less` shows it,
+  and unreadable. So a fold at words drops the whole run of spaces it lands in,
+  and opens a row only for a word after it, so spaces that end a line add no row.
+  The indentation that starts a line is kept however wide, since it says where the
+  line sits. A word that does not fit moves to the next row, and one longer than a
+  whole row -- a run of dashes, a URL -- is folded by columns from where it is
+  rather than moved, which would only leave a row short. `none` is one row a line,
+  cut at the room with `…` where it goes on, from `offset` columns in, the gutter
+  and the marker not scrolled; a wide character the offset falls inside is drawn
+  as spaces for its half in view, so every row starts in one column. The tree
+  reports `overflow`, how far the widest line runs past its room, which is as far
+  as a scroll goes; 0 while folding. An unknown `wrap` is refused rather than
+  folded by columns, since `word` for `words` would otherwise do nothing quietly.
+  A fold lands only in the spaces `wrap()` breaks at, `isBreakSpace()`, which is a
+  space and a tab: `trim()` was the first test, and it dropped a no-break space and
+  an ideographic space at a fold as though they were padding. The indentation is
+  what comes before anything with a width, so a byte order mark at the start of a
+  file does not make its indentation a fold (both review round 1). And a row is
+  empty until something with a width is on it, in both folds: a tab is a cell of
+  four columns, so in a room of three after a byte order mark it started a row of
+  its own and left one blank (review round 2, the `columns` fold too).
 - **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
   it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
   which the gutter, the marker and the separator take a third; under that two lines
   cannot be compared, which is the only reason to put them side by side. The same
-  call is therefore safe in a terminal of any width, and `DiffView.layout` tells an
+  call is therefore safe in a terminal of any width, and `DiffTree.layout` tells an
   app which one it got. A removed line sits against the added line that replaces it
   and a surplus leaves the other half blank; the halves fold independently and the
   shorter is padded, so the separator stays in one column.
@@ -9454,9 +9610,195 @@ exported beside them as pure functions.
 
 What is deliberately not done: a grammar or a highlighter (SIG-289 has since
 added `highlightCode()`, and the language each side is handed); a hunk-level fold
-("12 unchanged lines"); word wrapping of code; collapsing identical files in a
-multi-file patch; a patch writer; a character-level pass; and a stateful view that
-scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
+("12 unchanged lines"); collapsing identical files in a
+multi-file patch; a writer for anything bigger than a hunk (a file's hunks are its
+`header` and their `source`, joined); and a character-level pass. A stateful view
+that scrolls was on this list, on the ground that a `diffView()` tree sits in a
+`ScrollBox` like any other -- true for showing a diff and not for acting on one, so
+it is `DiffView` now, in the section below.
+
+### A diff view that scrolls: `DiffView`, sized by its box, with a cursor on the hunks (SIG-367)
+
+`src/components/diff-view.ts`, and `diffStops()` and the blocks in `diff.ts`. The
+git client example wrote all of it by hand in `diff-pane.ts`, which this replaced.
+
+- **A file and a subpath of its own, beside `diff.ts` rather than in it.** The
+  view is a scroll box, a renderer effect and keys; `diff()` is a string. In one
+  module the printed diff would load the scroll box and the renderer to print, which
+  is what "What each entry loads at import" in `src/testing` keeps an eye on, so
+  `@ttylabs/sigil/components/diff-view` is its own entry with its own ceiling, the
+  way `list-view` is beside `list`. What both need -- `diffStops()`, `DiffBlock`,
+  `diffBlocks()` -- is pure and lives in `diff.ts`.
+- **What it draws is one diff or a list of blocks, and prose is a block.** A diff
+  in an app is rarely alone: lazygit puts `Unstaged` and `Staged` over two patches, a
+  commit's message over its diff, a line saying a file is binary where its hunks
+  would be. Without prose the app has to stack a text and a view in a scroll box of
+  its own, and then the view no longer scrolls the whole. A block is `{ diff }`, one
+  `DiffInput`, or `{ text, class }`, lines cut rather than wrapped; `data` on either
+  is the app's and comes back on the stop.
+- **A stop is a hunk, or prose marked `stop`, and a hunkless file is neither until
+  the app says so.** `diffView()` draws nothing for a file a patch holds without a
+  hunk (SIG-370), so a cursor stopping there would mark no rows. What a binary file
+  or a pure rename says is the app's sentence to write -- the git client writes
+  `logo.png: binary, not shown` -- so it is a prose block with `stop: true`, which is
+  also how the client keeps an empty untracked file something Space can stage.
+- **One count: `diffStops()` is what the view counts with, and `diffView()` says
+  where each hunk went.** The example's pane found a hunk by the `sigil-diff-hunk`
+  class on its header row and counted hunks a second way in its model, and threw
+  when the two disagreed. Now `diffView()` returns `hunks`, each hunk's file, the
+  hunk, and the range of `element.children` it took (`first`, `end`), so the view
+  never reads a class; and both `diffView()` and `diffStops()` take their files from
+  one function, so the hunks one draws are the hunks the other counts. Which is
+  why the view takes no `context`: two texts are diffed at the default in both,
+  and an option only one of them was handed made the view mark a merged hunk
+  while `diffStops()` named the first half of it (review round 1). Hunks of
+  another context are handed over made, as `{ files }`. An app asks
+  `diffStops(content)[current]` for what is under the cursor, and a hunk's stop
+  carries the `file` and `hunk` that `hunkPatch()` takes -- which is the hand-off
+  the ticket asked for, as two published functions rather than a third. The return
+  type was called `DiffView`, which is this component's name; it is `DiffTree`, a
+  rename of a type with no behaviour behind it.
+- **The current hunk is a column of `▌`, which is there at colour level 0.** Every
+  row sits behind a one-cell mark, blank except on the current stop's rows, where
+  it is `▌` in `sigil-accent` and carries `is-current`; `>` in ASCII. A background
+  on the hunk was the other way and is refused for the reason the diff's emphasis
+  refused one: it is an exception to the role rule, and it is gone at level 0, which
+  is exactly where the mark has to survive. It is the example's own mark, moved.
+- **`current` is a position, a number or a `State`, and the view only ever brings
+  it back to a stop.** `]` and `[` write it, an app writes it, and when the content
+  changes or the app writes it, a position that is not a stop -- past the last,
+  negative, fractional, which a `State` lets an app write -- becomes the nearest
+  one, and `]` or `[` from one goes there rather than a step past it (review
+  round 2). It is never reset to the
+  first, because whether new content is the same subject refreshed -- the hunk
+  staged, the cursor wanted where it was -- or a new one is the app's to know; the
+  git client resets it when the file changes. A position rather than a key, because
+  a hunk has no identity across a refresh: staging one renumbers the rest.
+- **A reveal moves the view by as little as shows the stop, with what leads into
+  it where that fits.** The lead is the rows after the stop before -- a section's
+  heading, the next file's `---` and `+++` -- so moving back to the first hunk shows
+  the heading over it rather than cutting it off. A stop taller than the view is
+  shown from its own first row. Content with no stops is shown from its top, since
+  there is nothing to keep in view and a branch log opened after a scrolled diff
+  should not open half way down.
+- **The width is the layout's, through the scroll box's `onResize`, and every row
+  is drawn again when it changes.** Folding is at the width it is built for, so a
+  narrower pane is a new drawing, made before the frame paints and
+  answered as a change. The rows are windowed -- `rows` with a fixed height of one
+  and keyed by the row element, so a drawing that keeps the count and the offset
+  still rebuilds what changed -- since a patch of four thousand lines is the case the
+  git client caps at, and laying out four thousand rows a frame is what windowing
+  is for.
+- **One focus stop, and the scroll keys are the scroll box's.** The host is the
+  focusable element and the scroll box inside it is not -- two stops for one widget
+  is a Tab that seems to do nothing, the pager's reason. `]` and `[` are the view's,
+  claimed at an end as well (Home's rule), and left alone where there is no stop;
+  every other key is handed to the inner scroll box's own `onKey`, so the arrows,
+  the pages and the ends are its rules and not a copy of them. `describeDiffView()`
+  says `]`, `[` and the arrows; Space is an app's, as the git client binds it on
+  the panel around the view.
+
+- **A long line is wrapped at words, and `w` keeps each line on one row, which the
+  left and right arrows scroll.** The git client met a commit whose `AGENTS.md`
+  table rows are a thousand columns of padding, and wrapped by columns each was a
+  screen of blank rows. `wrap` is on by default and is `diffView()`'s `words`; off
+  it is `none`. The sideways scroll is the **whole document's**, one offset every
+  line of every block is drawn from, the gutter and the marker staying put -- a
+  scroll per line would move an old line out of register with the new line it
+  pairs with, which is what a diff is read for, and `less -S`, tig and lazygit all
+  scroll the whole. Side by side, both halves move together. A press is eight
+  columns, a tab stop. It was half the view, `less -S`'s step, and that moved the
+  text so far that a reader lost their place on every press; a thousand-column
+  line is a lot of presses at eight, which is what `w` back to wrapped is for. The arrows are claimed only while lines are unwrapped and something
+  runs past the edge, and then claimed at an end too (Home's rule), so in a
+  wrapped view or one where everything fits they reach the pane around it. With
+  Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
+  was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
+  shape, which `w` writes.
+- **Right goes as far as the widest line that has been in view, remembered until
+  the content or the width changes.** The first version stopped at the widest
+  line in the whole diff, and in the git client that is every file of a commit:
+  one 1,300-column table row let a press scroll a short file into blank space a
+  hundred and sixty times. So `diffView()` reports `rowOverflow`, each row's own,
+  the view keeps it beside the rows, and the limit is built lazily from the rows
+  the reader has actually had on screen: every draw, scroll, resize and press
+  takes the rows in view into `seen`, and right goes as far as `seen`. The second
+  version used only the rows in view at that press, and Chris found that it
+  forgot: scrolled down from a long line to shorter ones, the limit fell to theirs
+  and the line just read could not be scrolled back to. Remembered, it only grows
+  while the lines are the same lines in the same room. A drawing of new content,
+  at a new width or switched by `w` sees again from the rows then in view, and
+  brings the offset back to them where it is further: review round 5 found the
+  limit forgotten while the offset was kept, a view scrolled past its own limit,
+  and the first fix carried the limit over to any new content instead -- which
+  Chris then saw as a limit the commit on screen had never shown him, carried from
+  the commit before. A refresh of the same diff at the same place has the same
+  rows in view and so the same limit; a refresh with the long line scrolled out of
+  view comes back to the lines that are in it, which is the cost of not carrying a
+  width over that nothing on screen accounts for. Scrolling up or down never moves
+  the text sideways, and right among lines shorter than the offset goes on to the
+  remembered limit rather than back. A view with no height has no row in view and
+  adds nothing; it fell back to the whole diff's widest line until review round 3
+  found a pane laid out at a height of 0 scrolling into blank, and the fallback
+  was for a case that cannot happen, since nothing is drawn before a layout gives
+  the view a width. The clamp to the whole diff's overflow that drawing used to do
+  first is gone with it: the limit is never above the overflow, so bringing the
+  offset back to the limit is the one clamp. The arrows are claimed whenever
+  anything in the whole diff runs past the edge, since what has been seen changes
+  with every vertical scroll and a key that is claimed only sometimes is one a
+  pane around the view cannot rely on.
+- **Home and End go back to the start of the lines as well as to the top or the
+  bottom.** A reader jumping to an end of the diff is starting over, and the
+  sideways offset they left in the middle of it is not where they want to read
+  from. The scroll box still does the vertical half; the view resets the offset
+  first, draws, and claims the key even where the content fits and the scroll box
+  would have let it go -- it did something. At an offset of 0 the key is the scroll
+  box's alone, claimed or not by its own rule. With Shift, Ctrl or Meta the sideways
+  half is left alone, as the arrows are; inside a paste it is not, because the
+  scroll box reads a pasted Home as Home and the two halves of one key must agree
+  (both review round 5).
+- **`position` is a `State` the view writes, and only writes.** `{ x, y, maxX,
+  width }`: the sideways offset, the row at the top, how far right of the edge
+  the widest line seen ends -- as far as `x` goes -- and that line's own width.
+  `maxX` is the width less the room, so it changes with the terminal, which Chris
+  asked about: the limit has to be relative to the room or right would scroll the
+  line's end off the left edge, so it stays, and `width` is beside it as the number
+  that is the content's. `diffView()` reports `rowWidth` for it, a row's whole
+  line, every row of a folded one included, so it is the same wrapped or not.
+  Asked for to see the limit working: with a 1,300-column table row on screen the
+  honest limit really is a hundred and fifty presses away, which reads as no limit
+  until a number says so -- and most of that row is the padding that lines the
+  table's columns up, then one `|`. The git client prints `x 48 · widest 1330 · y
+  107` in the diff pane's bottom border. Written on a draw, on the scroll box's
+  `onScroll` and on every resize, and only when one of the four moved, so it asks
+  for no frame of its own while nothing changes. The resize is review round 4's:
+  a height that changes alone draws nothing and moves no offset, but it changes
+  which rows are in view, and those have to be taken into what was seen. A
+  `State` the app hands in rather than one the view hands out, `current`'s shape,
+  since `DiffView()` returns the element.
+- **A sideways scroll keeps the rows where they are, and the offset is clamped by
+  the drawing.** Every row is drawn again for a scroll, but the current stop is
+  not brought back into view: a reader who scrolled away from it to read something
+  is reading it still. A drawing whose lines in view run past their room by less
+  than the offset -- narrower content, a wider pane -- draws again from as far as
+  one of them goes (the entry above). Wrapped, nothing runs past, so the same clamp is what puts
+  the offset back to 0 and lines unwrapped again start from their beginning: an
+  explicit reset on the switch was written and deleted for surviving its
+  sabotage. Prose blocks are not scrolled, since they are already cut rather than
+  wrapped, and neither are the `---`, `+++` and `@@` rows: they say which file and
+  where, which is what a reader scrolled sideways needs to keep, so they stay put
+  with the gutter and are cut at the edge as before. The tail of a long `@@`
+  heading is therefore out of reach unwrapped; `w` shows it (review round 1). What a scroll costs is a drawing, which a resize already
+  pays: measured as of this change on arm64 macOS at a load average of 3, a
+  4,000-line patch of 170-column lines -- the git client's cap -- in a 120 by 40
+  view is about 50 ms a press, frame included, against about 80 ms for the first
+  frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
+  only the window's rows is the lever, and is not taken here.
+
+What is not done: a click to move the cursor to a hunk; scrolling sideways with
+the wheel; an `onActivate`, since the
+one caller acts on Space from its panel and a callback nothing calls is a shape
+designed by guessing; staging part of a hunk; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
@@ -11376,11 +11718,12 @@ exception per widget. This is the one answer, and every widget below follows it.
   one more exception to the role rule for every widget, and it still cannot draw
   anything at colour level 0: there are no pseudo-elements and no `content`
   property here, so a selector can only restyle, never add a marker. `:focus-within`
-  is not supported by the selector engine (its states are `:checked`, `:disabled`,
-  `:focus` and `:hover`), and it would not help if it were: it matches every
-  ancestor of the focused element, which is the same leak from the other side --
-  a focused checkbox inside a list would mark the list as well. Told rather than
-  matched, the class is on the one part and nowhere else.
+  exists since SIG-372 and does not help either: it matches every ancestor of the
+  focused element, which is the same leak from the other side -- a focused checkbox
+  inside a list would mark the list as well. It is the answer for a container that
+  should show the focus is somewhere inside it, which is a panel's question and
+  not a control's. Told rather than matched, the class is on the one part and
+  nowhere else.
 - **The shipped themes leave it alone.** A theme is a palette, and the focus is
   the terminal's own two colours swapped, which is the same under every palette:
   `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
@@ -11466,8 +11809,8 @@ exception per widget. This is the one answer, and every widget below follows it.
   sabotages are in its history file.
 - **Not done:** the modal onto the role, which is SIG-199's when `Button`
   replaces its inline buttons (it did: "Form controls" below); level-0 markers for the three existing controls,
-  which have no blank to put one in; and `:focus-within`, which would not solve
-  this, as above, and which nothing has asked for for any other reason.
+  which have no blank to put one in. `:focus-within` would not solve this, as
+  above; it arrived for the panel instead (SIG-372).
 
 ### Menus: a dropdown select, a context menu and a menubar (SIG-285)
 
@@ -12252,7 +12595,8 @@ the probes and the sabotage pass are in
   `list-view.ts`'s, so the one change to that file is an additive export,
   `listRowInset({ ascii, multiple })`, counted in code points rather than through
   `stringWidth()`, which would have put the width tables on the list's graph for
-  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed.
+  four fixed strings. Nothing else in `list-view.ts` or `scroll-box.ts` changed
+  for SIG-281; SIG-388's `rowClass`, below, is the second change to the list.
 - **Keys, focus and the describer.** The list inside the host is the focusable
   element, which Tab reaches and `dataTableControl(table).list` names for an app's
   `focus()`; the host owns `onKey` (the digits) and `onResize`, and refuses both in
@@ -12260,6 +12604,53 @@ the probes and the sabotage pass are in
   screen that sorts, from an effect over the shown columns, so a resize that hides
   a column takes its digit out of the footer and a resize that brings it back puts
   it back: `selectRow()`'s "the footer names no digit that does nothing".
+
+- **A row takes classes from its row, by `rowClass(row)`, on the list's row box
+  (SIG-388).** k9s colours a crashing pod red across every column, and the log
+  browser could only colour its STATUS cell. `rowClass` returns a string or an
+  array, as a `class` prop takes, and the classes go on `.sigil-list-row` beside
+  `is-current`, `is-selected` and `is-disabled`, so `.sigil-list-row.crashing` is
+  the selector and a role class colours the row through what its cells inherit.
+  It is a `ListView` prop that `DataTable` passes through, beside `disabled`,
+  rather than the table's alone: the row box is the list's, built in `buildRow()`
+  around whatever `row` returned, and a class on what `row` returns lands on
+  `.sigil-list-content`'s child -- not beside `is-current`, and not reachable as
+  one compound selector with it. That is also why the ticket's other spelling, a
+  `class` on the row hook passed through, was not taken: the hook returns the
+  content, not the box. The change to `list-view.ts` is the prop, its entry in
+  the function check, and a loop in `buildRow()`.
+
+  **It is asked when the row is built, which is when its row object is
+  replaced, and not reactively.** That is `row`'s rule, and the ticket's first
+  question: a live table changes a row by replacing it, which already rebuilds it,
+  so the class follows a new reading for free; a row changed in place keeps its
+  class until `refresh()`, as its cells do. A reactive class would be an effect per
+  row in view for a value that only changes when the row does. Pinned by `should
+  ask again when a row object is replaced, and not when one changes in place`.
+
+  **The focus still reads over a coloured row, because the two set different
+  properties.** Measured rather than reasoned, at sixteen colours with the
+  framework sheet: a hot row off the cursor is red in every cell; the cursor on
+  it is red **and** inverse, the focus's own declaration, so it reads as the
+  cursor over a red row and not as one more red row; and the row under the cursor
+  elsewhere is inverse in the terminal's own colour. Every role is a colour and
+  `.sigil-focus` is `inverse`, so no rule had to be reordered and none was added,
+  which keeps the framework sheet's every-rule-is-(0,1,0) promise. At colour level
+  0 a row class draws nothing -- the picture is a table without one -- and the
+  pointer says which row is current, as it always did there. Both are tests.
+
+  Two limits, written down rather than mechanised. **`MONO` spells `.sigil-error`
+  as `inverse`**, the focus's declaration, and inverse on inverse is still inverse,
+  so there a crashing row looks like the focused one and the pointer is what tells
+  them apart -- a theme's choice that no rule order can undo. And a **disabled row that is also given a
+  role** carries two roles, which is the case the framework sheet's comment warns
+  about: where a theme gives both `sigil-muted` and the role a colour, that
+  sheet's source order decides. An app that wants a disabled row muted returns no
+  role for it. A class an app returns that the list also toggles -- `is-current`,
+  `sigil-focus`, and `is-selected` in a `multiple` list -- is the list's to take
+  off again, because the cursor's and the selection's classes are put on after
+  `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
+  classes to the cursor, whatever rowClass says` pins that order.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a
@@ -12645,7 +13036,8 @@ sabotage pass -- is in
   `toggle()` prompt's `on` and `off`. Nothing in `prompt.ts` or `toggle.ts` moved.
 - **What the four share is one module, `control.ts`, and it is published.**
   `controlFlag()` (a boolean or a `State<boolean>`, a truthy string refused),
-  `controlDisabled()` and `describeControls()`, each called four times or more.
+  `controlCondition()` (SIG-334, below), `controlDisabled()` and
+  `describeControls()`, each called four times or more.
   Published at `@ttylabs/sigil/components/control` because every sibling a
   component imports has to be, for `sigil add` to rewrite the import, and because
   a control an app writes for itself can then follow the same rules by calling
@@ -12766,8 +13158,69 @@ sabotage pass -- is in
   is SIG-285's; a disabled option as a `State`; an indeterminate checkbox; button
   variants (a default, a destructive one); a form element that owns Enter and
   validation, which `examples/settings` writes for itself and SIG-338 would
-  publish; a `Computed` as `disabled`, which is SIG-334; and `:disabled` on
-  `TextField`.
+  publish; and `:disabled` on `TextField`. A `Computed` as `disabled` was on
+  this list and is SIG-334's, below.
+
+### A derived `disabled`: a `Computed` or a function (SIG-334)
+
+`controlCondition()` and its types in `control.ts`. Every control's `disabled` was
+`boolean | State<boolean>`, and `controlFlag()` and the four hand-written checks in
+`TextField`, `TextArea`, `Slider` and `Dropdown` asked `instanceof State` -- so a
+`Computed` was refused with a `TypeError`, while a disabled flag is nearly always
+derived. Apps mirrored the condition into a `State` through an effect of their
+own: `examples/settings` had a `follow()` for it, used five times, and
+`demos/components/57-form-controls.js` wrote one inline.
+
+- **`disabled` is read, so it takes what reads.** A control never writes it, so
+  it takes `ControlCondition`: a boolean, a `LiveFlag` -- anything with a `get()`,
+  which a `State` and a `Computed` both are, the duck `ListItems<T>` already uses
+  -- or a function. A checkbox's `checked` and a switch's `value` are written by
+  the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
+  still refused; that is why this is a second function beside `controlFlag()`
+  rather than `controlFlag()` widened, which would have let a `Computed` reach a
+  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
+  and `Dropdown` still read anything that is not a `State` as a value to start
+  from, so a `Computed` there becomes the value rather than being refused -- left
+  as it was, since it is a `value` question and not a `disabled` one.
+- **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
+  open. `() => boolean` is the template's convention for a reactive prop
+  (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
+  so `disabled={() => !valid.get()}` is what an author writes first and now works
+  in JSX and in the `ui` tag alike. `ChartSource<T>` already takes the same three
+  shapes, value, `get()` and function, for the same reason, so this is a second
+  instance of a shape rather than a new one. Reversing it is deleting one branch
+  and one member of the union.
+- **Read live, never memoized.** What `controlCondition()` hands back calls the
+  caller's `get()` or function on every read, inside the control's effect --
+  which is what tracks it -- and in each handler, so a key and the drawing ask
+  the same question at the same moment. Wrapping a function in a `Computed` was
+  the alternative, and it buys a cache that a condition re-read once per key does
+  not need, and a stale answer from a `get()` that reads something other than
+  signals.
+- **A reading is read for its truth.** `Boolean()` on every read. The handlers
+  already asked `if (disabled.get())`, and the effect handed the reading to
+  `toggleClass(name, on)`, which _flips_ the class when `on` is `undefined` -- so a
+  function returning `undefined` would have drawn a control disabled that every
+  handler treats as enabled. A string, a number or `null` handed _as_ `disabled`
+  is still refused, as `controlFlag()` refuses it; a reading cannot be checked
+  there, since it does not exist until it is asked for.
+- **All eight controls, not the ticket's seven.** `Dropdown` has a `disabled` of
+  the same shape and the same `instanceof State` check, and leaving it out would
+  make "every control" false the day it shipped. `TextField`, `TextArea`, `Slider`
+  and `Dropdown` now call `controlCondition()` where they validated by hand, in
+  the same place, so the order their refusals come in is unchanged; their own
+  effects are untouched, since they only ever called `get()`.
+- **A published signature widened, not changed.** `controlDisabled(host,
+  disabled)` takes a `LiveFlag` where it took a `State<boolean>`, which every
+  caller still satisfies. The refusal messages changed -- `Expected button
+  disabled to be a boolean, a State, a Computed or a function` -- which moves eight
+  keys in `src/i18n/keys.ts`, regenerated.
+- **Tests per control, both shapes.** `DERIVED` in `test/components/form-harness.ts`
+  is a `Computed` and a function over one `State`; each control's file runs it
+  through `it.each`: disabled, enabled, takes a key, disabled again and ignores it.
+  `control.test.ts` pins the four readable shapes, the tracking, the truth reading
+  and the refusals; `button.test.ts` drives a function through the `ui` tag; and
+  `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

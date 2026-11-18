@@ -2152,6 +2152,123 @@ describe('a line pickDate()', () => {
   });
 });
 
+describe('date() and pickDate() as lines, which are one reader', () => {
+  /** Asks one of the two the same question, types the same replies, and keeps what it wrote. */
+  async function asked(
+    ask: typeof date | typeof pickDate,
+    opts: { max?: Date; min?: Date; value: Date },
+    ...replies: string[]
+  ): Promise<{ answer: Date; log: string[] }> {
+    const ui = lines();
+    const answer = ask({ accessible: true, message: 'Day', terminal: ui.terminal, ...opts });
+    for (const reply of replies) {
+      await type(ui.stdin, CTRL_U, reply, ENTER);
+    }
+    return { answer: await answer, log: ui.log };
+  }
+
+  const range = { max: new Date(2026, 11, 31), min: new Date(2026, 9, 1) };
+
+  // each shape of range with the replies that reach each of its refusals: the
+  // wrong shape and two days the parser refuses for all four -- one before any
+  // `min` and one after any `max`, so the order shows under every bound -- then
+  // a day before `min` and one after `max` where there is one, then a day every
+  // shape takes
+  it.each([
+    ['a range', range, 'from 2026-10-01 to 2026-12-31, ', ['2026-09-30', '2027-01-01']],
+    ['a min alone', { min: range.min }, 'from 2026-10-01, ', ['2026-09-30']],
+    ['a max alone', { max: range.max }, 'until 2026-12-31, ', ['2027-01-01']],
+    ['no range', {}, '', []],
+  ])(
+    'should write the same transcript and answer the same day under %s',
+    async (_, bounds, said, outside) => {
+      const opts = { ...bounds, value: new Date(2026, 9, 15) };
+      const replies = ['October', '2026-02-30', '2026-13-01', ...outside, '2026-11-5'];
+      const drawn = await asked(date, opts, ...replies);
+      const picked = await asked(pickDate, opts, ...replies);
+
+      expect(picked.log).toEqual(drawn.log);
+      expect(picked.answer).toEqual(drawn.answer);
+      expect(drawn.answer).toEqual(new Date(2026, 10, 5));
+      expect(drawn.log[0]).toBe(`Day (YYYY-MM-DD, ${said}default: 2026-10-15) October`);
+      expect(drawn.log.filter((line) => !line.startsWith('Day'))).toEqual([
+        'Enter a date as YYYY-MM-DD',
+        'Invalid date: "2026-02-30"',
+        'Invalid date: "2026-13-01"',
+        ...('min' in bounds ? ['Date must not be before 2026-10-01'] : []),
+        ...('max' in bounds ? ['Date must not be after 2026-12-31'] : []),
+      ]);
+    }
+  );
+
+  it("should say the range, refuse in the reader's order and words, and answer at local midnight", async () => {
+    const { answer, log } = await asked(
+      pickDate,
+      { ...range, value: new Date(2026, 9, 15) },
+      'October',
+      '2026-02-30',
+      '2026-13-01',
+      '2026-09-30',
+      '2027-01-01',
+      '2026-11-5'
+    );
+
+    expect(answer).toEqual(new Date(2026, 10, 5));
+    expect(log[0]).toBe(
+      'Day (YYYY-MM-DD, from 2026-10-01 to 2026-12-31, default: 2026-10-15) October'
+    );
+    expect(log.filter((line) => !line.startsWith('Day'))).toEqual([
+      'Enter a date as YYYY-MM-DD',
+      // the parser is asked first, so a day that is not one is told so rather
+      // than compared with a range it is outside of
+      'Invalid date: "2026-02-30"',
+      'Invalid date: "2026-13-01"',
+      'Date must not be before 2026-10-01',
+      'Date must not be after 2026-12-31',
+    ]);
+  });
+
+  it('should judge Enter alone as it judges a reply, so a start the parser cannot read is refused by both', async () => {
+    const opts = { value: new Date(10000, 5, 15) };
+    const drawn = await asked(date, opts, '', '2024-06-15');
+    const picked = await asked(pickDate, opts, '', '2024-06-15');
+
+    expect(picked.log).toEqual(drawn.log);
+    expect(drawn.log[1]).toBe('Invalid date: "10000-06-15"');
+    expect(picked.answer).toEqual(new Date(2024, 5, 15));
+  });
+
+  it('should quote a year before 0 with its sign in front, not among the digits', async () => {
+    const opts = { value: new Date(-1, 5, 15) };
+    const drawn = await asked(date, opts, '', '2024-06-15');
+    const picked = await asked(pickDate, opts, '', '2024-06-15');
+
+    expect(picked.log).toEqual(drawn.log);
+    expect(drawn.log[0]).toMatch(/default: -001-06-15\)/);
+    expect(drawn.log[1]).toBe('Invalid date: "-001-06-15"');
+  });
+
+  it('should read the clock, a T between it and the day, and the second', async () => {
+    const ui = lines();
+    const answer = date({
+      accessible: true,
+      message: 'At',
+      seconds: true,
+      terminal: ui.terminal,
+      value: new Date(2024, 5, 15, 9, 0, 0),
+    });
+
+    await type(ui.stdin, '2024-6-15 9:7', ENTER, CTRL_U, '2024-6-15T9:7:5', ENTER);
+
+    expect(await answer).toEqual(new Date(2024, 5, 15, 9, 7, 5));
+    expect(ui.log).toEqual([
+      'At (YYYY-MM-DD HH:MM:SS, default: 2024-06-15 09:00:00) 2024-6-15 9:7',
+      'Enter a date as YYYY-MM-DD HH:MM:SS',
+      'At (YYYY-MM-DD HH:MM:SS, default: 2024-06-15 09:00:00) 2024-6-15T9:7:5',
+    ]);
+  });
+});
+
 describe('a line selectTree()', () => {
   const items = [
     { items: ['Apple', 'Pear'], text: 'Fruit' },

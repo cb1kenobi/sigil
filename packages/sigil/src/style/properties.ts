@@ -999,16 +999,34 @@ export function parseDeclaration(name: string, value: string): [PropertyName, un
 }
 
 /**
+ * Every property at its initial value, built once and only ever copied.
+ *
+ * Written by computed key onto `{}`, as it is here, an object of this many
+ * properties is in V8's dictionary mode: past a dozen or so keyed additions the
+ * engine stops giving it a shape and makes it a hash table. Built that way per
+ * call, every resolved style was one -- about 5.4 KB allocated to produce it,
+ * against about 560 bytes for a spread of this template, which V8 copies shape
+ * and all (SIG-381). It is never handed out, so nothing can write to it.
+ */
+let template: Style | undefined;
+
+/**
  * A style with every property at its initial value.
  *
- * @returns The style.
+ * @returns The style, a new object every call.
  */
 export function initialStyle(): Style {
-  const style = {} as Record<PropertyName, unknown>;
-  for (const name of PROPERTY_NAMES) {
-    style[name] = PROPERTIES[name].initial;
+  if (template === undefined) {
+    const style = {} as Record<PropertyName, unknown>;
+    for (const name of PROPERTY_NAMES) {
+      style[name] = PROPERTIES[name].initial;
+    }
+    // the spread is what gives it a shape: `style` itself is a dictionary, and
+    // copying a dictionary is slower than building one -- which is how this
+    // change was once tried and measured as a loss
+    template = { ...style } as Style;
   }
-  return style as Style;
+  return { ...template };
 }
 
 /**

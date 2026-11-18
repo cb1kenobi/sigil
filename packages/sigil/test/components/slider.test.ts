@@ -21,6 +21,7 @@ import type { MouseButton, MouseEventKind } from '../../src/input/mouse.js';
 import { flush, State } from '../../src/signals/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { DERIVED } from './form-harness.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -561,6 +562,28 @@ describe('Slider', () => {
       pointer(host, 'mousemove', 8);
       expect(value.get()).toBe(3);
     });
+
+    it.each(DERIVED)('should follow %s, off and on again', (_, derive) => {
+      const valid = new State(false);
+      const value = new State(5);
+      const host = Slider({ disabled: derive(valid), max: 10, value, width: 11 });
+      column(host);
+
+      expect(host.focusable).toBe(false);
+      expect(press(host, 'right')).toBe(false);
+      valid.set(true);
+      flush();
+      expect(host.focusable).toBe(true);
+      expect(part(host, 'sigil-slider-thumb').classes).toContain('sigil-accent');
+      expect(press(host, 'right')).toBe(true);
+      expect(value.get()).toBe(6);
+      valid.set(false);
+      flush();
+      expect(host.focusable).toBe(false);
+      expect(part(host, 'sigil-slider-thumb').classes).toContain('sigil-muted');
+      expect(press(host, 'right')).toBe(false);
+      expect(value.get()).toBe(6);
+    });
   });
 
   describe('the focus', () => {
@@ -605,7 +628,10 @@ describe('Slider', () => {
 
     it.each([
       [{ value: '5' }, 'Expected a slider value to be a number or a State'],
-      [{ disabled: 'yes' }, 'Expected slider disabled to be a boolean or a State'],
+      [
+        { disabled: 'yes' },
+        'Expected slider disabled to be a boolean, a State, a Computed or a function',
+      ],
       [{ min: 5, max: 5 }, 'Expected a slider min and max to be finite numbers, min below max'],
       [{ min: 10, max: 0 }, 'Expected a slider min and max to be finite numbers, min below max'],
       [{ max: Number.POSITIVE_INFINITY }, 'min below max'],

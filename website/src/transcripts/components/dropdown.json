@@ -22,11 +22,11 @@
         "type": "boolean"
       },
       {
-        "description": "Whether it refuses input. A disabled dropdown is out of the focus ring, opens nothing and is drawn muted. A `State<boolean>` is read live. Defaults to `false`.",
+        "description": "Whether it refuses input. A disabled dropdown is out of the focus ring, opens nothing and is drawn muted. A `State`, a `Computed` or a function is read live, so the app can derive it. Defaults to `false`.",
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "Classes put on the list it opens, beside `sigil-menu` -- the field's own class is `props.class`. The list is drawn on the root rather than inside the field, so a rule under the field cannot reach it. Space-separated for several.",

@@ -9,6 +9,7 @@ import {
   type DiffOptions,
   diffSequence,
   diffView,
+  hunkPatch,
   parsePatch,
 } from '../../src/components/diff.js';
 import { stringWidth } from '../../src/width/index.js';
@@ -236,7 +237,7 @@ describe('parsePatch()', () => {
     expect(file!.hunks[0]!.heading).to.equal('function main()');
     expect(file!.hunks[0]!.lines).to.deep.equal([
       { kind: 'context', newNumber: 1, oldNumber: 1, text: 'one' },
-      { kind: 'remove', oldNumber: 2, text: 'two' },
+      { kind: 'remove', noNewline: true, oldNumber: 2, text: 'two' },
       { kind: 'add', newNumber: 2, text: 'TWO' },
       { kind: 'context', newNumber: 3, oldNumber: 3, text: '' },
       { kind: 'context', newNumber: 4, oldNumber: 4, text: 'four' },
@@ -300,6 +301,296 @@ describe('parsePatch()', () => {
   it('should find nothing in text that is not a patch', () => {
     expect(parsePatch('just some words\nand more')).to.deep.equal([]);
     expect(parsePatch('')).to.deep.equal([]);
+  });
+});
+
+/** What `git diff` prints for three files: two hunks, no final newline, and a binary. */
+const GIT_PATCH = [
+  'diff --git a/a.txt b/a.txt',
+  'index 1111111..2222222 100644',
+  '--- a/a.txt',
+  '+++ b/a.txt',
+  '@@ -1,3 +1,3 @@',
+  ' 1',
+  '-2',
+  '+two',
+  ' 3',
+  '@@ -9,2 +9,2 @@ heading',
+  ' 9',
+  '-10',
+  '+ten\r',
+  'diff --git a/nn.txt b/nn.txt',
+  'index 3333333..4444444 100644',
+  '--- a/nn.txt',
+  '+++ b/nn.txt',
+  '@@ -1 +1 @@',
+  '-no newline',
+  '\\ No newline at end of file',
+  '+no newline2',
+  '\\ No newline at end of file',
+  'diff --git a/logo.png b/logo.png',
+  'index 5555555..6666666 100644',
+  'Binary files a/logo.png and b/logo.png differ',
+  '',
+].join('\n');
+
+describe('parsePatch() and what it keeps to write back', () => {
+  it('should say which line has no newline after it, after the counts have run out too', () => {
+    const [, file] = parsePatch(GIT_PATCH);
+
+    expect(file!.hunks[0]!.lines).to.deep.equal([
+      { kind: 'remove', noNewline: true, oldNumber: 1, text: 'no newline' },
+      { kind: 'add', newNumber: 1, noNewline: true, text: 'no newline2' },
+    ]);
+  });
+
+  it('should keep a carriage return in the source and out of the text', () => {
+    const [file] = parsePatch(GIT_PATCH);
+
+    expect(file!.hunks[1]!.lines.at(-1)!.text).to.equal('ten');
+    expect(file!.hunks[1]!.source).to.deep.equal([
+      '@@ -9,2 +9,2 @@ heading',
+      ' 9',
+      '-10',
+      '+ten\r',
+    ]);
+  });
+
+  it('should keep a file git began with no hunks, and say when it is binary', () => {
+    const files = parsePatch(GIT_PATCH);
+
+    expect(files.map((file) => [file.newName, file.hunks.length, file.binary])).to.deep.equal([
+      ['b/a.txt', 2, undefined],
+      ['b/nn.txt', 1, undefined],
+      ['b/logo.png', 0, true],
+    ]);
+  });
+
+  it('should keep the lines above the first hunk from diff --git, and no commit message', () => {
+    const [file] = parsePatch(`commit 123\nAuthor: me\n\n    A message\n\n${GIT_PATCH}`);
+
+    expect(file!.header).to.deep.equal([
+      'diff --git a/a.txt b/a.txt',
+      'index 1111111..2222222 100644',
+      '--- a/a.txt',
+      '+++ b/a.txt',
+    ]);
+  });
+
+  it('should give back the patch it read, file by file and hunk by hunk', () => {
+    const written = parsePatch(GIT_PATCH)
+      .map((file) => [...file.header!, ...file.hunks.flatMap((hunk) => hunk.source!)].join('\n'))
+      .join('\n');
+
+    expect(`${written}\n`).to.equal(GIT_PATCH);
+  });
+
+  it('should read the names of a file with no hunk off its diff --git line', () => {
+    /** The names of a file that changed mode, which is one path on both sides. */
+    const names = (line: string): (string | undefined)[] => {
+      const [file] = parsePatch(`${line}\nold mode 100644\nnew mode 100755\n`);
+      return [file?.oldName, file?.newName];
+    };
+
+    expect(names('diff --git a/x.txt b/x.txt')).to.deep.equal(['a/x.txt', 'b/x.txt']);
+    expect(names('diff --git a/with space.txt b/with space.txt')).to.deep.equal([
+      'a/with space.txt',
+      'b/with space.txt',
+    ]);
+    // a prefix may hold a space too, which git leaves unquoted
+    expect(names('diff --git src prefix/f.txt dst prefix/f.txt')).to.deep.equal([
+      'src prefix/f.txt',
+      'dst prefix/f.txt',
+    ]);
+    // with diff.noprefix the two halves are the path itself
+    expect(names('diff --git my file my file')).to.deep.equal(['my file', 'my file']);
+    // and a prefix need not be a directory's
+    expect(names('diff --git a/x/f.txt b/y/f.txt')).to.deep.equal(['a/x/f.txt', 'b/y/f.txt']);
+    expect(names('diff --git src:f.txt dst:f.txt')).to.deep.equal(['src:f.txt', 'dst:f.txt']);
+    // quoted as a `---` line would quote it, which is the spelling the names have
+    expect(names('diff --git "a/say \\"hi\\".txt" "b/say \\"hi\\".txt"')).to.deep.equal([
+      '"a/say \\"hi\\".txt"',
+      '"b/say \\"hi\\".txt"',
+    ]);
+    expect(names('diff --git a/plain.txt "b/tab\\there.txt"')).to.deep.equal([
+      'a/plain.txt',
+      '"b/tab\\there.txt"',
+    ]);
+  });
+
+  it('should split a rename where its halves end in the paths its header names', () => {
+    /** The names of a rename with no content changes, as git prints one. */
+    const renamed = (from: string, to: string, prefixes = ['a/', 'b/']): (string | undefined)[] => {
+      const [old, next] = [`${prefixes[0]}${from}`, `${prefixes[1]}${to}`];
+      const [file] = parsePatch(
+        `diff --git ${old} ${next}\nsimilarity index 100%\nrename from ${from}\nrename to ${to}\n`
+      );
+      return [file?.oldName, file?.newName];
+    };
+
+    expect(renamed('old.txt', 'new.txt')).to.deep.equal(['a/old.txt', 'b/new.txt']);
+    // the halves agree under their prefixes at the space before `file`, and are not the names
+    expect(renamed('dir/my file', 'dir/my')).to.deep.equal(['a/dir/my file', 'b/dir/my']);
+    expect(renamed('old.txt', 'new file.txt')).to.deep.equal(['a/old.txt', 'b/new file.txt']);
+    // a path that holds what looks like the other prefix
+    expect(renamed('x b/y z/x', 'y')).to.deep.equal(['a/x b/y z/x', 'b/y']);
+    expect(renamed('dir/my file', 'other/new file', ['', ''])).to.deep.equal([
+      'dir/my file',
+      'other/new file',
+    ]);
+    expect(renamed('README.md', 'NOTES.md', ['src:', 'dst:'])).to.deep.equal([
+      'src:README.md',
+      'dst:NOTES.md',
+    ]);
+  });
+
+  it('should split a binary file where its Binary files line says the same names', () => {
+    /** The names of a binary file, as `git diff` prints one with no `---` or `+++`. */
+    const binary = (old: string, next: string, said = [old, next]): (string | undefined)[] => {
+      const [file] = parsePatch(
+        `diff --git ${old} ${next}\nindex 1111111..2222222 100644\nBinary files ${said[0]} and ${said[1]} differ\n`
+      );
+      return [file?.oldName, file?.newName];
+    };
+
+    // two blobs, or two files outside a repository: two paths, and no rename lines
+    expect(binary('a/4b60195c', 'b/390e34a6')).to.deep.equal(['a/4b60195c', 'b/390e34a6']);
+    expect(binary('a/foo bar', 'b/foo')).to.deep.equal(['a/foo bar', 'b/foo']);
+    expect(binary('src prefix/x.png', 'dst prefix/y.png')).to.deep.equal([
+      'src prefix/x.png',
+      'dst prefix/y.png',
+    ]);
+    // a file added, whose old side the sentence calls /dev/null
+    expect(binary('a/x/i.png', 'b/y/i.png', ['/dev/null', 'b/y/i.png'])).to.deep.equal([
+      'a/x/i.png',
+      'b/y/i.png',
+    ]);
+  });
+
+  it('should give a file no names where its diff --git line does not settle them', () => {
+    const [file] = parsePatch('diff --git a/x b/y b/z\nold mode 100644\nnew mode 100755\n');
+
+    expect([file!.oldName, file!.newName]).to.deep.equal([undefined, undefined]);
+
+    // two binaries written with --binary, whose names are nowhere else: a split
+    // after "Visual Studio" is the only one whose halves end alike, and is wrong
+    const [binary] = parsePatch(
+      'diff --git a/Visual Studio Code.app/Code Helper b/bin/echo\nindex 1..2 100755\nGIT binary patch\nliteral 1\n'
+    );
+    expect([binary!.oldName, binary!.newName]).to.deep.equal([undefined, undefined]);
+  });
+
+  it('should take the names from --- and +++ where a file has them', () => {
+    const [file] = parsePatch(
+      'diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-x\n'
+    );
+
+    expect([file!.oldName, file!.newName]).to.deep.equal(['a/gone.txt', '/dev/null']);
+    expect(file!.header).to.have.length(4);
+  });
+
+  it('should read a patch with CRLF line endings throughout the same as one without', () => {
+    const crlf = parsePatch(GIT_PATCH.replace(/\r?\n/g, '\r\n'));
+    const lf = parsePatch(GIT_PATCH);
+
+    const shape = (files: typeof lf): unknown =>
+      files.map((file) => [file.newName, file.binary, file.hunks.map((hunk) => hunk.lines)]);
+    expect(shape(crlf)).to.deep.equal(shape(lf));
+    // and what it keeps to write back is what it read, every carriage return in place
+    const crlfPatch = GIT_PATCH.replace(/\r?\n/g, '\r\n');
+    const written = crlf
+      .map((file) => [...file.header!, ...file.hunks.flatMap((hunk) => hunk.source!)].join('\n'))
+      .join('\n');
+    expect(`${written}\n`).to.equal(crlfPatch);
+    expect(crlf[0]!.header![0]).to.equal('diff --git a/a.txt b/a.txt\r');
+  });
+
+  it('should draw the files it read the same as the patch, and nothing of a file with no hunk', () => {
+    const drawn = lines({ patch: GIT_PATCH });
+
+    expect(lines({ files: parsePatch(GIT_PATCH) })).to.deep.equal(drawn);
+    expect(drawn.join('\n')).to.contain('b/nn.txt');
+    expect(drawn.join('\n')).not.to.contain('logo.png');
+  });
+});
+
+describe('hunkPatch()', () => {
+  it('should write one hunk back under its file header, as git wrote both', () => {
+    const [file] = parsePatch(GIT_PATCH);
+
+    expect(hunkPatch(file!, file!.hunks[1]!)).to.equal(
+      [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -9,2 +9,2 @@ heading',
+        ' 9',
+        '-10',
+        '+ten\r',
+        '',
+      ].join('\n')
+    );
+  });
+
+  it('should keep the no newline lines of a hunk at the end of a file', () => {
+    const [, file] = parsePatch(GIT_PATCH);
+
+    expect(hunkPatch(file!, file!.hunks[0]!)).to.equal(
+      `${GIT_PATCH.split('\n').slice(13, 22).join('\n')}\n`
+    );
+  });
+
+  it('should write a new file under the header that makes git create it', () => {
+    const patch = [
+      'diff --git a/new.txt b/new.txt',
+      'new file mode 100644',
+      'index 0000000..3b18e51',
+      '--- /dev/null',
+      '+++ b/new.txt',
+      '@@ -0,0 +1 @@',
+      '+hello',
+      '',
+    ].join('\n');
+    const [file] = parsePatch(patch);
+
+    expect(hunkPatch(file!, file!.hunks[0]!)).to.equal(patch);
+  });
+
+  it('should write a hunk no patch was read for from its lines, and read back the same', () => {
+    const hunks = diffHunks('one\ntwo\nthree\n', 'one\n2\nthree\n');
+    const file = { hunks, newName: 'b/x.txt', oldName: 'a/x.txt' };
+    const written = hunkPatch(file, hunks[0]!);
+
+    expect(written).to.equal(
+      ['--- a/x.txt', '+++ b/x.txt', '@@ -1,3 +1,3 @@', ' one', '-two', '+2', ' three', ''].join(
+        '\n'
+      )
+    );
+    expect(parsePatch(written)[0]!.hunks[0]!.lines).to.deep.equal(hunks[0]!.lines);
+  });
+
+  it('should write a line with no newline after it the way git does', () => {
+    const file = {
+      hunks: [],
+      newName: 'b/x',
+      oldName: 'a/x',
+    };
+    const hunk = {
+      lines: [
+        { kind: 'remove' as const, noNewline: true, oldNumber: 1, text: 'x' },
+        { kind: 'add' as const, newNumber: 1, text: 'x' },
+      ],
+      newLines: 1,
+      newStart: 1,
+      oldLines: 1,
+      oldStart: 1,
+    };
+
+    expect(hunkPatch(file, hunk)).to.equal(
+      '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n\\ No newline at end of file\n+x\n'
+    );
+    expect(parsePatch(hunkPatch(file, hunk))[0]!.hunks[0]!.lines).to.deep.equal(hunk.lines);
   });
 });
 
@@ -470,6 +761,150 @@ describe('diff()', () => {
       for (const row of out.slice(1)) {
         expect(row.indexOf('│')).to.equal(29);
       }
+    });
+  });
+
+  describe('wrap', () => {
+    const at = (text: string, width: number, opts: DiffOptions): string[] =>
+      lines({ new: text, old: '' }, { lineNumbers: false, width, ...opts }).slice(1);
+
+    it('should fold by columns unless it is asked otherwise, every space kept', () => {
+      expect(at('ab      cd', 6, {})).to.deep.equal(['+ab', '    cd']);
+      expect(at('ab      cd', 6, { wrap: 'columns' })).to.deep.equal(at('ab      cd', 6, {}));
+    });
+
+    it('should fold at words, and drop the spaces a fold lands in', () => {
+      // the padding of a Markdown table's row: ten rows of nothing by columns
+      const row = `| name${' '.repeat(60)}| value${' '.repeat(60)}|`;
+
+      expect(at(row, 20, { wrap: 'words' })).to.deep.equal(['+| name', ' | value', ' |']);
+      expect(at('one two three', 10, { wrap: 'words' })).to.deep.equal(['+one two', ' three']);
+    });
+
+    it('should keep the spaces that fit, and add no row for spaces that end a line', () => {
+      expect(at('a  b', 10, { wrap: 'words' })).to.deep.equal(['+a  b']);
+      expect(at(`abc${' '.repeat(30)}`, 10, { wrap: 'words' })).to.have.length(1);
+    });
+
+    it('should keep the indentation that starts a line, folding it by columns where it is wider', () => {
+      expect(at('    if (x) return', 12, { wrap: 'words' })).to.deep.equal([
+        '+    if (x)',
+        ' return',
+      ]);
+      expect(at(`${' '.repeat(12)}x`, 6, { wrap: 'words' })).to.deep.equal(['+', '', '   x']);
+      // after a character with no width, such as the byte order mark a file can start with
+      expect(at(`\uFEFF${' '.repeat(8)}code`, 8, { wrap: 'words' })).to.deep.equal(['+', '  code']);
+    });
+
+    it('should not start a row for a character wider than the room after one with no width', () => {
+      // a tab is a cell of four columns, wider than this room of three; a byte order
+      // mark before it is no width, so the tab is the first row's, as without the mark
+      for (const wrap of ['columns', 'words'] as const) {
+        expect(at('\uFEFF\tcode', 4, { wrap }), wrap).to.deep.equal(at('\tcode', 4, { wrap }));
+      }
+    });
+
+    it('should fold at a space or a tab and nowhere else, so a no-break space is kept', () => {
+      // the break spaces wrap() breaks at: a no-break space is part of its word
+      expect(at('hello\u00A0world', 6, { wrap: 'words' })).to.deep.equal([
+        '+hello',
+        ' \u00A0worl',
+        ' d',
+      ]);
+      // an ideographic space too, which is two columns: kept, and folded with its word
+      expect(at('語\u3000句', 4, { wrap: 'words' })).to.deep.equal(['+語', ' \u3000', ' 句']);
+    });
+
+    it('should fold a word longer than a row by columns, from where it is', () => {
+      expect(at(`ab ${'x'.repeat(12)}`, 6, { wrap: 'words' })).to.deep.equal([
+        '+ab xx',
+        ' xxxxx',
+        ' xxxxx',
+      ]);
+      // and move one that fits on a row of its own to the next
+      expect(at('ab xxxxx', 6, { wrap: 'words' })).to.deep.equal(['+ab', ' xxxxx']);
+    });
+
+    it('should keep a line on one row with none, cut at the edge with an ellipsis', () => {
+      expect(at('abcdefghij', 6, { wrap: 'none' })).to.deep.equal(['+abcd…']);
+      expect(at('abcde', 6, { wrap: 'none' })).to.deep.equal(['+abcde']);
+      // a room of one is the ellipsis alone
+      expect(at('abc', 2, { wrap: 'none' })).to.deep.equal(['+…']);
+      expect(
+        diffView({ new: 'abcdefghij\nab', old: '' }, { lineNumbers: false, width: 6, wrap: 'none' })
+          .overflow
+      ).to.equal(5);
+    });
+
+    it('should scroll every line by the offset, and leave the gutter and the marker where they are', () => {
+      const text = 'abcdefghij\nklmnopqrst';
+
+      expect(
+        lines({ new: text, old: '' }, { offset: 3, width: 11, wrap: 'none' }).slice(1)
+      ).to.deep.equal(['  1 +defgh…', '  2 +nopqr…']);
+      // as far as the overflow, the end of the widest line is in view and not cut
+      expect(at('abcdefghij', 6, { offset: 5, wrap: 'none' })).to.deep.equal(['+fghij']);
+      expect(at('abcdefghij', 6, { offset: 99, wrap: 'none' })).to.deep.equal(['+']);
+    });
+
+    it('should draw the half of a wide character the offset leaves in view as a space', () => {
+      // 日 is two columns: an offset of one leaves its second half
+      expect(at('日本語', 5, { offset: 1, wrap: 'none' })).to.deep.equal(['+ 本…']);
+      // and one the edge falls inside is left off, the ellipsis after what fits
+      expect(at('日本語', 4, { offset: 1, wrap: 'none' })).to.deep.equal(['+ …']);
+    });
+
+    it('should cut each half on its own when side by side, and report the wider', () => {
+      const tree = diffView(
+        { new: 'x'.repeat(60), old: 'short' },
+        { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+      );
+
+      expect(tree.layout).to.equal('side-by-side');
+      // the halves' rooms are 25 and 26 columns, and the sixty are on the wider
+      expect(tree.overflow).to.equal(34);
+      expect(
+        lines(
+          { new: 'x'.repeat(60), old: 'short' },
+          { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+        ).slice(1)
+      ).to.have.length(1);
+    });
+
+    it('should say how far each row runs past its room, beside the rows', () => {
+      const tree = diffView(
+        { new: 'abcdefghij\nab\n', newName: 'b.txt', old: 'ab\n', oldName: 'a.txt' },
+        { lineNumbers: false, width: 6, wrap: 'none' }
+      );
+
+      // ---, +++, @@, then +abcdefghij, then the context line ab
+      expect(tree.rowOverflow).to.deep.equal([0, 0, 0, 5, 0]);
+      expect(tree.rowOverflow).to.have.length(tree.element.children.length);
+      // and how wide each row's line is, whatever the room
+      expect(tree.rowWidth).to.deep.equal([0, 0, 0, 10, 2]);
+      const folded = diffView({ new: 'abcdefghij', old: '' }, { lineNumbers: false, width: 6 });
+      expect(folded.rowOverflow.every((run) => run === 0)).to.equal(true);
+      expect(folded.rowOverflow).to.have.length(folded.element.children.length);
+      // every row of a folded line is its whole line's width
+      expect(folded.rowWidth).to.deep.equal([0, 10, 10]);
+      const sides = diffView(
+        { new: 'x'.repeat(60), old: 'short' },
+        { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+      );
+      expect(sides.rowWidth).to.deep.equal([0, 60]);
+    });
+
+    it('should report no overflow while folding', () => {
+      expect(diffView({ new: 'x'.repeat(60), old: '' }, { width: 20 }).overflow).to.equal(0);
+      expect(
+        diffView({ new: 'x'.repeat(60), old: '' }, { width: 20, wrap: 'words' }).overflow
+      ).to.equal(0);
+    });
+
+    it('should refuse a wrap it does not know', () => {
+      expect(() => diffView({ new: 'a', old: '' }, { wrap: 'word' as never })).to.throw(
+        /columns, words or none/
+      );
     });
   });
 

@@ -4585,7 +4585,8 @@ lines in the success role and the context muted. Inside a line that was edited,
 the words that changed are set in bold, so `foo(1)` against `bar(1)` shows which
 word moved and not only that the line did. `diff()` returns a string and the
 caller does the writing, like `rule()`, so it ignores `--quiet`; `diffView()` is
-the element tree behind it, and also says which layout it ended up with.
+the element tree behind it, and also says which layout it ended up with and which
+rows each hunk took.
 
 | Option        | Meaning                                                         |
 | ------------- | --------------------------------------------------------------- |
@@ -4596,18 +4597,48 @@ the element tree behind it, and also says which layout it ended up with.
 | `intraline`   | Set the edited words apart. Defaults to `true`                  |
 | `highlight`   | `(text, lang) => HighlightSpan[]`, the hook `multiline()` takes |
 | `lang`        | The texts' language. Defaults to each file name's extension     |
+| `wrap`        | A long line: `columns` (default), `words`, or `none` to cut it  |
+| `offset`      | With `wrap: 'none'`, the columns scrolled past. Defaults to 0   |
 
 Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
 below it, so the same call is safe in a narrow terminal. A line wider than its room
-is folded by columns onto the rows below, under the code and not the gutter, and
-wide characters are measured as the columns they take. A tab is four columns.
+is folded onto the rows below, under the code and not the gutter: by columns unless
+`wrap` says otherwise, at a space with `words`, which drops the run of spaces the
+fold lands in, and not at all with `none`, which cuts the line at the edge with `…`.
+Wide characters are measured as the columns they take. A tab is four columns.
 
 The diff is computed here, by Myers' algorithm, and is exported on its own:
 `diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
-with their context, `parsePatch()` reads a patch, and `diffInline()` finds the
-changed words of two lines. Past about two thousand edits `diffSequence()` stops
-searching and reports the middle as replaced, which is a correct script and not the
-shortest one.
+with their context, `parsePatch()` reads a patch, `hunkPatch()` writes one hunk
+of it back, and `diffInline()` finds the changed words of two lines. Past about two
+thousand edits `diffSequence()` stops searching and reports the middle as replaced,
+which is a correct script and not the shortest one.
+
+`parsePatch()` keeps what it read as well as what it understood: each file's
+`header`, from `diff --git` to its first hunk, and each hunk's `source`, exactly as written
+-- a CRLF file's `\r` and `\ No newline at end of file` included -- and each line
+says whether it is its side's last with no newline after it (`noNewline`). A file
+git begins with `diff --git` is kept without hunks too, so a binary file
+(`binary: true`), a rename and a mode change are there to be listed. That is what
+lets one read serve both showing a patch and acting on it: `diffView({ files })`
+draws the files without reading the patch again, and `hunkPatch(file, hunk)`
+writes one hunk under its file's header as a patch of its own, which is how a
+hunk is staged:
+
+```js
+import { diffView, hunkPatch, parsePatch } from '@ttylabs/sigil/components/diff';
+import { execFileSync } from 'node:child_process';
+
+const files = parsePatch(execFileSync('git', ['diff', '--no-color'], { encoding: 'utf8' }));
+const [file] = files;
+const { element } = diffView({ files });
+
+// `git add -p`, for the first hunk
+execFileSync('git', ['apply', '--cached', '-'], { input: hunkPatch(file, file.hunks[0]) });
+```
+
+A hunk that was not read from a patch, such as one from `diffHunks()`, is written
+from its lines and its file's names.
 
 `highlight` is the seam every component shares, so `highlight: highlightCode` is
 enough. It is called with a whole side of the diff -- the old text and the new
@@ -4622,6 +4653,78 @@ view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
 `.sigil-diff-context`, `.sigil-diff-change`, `.sigil-diff-number`,
 `.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
 bold are gone and the `+` and `-` markers say which side a line is on.
+
+#### Diff view
+
+```js
+import { diffStops, hunkPatch } from '@ttylabs/sigil/components/diff';
+import { DiffView } from '@ttylabs/sigil/components/diff-view';
+import { State } from '@ttylabs/sigil/signals';
+
+const content = new State({ patch }); // what `git diff` printed
+const current = new State(0);
+const view = DiffView({ content, current, props: { 'flex-grow': 1 } });
+
+// Space, on the panel around it: stage the hunk under the cursor
+const stop = diffStops(content.get())[current.get()];
+if (stop?.hunk) {
+  stage(hunkPatch(stop.file, stop.hunk)); // git apply --cached -
+}
+```
+
+`diff()` and `diffView()` draw a diff once, for a width they are told. `DiffView` is
+the element for acting on one, beside `diffView()` as `ListView` is beside `list()`:
+its width is the layout's, it scrolls, and it has a cursor that stops on each hunk.
+Every row sits behind a one-cell mark, blank except for the current hunk's rows,
+which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
+plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
+view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
+and Down, Home and End scroll. A line too long for the view is wrapped at words,
+with the spaces a fold lands in dropped, so a padded table row does not become
+rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
+and the left and right arrows then scroll every line sideways together, eight
+columns a press, as far as the widest line that has been in view; Home and End go
+back to the start of the lines. The line numbers and the markers stay put, and so
+do the `---`, `+++` and `@@` rows, which say which file and where.
+`describeDiffView(router, view)` describes the keys for a `keyHelp()` footer.
+
+| Prop        | Meaning                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `content`   | One diff (two texts, `{ patch }` or `{ files }`) or blocks; a `State` to change it |
+| `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
+| `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
+| `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
+| `position`  | A `State` the view writes `{ x, y, maxX, width }` to: where it is scrolled to      |
+| `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
+| `scrollbar` | Draw a scrollbar. Defaults to `true`                                               |
+| `props`     | The host's own props: a size, a border, a class                                    |
+
+`lineNumbers`, `intraline`, `highlight` and `lang` are handed to `diffView()` as
+they are. `context` is not: two texts are diffed with the default context in the
+view and in `diffStops()` alike, so the two count the same hunks, and hunks of
+another context are handed over already made, as
+`{ files: [{ hunks: diffHunks(old, next, { context }) }] }`.
+
+`content` can be blocks rather than one diff: a diff (`{ diff }`) or a line or more
+of prose (`{ text, class }`) between them -- a section's heading, a commit message, a
+note that a file is binary. Prose marked `stop: true` is a stop of the cursor as a
+hunk is, which is how a file with nothing to draw is still something to act on.
+Each block's `data` is the app's and comes back on the stop.
+
+The cursor is a position among `diffStops(content)`, and the view takes each diff's
+hunks the way that function does, so what an app finds at the cursor is what the
+view marks.
+A hunk's stop carries its `file` and `hunk`, which is what `hunkPatch()` takes: the
+hunk under the cursor is one call from a patch `git apply --cached` stages. A
+position that is not a stop -- past the last, negative, fractional -- is brought to
+the nearest one, whether the content changed or the app wrote it, and content with
+no stops is shown from its start.
+
+`diffView()` also says where each hunk went, as `hunks` -- the file, the hunk, and
+the range of its rows -- which is what the view is built on, rather than on the
+classes of the rows. The theme reaches the view through `.sigil-diff-view`,
+`.sigil-diff-view-line` and `.sigil-diff-view-mark`, which carries `is-current` on
+the current hunk's rows.
 
 #### Markdown
 
@@ -5379,8 +5482,12 @@ nothing to show about it.
 `row(item, key)` returns an element or a string, and is called under an owner of
 its own, so a row may hold effects; they are disposed when the row leaves the view.
 It is not called again when the cursor or the selection moves: those are the
-classes `is-current` and `is-selected` on `.sigil-list-row` around it. Every row is
-`rowHeight` cells tall (1 by default), fixed rather than measured.
+classes `is-current` and `is-selected` on `.sigil-list-row` around it. `rowClass(item)`
+puts classes of the app's own on that box beside them -- a string or an array, as a
+`class` prop takes -- so a stylesheet reaches a row by its state, and a role class
+such as `sigil-error` colours the whole row. It is asked when the row is built, as
+`row` is: again when the item is replaced, and not when a signal it read changes.
+Every row is `rowHeight` cells tall (1 by default), fixed rather than measured.
 
 Filtering is the app's: make `items` a `Computed` over a `TextField`'s value and
 `rankBy()`, and the list sees only that its items changed. `find: true` turns on
@@ -5514,7 +5621,7 @@ htop's process list, k9s's resource view, a database client's result grid: a
 `ListView` whose rows have columns, with a heading over them that sorts. Everything
 the list does it does here -- only the rows on screen are built; **Up**, **Down**,
 **Page Up**, **Page Down**, **Home** and **End** move the cursor; `multiple`,
-`disabled`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
+`disabled`, `rowClass`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
 rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` and
 `selectRow()` call their data.
 
@@ -5556,6 +5663,13 @@ than scrolled sideways, so the columns that say what a row is stay on screen. A
 hidden column's digit does nothing until it is back. `columns` may be a `State`: an
 app hides a column, adds one, reorders them, or changes a width, a format or an
 alignment by replacing the array, and the rows in view are redrawn for it.
+
+**A row coloured by its state**, as k9s draws a crashing pod red across every
+column, is `rowClass`: `(pod) => (pod.status === 'CrashLoopBackOff' ? 'sigil-error' :
+undefined)` puts the role on the row's box and every cell takes its colour from
+there. The cursor's highlight still reads over it, because the focus is `inverse`
+and a role is a colour: the current row of a red row is red reversed. At colour level
+0 neither draws and the pointer says which row is current, as it always does there.
 
 The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 .sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are
@@ -5616,9 +5730,11 @@ border-color: cyan }`, or your own class on it with `class`. The title is
 `.sigil-heading` and the three others `.sigil-muted`; `.sigil-panel`, `-title`,
 `-annotation`, `-footer`, `-footer-annotation` and `-body` are the theme hooks. The
 border is ASCII where `unicodeSupported()` says so (`ascii: true` forces it), and
-`border` picks another character set. There is no `:focus-within`, so a panel cannot
-light up because something inside it has the focus; the app says which panel is
-current by giving it a class.
+`border` picks another character set. To light the panel the focus is in, say so in
+the app's sheet or a theme: `.sigil-panel:focus-within { border-color: green }`.
+`:focus-within` matches the focused element and every ancestor of it, so the panel
+is lit whichever control inside it has the focus, and the framework sheet sets no
+colour for it.
 
 #### A pane
 
@@ -5858,8 +5974,9 @@ it, and `background-color: default` takes it away.
 the keys write it, and a write the app makes is shown at once with the caret moved
 to the end. `onChange(value)` is called after every edit that changed it, and
 `onSubmit(value)` on Enter. `placeholder` is shown, muted, while the value is
-empty; `mask: '•'` draws a password; `disabled` (a boolean or a `State<boolean>`)
-takes it out of the focus ring and mutes it; `width` is its columns, and without
+empty; `mask: '•'` draws a password; `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live -- see "Form controls") takes it out of the
+focus ring and mutes it; `width` is its columns, and without
 one it takes what the layout gives it -- the whole width in a column. What is
 wider than the field scrolls sideways to keep the caret in view.
 
@@ -6033,17 +6150,34 @@ padding, `[ Save ]` against `  Save  `. Neither moves anything when the focus
 arrives. The value is the marker, `[x]` or `◉`, in `.sigil-accent`; the switch's
 other state is `.sigil-muted`.
 
-`disabled` (a boolean or a `State<boolean>`) takes a control out of the ring,
-mutes it, sets `:disabled`, and makes it ignore keys and clicks, which go on to
-the form; a control disabled while it has the focus keeps it. A checked checkbox
-or switch and a selected option are `:checked` too.
+`disabled` takes a control out of the ring, mutes it, sets `:disabled`, and makes
+it ignore keys and clicks, which go on to the form; a control disabled while it has
+the focus keeps it. A checked checkbox or switch and a selected option are
+`:checked` too. A disabled flag is nearly always derived -- Save until something
+changed, Sign in until the form is valid -- so `disabled` is a boolean, or anything
+read live: a `State`, a `Computed`, anything else with a `get()`, or a function,
+which is how a template spells a reactive prop. Every control that has one --
+these four, `TextField`, `TextArea`, `Slider` and `Dropdown` -- takes the same
+shapes, and follows what it reads:
+
+```tsx
+const unchanged = new Computed(() => !form.dirty.get());
+Button({ disabled: unchanged, label: 'Save', onPress: save });
+<Button disabled={() => !valid.get()} label="Sign in" onPress={signIn} />;
+```
+
+A control never writes `disabled`, which is why it can be a `Computed`; `checked`
+and `value` are written by the keys and the mouse, so they stay a value to start
+from or a `State`.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
-and return a function that takes them off. `controlFlag()`, `controlDisabled()`
-and `describeControls()` (from `@ttylabs/sigil/components/control`) are what the
-four share, for a control of your own. The theme hooks are `.sigil-button`
+and return a function that takes them off. `controlFlag()` (a value the control
+writes), `controlCondition()` (a `ControlCondition` it only reads, such as
+`disabled`), `controlDisabled()` and `describeControls()` (from
+`@ttylabs/sigil/components/control`) are what the controls share, for a control of
+your own. The theme hooks are `.sigil-button`
 (`-bracket`, `-label`), `.sigil-checkbox` (`-pointer`, `-mark`, `-label`),
 `.sigil-switch` (`-pointer`, `-label`, `-state`) and `.sigil-radio-set` with
 `.sigil-radio` (`-pointer`, `-mark`, `-label`, `-hint`) per option.
@@ -6083,9 +6217,9 @@ any key with a modifier are left alone, so a form of rows can have them. A left
 press on the track puts the thumb under the pointer and focuses the slider, and
 holding the button drags it: the press captures the pointer, so a drag past either
 end of the track, or off the canvas, clamps at that end and the release still ends
-it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
-`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
-and mutes it.
+it. The wheel is left to whatever scrolls. `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live) takes it out of the focus ring, ignores the keys
+and the pointer, and mutes it.
 
 **The label is the app's, and the readout is the slider's.** A form lines its
 labels up in a column only it knows the width of, which is why a text field has

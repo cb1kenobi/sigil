@@ -331,6 +331,54 @@ describe('the cascade', () => {
     view.dispose();
   });
 
+  it('should light the panel the focus is inside through :focus-within, and put it out after', () => {
+    // the git client's lit pane, which it did with an effect and a class: the
+    // state is carried up from the focused element, the tree records each
+    // ancestor it moved, and the restyler re-matches those -- with an inherited
+    // colour reaching a title that no mark named
+    const h = harness();
+    const on = new State<'a' | 'b'>('a');
+    const sheet = parseStylesheet(`
+      .panel { color: gray }
+      .panel:focus-within { color: cyan }
+    `);
+
+    const fields = { a: box({ class: 'field' }), b: box({ class: 'field' }) };
+    const titles = { a: text('A'), b: text('B') };
+    const panels = {
+      a: box({ class: 'panel' }, box({}, titles.a), box({}, box({}, fields.a))),
+      b: box({ class: 'panel' }, box({}, titles.b), box({}, box({}, fields.b))),
+    };
+    const view = render(
+      () => {
+        createEffect(() => {
+          const now = on.get();
+          fields[now === 'a' ? 'b' : 'a'].setState('focus', false);
+          fields[now].setState('focus', true);
+        });
+        return box({}, panels.a, panels.b);
+      },
+      {
+        backend: h.backend,
+        cascade: new Cascade([sheet]),
+        colorLevel: 3,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+
+    expect(panels.a.style.color).toBe(6);
+    expect(titles.a.style.color).toBe(6);
+    expect(titles.b.style.color).toBe(8);
+    on.set('b');
+    view.frame();
+    expect(panels.a.style.color).toBe(8);
+    expect(titles.a.style.color).toBe(8);
+    expect(panels.b.style.color).toBe(6);
+    expect(titles.b.style.color).toBe(6);
+    view.dispose();
+  });
+
   it('should re-match everything when the terminal resized', () => {
     // a rule inside a width media query may now apply or may now not, and which
     // elements those are is exactly what a full re-match answers
