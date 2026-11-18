@@ -43,13 +43,13 @@ function mount<T>(props: DiffViewProps<T>, height: number): { host: Element; roo
 }
 
 /** A key event as the router builds one, with a record of whether it was stopped. */
-function press(host: Element, name: string, mods: Partial<Key> = {}): boolean {
+function press(host: Element, name: string, mods: Partial<Key> = {}, paste = false): boolean {
   let stopped = false;
   const key: Key = { ctrl: false, meta: false, name, sequence: '', shift: false, ...mods };
   const event: KeyEvent = {
     current: undefined,
     key,
-    paste: false,
+    paste,
     stop(): void {
       stopped = true;
     },
@@ -432,23 +432,32 @@ describe('DiffView', () => {
       expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
     });
 
-    it('should forget what it has seen when the lines are drawn afresh', () => {
-      const content = new State<DiffViewContent>({
-        new: `${LONG.new}${'short\n'.repeat(10)}`,
-        old: '',
-      });
+    it('should keep what it has seen across new content, as far as the new lines go', () => {
+      const lines = `${'short\n'.repeat(10)}${LONG.new}`;
+      const content = new State<DiffViewContent>({ new: lines, old: '' });
       const position = new State({ maxX: -1, x: -1, y: -1 });
       const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
-      expect(position.get().maxX).toBe(27);
+      press(host, 'end');
+      press(host, 'right');
+      press(host, 'right');
+      for (let at = 0; at < 8; at++) {
+        press(host, 'up');
+      }
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 27, x: 16, y: 0 });
 
-      // new lines, the long one out of view: its width is not this content's
-      content.set({ new: `${'short\n'.repeat(10)}${LONG.new}`, old: '' });
+      // the same lines again, as a refresh hands them: still seen, still reachable
+      content.set({ new: lines, old: '' });
       flush();
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
-      press(host, 'right');
-      expect(picture(root, 20, 4)[1]).toBe('▌+short');
+      expect(position.get()).toEqual({ maxX: 27, x: 16, y: 0 });
+
+      // narrower lines: no further than they go, and the offset brought back with it
+      content.set({ new: `${'short\n'.repeat(10)}abcdefghijklmnopqrstuvwxyz\n`, old: '' });
+      flush();
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 8, x: 8, y: 0 });
     });
 
     it('should take in the rows a taller view shows, and keep them when it is shorter again', () => {
@@ -468,17 +477,27 @@ describe('DiffView', () => {
 
     it('should go back to the start of the lines with Home and End', () => {
       const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
-      const { host, root } = mount({ content, wrap: false }, 4);
+      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
       press(host, 'right');
       press(host, 'right');
 
       expect(press(host, 'end')).toBe(true);
-      expect(picture(root, 20, 4)[3]).toBe('▌+short');
+      picture(root, 20, 4);
+      // twelve rows in a view of four: the bottom is row 8, and the lines from 0
+      expect(position.get()).toMatchObject({ x: 0, y: 8 });
       press(host, 'right');
       expect(press(host, 'home')).toBe(true);
+      picture(root, 20, 4);
+      expect(position.get()).toMatchObject({ x: 0, y: 0 });
       // with no old side the long line is the row under the hunk header
       expect(picture(root, 20, 4)[1]).toBe('▌+alpha beta gamma …');
+
+      // a Home or End inside a paste is the same key, as the scroll box reads it
+      press(host, 'right');
+      expect(press(host, 'end', {}, true)).toBe(true);
+      expect(position.get()).toMatchObject({ x: 0, y: 8 });
     });
 
     it('should claim Home for the sideways move where there is no room up or down', () => {
@@ -516,6 +535,15 @@ describe('DiffView', () => {
         expect(press(host, 'right', mods)).toBe(false);
       }
       expect(picture(root, 20, 4)[2]).toBe('▌+alpha beta gamma …');
+
+      // and Home and End, scrolled sideways, where the scroll box has nothing to do
+      const fits = mount({ content: LONG, wrap: false }, 6);
+      picture(fits.root, 20, 6);
+      press(fits.host, 'right');
+      for (const mods of [{ shift: true }, { ctrl: true }, { meta: true }]) {
+        expect(press(fits.host, 'home', mods)).toBe(false);
+      }
+      expect(picture(fits.root, 20, 6)[2]).toBe('▌+ta gamma delta ep…');
     });
 
     it('should keep the rows where they are when it scrolls sideways', () => {

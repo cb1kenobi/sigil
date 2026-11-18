@@ -289,10 +289,6 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const draw = (content: DiffViewContent<T>, sideways = false): void => {
     const room = Math.max(1, width - 1);
     const wrapped = untrack(() => wrapping.get());
-    if (!sideways) {
-      // new lines, a new width or wrapped: what was seen was other lines' widths
-      seen = 0;
-    }
     let widest = 0;
     const rows: Element[] = [];
     const marks: Element[] = [];
@@ -363,6 +359,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       draw(content, sideways);
       return;
     }
+    // what was seen stays seen across new content -- a refresh hands the same lines
+    // back -- as far as the lines now drawn go; wrapped, nothing overflows, so it is
+    // 0. It is never short of the offset: right is the only thing that raises the
+    // offset and stops at it, and both are brought down to the overflow together
+    seen = Math.min(seen, overflow);
     lines = rows;
     runs = reaches;
     drawn = stops.map((stop, at) => ({
@@ -533,9 +534,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       event.stop();
       return;
     }
-    if (!event.paste && (k.name === 'home' || k.name === 'end') && offset > 0) {
+    if (!k.ctrl && !k.meta && !k.shift && (k.name === 'home' || k.name === 'end') && offset > 0) {
       // to the top or the bottom, and back to the start of the lines: claimed for the
-      // sideways move even where there is no room to move up or down
+      // sideways move even where there is no room to move up or down. A paste is not
+      // refused, since the scroll box takes a pasted Home as Home and the two halves
+      // of one key must not disagree; a modifier is, as it is for the arrows
       offset = 0;
       draw(
         untrack(() => read(props.content)),

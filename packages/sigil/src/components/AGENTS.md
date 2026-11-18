@@ -9715,8 +9715,7 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
   was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
   shape, which `w` writes.
-- **Right goes as far as the widest line that has been in view, remembered until
-  the lines are drawn afresh.** The first version stopped at the widest line in
+- **Right goes as far as the widest line that has been in view, remembered.** The first version stopped at the widest line in
   the whole diff, and in the git client that is every file of a commit: one
   1,300-column table row let a press scroll a short file into blank space a
   hundred and sixty times. So `diffView()` reports `rowOverflow`, each row's own,
@@ -9726,10 +9725,16 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   version used only the rows in view at that press, and Chris found that it
   forgot: scrolled down from a long line to shorter ones, the limit fell to
   theirs and the line just read could not be scrolled back to. Remembered, it
-  only grows, so a limit is one the reader has seen a reason for. It is forgotten
-  when the lines are drawn afresh -- new content, a new width, a switch of `w` --
-  because those are other lines or other rooms, and not on a sideways draw.
-  Scrolling up or down never moves the text sideways, and right among lines
+  only grows, so a limit is one the reader has seen a reason for. Across a new
+  drawing it is kept, brought down to the widest line the new drawing has: the git
+  client refreshes the diff it is showing after every stage and every `r`, and the
+  first version forgot on every drawing while the sideways offset was kept, so a
+  refresh left the view scrolled past its own limit, the right arrow claimed and
+  going nowhere (review round 5). Wrapped, nothing overflows, so `w` makes it 0.
+  It is never below the offset, because right is the only thing that raises the
+  offset and stops at it, and a drawing brings both down to the overflow together
+  -- so no guard says so, which the first version of the fix had and a sabotage
+  could not fail. Scrolling up or down never moves the text sideways, and right among lines
   shorter than the offset goes on to the remembered limit rather than back. A
   view with no height has no row in view and adds nothing; it fell back to the
   whole diff's widest line until review round 3 found a pane laid out at a height
@@ -9744,7 +9749,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   from. The scroll box still does the vertical half; the view resets the offset
   first, draws, and claims the key even where the content fits and the scroll box
   would have let it go -- it did something. At an offset of 0 the key is the scroll
-  box's alone, claimed or not by its own rule.
+  box's alone, claimed or not by its own rule. With Shift, Ctrl or Meta the sideways
+  half is left alone, as the arrows are; inside a paste it is not, because the
+  scroll box reads a pasted Home as Home and the two halves of one key must agree
+  (both review round 5).
 - **`position` is a `State` the view writes, and only writes.** `{ x, y, maxX }`:
   the sideways offset, the row at the top, and how far right of the edge the
   widest line seen ends, which is as far as `x` goes. Asked for to see the limit
