@@ -67,6 +67,11 @@ export interface DiffViewProps<T = unknown> {
   layout?: DiffLayout;
   /** `diffView()`'s `lineNumbers`. */
   lineNumbers?: boolean;
+  /**
+   * A `State` the view writes where it is scrolled to, for a status line or a
+   * border to show. Written when it changes, never read.
+   */
+  position?: State<DiffViewPosition>;
   /** The host box's own props: a size, a border, a class. */
   props?: ElementPropsWithout<'onKey'>;
   /** Whether to draw a scrollbar. Defaults to `true`. */
@@ -81,6 +86,16 @@ export interface DiffViewProps<T = unknown> {
    * state itself, which `w` writes and an app writes to switch it.
    */
   wrap?: boolean | State<boolean>;
+}
+
+/** Where a diff view is scrolled to, which it writes to its `position`. */
+export interface DiffViewPosition {
+  /** How far right of the edge the widest line in view ends: as far as `x` goes from here. */
+  readonly maxX: number;
+  /** How many columns every line is scrolled sideways: always 0 while lines are wrapped. */
+  readonly x: number;
+  /** The row at the top of the view, counting every row the view draws from 0. */
+  readonly y: number;
 }
 
 /** Where a diff view's keys are described, which is the whole of what is asked of a router. */
@@ -154,6 +169,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   ) {
     throw new TypeError(__`Expected diff view current to be a whole number or a State`);
   }
+  if (props.position !== undefined && !(props.position instanceof State)) {
+    throw new TypeError(__`Expected diff view position to be a State`);
+  }
   if (
     props.wrap !== undefined &&
     !(props.wrap instanceof State) &&
@@ -184,6 +202,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const scroll = ScrollBox({
     // the view holds the focus and every key, so the box inside it holds neither
     onResize: (control) => resized(control),
+    onScroll: () => report(),
     props: {
       class: 'sigil-diff-view-scroll',
       'flex-basis': 0,
@@ -341,14 +360,14 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       current.set(nearest(at));
     }
     light(untrack(() => current.get()));
-    if (sideways) {
-      return;
+    if (!sideways) {
+      if (drawn.length === 0) {
+        // nothing to keep in view, so what is drawn is shown from its start
+        viewport.scrollTo(0, 0);
+      }
+      reveal();
     }
-    if (drawn.length === 0) {
-      // nothing to keep in view, so what is drawn is shown from its start
-      viewport.scrollTo(0, 0);
-    }
-    reveal();
+    report();
   };
 
   /**
@@ -420,6 +439,22 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       return true;
     }
     return pending ? reveal() : false;
+  }
+
+  /** Writes where the view is to `position`, where there is one and it moved. */
+  function report(): void {
+    if (props.position === undefined) {
+      return;
+    }
+    const next: DiffViewPosition = {
+      maxX: untrack(() => wrapping.get()) ? 0 : reach(),
+      x: offset,
+      y: Math.max(0, Math.floor(viewport.scroll?.y ?? 0)),
+    };
+    const was = untrack(() => props.position!.get());
+    if (was.maxX !== next.maxX || was.x !== next.x || was.y !== next.y) {
+      props.position.set(next);
+    }
   }
 
   host.onKey = (event: KeyEvent): void => {

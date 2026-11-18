@@ -4693,6 +4693,7 @@ describes the keys for a `keyHelp()` footer.
 | `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
 | `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
 | `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
+| `position`  | A `State` the view writes `{ x, y, maxX }` to: where it is scrolled to             |
 | `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
 | `scrollbar` | Draw a scrollbar. Defaults to `true`                                               |
 | `props`     | The host's own props: a size, a border, a class                                    |

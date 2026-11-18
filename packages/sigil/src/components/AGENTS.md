@@ -9728,6 +9728,17 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   whole diff runs past the edge, since which rows are in view changes with every
   vertical scroll and a key that is claimed only sometimes is one a pane around
   the view cannot rely on.
+- **`position` is a `State` the view writes, and only writes.** `{ x, y, maxX }`:
+  the sideways offset, the row at the top, and how far right of the edge the
+  widest line in view ends, which is as far as `x` goes from here and may be less
+  than `x` after scrolling down to shorter lines. Asked for to see the limit above
+  working: with a 1,300-column table row on screen the honest limit really is a
+  hundred and fifty presses away, which reads as no limit until a number says so.
+  The git client prints it in the diff pane's bottom border. Written on a draw and
+  on the scroll box's `onScroll`, and only when one of the three moved, so it asks
+  for no frame of its own while nothing changes. A `State` the app hands in rather
+  than one the view hands out, `current`'s shape, since `DiffView()` returns the
+  element.
 - **A sideways scroll keeps the rows where they are, and the offset is clamped by
   the drawing.** Every row is drawn again for a scroll, but the current stop is
   not brought back into view: a reader who scrolled away from it to read something

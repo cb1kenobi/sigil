@@ -412,6 +412,34 @@ describe('DiffView', () => {
       expect(picture(root, 20, 4)[0]).toBe('▌+short');
     });
 
+    it('should write where it is scrolled to into a position State', () => {
+      const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
+      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const { host, root } = mount({ content, position, wrap: false }, 4);
+      picture(root, 20, 4);
+      // the long line is in view: 45 columns against a room of 18
+      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+
+      press(host, 'right');
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 27, x: 8, y: 0 });
+
+      for (let at = 0; at < 4; at++) {
+        press(host, 'down');
+      }
+      picture(root, 20, 4);
+      // among the short lines, nothing is past the edge: x is further than it goes
+      expect(position.get()).toEqual({ maxX: 0, x: 8, y: 4 });
+
+      press(host, 'w');
+      picture(root, 20, 4);
+      expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
+    });
+
+    it('should refuse a position that is not a State', () => {
+      expect(() => DiffView({ content: LONG, position: { x: 0 } as never })).toThrow(/State/);
+    });
+
     it('should leave a modified arrow to whoever binds it', () => {
       const { host, root } = mount({ content: LONG, wrap: false }, 4);
       picture(root, 20, 4);

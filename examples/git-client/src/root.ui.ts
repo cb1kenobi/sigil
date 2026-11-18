@@ -96,7 +96,12 @@ export function App(): Element {
     />
   `;
   const diff = ui`
-    <${DiffView} content=${m.diff.blocks} current=${m.diff.cursor} props=${{ class: 'diff-pane' }} />
+    <${DiffView}
+      content=${m.diff.blocks}
+      current=${m.diff.cursor}
+      position=${m.diff.position}
+      props=${{ class: 'diff-pane' }}
+    />
   `;
 
   const panels = {
@@ -111,7 +116,12 @@ export function App(): Element {
       </>
     `,
     diff: ui`
-      <${Panel} class="diff" props=${{ onKey: m.keys.diff }} title=${m.titles.diff}>
+      <${Panel}
+        class="diff"
+        footer=${m.diffFooter}
+        props=${{ onKey: m.keys.diff }}
+        title=${m.titles.diff}
+      >
         ${diff}
       </>
     `,

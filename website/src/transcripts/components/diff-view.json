@@ -52,6 +52,12 @@
         "type": "boolean"
       },
       {
+        "description": "A `State` the view writes where it is scrolled to, for a status line or a border to show. Written when it changes, never read.",
+        "name": "position",
+        "optional": true,
+        "type": "State<DiffViewPosition>"
+      },
+      {
         "description": "The host box's own props: a size, a border, a class.",
         "name": "props",
         "optional": true,

@@ -31,6 +31,7 @@ import {
   type DiffFile,
   type DiffStop,
   diffStops,
+  type DiffViewPosition,
   hunkPatch,
   type NoteVariant,
   openModal,
@@ -119,6 +120,8 @@ export interface DiffState {
   readonly cursor: State<number>;
   /** Every stop of the blocks, in order, as the view counts them. */
   readonly hunks: Computed<readonly DiffStop<Place>[]>;
+  /** Where the view is scrolled to, which it writes: the view's `position`. */
+  readonly position: State<DiffViewPosition>;
 }
 
 /** What the roots hand back once they have built the screen. */
@@ -159,6 +162,8 @@ export interface Model {
   readonly status: () => string;
   /** Each pane's title. */
   readonly titles: Readonly<Record<PaneName, () => string>>;
+  /** What the diff pane's bottom border says: where the view is scrolled to. */
+  readonly diffFooter: () => string;
 }
 
 /** How much of a patch is drawn before the rest is left out, in lines. */
@@ -295,6 +300,7 @@ export function createModel(): Model {
 
   const content = new State<DiffContent>({ ...NOTHING, note: 'Loading...' });
   const cursor = new State(0);
+  const position = new State<DiffViewPosition>({ maxX: 0, x: 0, y: 0 });
   const blocks = new Computed<readonly DiffBlock<Place>[]>(() => blocksOf(content.get()));
   const hunks = new Computed<readonly DiffStop<Place>[]>(() => diffStops(blocks.get()));
 
@@ -975,7 +981,11 @@ export function createModel(): Model {
     branches,
     commitCursor,
     commits,
-    diff: { blocks, content, cursor, hunks },
+    diff: { blocks, content, cursor, hunks, position },
+    diffFooter: () => {
+      const at = position.get();
+      return `x ${at.x} (max ${at.maxX}) · y ${at.y}`;
+    },
     empty: {
       // the problem is said once, in the first pane, rather than three times
       branches: () => (problem.get() ? '' : loaded.get() ? 'No branches yet' : 'Loading...'),
