@@ -247,14 +247,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   /**
    * How far the widest line in view runs past its room: as far as a sideways
    * scroll goes from where the view is. Asked at each press rather than kept, so
-   * it follows the rows in view as the view scrolls up and down; the whole
-   * diff's widest line before there is a layout to say which rows those are.
+   * it follows the rows in view as the view scrolls up and down. A view with no
+   * height has no row in view and so nowhere to go: there is always a layout by
+   * now, since nothing is drawn until one has given the view a width.
    */
   const reach = (): number => {
     const height = viewHeight();
-    if (height <= 0) {
-      return overflow;
-    }
     const top = Math.max(0, Math.floor(viewport.scroll?.y ?? 0));
     let most = 0;
     for (let at = top; at < Math.min(runs.length, top + height); at++) {

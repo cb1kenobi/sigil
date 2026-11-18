@@ -9721,7 +9721,11 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   scroll a short file into blank space a hundred and sixty times. So `diffView()`
   reports `rowOverflow`, each row's own, the view keeps it beside the rows, and a
   press of right takes the widest among the rows on screen -- recomputed then
-  rather than kept, so it follows the view up and down for free. Scrolling up or
+  rather than kept, so it follows the view up and down for free. A view with no
+  height has no row in view and goes nowhere; it fell back to the whole diff's
+  widest line until review round 3 found a pane laid out at a height of 0 scrolling
+  into blank, and the fallback was for a case that cannot happen, since nothing is
+  drawn before a layout gives the view a width. Scrolling up or
   down never moves the text sideways: right in a view of shorter lines goes
   nowhere and does not come back either, which would be a jump nobody pressed for,
   and left still does. The arrows are still claimed whenever anything in the

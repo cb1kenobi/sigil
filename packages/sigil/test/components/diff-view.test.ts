@@ -436,6 +436,18 @@ describe('DiffView', () => {
       expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
     });
 
+    it('should not scroll sideways while no row is in view', () => {
+      // laid out at a width with no height: a view that can see nothing has nowhere
+      // to go, whatever the lines it is not showing run to
+      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const { host, root } = mount({ content: LONG, position, wrap: false }, 0);
+      picture(root, 20, 2);
+
+      expect(press(host, 'right')).toBe(true);
+      picture(root, 20, 2);
+      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+    });
+
     it('should refuse a position that is not a State', () => {
       expect(() => DiffView({ content: LONG, position: { x: 0 } as never })).toThrow(/State/);
     });
