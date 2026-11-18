@@ -326,6 +326,12 @@ describe('trash()', () => {
    * failed assertion does not leave it there either.
    */
   describe.runIf(process.platform === 'darwin' || WINDOWS)("the platform's own trash", () => {
+    /**
+     * Windows compiles the C# with `Add-Type` on every call, about a second and a
+     * half on a runner -- two calls passed 10 s on node 24 and timed out on node 22.
+     */
+    const SLOW = 60_000;
+
     /** Takes an item back out of the trash, with whatever the platform keeps beside it. */
     async function takeOut(where: string): Promise<void> {
       if (!where) {
@@ -339,40 +345,48 @@ describe('trash()', () => {
       }
     }
 
-    it('should move a file, and a name with spaces, quotes and more than ASCII', async () => {
-      const root = made('sigil-trash-real-');
-      const names = ['plain.txt', `it's a "test" ü 日本.txt`];
-      for (const name of names) {
-        // a name with `"` is not a name Windows allows
-        const file = join(root, WINDOWS ? name.replaceAll('"', '') : name);
-        writeFileSync(file, name);
+    it(
+      'should move a file, and a name with spaces, quotes and more than ASCII',
+      async () => {
+        const root = made('sigil-trash-real-');
+        const names = ['plain.txt', `it's a "test" ü 日本.txt`];
+        for (const name of names) {
+          // a name with `"` is not a name Windows allows
+          const file = join(root, WINDOWS ? name.replaceAll('"', '') : name);
+          writeFileSync(file, name);
+          let where = '';
+          try {
+            where = await trash(file);
+            expect(where).not.toBe('');
+            expect(existsSync(file)).toBe(false);
+            expect(readFileSync(where, 'utf8')).toBe(name);
+            expect(where).toMatch(WINDOWS ? /\$Recycle\.Bin/i : /\.Trash/);
+          } finally {
+            await takeOut(where);
+          }
+          expect(existsSync(where)).toBe(false);
+        }
+      },
+      SLOW
+    );
+
+    it(
+      'should move a directory and everything in it',
+      async () => {
+        const root = made('sigil-trash-real-dir-');
+        const dir = join(root, 'dir');
+        mkdirSync(join(dir, 'deep'), { recursive: true });
+        writeFileSync(join(dir, 'deep', 'x'), 'x');
         let where = '';
         try {
-          where = await trash(file);
-          expect(where).not.toBe('');
-          expect(existsSync(file)).toBe(false);
-          expect(readFileSync(where, 'utf8')).toBe(name);
-          expect(where).toMatch(WINDOWS ? /\$Recycle\.Bin/i : /\.Trash/);
+          where = await trash(dir);
+          expect(existsSync(dir)).toBe(false);
+          expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
         } finally {
           await takeOut(where);
         }
-        expect(existsSync(where)).toBe(false);
-      }
-    });
-
-    it('should move a directory and everything in it', async () => {
-      const root = made('sigil-trash-real-dir-');
-      const dir = join(root, 'dir');
-      mkdirSync(join(dir, 'deep'), { recursive: true });
-      writeFileSync(join(dir, 'deep', 'x'), 'x');
-      let where = '';
-      try {
-        where = await trash(dir);
-        expect(existsSync(dir)).toBe(false);
-        expect(readFileSync(join(where, 'deep', 'x'), 'utf8')).toBe('x');
-      } finally {
-        await takeOut(where);
-      }
-    });
+      },
+      SLOW
+    );
   });
 });
