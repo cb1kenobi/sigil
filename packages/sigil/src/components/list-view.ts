@@ -603,7 +603,8 @@ export interface ListViewDescriber {
 
 /**
  * How `describeListView()`, `describeTreeListView()` and `describeDataTable()` word
- * the keys they describe, given after the hosts.
+ * the keys they describe, given after the hosts as a plain object: a class instance
+ * is not read as options, for the reason `describedHosts()` gives.
  */
 export interface DescribeListViewOptions {
   /**
@@ -618,11 +619,14 @@ export interface DescribeListViewOptions {
 /**
  * The hosts a describer was handed and the options after them, the options checked.
  *
- * Only the last argument may be options, and only a plain object is: anything else
- * is left among the hosts for the describer to refuse by its own name -- an array
- * of hosts, or an element from a second copy of the package, which is not an
- * `Element` here and would otherwise be taken for options with no word and
- * dropped. Shared by every describer that takes
+ * Only the last argument may be options, and only a plain object is -- one whose
+ * prototype is `null` or a realm's `Object.prototype`, so a literal from a `vm`
+ * context counts. Anything else is left among the hosts for the describer to refuse
+ * by its own name: an array of hosts, or an element from a second copy of the
+ * package, which is not an `Element` here and would otherwise be taken for options
+ * with no word and dropped. A class instance is refused the same way, which is the
+ * price of telling a foreign element from options without guessing at its shape.
+ * Shared by every describer that takes
  * {@link DescribeListViewOptions}, so the three cannot come to read it differently.
  *
  * @param args - What followed the router.
@@ -633,8 +637,11 @@ export function describedHosts(args: readonly (Element | DescribeListViewOptions
   options: DescribeListViewOptions;
 } {
   const last = args.at(-1);
-  const proto = typeof last === 'object' && last !== null ? Object.getPrototypeOf(last) : false;
-  if (proto !== Object.prototype && proto !== null) {
+  // a root prototype is one with nothing under it, which is what every realm's
+  // `Object.prototype` is and what an array's, a map's or an element's is not
+  const proto: unknown =
+    typeof last === 'object' && last !== null ? Object.getPrototypeOf(last) : undefined;
+  if (proto !== null && (typeof proto !== 'object' || Object.getPrototypeOf(proto) !== null)) {
     return { hosts: args as readonly Element[], options: {} };
   }
   const { activate } = last as DescribeListViewOptions;

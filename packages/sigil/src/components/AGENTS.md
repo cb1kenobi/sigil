@@ -12674,14 +12674,20 @@ calls too.
   signature, and every call written so far has to go on meaning what it did. The
   rest is typed as a union of `Element[]` and `[...Element[], options]`, so the
   compiler refuses options anywhere but last, and at run time the last argument is
-  the options only when it is a **plain object** -- its prototype `Object.prototype`
-  or `null`. Anything else that is not a host stays among the hosts and is refused
+  the options only when it is a **plain object** -- its prototype `null` or a
+  realm's `Object.prototype`, which is any prototype with nothing under it, so a
+  literal built in a `vm` context counts (round 2). Anything else that is not a host stays among the hosts and is refused
   by the describer's own `Expected an element that ...`, so options between two
   lists fail as "not a list". Plain rather than "not an `Element`" was review round
   1's: under the looser test an array of lists (a spread somebody forgot), or a
   list built by a second copy of the package, was taken for options with no word
   and dropped -- the call described nothing and threw nothing, where it had always
-  thrown. Both are pinned. Not a second function (`describeListViewWith()`) and not an options-first
+  thrown. Both are pinned. The limit it costs is a **class instance**: `new
+  Word()` with an `activate` field type-checks, since the interface is structural,
+  and is refused as not a list. A foreign element is also a class instance, and
+  telling the two apart would mean guessing at an element's shape; options are
+  written as a literal everywhere they appear, so the contract is narrowed to that
+  and the refusal is pinned too. Not a second function (`describeListViewWith()`) and not an options-first
   overload, because either is a second spelling of one call; not a `ListView`
   prop, because the word is read only by a footer, and a prop would have to be
   added to and forwarded by `TreeListView` and `DataTable` as well, where the

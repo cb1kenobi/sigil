@@ -31,6 +31,7 @@ import { createEffect, onCleanup } from '../../src/renderer/index.js';
 import { Computed, flush, State, untrack } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -1402,6 +1403,24 @@ describe('describeListView()', () => {
     // a null-prototype object is still a plain one
     describeListView(router, list, Object.assign(Object.create(null), { activate: 'show' }));
     expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+  });
+
+  it('should take a literal from another realm as options, and refuse a class instance', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    // another realm's Object.prototype is still a root prototype
+    const foreign = runInNewContext('({ activate: "show" })') as DescribeListViewOptions;
+    describeListView(router, list, foreign);
+    expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+    live.length = 0;
+    // the limit: an instance cannot be told from a foreign element by its prototype
+    class Word {
+      activate = 'show';
+    }
+    expect(() => describeListView(router, list, new Word())).toThrow(
+      'Expected an element that ListView() returned'
+    );
+    expect(live).toHaveLength(0);
   });
 
   it("should translate the default open, and leave the caller's word as given", async () => {
