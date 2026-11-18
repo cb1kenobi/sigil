@@ -7,6 +7,7 @@ import {
   type ListControl,
   listControl,
   ListView,
+  type DescribeListViewOptions,
   type ListViewDescriber,
   type ListViewProps,
 } from '../../src/components/list-view.js';
@@ -1330,6 +1331,52 @@ describe('describeListView()', () => {
     expect(() => describeListView(recorder().router, box())).toThrow(
       'Expected an element that ListView() returned'
     );
+  });
+
+  it('should say open for Enter unless the options after the lists say what it does', () => {
+    const enter = (live: Array<[string, DescribeOptions]>) =>
+      live.filter(([keys]) => keys === 'enter').map(([, opts]) => opts.description);
+    const first = ListView({ items: [], onActivate: () => {} });
+    const second = ListView({ items: [], onActivate: () => {} });
+
+    const { live, router } = recorder();
+    const off = describeListView(router, first, second);
+    expect(enter(live)).toEqual(['open', 'open']);
+    off();
+
+    // the word is the caller's, for every list before it, and is shown as given
+    describeListView(router, first, second, { activate: 'show' });
+    expect(enter(live)).toEqual(['show', 'show']);
+    expect(live.filter(([keys]) => keys === 'enter').map(([, o]) => o.scope)).toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it('should not describe Enter for a list with no onActivate, whatever word it is given', () => {
+    const { live, router } = recorder();
+    describeListView(router, ListView({ items: [] }), { activate: 'show' });
+    expect(live.map(([keys]) => keys)).not.toContain('enter');
+  });
+
+  it('should refuse an activate word that is not a non-empty string, before describing anything', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [] });
+    for (const activate of ['', 42, null]) {
+      expect(() =>
+        describeListView(router, list, { activate } as unknown as DescribeListViewOptions)
+      ).toThrow('Expected activate to be a non-empty string');
+    }
+    expect(live).toHaveLength(0);
+  });
+
+  it('should take options only last, and refuse them anywhere else as not a list', () => {
+    const { router } = recorder();
+    const list = ListView({ items: [] });
+    expect(() =>
+      // @ts-expect-error -- the options go after the lists
+      describeListView(router, { activate: 'show' }, list)
+    ).toThrow('Expected an element that ListView() returned');
   });
 });
 

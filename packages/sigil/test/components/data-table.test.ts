@@ -1004,6 +1004,24 @@ describe('describeDataTable()', () => {
     expect(digits()).toEqual(['1']);
   });
 
+  it('should say open for Enter, or the word the options give, for a table with onActivate', () => {
+    const host = procs({ onActivate: () => {} });
+    const { live, router } = recorder();
+    picture(host, 48);
+    const enter = () =>
+      live.filter(([keys]) => keys === 'enter').map(([, opts]) => opts.description);
+    const off = describeDataTable(router, host);
+    flush();
+    expect(enter()).toEqual(['open']);
+    off();
+    describeDataTable(router, host, { activate: 'inspect' });
+    flush();
+    expect(enter()).toEqual(['inspect']);
+    expect(() => describeDataTable(router, host, { activate: '' })).toThrow(
+      'Expected activate to be a non-empty string'
+    );
+  });
+
   it('should refuse an element that is not a table', () => {
     expect(() => describeDataTable(recorder().router, box())).toThrow(
       'Expected an element that DataTable() returned'

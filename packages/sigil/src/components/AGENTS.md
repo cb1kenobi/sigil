@@ -12124,7 +12124,8 @@ How each question was settled, the probes and the sabotage pass are in
   default, listed in the sheet's comment.
 - **`describeListView(router, ...lists)` describes the keys each list claims**,
   scoped to it: the moves always, `j`/`k` with `vim`, Space and Ctrl-A with
-  `multiple`, Enter with `onActivate`. Type-to-find is not described, for the reason
+  `multiple`, Enter with `onActivate` -- as `open`, or the word options after the
+  lists give (SIG-478, below). Type-to-find is not described, for the reason
   `describeTabs()` leaves the digits out.
 
 **The contract a table and a tree build on.** Either of two layers, and
@@ -12658,6 +12659,54 @@ horizontal axis, above; a range selection, the list's; and moving
 `examples/system-monitor` onto it, which is a change to that app's behaviour (it
 keeps the selection on a **row position** on purpose, its README says so) and
 belongs to whoever owns it.
+
+### The word for Enter is the caller's, given after the hosts (SIG-478)
+
+`describeListView()` said `open` for Enter on every list with an `onActivate`,
+and nothing could change it. The disk usage example's Enter maps a directory, so
+its footer read `enter open` beside its own `enter map it` -- two meanings for one
+key -- and the example moved Enter off the tree's `onActivate` onto its panel,
+which cost it double-click on a row, since `onActivate` is what a double click
+calls too.
+
+- **Options go after the hosts: `describeListView(input, list, { activate: 'show'
+  })`.** The hosts are a rest parameter, so nothing can be appended to the
+  signature, and every call written so far has to go on meaning what it did. The
+  rest is typed as a union of `Element[]` and `[...Element[], options]`, so the
+  compiler refuses options anywhere but last, and at run time the last argument is
+  the options when it is an object that is not an `Element`. Anything else that is
+  not a host stays among the hosts and is refused by the describer's own `Expected
+  an element that ...` -- so options written first fail as "not a list", which is
+  pinned. Not a second function (`describeListViewWith()`) and not an options-first
+  overload, because either is a second spelling of one call; not a `ListView`
+  prop, because the word is read only by a footer, and a prop would have to be
+  added to and forwarded by `TreeListView` and `DataTable` as well, where the
+  describer is already the one function all three go through.
+- **One rule for every describer that says `open` for Enter.** That is
+  `describeListView()`, and the two that describe a list through it,
+  `describeTreeListView()` and `describeDataTable()`. They take the same
+  `DescribeListViewOptions` and split their arguments with the same
+  `describedHosts()`, so they cannot come to read it differently. That helper is
+  published on the list view's subpath because a component `sigil add` copies
+  imports its siblings from published subpaths, and the registry test refuses a
+  name the bundle does not export. The audit was
+  `describe[A-Z]\w*View\(` and every `` __`open` ``: the only other `open` is
+  `describeCollapsible()`'s Right, which is the section's own expand and not an
+  activation the app defines, so it has no word to change.
+- **The options apply to every host in the call.** A footer with two lists whose
+  Enter does different things describes them in two calls. Per-host words would
+  need a pairing syntax, `[list, options]`, which is the cost of a case nobody has.
+- **The default is translated and the caller's word is not.** `` __`open` `` is
+  sigil's own English and is a key in its catalog; `map it` is the app's, and an
+  app that translates its own strings passes what its own `__` returned. Passing
+  the caller's word through sigil's `__` would look it up in a catalog that does
+  not carry it -- and if a catalog happened to, would translate an app's word by
+  sigil's meaning of it.
+- **The word is checked before anything is described**, as a non-empty string,
+  since the router would refuse an empty description only on reaching a list with
+  an `onActivate`, after the lists before it were described -- half a footer and a
+  throw. A list with no `onActivate` claims no Enter, and a word does not make it
+  describe one.
 
 ### Components that take `props`
 

@@ -1301,11 +1301,13 @@ about where the space went.
   memoized per node is read only for a branch that is shown, so a tree of 180,000
   names costs what is open, and a new node is a new choice with new children.
 
-- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
-  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
-  is two meanings for one key, so the tree has no `onActivate` and the panel's
-  `onKey` takes Enter. A double click on a row does nothing; a click on the map
-  selects.
+- **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
+  for a while, because `describeListView()` could only say `enter open`, and a
+  footer saying `open` beside `map it` is two meanings for one key -- which cost a
+  double click on a row, since that is `onActivate` too. SIG-478 gave the
+  describers the word: `describeTreeListView(input, tree, { activate: 'map it' })`.
+  So a double click on a row maps it, as Enter does, and a click on the map
+  selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.

@@ -142,6 +142,32 @@ describe('the disk usage visualizer', () => {
   );
 
   it(
+    'should map the directory a row is double-clicked on, and say map it for Enter',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, { mouse: true });
+      // Enter is the tree's own, worded for what it does here
+      const footer = m.term.viewport.at(-1) ?? '';
+      expect(footer).toMatch(/map it/);
+      expect(footer).not.toMatch(/open/);
+
+      const rows = m.term.viewport;
+      const y = rows.findIndex((row) => / src +12\.0 kB/.test(row));
+      expect(y).toBeGreaterThan(0);
+      const x = (rows[y] as string).indexOf('src') + 1;
+      const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
+      // both clicks in one read, as a fast double click arrives
+      await m.press(click + click);
+      expect(info(m)).toMatch(/work[\\/]src · 12\.0 kB/);
+      expect(m.screen()).toMatch(/Map: work[\\/]src/);
+      expect(mapPart(m)).toMatch(/main\.ts/);
+      expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
     'should delete only once the confirm is answered yes, which it does not start on',
     async () => {
       const work = workspace();

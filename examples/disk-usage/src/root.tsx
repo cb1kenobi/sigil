@@ -68,6 +68,7 @@ export function App(): Element {
       empty="Scanning..."
       expanded={m.expanded}
       items={m.items}
+      onActivate={m.mapIt}
       props={{ class: 'tree' }}
       row={(choice) => {
         const node = m.nodeOf(choice);

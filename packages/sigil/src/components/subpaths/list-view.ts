@@ -1,5 +1,7 @@
 export {
   createListSelection,
+  type DescribeListViewOptions,
+  describedHosts,
   describeListView,
   type ListControl,
   listControl,
