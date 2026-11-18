@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 417 keys, which is what a catalog has to carry to translate sigil's own
+ * 426 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -81,6 +81,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a collapsible title to be a string',
   'Expected a context menu input to be a router',
   'Expected a context menu target to be an element',
+  'Expected a diff view to have content',
   'Expected a dropdown input to be a router',
   'Expected a dropdown option to be a string or a choice with a label',
   'Expected a dropdown placeholder to be a string',
@@ -143,6 +144,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Checkbox() returned',
   'Expected an element that Collapsible() returned',
   'Expected an element that DataTable() returned',
+  'Expected an element that DiffView() returned',
   'Expected an element that ListView() returned',
   'Expected an element that RadioSet() returned',
   'Expected an element that Slider() returned',
@@ -162,6 +164,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected data table rows to be an array, a State or a Computed',
   'Expected data table sort to name a column: {0} is not one',
   'Expected data table {0} to be a function',
+  'Expected diff view current to be a whole number or a State',
+  'Expected diff view position to be a State',
+  'Expected diff view wrap to be a boolean or a State',
+  'Expected diff wrap to be columns, words or none',
   'Expected dropdown disabled to be a boolean, a State, a Computed or a function',
   'Expected dropdown options to be an array',
   'Expected each item to be a string or an object with a text string',
@@ -372,6 +378,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'much less',
   'much more',
   'next',
+  'next hunk',
   'next match',
   'next tab',
   'no',
@@ -388,6 +395,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'pick',
   'press',
   'previous',
+  'previous hunk',
   'previous match',
   'previous tab',
   'quit',
@@ -408,6 +416,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'top',
   'until {0}',
   'up a level',
+  'wrap',
   'y/n',
   'yes',
   '{0} (cancelled)',

@@ -4585,7 +4585,8 @@ lines in the success role and the context muted. Inside a line that was edited,
 the words that changed are set in bold, so `foo(1)` against `bar(1)` shows which
 word moved and not only that the line did. `diff()` returns a string and the
 caller does the writing, like `rule()`, so it ignores `--quiet`; `diffView()` is
-the element tree behind it, and also says which layout it ended up with.
+the element tree behind it, and also says which layout it ended up with and which
+rows each hunk took.
 
 | Option        | Meaning                                                         |
 | ------------- | --------------------------------------------------------------- |
@@ -4596,11 +4597,15 @@ the element tree behind it, and also says which layout it ended up with.
 | `intraline`   | Set the edited words apart. Defaults to `true`                  |
 | `highlight`   | `(text, lang) => HighlightSpan[]`, the hook `multiline()` takes |
 | `lang`        | The texts' language. Defaults to each file name's extension     |
+| `wrap`        | A long line: `columns` (default), `words`, or `none` to cut it  |
+| `offset`      | With `wrap: 'none'`, the columns scrolled past. Defaults to 0   |
 
 Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
 below it, so the same call is safe in a narrow terminal. A line wider than its room
-is folded by columns onto the rows below, under the code and not the gutter, and
-wide characters are measured as the columns they take. A tab is four columns.
+is folded onto the rows below, under the code and not the gutter: by columns unless
+`wrap` says otherwise, at a space with `words`, which drops the run of spaces the
+fold lands in, and not at all with `none`, which cuts the line at the edge with `…`.
+Wide characters are measured as the columns they take. A tab is four columns.
 
 The diff is computed here, by Myers' algorithm, and is exported on its own:
 `diffLines()` and `diffSequence()` give the edit script, `diffHunks()` the hunks
@@ -4648,6 +4653,78 @@ view through the roles and through `.sigil-diff-add`, `.sigil-diff-remove`,
 `.sigil-diff-context`, `.sigil-diff-change`, `.sigil-diff-number`,
 `.sigil-diff-marker` and `.sigil-diff-hunk`. At colour level 0 the colours and the
 bold are gone and the `+` and `-` markers say which side a line is on.
+
+#### Diff view
+
+```js
+import { diffStops, hunkPatch } from '@ttylabs/sigil/components/diff';
+import { DiffView } from '@ttylabs/sigil/components/diff-view';
+import { State } from '@ttylabs/sigil/signals';
+
+const content = new State({ patch }); // what `git diff` printed
+const current = new State(0);
+const view = DiffView({ content, current, props: { 'flex-grow': 1 } });
+
+// Space, on the panel around it: stage the hunk under the cursor
+const stop = diffStops(content.get())[current.get()];
+if (stop?.hunk) {
+  stage(hunkPatch(stop.file, stop.hunk)); // git apply --cached -
+}
+```
+
+`diff()` and `diffView()` draw a diff once, for a width they are told. `DiffView` is
+the element for acting on one, beside `diffView()` as `ListView` is beside `list()`:
+its width is the layout's, it scrolls, and it has a cursor that stops on each hunk.
+Every row sits behind a one-cell mark, blank except for the current hunk's rows,
+which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
+plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
+view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
+and Down, Home and End scroll. A line too long for the view is wrapped at words,
+with the spaces a fold lands in dropped, so a padded table row does not become
+rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
+and the left and right arrows then scroll every line sideways together, eight
+columns a press, as far as the widest line that has been in view; Home and End go
+back to the start of the lines. The line numbers and the markers stay put, and so
+do the `---`, `+++` and `@@` rows, which say which file and where.
+`describeDiffView(router, view)` describes the keys for a `keyHelp()` footer.
+
+| Prop        | Meaning                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `content`   | One diff (two texts, `{ patch }` or `{ files }`) or blocks; a `State` to change it |
+| `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
+| `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
+| `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
+| `position`  | A `State` the view writes `{ x, y, maxX, width }` to: where it is scrolled to      |
+| `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
+| `scrollbar` | Draw a scrollbar. Defaults to `true`                                               |
+| `props`     | The host's own props: a size, a border, a class                                    |
+
+`lineNumbers`, `intraline`, `highlight` and `lang` are handed to `diffView()` as
+they are. `context` is not: two texts are diffed with the default context in the
+view and in `diffStops()` alike, so the two count the same hunks, and hunks of
+another context are handed over already made, as
+`{ files: [{ hunks: diffHunks(old, next, { context }) }] }`.
+
+`content` can be blocks rather than one diff: a diff (`{ diff }`) or a line or more
+of prose (`{ text, class }`) between them -- a section's heading, a commit message, a
+note that a file is binary. Prose marked `stop: true` is a stop of the cursor as a
+hunk is, which is how a file with nothing to draw is still something to act on.
+Each block's `data` is the app's and comes back on the stop.
+
+The cursor is a position among `diffStops(content)`, and the view takes each diff's
+hunks the way that function does, so what an app finds at the cursor is what the
+view marks.
+A hunk's stop carries its `file` and `hunk`, which is what `hunkPatch()` takes: the
+hunk under the cursor is one call from a patch `git apply --cached` stages. A
+position that is not a stop -- past the last, negative, fractional -- is brought to
+the nearest one, whether the content changed or the app wrote it, and content with
+no stops is shown from its start.
+
+`diffView()` also says where each hunk went, as `hunks` -- the file, the hunk, and
+the range of its rows -- which is what the view is built on, rather than on the
+classes of the rows. The theme reaches the view through `.sigil-diff-view`,
+`.sigil-diff-view-line` and `.sigil-diff-view-mark`, which carries `is-current` on
+the current hunk's rows.
 
 #### Markdown
 

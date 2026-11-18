@@ -22,7 +22,7 @@ export const stylesheet = `
   .files { flex-grow: 2; flex-basis: 0; min-height: 4 }
   .branches, .commits { flex-grow: 1; flex-basis: 0; min-height: 4 }
   .diff { flex-grow: 1; min-width: 0 }
-  .list { flex-grow: 1; min-height: 0 }
+  .list, .diff-pane { flex-grow: 1; min-height: 0 }
   .row { flex-direction: row; column-gap: 1 }
   .letters { flex-direction: row; flex-shrink: 0 }
   .letter { width: 1; white-space: pre }

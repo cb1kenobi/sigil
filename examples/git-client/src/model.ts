@@ -25,9 +25,13 @@ import {
 import { useApp } from '@ttylabs/sigil/app';
 import {
   confirmModal,
+  describeDiffView,
   describeListView,
+  type DiffBlock,
   type DiffFile,
-  type DiffHunk,
+  type DiffStop,
+  diffStops,
+  type DiffViewPosition,
   hunkPatch,
   type NoteVariant,
   openModal,
@@ -97,20 +101,27 @@ export interface DiffContent {
   readonly title: string;
 }
 
-/** One hunk the cursor can be on, in the order the pane draws them. */
-export interface HunkRef {
+/**
+ * What a block of the diff pane is about: its section, and for a line standing in
+ * for a whole file, the file -- a section's patch can hold more than one, as an
+ * unstaged rename does as a deletion and an addition.
+ */
+export interface Place {
   readonly file?: PatchFile;
-  readonly hunk?: DiffHunk;
   readonly section: DiffSection;
 }
 
-/** What `DiffPane()` reads and writes. */
+/** What the diff pane, a `DiffView`, draws and moves through. */
 export interface DiffState {
+  /** The content as the view draws it: {@link blocksOf} of {@link content}. */
+  readonly blocks: Computed<readonly DiffBlock<Place>[]>;
   readonly content: State<DiffContent>;
-  /** Which of {@link hunks} the cursor is on. */
+  /** Which of {@link hunks} the cursor is on: the view's `current`. */
   readonly cursor: State<number>;
-  /** Every hunk of the content, in order. */
-  readonly hunks: Computed<readonly HunkRef[]>;
+  /** Every stop of the blocks, in order, as the view counts them. */
+  readonly hunks: Computed<readonly DiffStop<Place>[]>;
+  /** Where the view is scrolled to, which it writes: the view's `position`. */
+  readonly position: State<DiffViewPosition>;
 }
 
 /** What the roots hand back once they have built the screen. */
@@ -151,6 +162,8 @@ export interface Model {
   readonly status: () => string;
   /** Each pane's title. */
   readonly titles: Readonly<Record<PaneName, () => string>>;
+  /** What the diff pane's bottom border says: where the view is scrolled to. */
+  readonly diffFooter: () => string;
 }
 
 /** How much of a patch is drawn before the rest is left out, in lines. */
@@ -168,31 +181,83 @@ const DIFF = ['--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/',
 const NOTHING: DiffContent = { key: '', note: '', sections: [], title: 'Diff' };
 
 /**
- * Every hunk the cursor can be on, in the order the pane draws them: each hunk of
- * each file, and one for a whole file that has none to show -- an untracked file,
- * which is drawn as added, a binary one, or one too large to read -- since that is
- * still something Space can stage. A commit's hunks are here too, to move
- * through, and its section has no action.
+ * What the diff pane shows, as the blocks a `DiffView` draws: each section's
+ * heading and prose, and its patches -- each hunk a stop of the cursor.
+ *
+ * A whole file that has no hunk to show is a line of prose the cursor stops on,
+ * since it is still something Space can stage: an untracked file that is binary,
+ * too large to read or empty, a binary file, a rename with no content changes. An
+ * untracked file with text is drawn as added, and its one hunk is the stop. A
+ * commit's hunks are stops too, to move through, and its section has no action.
+ * Every block carries its section, which is how the stop under the cursor says
+ * what Space does to it.
  *
  * @param content - What the pane shows.
- * @returns The hunks.
+ * @returns The blocks.
  */
-export function hunkRefs(content: DiffContent): HunkRef[] {
-  return content.sections.flatMap((section): HunkRef[] => {
+export function blocksOf(content: DiffContent): DiffBlock<Place>[] {
+  if (!content.sections.length) {
+    return [{ class: 'sigil-muted', text: content.note }];
+  }
+  return content.sections.flatMap((section): DiffBlock<Place>[] => {
+    // a whole file with nothing to draw: its lines are the stop, or its heading
+    // where it has none
+    const whole =
+      section.added === undefined && !section.files.length && section.path !== undefined;
+    const blocks: DiffBlock<Place>[] = [
+      {
+        class: 'diff-section sigil-heading',
+        data: { section },
+        stop: whole && !section.lines.length,
+        text: section.label,
+      },
+    ];
+    if (section.lines.length) {
+      blocks.push({ data: { section }, stop: whole, text: section.lines.join('\n') });
+    }
     if (section.added !== undefined) {
-      return [{ section }];
+      const { path, text } = section.added;
+      blocks.push(
+        text === ''
+          ? { class: 'sigil-muted', data: { section }, stop: true, text: `${path} is empty` }
+          : { data: { section }, diff: { new: text, newName: path, old: '', oldName: '/dev/null' } }
+      );
     }
-    if (!section.files.length) {
-      return section.path === undefined ? [] : [{ section }];
+    for (const file of section.files) {
+      if (!file.hunks.length && !file.cut) {
+        const what = file.binary ? 'binary, not shown' : 'no lines changed';
+        const path = pathOf(file) ?? section.path ?? 'a file';
+        blocks.push({
+          class: 'sigil-muted',
+          data: { file, section },
+          stop: true,
+          text: `${path}: ${what}`,
+        });
+        continue;
+      }
+      blocks.push({ data: { section }, diff: { files: [file] } });
+      if (file.cut) {
+        const cut = '... the rest of this diff is too long to show';
+        blocks.push({ class: 'sigil-muted', data: { section }, text: cut });
+      }
     }
-    return section.files.flatMap((file) =>
-      file.hunks.length
-        ? file.hunks.map((hunk) => ({ file, hunk, section }))
-        : file.cut
-          ? []
-          : [{ file, section }]
-    );
+    return blocks;
   });
+}
+
+/**
+ * The path Space stages or unstages whole for a stop with no hunk to apply: the
+ * file a line stands for, which a section of two files -- an unstaged rename, as a
+ * deletion and an addition -- says apart, or else the section's own path. Never
+ * the file of an untracked one's added text, whose name is the path itself with
+ * no `b/` for {@link pathOf} to take off.
+ *
+ * @param stop - The stop under the cursor.
+ * @returns The path.
+ */
+export function wholePath(stop: DiffStop<Place>): string {
+  const file = stop.block.data?.file;
+  return (file && pathOf(file)) ?? stop.block.data?.section.path ?? '';
 }
 
 /**
@@ -235,7 +300,9 @@ export function createModel(): Model {
 
   const content = new State<DiffContent>({ ...NOTHING, note: 'Loading...' });
   const cursor = new State(0);
-  const hunks = new Computed<readonly HunkRef[]>(() => hunkRefs(content.get()));
+  const position = new State<DiffViewPosition>({ maxX: 0, width: 0, x: 0, y: 0 });
+  const blocks = new Computed<readonly DiffBlock<Place>[]>(() => blocksOf(content.get()));
+  const hunks = new Computed<readonly DiffStop<Place>[]>(() => diffStops(blocks.get()));
 
   // -- running git, one call at a time ----------------------------------------
   // a key pressed twice quickly asks for two stagings, and two gits writing one
@@ -592,17 +659,18 @@ export function createModel(): Model {
 
   const toggleHunk = (): void => {
     const at = hunks.get()[cursor.get()];
-    const action = at?.section.action;
-    if (!at || !action) {
+    const section = at?.block.data?.section;
+    const action = section?.action;
+    if (!at || !section || !action) {
       return;
     }
     void act(async () => {
-      if (!at.hunk) {
+      if (!at.hunk || !at.file || section.added !== undefined) {
         // an untracked file, one binary or too large to show, or a rename with
         // no content changes: all of it, and a rename's source with it, the way
         // `toggleFile()` resets both
-        const path = (at.file && pathOf(at.file)) ?? at.section.path ?? '';
-        const from = at.section.from;
+        const path = wholePath(at);
+        const from = section.from;
         await run(
           action === 'stage'
             ? ['add', '--', path]
@@ -610,15 +678,12 @@ export function createModel(): Model {
         );
         return `${action === 'stage' ? 'Staged' : 'Unstaged'} ${path}`;
       }
-      if (!at.file) {
-        return undefined;
-      }
       const args = ['apply', '--cached', '--whitespace=nowarn'];
       await run(
         action === 'unstage' ? [...args, '--reverse', '-'] : [...args, '-'],
         hunkPatch(at.file, at.hunk)
       );
-      const path = pathOf(at.file) ?? at.section.path;
+      const path = pathOf(at.file) ?? section.path;
       return `${action === 'stage' ? 'Staged' : 'Unstaged'} a hunk of ${path}`;
     });
   };
@@ -805,9 +870,10 @@ export function createModel(): Model {
       const name = event.key.name;
       if (name === 'space') {
         toggleHunk();
-      } else if (name === ']' || name === 'n') {
+      } else if (name === 'n') {
+        // `]` and `[` are the view's own; these are the client's second spelling
         moveHunk(1);
-      } else if (name === '[' || name === 'p') {
+      } else if (name === 'p') {
         moveHunk(-1);
       } else if (name === 'escape') {
         focusPane(subject.get());
@@ -848,10 +914,9 @@ export function createModel(): Model {
     say('branches', 'n', 'new');
     say('branches', 'D', 'delete');
     say('diff', 'space', 'stage hunk');
-    say('diff', ']', 'next hunk', 2);
-    say('diff', '[', 'previous hunk', 2);
     say('diff', 'escape', 'back', 1);
     off.push(describeListView(input, lists.files, lists.branches, lists.commits));
+    off.push(describeDiffView(input, given.diff));
 
     // the app's own keys are fallbacks: they come after the focused element, so
     // a letter typed into a dialog's field is a letter, and they run with nothing
@@ -916,7 +981,11 @@ export function createModel(): Model {
     branches,
     commitCursor,
     commits,
-    diff: { content, cursor, hunks },
+    diff: { blocks, content, cursor, hunks, position },
+    diffFooter: () => {
+      const at = position.get();
+      return `x ${at.x} · widest ${at.width} · y ${at.y}`;
+    },
     empty: {
       // the problem is said once, in the first pane, rather than three times
       branches: () => (problem.get() ? '' : loaded.get() ? 'No branches yet' : 'Loading...'),

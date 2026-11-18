@@ -15,9 +15,8 @@
  */
 
 import { letterClasses } from './common.ts';
-import { DiffPane } from './diff-pane.ts';
 import { createModel } from './model.ts';
-import { keyHelp, ListView, Pane, Panel } from '@ttylabs/sigil/components';
+import { DiffView, keyHelp, ListView, Pane, Panel } from '@ttylabs/sigil/components';
 import type { Element } from '@ttylabs/sigil/element';
 
 export { stylesheet } from './common.ts';
@@ -89,7 +88,14 @@ export function App(): Element {
       vim
     />
   );
-  const diff = <DiffPane diff={m.diff} />;
+  const diff = (
+    <DiffView
+      content={m.diff.blocks}
+      current={m.diff.cursor}
+      position={m.diff.position}
+      props={{ class: 'diff-pane' }}
+    />
+  );
 
   const panels = {
     branches: (
@@ -103,7 +109,12 @@ export function App(): Element {
       </Panel>
     ),
     diff: (
-      <Panel class="diff" props={{ onKey: m.keys.diff }} title={m.titles.diff}>
+      <Panel
+        class="diff"
+        footer={m.diffFooter}
+        props={{ onKey: m.keys.diff }}
+        title={m.titles.diff}
+      >
         {diff}
       </Panel>
     ),

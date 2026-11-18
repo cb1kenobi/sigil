@@ -17,24 +17,26 @@ and drives `git` through `child_process` -- so `pnpm start` from this directory
 is the sigil repository itself. `q` exits 0 and Ctrl-C exits 130. Without a
 terminal on both ends `runApp()` refuses: one line on stderr, exit 1.
 
-| Key          | Where    | Does                                                        |
-| ------------ | -------- | ----------------------------------------------------------- |
-| `1` - `4`    | anywhere | Focus files, branches, commits or the diff                  |
-| Tab          | anywhere | The next pane                                               |
-| ↑ ↓, `j` `k` | a list   | Move the selection; the diff follows it                     |
-| Enter        | a list   | Files and commits: open the diff. Branches: check it out    |
-| Space        | files    | Stage the file, or unstage it when nothing is left unstaged |
-| `a`          | files    | Stage everything, or unstage everything when all is staged  |
-| `d`          | files    | Discard the unstaged changes, or delete an untracked file   |
-| Space        | branches | Check the branch out                                        |
-| `n`          | branches | A new branch from `HEAD`, named in a dialog                 |
-| `D`          | branches | Delete the branch (`git branch -d`)                         |
-| `]` `[`      | the diff | The next and the previous hunk                              |
-| Space        | the diff | Stage the hunk, or unstage it under `Staged`                |
-| Escape       | the diff | Back to the list it is showing                              |
-| `c`          | anywhere | Commit what is staged, with a message written in a dialog   |
-| `r`          | anywhere | Read the repository again                                   |
-| `q`          | anywhere | Quit, with 0                                                |
+| Key              | Where    | Does                                                        |
+| ---------------- | -------- | ----------------------------------------------------------- |
+| `1` - `4`        | anywhere | Focus files, branches, commits or the diff                  |
+| Tab              | anywhere | The next pane                                               |
+| ↑ ↓, `j` `k`     | a list   | Move the selection; the diff follows it                     |
+| Enter            | a list   | Files and commits: open the diff. Branches: check it out    |
+| Space            | files    | Stage the file, or unstage it when nothing is left unstaged |
+| `a`              | files    | Stage everything, or unstage everything when all is staged  |
+| `d`              | files    | Discard the unstaged changes, or delete an untracked file   |
+| Space            | branches | Check the branch out                                        |
+| `n`              | branches | A new branch from `HEAD`, named in a dialog                 |
+| `D`              | branches | Delete the branch (`git branch -d`)                         |
+| `]` `[`, `n` `p` | the diff | The next and the previous hunk                              |
+| Space            | the diff | Stage the hunk, or unstage it under `Staged`                |
+| `w`              | the diff | Wrap long lines, or keep each on one row                    |
+| Left, Right      | the diff | Scroll sideways, while lines are kept on one row            |
+| Escape           | the diff | Back to the list it is showing                              |
+| `c`              | anywhere | Commit what is staged, with a message written in a dialog   |
+| `r`              | anywhere | Read the repository again                                   |
+| `q`              | anywhere | Quit, with 0                                                |
 
 The footer lists the keys of the pane that has the focus, so it changes as the
 focus moves. In the commit dialog Enter is a newline, Ctrl-S commits, and Escape
@@ -49,18 +51,17 @@ bottom-right corner.
 
 ## Layout
 
-| File               | What it is                                                                     |
-| ------------------ | ------------------------------------------------------------------------------ |
-| `src/index.ts`     | The JSX twin's schema, which `sigil build` compiles into `dist/git-client.mjs` |
-| `src/ui.ts`        | The `ui`-tag twin's entry, run unbuilt                                         |
-| `src/root.tsx`     | `App` in JSX: the panels, the lists and their rows                             |
-| `src/root.ui.ts`   | The same `App` in the `ui` tag                                                 |
-| `src/model.ts`     | Everything but the tree: state, git calls, keys, dialogs, toasts               |
-| `src/diff-pane.ts` | The diff pane: `diffView()` in a scroll box, with a hunk cursor                |
-| `src/git.ts`       | `GitContext`: how git is run, and where, replaceable in tests                  |
-| `src/parse.ts`     | Pure readers of git's status, branches and log, and a patch file's path        |
-| `src/common.ts`    | The stylesheet, and the classes a file's status letters are drawn in           |
-| `test/`            | The parsers against git's output, and the app against repositories it makes    |
+| File             | What it is                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `src/index.ts`   | The JSX twin's schema, which `sigil build` compiles into `dist/git-client.mjs`                       |
+| `src/ui.ts`      | The `ui`-tag twin's entry, run unbuilt                                                               |
+| `src/root.tsx`   | `App` in JSX: the panels, the lists and their rows                                                   |
+| `src/root.ui.ts` | The same `App` in the `ui` tag                                                                       |
+| `src/model.ts`   | Everything but the tree: state, git calls, keys, dialogs, toasts, and the blocks the diff pane draws |
+| `src/git.ts`     | `GitContext`: how git is run, and where, replaceable in tests                                        |
+| `src/parse.ts`   | Pure readers of git's status, branches and log, and a patch file's path                              |
+| `src/common.ts`  | The stylesheet, and the classes a file's status letters are drawn in                                 |
+| `test/`          | The parsers against git's output, and the app against repositories it makes                          |
 
 The two roots build the same screen and share everything else, so the examples'
 smoke test can assert that they draw the same first screen.
@@ -88,6 +89,12 @@ under `Staged`. That is what `git add -p` does. The patch is read by
 hunk's lines as git wrote them, `\r` and `\ No newline at end of file` included,
 so the same read is what the pane draws and what Space stages.
 
+The pane is the library's `DiffView`, over blocks the model builds from what it
+shows: each section's heading and prose, and its patches. The cursor stops on
+each hunk, and on a line for a whole file with nothing to draw -- binary, a pure
+rename -- which Space stages whole. The model finds what is under the cursor with
+`diffStops()` over the same blocks the view counts with.
+
 A patch longer than 4,000 lines is cut, and the hunk the cut went through is
 left out rather than offered to Space, since its header still counts the lines
 it lost.
@@ -97,6 +104,5 @@ it lost.
 - Line-by-line staging inside a hunk, stashes, rebases, remotes, and resolving a
   conflict (Space marks a file resolved, which is `git add`).
 - Refreshing on its own: `r` reads the repository again, and every action does.
-- What the library does not do yet, and this does by hand: a diff view that
-  scrolls and has a hunk cursor (SIG-367), and a dialog that builds its own body
-  and opens on a field (SIG-335, SIG-337).
+- What the library does not do yet, and this does by hand: a dialog that builds
+  its own body and opens on a field (SIG-335, SIG-337).

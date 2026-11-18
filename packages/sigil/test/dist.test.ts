@@ -1004,6 +1004,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],
   'components/diff': [488, 249_598],
+  // SIG-367, measured when it was added: the diff's module and the scroll box's,
+  // which it is built on
+  'components/diff-view': [544, 277_249],
   // as of SIG-285, which added the menus and the overlay plumbing they share
   'components/dropdown': [424, 216_762],
   'components/editing': [12, 5_876],

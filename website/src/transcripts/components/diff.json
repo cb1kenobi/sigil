@@ -51,6 +51,13 @@
         "type": "boolean"
       },
       {
+        "description": "With `wrap: 'none'`, how many columns of every line's text are left out before the first one drawn: how far the diff is scrolled sideways. The gutter and the marker are not scrolled. Defaults to 0; a negative or fractional value is brought to the whole number at or above zero below it.",
+        "default": "0",
+        "name": "offset",
+        "optional": true,
+        "type": "number"
+      },
+      {
         "description": "The platform to detect for. Defaults to `process.platform`.",
         "default": "`process.platform`",
         "name": "platform",
@@ -63,6 +70,13 @@
         "name": "width",
         "optional": true,
         "type": "number"
+      },
+      {
+        "description": "What a line too long for its room becomes. Defaults to `columns`.",
+        "default": "`columns`",
+        "name": "wrap",
+        "optional": true,
+        "type": "DiffWrap"
       }
     ],
     "shared": [

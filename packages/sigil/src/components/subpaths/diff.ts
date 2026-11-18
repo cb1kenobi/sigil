@@ -1,6 +1,8 @@
 export {
   DIFF_SIDE_BY_SIDE_MIN_WIDTH,
   diff,
+  type DiffBlock,
+  diffBlocks,
   type DiffChange,
   type DiffFile,
   type DiffHunk,
@@ -14,8 +16,12 @@ export {
   type DiffOp,
   type DiffOptions,
   diffSequence,
-  type DiffView,
+  type DiffStop,
+  diffStops,
+  type DiffTree,
+  type DiffTreeHunk,
   diffView,
+  type DiffViewContent,
   hunkPatch,
   parsePatch,
 } from '../diff.js';

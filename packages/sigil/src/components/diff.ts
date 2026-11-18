@@ -5,9 +5,10 @@ import {
   text as textNode,
   toDisplayText,
 } from '../element/index.js';
+import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
-import { terminalWidth } from '../wrap/index.js';
+import { ELLIPSIS, isBreakSpace, terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
@@ -91,6 +92,20 @@ export type DiffInput =
 /** How the two sides are set out. */
 export type DiffLayout = 'side-by-side' | 'unified';
 
+/**
+ * What a line too long for its room becomes.
+ *
+ * - `columns` folds it onto more rows at exactly the room's width, mid-word,
+ *   every space kept: what `git diff` looks like through `less`.
+ * - `words` folds it at a space where it has one, and drops the run of spaces a
+ *   fold lands in, so a line padded out with spaces -- a Markdown table's row --
+ *   does not fold into rows of nothing. A word longer than a row is folded by
+ *   columns.
+ * - `none` keeps it on one row, cut at the edge with `…` where it goes on, from
+ *   `offset` columns in: a diff scrolled sideways.
+ */
+export type DiffWrap = 'columns' | 'none' | 'words';
+
 export interface DiffOptions extends StyledOptions {
   /**
    * Lines of context kept around a change when the input is two texts. A patch
@@ -128,10 +143,19 @@ export interface DiffOptions extends StyledOptions {
   layout?: DiffLayout;
   /** Whether each line is numbered. Defaults to true. */
   lineNumbers?: boolean;
+  /**
+   * With `wrap: 'none'`, how many columns of every line's text are left out
+   * before the first one drawn: how far the diff is scrolled sideways. The gutter
+   * and the marker are not scrolled. Defaults to 0; a negative or fractional
+   * value is brought to the whole number at or above zero below it.
+   */
+  offset?: number;
   /** The platform to detect for. Defaults to `process.platform`. */
   platform?: string;
   /** How many columns the diff spans. Defaults to `terminalWidth()`. */
   width?: number;
+  /** What a line too long for its room becomes. Defaults to `columns`. */
+  wrap?: DiffWrap;
 }
 
 /**
@@ -838,12 +862,11 @@ function cellsOf(
 }
 
 /**
- * A line cut into the rows it takes at a width.
+ * A line cut into the rows it takes at a width, by columns: `wrap: 'columns'`.
  *
- * Cut by columns rather than at words, because it is code, and with the row
- * boundary falling wherever the width says the reader can count it. A wide
- * character that does not fit starts the next row; one that cannot fit anywhere
- * is put on its own row anyway and the box clips it.
+ * The row boundary falls wherever the width says, so the reader can count it. A
+ * wide character that does not fit starts the next row; one that cannot fit
+ * anywhere is put on a row with nothing else of any width, and the box clips it.
  *
  * @param cells - The line's cells.
  * @param room - The columns a row holds.
@@ -853,7 +876,8 @@ function fold(cells: readonly Cell[], room: number): Cell[][] {
   const rows: Cell[][] = [[]];
   let used = 0;
   for (const cell of cells) {
-    if (used + cell.width > room && rows.at(-1)!.length > 0) {
+    // a row holding only cells with no width is still empty: they take no room
+    if (used + cell.width > room && used > 0) {
       rows.push([]);
       used = 0;
     }
@@ -862,6 +886,133 @@ function fold(cells: readonly Cell[], room: number): Cell[][] {
   }
   return rows;
 }
+
+/**
+ * Whether a cell is a space or a tab, which a fold at words may land in: the
+ * spaces `wrap()` breaks at and no others, so a no-break space stays inside its
+ * word. A tab is a cell of four spaces by now.
+ */
+function blank(cell: Cell): boolean {
+  return cell.text !== '' && [...cell.text].every((char) => isBreakSpace(char));
+}
+
+/**
+ * A line cut into the rows it takes at a width, at words: `wrap: 'words'`.
+ *
+ * A run of spaces that fits on the row is kept, and one the fold lands in is
+ * dropped whole, so the next word starts the next row and a line padded with a
+ * thousand spaces is two rows rather than ten of nothing. The indentation that
+ * starts a line is kept however wide it is, folded by columns where it is wider
+ * than a row, since it is what says where the line sits. A word that does not
+ * fit on the row is moved to the next, and one longer than a whole row is folded
+ * by columns from where it is, the way `columns` folds everything.
+ *
+ * @param cells - The line's cells.
+ * @param room - The columns a row holds.
+ * @returns The rows, at least one.
+ */
+function foldWords(cells: readonly Cell[], room: number): Cell[][] {
+  const rows: Cell[][] = [[]];
+  let used = 0;
+  // a fold landed in a run of spaces: the row is done, but a row is opened only
+  // for a word after it, so spaces that end the line add no row of nothing
+  let broken = false;
+  const byColumns = (run: readonly Cell[]): void => {
+    for (const cell of run) {
+      // a row holding only cells with no width is still empty: they take no room
+      if (used + cell.width > room && used > 0) {
+        rows.push([]);
+        used = 0;
+      }
+      rows.at(-1)!.push(cell);
+      used += cell.width;
+    }
+  };
+  for (let at = 0; at < cells.length;) {
+    const spaces = blank(cells[at]!);
+    let end = at;
+    let width = 0;
+    while (end < cells.length && blank(cells[end]!) === spaces) {
+      width += cells[end]!.width;
+      end++;
+    }
+    const run = cells.slice(at, end);
+    at = end;
+    if (spaces) {
+      // nothing with a width before it, which a byte order mark is not
+      if (rows.length === 1 && used === 0) {
+        byColumns(run);
+      } else if (!broken && used + width <= room) {
+        rows.at(-1)!.push(...run);
+        used += width;
+      } else {
+        broken = true;
+      }
+      continue;
+    }
+    // a word is moved to the next row where it would fit there; one longer than a
+    // row is folded from where it is, since moving it would only leave a row short
+    if (broken || (used > 0 && used + width > room && width <= room)) {
+      rows.push([]);
+      used = 0;
+      broken = false;
+    }
+    if (width <= room - used) {
+      rows.at(-1)!.push(...run);
+      used += width;
+    } else {
+      byColumns(run);
+    }
+  }
+  return rows;
+}
+
+/**
+ * A line on one row, scrolled sideways and cut at the edge: `wrap: 'none'`.
+ *
+ * A wide character the offset falls inside is drawn as the spaces of its half
+ * that is in view, so every row starts in the same column, and one the edge falls
+ * inside is left off. Where the line goes on past the edge, its last column is
+ * the ellipsis.
+ *
+ * @param cells - The line's cells.
+ * @param room - The columns the row holds.
+ * @param offset - The columns left out at the start.
+ * @returns The cells to draw, and whether the line went on past them.
+ */
+function cutRow(
+  cells: readonly Cell[],
+  room: number,
+  offset: number
+): { cells: Cell[]; more: boolean } {
+  const total = cells.reduce((sum, cell) => sum + cell.width, 0);
+  const more = total - offset > room;
+  const limit = more ? room - 1 : room;
+  const out: Cell[] = [];
+  let column = 0;
+  let used = 0;
+  for (const cell of cells) {
+    const start = column;
+    column += cell.width;
+    if (column <= offset) {
+      continue;
+    }
+    // the half of a wide character the offset left in view
+    const shown: Cell =
+      start < offset
+        ? { ...cell, text: ' '.repeat(column - offset), width: column - offset }
+        : cell;
+    if (used + shown.width > limit) {
+      break;
+    }
+    out.push(shown);
+    used += shown.width;
+  }
+  return { cells: out, more };
+}
+
+/** How the rows of a line are cut: the fold, or one row from an offset. */
+type Cutting = { wrap: 'columns' | 'words' } | { offset: number; wrap: 'none' };
 
 /** A fixed-width text: the whole of what the view is made of. */
 function piece(value: string, className: string): Element {
@@ -886,13 +1037,33 @@ interface Drawing {
  * @param drawing - The edits and tokens found for the hunk.
  * @param gutter - What leads the first row, and its width.
  * @param room - The columns for the code.
- * @returns Each row's elements.
+ * @param cutting - How a line too long for the room is cut.
+ * @returns Each row's elements, how wide the line is, and how far it runs past
+ *   the room.
  */
-function lineRows(line: DiffLine, drawing: Drawing, gutter: string, room: number): Element[][] {
+function lineRows(
+  line: DiffLine,
+  drawing: Drawing,
+  gutter: string,
+  room: number,
+  cutting: Cutting
+): { overflow: number; rows: Element[][]; width: number } {
   const kind = KINDS[line.kind];
   const cells = cellsOf(line.text, drawing.tokens.get(line), drawing.changes.get(line) ?? []);
+  const width = cells.reduce((sum, cell) => sum + cell.width, 0);
+  let overflow = 0;
+  let more = false;
+  let rows: Cell[][];
+  if (cutting.wrap === 'none') {
+    overflow = Math.max(0, width - room);
+    const cut = cutRow(cells, room, cutting.offset);
+    rows = [cut.cells];
+    more = cut.more;
+  } else {
+    rows = cutting.wrap === 'words' ? foldWords(cells, room) : fold(cells, room);
+  }
 
-  return fold(cells, room).map((row, index) => {
+  const drawn = rows.map((row, index) => {
     const out: Element[] = [];
     if (gutter !== '') {
       out.push(
@@ -941,6 +1112,10 @@ function lineRows(line: DiffLine, drawing: Drawing, gutter: string, room: number
 
     return out;
   });
+  if (more) {
+    drawn[0]!.push(piece(ELLIPSIS, 'sigil-diff-more sigil-muted'));
+  }
+  return { overflow, rows: drawn, width };
 }
 
 /**
@@ -1119,11 +1294,47 @@ function pairLines(lines: readonly DiffLine[]): { left?: DiffLine; right?: DiffL
   return out;
 }
 
+/** Where one hunk was drawn in a {@link DiffTree}. */
+export interface DiffTreeHunk {
+  /** Where its rows end in the tree's `element.children`: one past its last. */
+  end: number;
+  file: DiffFile;
+  /** Its `@@` row, in the tree's `element.children`. */
+  first: number;
+  hunk: DiffHunk;
+}
+
 /** The tree for a diff, the room it was built for, and the arrangement it ended up with. */
-export interface DiffView {
+export interface DiffTree {
   element: Element;
+  /**
+   * Each hunk drawn, in order, and which of the element's rows are its own -- the
+   * `@@` row and every row of its lines -- so that a view built on the tree knows
+   * where a hunk is without reading the rows' classes.
+   */
+  hunks: DiffTreeHunk[];
   /** What was drawn: `side-by-side` only if there was the width for it. */
   layout: DiffLayout;
+  /**
+   * With `wrap: 'none'`, how far the widest line runs past the room its side
+   * gives it, in columns: the largest `offset` that still brings more of a line
+   * into view. 0 where every line fits, and whenever lines are folded.
+   */
+  overflow: number;
+  /**
+   * `overflow` row by row, one for each of `element.children`: how far that
+   * row's line runs past its room, the wider of the two halves side by side, and
+   * 0 for a header. So a view scrolled sideways can stop at the widest line it is
+   * showing rather than the widest in the whole diff.
+   */
+  rowOverflow: number[];
+  /**
+   * How wide each row's line is, in columns, whole, one for each of
+   * `element.children`: the wider of the two halves side by side, every row of a
+   * folded line its whole line's, and 0 for a header. Unlike `rowOverflow` it
+   * does not depend on the room, so it is what to show a reader as a line's width.
+   */
+  rowWidth: number[];
   width: number;
 }
 
@@ -1146,6 +1357,33 @@ function headerRow(value: string, className: string, width: number): Element {
 }
 
 /**
+ * The files a diff input holds, as the view draws them: the one file of two
+ * texts, or the files of a patch that have a hunk -- a file a patch holds with
+ * none (binary, renamed, a mode changed) has nothing for the view to draw, not
+ * even its names. One function for `diffView()` and `diffStops()`, so the hunks
+ * one draws are the hunks the other counts.
+ *
+ * @param input - Two texts, a patch, or files already read.
+ * @param context - The context kept around a change in two texts.
+ * @returns The files.
+ */
+function filesOf(input: DiffInput, context: number | undefined): readonly DiffFile[] {
+  if ('patch' in input) {
+    return parsePatch(input.patch).filter((file) => file.hunks.length > 0);
+  }
+  if ('files' in input) {
+    return input.files.filter((file) => file.hunks.length > 0);
+  }
+  return [
+    {
+      hunks: diffHunks(input.old, input.new, { context }),
+      newName: input.newName,
+      oldName: input.oldName,
+    },
+  ];
+}
+
+/**
  * `@@ -1,3 +1,4 @@ heading`, as a patch writes it.
  *
  * @param hunk - The hunk.
@@ -1164,15 +1402,15 @@ function hunkHeader(hunk: DiffHunk): string {
  * Each visual row is a row of fixed-width texts, the way a rule is: there is no
  * inline layout, so the pieces of one line -- the gutter, the marker, and a run for
  * each stretch of a different look -- are siblings that have already been fitted,
- * and a line too long for the width is folded into more rows by columns before it
- * is built. Fixed width and `white-space: pre`, so the indentation of a line of code
+ * and a line too long for the width is folded into more rows before it is built --
+ * by columns, by words or not at all, as `wrap` says. Fixed width and `white-space: pre`, so the indentation of a line of code
  * survives, which a `normal` text would not keep at the end of a run.
  *
  * @param input - Two texts, or a unified patch.
  * @param opts - The arrangement, the room, and the highlighter.
  * @returns The tree, the room it was built for, and the arrangement used.
  */
-export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
+export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
   const asked = opts.width === undefined ? NaN : Math.floor(opts.width);
   const width = asked >= 1 ? asked : Math.max(1, terminalWidth({ env: opts.env }));
   const layout: DiffLayout =
@@ -1180,21 +1418,18 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
       ? 'side-by-side'
       : 'unified';
   const numbered = opts.lineNumbers !== false;
+  const wrap = opts.wrap ?? 'columns';
+  if (wrap !== 'columns' && wrap !== 'words' && wrap !== 'none') {
+    throw new TypeError(__`Expected diff wrap to be columns, words or none`);
+  }
+  const cutting: Cutting =
+    wrap === 'none'
+      ? { offset: Number.isFinite(opts.offset) ? Math.max(0, Math.floor(opts.offset!)) : 0, wrap }
+      : { wrap };
+  let overflow = 0;
 
   const twoTexts = 'patch' in input || 'files' in input ? undefined : input;
-  // a file a patch holds with no hunk -- binary, renamed, a mode changed -- has
-  // nothing for the view to draw, not even its names
-  const files: readonly DiffFile[] = twoTexts
-    ? [
-        {
-          hunks: diffHunks(twoTexts.old, twoTexts.new, { context: opts.context }),
-          newName: twoTexts.newName,
-          oldName: twoTexts.oldName,
-        },
-      ]
-    : ('files' in input ? input.files : parsePatch((input as { patch: string }).patch)).filter(
-        (file) => file.hunks.length > 0
-      );
+  const files = filesOf(input, opts.context);
 
   let largest = 0;
   for (const file of files) {
@@ -1228,15 +1463,25 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
   const half = Math.floor((width - sep.length) / 2);
   const sides = [half, width - sep.length - half] as const;
   const rows: Element[] = [];
+  const rowOverflow: number[] = [];
+  const rowWidth: number[] = [];
+  const hunks: DiffTreeHunk[] = [];
+  const add = (row: Element, runs = 0, wide = 0): void => {
+    rows.push(row);
+    rowOverflow.push(runs);
+    rowWidth.push(wide);
+  };
 
   for (const file of files) {
     if (file.oldName !== undefined || file.newName !== undefined) {
-      rows.push(headerRow(`--- ${file.oldName ?? ''}`, 'sigil-diff-file sigil-heading', width));
-      rows.push(headerRow(`+++ ${file.newName ?? ''}`, 'sigil-diff-file sigil-heading', width));
+      add(headerRow(`--- ${file.oldName ?? ''}`, 'sigil-diff-file sigil-heading', width));
+      add(headerRow(`+++ ${file.newName ?? ''}`, 'sigil-diff-file sigil-heading', width));
     }
 
     for (const hunk of file.hunks) {
-      rows.push(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
+      const placed: DiffTreeHunk = { end: 0, file, first: rows.length, hunk };
+      hunks.push(placed);
+      add(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
       const drawing = drawingOf(hunk, opts, whole, file);
 
       if (layout === 'unified') {
@@ -1246,29 +1491,44 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
           const lead = numbered
             ? `${String(line.oldNumber ?? '').padStart(digits)} ${String(line.newNumber ?? '').padStart(digits)} `
             : '';
-          for (const children of lineRows(line, drawing, lead, room)) {
-            rows.push(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children));
+          const drawn = lineRows(line, drawing, lead, room, cutting);
+          overflow = Math.max(overflow, drawn.overflow);
+          for (const children of drawn.rows) {
+            add(
+              box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children),
+              drawn.overflow,
+              drawn.width
+            );
           }
         }
+        placed.end = rows.length;
         continue;
       }
 
       const gutter = numbered ? digits + 1 : 0;
       for (const pair of pairLines(hunk.lines)) {
-        const drawn = [pair.left, pair.right].map((line, side) =>
-          line
-            ? lineRows(
-                line,
-                drawing,
-                numbered
-                  ? `${String((side === 0 ? line.oldNumber : line.newNumber) ?? '').padStart(digits)} `
-                  : '',
-                Math.max(1, sides[side]! - gutter - 1)
-              )
-            : []
-        );
+        let runs = 0;
+        let wide = 0;
+        const drawn = [pair.left, pair.right].map((line, side) => {
+          if (!line) {
+            return [];
+          }
+          const half = lineRows(
+            line,
+            drawing,
+            numbered
+              ? `${String((side === 0 ? line.oldNumber : line.newNumber) ?? '').padStart(digits)} `
+              : '',
+            Math.max(1, sides[side]! - gutter - 1),
+            cutting
+          );
+          runs = Math.max(runs, half.overflow);
+          wide = Math.max(wide, half.width);
+          return half.rows;
+        });
+        overflow = Math.max(overflow, runs);
         for (let at = 0; at < Math.max(drawn[0]!.length, drawn[1]!.length); at++) {
-          rows.push(
+          add(
             box(
               { class: 'sigil-diff-row', 'flex-shrink': 0 },
               box(
@@ -1280,16 +1540,23 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffView {
                 { 'flex-shrink': 0, overflow: 'hidden', width: sides[1] },
                 ...(drawn[1]![at] ?? [])
               )
-            )
+            ),
+            runs,
+            wide
           );
         }
       }
+      placed.end = rows.length;
     }
   }
 
   return {
     element: box({ class: 'sigil-diff', 'flex-direction': 'column' }, ...rows),
+    hunks,
     layout,
+    overflow,
+    rowOverflow,
+    rowWidth,
     width,
   };
 }
@@ -1315,5 +1582,79 @@ export function diff(input: DiffInput, opts: DiffOptions = {}): string {
     colorLevel: colorLevelOf(opts),
     colorScheme: opts.colorScheme,
     width,
+  });
+}
+
+/**
+ * One part of what a `DiffView` draws: a diff, or lines of prose -- a heading, a
+ * commit message, a note that a file is binary -- between diffs.
+ *
+ * `data` is the app's, carried through to the {@link DiffStop} a block's hunks or
+ * prose make, so the app learns which of its own things the cursor is on.
+ */
+export type DiffBlock<T = unknown> =
+  | { readonly data?: T; readonly diff: DiffInput }
+  | {
+      /** The classes of each line: `sigil-muted`, `sigil-heading`, an app's own. */
+      readonly class?: string;
+      readonly data?: T;
+      /** Whether the cursor stops on the lines, as it does on a hunk. Defaults to `false`. */
+      readonly stop?: boolean;
+      /** The prose, a line a row, each cut rather than wrapped. */
+      readonly text: string;
+    };
+
+/** What a `DiffView` draws: one diff, or a list of blocks. */
+export type DiffViewContent<T = unknown> = DiffInput | readonly DiffBlock<T>[];
+
+/**
+ * A place a `DiffView`'s cursor stops: a hunk, or a block of prose marked `stop`.
+ *
+ * A hunk's stop carries the file and the hunk, which is what `hunkPatch()` takes
+ * to write it as a patch of its own -- so the hunk under the cursor is one call
+ * from being staged.
+ */
+export interface DiffStop<T = unknown> {
+  /** The block the stop is in, as it was handed over. */
+  readonly block: DiffBlock<T>;
+  /** The file the hunk is in, for a hunk. */
+  readonly file?: DiffFile;
+  /** The hunk, for a hunk. */
+  readonly hunk?: DiffHunk;
+}
+
+/**
+ * The blocks of what a `DiffView` draws: a single diff is one block.
+ *
+ * @param content - One diff, or blocks.
+ * @returns The blocks.
+ */
+export function diffBlocks<T>(content: DiffViewContent<T>): readonly DiffBlock<T>[] {
+  return Array.isArray(content) ? content : [{ diff: content as DiffInput }];
+}
+
+/**
+ * Every place a `DiffView`'s cursor stops, in the order it draws them: each hunk
+ * of each diff, and each block of prose marked `stop`.
+ *
+ * The view takes each diff's hunks from the same function this does, with nothing
+ * else that could change them -- two texts are diffed with the default context in
+ * both -- so an app that keeps the cursor as a position and asks what is at it
+ * gets the stop the view marks: there is one count, not one per party. A file of
+ * a patch with no hunk (binary, renamed, a mode changed) is not a stop, since the
+ * view draws nothing for it; an app that wants the cursor there says so with a
+ * block of prose.
+ *
+ * @param content - What the view draws.
+ * @returns The stops.
+ */
+export function diffStops<T>(content: DiffViewContent<T>): DiffStop<T>[] {
+  return diffBlocks(content).flatMap((block): DiffStop<T>[] => {
+    if ('text' in block) {
+      return block.stop ? [{ block }] : [];
+    }
+    return filesOf(block.diff, undefined).flatMap((file) =>
+      file.hunks.map((hunk) => ({ block, file, hunk }))
+    );
   });
 }

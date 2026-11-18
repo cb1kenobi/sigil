@@ -764,6 +764,150 @@ describe('diff()', () => {
     });
   });
 
+  describe('wrap', () => {
+    const at = (text: string, width: number, opts: DiffOptions): string[] =>
+      lines({ new: text, old: '' }, { lineNumbers: false, width, ...opts }).slice(1);
+
+    it('should fold by columns unless it is asked otherwise, every space kept', () => {
+      expect(at('ab      cd', 6, {})).to.deep.equal(['+ab', '    cd']);
+      expect(at('ab      cd', 6, { wrap: 'columns' })).to.deep.equal(at('ab      cd', 6, {}));
+    });
+
+    it('should fold at words, and drop the spaces a fold lands in', () => {
+      // the padding of a Markdown table's row: ten rows of nothing by columns
+      const row = `| name${' '.repeat(60)}| value${' '.repeat(60)}|`;
+
+      expect(at(row, 20, { wrap: 'words' })).to.deep.equal(['+| name', ' | value', ' |']);
+      expect(at('one two three', 10, { wrap: 'words' })).to.deep.equal(['+one two', ' three']);
+    });
+
+    it('should keep the spaces that fit, and add no row for spaces that end a line', () => {
+      expect(at('a  b', 10, { wrap: 'words' })).to.deep.equal(['+a  b']);
+      expect(at(`abc${' '.repeat(30)}`, 10, { wrap: 'words' })).to.have.length(1);
+    });
+
+    it('should keep the indentation that starts a line, folding it by columns where it is wider', () => {
+      expect(at('    if (x) return', 12, { wrap: 'words' })).to.deep.equal([
+        '+    if (x)',
+        ' return',
+      ]);
+      expect(at(`${' '.repeat(12)}x`, 6, { wrap: 'words' })).to.deep.equal(['+', '', '   x']);
+      // after a character with no width, such as the byte order mark a file can start with
+      expect(at(`\uFEFF${' '.repeat(8)}code`, 8, { wrap: 'words' })).to.deep.equal(['+', '  code']);
+    });
+
+    it('should not start a row for a character wider than the room after one with no width', () => {
+      // a tab is a cell of four columns, wider than this room of three; a byte order
+      // mark before it is no width, so the tab is the first row's, as without the mark
+      for (const wrap of ['columns', 'words'] as const) {
+        expect(at('\uFEFF\tcode', 4, { wrap }), wrap).to.deep.equal(at('\tcode', 4, { wrap }));
+      }
+    });
+
+    it('should fold at a space or a tab and nowhere else, so a no-break space is kept', () => {
+      // the break spaces wrap() breaks at: a no-break space is part of its word
+      expect(at('hello\u00A0world', 6, { wrap: 'words' })).to.deep.equal([
+        '+hello',
+        ' \u00A0worl',
+        ' d',
+      ]);
+      // an ideographic space too, which is two columns: kept, and folded with its word
+      expect(at('語\u3000句', 4, { wrap: 'words' })).to.deep.equal(['+語', ' \u3000', ' 句']);
+    });
+
+    it('should fold a word longer than a row by columns, from where it is', () => {
+      expect(at(`ab ${'x'.repeat(12)}`, 6, { wrap: 'words' })).to.deep.equal([
+        '+ab xx',
+        ' xxxxx',
+        ' xxxxx',
+      ]);
+      // and move one that fits on a row of its own to the next
+      expect(at('ab xxxxx', 6, { wrap: 'words' })).to.deep.equal(['+ab', ' xxxxx']);
+    });
+
+    it('should keep a line on one row with none, cut at the edge with an ellipsis', () => {
+      expect(at('abcdefghij', 6, { wrap: 'none' })).to.deep.equal(['+abcd…']);
+      expect(at('abcde', 6, { wrap: 'none' })).to.deep.equal(['+abcde']);
+      // a room of one is the ellipsis alone
+      expect(at('abc', 2, { wrap: 'none' })).to.deep.equal(['+…']);
+      expect(
+        diffView({ new: 'abcdefghij\nab', old: '' }, { lineNumbers: false, width: 6, wrap: 'none' })
+          .overflow
+      ).to.equal(5);
+    });
+
+    it('should scroll every line by the offset, and leave the gutter and the marker where they are', () => {
+      const text = 'abcdefghij\nklmnopqrst';
+
+      expect(
+        lines({ new: text, old: '' }, { offset: 3, width: 11, wrap: 'none' }).slice(1)
+      ).to.deep.equal(['  1 +defgh…', '  2 +nopqr…']);
+      // as far as the overflow, the end of the widest line is in view and not cut
+      expect(at('abcdefghij', 6, { offset: 5, wrap: 'none' })).to.deep.equal(['+fghij']);
+      expect(at('abcdefghij', 6, { offset: 99, wrap: 'none' })).to.deep.equal(['+']);
+    });
+
+    it('should draw the half of a wide character the offset leaves in view as a space', () => {
+      // 日 is two columns: an offset of one leaves its second half
+      expect(at('日本語', 5, { offset: 1, wrap: 'none' })).to.deep.equal(['+ 本…']);
+      // and one the edge falls inside is left off, the ellipsis after what fits
+      expect(at('日本語', 4, { offset: 1, wrap: 'none' })).to.deep.equal(['+ …']);
+    });
+
+    it('should cut each half on its own when side by side, and report the wider', () => {
+      const tree = diffView(
+        { new: 'x'.repeat(60), old: 'short' },
+        { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+      );
+
+      expect(tree.layout).to.equal('side-by-side');
+      // the halves' rooms are 25 and 26 columns, and the sixty are on the wider
+      expect(tree.overflow).to.equal(34);
+      expect(
+        lines(
+          { new: 'x'.repeat(60), old: 'short' },
+          { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+        ).slice(1)
+      ).to.have.length(1);
+    });
+
+    it('should say how far each row runs past its room, beside the rows', () => {
+      const tree = diffView(
+        { new: 'abcdefghij\nab\n', newName: 'b.txt', old: 'ab\n', oldName: 'a.txt' },
+        { lineNumbers: false, width: 6, wrap: 'none' }
+      );
+
+      // ---, +++, @@, then +abcdefghij, then the context line ab
+      expect(tree.rowOverflow).to.deep.equal([0, 0, 0, 5, 0]);
+      expect(tree.rowOverflow).to.have.length(tree.element.children.length);
+      // and how wide each row's line is, whatever the room
+      expect(tree.rowWidth).to.deep.equal([0, 0, 0, 10, 2]);
+      const folded = diffView({ new: 'abcdefghij', old: '' }, { lineNumbers: false, width: 6 });
+      expect(folded.rowOverflow.every((run) => run === 0)).to.equal(true);
+      expect(folded.rowOverflow).to.have.length(folded.element.children.length);
+      // every row of a folded line is its whole line's width
+      expect(folded.rowWidth).to.deep.equal([0, 10, 10]);
+      const sides = diffView(
+        { new: 'x'.repeat(60), old: 'short' },
+        { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH, wrap: 'none' }
+      );
+      expect(sides.rowWidth).to.deep.equal([0, 60]);
+    });
+
+    it('should report no overflow while folding', () => {
+      expect(diffView({ new: 'x'.repeat(60), old: '' }, { width: 20 }).overflow).to.equal(0);
+      expect(
+        diffView({ new: 'x'.repeat(60), old: '' }, { width: 20, wrap: 'words' }).overflow
+      ).to.equal(0);
+    });
+
+    it('should refuse a wrap it does not know', () => {
+      expect(() => diffView({ new: 'a', old: '' }, { wrap: 'word' as never })).to.throw(
+        /columns, words or none/
+      );
+    });
+  });
+
   describe('a patch', () => {
     it('should draw the same as the two texts it was made from', () => {
       const patch = [

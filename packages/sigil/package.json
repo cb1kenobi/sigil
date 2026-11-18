@@ -119,6 +119,10 @@
       "types": "./dist/components/diff.d.mts",
       "default": "./dist/components/diff.mjs"
     },
+    "./components/diff-view": {
+      "types": "./dist/components/diff-view.d.mts",
+      "default": "./dist/components/diff-view.mjs"
+    },
     "./components/dropdown": {
       "types": "./dist/components/dropdown.d.mts",
       "default": "./dist/components/dropdown.mjs"

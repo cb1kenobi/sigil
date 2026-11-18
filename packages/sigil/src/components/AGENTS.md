@@ -9548,16 +9548,42 @@ exported beside them as pure functions.
   before it is built.** There is no inline layout, so the gutter, the marker and each
   run of differently-looking cells are siblings that have already been fitted (the
   rule's shape and the paginator's reason), and leading spaces survive because `pre`
-  keeps them. Folding is by column and not by word, because it is code and the
-  reader should be able to count; a fold row has a blank gutter and no marker so a
-  continuation reads as one. A wide character that does not fit starts the next row,
+  keeps them. Folding is by column by default, because it is code and the reader
+  should be able to count -- `wrap: 'words'` and `wrap: 'none'` are the entry
+  below; a fold row has a blank gutter and no marker so a continuation reads as
+  one. A wide character that does not fit starts the next row,
   and one wider than the room is drawn alone and clipped rather than looped on. A
   tab is four columns wherever it falls, because the grid has no tab stops.
+- **`wrap` is `columns`, `words` or `none`, and `columns` stays the default.**
+  `diff()` prints what it always printed. `words` was asked for by a real diff:
+  this repository's own `AGENTS.md` index pads a Markdown table's cells with
+  hundreds of spaces, and folded by columns a row of it is thirteen rows, eleven
+  of them blank -- every space kept, exactly as `git diff` through `less` shows it,
+  and unreadable. So a fold at words drops the whole run of spaces it lands in,
+  and opens a row only for a word after it, so spaces that end a line add no row.
+  The indentation that starts a line is kept however wide, since it says where the
+  line sits. A word that does not fit moves to the next row, and one longer than a
+  whole row -- a run of dashes, a URL -- is folded by columns from where it is
+  rather than moved, which would only leave a row short. `none` is one row a line,
+  cut at the room with `…` where it goes on, from `offset` columns in, the gutter
+  and the marker not scrolled; a wide character the offset falls inside is drawn
+  as spaces for its half in view, so every row starts in one column. The tree
+  reports `overflow`, how far the widest line runs past its room, which is as far
+  as a scroll goes; 0 while folding. An unknown `wrap` is refused rather than
+  folded by columns, since `word` for `words` would otherwise do nothing quietly.
+  A fold lands only in the spaces `wrap()` breaks at, `isBreakSpace()`, which is a
+  space and a tab: `trim()` was the first test, and it dropped a no-break space and
+  an ideographic space at a fold as though they were padding. The indentation is
+  what comes before anything with a width, so a byte order mark at the start of a
+  file does not make its indentation a fold (both review round 1). And a row is
+  empty until something with a width is on it, in both folds: a tab is a cell of
+  four columns, so in a room of three after a byte order mark it started a row of
+  its own and left one blank (review round 2, the `columns` fold too).
 - **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
   it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
   which the gutter, the marker and the separator take a third; under that two lines
   cannot be compared, which is the only reason to put them side by side. The same
-  call is therefore safe in a terminal of any width, and `DiffView.layout` tells an
+  call is therefore safe in a terminal of any width, and `DiffTree.layout` tells an
   app which one it got. A removed line sits against the added line that replaces it
   and a surplus leaves the other half blank; the halves fold independently and the
   shorter is padded, so the separator stays in one column.
@@ -9584,10 +9610,195 @@ exported beside them as pure functions.
 
 What is deliberately not done: a grammar or a highlighter (SIG-289 has since
 added `highlightCode()`, and the language each side is handed); a hunk-level fold
-("12 unchanged lines"); word wrapping of code; collapsing identical files in a
+("12 unchanged lines"); collapsing identical files in a
 multi-file patch; a writer for anything bigger than a hunk (a file's hunks are its
-`header` and their `source`, joined); a character-level pass; and a stateful view that
-scrolls (a `diffView()` tree sits in a `ScrollBox` or the pager like any other).
+`header` and their `source`, joined); and a character-level pass. A stateful view
+that scrolls was on this list, on the ground that a `diffView()` tree sits in a
+`ScrollBox` like any other -- true for showing a diff and not for acting on one, so
+it is `DiffView` now, in the section below.
+
+### A diff view that scrolls: `DiffView`, sized by its box, with a cursor on the hunks (SIG-367)
+
+`src/components/diff-view.ts`, and `diffStops()` and the blocks in `diff.ts`. The
+git client example wrote all of it by hand in `diff-pane.ts`, which this replaced.
+
+- **A file and a subpath of its own, beside `diff.ts` rather than in it.** The
+  view is a scroll box, a renderer effect and keys; `diff()` is a string. In one
+  module the printed diff would load the scroll box and the renderer to print, which
+  is what "What each entry loads at import" in `src/testing` keeps an eye on, so
+  `@ttylabs/sigil/components/diff-view` is its own entry with its own ceiling, the
+  way `list-view` is beside `list`. What both need -- `diffStops()`, `DiffBlock`,
+  `diffBlocks()` -- is pure and lives in `diff.ts`.
+- **What it draws is one diff or a list of blocks, and prose is a block.** A diff
+  in an app is rarely alone: lazygit puts `Unstaged` and `Staged` over two patches, a
+  commit's message over its diff, a line saying a file is binary where its hunks
+  would be. Without prose the app has to stack a text and a view in a scroll box of
+  its own, and then the view no longer scrolls the whole. A block is `{ diff }`, one
+  `DiffInput`, or `{ text, class }`, lines cut rather than wrapped; `data` on either
+  is the app's and comes back on the stop.
+- **A stop is a hunk, or prose marked `stop`, and a hunkless file is neither until
+  the app says so.** `diffView()` draws nothing for a file a patch holds without a
+  hunk (SIG-370), so a cursor stopping there would mark no rows. What a binary file
+  or a pure rename says is the app's sentence to write -- the git client writes
+  `logo.png: binary, not shown` -- so it is a prose block with `stop: true`, which is
+  also how the client keeps an empty untracked file something Space can stage.
+- **One count: `diffStops()` is what the view counts with, and `diffView()` says
+  where each hunk went.** The example's pane found a hunk by the `sigil-diff-hunk`
+  class on its header row and counted hunks a second way in its model, and threw
+  when the two disagreed. Now `diffView()` returns `hunks`, each hunk's file, the
+  hunk, and the range of `element.children` it took (`first`, `end`), so the view
+  never reads a class; and both `diffView()` and `diffStops()` take their files from
+  one function, so the hunks one draws are the hunks the other counts. Which is
+  why the view takes no `context`: two texts are diffed at the default in both,
+  and an option only one of them was handed made the view mark a merged hunk
+  while `diffStops()` named the first half of it (review round 1). Hunks of
+  another context are handed over made, as `{ files }`. An app asks
+  `diffStops(content)[current]` for what is under the cursor, and a hunk's stop
+  carries the `file` and `hunk` that `hunkPatch()` takes -- which is the hand-off
+  the ticket asked for, as two published functions rather than a third. The return
+  type was called `DiffView`, which is this component's name; it is `DiffTree`, a
+  rename of a type with no behaviour behind it.
+- **The current hunk is a column of `▌`, which is there at colour level 0.** Every
+  row sits behind a one-cell mark, blank except on the current stop's rows, where
+  it is `▌` in `sigil-accent` and carries `is-current`; `>` in ASCII. A background
+  on the hunk was the other way and is refused for the reason the diff's emphasis
+  refused one: it is an exception to the role rule, and it is gone at level 0, which
+  is exactly where the mark has to survive. It is the example's own mark, moved.
+- **`current` is a position, a number or a `State`, and the view only ever brings
+  it back to a stop.** `]` and `[` write it, an app writes it, and when the content
+  changes or the app writes it, a position that is not a stop -- past the last,
+  negative, fractional, which a `State` lets an app write -- becomes the nearest
+  one, and `]` or `[` from one goes there rather than a step past it (review
+  round 2). It is never reset to the
+  first, because whether new content is the same subject refreshed -- the hunk
+  staged, the cursor wanted where it was -- or a new one is the app's to know; the
+  git client resets it when the file changes. A position rather than a key, because
+  a hunk has no identity across a refresh: staging one renumbers the rest.
+- **A reveal moves the view by as little as shows the stop, with what leads into
+  it where that fits.** The lead is the rows after the stop before -- a section's
+  heading, the next file's `---` and `+++` -- so moving back to the first hunk shows
+  the heading over it rather than cutting it off. A stop taller than the view is
+  shown from its own first row. Content with no stops is shown from its top, since
+  there is nothing to keep in view and a branch log opened after a scrolled diff
+  should not open half way down.
+- **The width is the layout's, through the scroll box's `onResize`, and every row
+  is drawn again when it changes.** Folding is at the width it is built for, so a
+  narrower pane is a new drawing, made before the frame paints and
+  answered as a change. The rows are windowed -- `rows` with a fixed height of one
+  and keyed by the row element, so a drawing that keeps the count and the offset
+  still rebuilds what changed -- since a patch of four thousand lines is the case the
+  git client caps at, and laying out four thousand rows a frame is what windowing
+  is for.
+- **One focus stop, and the scroll keys are the scroll box's.** The host is the
+  focusable element and the scroll box inside it is not -- two stops for one widget
+  is a Tab that seems to do nothing, the pager's reason. `]` and `[` are the view's,
+  claimed at an end as well (Home's rule), and left alone where there is no stop;
+  every other key is handed to the inner scroll box's own `onKey`, so the arrows,
+  the pages and the ends are its rules and not a copy of them. `describeDiffView()`
+  says `]`, `[` and the arrows; Space is an app's, as the git client binds it on
+  the panel around the view.
+
+- **A long line is wrapped at words, and `w` keeps each line on one row, which the
+  left and right arrows scroll.** The git client met a commit whose `AGENTS.md`
+  table rows are a thousand columns of padding, and wrapped by columns each was a
+  screen of blank rows. `wrap` is on by default and is `diffView()`'s `words`; off
+  it is `none`. The sideways scroll is the **whole document's**, one offset every
+  line of every block is drawn from, the gutter and the marker staying put -- a
+  scroll per line would move an old line out of register with the new line it
+  pairs with, which is what a diff is read for, and `less -S`, tig and lazygit all
+  scroll the whole. Side by side, both halves move together. A press is eight
+  columns, a tab stop. It was half the view, `less -S`'s step, and that moved the
+  text so far that a reader lost their place on every press; a thousand-column
+  line is a lot of presses at eight, which is what `w` back to wrapped is for. The arrows are claimed only while lines are unwrapped and something
+  runs past the edge, and then claimed at an end too (Home's rule), so in a
+  wrapped view or one where everything fits they reach the pane around it. With
+  Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
+  was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
+  shape, which `w` writes.
+- **Right goes as far as the widest line that has been in view, remembered until
+  the content or the width changes.** The first version stopped at the widest
+  line in the whole diff, and in the git client that is every file of a commit:
+  one 1,300-column table row let a press scroll a short file into blank space a
+  hundred and sixty times. So `diffView()` reports `rowOverflow`, each row's own,
+  the view keeps it beside the rows, and the limit is built lazily from the rows
+  the reader has actually had on screen: every draw, scroll, resize and press
+  takes the rows in view into `seen`, and right goes as far as `seen`. The second
+  version used only the rows in view at that press, and Chris found that it
+  forgot: scrolled down from a long line to shorter ones, the limit fell to theirs
+  and the line just read could not be scrolled back to. Remembered, it only grows
+  while the lines are the same lines in the same room. A drawing of new content,
+  at a new width or switched by `w` sees again from the rows then in view, and
+  brings the offset back to them where it is further: review round 5 found the
+  limit forgotten while the offset was kept, a view scrolled past its own limit,
+  and the first fix carried the limit over to any new content instead -- which
+  Chris then saw as a limit the commit on screen had never shown him, carried from
+  the commit before. A refresh of the same diff at the same place has the same
+  rows in view and so the same limit; a refresh with the long line scrolled out of
+  view comes back to the lines that are in it, which is the cost of not carrying a
+  width over that nothing on screen accounts for. Scrolling up or down never moves
+  the text sideways, and right among lines shorter than the offset goes on to the
+  remembered limit rather than back. A view with no height has no row in view and
+  adds nothing; it fell back to the whole diff's widest line until review round 3
+  found a pane laid out at a height of 0 scrolling into blank, and the fallback
+  was for a case that cannot happen, since nothing is drawn before a layout gives
+  the view a width. The clamp to the whole diff's overflow that drawing used to do
+  first is gone with it: the limit is never above the overflow, so bringing the
+  offset back to the limit is the one clamp. The arrows are claimed whenever
+  anything in the whole diff runs past the edge, since what has been seen changes
+  with every vertical scroll and a key that is claimed only sometimes is one a
+  pane around the view cannot rely on.
+- **Home and End go back to the start of the lines as well as to the top or the
+  bottom.** A reader jumping to an end of the diff is starting over, and the
+  sideways offset they left in the middle of it is not where they want to read
+  from. The scroll box still does the vertical half; the view resets the offset
+  first, draws, and claims the key even where the content fits and the scroll box
+  would have let it go -- it did something. At an offset of 0 the key is the scroll
+  box's alone, claimed or not by its own rule. With Shift, Ctrl or Meta the sideways
+  half is left alone, as the arrows are; inside a paste it is not, because the
+  scroll box reads a pasted Home as Home and the two halves of one key must agree
+  (both review round 5).
+- **`position` is a `State` the view writes, and only writes.** `{ x, y, maxX,
+  width }`: the sideways offset, the row at the top, how far right of the edge
+  the widest line seen ends -- as far as `x` goes -- and that line's own width.
+  `maxX` is the width less the room, so it changes with the terminal, which Chris
+  asked about: the limit has to be relative to the room or right would scroll the
+  line's end off the left edge, so it stays, and `width` is beside it as the number
+  that is the content's. `diffView()` reports `rowWidth` for it, a row's whole
+  line, every row of a folded one included, so it is the same wrapped or not.
+  Asked for to see the limit working: with a 1,300-column table row on screen the
+  honest limit really is a hundred and fifty presses away, which reads as no limit
+  until a number says so -- and most of that row is the padding that lines the
+  table's columns up, then one `|`. The git client prints `x 48 · widest 1330 · y
+  107` in the diff pane's bottom border. Written on a draw, on the scroll box's
+  `onScroll` and on every resize, and only when one of the four moved, so it asks
+  for no frame of its own while nothing changes. The resize is review round 4's:
+  a height that changes alone draws nothing and moves no offset, but it changes
+  which rows are in view, and those have to be taken into what was seen. A
+  `State` the app hands in rather than one the view hands out, `current`'s shape,
+  since `DiffView()` returns the element.
+- **A sideways scroll keeps the rows where they are, and the offset is clamped by
+  the drawing.** Every row is drawn again for a scroll, but the current stop is
+  not brought back into view: a reader who scrolled away from it to read something
+  is reading it still. A drawing whose lines in view run past their room by less
+  than the offset -- narrower content, a wider pane -- draws again from as far as
+  one of them goes (the entry above). Wrapped, nothing runs past, so the same clamp is what puts
+  the offset back to 0 and lines unwrapped again start from their beginning: an
+  explicit reset on the switch was written and deleted for surviving its
+  sabotage. Prose blocks are not scrolled, since they are already cut rather than
+  wrapped, and neither are the `---`, `+++` and `@@` rows: they say which file and
+  where, which is what a reader scrolled sideways needs to keep, so they stay put
+  with the gutter and are cut at the edge as before. The tail of a long `@@`
+  heading is therefore out of reach unwrapped; `w` shows it (review round 1). What a scroll costs is a drawing, which a resize already
+  pays: measured as of this change on arm64 macOS at a load average of 3, a
+  4,000-line patch of 170-column lines -- the git client's cap -- in a 120 by 40
+  view is about 50 ms a press, frame included, against about 80 ms for the first
+  frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
+  only the window's rows is the lever, and is not taken here.
+
+What is not done: a click to move the cursor to a hunk; scrolling sideways with
+the wheel; an `onActivate`, since the
+one caller acts on Space from its panel and a callback nothing calls is a shape
+designed by guessing; staging part of a hunk; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
