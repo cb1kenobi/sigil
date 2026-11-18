@@ -169,9 +169,11 @@ function within<T>(promise: Promise<T>, what: string, ms = 2000): Promise<T> {
  * something inferred: `hello`'s first row has the focus and Enter counts it, and
  * `2` takes the git client's focus to its branches, whose keys the footer then
  * lists -- whether or not the directory it was started in is a repository --
- * and the settings screen's sidebar has the focus and Down shows the next section.
+ * the settings screen's sidebar has the focus and Down shows the next section, and
+ * `.` shows the file manager's hidden files and says so, whatever directory it is in.
  */
 const KEYED: Record<string, { keys: string[]; shows: string } | undefined> = {
+  'file-manager': { keys: ['.'], shows: 'Hidden files: shown' },
   'git-client': { keys: ['2'], shows: 'checkout' },
   hello: { keys: [KEYS.enter], shows: '1 press' },
   settings: { keys: [KEYS.down], shows: 'Pause all' },
