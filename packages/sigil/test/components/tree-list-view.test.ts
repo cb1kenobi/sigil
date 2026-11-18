@@ -849,6 +849,299 @@ describe('TreeListView()', () => {
     });
   });
 
+  describe('when the data behind a read branch changes', () => {
+    /** A directory read through a function, over a list the test edits. */
+    function files(names: string[]): { calls: () => number; node: TreeChoiceItem } {
+      let calls = 0;
+      return {
+        calls: () => calls,
+        node: {
+          items: () => {
+            calls++;
+            return [...names];
+          },
+          text: 'dir',
+        },
+      };
+    }
+
+    it('should stop showing a child deleted from the data once the branch is reloaded', () => {
+      const names = ['a', 'b', 'c'];
+      const { node } = files(names);
+      const host = tree({ items: [node] });
+      press(host, 'right');
+      expect(picture(host)).toEqual([
+        '❯ └── ▾ dir',
+        '      ├──   a',
+        '      ├──   b',
+        '      └──   c',
+      ]);
+
+      names.splice(1, 1);
+      flush();
+      // kept, which is the point of keeping it -- and why it has to be told
+      expect(picture(host)).toContain('      ├──   b');
+      expect(control(host).reload('dir')).toBe(true);
+      flush();
+      expect(picture(host)).toEqual(['❯ └── ▾ dir', '      ├──   a', '      └──   c']);
+    });
+
+    it('should keep the cursor on its node across a reload', () => {
+      const names = ['a', 'b', 'c'];
+      const { node } = files(names);
+      const host = tree({ items: [node] });
+      press(host, 'right');
+      press(host, 'right');
+      press(host, 'down');
+      press(host, 'down');
+      expect(control(host).current.get()).toBe('c');
+
+      names.splice(1, 1);
+      control(host).reload('dir');
+      flush();
+      expect(control(host).current.get()).toBe('c');
+      expect(picture(host)).toEqual(['  └── ▾ dir', '      ├──   a', '❯     └──   c']);
+    });
+
+    it('should show what the last read found until a read again lands, cursor and all', async () => {
+      const reads = [deferred<string[]>(), deferred<string[]>()];
+      let calls = 0;
+      const host = tree({
+        items: [
+          { items: () => (reads[calls++] as { promise: Promise<string[]> }).promise, text: 'r' },
+        ],
+      });
+      press(host, 'right');
+      reads[0]?.resolve(['a', 'b', 'c']);
+      await landed();
+      control(host).current.set('c');
+      flush();
+
+      expect(control(host).reload('r')).toBe(true);
+      flush();
+      expect(calls).toBe(2);
+      // no loading line where the children were: the cursor has nowhere it would
+      // have to go
+      expect(control(host).status('r')).toBe('loading');
+      expect(picture(host)).toEqual([
+        '  └── ▾ r',
+        '      ├──   a',
+        '      ├──   b',
+        '❯     └──   c',
+      ]);
+      expect(control(host).current.get()).toBe('c');
+
+      reads[1]?.resolve(['a', 'c']);
+      await landed();
+      expect(control(host).status('r')).toBe('loaded');
+      expect(picture(host)).toEqual(['  └── ▾ r', '      ├──   a', '❯     └──   c']);
+      expect(control(host).current.get()).toBe('c');
+    });
+
+    it('should drop a read again that a second reload() superseded, and keep showing the old answer', async () => {
+      const reads = [deferred<string[]>(), deferred<string[]>(), deferred<string[]>()];
+      let calls = 0;
+      const host = tree({
+        items: [
+          { items: () => (reads[calls++] as { promise: Promise<string[]> }).promise, text: 'r' },
+        ],
+      });
+      press(host, 'right');
+      reads[0]?.resolve(['old']);
+      await landed();
+
+      control(host).reload('r');
+      flush();
+      control(host).reload('r');
+      flush();
+      expect(calls).toBe(3);
+      reads[1]?.resolve(['superseded']);
+      await landed();
+      expect(picture(host)).toEqual(['❯ └── ▾ r', '      └──   old']);
+      reads[2]?.resolve(['new']);
+      await landed();
+      expect(picture(host)).toEqual(['❯ └── ▾ r', '      └──   new']);
+    });
+
+    it('should put the cursor on the branch when a read again fails under it', async () => {
+      let fail = false;
+      const host = tree({
+        items: [
+          {
+            items: async () => {
+              if (fail) {
+                throw new Error('gone');
+              }
+              return ['a', 'b'];
+            },
+            text: 'r',
+          },
+        ],
+      });
+      press(host, 'right');
+      await landed();
+      control(host).current.set('b');
+      flush();
+
+      fail = true;
+      control(host).reload('r');
+      flush();
+      await landed();
+      expect(picture(host, 40)).toEqual(['❯ └── ▾ r', '      └──   Could not load: gone']);
+      expect(control(host).current.get()).toBe('r');
+    });
+
+    it('should leave the open set alone, and show an open branch under the one reloaded', () => {
+      let inner = 0;
+      const host = tree({
+        items: [
+          {
+            items: () => [
+              {
+                items: () => {
+                  inner++;
+                  return ['deep'];
+                },
+                text: 'sub',
+              },
+              'leaf',
+            ],
+            text: 'top',
+          },
+        ],
+      });
+      const { expanded } = control(host);
+      expanded.set(new Set(['top', 'sub']));
+      flush();
+      const open = expanded.get();
+      expect(inner).toBe(1);
+
+      control(host).reload('top');
+      flush();
+      expect(expanded.get()).toBe(open);
+      // the one reloaded, and not the one under it
+      expect(inner).toBe(1);
+      expect(picture(host)).toEqual([
+        '❯ └── ▾ top',
+        '      ├── ▾ sub',
+        '      │   └──   deep',
+        '      └──   leaf',
+      ]);
+    });
+
+    it('should hold the scroll where it was across a reload, while the read again is in flight too', async () => {
+      const names = Array.from({ length: 30 }, (_, i) => `f${String(i).padStart(2, '0')}`);
+      const again = deferred<string[]>();
+      let calls = 0;
+      const host = tree(
+        {
+          expanded: ['dir'],
+          items: [{ items: () => (++calls === 1 ? [...names] : again.promise), text: 'dir' }],
+        },
+        5
+      );
+      control(host).current.set('f20');
+      control(host).list.reveal('f20');
+      flush();
+      picture(host);
+      const viewport = control(host).list.scroll.viewport;
+      const before = viewport.scroll?.y;
+      expect(before).toBeGreaterThan(0);
+
+      // one below the view goes, which moves nothing in it
+      expect(control(host).reloadAll()).toBe(true);
+      flush();
+      picture(host);
+      expect(calls).toBe(2);
+      expect(viewport.scroll?.y).toBe(before);
+      again.resolve(names.slice(0, -1));
+      await landed();
+      picture(host);
+      expect(viewport.scroll?.y).toBe(before);
+      expect(control(host).current.get()).toBe('f20');
+    });
+
+    it('should read again with the function the node has now, not the one it was read with', () => {
+      const first = { items: () => ['before'], text: 'dir' };
+      const top = new State<readonly TreeChoiceItem[]>([first]);
+      const host = tree({ items: top });
+      press(host, 'right');
+
+      // the shape an immutable tree has: a new node, the same value, new children
+      top.set([{ items: () => ['after'], text: 'dir' }]);
+      flush();
+      expect(picture(host)).toEqual(['❯ └── ▾ dir', '      └──   before']);
+      control(host).reload('dir');
+      flush();
+      expect(picture(host)).toEqual(['❯ └── ▾ dir', '      └──   after']);
+    });
+
+    it('should reload a subtree: every read branch under one, open or closed', () => {
+      const calls: Record<string, number> = { closed: 0, open: 0, other: 0, top: 0 };
+      const counted = (name: string, items: TreeChoiceItem[]) => (): TreeChoiceItem[] => {
+        calls[name] = (calls[name] ?? 0) + 1;
+        return items;
+      };
+      const host = tree({
+        items: [
+          {
+            items: counted('top', [
+              { items: counted('open', ['o']), text: 'open' },
+              // a list in between: a read under it is still in the subtree
+              { items: [{ items: counted('closed', ['c']), text: 'closed' }], text: 'plain' },
+            ]),
+            text: 'top',
+          },
+          { items: counted('other', ['x']), text: 'other' },
+        ],
+      });
+      const { expanded, reload } = control(host);
+      expanded.set(new Set(['top', 'open', 'plain', 'closed', 'other']));
+      flush();
+      expanded.set(new Set(['top', 'open', 'plain', 'other']));
+      flush();
+      expect(calls).toEqual({ closed: 1, open: 1, other: 1, top: 1 });
+
+      expect(reload('top', { subtree: true })).toBe(true);
+      flush();
+      // the open ones at once, the closed one when it opens, and nothing beside
+      expect(calls).toEqual({ closed: 1, open: 2, other: 1, top: 2 });
+      expect(control(host).expand('closed')).toBe(true);
+      flush();
+      expect(calls).toEqual({ closed: 2, open: 2, other: 1, top: 2 });
+
+      // a value with no read under it has nothing to forget
+      expect(reload('o', { subtree: true })).toBe(false);
+    });
+
+    it('should reload every read branch with reloadAll(), and say when there was nothing to', () => {
+      let a = 0;
+      let b = 0;
+      const host = tree({
+        items: [
+          { items: () => [`a${++a}`], text: 'a' },
+          { items: () => [`b${++b}`], text: 'b' },
+        ],
+      });
+      expect(control(host).reloadAll()).toBe(false);
+      control(host).expand('a');
+      control(host).expand('b');
+      flush();
+      control(host).collapse('b');
+      flush();
+
+      expect(control(host).reloadAll()).toBe(true);
+      // already out of date, so nothing more to forget until they are read
+      expect(control(host).reloadAll()).toBe(false);
+      flush();
+      expect([a, b]).toEqual([2, 1]);
+      control(host).expand('b');
+      flush();
+      expect([a, b]).toEqual([2, 2]);
+      expect(picture(host)).toEqual(['❯ ├── ▾ a', '  │   └──   a2', '  └── ▾ b', '      └──   b2']);
+    });
+  });
+
   describe('the mouse', () => {
     it('should open a branch on a click on its twisty, without moving the cursor', () => {
       const host = tree({ items: SAMPLE });

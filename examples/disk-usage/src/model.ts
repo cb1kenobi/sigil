@@ -141,16 +141,12 @@ export function createModel(): Model {
       if (node.children === undefined) {
         choice = { text: printable(node.name), value: node.path };
       } else {
-        // the children are made into choices only when something reads them,
-        // which the tree does for a branch it shows: a tree of a few hundred
-        // thousand names costs what is open rather than what is there
-        let made: readonly TreeChoice<string>[] | undefined;
+        // the children are made into choices only when the tree reads them, the
+        // first time their branch opens: a tree of a few hundred thousand names
+        // costs what is open rather than what is there
         const children = node.children;
         choice = {
-          get items(): readonly TreeChoice<string>[] {
-            made ??= children.map(choiceOf);
-            return made;
-          },
+          items: () => children.map(choiceOf),
           text: printable(node.name),
           value: node.path,
         };
@@ -496,6 +492,14 @@ export function createModel(): Model {
       for (const fn of off) {
         fn();
       }
+    });
+
+    // the tree keeps what each branch read until it is told otherwise, and a
+    // delete or a rescan is a new tree under the same paths: every read is out of
+    // date, and the open ones are read again over the tree as it is now
+    createEffect(() => {
+      scan.get();
+      untrack(() => treeListControl<string>(given.tree)?.reloadAll());
     });
 
     // a selection the tree does not show yet -- a click on the map, a rescan --

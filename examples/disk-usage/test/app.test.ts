@@ -167,6 +167,7 @@ describe('the disk usage visualizer', () => {
       // and the cursor is on what came after it
       expect(info(m)).toMatch(/work[\\/]src · 12\.0 kB · 70\.6%/);
       expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+      expect(m.screen()).not.toMatch(/▸ media/);
       m.app.exit(0);
     },
     LONG
@@ -186,6 +187,8 @@ describe('the disk usage visualizer', () => {
       expect(existsSync(join(work, 'src', 'main.ts'))).toBe(true);
       expect(info(m)).toMatch(/main\.ts · 9\.0 kB/);
       expect(m.screen()).toMatch(/▾ src +9\.0 kB/);
+      // gone from the open branch it was read into, not only from the sizes
+      expect(m.screen()).not.toMatch(/── +util\.ts/u);
       m.app.exit(0);
     },
     LONG

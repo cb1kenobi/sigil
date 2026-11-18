@@ -12396,7 +12396,9 @@ each question was settled, the probes and the sabotage pass are in
   no longer shows its children, it closed over the cursor and the cursor goes to it,
   **however it closed** -- Left, a twisty, the app writing the set, a `reload()`.
   If the ancestor is open and showing its children, the node was **deleted** from
-  it, and the list's rule stands. Done before the rows are handed to the list, so
+  it, and the list's rule stands. A `reload()` no longer hides a branch's children
+  while it reads again (SIG-479, below), so the reload that closes over the cursor
+  is now one of a branch never read through, or one whose read again failed. Done before the rows are handed to the list, so
   the list's settle finds the cursor already on a row.
 - **A branch whose `items` is a function is read the first time it opens, and kept.**
   A function that returns a list is taken at once, so a synchronous tree never
@@ -12404,8 +12406,8 @@ each question was settled, the probes and the sabotage pass are in
   the branch until it lands. What it returns is checked as `selectTree()` checks it
   -- a list, of nodes `treeChoiceOf()` accepts -- and anything else is a failed
   read rather than a throw out of an effect. Kept, so closing and opening again is
-  instant; `treeListControl(tree).reload(value)` forgets it, reading again at once
-  if the branch is open and when it next opens if not.
+  instant, and kept until the app says it is out of date -- "A branch's read goes
+  out of date when the app says so", below.
 - **A read that fails says why under the branch, keeps the branch open, and is not
   kept.** `Could not load: <message>`, `.sigil-tree-error sigil-error`, where the
   children would be. `selectTree()` closes the branch and puts the message under its
@@ -12455,6 +12457,61 @@ each question was settled, the probes and the sabotage pass are in
   read, above; an `AbortSignal` for a read; an `enumerator`, which the prompt has;
   and a walk cheaper than one pass over the open rows per change, which nothing has
   measured a need for.
+
+### A branch's read goes out of date when the app says so (SIG-479)
+
+A branch whose `items` is a function kept what it read for the life of the view,
+and `reload(value)` was the only way to drop it: one value, so the app had to know
+every branch whose answer had changed, and the children vanished under a `Loading…`
+line while the read ran. The disk usage example (SIG-474) met it on a delete, which
+makes a new tree under the same paths, and routed around it with getters.
+
+- **An explicit call, not a read that tracks its signals.** The ticket offered both.
+  Re-reading when a reactive input changes would mean running each function in a
+  tracking scope and keeping a computation per read branch -- and it sees only what
+  the function reads **before its first `await`**, so an `async` function that
+  awaits and then reads a signal would be followed for half of what it read, with
+  nothing to say which half. What a branch reads is mostly not a signal at all: a
+  directory, a request, a database. And the function is `selectTree()`'s too, which
+  tracks nothing, so one node would mean two things in two places. The app knows
+  when its data changed; the tree cannot. `reload(value)` is one branch,
+  `reload(value, { subtree: true })` every read branch under it as well, and
+  `reloadAll()` every read branch there is. `reload()` with no value is **not** all
+  of them, because `expand()`, `collapse()` and `toggle()` with no value mean the
+  current node, and one method meaning the other thing would be read wrong.
+- **What a branch showed stays until the read again lands.** A read is marked
+  `stale` and keeps its items; an open branch reads again at once, the walk handing
+  `start()` the stale items to show while the promise is out, with the branch's
+  `status` `loading`. So a cursor on a child is not closed over, the scroll box
+  keeps its count and offset, and nothing flashes. A function that returns a list
+  swaps in the same walk. A read again that **fails** puts the error line where the
+  children were, and a cursor under them goes to the branch by the rule above: the
+  old answer is not shown as though it were current. A second `reload()` while one
+  is out supersedes it as before, and the branch goes on showing the answer before
+  both. This changed `reload(value)` too, which used to forget the answer outright:
+  one value, a subtree and all differing on whether the children vanish would be
+  three rules where one does.
+- **A closed branch reads again when it opens, and nothing else is touched.** Marking
+  is all a call does; the walk is what reads, so a subtree of closed branches costs
+  nothing until each is opened. The open set is never written, so every branch that
+  was open is open after. Reading again calls the function the node has **now** --
+  `parts.choice.items` at walk time -- not the one it was first read with, which is
+  what an immutable tree needs: a new node under the same value carries the new
+  children.
+- **A subtree is found in the data, not in the last walk.** The walk records only
+  what is shown, and a read branch under a closed one is exactly what a subtree
+  reload is for, so `readUnder()` goes down the tree as it is now, through its
+  lists and through what each read found -- the same places the cache holds. A
+  value met twice on the way is skipped, so a read that hands back an ancestor's
+  value cannot loop.
+- **Each returns whether anything was marked,** as `reload()` did: a read already
+  out of date and not yet read again is nothing more to forget.
+- **SIG-471 is untouched.** A row is still kept while it draws the same thing; a read
+  again rebuilds the branch's own row twice (`loading`, then `loaded`) and a child
+  row only where the function handed back a different object for it. An app that
+  memoizes its nodes, as the disk usage example does, keeps every child row.
+- **Not done:** dropping reads under values no longer in the tree, which
+  `reloadAll()` marks but keeps -- as `seen` keeps every value it met.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 

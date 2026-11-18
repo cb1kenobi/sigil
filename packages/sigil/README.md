@@ -5562,8 +5562,13 @@ goes to that branch**, however it was closed; a node that was deleted leaves the
 cursor on the row that took its place, as in a list.
 
 A branch whose `items` is a function is read the first time it opens, and what it
-returned is kept, so closing and opening again is instant; `treeListControl(tree)
-.reload(value)` forgets it. A function that returns a list is taken at once; one
+returned is kept, so closing and opening again is instant. Kept until the app says
+otherwise, since the tree cannot see what a function read: when the data behind it
+changes, `treeListControl(tree).reload(value)` marks one branch out of date,
+`reload(value, { subtree: true })` every read branch under it too, and
+`reloadAll()` every one. An open branch reads again at once and a closed one when
+it opens, and what it showed stays on screen until the new read lands, so the
+cursor, the open branches and the scroll stay where they are. A function that returns a list is taken at once; one
 that returns a promise draws `Loading…` under the branch until it lands. A read
 that rejects -- or returns something that is not a list of nodes -- puts `Could not
 load: <message>` there instead, keeps the branch open so the message has somewhere
@@ -5580,8 +5585,8 @@ is a `branch` and `expanded`, and where its read stands (`status`). The guides a
 `.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
 `-label`, and the lines under a branch are `.sigil-tree-loading` and
 `.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
-`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
-`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value, options?)`,
+`reloadAll()`, `status(value)`, and `list` -- the list underneath, which `listControl()` answers for
 too. `describeTreeListView(input, ...trees)` describes the list's keys and the
 tree's, scoped to each.
 
