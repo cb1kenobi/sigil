@@ -25,6 +25,8 @@ import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import type { State } from '../signals/index.js';
 import {
+  controlCondition,
+  type ControlCondition,
   type ControlDescriber,
   controlDisabled,
   controlFlag,
@@ -47,9 +49,10 @@ export interface CheckboxProps {
    * Whether it refuses to change.
    *
    * A disabled checkbox is out of the focus ring, ignores keys and clicks, and is
-   * drawn in the muted role. A `State<boolean>` is read live. Defaults to `false`.
+   * drawn in the muted role. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /**
    * What it says, beside the box. One line of plain text, which wraps under itself
    * where it is too long. Empty is allowed, for a checkbox labelled by something
@@ -86,9 +89,9 @@ export function Checkbox(props: CheckboxProps): Element {
     props.checked,
     __`Expected checkbox checked to be a boolean or a State`
   );
-  const disabled = controlFlag(
+  const disabled = controlCondition(
     props.disabled,
-    __`Expected checkbox disabled to be a boolean or a State`
+    __`Expected checkbox disabled to be a boolean, a State, a Computed or a function`
   );
   const { onChange } = props;
   const words = labelLine(props.label);

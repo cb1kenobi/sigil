@@ -17,7 +17,7 @@
 
 import { AccountContext, type Settings } from './account.ts';
 import { SETTINGS_CHECKS } from './checks.ts';
-import { createForm, follow } from './form.ts';
+import { createForm } from './form.ts';
 import { Appearance, Notifications, Profile, Session } from './sections.tsx';
 import { useApp } from '@ttylabs/sigil/app';
 import { Button, describeButton } from '@ttylabs/sigil/components/button';
@@ -145,12 +145,12 @@ export function App(): Element {
   };
 
   const saveButton = Button({
-    disabled: follow(() => !form.dirty.get() || !form.valid.get()),
+    disabled: () => !form.dirty.get() || !form.valid.get(),
     label: 'Save',
     onPress: save,
   });
   const cancelButton = Button({
-    disabled: follow(() => !form.dirty.get()),
+    disabled: () => !form.dirty.get(),
     label: 'Cancel',
     onPress: cancel,
   });

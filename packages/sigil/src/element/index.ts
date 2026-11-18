@@ -141,14 +141,24 @@ export interface RawOptions {
  * Everything an element records for the layers above, in one place so that a
  * frame can drain it and know what to do.
  *
- * These are the four questions the style invalidator asks, plus the two the
- * layout and paint passes ask, and nothing else: the tree records *what
+ * These are the questions the style invalidator asks -- props, classes,
+ * children, and `within` -- plus the two the layout and paint passes ask, and
+ * nothing else, plus the removals a restyler forgets: the tree records *what
  * changed*, and what that implies is `Restyler`'s. Keeping the two apart is what
  * lets either be tested without the other.
  */
 export interface Marks {
   /** Elements whose class, id or state changed: a re-match of the subtree and its siblings. */
   classes: Set<Element>;
+  /**
+   * Elements whose `focus-within` turned on or off because the focus moved into
+   * or out of their subtree -- every ancestor of both ends of a move, and the
+   * ones they share as well when the router's blur takes the count through
+   * nought before its focus puts it back. Kept apart from `classes` because what it implies is
+   * narrower: the restyler's `touchState()` re-matches the element alone unless
+   * a sheet reads `:focus-within` through a combinator.
+   */
+  within: Set<Element>;
   /** Elements whose children changed, which `:nth-child()` and `+` can see. */
   children: Set<Element>;
   /** Elements whose intrinsic size changed: a text edited, a `raw` re-measured. */
@@ -180,6 +190,7 @@ function emptyMarks(): Marks {
     paint: new Set(),
     props: new Set(),
     removed: new Set(),
+    within: new Set(),
   };
 }
 
@@ -498,6 +509,18 @@ export class Element implements LayoutNode {
   #id: string | undefined;
   #key: number | string | undefined;
   #states = new Set<StyleState>();
+  /**
+   * How many elements of this subtree, this one included, hold the `focus`
+   * state; `focus-within` is reported while it is above nought.
+   *
+   * A count rather than a flag because it is carried, not searched for: a focus
+   * change adds or takes one along the chain above it, and a subtree moved in or
+   * out of a parent carries its own count with it, so `states` never walks a
+   * subtree and a move never leaves an ancestor lit. Normally one or nought; a
+   * direct `setState('focus')` outside the router can make it more, and the
+   * count is still right then.
+   */
+  #focusedIn = 0;
   #props: PropValues = {};
   #text = '';
   #raw: RawOptions | undefined;
@@ -596,8 +619,16 @@ export class Element implements LayoutNode {
     return this.#props;
   }
 
+  /**
+   * The states this element is in, `focus-within` included while it or a
+   * descendant has the focus.
+   */
   get states(): readonly StyleState[] {
-    return [...this.#states];
+    const out = [...this.#states];
+    if (this.#focusedIn > 0) {
+      out.push('focus-within');
+    }
+    return out;
   }
 
   get text(): string {
@@ -674,6 +705,9 @@ export class Element implements LayoutNode {
     this.#children.splice(at, 0, child);
     child.#parent = this;
     child.#adopt(this.#tree);
+    if (child.#focusedIn > 0) {
+      this.#light(this.#carry(child.#focusedIn));
+    }
     this.#mark('children');
     return this;
   }
@@ -712,6 +746,10 @@ export class Element implements LayoutNode {
     this.#children.splice(at, 1);
     child.#parent = undefined;
     child.#adopt(undefined);
+    // the subtree keeps its own count: inside it, the focus is still where it was
+    if (child.#focusedIn > 0) {
+      this.#light(this.#carry(-child.#focusedIn));
+    }
     this.#mark('children');
     return this;
   }
@@ -783,11 +821,21 @@ export class Element implements LayoutNode {
   /**
    * Turns a state on or off, which selectors match with `:focus` and friends.
    *
+   * `focus-within` is not one of them: it is reported, never set, and an element
+   * is in it while it or a descendant holds `focus`. So a `focus` change here is
+   * carried up the chain of ancestors, and each one it turned `focus-within` on
+   * or off for is marked `within`.
+   *
    * @param state - The state.
    * @param on - Whether to set it. Defaults to `true`.
    * @returns This element.
    */
-  setState(state: StyleState, on = true): this {
+  setState(state: Exclude<StyleState, 'focus-within'>, on = true): this {
+    if ((state as StyleState) === 'focus-within') {
+      throw new Error(
+        "Cannot setState('focus-within'): an element is in it while it or a descendant has the focus, so move the focus instead"
+      );
+    }
     if (on === this.#states.has(state)) {
       return this;
     }
@@ -805,6 +853,11 @@ export class Element implements LayoutNode {
       this.#mark('classes');
       return this;
     }
+    // carried and recorded before anything is marked, so the mark callback --
+    // which runs once, for the `classes` mark below -- finds every count right
+    // and every ancestor recorded. This element's own flip is covered by that
+    // mark, which reaches further
+    this.#light(this.#carry(on ? 1 : -1).filter((element) => element !== this));
     // told now, or once the router's move has committed both ends of it --
     // `focus.ts` has why a handler is never told in between. Told even when the
     // mark throws, because the mark runs the tree's callback and the state is
@@ -1210,6 +1263,42 @@ export class Element implements LayoutNode {
     this.#tree?.mark(kind, this);
   }
 
+  /**
+   * Records `within` against the tree for each element a carry flipped, without
+   * running the tree's callback: every caller marks something else straight
+   * after, in the same tree, so the callback runs once for the lot -- and a
+   * callback that throws throws once, as it did before there were ancestors to
+   * record.
+   */
+  #light(flipped: readonly Element[]): void {
+    for (const element of flipped) {
+      element.#tree?.record('within', element);
+    }
+  }
+
+  /**
+   * Adds `delta` focused elements to this element's count and to each
+   * ancestor's.
+   *
+   * @param delta - How many gained (positive) or lost (negative) the focus.
+   * @returns The elements whose `focus-within` that turned on or off, nearest first.
+   */
+  #carry(delta: number): Element[] {
+    const flipped: Element[] = [];
+    const count = (at: Element): void => {
+      const before = at.#focusedIn;
+      at.#focusedIn += delta;
+      if (before === 0 || at.#focusedIn === 0) {
+        flipped.push(at);
+      }
+    };
+    count(this);
+    for (let at = this.#parent; at; at = at.#parent) {
+      count(at);
+    }
+    return flipped;
+  }
+
   /** Carries tree membership down a subtree as it is attached or detached. */
   #adopt(tree: TreeImpl | undefined): void {
     if (this.#tree === tree) {
@@ -1356,6 +1445,11 @@ class TreeImpl implements Tree {
   mark(kind: keyof Marks, element: Element): void {
     this.marks[kind].add(element);
     this.#onMark?.();
+  }
+
+  /** Records a change without running the callback, for a caller that marks next. */
+  record(kind: keyof Marks, element: Element): void {
+    this.marks[kind].add(element);
   }
 
   take(): Marks {

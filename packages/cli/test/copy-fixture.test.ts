@@ -107,6 +107,12 @@ describe('copying a fixture', () => {
    * counted like anywhere else.
    */
   const exempt: Record<string, { count: number; why: string }> = {
+    'examples/file-manager/src/files.ts': {
+      count: 1,
+      why:
+        "the file manager's own copy, which is the feature rather than a test: " +
+        'it copies what the user picked, never a fixture a build writes under',
+    },
     'packages/cli/test/copy-fixture.ts': {
       count: 1,
       why: 'the helper itself, whose one call is the filtered one',

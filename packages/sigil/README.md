@@ -5446,12 +5446,36 @@ row is rebuilt when its item is a different object from the one it was built fro
 so replacing an object is how an update reaches the screen; for items changed in
 place, `listControl(list).refresh()`. The view follows the cursor, and only the
 cursor: an update that does not move the current row does not scroll back to it.
+New items and a `current` key that only they hold can be written in one step, in
+either order: the list keys the rows before it reads the cursor.
+
+`tail` follows the last row as rows are added, the way `tail -f` and lnav do:
+
+```js
+const following = new State(true);
+const log = ListView({ items: lines, key: (line) => line.id, tail: following });
+// a label: () => (following.get() ? 'following' : 'paused')
+// an F key: following.set(!following.get())
+```
+
+While the list is following, every change of the items puts the cursor on the
+last row and scrolls to it. Moving off the last row stops it, and so does a scroll
+-- the wheel, or an app's -- that takes the cursor's row out of view, so a reader
+who wheeled up to read is not pulled back down by the next line. **End**, or a move
+back onto the last row, starts it again. The state is the list's to write as the
+reader moves and the app's to write too: `true` goes to the last row and scrolls to
+it, wherever the view was. `tail: true` follows from the start, for an app that has
+nothing to show about it.
 
 `row(item, key)` returns an element or a string, and is called under an owner of
 its own, so a row may hold effects; they are disposed when the row leaves the view.
 It is not called again when the cursor or the selection moves: those are the
-classes `is-current` and `is-selected` on `.sigil-list-row` around it. Every row is
-`rowHeight` cells tall (1 by default), fixed rather than measured.
+classes `is-current` and `is-selected` on `.sigil-list-row` around it. `rowClass(item)`
+puts classes of the app's own on that box beside them -- a string or an array, as a
+`class` prop takes -- so a stylesheet reaches a row by its state, and a role class
+such as `sigil-error` colours the whole row. It is asked when the row is built, as
+`row` is: again when the item is replaced, and not when a signal it read changes.
+Every row is `rowHeight` cells tall (1 by default), fixed rather than measured.
 
 Filtering is the app's: make `items` a `Computed` over a `TextField`'s value and
 `rankBy()`, and the list sees only that its items changed. `find: true` turns on
@@ -5585,7 +5609,7 @@ htop's process list, k9s's resource view, a database client's result grid: a
 `ListView` whose rows have columns, with a heading over them that sorts. Everything
 the list does it does here -- only the rows on screen are built; **Up**, **Down**,
 **Page Up**, **Page Down**, **Home** and **End** move the cursor; `multiple`,
-`disabled`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
+`disabled`, `rowClass`, `onActivate`, `empty` and `vim` mean what they mean there -- because the
 rows _are_ a list's, built through `row`. `rows` replaces `items`, as `table()` and
 `selectRow()` call their data.
 
@@ -5627,6 +5651,13 @@ than scrolled sideways, so the columns that say what a row is stay on screen. A
 hidden column's digit does nothing until it is back. `columns` may be a `State`: an
 app hides a column, adds one, reorders them, or changes a width, a format or an
 alignment by replacing the array, and the rows in view are redrawn for it.
+
+**A row coloured by its state**, as k9s draws a crashing pod red across every
+column, is `rowClass`: `(pod) => (pod.status === 'CrashLoopBackOff' ? 'sigil-error' :
+undefined)` puts the role on the row's box and every cell takes its colour from
+there. The cursor's highlight still reads over it, because the focus is `inverse`
+and a role is a colour: the current row of a red row is red reversed. At colour level
+0 neither draws and the pointer says which row is current, as it always does there.
 
 The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 .sigil-heading` with `is-sortable` and `is-sorted`, and each row's cells are
@@ -5687,9 +5718,11 @@ border-color: cyan }`, or your own class on it with `class`. The title is
 `.sigil-heading` and the three others `.sigil-muted`; `.sigil-panel`, `-title`,
 `-annotation`, `-footer`, `-footer-annotation` and `-body` are the theme hooks. The
 border is ASCII where `unicodeSupported()` says so (`ascii: true` forces it), and
-`border` picks another character set. There is no `:focus-within`, so a panel cannot
-light up because something inside it has the focus; the app says which panel is
-current by giving it a class.
+`border` picks another character set. To light the panel the focus is in, say so in
+the app's sheet or a theme: `.sigil-panel:focus-within { border-color: green }`.
+`:focus-within` matches the focused element and every ancestor of it, so the panel
+is lit whichever control inside it has the focus, and the framework sheet sets no
+colour for it.
 
 #### A pane
 
@@ -5929,8 +5962,9 @@ it, and `background-color: default` takes it away.
 the keys write it, and a write the app makes is shown at once with the caret moved
 to the end. `onChange(value)` is called after every edit that changed it, and
 `onSubmit(value)` on Enter. `placeholder` is shown, muted, while the value is
-empty; `mask: '•'` draws a password; `disabled` (a boolean or a `State<boolean>`)
-takes it out of the focus ring and mutes it; `width` is its columns, and without
+empty; `mask: '•'` draws a password; `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live -- see "Form controls") takes it out of the
+focus ring and mutes it; `width` is its columns, and without
 one it takes what the layout gives it -- the whole width in a column. What is
 wider than the field scrolls sideways to keep the caret in view.
 
@@ -6104,17 +6138,34 @@ padding, `[ Save ]` against `  Save  `. Neither moves anything when the focus
 arrives. The value is the marker, `[x]` or `◉`, in `.sigil-accent`; the switch's
 other state is `.sigil-muted`.
 
-`disabled` (a boolean or a `State<boolean>`) takes a control out of the ring,
-mutes it, sets `:disabled`, and makes it ignore keys and clicks, which go on to
-the form; a control disabled while it has the focus keeps it. A checked checkbox
-or switch and a selected option are `:checked` too.
+`disabled` takes a control out of the ring, mutes it, sets `:disabled`, and makes
+it ignore keys and clicks, which go on to the form; a control disabled while it has
+the focus keeps it. A checked checkbox or switch and a selected option are
+`:checked` too. A disabled flag is nearly always derived -- Save until something
+changed, Sign in until the form is valid -- so `disabled` is a boolean, or anything
+read live: a `State`, a `Computed`, anything else with a `get()`, or a function,
+which is how a template spells a reactive prop. Every control that has one --
+these four, `TextField`, `TextArea`, `Slider` and `Dropdown` -- takes the same
+shapes, and follows what it reads:
+
+```tsx
+const unchanged = new Computed(() => !form.dirty.get());
+Button({ disabled: unchanged, label: 'Save', onPress: save });
+<Button disabled={() => !valid.get()} label="Sign in" onPress={signIn} />;
+```
+
+A control never writes `disabled`, which is why it can be a `Computed`; `checked`
+and `value` are written by the keys and the mouse, so they stay a value to start
+from or a `State`.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
-and return a function that takes them off. `controlFlag()`, `controlDisabled()`
-and `describeControls()` (from `@ttylabs/sigil/components/control`) are what the
-four share, for a control of your own. The theme hooks are `.sigil-button`
+and return a function that takes them off. `controlFlag()` (a value the control
+writes), `controlCondition()` (a `ControlCondition` it only reads, such as
+`disabled`), `controlDisabled()` and `describeControls()` (from
+`@ttylabs/sigil/components/control`) are what the controls share, for a control of
+your own. The theme hooks are `.sigil-button`
 (`-bracket`, `-label`), `.sigil-checkbox` (`-pointer`, `-mark`, `-label`),
 `.sigil-switch` (`-pointer`, `-label`, `-state`) and `.sigil-radio-set` with
 `.sigil-radio` (`-pointer`, `-mark`, `-label`, `-hint`) per option.
@@ -6154,9 +6205,9 @@ any key with a modifier are left alone, so a form of rows can have them. A left
 press on the track puts the thumb under the pointer and focuses the slider, and
 holding the button drags it: the press captures the pointer, so a drag past either
 end of the track, or off the canvas, clamps at that end and the release still ends
-it. The wheel is left to whatever scrolls. `disabled` (a boolean or a
-`State<boolean>`) takes it out of the focus ring, ignores the keys and the pointer,
-and mutes it.
+it. The wheel is left to whatever scrolls. `disabled` (a boolean, or a `State`, a
+`Computed` or a function read live) takes it out of the focus ring, ignores the keys
+and the pointer, and mutes it.
 
 **The label is the app's, and the readout is the slider's.** A form lines its
 labels up in a column only it knows the width of, which is why a text field has

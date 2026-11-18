@@ -31,9 +31,8 @@ export const stylesheet = `
   .footer { flex-direction: row; height: 1; padding-left: 1; column-gap: 2 }
   /* where HEAD is says more than the last key listed, so it keeps its width */
   .status { flex-shrink: 0 }
-  /* the pane with the focus, which a panel cannot see for itself: there is no
-     :focus-within, so the model puts this class on it */
-  .is-active { border-color: green }
+  /* the pane with the focus: lit while anything inside it has the focus */
+  .sigil-panel:focus-within { border-color: green }
 `;
 
 /**

@@ -11,7 +11,14 @@
  * tag has no scope to look a name up in; host elements stay bare.
  */
 
-import { type Browser, LEVEL_ROLE, resourceKey, useBrowser, type View } from './browser.ts';
+import {
+  type Browser,
+  LEVEL_ROLE,
+  resourceClass,
+  resourceKey,
+  useBrowser,
+  type View,
+} from './browser.ts';
 import type { Kind } from './cluster.ts';
 import { type LogLine, matchRuns } from './logs.ts';
 import { DataTable, keyHelp, ListView, Panel, TextField } from '@ttylabs/sigil/components';
@@ -40,6 +47,7 @@ function ResourceTable(props: { browser: Browser; kind: Kind }): Element {
     key=${resourceKey}
     onActivate=${browser.open(kind)}
     props=${{ class: 'grow' }}
+    rowClass=${resourceClass}
     rows=${browser.rows[kind]}
   />`;
 }
@@ -67,6 +75,7 @@ export function App(): Element {
     key=${(line: LogLine) => line.id}
     props=${{ class: 'grow' }}
     row=${(line: LogLine) => ui`<${LogRow} line=${line} query=${logs.query.get()} />`}
+    tail=${logs.following}
   />`;
 
   const field = ui`<${TextField}

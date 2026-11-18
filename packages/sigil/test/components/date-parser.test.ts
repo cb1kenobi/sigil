@@ -50,4 +50,29 @@ describe('date() and the parser', () => {
     ui.stdin.send('\u0003');
     await expect(answer).rejects.toThrow('Cancelled');
   });
+
+  it('should ask the parser before the range, as the line form does', async () => {
+    vi.mocked(transformValue).mockImplementation(() => {
+      throw new Error('Invalid date: "nope"');
+    });
+
+    const ui = screenSetup();
+    // an `initial` before `min` is the one answer the drawn field can hold that
+    // the range refuses, so it is the one place the order shows when drawn
+    const answer = date({
+      initial: new Date(2024, 0, 1),
+      message: 'When?',
+      min: new Date(2024, 5, 1),
+      terminal: ui.terminal,
+    });
+    await tick();
+    ui.stdin.send('\r');
+    await tick();
+
+    const log = ui.log.join('\n');
+    expect(log).to.contain('Invalid date: "nope"');
+    expect(log).not.to.contain('Date must not be before');
+    ui.stdin.send('\u0003');
+    await expect(answer).rejects.toThrow('Cancelled');
+  });
 });

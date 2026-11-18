@@ -75,20 +75,92 @@ function outerSize(style: Style, declared: number | undefined, inset: number): n
   return style.boxSizing === 'content-box' ? declared + inset : declared;
 }
 
+/** A box's margins in cells, and which of them are `auto`. */
+interface Margins {
+  readonly auto: {
+    readonly bottom: boolean;
+    readonly left: boolean;
+    readonly right: boolean;
+    readonly top: boolean;
+  };
+  readonly bottom: number;
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+}
+
+/**
+ * The margins of a box that has none, which is nearly every box.
+ *
+ * Shared, because an item's margins are read and never written, and two objects
+ * built per item per pass to say "nothing" were 4% of what a busy frame
+ * allocated (SIG-381). Frozen, so that the day something does write one it
+ * throws rather than moving every box.
+ */
+const NO_MARGINS: Margins = Object.freeze({
+  auto: Object.freeze({ bottom: false, left: false, right: false, top: false }),
+  bottom: 0,
+  left: 0,
+  right: 0,
+  top: 0,
+});
+
+/** Whether a margin is a plain zero: `Object.is`, so that `-0` keeps its sign. */
+const isZero = (length: Style['marginTop']): boolean =>
+  length.type === 'cells' && Object.is(length.value, 0);
+
+/**
+ * The largest of one measure over some items, and zero for none: exactly
+ * `maxOf(items.map(...), 0)` without the array, which was one per line per pass
+ * (SIG-381).
+ */
+function largest(items: readonly Item[], axis: Axis, size: (item: Item, axis: Axis) => number) {
+  let max = 0;
+  for (let at = 0; at < items.length; at++) {
+    max = Math.max(max, size(items[at] as Item, axis));
+  }
+  return max;
+}
+
+/**
+ * The items in the order they are placed in: by `order`, stably, so children that
+ * share one keep the sequence they were written in.
+ *
+ * Handed back as they are when they are in that order already, which is every
+ * container where nobody wrote an `order` -- a stable sort of a sequence already
+ * in order is that sequence, and the copy and the sort's own scratch were paid
+ * per container per pass for it (SIG-381). Nothing writes to the array either
+ * way: the lines are built from it and flexing writes to the items.
+ */
+function placementOrder(items: Item[]): Item[] {
+  const byOrder = (a: Item, b: Item): number => a.style.order - b.style.order;
+  for (let at = 1; at < items.length; at++) {
+    // asked with the comparator itself, so "in order" means what the sort means
+    // by it whatever `order` holds
+    if (byOrder(items[at - 1] as Item, items[at] as Item) > 0) {
+      return [...items].sort(byOrder);
+    }
+  }
+  return items;
+}
+
 /** A margin resolved to cells. `auto` is zero for sizing and absorbs space later. */
-function margins(style: Style, available: number | undefined) {
-  const value = (length: typeof style.marginTop) => resolve(length, available) ?? 0;
+function margins(style: Style, available: number | undefined): Margins {
+  const { marginBottom, marginLeft, marginRight, marginTop } = style;
+  if (isZero(marginTop) && isZero(marginRight) && isZero(marginBottom) && isZero(marginLeft)) {
+    return NO_MARGINS;
+  }
   return {
     auto: {
-      bottom: style.marginBottom.type === 'auto',
-      left: style.marginLeft.type === 'auto',
-      right: style.marginRight.type === 'auto',
-      top: style.marginTop.type === 'auto',
+      bottom: marginBottom.type === 'auto',
+      left: marginLeft.type === 'auto',
+      right: marginRight.type === 'auto',
+      top: marginTop.type === 'auto',
     },
-    bottom: value(style.marginBottom),
-    left: value(style.marginLeft),
-    right: value(style.marginRight),
-    top: value(style.marginTop),
+    bottom: resolve(marginBottom, available) ?? 0,
+    left: resolve(marginLeft, available) ?? 0,
+    right: resolve(marginRight, available) ?? 0,
+    top: resolve(marginTop, available) ?? 0,
   };
 }
 
@@ -146,7 +218,7 @@ interface Item {
   /** Where this child sits in the tree, which is not where it is placed. */
   index: number;
   mainSize: number;
-  margin: ReturnType<typeof margins>;
+  margin: Margins;
   maxCross: number | undefined;
   maxMain: number | undefined;
   minCross: number | undefined;
@@ -226,10 +298,27 @@ export interface LayoutOptions {
  * and a cache that outlives the pass needs invalidating, which is the renderer's
  * job and not this module's.
  *
- * Keyed by the containing width *and* by whether that width is the container's
- * cross axis, because the second changes what the measure does with the first.
+ * Keyed by every field of `MeasureAt`, because every one of them changes what the
+ * measure does. A node's entries are a list searched in order rather than a map
+ * from a key string, because there are one to three of them on an ordinary
+ * screen and building the string was the allocation, every lookup (SIG-381).
  */
-type MeasureCache = WeakMap<LayoutNode, Map<string, Measurement>>;
+type MeasureCache = WeakMap<LayoutNode, Measured[]>;
+
+/** One measurement a node has had this pass, and what it was asked. */
+interface Measured {
+  readonly at: MeasureAt;
+  readonly result: Measurement;
+}
+
+/**
+ * Whether two widths are the same question: `===`, and `NaN` is `NaN`.
+ *
+ * Exactly the equality the key string this replaced had, since `String()` is
+ * what put a width into it -- so `-0` and `0` are one width, as they were.
+ */
+const sameWidth = (a: number | undefined, b: number | undefined): boolean =>
+  a === b || (a !== a && b !== b);
 
 /**
  * Lays out a tree.
@@ -380,23 +469,30 @@ interface MeasureAt {
  * @returns The intrinsic size.
  */
 function measure(node: LayoutNode, at: MeasureAt, cache: MeasureCache): Measurement {
-  let byWidth = cache.get(node);
-  if (!byWidth) {
-    byWidth = new Map();
-    cache.set(node, byWidth);
+  let taken = cache.get(node);
+  if (!taken) {
+    taken = [];
+    cache.set(node, taken);
   }
 
-  // every input is in the key, because every one of them changes the answer.
+  // every input is compared, because every one of them changes the answer.
   // Keying on the available width alone handed a node measured against one
   // containing block the answer it gave for another
-  const key = `${at.available}|${at.containing}|${at.crossWidth ? 'c' : 'm'}|${at.definite ? 'd' : 'i'}`;
-  const hit = byWidth.get(key);
-  if (hit) {
-    return hit;
+  for (let i = 0; i < taken.length; i++) {
+    const entry = taken[i] as Measured;
+    const asked = entry.at;
+    if (
+      asked.crossWidth === at.crossWidth &&
+      asked.definite === at.definite &&
+      sameWidth(asked.available, at.available) &&
+      sameWidth(asked.containing, at.containing)
+    ) {
+      return entry.result;
+    }
   }
 
   const result = measureUncached(node, at, cache);
-  byWidth.set(key, result);
+  taken.push({ at, result });
   return result;
 }
 
@@ -627,7 +723,7 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
     // sorted stably, so children that share an `order` keep the sequence they
     // were written in -- which is what the placement walk does, and `order` is
     // what decides who shares a line
-    const ordered = [...items].sort((a, b) => a.style.order - b.style.order);
+    const ordered = placementOrder(items);
     const lines = wrapping ? wrapIntoLines(ordered, inner, gapMain, axis) : [ordered];
 
     /** What one line asks for along the main axis, gaps included. */
@@ -669,10 +765,7 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       ? // the smallest a wrapping container can be on its main axis is its widest
         // single item rather than the sum of them, because everything else can be
         // pushed onto a line of its own
-        maxOf(
-          items.map((item) => hypotheticalMain(item, axis)),
-          0
-        )
+        largest(items, axis, hypotheticalMain)
       : // and a nowrap row's is the sum of how short each item can be made, because
         // they all stay on the one line. Through `minimumMain()` rather than the
         // loop's `Math.max(automatic, declared)`, which is the second half of
@@ -690,18 +783,12 @@ function measureUncached(node: LayoutNode, at: MeasureAt, cache: MeasureCache): 
       remeasureLine(line, axis, childContaining, settled, cache);
       // exactly what `layoutChildren()` puts in `lineCrossSizes`, which is what
       // the next line starts after
-      cross += maxOf(
-        line.map((item) => outerCross(item, axis)),
-        0
-      );
+      cross += largest(line, axis, outerCross);
       // and the same sum over how short each line can be made, which is this
       // container's own minimum. Per line rather than over every item, because a
       // line cannot be shorter than its own shortest-possible tallest item and the
       // lines stack: three one-row items on three lines cannot be one row
-      crossMin += maxOf(
-        line.map((item) => outerMinCross(item, axis)),
-        0
-      );
+      crossMin += largest(line, axis, outerMinCross);
     }
 
     // replaced rather than taken as a floor, which is the whole of the fix: the loop
@@ -1060,7 +1147,7 @@ function layoutChildren(
     width: content.width,
   };
   const items = children.map((child, index) => makeItem(child, axis, block, index, cache));
-  const ordered = [...items].sort((a, b) => a.style.order - b.style.order);
+  const ordered = placementOrder(items);
   const lines =
     style.flexWrap === 'nowrap' ? [ordered] : wrapIntoLines(ordered, mainSpace, gap, axis);
 
@@ -1070,12 +1157,7 @@ function layoutChildren(
   for (const line of lines) {
     resolveFlexible(line, mainSpace, gap, axis);
     remeasureLine(line, axis, content.width, true, cache);
-    lineCrossSizes.push(
-      maxOf(
-        line.map((item) => outerCross(item, axis)),
-        0
-      )
-    );
+    lineCrossSizes.push(largest(line, axis, outerCross));
   }
 
   const crossGap = axis.column ? style.columnGap : style.rowGap;

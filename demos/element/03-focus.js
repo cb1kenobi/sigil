@@ -88,6 +88,8 @@ const draw = () => {
   // `:focus` rule never re-matches, so the ring is invisible
   const marks = tree.take();
   for (const element of marks.classes) restyler.touchClasses(element);
+  // the ancestors a focus move turned `:focus-within` on or off for
+  for (const element of marks.within) restyler.touchState(element, 'focus-within');
   for (const element of marks.props) restyler.touchProps(element);
   for (const element of marks.children) restyler.touchChildren(element);
 

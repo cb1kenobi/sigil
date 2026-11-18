@@ -762,6 +762,147 @@ describe('DataTable()', () => {
     expect(opened).toEqual([7]);
   });
 
+  it('should tick the rows it is handed as selected, and keep the ticks in a State it is handed', () => {
+    // the prop was declared, documented and dropped on the way to the list, so a
+    // table started with nothing ticked and an app's State never heard a Space
+    const ticked = picture(procs({ multiple: true, selected: [42] }), 48);
+    expect(ticked[2]).toBe('  ◉    42  chris            12.5  node');
+
+    const selected = new State<ReadonlySet<number>>(new Set([7]));
+    const host = procs({ multiple: true, selected });
+    picture(host, 48);
+    expect(control(host).selection.selected).toBe(selected);
+    press(host, 'space');
+    expect([...selected.get()].sort((a, b) => a - b)).toEqual([1, 7]);
+  });
+
+  describe('a row class', () => {
+    /** A process over 10% is hot, which colours its row as k9s colours a crashing pod. */
+    const hot = (p: Proc): string | undefined => (p.cpu > 10 ? 'sigil-error' : undefined);
+
+    /** The rows' boxes, by the name each draws. */
+    function rowOf(host: Element, name: string): Element {
+      const found = every(host).find(
+        (e) =>
+          e.classes.includes('sigil-list-row') &&
+          every(e).some((under) => under.text?.trim() === name)
+      );
+      if (!found) {
+        throw new Error(`no row ${name}`);
+      }
+      return found;
+    }
+
+    /**
+     * The inverse attribute and the foreground in effect at each word of a line, as a
+     * terminal would read the SGR before it: what a reader of the row actually sees.
+     */
+    function attrs(line: string, words: readonly string[]): { fg: number; inverse: boolean }[] {
+      const out: { fg: number; inverse: boolean }[] = [];
+      let fg = 39;
+      let inverse = false;
+      let at = 0;
+      const plain: string[] = [];
+      const state: { fg: number; inverse: boolean }[] = [];
+      const SGR = new RegExp(`^${String.fromCharCode(0x1b)}\\[([\\d;]*)m`);
+      while (at < line.length) {
+        const sgr = SGR.exec(line.slice(at));
+        if (sgr) {
+          for (const code of (sgr[1] || '0').split(';').map(Number)) {
+            if (code === 0) {
+              fg = 39;
+              inverse = false;
+            } else if (code === 7 || code === 27) {
+              inverse = code === 7;
+            } else if ((code >= 30 && code <= 39) || (code >= 90 && code <= 97)) {
+              fg = code;
+            }
+          }
+          at += sgr[0].length;
+          continue;
+        }
+        plain.push(line[at] as string);
+        state.push({ fg, inverse });
+        at++;
+      }
+      const text = plain.join('');
+      for (const word of words) {
+        const found = text.indexOf(word);
+        if (found < 0) {
+          throw new Error(`no ${word} in ${text}`);
+        }
+        out.push(state[found] as { fg: number; inverse: boolean });
+      }
+      return out;
+    }
+
+    /** The table at the sixteen colours, which is where a role is a colour. */
+    function coloured(host: Element): string[] {
+      return renderToLines(host, { cascade: themedCascade(), colorLevel: 1, width: 48 });
+    }
+
+    const NODE = ['42', 'chris', '12.5', 'node'];
+
+    it('should colour a row across every column, and keep the focus reading over it', () => {
+      const host = procs({ rowClass: hot });
+      const list = control(host).list;
+      list.onFocusChange?.(list, true);
+      flush();
+
+      // off the cursor: every cell of the hot row red, the row under the cursor the
+      // focus's inverse in the terminal's own colour, the third row neither
+      let lines = coloured(host);
+      expect(attrs(lines[2] as string, NODE)).toEqual(NODE.map(() => ({ fg: 31, inverse: false })));
+      expect(attrs(lines[1] as string, ['launchd'])).toEqual([{ fg: 39, inverse: true }]);
+      expect(attrs(lines[3] as string, ['WindowServer'])).toEqual([{ fg: 39, inverse: false }]);
+
+      // on it: still red, and inverse over the red, so the cursor is told apart from
+      // a hot row it is not on
+      press(host, 'down');
+      lines = coloured(host);
+      expect(attrs(lines[2] as string, NODE)).toEqual(NODE.map(() => ({ fg: 31, inverse: true })));
+      expect(attrs(lines[1] as string, ['launchd'])).toEqual([{ fg: 39, inverse: false }]);
+      expect(rowOf(host, 'node').classes).toEqual(
+        expect.arrayContaining(['sigil-error', 'is-current', 'sigil-focus'])
+      );
+    });
+
+    it('should draw nothing at colour level 0 but what a table without one draws', () => {
+      const plain = procs();
+      const marked = procs({ rowClass: hot });
+      expect(picture(marked, 48)).toEqual(picture(plain, 48));
+      press(marked, 'down');
+      expect(picture(marked, 48)[2]).toBe('❯    42  chris            12.5  node');
+    });
+
+    it('should ask again when a row object is replaced, and not when one changes in place', () => {
+      // copies, since one of them is changed in place below
+      const rows = new State<readonly Proc[]>(PROCS.map((p) => ({ ...p })));
+      const host = procs({ rowClass: hot, rows });
+      picture(host, 48);
+      expect(rowOf(host, 'node').classes).toContain('sigil-error');
+
+      // a live table changes a row by replacing it, which rebuilds it
+      rows.set(rows.get().map((p) => (p.pid === 42 ? { ...p, cpu: 1 } : p)));
+      flush();
+      picture(host, 48);
+      expect(rowOf(host, 'node').classes).not.toContain('sigil-error');
+
+      // a row changed in place is not rebuilt, so its class is the one it was built with
+      // until refresh(), as its cells are
+      const launchd = rows.get()[0] as Proc;
+      launchd.cpu = 50;
+      rows.set([...rows.get()]);
+      flush();
+      picture(host, 48);
+      expect(rowOf(host, 'launchd').classes).not.toContain('sigil-error');
+      control(host).refresh();
+      flush();
+      picture(host, 48);
+      expect(rowOf(host, 'launchd').classes).toContain('sigil-error');
+    });
+  });
+
   it('should refuse what it cannot use', () => {
     expect(() => DataTable({ columns: [], rows: 'abc' as never })).toThrow(
       'Expected data table rows to be an array, a State or a Computed'
@@ -777,6 +918,9 @@ describe('DataTable()', () => {
     );
     expect(() => DataTable({ columns: [], key: 'id' as never, rows: [] })).toThrow(
       'Expected data table key to be a function'
+    );
+    expect(() => DataTable({ columns: [], rowClass: 'hot' as never, rows: [] })).toThrow(
+      'Expected data table rowClass to be a function'
     );
     expect(() => DataTable({ columns: [], props: { onKey: () => {} } as never, rows: [] })).toThrow(
       'onKey'

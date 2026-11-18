@@ -14,7 +14,7 @@
         "default": "`false`",
         "name": "disabled",
         "optional": true,
-        "type": "boolean | State<boolean>"
+        "type": "ControlCondition"
       },
       {
         "description": "Draws a readout of the value after the track, as this returns it: `${v}%`, a time, a unit.",

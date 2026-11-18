@@ -41,6 +41,7 @@ export {
   displayPath,
   diagnosticLocation,
   diagnosticMessage,
+  escapeMessage,
   formatDiagnostic,
   isFatal,
   type Diagnostic,

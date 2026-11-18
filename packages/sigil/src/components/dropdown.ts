@@ -33,6 +33,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+import { controlCondition, type ControlCondition } from './control.js';
 import {
   type MenuEntry,
   type MenuItem,
@@ -50,9 +51,10 @@ export interface DropdownProps<T = unknown> {
   ascii?: boolean;
   /**
    * Whether it refuses input. A disabled dropdown is out of the focus ring, opens
-   * nothing and is drawn muted. A `State<boolean>` is read live. Defaults to `false`.
+   * nothing and is drawn muted. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /** The router the keys come from, which the list needs to hold them while it is open. */
   input: InputRouter;
   /**
@@ -112,13 +114,10 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   if (!Array.isArray(props.options)) {
     throw new TypeError(__`Expected dropdown options to be an array`);
   }
-  if (
-    props.disabled !== undefined &&
-    typeof props.disabled !== 'boolean' &&
-    !(props.disabled instanceof State)
-  ) {
-    throw new TypeError(__`Expected dropdown disabled to be a boolean or a State`);
-  }
+  const disabled = controlCondition(
+    props.disabled,
+    __`Expected dropdown disabled to be a boolean, a State, a Computed or a function`
+  );
   if (props.placeholder !== undefined && typeof props.placeholder !== 'string') {
     throw new TypeError(__`Expected a dropdown placeholder to be a string`);
   }
@@ -150,8 +149,6 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
 
   const value =
     props.value instanceof State ? props.value : new State<T | undefined>(props.value as T);
-  const disabled =
-    props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);
   const placeholder = props.placeholder ?? '';
   const glyph = (props.ascii ?? !unicodeSupported()) ? 'v' : '▾';
 

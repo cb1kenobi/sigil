@@ -84,8 +84,6 @@ answers when the test says.
 
 Each is marked in the source and has a ticket.
 
-- **`follow()`** mirrors a `Computed` into a `State`, because every control's
-  `disabled` takes a `State` and not a `Computed` (SIG-334).
 - **The login dialog's buttons are in its body**, with `actions: []`, because a
   modal's actions cannot be disabled and the dialog would open on a button
   rather than on the user name (SIG-337).

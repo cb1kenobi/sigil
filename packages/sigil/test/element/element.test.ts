@@ -417,6 +417,104 @@ describe('mutation marks', () => {
   });
 });
 
+describe('focus-within', () => {
+  /** root > [left > [list > [row]], right > [field]] */
+  function panes() {
+    const row = text('row');
+    const list = box({}, row);
+    const left = box({}, list);
+    const field = box();
+    const right = box({}, field);
+    const root = box({}, left, right);
+    return { field, left, list, right, root, row };
+  }
+
+  const within = (element: Element): boolean => element.states.includes('focus-within');
+
+  it('should be on the focused element and every ancestor of it, and nowhere else', () => {
+    // CSS's rule: the element that has the focus matches `:focus-within` too
+    const { field, left, list, right, root, row } = panes();
+    list.setState('focus');
+    expect([root, left, list].every(within)).toBe(true);
+    expect([row, right, field].some(within)).toBe(false);
+  });
+
+  it('should move with the focus, leaving the ancestors the two ends share lit', () => {
+    const { field, left, list, right, root } = panes();
+    const tree = createTree(root);
+    list.setState('focus');
+    tree.take();
+
+    list.setState('focus', false);
+    field.setState('focus');
+    expect([root, right, field].every(within)).toBe(true);
+    expect([left, list].some(within)).toBe(false);
+    // the two chains below the ancestor they share, each end's own flip being
+    // its `classes` mark -- the root went off and on again, and is marked both
+    // times, which is the one redundancy a move through nothing pays
+    expect(tree.marks.within).toEqual(new Set([left, root, right]));
+    expect(tree.marks.classes).toEqual(new Set([list, field]));
+  });
+
+  it('should mark only the ancestors a move turned on or off', () => {
+    const { field, left, list, right, root } = panes();
+    const tree = createTree(root);
+    list.setState('focus');
+    field.setState('focus');
+    tree.take();
+
+    // two focused is a direct write's doing; taking one away leaves the root lit
+    list.setState('focus', false);
+    expect(tree.marks.within).toEqual(new Set([left]));
+    expect([root, right].every(within)).toBe(true);
+  });
+
+  it('should go out on the old ancestors when a focused subtree is removed', () => {
+    // the subtree keeps its focus, and with it its own `focus-within`; the
+    // parents it left no longer contain the focus
+    const { left, list, right, root, row } = panes();
+    const tree = createTree(root);
+    row.setState('focus');
+    tree.take();
+
+    left.removeChild(list);
+    expect([root, left].some(within)).toBe(false);
+    expect([list, row].every(within)).toBe(true);
+    expect(tree.marks.within).toEqual(new Set([left, root]));
+
+    // and come on in the new ones when it is put back somewhere else
+    tree.take();
+    right.append(list);
+    expect([root, right].every(within)).toBe(true);
+    expect(tree.marks.within).toEqual(new Set([right, root]));
+  });
+
+  it('should follow a focused subtree moved from one parent to another in one call', () => {
+    const { left, list, right, root } = panes();
+    list.setState('focus');
+    right.insertBefore(list, undefined);
+    expect(within(left)).toBe(false);
+    expect([root, right, list].every(within)).toBe(true);
+  });
+
+  it('should refuse a setState of focus-within, which is reported rather than set', () => {
+    const { list } = panes();
+    expect(() => list.setState('focus-within' as 'focus')).toThrow(/move the focus instead/);
+    expect(within(list)).toBe(false);
+  });
+
+  it('should have carried every count before the mark callback runs', () => {
+    // the callback runs inside `setState()`, so one that reads an ancestor's
+    // state must find the move already finished up the whole chain
+    const { left, list, root } = panes();
+    const seen: boolean[] = [];
+    createTree(root, () => seen.push(within(root) && within(left)));
+    list.setState('focus');
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(Boolean)).toBe(true);
+  });
+});
+
 describe('arrange and paint', () => {
   it('should write every box back onto the element that earned it', () => {
     const first = text('aa');
