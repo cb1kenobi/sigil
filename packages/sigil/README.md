@@ -2665,16 +2665,17 @@ calls `invalidateMeasure()` from an effect.
 
 ```js
 import { trackedRaw } from '@ttylabs/sigil/renderer';
-import { State } from '@ttylabs/sigil/signals';
 
-const level = new State(3);
-const meter = trackedRaw(
-  {
-    measure: () => ({ height: 1, width: 10 }),
-    paint: (painter, at) => painter.text(at.x, at.y, '#'.repeat(level.get())),
-  },
-  { height: 1, width: 10 }
-);
+// a component, so the owner it runs under lets the meter's listening go
+function Meter(props) {
+  return trackedRaw(
+    {
+      measure: () => ({ height: 1, width: 10 }),
+      paint: (painter, at) => painter.text(at.x, at.y, '#'.repeat(props.level.get())),
+    },
+    { height: 1, width: 10 }
+  );
+}
 ```
 
 A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,

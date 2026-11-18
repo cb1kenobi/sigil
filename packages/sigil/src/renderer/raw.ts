@@ -16,7 +16,13 @@
  */
 
 import { type Element, type ElementProps, raw, type RawOptions } from '../element/index.js';
-import { Computed, Watcher } from '../signals/index.js';
+import {
+  Computed,
+  currentComputed,
+  introspectSources,
+  untrack,
+  Watcher,
+} from '../signals/index.js';
 import { onCleanup } from './owner.js';
 
 /**
@@ -34,9 +40,16 @@ import { onCleanup } from './owner.js';
  * what a `Show` closing or a `For` row leaving already disposes. Built under no
  * owner it is never released, the rule `createEffect()` follows; built under an
  * owner that is already gone it paints untracked from the start. An element taken
- * out of the tree by hand while its owner lives stops costing anything after one
- * change: the mark lands on an element no tree records, and nothing listens again
- * until something paints it.
+ * out of the tree by hand while its owner lives is told once more, as a mark that
+ * lands on an element no tree records, and then not again until something paints
+ * it -- but what its last paint read keeps it as a sink until the owner goes,
+ * which is what an effect beside a plain `raw` did too.
+ *
+ * Whatever calls the paint is not made to depend on the computed the paint ran
+ * in. A caller tracking its own reads -- `renderToString()` inside an effect or a
+ * `Computed` -- is handed the paint's reads instead, the signals a plain `raw`
+ * would have left it reading, so it runs again when they move and the element's
+ * own listening is not spent on the caller's behalf.
  *
  * A tracked paint is a derivation of what it reads, so it may not write a signal:
  * one that does throws `A Computed may not write to a signal`, which is what it
@@ -77,11 +90,33 @@ export function trackedRaw(options: RawOptions, props: ElementProps = {}): Eleme
         reads = next;
         watcher.watch(next);
         try {
-          next.get();
+          // untracked: read by the caller, the computed would be refreshed by the
+          // caller's own settling -- a run of the old closure into the painter of
+          // a paint that is over, which leaves the watcher disarmed with nothing
+          // to re-arm it
+          untrack(() => next.get());
         } finally {
           if (previous) {
             watcher.unwatch(previous);
             previous.dispose();
+          }
+          if (released) {
+            // the owner went during this paint, and its cleanup let go of the
+            // computed while it was still reading: what it read after that put
+            // its edges back, and nothing would ever take them away again
+            watcher.unwatch(next);
+            next.dispose();
+            reads = undefined;
+          }
+          if (currentComputed() !== undefined) {
+            // and the caller depends on what a plain `raw` would have had it read
+            for (const source of introspectSources(next)) {
+              try {
+                source.get();
+              } catch {
+                // the paint's to report, and it already has or has caught it
+              }
+            }
           }
         }
       },

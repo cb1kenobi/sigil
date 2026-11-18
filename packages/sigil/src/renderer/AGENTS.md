@@ -803,6 +803,28 @@ the entry it belongs to.
   fails the moment the order is swapped. The watcher fires once and is re-armed only
   by the next paint, so a burst of writes is one mark and a raw nobody paints any
   more -- taken out of the tree by hand while its owner lives -- is told at most once.
+  Told, not released: what its last paint read keeps it as a sink, `watched`
+  subscriptions included, until the owner goes, which is what the effect beside a
+  plain `raw` did too. A watcher is told when something _may_ have changed, so a
+  `Computed` the paint read that settles on the value it had still repaints the
+  element once -- a frame's paint, where the effect it replaces would have settled
+  and done nothing. Neither was worth a second mechanism.
+
+  **The computed is read untracked, and the caller is handed the paint's reads
+  instead.** A paint is reached from outside a frame too: `renderToString()` inside
+  an effect or a `Computed`. Read tracked, the computed made that caller its sink,
+  and a later write had the caller's settling refresh it -- running the old closure
+  into the painter of a paint that was over, answering "unchanged" because its
+  value is always `undefined`, and leaving the watcher spent with no paint to
+  re-arm it, so the string stayed on the second value for good. Untracked, and
+  then each source the paint read is read again for the caller when one is
+  evaluating, which is exactly what a plain `raw` would have left it depending on.
+  Found by review round 1, as was an owner disposed **during** a paint -- its
+  cleanup let the computed go while it was still reading, and what it read after
+  that put edges back that nothing would take away -- which the paint now
+  releases on its way out. Both are pinned in `trackedRaw()`, and the first one
+  through a `Computed` the paint reads, because a caller reading a `State`
+  directly is marked dirty by it and never asks the computed anything.
 
   **A tracked paint may not write a signal**, and that is the graph's own rule
   rather than one added here: it is a derivation of what it read, a `Computed`
@@ -814,12 +836,16 @@ the entry it belongs to.
 
   What it costs, measured on an Apple M5 Pro on node 24.18.0 as of this change, by
   `scripts/benchmark-tracked-raw.mjs` over a column of one-row raws each reading
-  one signal: a plain `raw` painted at 0.5 to 0.6 us a raw, the same tree with a
-  hand-written effect beside each at the same, and `trackedRaw()` at 0.9 to 1.2 us
-  -- 1.7x to 2.0x the paint walk, at 50, 500 and 2,000 raws (0.031 / 0.058 ms, 0.32
-  / 0.63 ms and 1.05 / 1.88 ms). About half a microsecond a raw a painted frame,
-  which for the treemap it was written for is noise against a 33 ms frame, and for
-  a plain `raw` is nothing at all, since `raw()` did not change.
+  one signal, three runs at each of 50, 500 and 2,000 raws on a machine running
+  other work: a plain `raw` painted at 0.5 to 0.8 us a raw, the same tree with a
+  hand-written effect beside each at the same, and `trackedRaw()` at 0.9 to 1.5 us
+  -- 1.5x to 2.1x the paint walk (at 500, medians of 0.25 to 0.34 ms against 0.45
+  to 0.70 ms). About half a microsecond a raw a painted frame, which for the
+  treemap it was written for is noise against a 33 ms frame, and for a plain
+  `raw` is nothing at all, since `raw()` did not change. The script's other
+  column, a write, the flush and the next paint over a tree that records marks,
+  says the same: the change itself costs about nothing either way, and what a
+  tracked raw adds is its paint.
 
   The hand-written pairs were swept with `grep invalidatePaint`. The disk usage
   example's map view is the pattern exactly, and moved; its swatch reads no signal

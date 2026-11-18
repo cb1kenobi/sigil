@@ -22,14 +22,17 @@
  *
  * Two figures for each. `paint` is the paint walk alone, which is the frame's hot
  * path and the cost a tracked paint adds to every frame that paints. `write` is
- * one signal written and the next paint, which is the whole round trip a change
- * costs -- for `effect` that includes the scope's flush.
+ * one signal written, the scope flushed, the marks the tree recorded taken, and
+ * the next paint -- what a change costs short of the renderer's own frame (style,
+ * layout, the diff to the terminal), which is the same for all three and is
+ * measured elsewhere. For `effect` the flush is where the mark is made; for
+ * `tracked` it is the watcher, during the write.
  *
  * Interleaved rather than batched, for the reason `src/layout/AGENTS.md` records:
  * batches minutes apart disagree with each other.
  */
 import { CellBuffer, Painter, StyleTable } from '../dist/canvas.mjs';
-import { arrange, box, paint, raw, resolveStyles } from '../dist/element.mjs';
+import { arrange, box, createTree, paint, raw, resolveStyles } from '../dist/element.mjs';
 import { createEffect, createRoot, trackedRaw } from '../dist/renderer.mjs';
 import { createEffects, State } from '../dist/signals.mjs';
 
@@ -74,9 +77,12 @@ function build(side) {
     return done;
   }, effects.effect);
   const root = box({ 'flex-direction': 'column' }, ...rows);
+  // in a tree, so that `invalidatePaint()` records a mark as it does on screen
+  // rather than returning early on an element nothing holds
+  const tree = createTree(root);
   resolveStyles(root);
   arrange(root, { height: COUNT, width: WIDTH });
-  return { dispose, effects, root, words };
+  return { dispose, effects, root, tree, words };
 }
 
 /** @param {import('../dist/element.mjs').Element} root */
@@ -117,10 +123,15 @@ if (new Set(pictures).size !== 1) {
       }
       times[side].paint.push(Number(process.hrtime.bigint() - t) / 1e6 / ITERATIONS);
 
+      tree.tree.take();
       t = process.hrtime.bigint();
       for (let i = 0; i < ITERATIONS; i++) {
         tree.words[i % COUNT].set(`row ${round}:${i}`);
         tree.effects.flush();
+        // a plain `raw` marks nothing, which is the defect; the other two mark one
+        if (tree.tree.take().paint.size !== (side === 'raw' ? 0 : 1)) {
+          throw new Error(`${side}: a write marked the wrong number of raws for paint`);
+        }
         paintOnce(tree.root);
       }
       times[side].write.push(Number(process.hrtime.bigint() - t) / 1e6 / ITERATIONS);
