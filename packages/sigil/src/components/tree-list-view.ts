@@ -425,12 +425,19 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    */
   const fail = (value: T, message: string, before?: readonly TreeChoiceItem<T>[]): void => {
     loads.set(value, { message, state: 'failed' });
-    if (before !== undefined) {
-      for (const key of readsIn(before)) {
-        if (key !== value) {
-          forget(key);
-        }
+    if (before === undefined) {
+      return;
+    }
+    let marked = false;
+    for (const key of readsIn(before)) {
+      if (key !== value) {
+        marked = forget(key) || marked;
       }
+    }
+    // a failure met during a walk can mark a branch that walk has already drawn,
+    // when an old answer repeats a value: so it is walked again
+    if (marked) {
+      landed.set(untrack(() => landed.get()) + 1);
     }
   };
 

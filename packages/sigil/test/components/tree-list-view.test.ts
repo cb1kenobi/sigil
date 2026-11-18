@@ -1147,6 +1147,53 @@ describe('TreeListView()', () => {
       expect(picture(host)).toEqual(['❯ └── ▾ top', '      └── ▾ mid', '          └──   new']);
     });
 
+    it('should walk again when a failure marks a branch the walk had already drawn', async () => {
+      // review round 2: an answer kept while its branch was closed names a value
+      // shown elsewhere -- which the walk only refuses when both are shown -- and
+      // the read again that fails marks that one stale after its row was built
+      const later = deferred<TreeChoiceItem[]>();
+      let fail = false;
+      let reads = 0;
+      const host = tree({
+        items: [
+          {
+            items: () => {
+              reads++;
+              return ['kept'];
+            },
+            text: 'a',
+          },
+          {
+            items: () => {
+              if (fail) {
+                throw new Error('gone');
+              }
+              return later.promise;
+            },
+            text: 'b',
+          },
+        ],
+      });
+      const { collapse, expand, reload } = control(host);
+      expand('a');
+      expand('b');
+      flush();
+      collapse('b');
+      flush();
+      later.resolve([{ items: () => ['x'], text: 'a' }]);
+      await landed();
+      expand('b');
+      flush();
+      expect(reads).toBe(1);
+
+      fail = true;
+      reload('b');
+      flush();
+      // a was marked by the failure and read again by the walk it asked for
+      expect(reads).toBe(2);
+      expect(reload('a')).toBe(true);
+    });
+
     it('should reload a subtree: every read branch under one, open or closed', () => {
       const calls: Record<string, number> = { closed: 0, open: 0, other: 0, top: 0 };
       const counted = (name: string, items: TreeChoiceItem[]) => (): TreeChoiceItem[] => {

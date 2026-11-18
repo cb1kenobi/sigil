@@ -12515,7 +12515,11 @@ makes a new tree under the same paths, and routed around it with getters.
   and when the branch was read successfully again they came back as fresh, from
   before. What they hung from is no longer known, so `fail()` marks them as it
   records the failure, which is the one moment the old answer is still there to
-  walk.
+  walk. When that marks anything it asks for another walk (review round 2): a
+  failure met during a walk can mark a branch that walk has already drawn, when an
+  old answer kept while its branch was closed repeats a value shown elsewhere --
+  which the walk refuses only when both are shown. It cannot loop, since a failed
+  open branch is not read again until something forgets it.
 - **A subtree is found in the data, not in the last walk.** The walk records only
   what is shown, and a read branch under a closed one is exactly what a subtree
   reload is for, so `readsIn()` goes down the tree as it is now, through its
