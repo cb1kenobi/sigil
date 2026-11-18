@@ -9698,9 +9698,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   line of every block is drawn from, the gutter and the marker staying put -- a
   scroll per line would move an old line out of register with the new line it
   pairs with, which is what a diff is read for, and `less -S`, tig and lazygit all
-  scroll the whole. Side by side, both halves move together. A press is half the
-  view, as `less -S` steps, so a thousand-column line is a few presses rather than
-  a hundred. The arrows are claimed only while lines are unwrapped and something
+  scroll the whole. Side by side, both halves move together. A press is eight
+  columns, a tab stop. It was half the view, `less -S`'s step, and that moved the
+  text so far that a reader lost their place on every press; a thousand-column
+  line is a lot of presses at eight, which is what `w` back to wrapped is for. The arrows are claimed only while lines are unwrapped and something
   runs past the edge, and then claimed at an end too (Home's rule), so in a
   wrapped view or one where everything fits they reach the pane around it.
   `wrap` is a boolean or a `State`, `current`'s shape, which `w` writes.

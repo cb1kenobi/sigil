@@ -103,6 +103,13 @@ interface Drawn {
   readonly marks: readonly Element[];
 }
 
+/**
+ * How far the left and right arrows scroll an unwrapped view, in columns: eight,
+ * a tab stop. Half the view, which is `less -S`'s step, moved the text far
+ * enough that the reader lost their place on every press.
+ */
+const SIDEWAYS_STEP = 8;
+
 /** The hosts `DiffView()` built, so `describeDiffView()` can refuse anything else. */
 const HOSTS = new WeakSet<Element>();
 
@@ -406,10 +413,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       !untrack(() => wrapping.get()) &&
       overflow > 0
     ) {
-      // half the view a press, as `less -S` steps; claimed at an end as well, the
-      // way Home is at the top, and left alone where nothing runs past the edge
-      const step = Math.max(1, Math.floor((width - 1) / 2));
-      const next = Math.min(overflow, Math.max(0, offset + (k.name === 'right' ? step : -step)));
+      // claimed at an end as well, the way Home is at the top, and left alone where
+      // nothing runs past the edge
+      const step = k.name === 'right' ? SIDEWAYS_STEP : -SIDEWAYS_STEP;
+      const next = Math.min(overflow, Math.max(0, offset + step));
       if (next !== offset) {
         offset = next;
         draw(

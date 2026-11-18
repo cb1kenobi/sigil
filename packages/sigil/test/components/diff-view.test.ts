@@ -350,12 +350,13 @@ describe('DiffView', () => {
       expect(picture(root, 20, 6)[4]).toBe('▌ eta theta');
     });
 
-    it('should scroll every line sideways with the arrows, half a view a press, to the end', () => {
+    it('should scroll every line sideways with the arrows, eight columns a press, to the end', () => {
       const { host, root } = mount({ content: LONG, wrap: false }, 4);
       picture(root, 20, 4);
 
       expect(press(host, 'right')).toBe(true);
-      expect(picture(root, 20, 4)[2]).toBe('▌+a gamma delta eps…');
+      expect(picture(root, 20, 4)[2]).toBe('▌+ta gamma delta ep…');
+      press(host, 'right');
       press(host, 'right');
       press(host, 'right');
       // as far as the end of the line, which is then drawn whole
