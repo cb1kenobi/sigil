@@ -9,6 +9,7 @@ import {
   tempDir,
   write,
 } from './fixture.ts';
+import type { Element } from '@ttylabs/sigil/element';
 import { KEYS } from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -420,6 +421,48 @@ for (const [syntax, App] of [
         const m = await mount(App, join(work, 'logo.png'));
         expect(m.screen()).toMatch(/❯ logo\.png/);
         expect(m.screen()).toContain('5/5');
+        m.app.exit(0);
+      },
+      LONG
+    );
+
+    it(
+      'should light the column the focus is in, from the sheet',
+      async () => {
+        const { work } = workspace();
+        const m = await mount(App, work);
+
+        // which panels `.sigil-panel:focus-within` matches, by their column's
+        // class: asked of the cascade, since the test terminal is at colour
+        // level 0 and a border colour does not survive to the screen there
+        const lit = (): string[] => {
+          const out: string[] = [];
+          const walk = (element: Element): void => {
+            if (
+              element.classes.includes('sigil-panel') &&
+              m.app.cascade
+                .match(element)
+                .some(({ rule }) =>
+                  rule.selectors.some(({ source }) => source === '.sigil-panel:focus-within')
+                )
+            ) {
+              out.push(element.classes.filter((name) => !name.startsWith('sigil-')).join('.'));
+            }
+            element.children.forEach(walk);
+          };
+          walk(m.app.view.root);
+          return out;
+        };
+
+        expect(lit()).toEqual(['current']);
+        // a file's l hands the focus to its preview, and h hands it back
+        await m.press('j', 'j', 'l');
+        expect(lit()).toEqual(['preview']);
+        await m.press('h');
+        expect(lit()).toEqual(['current']);
+        // the filter bar is under no column, so none is lit while it has the focus
+        await m.press('/');
+        expect(lit()).toEqual([]);
         m.app.exit(0);
       },
       LONG

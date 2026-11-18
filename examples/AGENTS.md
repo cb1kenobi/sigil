@@ -857,10 +857,17 @@ in half blocks from the start.
   no more than its own pixels and no more than the pane, inside `contain`.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
-  log browser's workaround for SIG-384, and the lit column is a class an effect
-  toggles for SIG-372. The rename dialog's field is built under a branch of the
-  component's owner and focused once the dialog is open (SIG-335, SIG-337), the
-  git client's `owned()`.
+  log browser's workaround for SIG-384. The rename dialog's field is built under
+  a branch of the component's owner and focused once the dialog is open (SIG-335,
+  SIG-337), the git client's `owned()`.
+
+- **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
+  client's rule since SIG-372, and with nothing in the model: the column a key
+  moved the focus into is lit, the preview once a file's `l` hands it over, and
+  neither while the filter bar has it, since the bar is under no panel. `should
+  light the column the focus is in, from the sheet` asks the cascade which panels
+  the rule matches rather than reading the screen, because the test terminal is
+  at colour level 0 and a border colour does not survive to it there.
 
 - **`toMatchObject()` with a regular expression as a value matches any string.**
   Found by the sabotage pass: a test asserting `note: /Not a regular file/` passed

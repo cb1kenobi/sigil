@@ -643,15 +643,6 @@ export function createModel(): Model {
       }
     });
 
-    // the column with the focus is lit. A class rather than a selector, because
-    // there is no `:focus-within` (SIG-372), which is the git client's answer too
-    createEffect(() => {
-      const focused = input.focus.current.get();
-      for (const panel of [panels.current, panels.preview]) {
-        panel.toggleClass('is-active', focused !== undefined && panel.contains(focused));
-      }
-    });
-
     // the preview follows the cursor, and the rows and the hidden toggle under it
     createEffect(() => {
       shown.get();
