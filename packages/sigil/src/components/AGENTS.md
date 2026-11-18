@@ -9571,6 +9571,11 @@ exported beside them as pure functions.
   reports `overflow`, how far the widest line runs past its room, which is as far
   as a scroll goes; 0 while folding. An unknown `wrap` is refused rather than
   folded by columns, since `word` for `words` would otherwise do nothing quietly.
+  A fold lands only in the spaces `wrap()` breaks at, `isBreakSpace()`, which is a
+  space and a tab: `trim()` was the first test, and it dropped a no-break space and
+  an ideographic space at a fold as though they were padding. The indentation is
+  what comes before anything with a width, so a byte order mark at the start of a
+  file does not make its indentation a fold (both review round 1).
 - **Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) and draws unified under
   it, and the view says which it drew.** Sixty leaves each half about 28 columns, of
   which the gutter, the marker and the separator take a third; under that two lines
@@ -9703,8 +9708,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   text so far that a reader lost their place on every press; a thousand-column
   line is a lot of presses at eight, which is what `w` back to wrapped is for. The arrows are claimed only while lines are unwrapped and something
   runs past the edge, and then claimed at an end too (Home's rule), so in a
-  wrapped view or one where everything fits they reach the pane around it.
-  `wrap` is a boolean or a `State`, `current`'s shape, which `w` writes.
+  wrapped view or one where everything fits they reach the pane around it. With
+  Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
+  was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
+  shape, which `w` writes.
 - **A sideways scroll keeps the rows where they are, and the offset is clamped by
   the drawing.** Every row is drawn again for a scroll, but the current stop is
   not brought back into view: a reader who scrolled away from it to read something
@@ -9714,7 +9721,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   the offset back to 0 and lines unwrapped again start from their beginning: an
   explicit reset on the switch was written and deleted for surviving its
   sabotage. Prose blocks are not scrolled, since they are already cut rather than
-  wrapped. What a scroll costs is a drawing, which a resize already
+  wrapped, and neither are the `---`, `+++` and `@@` rows: they say which file and
+  where, which is what a reader scrolled sideways needs to keep, so they stay put
+  with the gutter and are cut at the edge as before. The tail of a long `@@`
+  heading is therefore out of reach unwrapped; `w` shows it (review round 1). What a scroll costs is a drawing, which a resize already
   pays: measured as of this change on arm64 macOS at a load average of 3, a
   4,000-line patch of 170-column lines -- the git client's cap -- in a 120 by 40
   view is about 50 ms a press, frame included, against about 80 ms for the first

@@ -409,6 +409,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       !event.paste &&
       !k.ctrl &&
       !k.meta &&
+      !k.shift &&
       (k.name === 'left' || k.name === 'right') &&
       !untrack(() => wrapping.get()) &&
       overflow > 0

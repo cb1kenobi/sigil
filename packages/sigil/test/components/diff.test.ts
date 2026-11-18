@@ -791,7 +791,20 @@ describe('diff()', () => {
         '+    if (x)',
         ' return',
       ]);
-      expect(at(`${' '.repeat(12)}x`, 6, { wrap: 'words' })).to.have.length(3);
+      expect(at(`${' '.repeat(12)}x`, 6, { wrap: 'words' })).to.deep.equal(['+', '', '   x']);
+      // after a character with no width, such as the byte order mark a file can start with
+      expect(at(`\uFEFF${' '.repeat(8)}code`, 8, { wrap: 'words' })).to.deep.equal(['+', '  code']);
+    });
+
+    it('should fold at a space or a tab and nowhere else, so a no-break space is kept', () => {
+      // the break spaces wrap() breaks at: a no-break space is part of its word
+      expect(at('hello\u00A0world', 6, { wrap: 'words' })).to.deep.equal([
+        '+hello',
+        ' \u00A0worl',
+        ' d',
+      ]);
+      // an ideographic space too, which is two columns: kept, and folded with its word
+      expect(at('語\u3000句', 4, { wrap: 'words' })).to.deep.equal(['+語', ' \u3000', ' 句']);
     });
 
     it('should fold a word longer than a row by columns, from where it is', () => {
@@ -807,6 +820,8 @@ describe('diff()', () => {
     it('should keep a line on one row with none, cut at the edge with an ellipsis', () => {
       expect(at('abcdefghij', 6, { wrap: 'none' })).to.deep.equal(['+abcd…']);
       expect(at('abcde', 6, { wrap: 'none' })).to.deep.equal(['+abcde']);
+      // a room of one is the ellipsis alone
+      expect(at('abc', 2, { wrap: 'none' })).to.deep.equal(['+…']);
       expect(
         diffView({ new: 'abcdefghij\nab', old: '' }, { lineNumbers: false, width: 6, wrap: 'none' })
           .overflow
@@ -838,7 +853,8 @@ describe('diff()', () => {
       );
 
       expect(tree.layout).to.equal('side-by-side');
-      expect(tree.overflow).to.be.greaterThan(30);
+      // the halves' rooms are 25 and 26 columns, and the sixty are on the wider
+      expect(tree.overflow).to.equal(34);
       expect(
         lines(
           { new: 'x'.repeat(60), old: 'short' },

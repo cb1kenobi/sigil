@@ -8,7 +8,7 @@ import {
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
-import { ELLIPSIS, terminalWidth } from '../wrap/index.js';
+import { ELLIPSIS, isBreakSpace, terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
@@ -886,9 +886,13 @@ function fold(cells: readonly Cell[], room: number): Cell[][] {
   return rows;
 }
 
-/** Whether a cell is a space or a tab, which a fold at words may land in. */
+/**
+ * Whether a cell is a space or a tab, which a fold at words may land in: the
+ * spaces `wrap()` breaks at and no others, so a no-break space stays inside its
+ * word. A tab is a cell of four spaces by now.
+ */
 function blank(cell: Cell): boolean {
-  return cell.width > 0 && cell.text.trim() === '';
+  return cell.text !== '' && [...cell.text].every((char) => isBreakSpace(char));
 }
 
 /**
@@ -933,7 +937,8 @@ function foldWords(cells: readonly Cell[], room: number): Cell[][] {
     const run = cells.slice(at, end);
     at = end;
     if (spaces) {
-      if (rows.length === 1 && rows[0]!.length === 0) {
+      // nothing with a width before it, which a byte order mark is not
+      if (rows.length === 1 && used === 0) {
         byColumns(run);
       } else if (!broken && used + width <= room) {
         rows.at(-1)!.push(...run);

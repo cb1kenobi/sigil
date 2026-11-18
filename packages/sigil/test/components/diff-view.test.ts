@@ -43,9 +43,9 @@ function mount<T>(props: DiffViewProps<T>, height: number): { host: Element; roo
 }
 
 /** A key event as the router builds one, with a record of whether it was stopped. */
-function press(host: Element, name: string): boolean {
+function press(host: Element, name: string, mods: Partial<Key> = {}): boolean {
   let stopped = false;
-  const key: Key = { ctrl: false, meta: false, name, sequence: '', shift: false };
+  const key: Key = { ctrl: false, meta: false, name, sequence: '', shift: false, ...mods };
   const event: KeyEvent = {
     current: undefined,
     key,
@@ -380,6 +380,16 @@ describe('DiffView', () => {
       picture(short.root, 20, 4);
       expect(press(short.host, 'right')).toBe(false);
       expect(press(short.host, 'left')).toBe(false);
+    });
+
+    it('should leave a modified arrow to whoever binds it', () => {
+      const { host, root } = mount({ content: LONG, wrap: false }, 4);
+      picture(root, 20, 4);
+
+      for (const mods of [{ shift: true }, { ctrl: true }, { meta: true }]) {
+        expect(press(host, 'right', mods)).toBe(false);
+      }
+      expect(picture(root, 20, 4)[2]).toBe('▌+alpha beta gamma …');
     });
 
     it('should keep the rows where they are when it scrolls sideways', () => {
