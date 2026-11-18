@@ -192,6 +192,150 @@ describe('the disk usage visualizer', () => {
   );
 
   it(
+    'should keep r for the confirm while it is open, so no scan starts under a delete',
+    async () => {
+      // `d` is refused while a scan runs, and this is the other half: the dialog
+      // has the keys, so the tree a delete is applied to is the one it asked over
+      const work = workspace();
+      const m = await mount(work);
+      await m.press(KEYS.down, 'd', 'r');
+      expect(m.screen()).not.toMatch(/Rescanning/);
+      await m.press(KEYS.tab, KEYS.enter);
+      expect(existsSync(join(work, 'media'))).toBe(false);
+      expect(m.screen()).toMatch(/Deleted media, freed 80\.0 kB/);
+      expect(m.screen()).not.toMatch(/Rescanned/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should neither scan nor ask again while a delete is on its way',
+    async () => {
+      // a scan under an `rm` reads half of what it removes and would put it back
+      // on screen when it ended; a second confirm would delete the same thing
+      const work = workspace();
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let lists = 0;
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            lists++;
+            return disk.list(dir);
+          },
+          remove: async (path) => {
+            await gate;
+            return disk.remove(path);
+          },
+        }),
+      });
+      const scanned = lists;
+      await m.term.press(KEYS.down, 'd');
+      await m.term.press(KEYS.tab);
+      await m.term.press(KEYS.enter);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await m.term.press('r');
+      await m.term.press('d');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(m.screen()).toMatch(/Wait for the delete to finish/);
+      expect(m.screen()).not.toMatch(/Delete the directory/);
+      expect(lists).toBe(scanned);
+      release();
+      await m.settle();
+      expect(existsSync(join(work, 'media'))).toBe(false);
+      expect(m.calls).toStrictEqual([`remove ${join(work, 'media')}`]);
+      expect(m.screen()).toMatch(/Deleted media, freed 80\.0 kB/);
+      expect(m.screen()).toMatch(/17\.0 kB in 3 files/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should stop showing a scan it threw away, though that scan is still waiting on the disk',
+    async () => {
+      // the first scan is held in `src` for good; `r` replaces it, and the
+      // replacement ends -- after which nothing may still be counting
+      const work = workspace();
+      let first = true;
+      const m = await mount(work, {
+        settled: false,
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            if (first && dir === join(work, 'src')) {
+              first = false;
+              await new Promise(() => {});
+            }
+            return disk.list(dir);
+          },
+        }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      await m.term.press('r');
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await m.term.press(KEYS.down);
+      expect(m.screen()).toMatch(/Rescanned 5 files/);
+      expect(m.screen()).not.toMatch(/scanning \d+ files/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should say why a scan failed over the tree the last one left',
+    async () => {
+      const work = workspace();
+      let broken = false;
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          stat: async (path) => {
+            if (broken && path === work) {
+              throw Object.assign(new Error('no such file or directory'), { code: 'ENOENT' });
+            }
+            return disk.stat(path);
+          },
+        }),
+      });
+      broken = true;
+      await m.press('r');
+      expect(m.screen()).toMatch(/Scan failed/);
+      expect(m.screen()).toMatch(/Could not scan/);
+      // and the last tree is still there to look at
+      expect(m.screen()).toMatch(/▸ media +80\.0 kB/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should say a root that could not be read was not read, not that it is empty',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            if (dir === work) {
+              throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+            }
+            return disk.list(dir);
+          },
+        }),
+      });
+      expect(mapPart(m)).toMatch(/Could not be read: EACCES/);
+      expect(mapPart(m)).not.toMatch(/Nothing here/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
     'should not delete the root it scanned',
     async () => {
       const work = workspace();

@@ -254,47 +254,41 @@ export function layoutMap(root: DiskNode, width: number, height: number): MapLay
     cushion: readonly [number, number, number, number]
   ): void => {
     const area = box.w * box.h;
-    const shown: DiskNode[] = [];
-    const rest: DiskNode[] = [];
-    let restBytes = 0;
-    for (const child of node.children ?? []) {
-      if (child.bytes <= 0) {
-        continue;
-      }
-      // the contents are largest first, so once one is too small the rest are
-      if (rest.length === 0 && (child.bytes / node.bytes) * area >= MIN_AREA) {
-        shown.push(child);
-      } else {
-        rest.push(child);
-        restBytes += child.bytes;
-      }
+    const counted = (node.children ?? []).filter((child) => child.bytes > 0);
+    // the contents are largest first, so once one is too small the rest are
+    let count = counted.findIndex((child) => (child.bytes / node.bytes) * area < MIN_AREA);
+    if (count === -1) {
+      count = counted.length;
     }
-    const items: { bytes: number; node?: DiskNode }[] = shown.map((child) => ({
-      bytes: child.bytes,
-      node: child,
-    }));
+    const rest = counted.slice(count);
+    const restBytes = rest.reduce((sum, child) => sum + child.bytes, 0);
+    const items: { bytes: number; node?: DiskNode }[] = counted
+      .slice(0, count)
+      .map((child) => ({ bytes: child.bytes, node: child }));
     if (restBytes > 0) {
       items.push({ bytes: restBytes });
       // the rest can outweigh the smallest items shown, and squarify wants the
       // largest first
       items.sort((a, b) => b.bytes - a.bytes);
     }
-    const rects = squarify(
+    // edges rounded, never sizes, so two neighbours round their shared edge the
+    // same way and the tiles meet with no gap and no overlap
+    const rects: Box[] = squarify(
       items.map((item) => item.bytes),
       box
-    );
-    for (const [i, item] of items.entries()) {
-      const r = rects[i] as { h: number; w: number; x: number; y: number };
-      // edges rounded, never sizes, so two neighbours round their shared edge
-      // the same way and the tiles meet with no gap and no overlap
+    ).map((r) => {
       const x0 = Math.round(r.x);
       const y0 = Math.round(r.y);
-      const x1 = Math.round(r.x + r.w);
-      const y1 = Math.round(r.y + r.h);
-      if (x1 <= x0 || y1 <= y0) {
+      return { h: Math.round(r.y + r.h) - y0, w: Math.round(r.x + r.w) - x0, x: x0, y: y0 };
+    });
+    for (const [i, item] of items.entries()) {
+      const at = rects[i] as Box;
+      // an item with room enough on paper can still be laid as a sliver under
+      // half a pixel, which rounds to nothing: it is too small to draw, and
+      // `markFor()` outlines nothing for it
+      if (at.w <= 0 || at.h <= 0) {
         continue;
       }
-      const at: Box = { h: y1 - y0, w: x1 - x0, x: x0, y: y0 };
       if (item.node === undefined) {
         const height = RIDGE * RIDGE_FALL ** (depth + 1);
         const [s1x, s2x] = ridge(cushion[0], cushion[1], at.x, at.x + at.w, height);
@@ -374,8 +368,13 @@ export function markFor(layout: MapLayout, path: string, top: string): Box | und
     const dir = layout.dirs.get(at);
     if (dir !== undefined) {
       // a directory divided into its contents, and the child on the way down
-      // to the path was not one of them: it is in the rest
-      return below === undefined ? dir : (layout.rests.get(at) ?? dir);
+      // to the path was not one of them: it is in the rest, or it rounded away
+      // to nothing and is not drawn at all
+      if (below === undefined) {
+        return dir;
+      }
+      const rest = layout.rests.get(at);
+      return rest?.rest?.some((item) => item.path === below) ? rest : undefined;
     }
     if (at === top) {
       return undefined;

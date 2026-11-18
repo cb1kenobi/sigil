@@ -12,15 +12,20 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 afterAll(removeTempDirs);
 
-/** Whether this process can make a symbolic link; Windows needs a privilege for one. */
-function canLink(dir: string): boolean {
+/**
+ * Whether this process can make a symbolic link: Windows needs a privilege for
+ * one, which a runner may not have, and a test that returned early there would
+ * pass while asserting nothing.
+ */
+const canLink = ((): boolean => {
+  const dir = tempDir();
   try {
     symlinkSync(join(dir, 'nowhere'), join(dir, 'probe-link'));
     return true;
   } catch {
     return false;
   }
-}
+})();
 
 describe('formatSize()', () => {
   it('should write bytes, then one decimal in powers of 1000', () => {
@@ -104,11 +109,8 @@ describe('scanDisk()', () => {
     expect(big?.category).toBe('binary');
   });
 
-  it('should list a link and never follow it', async () => {
+  it.skipIf(!canLink)('should list a link and never follow it', async () => {
     const root = tempDir();
-    if (!canLink(root)) {
-      return;
-    }
     write(root, { real: { 'data.bin': 5000 } });
     // a link to the directory, and one to the root itself, which a scan that
     // followed links would walk forever
@@ -182,6 +184,75 @@ describe('scanDisk()', () => {
     expect(found.root.bytes).toBe(200);
     expect(found.errors).toBe(1);
     expect(findNode(found.root, join(root, 'locked'))?.note).toBe('Could not be read: EACCES');
+  });
+
+  it('should keep a file whose read failed for any reason but its going', async () => {
+    const root = tempDir();
+    write(root, { 'locked.bin': 10, 'open.bin': 20 });
+    const real = createDisk(root);
+    const disk: Disk = {
+      ...real,
+      async stat(path) {
+        if (path === join(root, 'locked.bin')) {
+          throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+        }
+        return real.stat(path);
+      },
+    };
+    const found = await scanDisk(disk);
+    expect(found.errors).toBe(1);
+    expect(findNode(found.root, join(root, 'locked.bin'))?.note).toBe('Could not be read: EACCES');
+  });
+
+  it('should make no read it had queued once it was told to stop', async () => {
+    const root = tempDir();
+    write(root, { a: 1, b: 2, c: 3 });
+    const real = createDisk(root);
+    const controller = new AbortController();
+    let stats = 0;
+    const disk: Disk = {
+      ...real,
+      async list(dir) {
+        const names = await real.list(dir);
+        // the listing lands after the scan was thrown away
+        controller.abort();
+        return names;
+      },
+      async stat(path) {
+        if (path !== root) {
+          stats++;
+        }
+        return real.stat(path);
+      },
+    };
+    await expect(scanDisk(disk, { parallel: 1, signal: controller.signal })).rejects.toThrow();
+    expect(stats).toBe(0);
+  });
+
+  it('should have no more reads in flight than it was told', async () => {
+    const root = tempDir();
+    write(root, {
+      a: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`${i}.bin`, i])),
+      b: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`${i}.bin`, i])),
+    });
+    const real = createDisk(root);
+    let now = 0;
+    let most = 0;
+    const counted =
+      <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+      async (...args: A): Promise<R> => {
+        most = Math.max(most, ++now);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          return await fn(...args);
+        } finally {
+          now--;
+        }
+      };
+    const disk: Disk = { ...real, list: counted(real.list), stat: counted(real.stat) };
+    const found = await scanDisk(disk, { parallel: 3 });
+    expect(found.root.files).toBe(40);
+    expect(most).toBe(3);
   });
 
   it('should leave out a name that went between the listing and its read', async () => {
@@ -258,6 +329,17 @@ describe('removePath()', () => {
 
     // and once the last name goes, the bytes do too
     expect(removePath(after, join(root, 'b', 'data.bin')).root.bytes).toBe(0);
+  });
+
+  it('should leave the bytes where they are when a name that did not count goes', async () => {
+    const root = tempDir();
+    write(root, { a: {}, b: { 'data.bin': 4000 } });
+    linkSync(join(root, 'b', 'data.bin'), join(root, 'a', 'copy.bin'));
+    const before = await scanDisk(createDisk(root));
+    const after = removePath(before, join(root, 'b', 'data.bin'));
+    expect(after.root.bytes).toBe(4000);
+    expect(findNode(after.root, join(root, 'a', 'copy.bin'))?.bytes).toBe(4000);
+    expect([...after.links.values()]).toStrictEqual([[join(root, 'a', 'copy.bin')]]);
   });
 
   it('should leave the root, and a path not in the tree, alone', async () => {

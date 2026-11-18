@@ -68,7 +68,8 @@ so what is selected is always on the map.
   going and how much, and starts on No, so Enter and Escape both keep it. The
   sizes above it are taken down at once, without a rescan; if the delete fails
   part of the way, it scans again rather than guess at what is left. The root is
-  not deleted from here, and nothing is while a scan is running.
+  not deleted from here, nothing is while a scan is running, and `r` waits for a
+  delete to finish.
 - **A name is drawn as it is**, except that a control character in it is drawn as
   `�`, so a name that holds an escape is not a different name on screen.
 

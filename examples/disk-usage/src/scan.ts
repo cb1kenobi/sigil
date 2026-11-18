@@ -161,7 +161,11 @@ export async function scanDisk(disk: Disk, opts: ScanOptions = {}): Promise<Scan
     progress.where = dir.path;
     let names: string[];
     try {
-      names = await limit(() => disk.list(dir.path));
+      names = await limit(() => {
+        // a read still queued when the scan was thrown away is never made
+        signal?.throwIfAborted();
+        return disk.list(dir.path);
+      });
     } catch (err) {
       signal?.throwIfAborted();
       dir.children = [];
@@ -176,7 +180,10 @@ export async function scanDisk(disk: Disk, opts: ScanOptions = {}): Promise<Scan
         const path = join(dir.path, name);
         let info;
         try {
-          info = await limit(() => disk.stat(path));
+          info = await limit(() => {
+            signal?.throwIfAborted();
+            return disk.stat(path);
+          });
         } catch (err) {
           signal?.throwIfAborted();
           // gone between the listing and now: nothing to count

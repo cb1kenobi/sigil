@@ -111,8 +111,13 @@ export function createModel(): Model {
   let parts: Parts | undefined;
   let disposed = false;
   let running: AbortController | undefined;
-  /** Set while the delete's confirm is open, so a second `d` does not open another. */
-  let asking = false;
+  /**
+   * Set from the moment a delete asks until the disk has answered: a second `d`
+   * opens no second confirm, and `r` scans nothing, while a delete is on its way.
+   * A scan started under an `rm` would read half of what it removes and put it
+   * back on screen when it ends.
+   */
+  let deleting = false;
   onCleanup(() => {
     disposed = true;
     running?.abort();
@@ -211,6 +216,10 @@ export function createModel(): Model {
     const timer = setInterval(() => {
       progress.set({ ...counts });
     }, PROGRESS_MS);
+    // stopped the moment the scan is thrown away, rather than once its walk next
+    // looks at the signal: until then it would go on writing its own counts over
+    // the scan that replaced it
+    controller.signal.addEventListener('abort', () => clearInterval(timer), { once: true });
     try {
       const found = await scanDisk(disk, { progress: counts, signal: controller.signal });
       if (controller.signal.aborted || disposed) {
@@ -242,6 +251,11 @@ export function createModel(): Model {
       const message = `Could not scan ${disk.root}: ${err instanceof Error ? err.message : String(err)}`;
       failed.set(message);
       status.set('Scan failed');
+      // the map says why only where there is no tree to draw; over the last
+      // scan's tree, which stays, it is said here
+      if (untrack(() => scan.get()) !== undefined) {
+        toast(message);
+      }
     } finally {
       clearInterval(timer);
       if (running === controller) {
@@ -278,7 +292,12 @@ export function createModel(): Model {
         printable(counts.where),
       ].join('\n');
     }
-    return scan.get() === undefined ? '' : 'Nothing here takes any space';
+    const found = scan.get();
+    if (found === undefined) {
+      return '';
+    }
+    // a root that could not be listed is not an empty one
+    return printable(found.root.note ?? 'Nothing here takes any space');
   };
 
   const mapTitle = (): string => {
@@ -365,7 +384,7 @@ export function createModel(): Model {
     const found = untrack(() => scan.get());
     const path = untrack(() => current.get());
     const node = nodeAt(path);
-    if (found === undefined || node === undefined || asking) {
+    if (found === undefined || node === undefined || deleting) {
       return;
     }
     if (untrack(() => progress.get()) !== undefined) {
@@ -380,51 +399,51 @@ export function createModel(): Model {
       node.kind === 'directory'
         ? `the directory ${node.name} and everything in it (${formatSize(node.bytes)}, ${formatCount(node.files)} files)`
         : `${node.name} (${formatSize(node.bytes)})`;
-    asking = true;
-    let yes: boolean;
+    deleting = true;
+    let failure: unknown;
     try {
-      yes = await confirmModal(app.view, {
+      const yes = await confirmModal(app.view, {
         initial: 'no',
         input,
         message: printable(`Delete ${whole}? It does not go to the trash: this cannot be undone.`),
         title: 'Delete',
         yes: 'Delete',
       });
-    } finally {
-      asking = false;
-    }
-    if (!yes || disposed) {
-      return;
-    }
-    // the cursor goes to the next item in the same directory, or the one before
-    // the last, or up to the directory once it is empty -- asked of the tree as
-    // it is now, since a rescan may have finished while the confirm was open
-    const now = untrack(() => scan.get()) ?? found;
-    const parent = findNode(now.root, dirname(node.path));
-    const siblings = parent?.children ?? [];
-    const at = siblings.findIndex((child) => child.path === node.path);
-    const next = siblings[at + 1] ?? siblings[at - 1] ?? parent;
-    try {
-      await disk.remove(node.path);
-    } catch (err) {
-      if (disposed) {
+      if (!yes || disposed) {
         return;
       }
-      toast(`Could not delete ${node.name}: ${err instanceof Error ? err.message : String(err)}`);
+      await disk.remove(node.path);
+    } catch (err) {
+      failure = err;
+    } finally {
+      deleting = false;
+    }
+    if (disposed) {
+      return;
+    }
+    if (failure !== undefined) {
+      toast(
+        `Could not delete ${node.name}: ${failure instanceof Error ? failure.message : String(failure)}`
+      );
       // part of a directory may have gone before the error, so the sizes are
       // read again rather than guessed at
       void rescan(true);
       return;
     }
-    if (disposed) {
-      return;
-    }
-    const after = removePath(untrack(() => scan.get()) ?? now, node.path);
+    // the cursor goes to the next item in the same directory, or the one before
+    // the last, or up to the directory once it is empty. The tree is the one the
+    // confirm was asked over: `d` is refused while a scan runs, and `r` while a
+    // delete does
+    const parent = findNode(found.root, dirname(node.path));
+    const siblings = parent?.children ?? [];
+    const at = siblings.findIndex((child) => child.path === node.path);
+    const next = siblings[at + 1] ?? siblings[at - 1] ?? parent;
+    const after = removePath(found, node.path);
     scan.set(after);
     if (next !== undefined) {
       current.set(next.path);
     }
-    const freed = after.root.bytes < now.root.bytes ? now.root.bytes - after.root.bytes : 0;
+    const freed = found.root.bytes - after.root.bytes;
     status.set(`Deleted ${printable(node.name)}, freed ${formatSize(freed)}`);
     toast(`Deleted ${node.name}`, 'success');
   };
@@ -464,7 +483,14 @@ export function createModel(): Model {
     say('d', 'delete', 2);
     // `r` is a fallback: it comes after the focused element, so a dialog keeps
     // it, and it runs with nothing focused. `q` is the runner's
-    off.push(input.fallback('r', () => void rescan(true), { description: 'rescan', priority: 2 }));
+    const askedRescan = (): void => {
+      if (deleting) {
+        status.set('Wait for the delete to finish before scanning again');
+        return;
+      }
+      void rescan(true);
+    };
+    off.push(input.fallback('r', askedRescan, { description: 'rescan', priority: 2 }));
     onCleanup(() => {
       for (const fn of off) {
         fn();

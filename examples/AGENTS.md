@@ -1288,7 +1288,8 @@ about where the space went.
   without a dependency, and a confirm that loses work starts on the answer that
   loses nothing. The message says what is going and how much. The root is not
   deleted from here, and nothing is while a scan runs, since the tree on screen is
-  about to be replaced. A delete takes the sizes down at once, over the tree as it
+  about to be replaced; nor does `r` scan, or `d` ask again, until the disk has
+  answered a delete, since a scan under an `rm` reads half of what it removes. A delete takes the sizes down at once, over the tree as it
   is now -- a new tree sharing every subtree it did not touch, so the list keeps
   its rows -- and a delete that fails part of the way scans again, since what is
   left is not something to guess at.
@@ -1325,6 +1326,22 @@ about where the space went.
   nothing in the app changes the map without changing a line of text beside it, so
   removing it changes no screen today. It stays, because the map being right should
   not rest on that.
+
+- **Review round 1: eight findings, six fixed, each with a test that fails
+  without its fix.** `r` and a second `d` were let through once the confirm
+  closed and before `rm` returned, so a scan could read a directory half removed
+  and put it back; the delete now holds both until the disk answers. A thrown-away
+  scan's progress timer ran until its walk next looked at the signal, writing its
+  counts over the scan that replaced it; it stops on the abort, and a read it had
+  queued is never made. An item with room on paper could be laid as a sliver under
+  half a pixel and round to nothing, and selecting it outlined the whole
+  directory; `markFor()` now outlines a rest only for an item in it, and nothing
+  for one not drawn. A rescan that failed over a tree said only `Scan failed`; it
+  says why. A root that could not be listed was called empty. And the symlink test
+  returned early where links cannot be made, passing on Windows while asserting
+  nothing; it is skipped there now. Also added: the limiter's bound, a file whose
+  `lstat` fails, and deleting the hard-link name that did not count. Not fixed: a
+  file length past 2^53 bytes, 9 PB, is rounded by `Number()`; no file is that long.
 
 - **Not done:** renaming and opening files, which the ticket put out of scope; a
   trash; a filter by name or kind; the blocks a file holds, as against its length;

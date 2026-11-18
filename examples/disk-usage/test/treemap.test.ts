@@ -146,6 +146,20 @@ describe('layoutMap()', () => {
     expect(layout.byPath.get(join(ROOT, 'huge.png'))?.kind).toBe('file');
   });
 
+  it('should outline nothing for an item laid as a sliver that rounds to nothing', () => {
+    // nine pixels is room enough on paper, but squarify lays the nine-byte file
+    // as a column 0.45 wide, which rounds to no column at all
+    const root = dir(ROOT, [file(ROOT, 'big.ts', 391), file(ROOT, 'sliver.ts', 9)]);
+    const layout = layoutMap(root, 20, 20);
+    expect(layout.byPath.has(join(ROOT, 'sliver.ts'))).toBe(false);
+    for (const tile of layout.tiles) {
+      expect(tile.w * tile.h).toBeGreaterThan(0);
+    }
+    // it is not drawn, so nothing is outlined for it -- not the whole
+    // directory's box, which outlined the entire map
+    expect(markFor(layout, join(ROOT, 'sliver.ts'), ROOT)).toBeUndefined();
+  });
+
   it('should draw a directory in one piece where none of its items has room', () => {
     const sub = join(ROOT, 'sub');
     // the directory gets about 3% of 400 pixels, room for a tile of its own, and
