@@ -6865,7 +6865,7 @@ pixels.set(3, 7, palette(2));
 canvas.paint((p) => pixels.blit(p, 0, 0, { colorLevel }));
 ```
 
-`blit()` takes the colour level, and only level 0 changes anything. With no
+`blit()` takes the colour level, and only 0 (or below) changes anything. With no
 colour to write, a picture is drawn as **shapes** with no colour of their own: a
 pixel set to anything but `DEFAULT_COLOR` is on, and a cell is `█`, `▀` or `▄` by
 which of its halves are on. A shape keeps the background under it, as any text

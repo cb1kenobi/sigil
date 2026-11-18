@@ -596,7 +596,7 @@ export function paintMap(
     }
   }
 
-  // at level 0 `Pixels` draws which pixels are on, in the terminal's own colours
+  // at level 0 `Pixels` draws which pixels are on, with no colour of their own
   pixels.blit(painter, left, top, { colorLevel: level });
 
   // a name on each tile wide enough to hold one, on its first whole row, and

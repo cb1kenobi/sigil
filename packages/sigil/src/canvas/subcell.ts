@@ -405,7 +405,8 @@ export class Pixels {
    * @param painter - Where to paint.
    * @param x - The canvas column of this grid's left edge.
    * @param y - The canvas row of its top edge.
-   * @param opts - The colour level, where `0` draws shapes rather than colours.
+   * @param opts - The colour level, where `0` or below draws shapes rather than
+   *   colours.
    */
   blit(painter: Painter, x: number, y: number, opts: PixelsBlitOptions = {}): void {
     if (opts.colorLevel !== undefined && opts.colorLevel <= 0) {
@@ -446,8 +447,8 @@ export class Pixels {
   }
 
   /**
-   * Paints which pixels are on, in the terminal's own colours, which is all
-   * colour level 0 can show.
+   * Paints which pixels are on, with no colour of its own, which is all colour
+   * level 0 can show.
    *
    * A colour written there would be an escape sequence that `NO_COLOR` and a pipe
    * asked not to get, and the canvas does not degrade what it is handed -- so
