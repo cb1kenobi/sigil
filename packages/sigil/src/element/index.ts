@@ -1487,6 +1487,11 @@ export function text(value: string, props: ElementProps = {}): Element {
  * The trapdoor: a sparkline, an image, anything the layout engine cannot
  * express. It takes part in layout like a text -- it is measured and it is
  * placed -- and what goes inside the box it got is its own business.
+
+ * The paint is not tracked: a signal it reads is not a reason to paint again, so
+ * a raw that draws from state is either told with `invalidatePaint()` or built
+ * with `trackedRaw()` from `@ttylabs/sigil/renderer`, which takes these same
+ * arguments and repaints for whatever its last paint read.
  *
  * @param options - How it measures and how it paints.
  * @param props - Style props, plus `class`, `id` and `key`.

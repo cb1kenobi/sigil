@@ -22,6 +22,14 @@ the entry it belongs to.
   canvas behind the tree's back, after which the tree is wrong about what is on
   screen. It measures like a text and is placed like one; what goes inside the
   box it got is its own business.
+- **A `raw` paint is not tracked, and that is on purpose (SIG-477).** A signal it
+  reads is one nothing listens to, so a `raw` drawing from state is repainted for
+  it only by `trackedRaw()` from `src/renderer`, which runs the paint inside a
+  `Computed` and lets go with the owner. Not here, because this module does not
+  load the graph -- `renderToString()` paints raws, and a help screen is one --
+  and has no owner to release a subscription with. The reasons and the frame
+  cost are under "A `raw` whose paint follows what it reads" in
+  `src/renderer/AGENTS.md`.
 - **No fragment: a component produces exactly one node.** A transparent node
   would have to be transparent to layout, to `:nth-child()`, and to paint order,
   which is three different definitions of "not there" -- and the third one is

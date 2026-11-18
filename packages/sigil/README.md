@@ -2653,6 +2653,30 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
+is not a reason to paint again. `trackedRaw(options, props)`, from
+`@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
+whenever a signal its last paint read changes, with nothing to list twice and no
+effect beside it. Build it in a component: the listening is let go with the owner
+it was built under, which is what a `Show` closing or a `For` row leaving
+disposes. A tracked paint may not write a signal -- it is a derivation of what it
+read -- and its measure is not tracked, so a raw whose size follows state still
+calls `invalidateMeasure()` from an effect.
+
+```js
+import { trackedRaw } from '@ttylabs/sigil/renderer';
+import { State } from '@ttylabs/sigil/signals';
+
+const level = new State(3);
+const meter = trackedRaw(
+  {
+    measure: () => ({ height: 1, width: 10 }),
+    paint: (painter, at) => painter.text(at.x, at.y, '#'.repeat(level.get())),
+  },
+  { height: 1, width: 10 }
+);
+```
+
 A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
 `onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
 assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
