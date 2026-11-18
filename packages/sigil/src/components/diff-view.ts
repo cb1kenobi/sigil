@@ -198,6 +198,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let overflow = 0;
   /** How far each row's line runs past its room, beside `lines`. */
   let runs: number[] = [];
+  /**
+   * The furthest any line that has been in view runs past its room, since this
+   * drawing of these lines: as far as the right arrow goes. Kept, so scrolling down
+   * to shorter lines does not take back what the reader has seen.
+   */
+  let seen = 0;
 
   const scroll = ScrollBox({
     // the view holds the focus and every key, so the box inside it holds neither
@@ -245,11 +251,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const viewHeight = (): number => (viewport.content ?? viewport.box)?.height ?? 0;
 
   /**
-   * How far the widest line in view runs past its room: as far as a sideways
-   * scroll goes from where the view is. Asked at each press rather than kept, so
-   * it follows the rows in view as the view scrolls up and down. A view with no
-   * height has no row in view and so nowhere to go: there is always a layout by
-   * now, since nothing is drawn until one has given the view a width.
+   * How far the widest line in view runs past its room. A view with no height has
+   * no row in view: there is always a layout by now, since nothing is drawn until
+   * one has given the view a width.
    */
   const reach = (): number => {
     const height = viewHeight();
@@ -259,6 +263,19 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       most = Math.max(most, runs[at] ?? 0);
     }
     return most;
+  };
+
+  /**
+   * Takes the rows in view into what has been seen, and answers how far right the
+   * view may go: the widest line seen since the lines were last drawn afresh.
+   * Asked whenever the rows in view may have changed -- a draw, a scroll, a
+   * resize, a press -- so it is never behind them.
+   *
+   * @returns The limit.
+   */
+  const look = (): number => {
+    seen = Math.max(seen, reach());
+    return seen;
   };
 
   /**
@@ -272,6 +289,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const draw = (content: DiffViewContent<T>, sideways = false): void => {
     const room = Math.max(1, width - 1);
     const wrapped = untrack(() => wrapping.get());
+    if (!sideways) {
+      // new lines, a new width or wrapped: what was seen was other lines' widths
+      seen = 0;
+    }
     let widest = 0;
     const rows: Element[] = [];
     const marks: Element[] = [];
@@ -443,13 +464,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     return moved;
   }
 
-  /** Writes where the view is to `position`, where there is one and it moved. */
+  /**
+   * Takes in the rows in view, and writes where the view is to `position`, where
+   * there is one and it moved.
+   */
   function report(): void {
+    const limit = look();
     if (props.position === undefined) {
       return;
     }
     const next: DiffViewPosition = {
-      maxX: untrack(() => wrapping.get()) ? 0 : reach(),
+      maxX: untrack(() => wrapping.get()) ? 0 : limit,
       x: offset,
       y: Math.max(0, Math.floor(viewport.scroll?.y ?? 0)),
     };
@@ -477,11 +502,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     ) {
       // claimed at an end as well, the way Home is at the top, and left alone where
       // nothing in the diff runs past the edge. Right goes as far as the widest line
-      // in view, and never back: a view scrolled down to shorter lines is not moved
-      // sideways by it, which would be a jump nobody asked for
+      // seen, and never back
       const next =
         k.name === 'right'
-          ? Math.max(offset, Math.min(reach(), offset + SIDEWAYS_STEP))
+          ? Math.max(offset, Math.min(look(), offset + SIDEWAYS_STEP))
           : Math.max(0, offset - SIDEWAYS_STEP);
       if (next !== offset) {
         offset = next;
@@ -506,6 +530,18 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         current.set(next);
       }
       // claimed at an end as well, the way Home is at the top
+      event.stop();
+      return;
+    }
+    if (!event.paste && (k.name === 'home' || k.name === 'end') && offset > 0) {
+      // to the top or the bottom, and back to the start of the lines: claimed for the
+      // sideways move even where there is no room to move up or down
+      offset = 0;
+      draw(
+        untrack(() => read(props.content)),
+        true
+      );
+      scroll.onKey?.(event);
       event.stop();
       return;
     }

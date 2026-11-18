@@ -9715,36 +9715,48 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
   was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
   shape, which `w` writes.
-- **Right goes as far as the widest line in view, asked at each press.** The
-  first version stopped at the widest line in the whole diff, and in the git
-  client that is every file of a commit: one 1,300-column table row let a press
-  scroll a short file into blank space a hundred and sixty times. So `diffView()`
-  reports `rowOverflow`, each row's own, the view keeps it beside the rows, and a
-  press of right takes the widest among the rows on screen -- recomputed then
-  rather than kept, so it follows the view up and down for free. A view with no
-  height has no row in view and goes nowhere; it fell back to the whole diff's
-  widest line until review round 3 found a pane laid out at a height of 0 scrolling
-  into blank, and the fallback was for a case that cannot happen, since nothing is
-  drawn before a layout gives the view a width. Scrolling up or
-  down never moves the text sideways: right in a view of shorter lines goes
-  nowhere and does not come back either, which would be a jump nobody pressed for,
-  and left still does. The arrows are still claimed whenever anything in the
-  whole diff runs past the edge, since which rows are in view changes with every
-  vertical scroll and a key that is claimed only sometimes is one a pane around
-  the view cannot rely on.
+- **Right goes as far as the widest line that has been in view, remembered until
+  the lines are drawn afresh.** The first version stopped at the widest line in
+  the whole diff, and in the git client that is every file of a commit: one
+  1,300-column table row let a press scroll a short file into blank space a
+  hundred and sixty times. So `diffView()` reports `rowOverflow`, each row's own,
+  the view keeps it beside the rows, and the limit is built lazily from the rows
+  the reader has actually had on screen: every draw, scroll, resize and press
+  takes the rows in view into `seen`, and right goes as far as `seen`. The second
+  version used only the rows in view at that press, and Chris found that it
+  forgot: scrolled down from a long line to shorter ones, the limit fell to
+  theirs and the line just read could not be scrolled back to. Remembered, it
+  only grows, so a limit is one the reader has seen a reason for. It is forgotten
+  when the lines are drawn afresh -- new content, a new width, a switch of `w` --
+  because those are other lines or other rooms, and not on a sideways draw.
+  Scrolling up or down never moves the text sideways, and right among lines
+  shorter than the offset goes on to the remembered limit rather than back. A
+  view with no height has no row in view and adds nothing; it fell back to the
+  whole diff's widest line until review round 3 found a pane laid out at a height
+  of 0 scrolling into blank, and the fallback was for a case that cannot happen,
+  since nothing is drawn before a layout gives the view a width. The arrows are
+  claimed whenever anything in the whole diff runs past the edge, since what has
+  been seen changes with every vertical scroll and a key that is claimed only
+  sometimes is one a pane around the view cannot rely on.
+- **Home and End go back to the start of the lines as well as to the top or the
+  bottom.** A reader jumping to an end of the diff is starting over, and the
+  sideways offset they left in the middle of it is not where they want to read
+  from. The scroll box still does the vertical half; the view resets the offset
+  first, draws, and claims the key even where the content fits and the scroll box
+  would have let it go -- it did something. At an offset of 0 the key is the scroll
+  box's alone, claimed or not by its own rule.
 - **`position` is a `State` the view writes, and only writes.** `{ x, y, maxX }`:
   the sideways offset, the row at the top, and how far right of the edge the
-  widest line in view ends, which is as far as `x` goes from here and may be less
-  than `x` after scrolling down to shorter lines. Asked for to see the limit above
+  widest line seen ends, which is as far as `x` goes. Asked for to see the limit
   working: with a 1,300-column table row on screen the honest limit really is a
   hundred and fifty presses away, which reads as no limit until a number says so.
-  The git client prints it in the diff pane's bottom border. Written on a draw, on the scroll box's `onScroll` and on every resize, and
-  only when one of the three moved, so it asks for no frame of its own while
-  nothing changes. The resize is review round 4's: a height that changes alone
-  draws nothing and moves no offset, but it changes which rows are in view, and
-  `maxX` stayed at the old one's limit. A `State` the app hands in rather
-  than one the view hands out, `current`'s shape, since `DiffView()` returns the
-  element.
+  The git client prints it in the diff pane's bottom border. Written on a draw, on
+  the scroll box's `onScroll` and on every resize, and only when one of the three
+  moved, so it asks for no frame of its own while nothing changes. The resize is
+  review round 4's: a height that changes alone draws nothing and moves no
+  offset, but it changes which rows are in view, and those have to be taken into
+  what was seen. A `State` the app hands in rather than one the view hands out,
+  `current`'s shape, since `DiffView()` returns the element.
 - **A sideways scroll keeps the rows where they are, and the offset is clamped by
   the drawing.** Every row is drawn again for a scroll, but the current stop is
   not brought back into view: a reader who scrolled away from it to read something

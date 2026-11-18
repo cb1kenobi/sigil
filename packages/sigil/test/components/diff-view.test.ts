@@ -382,34 +382,30 @@ describe('DiffView', () => {
       expect(press(short.host, 'left')).toBe(false);
     });
 
-    it('should scroll right only as far as the widest line in view', () => {
-      const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
+    it('should scroll right as far as the widest line it has shown, and remember it', () => {
+      // the long line is the last: not in view until the view has scrolled to it
+      const content = { new: `${'short\n'.repeat(10)}${LONG.new}`, old: '' };
       const { host, root } = mount({ content, wrap: false }, 4);
       picture(root, 20, 4);
-      for (let at = 0; at < 4; at++) {
-        press(host, 'down');
-      }
-      expect(picture(root, 20, 4)).toEqual(['▌+short', '▌+short', '▌+short', '▌+short']);
 
-      // every line in view fits: claimed, and nowhere to go
+      // nothing seen runs past the edge: claimed, and nowhere to go
       expect(press(host, 'right')).toBe(true);
-      expect(picture(root, 20, 4)[0]).toBe('▌+short');
+      expect(picture(root, 20, 4)[1]).toBe('▌+short');
 
-      // back up to the long line, which has somewhere to go again
-      for (let at = 0; at < 4; at++) {
+      press(host, 'end');
+      press(host, 'right');
+      expect(picture(root, 20, 4)[3]).toBe('▌+ta gamma delta ep…');
+
+      // back among the short lines, what was seen is remembered
+      for (let at = 0; at < 8; at++) {
         press(host, 'up');
       }
+      // so right goes on from 8 to 16, and one left back is still past the short line
       press(host, 'right');
-      expect(picture(root, 20, 4)[1]).toBe('▌+ta gamma delta ep…');
-
-      // down among the short lines, right neither goes on nor comes back
-      for (let at = 0; at < 4; at++) {
-        press(host, 'down');
-      }
-      press(host, 'right');
-      expect(picture(root, 20, 4)[0]).toBe('▌+');
       press(host, 'left');
-      expect(picture(root, 20, 4)[0]).toBe('▌+short');
+      expect(picture(root, 20, 4)[1]).toBe('▌+');
+      press(host, 'left');
+      expect(picture(root, 20, 4)[1]).toBe('▌+short');
     });
 
     it('should write where it is scrolled to into a position State', () => {
@@ -428,27 +424,72 @@ describe('DiffView', () => {
         press(host, 'down');
       }
       picture(root, 20, 4);
-      // among the short lines, nothing is past the edge: x is further than it goes
-      expect(position.get()).toEqual({ maxX: 0, x: 8, y: 4 });
+      // scrolled past it, and still remembered
+      expect(position.get()).toEqual({ maxX: 27, x: 8, y: 4 });
 
       press(host, 'w');
       picture(root, 20, 4);
       expect(position.get()).toMatchObject({ maxX: 0, x: 0 });
     });
 
-    it('should write the position again when only the height changed', () => {
+    it('should forget what it has seen when the lines are drawn afresh', () => {
+      const content = new State<DiffViewContent>({
+        new: `${LONG.new}${'short\n'.repeat(10)}`,
+        old: '',
+      });
       const position = new State({ maxX: -1, x: -1, y: -1 });
-      const { root } = mount({ content: LONG, position, wrap: false }, 4);
+      const { host, root } = mount({ content, position, wrap: false }, 4);
       picture(root, 20, 4);
-      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+      expect(position.get().maxX).toBe(27);
 
-      // two rows tall, the long line is out of view: nowhere to go from here
-      root.setProp('height', 2);
+      // new lines, the long one out of view: its width is not this content's
+      content.set({ new: `${'short\n'.repeat(10)}${LONG.new}`, old: '' });
+      flush();
       picture(root, 20, 4);
       expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+      press(host, 'right');
+      expect(picture(root, 20, 4)[1]).toBe('▌+short');
+    });
+
+    it('should take in the rows a taller view shows, and keep them when it is shorter again', () => {
+      const position = new State({ maxX: -1, x: -1, y: -1 });
+      const { root } = mount({ content: LONG, position, wrap: false }, 2);
+      picture(root, 20, 4);
+      // two rows tall: the hunk header and the removed line, and nothing past the edge
+      expect(position.get()).toEqual({ maxX: 0, x: 0, y: 0 });
+
       root.setProp('height', 4);
       picture(root, 20, 4);
       expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+      root.setProp('height', 2);
+      picture(root, 20, 4);
+      expect(position.get()).toEqual({ maxX: 27, x: 0, y: 0 });
+    });
+
+    it('should go back to the start of the lines with Home and End', () => {
+      const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
+      const { host, root } = mount({ content, wrap: false }, 4);
+      picture(root, 20, 4);
+      press(host, 'right');
+      press(host, 'right');
+
+      expect(press(host, 'end')).toBe(true);
+      expect(picture(root, 20, 4)[3]).toBe('▌+short');
+      press(host, 'right');
+      expect(press(host, 'home')).toBe(true);
+      // with no old side the long line is the row under the hunk header
+      expect(picture(root, 20, 4)[1]).toBe('▌+alpha beta gamma …');
+    });
+
+    it('should claim Home for the sideways move where there is no room up or down', () => {
+      const { host, root } = mount({ content: LONG, wrap: false }, 6);
+      picture(root, 20, 6);
+      // everything fits: Home is not this view's with nothing to undo
+      expect(press(host, 'home')).toBe(false);
+
+      press(host, 'right');
+      expect(press(host, 'home')).toBe(true);
+      expect(picture(root, 20, 6)[2]).toBe('▌+alpha beta gamma …');
     });
 
     it('should not scroll sideways while no row is in view', () => {
