@@ -16,7 +16,7 @@ import {
   treemapTileColors,
 } from '../../src/components/treemap.js';
 import { runApp } from '../../src/renderer/app.js';
-import { State } from '../../src/signals/index.js';
+import { Computed, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
 import { createTestTerminal, frame } from '../../src/testing/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -362,12 +362,34 @@ describe('treemapCellTile()', () => {
     const map = layout(root, 8, 10);
     expect(treemapTileAt(map, 0, 4)?.item.name).toBe('top');
     expect(paint(map, 0).rows[2]).toMatch(/^▄+ $/u);
-    expect(treemapCellTile(map, 0, 2)?.item.name).toBe('bottom');
+    expect(treemapCellTile(map, 0, 2, 3)?.item.name).toBe('bottom');
     // a cell coloured in both halves is the upper's, and the edge column between
     // two tiles side by side is still the box it is in
-    expect(treemapCellTile(map, 0, 1)?.item.name).toBe('top');
-    expect(treemapCellTile(map, 7, 1)?.item.name).toBe('top');
-    expect(treemapCellTile(map, 8, 1)).toBeUndefined();
+    expect(treemapCellTile(map, 0, 1, 3)?.item.name).toBe('top');
+    expect(treemapCellTile(map, 7, 1, 3)?.item.name).toBe('top');
+    expect(treemapCellTile(map, 8, 1, 3)).toBeUndefined();
+  });
+
+  it("should give a cell to the tile below where a texture's square above is not drawn", () => {
+    // a tile of many things one pixel tall over a leaf: at level 0 the checker's
+    // second squares are the terminal's own, so those cells show the leaf
+    const many: TreemapLayout<Node, string> = {
+      byKey: new Map(),
+      divided: new Map(),
+      gathered: new Map(),
+      height: 4,
+      rests: new Map(),
+      tiles: [
+        { cushion: [0, 0, 0, 0], depth: 1, h: 1, item: PAIR, kind: 'whole', w: 4, x: 0, y: 0 },
+        { cushion: [0, 0, 0, 0], depth: 1, h: 3, item: LONE, kind: 'leaf', w: 4, x: 0, y: 1 },
+      ],
+      width: 4,
+    };
+    expect(paint(many, 0).rows[0]).toBe('█▄█ ');
+    expect(treemapCellTile(many, 0, 0, 0)?.item).toBe(PAIR);
+    expect(treemapCellTile(many, 1, 0, 0)?.item).toBe(LONE);
+    // with colour, the second square is drawn, in the second shade
+    expect(treemapCellTile(many, 1, 0, 1)?.item).toBe(PAIR);
   });
 });
 
@@ -583,6 +605,9 @@ async function mount<T, K>(
 /** Two items of one size, side by side: `a` on the left half, `b` on the right. */
 const PAIR = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
 
+/** One item on its own. */
+const LONE = leaf(ROOT, 'lone', 1);
+
 const PAIR_PROPS = {
   children: (node: Node) => node.children,
   key: (node: Node) => node.path,
@@ -627,6 +652,14 @@ describe('Treemap', () => {
   it('should say there is nothing to show for a root of no size', async () => {
     const m = await mount({ ...PAIR_PROPS, root: branch(ROOT, []) });
     expect(m.screen()).toContain('Nothing to show');
+  });
+
+  it('should take a State or a Computed of a root that is never undefined', async () => {
+    // typed `State<Node>`, not `State<Node | undefined>`: what an app writes
+    const state = new State(PAIR);
+    const computed = new Computed(() => PAIR);
+    expect((await mount({ ...PAIR_PROPS, root: state })).term.viewport[0]).toMatch(/^a█+ b█+/u);
+    expect((await mount({ ...PAIR_PROPS, root: computed })).term.viewport[0]).toMatch(/^a█+ b█+/u);
   });
 
   it('should draw a new root handed through a State', async () => {

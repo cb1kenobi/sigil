@@ -13510,6 +13510,15 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   the app's own object. The test of an item deep in a tile drawn whole asserted
   only that something was outlined, and now that it is that tile's outline. And a
   comment in the example's `root.tsx` still named the deleted `treemap.ts`.
+- **Review round 2, over round 1's fixes: two findings, both fixed.** Narrowing
+  `root` to `State<T | undefined> | Computed<T | undefined>` refused the
+  `new State(node)` an app actually writes, since a signal's type is invariant in
+  what it holds; `State<T>` and `Computed<T>` are in the union now, and a test
+  file `tsc` checks passes both. And the cell hit test asked whether a pixel is
+  inside a tile's coloured part, which at level 0 is not whether it is drawn: a
+  textured tile's second square is the terminal's own there, so a tile one pixel
+  tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
+  level the map was drawn at and reads the checker the way the paint does.
 - **Not done:** keys between tiles (above); a tooltip or a line for the tile under
   the pointer; zooming, which is an app writing a new `root` -- the example's Enter
   and Backspace; animating one layout into the next; a tile for a parent's own size

@@ -137,7 +137,14 @@ export interface TreemapProps<T, K = T> {
    * root at the same size is not. A signal is told apart by being one, not by
    * having a `get()`, so a node with a `get` method of its own is a node.
    */
-  root: T | undefined | State<T | undefined> | Computed<T | undefined> | (() => T | undefined);
+  root:
+    | T
+    | undefined
+    | State<T>
+    | State<T | undefined>
+    | Computed<T>
+    | Computed<T | undefined>
+    | (() => T | undefined);
   /**
    * An item's size, in any unit. Nothing above `0` takes no room at all. An item
    * with children is divided among them by theirs, so its own size only decides
@@ -607,18 +614,23 @@ export function treemapTileAt<T, K>(
  * A cell is two pixels, and where one tile ends above another the cell can hold
  * the upper tile's uncoloured edge over the lower tile's colour -- a `▄` in the
  * lower tile's colour, with the upper tile's box still reaching into it. So a
- * half that is coloured wins over one that is an edge, the upper first; a cell
- * that is edge in both halves goes to whatever box it is in, the upper first.
+ * half that is drawn wins over one that is not, the upper first; a cell drawn
+ * in neither half goes to whatever box it is in, the upper first. At level 0 a
+ * textured tile's second square is not drawn either -- it is the terminal's own,
+ * as an edge is -- which a tile one pixel tall leaves showing the tile below.
  *
  * @param layout - The map.
  * @param x - Cell column.
  * @param y - Cell row.
+ * @param level - The colour level it was drawn at, which decides whether a
+ *   texture's second square is drawn.
  * @returns The tile, or `undefined` over nothing.
  */
 export function treemapCellTile<T, K>(
   layout: TreemapLayout<T, K>,
   x: number,
-  y: number
+  y: number,
+  level: ColorLevel
 ): TreemapTile<T> | undefined {
   const upper = treemapTileAt(layout, x, y * 2);
   const lower = treemapTileAt(layout, x, y * 2 + 1);
@@ -627,7 +639,11 @@ export function treemapCellTile<T, K>(
       return false;
     }
     const fill = inside(tile);
-    return x < fill.x + fill.w && py < fill.y + fill.h;
+    if (x >= fill.x + fill.w || py >= fill.y + fill.h) {
+      return false;
+    }
+    // the paint's checker, read the same way
+    return !(level <= 0 && tile.kind !== 'leaf' && (x + py) % 2 === 1);
   };
   if (coloured(upper, y * 2)) {
     return upper;
@@ -964,6 +980,8 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
         : (source as T | undefined);
 
   let laid: { layout: TreemapLayout<T, K>; root: T } | undefined;
+  /** The level the last paint drew at, which decides what a click on a cell hit. */
+  let drawnAt: ColorLevel = 3;
   /** Where the last paint put the map, for a click to be read against. */
   let at = { x: 0, y: 0 };
 
@@ -1020,6 +1038,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
         }
         const layout = layoutFor(root, box.width, box.height * 2);
         const level = self.colorLevel;
+        drawnAt = level;
         const marked = current.get();
         const { color, moreColor } = props;
         const colors =
@@ -1057,7 +1076,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {
       return;
     }
-    const tile = treemapCellTile(laid.layout, event.x - at.x, event.y - at.y);
+    const tile = treemapCellTile(laid.layout, event.x - at.x, event.y - at.y, drawnAt);
     if (tile === undefined) {
       return;
     }
