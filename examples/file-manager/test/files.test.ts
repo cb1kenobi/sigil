@@ -7,7 +7,6 @@ import {
   nameProblem,
   planPaste,
   planRename,
-  printable,
   sortEntries,
   visibleEntries,
 } from '../src/files.ts';
@@ -94,11 +93,6 @@ describe('a name', () => {
     expect(copyName('Makefile', 1)).toBe('Makefile copy');
     // a dot file's dot is its name, not an extension
     expect(copyName('.env', 1)).toBe('.env copy');
-  });
-
-  it('should draw a control character as a replacement, one for one', () => {
-    expect(printable('a\u001b[31mb')).toBe('a�[31mb');
-    expect(printable('one\ntwo\tthree', '\n')).toBe('one\ntwo�three');
   });
 
   it('should size a file the way ls -h does', () => {

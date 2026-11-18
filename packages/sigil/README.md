@@ -2653,6 +2653,23 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+`printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
+instead. A `text` element drops one before it paints, so none reaches the
+terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
+`bad[31mname`, which is not the name on disk. Each character is replaced by one,
+so an offset into the result is the same offset into the original, which is what
+a highlighter reads. The set is exactly the one a `text` drops: C0, `DEL` and
+C1. `keep` names control characters to leave alone, such as `'\n\t'` for a
+file's contents, which a `text` lays out in lines and draws a tab of as a space.
+
+```js
+import { printable, text } from '@ttylabs/sigil/element';
+
+printable('bad\u001b[31mname'); // 'bad�[31mname'
+printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
+text(printable(entry.name)); // a name, as it is on disk
+```
+
 A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
 `onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
 assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes

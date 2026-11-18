@@ -312,16 +312,3 @@ export function isInside(child: string, parent: string): boolean {
   }
   return child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
-
-/**
- * Text with every control character shown as `�`, one for one: the file
- * manager's rule for a name. A text element drops a control character before it
- * is painted, so `bad<ESC>[31mname` would be drawn as `bad[31mname`, a name that
- * is not the one on disk.
- *
- * @param value - The text.
- * @returns The text, safe to draw.
- */
-export function printable(value: string): string {
-  return value.replace(/\p{Cc}/gu, '\uFFFD');
-}

@@ -8,14 +8,8 @@
  * test can call over a temporary directory without an app.
  */
 
-import {
-  type Entry,
-  type Files,
-  formatSize,
-  printable,
-  sortEntries,
-  visibleEntries,
-} from './files.ts';
+import { type Entry, type Files, formatSize, sortEntries, visibleEntries } from './files.ts';
+import { printable } from '@ttylabs/sigil/element';
 import { decodePng, type RgbaImage } from '@ttylabs/sigil/png';
 import { extname } from 'node:path';
 

@@ -153,6 +153,40 @@ the entry it belongs to.
   `toDisplayText()` is exported: anything sizing a column has to measure what
   will be _drawn_, and a table that measured the raw string was a column out per
   tab.
+- **`printable()` marks the control characters a text would drop, and reads the
+  same set to find them (SIG-475).** Dropping one is right for the terminal and
+  wrong for a file name: `bad<ESC>[31mname` is drawn as `bad[31mname`, which is
+  not the name on disk. The file manager and the disk usage example each wrote a
+  `printable()` that draws one as `�` instead, one code unit for one so a
+  highlighter's offsets still line up, and the file manager's took a `keep` for
+  the `\n` and `\t` of a file's contents. It is published from here, with that
+  `keep`, because the question it answers is this layer's -- what a `text` draws
+  for a control character -- rather than `/ansi`'s, which is about sequences, or
+  `/width`'s, which measures what is drawn and decides nothing about it.
+
+  There is one `CONTROL` pattern and both readers use it: `sanitize()` decides
+  what a text draws for each match and `printable()` decides what to mark, and
+  the newline and the tab are each replacer's decision rather than a hole carved
+  in the set. The text's own pattern was an enumerated range missing `\n`, which
+  is the same set as `\p{Cc}` less the newline -- so the rewrite changes nothing
+  a text draws, and `the one set of control characters` in
+  `test/element/printable.test.ts` walks every code point to say so: for each one
+  but the newline, `printable()` marks it exactly when `toDisplayText()` changes
+  it.
+
+  `\p{Cc}` alone is the set, and the three near misses were each measured rather
+  than assumed. **`DEL` and C1** are in it, which is what the test pins. **A lone
+  surrogate** is not, and needs nothing: `stringWidth()` gives it one column and
+  encoding it as UTF-8 writes `EF BF BD`, so it already reaches the terminal as a
+  one-column `�`. **A format character** is not either. A bidi control such as
+  U+202E is zero width and does not reach the terminal at all -- a text holding
+  one renders without it, measured -- so it cannot reorder a line. It is lost from
+  a drawn name the way a zero-width space is, and widening the set to `\p{Cf}` to
+  show it would also mark U+200D, the joiner inside every family emoji, and the
+  ZWNJ Persian spells words with; a list of the bidi controls alone would be a
+  second definition of what this layer hides, which is the thing the ticket asked
+  for one of.
+
 - **A `nowrap` text's minimum is its widest line, not its whole string.**
   `stringWidth()` reads a newline as nothing, so a label broken over two lines
   reported the two added together as the narrowest it could be -- and a row beside

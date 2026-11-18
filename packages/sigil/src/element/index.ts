@@ -1522,15 +1522,42 @@ export function noSize(): { height: number; width: number } {
 const INITIAL_STYLE: Style = Object.freeze(declare());
 
 /**
- * Every control character but a newline, which is the one a line is split on.
+ * Every control character: C0, `DEL` and C1, and nothing else.
  *
- * Written as escapes rather than as literal bytes, for the reason AGENTS.md
- * records twice: a raw control character in source is invisible in an editor and
- * in a diff, and the one file that held a literal NUL had no reviewable diff at
- * all.
+ * The one definition of the set for this layer, read by both `sanitize()`, which
+ * decides what a text draws for one, and `printable()`, which marks one before a
+ * text gets the chance -- so the characters `printable()` marks are exactly the
+ * ones a text would otherwise drop, and the two cannot come to disagree. What
+ * each does with a newline and a tab is its own decision, made in its replacer
+ * rather than by carving them out of the set. `\p{Cc}` names the set rather than
+ * enumerating it, so there is no raw control character here, escaped or
+ * otherwise, and no `no-control-regex` suppression to keep attached to its line.
  */
-// eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g;
+const CONTROL = /\p{Cc}/gu;
+
+/**
+ * Text with every control character in it drawn as `�` (U+FFFD), one for one.
+ *
+ * A `text` element drops a control character before it is painted, so none
+ * reaches the terminal either way -- but dropped, a file named
+ * `bad<ESC>[31mname` is drawn as `bad[31mname`, which is not the name on disk,
+ * and a tab in it vanishes. Marked, the name says it holds something. One code
+ * unit is replaced by one, so an offset into the result is the same offset into
+ * the original, which is what a highlighter or a match position reads.
+ *
+ * The set is the one a text drops: C0, `DEL` and C1. A lone surrogate is not in
+ * it and already reaches the terminal as `�`, which is what encoding it as UTF-8
+ * writes; a format character -- a bidi control, a zero-width joiner -- is not in
+ * it either, since a joiner is part of an emoji and a mark is part of a script.
+ *
+ * @param text - The text, typically a file name.
+ * @param keep - Control characters to leave as they are: `'\n\t'` for a file's
+ * contents, which a text lays out in lines and draws a tab of as a space.
+ * @returns The text, with what is not kept marked.
+ */
+export function printable(text: string, keep = ''): string {
+  return text.replace(CONTROL, (char) => (keep.includes(char) ? char : '�'));
+}
 
 /**
  * What a `text` element will draw for a string.
@@ -1587,15 +1614,20 @@ export function toDisplayLine(text: string): string {
  * @returns What it draws.
  */
 function sanitize(text: string): string {
-  // `lastIndex` is reset before the test because the pattern is global and
-  // `test()` on a global pattern carries its position between calls, so the
-  // second string asked about would be searched from wherever the first
-  // stopped. `replaceAll()` resets it itself
-  CONTROL.lastIndex = 0;
-  if (!CONTROL.test(text)) {
-    return text;
-  }
-  return text.replaceAll(CONTROL, (char) => (char === '\t' ? ' ' : ''));
+  // one pass rather than a `test()` and then a `replaceAll()`: a string with no
+  // control character in it comes back as itself, and a global pattern's
+  // `lastIndex` is reset by the replace, where a `test()` carries it between calls
+  return text.replaceAll(CONTROL, drawn);
+}
+
+/**
+ * What a text draws for one control character.
+ *
+ * @param char - The character.
+ * @returns A newline as itself, a tab as a space, and anything else as nothing.
+ */
+function drawn(char: string): string {
+  return char === '\n' ? char : char === '\t' ? ' ' : '';
 }
 
 /** A run of text inside a paragraph, and the class its words carry. */
