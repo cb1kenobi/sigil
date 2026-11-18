@@ -1526,12 +1526,14 @@ const INITIAL_STYLE: Style = Object.freeze(declare());
  *
  * The one definition of the set for this layer, read by both `sanitize()`, which
  * decides what a text draws for one, and `printable()`, which marks one before a
- * text gets the chance -- so the characters `printable()` marks are exactly the
- * ones a text would otherwise drop, and the two cannot come to disagree. What
- * each does with a newline and a tab is its own decision, made in its replacer
- * rather than by carving them out of the set. `\p{Cc}` names the set rather than
- * enumerating it, so there is no raw control character here, escaped or
- * otherwise, and no `no-control-regex` suppression to keep attached to its line.
+ * text gets the chance -- so the two cannot come to disagree about which
+ * characters are control characters. They differ only in what each does with
+ * one: a text keeps a newline, draws a tab as a space and drops the rest, while
+ * `printable()` marks all of them but what its caller keeps. That is a decision
+ * made in each replacer rather than by carving them out of the set. `\p{Cc}`
+ * names the set rather than enumerating it, so there is no raw control character
+ * here, escaped or otherwise, and no `no-control-regex` suppression to keep
+ * attached to its line.
  */
 const CONTROL = /\p{Cc}/gu;
 

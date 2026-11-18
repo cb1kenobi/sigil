@@ -153,8 +153,8 @@ the entry it belongs to.
   `toDisplayText()` is exported: anything sizing a column has to measure what
   will be _drawn_, and a table that measured the raw string was a column out per
   tab.
-- **`printable()` marks the control characters a text would drop, and reads the
-  same set to find them (SIG-475).** Dropping one is right for the terminal and
+- **`printable()` marks the control characters a text would not draw as given,
+  and reads the same set to find them (SIG-475).** Dropping one is right for the terminal and
   wrong for a file name: `bad<ESC>[31mname` is drawn as `bad[31mname`, which is
   not the name on disk. The file manager and the disk usage example each wrote a
   `printable()` that draws one as `�` instead, one code unit for one so a
