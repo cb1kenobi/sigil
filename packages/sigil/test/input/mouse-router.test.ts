@@ -767,7 +767,8 @@ describe('click-to-focus', () => {
 
     feed(press(1, 1));
     expect(input.focus.current.get()).toBe(outer);
-    expect(outer.states).toEqual(['focus']);
+    // and `focus-within`, which the focused element is in as well as its ancestors
+    expect(outer.states).toEqual(['focus', 'focus-within']);
   });
 
   it('should be suppressed by stopping the press, the way Tab is', () => {

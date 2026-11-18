@@ -1,5 +1,6 @@
 /**
- * What git prints, read into data -- and a hunk written back as a patch.
+ * What git prints, read into data. A patch is read by `parsePatch()` and a hunk
+ * written back by `hunkPatch()`, both from `@ttylabs/sigil/components`.
  *
  * Every function here is pure, so `test/parse.test.ts` holds each one to git's
  * real output without a repository. The formats asked for are the machine ones:
@@ -7,6 +8,8 @@
  * separators, so a path with a space or a subject with a `|` in it reads as
  * itself.
  */
+
+import type { DiffFile } from '@ttylabs/sigil/components';
 
 /** One path `git status` reports, and which of its two sides have changed. */
 export interface FileChange {
@@ -72,27 +75,6 @@ export interface Commit {
   readonly subject: string;
   /** When, as git says it relative to now: `3 hours ago`. */
   readonly when: string;
-}
-
-/** One hunk of a patch, as git wrote it, line endings and `\ No newline` included. */
-export interface PatchHunk {
-  /** The `@@ -a,b +c,d @@` line. */
-  readonly header: string;
-  /** The lines after the header, each without its `\n` -- a `\r` stays, since it is content. */
-  readonly lines: readonly string[];
-}
-
-/** One file of a patch: the lines before its first hunk, and the hunks. */
-export interface PatchFile {
-  /** Whether git said it was binary, which leaves no hunks to show or stage. */
-  readonly binary: boolean;
-  /** Whether the patch was cut short inside this file, so that hunks after the last are missing. */
-  readonly cut?: boolean;
-  /** `diff --git`, `index`, the mode lines, `---` and `+++`. */
-  readonly header: readonly string[];
-  readonly hunks: readonly PatchHunk[];
-  /** The path the patch is about, read off the `diff --git` line. */
-  readonly path: string;
 }
 
 /** The `XY` pairs that mean a merge left the path in conflict. */
@@ -212,90 +194,57 @@ export function parseLog(out: string): Commit[] {
 }
 
 /**
- * Splits a patch git wrote into files and hunks, keeping every line as it was.
- * A second reader of the format `parsePatch()` reads, which SIG-370 is for.
+ * The path a file of a patch is about, from the names `parsePatch()` read: the
+ * new side, which is where the change lands, or the old one for a deletion.
  *
- * `parsePatch()` in `@ttylabs/sigil/components` reads a patch for showing it, and
- * drops what it does not draw -- `\ No newline at end of file` among it. Staging a
- * hunk writes the hunk back to `git apply`, and a hunk without that line is a
- * different hunk, so this keeps the text. It needs no line counts: inside a hunk
- * every line begins with a space, `+`, `-` or `\`, so a line that begins `@@` or
- * `diff --git` can only be the next hunk or the next file.
- *
- * @param patch - What `git diff` printed.
- * @returns The files, in order.
- */
-export function splitPatch(patch: string): PatchFile[] {
-  const lines = patch.split('\n');
-  if (lines.at(-1) === '') {
-    lines.pop();
-  }
-  const files: { binary: boolean; header: string[]; hunks: PatchHunk[]; path: string }[] = [];
-  let hunk: { header: string; lines: string[] } | undefined;
-
-  for (const line of lines) {
-    const file = files.at(-1);
-    if (line.startsWith('diff --git ')) {
-      hunk = undefined;
-      files.push({ binary: false, header: [line], hunks: [], path: pathOf(line) });
-    } else if (file && line.startsWith('@@ ')) {
-      hunk = { header: line, lines: [] };
-      file.hunks.push(hunk);
-    } else if (hunk) {
-      hunk.lines.push(line);
-    } else if (file) {
-      file.header.push(line);
-      if (line.startsWith('Binary files ') || line === 'GIT binary patch') {
-        file.binary = true;
-      }
-    }
-  }
-  return files;
-}
-
-/**
- * The path on a `diff --git a/x b/x` line: the `b` side, which is where the
- * change lands. Git quotes a path with unusual characters, and `core.quotepath`
- * is turned off where git is run, so only a path with a quote, a backslash or a
- * control character in it arrives quoted, and those escapes are undone here.
- *
- * @param line - The `diff --git` line.
- * @returns The path, without its `b/`.
- */
-function pathOf(line: string): string {
-  const rest = line.slice('diff --git '.length);
-  const quoted = /"b\/((?:[^"\\]|\\.)*)"$/.exec(rest);
-  if (quoted) {
-    const escapes: Record<string, string> = { '"': '"', '\\': '\\', n: '\n', t: '\t' };
-    return (quoted[1] ?? '').replace(/\\(.)/g, (all, c: string) => escapes[c] ?? all);
-  }
-  const half = rest.lastIndexOf(' b/');
-  return half === -1 ? rest : rest.slice(half + 3);
-}
-
-/**
- * One hunk as a patch of its own, which is what `git apply --cached` stages and
- * `git apply --cached --reverse` unstages.
- *
- * The file's header goes first, unchanged -- a new file's `new file mode` and
- * `--- /dev/null` are what make git create the path in the index rather than
- * look for it there -- and then the one hunk, its own counts unchanged, since
- * applying it alone is exactly what those counts describe.
- *
- * @param file - The file the hunk is in.
- * @param hunk - The hunk.
- * @returns The patch, ending in a newline as git's own do.
- */
-export function hunkPatch(file: PatchFile, hunk: PatchHunk): string {
-  return `${[...file.header, hunk.header, ...hunk.lines].join('\n')}\n`;
-}
-
-/**
- * The text of a patch file, for `diffView()`.
+ * What is read here is the client's own choice rather than the format: every
+ * patch is asked for with `--src-prefix=a/ --dst-prefix=b/`, so the prefix is
+ * known, and `core.quotepath` is turned off where git is run, so only a path with
+ * a quote, a backslash or a control character in it arrives quoted -- in C's
+ * escapes, a control character as `\r` or in octal -- and those are undone.
  *
  * @param file - The file.
- * @returns Its lines, as git wrote them.
+ * @returns The path, or nothing where the patch did not name it.
  */
-export function patchText(file: PatchFile): string {
-  return [...file.header, ...file.hunks.flatMap((hunk) => [hunk.header, ...hunk.lines])].join('\n');
+export function pathOf(file: DiffFile): string | undefined {
+  const name = file.newName === '/dev/null' ? file.oldName : (file.newName ?? file.oldName);
+  if (name === undefined) {
+    return undefined;
+  }
+  const quoted = /^"((?:[^"\\]|\\.)*)"$/.exec(name);
+  return (quoted ? unquote(quoted[1] ?? '') : name).replace(/^[ab]\//, '');
+}
+
+/** What each of C's one-letter escapes stands for. */
+const ESCAPES: Record<string, number> = { a: 7, b: 8, f: 12, n: 10, r: 13, t: 9, v: 11 };
+
+/**
+ * The text between the quotes of a name git quoted. An octal escape is a byte of
+ * the name's UTF-8, so the bytes are gathered and decoded together.
+ *
+ * @param text - The name, without its quotes.
+ * @returns The name.
+ */
+function unquote(text: string): string {
+  const bytes: number[] = [];
+  const encoder = new TextEncoder();
+  // by code point, so a character outside the BMP is encoded whole
+  const chars = [...text];
+  for (let at = 0; at < chars.length; at++) {
+    const c = chars[at] ?? '';
+    if (c !== '\\') {
+      bytes.push(...encoder.encode(c));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(chars.slice(at + 1, at + 4).join(''));
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      at += 3;
+    } else {
+      const next = chars[at + 1] ?? '';
+      bytes.push(...(ESCAPES[next] === undefined ? encoder.encode(next) : [ESCAPES[next]]));
+      at += 1;
+    }
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
 }

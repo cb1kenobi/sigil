@@ -15,7 +15,7 @@
 
 import type { Account } from './account.ts';
 import { type Login, LOGIN_CHECKS } from './checks.ts';
-import { createForm, follow, touchOnLeave } from './form.ts';
+import { createForm, touchOnLeave } from './form.ts';
 import { Problem } from './rows.tsx';
 import { Button } from '@ttylabs/sigil/components/button';
 import { type ModalHandle, type ModalHost, openModal } from '@ttylabs/sigil/components/modal';
@@ -144,7 +144,7 @@ function build({ account, host, input }: LoginOptions): ModalHandle<string> {
   );
 
   const signIn = Button({
-    disabled: follow(() => busy.get() || !form.valid.get()),
+    disabled: () => busy.get() || !form.valid.get(),
     label: 'Sign in',
     onPress: () => void submit(),
   });

@@ -30,9 +30,10 @@ import { __ } from '../i18n/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import {
+  controlCondition,
+  type ControlCondition,
   type ControlDescriber,
   controlDisabled,
-  controlFlag,
   describeControls,
 } from './control.js';
 import { labelLine } from './note.js';
@@ -58,11 +59,11 @@ export interface RadioSetProps<T = unknown> {
    * Whether the whole set refuses to change.
    *
    * A disabled set is out of the focus ring, ignores keys and clicks, and is drawn
-   * in the muted role. A `State<boolean>` is read live. Defaults to `false`. A set
-   * whose every option is disabled is disabled too, since nothing in it can be
-   * chosen.
+   * in the muted role. A `State`, a `Computed` or a function is read live, so the
+   * app can derive it. Defaults to `false`. A set whose every option is disabled is
+   * disabled too, since nothing in it can be chosen.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /** Called with the option's value after a key or a click selected it. Not called for a write the app made. */
   onChange?: (value: T) => void;
   /**
@@ -121,9 +122,9 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   const value = (
     props.value instanceof State ? props.value : new State<T | undefined>(props.value)
   ) as State<T | undefined>;
-  const disabled = controlFlag(
+  const disabled = controlCondition(
     props.disabled,
-    __`Expected radio set disabled to be a boolean or a State`
+    __`Expected radio set disabled to be a boolean, a State, a Computed or a function`
   );
   const direction = props.direction ?? 'column';
   const { onChange } = props;

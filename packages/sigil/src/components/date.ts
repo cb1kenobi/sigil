@@ -7,6 +7,8 @@
  * is *built from segments* and then handed to the one reader the parser uses,
  * `transformValue(text, 'date')`, so the two cannot disagree about what a date
  * is -- the prompt does not carry a copy of the calendar or clock rules, it asks.
+ * That call, the text it is given, the range check and the line form are
+ * `dateFormat()`'s in `calendar.ts`, which `pickDate()` asks with too.
  *
  * The one piece of arithmetic that is the prompt's own is how long a month is
  * while a day is being stepped, and that is the parser's `daysInMonth()` rather
@@ -16,21 +18,26 @@
 import { box, type Element, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { daysInMonth, transformValue } from '../util/coerce.js';
-import { addMonths, calendarGrid, type CalendarGridOptions, dayKey } from './calendar.js';
+import { daysInMonth } from '../util/coerce.js';
+import {
+  addMonths,
+  calendarGrid,
+  type CalendarGridOptions,
+  type DateField,
+  dateFormat,
+  dayKey,
+} from './calendar.js';
 import { typedText } from './editing.js';
 import {
   type AccessibleOptions,
   promptAnswered,
   promptAsLines,
-  promptLineQuestion,
   promptHeadLine,
   promptHeadWidths,
   promptNote,
   type PromptOptions,
   promptTailFits,
   promptUnderHead,
-  runLinePrompt,
   runPrompt,
   setPromptNote,
 } from './prompt.js';
@@ -71,61 +78,7 @@ export interface DateOptions extends PromptOptions, AccessibleOptions {
   validate?: (value: Date) => string | undefined | false | Promise<string | undefined | false>;
 }
 
-type Field = 'day' | 'hour' | 'minute' | 'month' | 'second' | 'year';
-type Parts = Record<Field, number>;
-
-/** How many digits a segment has. */
-const WIDTH: Record<Field, number> = { day: 2, hour: 2, minute: 2, month: 2, second: 2, year: 4 };
-
-/** What is drawn in front of a segment, which is ISO order and nothing else. */
-const LEAD: Record<Field, string> = {
-  day: '-',
-  hour: ' ',
-  minute: ':',
-  month: '-',
-  second: ':',
-  year: '',
-};
-
-/** What each segment is called in the picture of the format a line form asks for. */
-const PICTURE: Record<Field, string> = {
-  day: 'DD',
-  hour: 'HH',
-  minute: 'MM',
-  month: 'MM',
-  second: 'SS',
-  year: 'YYYY',
-};
-
-/** The fields in the order they are compared, which is also the order they are drawn. */
-const ORDER: readonly Field[] = ['year', 'month', 'day', 'hour', 'minute', 'second'];
-
-/**
- * One number that sorts the way the fields do.
- *
- * Compared as fields rather than as `Date`s: the value is a *local* date-time and
- * a `Date` for a wall-clock time a daylight saving gap skipped is a different
- * wall-clock time, so a range check through one would move with the time zone.
- * The largest is 9999 * 1e10, well inside a safe integer.
- *
- * @param parts - The fields.
- * @returns A sortable key.
- */
-function keyOf(parts: Parts): number {
-  return (
-    parts.year * 1e10 +
-    parts.month * 1e8 +
-    parts.day * 1e6 +
-    parts.hour * 1e4 +
-    parts.minute * 1e2 +
-    parts.second
-  );
-}
-
-/** The two-digit pad every segment but the year uses, and the year's four. */
-function pad(field: Field, value: number): string {
-  return String(value).padStart(WIDTH[field], '0');
-}
+type Parts = Record<DateField, number>;
 
 /**
  * Asks for a date, or a date and a time.
@@ -139,14 +92,8 @@ function pad(field: Field, value: number): string {
  */
 export function date(opts: DateOptions): Promise<Date> {
   const terminal = opts.terminal ?? defaultTerminal;
-  const seconds = opts.seconds === true;
-  const clock = opts.time === true || seconds;
-  const fields = ORDER.filter((f) => {
-    if (f === 'second') {
-      return seconds;
-    }
-    return f === 'hour' || f === 'minute' ? clock : true;
-  });
+  const format = dateFormat({ seconds: opts.seconds, time: opts.time });
+  const { fields, key, lead, pad, partsOf, shown, width } = format;
 
   for (const [name, value] of [
     ['initial', opts.initial],
@@ -158,44 +105,26 @@ export function date(opts: DateOptions): Promise<Date> {
     }
   }
 
-  /**
-   * A `Date` as the fields this prompt shows, truncated to them.
-   *
-   * The getters are the local ones, which is right here and nowhere the parser
-   * reads: this prompt builds its values local, so a `Date` handed in is read
-   * back the same way.
-   */
-  function partsOf(d: Date): Parts {
-    return {
-      day: d.getDate(),
-      hour: clock ? d.getHours() : 0,
-      minute: clock ? d.getMinutes() : 0,
-      month: d.getMonth() + 1,
-      second: seconds ? d.getSeconds() : 0,
-      year: d.getFullYear(),
-    };
-  }
-
   const min = opts.min && partsOf(opts.min);
   const max = opts.max && partsOf(opts.max);
 
-  if (min && max && keyOf(min) > keyOf(max)) {
+  if (min && max && key(min) > key(max)) {
     return Promise.reject(new RangeError(__`Expected min to be no later than max`));
   }
 
   /** Pulls fields into the range, to the bound they went past. */
   function bounded(parts: Parts): Parts {
-    if (min && keyOf(parts) < keyOf(min)) {
+    if (min && key(parts) < key(min)) {
       return { ...min };
     }
-    if (max && keyOf(parts) > keyOf(max)) {
+    if (max && key(parts) > key(max)) {
       return { ...max };
     }
     return parts;
   }
 
   /** What a field's number may be, given the others. */
-  function limits(field: Field, parts: Parts): [number, number] {
+  function limits(field: DateField, parts: Parts): [number, number] {
     switch (field) {
       case 'year':
         return [0, 9999];
@@ -210,19 +139,6 @@ export function date(opts: DateOptions): Promise<Date> {
     }
   }
 
-  /** The text the parser's `date` reader is given: a local date-time, no offset. */
-  function textOf(parts: Parts): string {
-    const day = `${pad('year', parts.year)}-${pad('month', parts.month)}-${pad('day', parts.day)}`;
-    return clock
-      ? `${day}T${pad('hour', parts.hour)}:${pad('minute', parts.minute)}:${pad('second', parts.second)}`
-      : day;
-  }
-
-  /** What is shown for a range bound, in the form the field is drawn in. */
-  function shownText(parts: Parts): string {
-    return fields.map((f) => `${LEAD[f]}${pad(f, parts[f])}`).join('');
-  }
-
   const start = bounded(partsOf(new Date()));
   // a starting answer that is not a date is dropped rather than refused, for the
   // reason `number()` drops one: it is an answer handed back, not an option
@@ -233,79 +149,21 @@ export function date(opts: DateOptions): Promise<Date> {
   let pending = '';
   let error: string | undefined;
 
-  /** What is wrong with an answer, or the `Date` it is: the drawn field's checks, in its order. */
-  async function judged(at: Parts): Promise<Date | string> {
-    if (min && keyOf(at) < keyOf(min)) {
-      return __`Date must not be before ${shownText(min)}`;
-    }
-    if (max && keyOf(at) > keyOf(max)) {
-      return __`Date must not be after ${shownText(max)}`;
-    }
-    let answer: Date;
-    try {
-      // the parser's own reader, which is what refuses a day or a clock that
-      // does not exist -- there is no second copy of that here
-      answer = transformValue(textOf(at), 'date') as Date;
-    } catch (cause) {
-      return (cause as Error).message;
-    }
-    const failed = await opts.validate?.(answer);
-    return typeof failed === 'string' && failed ? failed : answer;
-  }
+  // the drawn field's Enter and the line are judged by one function, so the
+  // two refuse in the same order with the same words
+  const check = { max, min, validate: opts.validate };
 
   if (promptAsLines(opts)) {
-    // the segments typed whole, in the order they are drawn: a date is said as
-    // its digits far more readily than it is stepped to, and a line has no
-    // segment to step. The picture names the format, the range is said rather
-    // than found by refusal -- the drawn grid dims what is outside it, which a
-    // line cannot -- and Enter alone takes where the field would have opened
-    const picture = fields.map((f) => `${LEAD[f]}${PICTURE[f]}`).join('');
-    const shape = new RegExp(
-      `^${fields
-        .map((f) => `${LEAD[f] === ' ' ? '[ T]' : LEAD[f]}(\\d{${f === 'year' ? 4 : '1,2'}})`)
-        .join('')}$`
-    );
-    const range =
-      min && max
-        ? __`from ${shownText(min)} to ${shownText(max)}`
-        : min
-          ? __`from ${shownText(min)}`
-          : max
-            ? __`until ${shownText(max)}`
-            : undefined;
-    const hint = [picture, range, __`default: ${shownText(parts)}`].filter(Boolean).join(', ');
-    const start = parts;
-
-    return runLinePrompt<Date>(opts, {
-      ask: promptLineQuestion(opts.message, `(${hint})`),
-      echo: true,
-      keep: true,
-      async read(reply) {
-        const said = reply.trim();
-        let at = start;
-        if (said !== '') {
-          const match = shape.exec(said);
-          if (!match) {
-            return __`Enter a date as ${picture}`;
-          }
-          at = { ...start };
-          fields.forEach((f, i) => {
-            at[f] = Number(match[i + 1]);
-          });
-        }
-        const answer = await judged(at);
-        return typeof answer === 'string' ? answer : { value: answer };
-      },
-    });
+    return format.ask(opts, parts, check);
   }
 
   return runPrompt<Date>(opts, () => {
-    const segments = new Map<Field, Element>();
+    const segments = new Map<DateField, Element>();
     const children: Element[] = [];
 
     for (const f of fields) {
-      if (LEAD[f]) {
-        children.push(textNode(LEAD[f], { class: 'sigil-muted', 'white-space': 'nowrap' }));
+      if (lead[f]) {
+        children.push(textNode(lead[f], { class: 'sigil-muted', 'white-space': 'nowrap' }));
       }
       const node = textNode('', { 'white-space': 'nowrap' });
       segments.set(f, node);
@@ -320,7 +178,7 @@ export function date(opts: DateOptions): Promise<Date> {
     // -- and where that is more than the head can give, the field is on a line of
     // its own under the question rather than cut to `2024-06-`. It settles where
     // it was drawn, because it is the answer
-    const widest = shownText(partsOf(new Date(0)));
+    const widest = shown(partsOf(new Date(0)));
     const room = Math.max(1, terminal.width);
     const beside = promptTailFits(opts.message, room, widest);
     const head = promptHeadWidths(opts.message, room, beside ? widest : '');
@@ -348,7 +206,7 @@ export function date(opts: DateOptions): Promise<Date> {
      * a neighbour. Stepping Jan 31 to February is Feb 28 or 29, and the month is
      * the only segment that changed.
      */
-    function put(f: Field, value: number): void {
+    function put(f: DateField, value: number): void {
       const next = { ...parts };
       const [lo, hi] = limits(f, next);
       next[f] = Math.max(lo, Math.min(hi, value));
@@ -395,7 +253,7 @@ export function date(opts: DateOptions): Promise<Date> {
       fields.forEach((f, i) => {
         const node = segments.get(f)!;
         const typing = i === focus && pending !== '';
-        node.setText(typing ? pending.padEnd(WIDTH[f], '_') : pad(f, parts[f]));
+        node.setText(typing ? pending.padEnd(width[f], '_') : pad(f, parts[f]));
         node.setProps({ class: i === focus ? 'sigil-caret' : '' });
       });
     }
@@ -409,7 +267,7 @@ export function date(opts: DateOptions): Promise<Date> {
         if (k.name === 'enter') {
           commit();
 
-          const answer = await judged(parts);
+          const answer = await format.judge(parts, check);
           if (typeof answer !== 'string') {
             return { value: answer };
           }
@@ -434,7 +292,7 @@ export function date(opts: DateOptions): Promise<Date> {
           if (typed !== undefined && /^\d$/.test(typed)) {
             pending += typed;
 
-            if (pending.length >= WIDTH[fields[focus]]) {
+            if (pending.length >= width[fields[focus]]) {
               move(focus + 1);
             }
           }

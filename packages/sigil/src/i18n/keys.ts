@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 416 keys, which is what a catalog has to carry to translate sigil's own
+ * 417 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -150,9 +150,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Tabs() or tabRowView() returned',
   'Expected an element that TreeListView() returned',
   'Expected an enumerator to return a string',
-  'Expected button disabled to be a boolean or a State',
+  'Expected button disabled to be a boolean, a State, a Computed or a function',
   'Expected checkbox checked to be a boolean or a State',
-  'Expected checkbox disabled to be a boolean or a State',
+  'Expected checkbox disabled to be a boolean, a State, a Computed or a function',
   'Expected collapsible children to be a function that builds the body',
   'Expected collapsible group to come from collapsibleGroup()',
   'Expected collapsible open to be a boolean or a State',
@@ -162,7 +162,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected data table rows to be an array, a State or a Computed',
   'Expected data table sort to name a column: {0} is not one',
   'Expected data table {0} to be a function',
-  'Expected dropdown disabled to be a boolean or a State',
+  'Expected dropdown disabled to be a boolean, a State, a Computed or a function',
   'Expected dropdown options to be an array',
   'Expected each item to be a string or an object with a text string',
   'Expected enumerator to hold at least one entry',
@@ -177,6 +177,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected list follow to be a boolean or a State',
   'Expected list items to be an array, a State or a Computed',
   'Expected list selected to be an iterable of keys or a State',
+  'Expected list tail to be a boolean or a State',
   'Expected list {0} to be a function',
   'Expected locale to be a valid language tag',
   'Expected markdown source to be a string',
@@ -192,19 +193,19 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected pane max to be at least min',
   'Expected pane size to be a number of cells or a State',
   'Expected pane {0} to be a number of cells',
-  'Expected radio set disabled to be a boolean or a State',
+  'Expected radio set disabled to be a boolean, a State, a Computed or a function',
   'Expected radio set options to be a non-empty array',
   'Expected retry to be a whole number of tries',
-  'Expected slider disabled to be a boolean or a State',
-  'Expected switch disabled to be a boolean or a State',
+  'Expected slider disabled to be a boolean, a State, a Computed or a function',
+  'Expected switch disabled to be a boolean, a State, a Computed or a function',
   'Expected switch value to be a boolean or a State',
   'Expected tab children to be a function that builds the panel',
   'Expected tab labels to be a non-empty array of strings',
   'Expected tabs active to be a number or a State',
   'Expected tabs to be a non-empty array',
-  'Expected text area disabled to be a boolean or a State',
+  'Expected text area disabled to be a boolean, a State, a Computed or a function',
   'Expected text area rows to be a positive whole number',
-  'Expected text field disabled to be a boolean or a State',
+  'Expected text field disabled to be a boolean, a State, a Computed or a function',
   'Expected toast max to be a whole number of at least 1',
   'Expected tooltip text to be a string',
   'Expected tree expanded to be an iterable of values or a State',

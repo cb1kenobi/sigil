@@ -29,6 +29,7 @@ import {
   DiagnosticError,
   discoverApp,
   displayPath,
+  escapeMessage,
   forgetParsedModules,
   isFatal,
   isInside,
@@ -51,6 +52,7 @@ import { CONFIG_FILES, type SigilConfig } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { SIGIL_KEYS } from '@ttylabs/sigil/i18n-keys';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, type BigIntStats } from 'node:fs';
 import nodePath, { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -407,7 +409,17 @@ export function reportDiagnostics(found: Inspection): {
  * @returns The mapping `writeDiagnostics()` takes.
  */
 function relativeTo(app: DiscoveredApp): (file: string) => string {
-  return (file) => relative(app.root, file) || '.';
+  return (file) => {
+    // rolldown names a module by its real path -- measured, for a module that
+    // does not parse and for an unresolved import's importer alike -- so an app
+    // under a link (macOS's own temp directory is one) had its file named
+    // `../../../private/var/...`. Asked of the real root only when the spelled
+    // one does not hold the file, so nothing that already read right is asked
+    // the file system (SIG-447)
+    const real = isInside(app.root, file) ? undefined : landsAt(app.root);
+    const root = real !== undefined && isInside(real, file) ? real : app.root;
+    return relative(root, file) || '.';
+  };
 }
 
 /**
@@ -416,8 +428,9 @@ function relativeTo(app: DiscoveredApp): (file: string) => string {
  * A `DiagnosticError` -- a template the bundle reached that cannot be
  * compiled -- is written the way `reportDiagnostics()` writes what the read
  * found, and the build then fails with the same `failure()` sentence a type
- * error gets, counting it. Anything else is passed through untouched, since it
- * is already a sentence `main()` knows how to print.
+ * error gets, counting it. Anything else is passed through, since it is
+ * already a sentence `main()` knows how to print -- with its message escaped on
+ * the way, because `main()` prints it as it stands; see `escaped()`.
  *
  * @param found - What reading the app turned up.
  * @param counts - What `reportDiagnostics()` counted.
@@ -430,7 +443,7 @@ export function bundleFailure(
   error: unknown
 ): unknown {
   if (!(error instanceof DiagnosticError)) {
-    return error;
+    return escaped(error);
   }
 
   writeDiagnostics(error.diagnostics, {
@@ -442,6 +455,38 @@ export function bundleFailure(
     errors: counts.errors + error.diagnostics.length,
     warnings: counts.warnings,
   });
+}
+
+/**
+ * A failed bundle's error, with no control character in its message but a
+ * newline and a tab.
+ *
+ * The sentences the bundle step builds itself escape what they quote where they
+ * are built, but not everything that leaves `bundleApp()` is one of them: a
+ * file system error is Node's own text and quotes its path as it stands, and the
+ * build makes directories under the app's root and writes into `--out`. An app
+ * whose root holds a retitle sequence and a `node_modules/.sigil` that is a file
+ * printed `ENOTDIR: not a directory, mkdir '.../h<ESC>]0;PWN<BEL>d/...'` raw
+ * (SIG-447, found in review). So what is passed through is escaped on the way,
+ * with `escapeMessage()`, `diagnosticMessage()`'s rule by name -- which a
+ * sentence already escaped passes through unchanged.
+ *
+ * The error is kept rather than replaced when it is one, so its class, its
+ * `code` and an `exitCode` it carries all survive; only the message changes.
+ *
+ * @param error - What bundling threw.
+ * @returns The same error, or one built from a value that was not an error.
+ */
+function escaped(error: unknown): unknown {
+  if (!(error instanceof Error)) {
+    return new Error(escapeMessage(String(error)));
+  }
+
+  const message = escapeMessage(error.message);
+  if (message !== error.message) {
+    error.message = message;
+  }
+  return error;
 }
 
 /**
@@ -470,7 +515,11 @@ export function utilityRules(styles: ShakenStyles): string {
  */
 export function failure(found: Inspection, counts: { errors: number; warnings: number }): Error {
   const { errors, warnings } = counts;
-  const where = found.app.manifest.name ?? found.app.root;
+  // the manifest's name is whatever the app's `package.json` says, and its root
+  // whatever the file system calls it, and this sentence is printed as it stands
+  // by `main()` -- the last line of every failed `check`, `build` and `package`
+  // (SIG-447)
+  const where = escapeControls(found.app.manifest.name ?? found.app.root);
 
   return new Error(
     `${errors} error${errors === 1 ? '' : 's'}${
@@ -681,11 +730,15 @@ export function clean(out: string, guard: OutputGuard, modules: readonly string[
     const removed = landsAt(target);
     const module = modules.find((m) => m === removed || isInside(removed, m));
     if (module !== undefined) {
-      const named = displayPath(relative(landsAt(guard.root), module) || module);
+      // escaped where the sentence is built, because it reaches the reader
+      // through `bundleApp()`'s refusal as it stands, and both paths are names
+      // the app and the command line chose (SIG-447)
+      const named = escapeControls(displayPath(relative(landsAt(guard.root), module) || module));
+      const shown = escapeControls(displayPath(target));
       throw new Error(
         (module === removed
-          ? `Refusing to remove ${displayPath(target)}, which is ${named}, a module the app is built from. `
-          : `Refusing to empty ${displayPath(target)}, which holds ${named}, a module the app is built from. `) +
+          ? `Refusing to remove ${shown}, which is ${named}, a module the app is built from. `
+          : `Refusing to empty ${shown}, which holds ${named}, a module the app is built from. `) +
           `Name a directory that holds none of the app's source.`
       );
     }
@@ -942,7 +995,7 @@ export function assertCleanable(out: string, guard: OutputGuard): void {
   if (holdsApp(target, root) || (!wanted && holdsApp(landing, landsAt(root)))) {
     if (wanted) {
       throw new Error(
-        `Refusing to empty ${displayPath(target)}, which holds the app itself. ` +
+        `Refusing to empty ${escapeControls(displayPath(target))}, which holds the app itself. ` +
           `Name a directory inside it, or pass --no-clean.`
       );
     }
@@ -980,10 +1033,12 @@ function refusal(
   root: string,
   removing: boolean
 ): string {
-  const file = displayPath(relative(root, held.file) || held.file);
+  // both escaped, for the reason `clean()`'s are
+  const file = escapeControls(displayPath(relative(root, held.file) || held.file));
+  const shown = escapeControls(displayPath(path));
   const what = held.same
-    ? `${removing ? 'remove' : 'write over'} ${displayPath(path)}, which is ${file}`
-    : `${removing ? 'empty' : 'build into'} ${displayPath(path)}, which holds ${file}`;
+    ? `${removing ? 'remove' : 'write over'} ${shown}, which is ${file}`
+    : `${removing ? 'empty' : 'build into'} ${shown}, which holds ${file}`;
 
   return `Refusing to ${what}, and the build reads it. Name a directory that holds none of the app's source.`;
 }

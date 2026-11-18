@@ -29,6 +29,7 @@ import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
+import { controlCondition, type ControlCondition } from './control.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
@@ -42,10 +43,10 @@ export interface SliderProps {
    * Whether the slider refuses input.
    *
    * A disabled slider is out of the focus ring, takes no key and no press, and is
-   * drawn in the muted role. A `State<boolean>` is read live, so an app can switch
-   * it. Defaults to `false`.
+   * drawn in the muted role. A `State`, a `Computed` or a function is read live,
+   * so the app can derive it. Defaults to `false`.
    */
-  disabled?: boolean | State<boolean>;
+  disabled?: ControlCondition;
   /**
    * Draws a readout of the value after the track, as this returns it: `${v}%`, a
    * time, a unit.
@@ -162,13 +163,10 @@ export function Slider(props: SliderProps = {}): Element {
   ) {
     throw new TypeError(__`Expected a slider value to be a number or a State`);
   }
-  if (
-    props.disabled !== undefined &&
-    typeof props.disabled !== 'boolean' &&
-    !(props.disabled instanceof State)
-  ) {
-    throw new TypeError(__`Expected slider disabled to be a boolean or a State`);
-  }
+  const disabled = controlCondition(
+    props.disabled,
+    __`Expected slider disabled to be a boolean, a State, a Computed or a function`
+  );
   finite(props.min, __`Expected a slider min and max to be finite numbers, min below max`);
   finite(props.max, __`Expected a slider min and max to be finite numbers, min below max`);
   const min = props.min ?? 0;
@@ -201,8 +199,6 @@ export function Slider(props: SliderProps = {}): Element {
   const pageSteps = Math.max(1, Math.round((props.page ?? (max - min) / 10) / step));
   const places = Math.max(decimalPlaces(min), decimalPlaces(step));
   const value = props.value instanceof State ? props.value : new State(props.value ?? min);
-  const disabled =
-    props.disabled instanceof State ? props.disabled : new State(props.disabled ?? false);
   const { format, onChange } = props;
   const marks = (props.ascii ?? !unicodeSupported()) ? MARKS.ascii : MARKS.unicode;
 

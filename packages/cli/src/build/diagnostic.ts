@@ -180,8 +180,9 @@ export function byLocation(
  * `escapeControls()` itself, which handles `\n` too. Those that do, after SIG-443:
  * `discover.ts`, `i18n.ts`, `extract.ts`, `tree.ts`, `compile-templates.ts` (a
  * template error quotes the source of an interpolation), `main-settings.ts` (the
- * keys of a `main()` call's settings) and `parse-module.ts` (a parse failure),
- * plus the route rules in `routes.ts`, which escape where they throw because the
+ * keys of a `main()` call's settings), `parse-module.ts` (a parse failure) and,
+ * after SIG-447, `bundle.ts` (an unresolved import's specifier), plus the route
+ * rules in `routes.ts`, which escape where they throw because the
  * runtime prints the same message. The sink is what stands behind them for every
  * other character, and a producer not on that list has not been audited for it.
  *
@@ -189,7 +190,25 @@ export function byLocation(
  * @returns The message, with each control character but a newline and a tab as `\xNN`.
  */
 export function diagnosticMessage(diagnostic: Diagnostic): string {
-  return diagnostic.message.replaceAll(/[^\n\t]+/g, (run) => escapeControls(run));
+  return escapeMessage(diagnostic.message);
+}
+
+/**
+ * Text the toolchain prints, with every control character but a newline and a
+ * tab as `\xNN`.
+ *
+ * `diagnosticMessage()`'s rule, given a name of its own for the one caller that
+ * has text and no diagnostic: an error rolldown raised without saying where, which
+ * `bundleApp()` cannot locate and so throws as a sentence (SIG-447). One function
+ * rather than the same `replaceAll()` written twice, because the ticket that
+ * found it said in as many words not to grow a second escaper -- and two copies of
+ * one rule are how the two come to disagree about the tab.
+ *
+ * @param message - The text.
+ * @returns The text, with each control character but a newline and a tab as `\xNN`.
+ */
+export function escapeMessage(message: string): string {
+  return message.replaceAll(/[^\n\t]+/g, (run) => escapeControls(run));
 }
 
 /**
