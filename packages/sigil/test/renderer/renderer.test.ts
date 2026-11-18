@@ -4442,6 +4442,78 @@ describe('trackedRaw()', () => {
     expect(sinkCount(word)).toBe(0);
   });
 
+  it.each([
+    ['before', true],
+    ['after', false],
+  ])('should hand a caller what was read when the owner went %s the read', (_, first) => {
+    // the owner's cleanup used to empty the computed's sources mid-paint, and the
+    // caller was handed the empty list: `renderToString()` in a derivation kept
+    // the string from that paint for good
+    const word = new State('a');
+    const shown = new Computed(() => word.get());
+    let element: Element | undefined;
+    createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: () => ({ height: 1, width: 5 }),
+          paint: (painter, at) => {
+            if (first) {
+              done();
+            }
+            const value = shown.get();
+            if (!first) {
+              done();
+            }
+            painter.text(at.x, at.y, value);
+          },
+        },
+        { height: 1, width: 5 }
+      );
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 5 })
+    );
+
+    expect(memo.get()).toBe('a');
+    word.set('b');
+    expect(memo.get()).toBe('b');
+    memo.dispose();
+    expect(sinkCount(shown)).toBe(0);
+  });
+
+  it('should finish letting go when an unwatched callback throws', () => {
+    // the previous paint's source losing its last sink runs `unwatched`, which may
+    // throw; the throw used to skip everything after it in the paint -- the
+    // computed the owner left behind, and the caller being handed what was read
+    const which = new State('a');
+    const a = new State('A', {
+      [unwatched]: () => {
+        throw new Error('unwatched a');
+      },
+    });
+    const b = new State('B');
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = line(() => (which.get() === 'a' ? a.get() : b.get()));
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })
+    );
+
+    expect(memo.get()).toBe('A');
+    which.set('b');
+    // still raised, once everything else has been done
+    expect(() => memo.get()).toThrow('unwatched a');
+    expect(sinkCount(a)).toBe(0);
+    b.set('B2');
+    expect(memo.get()).toBe('B2');
+    memo.dispose();
+    dispose();
+    expect(sinkCount(b)).toBe(0);
+  });
+
   it('should let go of the paint before one that threw', () => {
     // the frame that throws fails the renderer, which disposes the owner and with
     // it the computed of the paint that threw -- which read `mode` and nothing

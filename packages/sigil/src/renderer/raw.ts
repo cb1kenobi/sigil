@@ -23,6 +23,7 @@ import {
   untrack,
   Watcher,
 } from '../signals/index.js';
+import { raise } from '../signals/raise.js';
 import { onCleanup } from './owner.js';
 
 /**
@@ -64,12 +65,34 @@ import { onCleanup } from './owner.js';
 export function trackedRaw(options: RawOptions, props: ElementProps = {}): Element {
   /** What the last paint read, as the computed that read it. */
   let reads: Computed<void> | undefined;
+  /** The computed a paint is running in, which the owner's cleanup leaves to it. */
+  let painting: Computed<void> | undefined;
   let released = false;
 
   // told *that* something the last paint read may have moved, and nothing else.
   // It fires once and stays quiet until the next paint re-arms it, so a burst of
   // writes is one mark, and a raw nothing paints any more is told at most once
   const watcher = new Watcher(() => element.invalidatePaint());
+
+  /**
+   * Lets a paint's computed go, each step on its own: an `unwatched` callback
+   * that throws must not leave the next step, or the next computed, undone.
+   *
+   * @param computed - What to let go.
+   * @param errors - Where a throw goes, to be raised once everything has run.
+   */
+  const release = (computed: Computed<void>, errors: unknown[]): void => {
+    try {
+      watcher.unwatch(computed);
+    } catch (error) {
+      errors.push(error);
+    }
+    try {
+      computed.dispose();
+    } catch (error) {
+      errors.push(error);
+    }
+  };
 
   const element = raw(
     {
@@ -89,36 +112,40 @@ export function trackedRaw(options: RawOptions, props: ElementProps = {}): Eleme
         const previous = reads;
         reads = next;
         watcher.watch(next);
+
+        const errors: unknown[] = [];
+        painting = next;
         try {
           // untracked: read by the caller, the computed would be refreshed by the
           // caller's own settling -- a run of the old closure into the painter of
           // a paint that is over, which leaves the watcher disarmed with nothing
           // to re-arm it
           untrack(() => next.get());
-        } finally {
-          if (previous) {
-            watcher.unwatch(previous);
-            previous.dispose();
-          }
-          if (released) {
-            // the owner went during this paint, and its cleanup let go of the
-            // computed while it was still reading: what it read after that put
-            // its edges back, and nothing would ever take them away again
-            watcher.unwatch(next);
-            next.dispose();
-            reads = undefined;
-          }
-          if (currentComputed() !== undefined) {
-            // and the caller depends on what a plain `raw` would have had it read
-            for (const source of introspectSources(next)) {
-              try {
-                source.get();
-              } catch {
-                // the paint's to report, and it already has or has caught it
-              }
-            }
+        } catch (error) {
+          errors.push(error);
+        }
+        painting = undefined;
+
+        // what the paint read, for a caller that tracks its reads, taken before
+        // anything below can let the computed go and empty the list
+        const read = currentComputed() === undefined ? [] : introspectSources(next);
+        if (previous) {
+          release(previous, errors);
+        }
+        if (released) {
+          // the owner went during this paint and left the computed to it
+          release(next, errors);
+          reads = undefined;
+        }
+        // and the caller depends on what a plain `raw` would have had it read
+        for (const source of read) {
+          try {
+            source.get();
+          } catch {
+            // the paint's to report, and it already has or has caught it
           }
         }
+        raise(errors, 'Errors in a tracked paint and its release');
       },
     },
     props
@@ -126,10 +153,11 @@ export function trackedRaw(options: RawOptions, props: ElementProps = {}): Eleme
 
   onCleanup(() => {
     released = true;
-    if (reads) {
-      watcher.unwatch(reads);
-      reads.dispose();
+    if (reads && reads !== painting) {
+      const errors: unknown[] = [];
+      release(reads, errors);
       reads = undefined;
+      raise(errors, 'Errors releasing a tracked paint');
     }
   });
 

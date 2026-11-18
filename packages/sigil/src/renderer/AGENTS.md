@@ -826,6 +826,17 @@ the entry it belongs to.
   through a `Computed` the paint reads, because a caller reading a `State`
   directly is marked dirty by it and never asks the computed anything.
 
+  Review round 2, over that fix, found its own two holes, and the answer to both
+  is ordering. The cleanup emptied the computed's sources while it was still
+  painting, so the caller was handed an empty list and kept the string from that
+  paint; the cleanup now leaves the computed it finds mid-paint to the paint, and
+  the paint takes the list of what it read before it lets anything go. And an
+  `unwatched` callback that threw while the previous computed was let go skipped
+  everything after it -- the computed the owner left, and the caller being handed
+  its reads -- so each release step catches on its own and what they threw, with
+  what the paint threw first, is raised once all of it has run: `raise()`, the
+  rule a teardown already follows everywhere else.
+
   **A tracked paint may not write a signal**, and that is the graph's own rule
   rather than one added here: it is a derivation of what it read, a `Computed`
   refuses a write, and the frame reports `A Computed may not write to a signal`. A
