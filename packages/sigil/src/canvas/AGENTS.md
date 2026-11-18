@@ -205,6 +205,47 @@ the entry it belongs to.
   shared contract is to ignore what they cannot place. `charAt()` truncates as
   well, because it builds its own cell index and a fraction reached the same
   `undefined`.
+- **At colour level 0 `Pixels` draws shapes, and only when it is told the
+  level.** Every colour is dropped at level 0 -- a pipe, `NO_COLOR` -- and the
+  canvas emits what it is handed rather than degrading it, so a caller there could
+  set no colour and `blit()`, skipping a cell whose halves are both the terminal's
+  own, drew nothing at all. Every half-block user that wanted a picture to mean
+  something with no colour wrote its own monochrome blit; SIG-474's treemap was
+  the one that made it a ticket (SIG-476). `blit(painter, x, y, { colorLevel })`
+  at `0` (or below) draws each cell as `█`, `▀` or `▄` by which halves are on, in
+  the default style, and still skips a cell with neither half on -- the rule above
+  for every level, and what the treemap's own blit did. Three things were decided:
+
+  - **On is any colour but `DEFAULT_COLOR`, with no predicate.** It is the same
+    test the skip already makes, and a caller with an opinion -- a checker's second
+    square, the hollow inside of a selected tile -- says it by setting those pixels
+    to `DEFAULT_COLOR`, which the treemap does at level 0 anyway. A predicate is
+    one more thing to document for nothing a `set()` cannot say; adding one later
+    is not a breaking change, so it waits for a caller that needs it.
+  - **The level is an option rather than a second method.** A caller already has
+    the level in hand -- every component reads it with `colorLevelOf()` -- and
+    passing it is one call site, where a `blitShapes()` beside `blit()` is a
+    branch at every one. Levels 1 to 3 ignore it: `Pixels` never quantized and
+    still does not, because `imageView()` quantizes against its own cache and the
+    treemap where it picks a colour. Typed `number` rather than `ColorLevel` so
+    a caller holding a plain number need not cast.
+  - **Nothing else changes, to the byte.** With no options, `{}`, or a level of 1
+    to 3, the colour path is the code that was there. A differential against the
+    build from before the change painted 3,000 random pictures -- random sizes,
+    offsets from -3, half of them through a clip, over a filled background --
+    five ways each, and compared every cell's glyph and style and the style table's
+    size: 15,000 cases and no difference, where the same probe at level 0 differs
+    on 1,862 of 3,000. `should paint exactly what it painted before at levels 1
+    to 3` keeps the claim in the suite as the option against no option. The
+    treemap's own output, old blit against new, matched on 800 maps at levels 0 to 3.
+
+  The shape path writes a run of drawn cells as one `text()`, as `Dots.blit()`
+  does, and does not ask `inside()` first: there is one style however many cells,
+  so the style table has nothing to lose to a cell off the grid. `imageView()`
+  still draws nothing at level 0, on purpose -- a photograph thresholded to on and
+  off is not the picture, and the component entry says why -- so this is for a
+  picture whose meaning is its shapes, which a treemap's is.
+
 - **The style table is swept on growth, not on every frame.** Interning was the
   only way in and there was no way out, so the table grew for the life of the
   canvas: `paint()` clears the back buffer and interns again, and

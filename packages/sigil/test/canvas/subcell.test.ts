@@ -5,8 +5,10 @@ import {
   palette,
   Painter,
   Pixels,
+  rgb,
   StyleTable,
 } from '../../src/canvas/index.js';
+import { seeded } from '../../src/util/random.js';
 import { describe, expect, it } from 'vitest';
 
 /** A painter over a fresh buffer, and the table to read its styles back from. */
@@ -301,5 +303,151 @@ describe('Pixels', () => {
     pixels.set(0, 0, palette(1));
     pixels.clear();
     expect(pixels.get(0, 0)).toBe(DEFAULT_COLOR);
+  });
+});
+
+/**
+ * A picture with every case a cell can be in: solid, two colours, only the top
+ * or only the bottom drawn, and nothing drawn -- a texture of tiles in two
+ * shades with an edge of the terminal's own colour between them, the shape a
+ * treemap is.
+ */
+function picture(width: number, height: number, random = seeded(476)): Pixels {
+  const pixels = new Pixels(width, height);
+  for (let y = 0; y < pixels.pixelHeight; y++) {
+    for (let x = 0; x < width; x++) {
+      const roll = random();
+      if (roll < 0.25) {
+        continue;
+      }
+      pixels.set(x, y, roll < 0.5 ? palette(1 + (x % 6)) : rgb(x * 7, y * 11, 200));
+    }
+  }
+  return pixels;
+}
+
+/**
+ * Which pixels a painted grid shows, read off the glyph and its style: the shape
+ * the picture has on screen, whatever colours it was drawn in.
+ */
+function shapeOf(buffer: CellBuffer, styles: StyleTable): string[] {
+  const rows: string[] = [];
+  for (let y = 0; y < buffer.height; y++) {
+    let top = '';
+    let bottom = '';
+    for (let x = 0; x < buffer.width; x++) {
+      const char = buffer.charAt(x, y);
+      const { bg } = styles.get(buffer.styleAt(x, y));
+      // an upper block over a background of its own is two pixels, which is how
+      // a cell in two colours is drawn
+      const upper = char === '█' || char === '▀';
+      const lower = char === '█' || char === '▄' || (char === '▀' && bg !== DEFAULT_COLOR);
+      top += upper ? '#' : '.';
+      bottom += lower ? '#' : '.';
+    }
+    rows.push(top, bottom);
+  }
+  return rows;
+}
+
+describe('Pixels at colour level 0', () => {
+  it('should draw the same shape at level 0 as at level 3', () => {
+    const pixels = picture(24, 6);
+    const lit = surface(24, 6);
+    pixels.blit(lit.painter, 0, 0, { colorLevel: 3 });
+    const plain = surface(24, 6);
+    pixels.blit(plain.painter, 0, 0, { colorLevel: 0 });
+
+    const shape = shapeOf(lit.buffer, lit.styles);
+    expect(shapeOf(plain.buffer, plain.styles)).toEqual(shape);
+    // and it is the picture's: a pixel is on wherever a colour was set
+    const expected = Array.from({ length: pixels.pixelHeight }, (_, y) =>
+      Array.from({ length: 24 }, (_, x) => (pixels.get(x, y) === DEFAULT_COLOR ? '.' : '#')).join(
+        ''
+      )
+    );
+    expect(shape).toEqual(expected);
+    // the picture has every kind of cell, so the comparison covers them all
+    const chars = new Set(lit.buffer.toLines().join(''));
+    expect([...chars].sort()).toEqual([' ', '▀', '▄', '█'].sort());
+  });
+
+  // a colour at level 0 is an escape sequence `NO_COLOR` and a pipe asked not
+  // to get, and the canvas emits whatever it is handed
+  it('should write no colour at level 0', () => {
+    const pixels = picture(16, 4);
+    const { buffer, painter, styles } = surface(16, 4);
+    pixels.blit(painter, 0, 0, { colorLevel: 0 });
+
+    expect(styles.size).toBe(1);
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 16; x++) {
+        expect(buffer.styleAt(x, y)).toBe(StyleTable.DEFAULT);
+      }
+    }
+    expect(buffer.toLines().join('')).toMatch(/[▀▄█]/);
+  });
+
+  it('should draw a two-colour cell as a full block, since both halves are on', () => {
+    const { buffer, painter } = surface(1, 1);
+    const pixels = new Pixels(1, 1);
+    pixels.set(0, 0, palette(1));
+    pixels.set(0, 1, palette(4));
+    pixels.blit(painter, 0, 0, { colorLevel: 0 });
+    expect(buffer.charAt(0, 0)).toBe('█');
+  });
+
+  it('should leave a cell with neither half on alone at level 0', () => {
+    const { buffer, painter } = surface(3, 1);
+    buffer.write(0, 0, 'abc', StyleTable.DEFAULT);
+    const pixels = new Pixels(3, 1);
+    pixels.set(0, 0, palette(2));
+    pixels.set(2, 1, palette(2));
+    pixels.blit(painter, 0, 0, { colorLevel: 0 });
+    expect(buffer.toLines()).toEqual(['▀b▄']);
+  });
+
+  it('should paint at the offset it was given and stay inside the clip', () => {
+    const pixels = new Pixels(4, 1);
+    for (let x = 0; x < 4; x++) {
+      pixels.set(x, 0, palette(3));
+      pixels.set(x, 1, palette(3));
+    }
+    const { buffer, painter } = surface(6, 2);
+    painter.clip({ height: 1, width: 3, x: 2, y: 1 }, (inner) => {
+      pixels.blit(inner, 1, 1, { colorLevel: 0 });
+    });
+    // the picture is columns 1 to 4 and the clip 2 to 4
+    expect(buffer.toLines()).toEqual(['      ', '  ███ ']);
+  });
+
+  // the ticket's other half: levels 1 to 3 are what they were. Painted with no
+  // option, which is the code this option did not touch, and with each level
+  // named, over pictures that run off the grid and through a clip
+  it('should paint exactly what it painted before at levels 1 to 3', () => {
+    const random = seeded(3);
+    for (let round = 0; round < 20; round++) {
+      const width = 1 + Math.floor(random() * 12);
+      const height = 1 + Math.floor(random() * 5);
+      const pixels = picture(width, height, random);
+      const at = Math.floor(random() * 4) - 2;
+      const clip = { height: 3, width: 6, x: 1, y: 1 };
+
+      const before = surface(10, 4);
+      before.painter.clip(clip, (inner) => pixels.blit(inner, at, at));
+      for (const colorLevel of [1, 2, 3]) {
+        const after = surface(10, 4);
+        after.painter.clip(clip, (inner) => pixels.blit(inner, at, at, { colorLevel }));
+        expect(after.styles.size, `round ${round} level ${colorLevel}`).toBe(before.styles.size);
+        for (let y = 0; y < 4; y++) {
+          for (let x = 0; x < 10; x++) {
+            expect(after.buffer.charAt(x, y)).toBe(before.buffer.charAt(x, y));
+            expect(after.styles.get(after.buffer.styleAt(x, y))).toEqual(
+              before.styles.get(before.buffer.styleAt(x, y))
+            );
+          }
+        }
+      }
+    }
   });
 });

@@ -308,13 +308,28 @@ export class Dots {
   }
 }
 
+/** How {@link Pixels.blit} draws. */
+export interface PixelsBlitOptions {
+  /**
+   * The colour level the picture is drawn at. Only `0` changes anything: there
+   * is no colour to write, so the picture is drawn as **shapes** in the
+   * terminal's own colours -- a pixel that is not `DEFAULT_COLOR` is on, one
+   * that is is off, and a cell is `█`, `▀` or `▄` by which of its halves are on.
+   * At every other level, and when this is left out, each half keeps its own
+   * colour as it always has. `Pixels` never quantizes: a caller at 256 or 16
+   * colours sets colours it has already quantized, as `imageView()` does.
+   */
+  readonly colorLevel?: number;
+}
+
 /**
  * A grid of coloured pixels, one across and two down per cell.
  *
  * Each cell becomes an upper half block whose foreground is the top pixel and
  * whose background is the bottom one, so both halves keep their own colour. That
  * is half the vertical resolution braille gives and all of the colour, which is
- * the trade a picture wants.
+ * the trade a picture wants. At colour level 0 there is no colour to keep, and
+ * `blit()` draws which pixels are on instead -- see {@link PixelsBlitOptions}.
  */
 export class Pixels {
   readonly #colors: Int32Array;
@@ -381,13 +396,21 @@ export class Pixels {
    * Paints onto a canvas.
    *
    * A cell whose halves are both the terminal's own colour is skipped, for the
-   * reason `Dots.blit` skips an empty cell: nothing was drawn there.
+   * reason `Dots.blit` skips an empty cell: nothing was drawn there. That holds
+   * at colour level 0 too, where a pixel that is off is the terminal's own
+   * background beside a half block, and a cell with neither half on is left to
+   * whatever is under it.
    *
    * @param painter - Where to paint.
    * @param x - The canvas column of this grid's left edge.
    * @param y - The canvas row of its top edge.
+   * @param opts - The colour level, where `0` draws shapes rather than colours.
    */
-  blit(painter: Painter, x: number, y: number): void {
+  blit(painter: Painter, x: number, y: number, opts: PixelsBlitOptions = {}): void {
+    if (opts.colorLevel !== undefined && opts.colorLevel <= 0) {
+      this.#blitShapes(painter, x, y);
+      return;
+    }
     for (let row = 0; row < this.#height; row++) {
       for (let column = 0; column < this.#width; column++) {
         // asked before a style is built rather than left to the write to refuse,
@@ -417,6 +440,46 @@ export class Pixels {
         } else {
           painter.text(x + column, y + row, UPPER_HALF, { bg: bottom, fg: top });
         }
+      }
+    }
+  }
+
+  /**
+   * Paints which pixels are on, in the terminal's own colours, which is all
+   * colour level 0 can show.
+   *
+   * A colour written there would be an escape sequence that `NO_COLOR` and a pipe
+   * asked not to get, and the canvas does not degrade what it is handed -- so
+   * every half block goes out in the default style, and a run of drawn cells is
+   * one write, as in `Dots.blit`. There is one style however many cells, so
+   * there is nothing for `inside()` to save here: `text()` clips on its own.
+   *
+   * @param painter - Where to paint.
+   * @param x - The canvas column of this grid's left edge.
+   * @param y - The canvas row of its top edge.
+   */
+  #blitShapes(painter: Painter, x: number, y: number): void {
+    for (let row = 0; row < this.#height; row++) {
+      let run = '';
+      let runStart = 0;
+      for (let column = 0; column <= this.#width; column++) {
+        let cell: string | undefined;
+        if (column < this.#width) {
+          const upper = this.get(column, row * 2) !== DEFAULT_COLOR;
+          const lower = this.get(column, row * 2 + 1) !== DEFAULT_COLOR;
+          cell = upper && lower ? FULL_BLOCK : upper ? UPPER_HALF : lower ? LOWER_HALF : undefined;
+        }
+        if (cell === undefined) {
+          if (run) {
+            painter.text(x + runStart, y + row, run);
+            run = '';
+          }
+          continue;
+        }
+        if (!run) {
+          runStart = column;
+        }
+        run += cell;
       }
     }
   }
