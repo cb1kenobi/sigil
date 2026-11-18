@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 422 keys, which is what a catalog has to carry to translate sigil's own
+ * 425 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -165,6 +165,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected data table sort to name a column: {0} is not one',
   'Expected data table {0} to be a function',
   'Expected diff view current to be a whole number or a State',
+  'Expected diff view wrap to be a boolean or a State',
+  'Expected diff wrap to be columns, words or none',
   'Expected dropdown disabled to be a boolean, a State, a Computed or a function',
   'Expected dropdown options to be an array',
   'Expected each item to be a string or an object with a text string',
@@ -413,6 +415,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'top',
   'until {0}',
   'up a level',
+  'wrap',
   'y/n',
   'yes',
   '{0} (cancelled)',

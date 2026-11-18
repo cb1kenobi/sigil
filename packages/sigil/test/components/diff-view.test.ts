@@ -325,6 +325,120 @@ describe('DiffView', () => {
     expect(picture(root, 12, 2)[0]).toBe(' a line tha…');
   });
 
+  describe('a line too long for the view', () => {
+    /** 45 columns of words, against a view whose rows hold 18 of them. */
+    const LONG = { new: 'alpha beta gamma delta epsilon zeta eta theta\n', old: 'a\n' };
+
+    it('should wrap at words, and keep each line on one row once w is pressed', () => {
+      const { host, root } = mount({ content: LONG }, 6);
+
+      expect(picture(root, 20, 6)).toEqual([
+        '▌@@ -1 +1 @@',
+        '▌-a',
+        '▌+alpha beta gamma',
+        '▌ delta epsilon zeta',
+        '▌ eta theta',
+        '',
+      ]);
+      expect(press(host, 'w')).toBe(true);
+      expect(picture(root, 20, 6).slice(0, 3)).toEqual([
+        '▌@@ -1 +1 @@',
+        '▌-a',
+        '▌+alpha beta gamma …',
+      ]);
+      press(host, 'w');
+      expect(picture(root, 20, 6)[4]).toBe('▌ eta theta');
+    });
+
+    it('should scroll every line sideways with the arrows, half a view a press, to the end', () => {
+      const { host, root } = mount({ content: LONG, wrap: false }, 4);
+      picture(root, 20, 4);
+
+      expect(press(host, 'right')).toBe(true);
+      expect(picture(root, 20, 4)[2]).toBe('▌+a gamma delta eps…');
+      press(host, 'right');
+      press(host, 'right');
+      // as far as the end of the line, which is then drawn whole
+      expect(picture(root, 20, 4)[2]).toBe('▌+lon zeta eta theta');
+      // claimed at the end as well, as Home is at the top
+      expect(press(host, 'right')).toBe(true);
+      expect(picture(root, 20, 4)[2]).toBe('▌+lon zeta eta theta');
+      press(host, 'left');
+      press(host, 'left');
+      press(host, 'left');
+      expect(press(host, 'left')).toBe(true);
+      expect(picture(root, 20, 4)[2]).toBe('▌+alpha beta gamma …');
+    });
+
+    it('should leave the left and right arrows alone while wrapping, and where every line fits', () => {
+      const wrapped = mount({ content: LONG }, 4);
+      picture(wrapped.root, 20, 4);
+      expect(press(wrapped.host, 'right')).toBe(false);
+
+      const short = mount({ content: { new: 'b\n', old: 'a\n' }, wrap: false }, 4);
+      picture(short.root, 20, 4);
+      expect(press(short.host, 'right')).toBe(false);
+      expect(press(short.host, 'left')).toBe(false);
+    });
+
+    it('should keep the rows where they are when it scrolls sideways', () => {
+      const many = {
+        new: Array.from({ length: 20 }, (_, at) => `${'x'.repeat(30)} ${at}`).join('\n'),
+        old: '',
+      };
+      const { host, root } = mount({ content: many, lineNumbers: true, wrap: false }, 5);
+      picture(root, 24, 5);
+      for (let at = 0; at < 8; at++) {
+        press(host, 'down');
+      }
+      const top = picture(root, 24, 5)[0]!.slice(0, 7);
+
+      press(host, 'right');
+      // the same line at the top, not the current hunk's header brought back
+      expect(picture(root, 24, 5)[0]!.slice(0, 7)).toBe(top);
+      expect(top).toMatch(/\d/);
+    });
+
+    it('should start the lines from their beginning again when wrapping is switched', () => {
+      const { host, root } = mount({ content: LONG, wrap: false }, 4);
+      picture(root, 20, 4);
+      press(host, 'right');
+      press(host, 'w');
+      press(host, 'w');
+
+      expect(picture(root, 20, 4)[2]).toBe('▌+alpha beta gamma …');
+    });
+
+    it('should take wrap as a State, which w writes and the app writes', () => {
+      const wrap = new State(false);
+      const { host, root } = mount({ content: LONG, wrap }, 6);
+      expect(picture(root, 20, 6)[2]).toBe('▌+alpha beta gamma …');
+
+      wrap.set(true);
+      flush();
+      expect(picture(root, 20, 6)[3]).toBe('▌ delta epsilon zeta');
+      press(host, 'w');
+      expect(wrap.get()).toBe(false);
+    });
+
+    it('should bring the sideways scroll back when the content narrows', () => {
+      const content = new State<DiffViewContent>(LONG);
+      const { host, root } = mount({ content, wrap: false }, 4);
+      picture(root, 20, 4);
+      press(host, 'right');
+      press(host, 'right');
+      press(host, 'right');
+
+      content.set({ new: 'abcdefghijklmnopqrstuvwxyz\n', old: 'a\n' });
+      flush();
+      expect(picture(root, 20, 4)[2]).toBe('▌+ijklmnopqrstuvwxyz');
+    });
+
+    it('should refuse a wrap that is not a boolean or a State', () => {
+      expect(() => DiffView({ content: LONG, wrap: 'yes' as never })).toThrow(/boolean or a State/);
+    });
+  });
+
   it('should refuse an onKey in its props, which is its own', () => {
     expect(() =>
       DiffView({ content: { patch: PATCH }, props: { onKey: () => {} } as never })
@@ -406,8 +520,11 @@ describe('describeDiffView()', () => {
     expect(said.map(([keys, opts]) => [keys, opts.description])).toEqual([
       [']', 'next hunk'],
       ['[', 'previous hunk'],
+      ['w', 'wrap'],
       ['up', 'scroll'],
       ['down', 'scroll'],
+      ['left', 'scroll sideways'],
+      ['right', 'scroll sideways'],
     ]);
     expect(said.every(([, opts]) => opts.scope === host)).toBe(true);
     off();

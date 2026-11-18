@@ -31,6 +31,8 @@ terminal on both ends `runApp()` refuses: one line on stderr, exit 1.
 | `D`              | branches | Delete the branch (`git branch -d`)                         |
 | `]` `[`, `n` `p` | the diff | The next and the previous hunk                              |
 | Space            | the diff | Stage the hunk, or unstage it under `Staged`                |
+| `w`              | the diff | Wrap long lines, or keep each on one row                    |
+| Left, Right      | the diff | Scroll sideways, while lines are kept on one row            |
 | Escape           | the diff | Back to the list it is showing                              |
 | `c`              | anywhere | Commit what is staged, with a message written in a dialog   |
 | `r`              | anywhere | Read the repository again                                   |

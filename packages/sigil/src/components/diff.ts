@@ -5,9 +5,10 @@ import {
   text as textNode,
   toDisplayText,
 } from '../element/index.js';
+import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
-import { terminalWidth } from '../wrap/index.js';
+import { ELLIPSIS, terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
@@ -91,6 +92,20 @@ export type DiffInput =
 /** How the two sides are set out. */
 export type DiffLayout = 'side-by-side' | 'unified';
 
+/**
+ * What a line too long for its room becomes.
+ *
+ * - `columns` folds it onto more rows at exactly the room's width, mid-word,
+ *   every space kept: what `git diff` looks like through `less`.
+ * - `words` folds it at a space where it has one, and drops the run of spaces a
+ *   fold lands in, so a line padded out with spaces -- a Markdown table's row --
+ *   does not fold into rows of nothing. A word longer than a row is folded by
+ *   columns.
+ * - `none` keeps it on one row, cut at the edge with `…` where it goes on, from
+ *   `offset` columns in: a diff scrolled sideways.
+ */
+export type DiffWrap = 'columns' | 'none' | 'words';
+
 export interface DiffOptions extends StyledOptions {
   /**
    * Lines of context kept around a change when the input is two texts. A patch
@@ -128,10 +143,19 @@ export interface DiffOptions extends StyledOptions {
   layout?: DiffLayout;
   /** Whether each line is numbered. Defaults to true. */
   lineNumbers?: boolean;
+  /**
+   * With `wrap: 'none'`, how many columns of every line's text are left out
+   * before the first one drawn: how far the diff is scrolled sideways. The gutter
+   * and the marker are not scrolled. Defaults to 0; a negative or fractional
+   * value is brought to the whole number at or above zero below it.
+   */
+  offset?: number;
   /** The platform to detect for. Defaults to `process.platform`. */
   platform?: string;
   /** How many columns the diff spans. Defaults to `terminalWidth()`. */
   width?: number;
+  /** What a line too long for its room becomes. Defaults to `columns`. */
+  wrap?: DiffWrap;
 }
 
 /**
@@ -838,12 +862,11 @@ function cellsOf(
 }
 
 /**
- * A line cut into the rows it takes at a width.
+ * A line cut into the rows it takes at a width, by columns: `wrap: 'columns'`.
  *
- * Cut by columns rather than at words, because it is code, and with the row
- * boundary falling wherever the width says the reader can count it. A wide
- * character that does not fit starts the next row; one that cannot fit anywhere
- * is put on its own row anyway and the box clips it.
+ * The row boundary falls wherever the width says, so the reader can count it. A
+ * wide character that does not fit starts the next row; one that cannot fit
+ * anywhere is put on its own row anyway and the box clips it.
  *
  * @param cells - The line's cells.
  * @param room - The columns a row holds.
@@ -862,6 +885,127 @@ function fold(cells: readonly Cell[], room: number): Cell[][] {
   }
   return rows;
 }
+
+/** Whether a cell is a space or a tab, which a fold at words may land in. */
+function blank(cell: Cell): boolean {
+  return cell.width > 0 && cell.text.trim() === '';
+}
+
+/**
+ * A line cut into the rows it takes at a width, at words: `wrap: 'words'`.
+ *
+ * A run of spaces that fits on the row is kept, and one the fold lands in is
+ * dropped whole, so the next word starts the next row and a line padded with a
+ * thousand spaces is two rows rather than ten of nothing. The indentation that
+ * starts a line is kept however wide it is, folded by columns where it is wider
+ * than a row, since it is what says where the line sits. A word that does not
+ * fit on the row is moved to the next, and one longer than a whole row is folded
+ * by columns from where it is, the way `columns` folds everything.
+ *
+ * @param cells - The line's cells.
+ * @param room - The columns a row holds.
+ * @returns The rows, at least one.
+ */
+function foldWords(cells: readonly Cell[], room: number): Cell[][] {
+  const rows: Cell[][] = [[]];
+  let used = 0;
+  // a fold landed in a run of spaces: the row is done, but a row is opened only
+  // for a word after it, so spaces that end the line add no row of nothing
+  let broken = false;
+  const byColumns = (run: readonly Cell[]): void => {
+    for (const cell of run) {
+      if (used + cell.width > room && rows.at(-1)!.length > 0) {
+        rows.push([]);
+        used = 0;
+      }
+      rows.at(-1)!.push(cell);
+      used += cell.width;
+    }
+  };
+  for (let at = 0; at < cells.length;) {
+    const spaces = blank(cells[at]!);
+    let end = at;
+    let width = 0;
+    while (end < cells.length && blank(cells[end]!) === spaces) {
+      width += cells[end]!.width;
+      end++;
+    }
+    const run = cells.slice(at, end);
+    at = end;
+    if (spaces) {
+      if (rows.length === 1 && rows[0]!.length === 0) {
+        byColumns(run);
+      } else if (!broken && used + width <= room) {
+        rows.at(-1)!.push(...run);
+        used += width;
+      } else {
+        broken = true;
+      }
+      continue;
+    }
+    // a word is moved to the next row where it would fit there; one longer than a
+    // row is folded from where it is, since moving it would only leave a row short
+    if (broken || (used > 0 && used + width > room && width <= room)) {
+      rows.push([]);
+      used = 0;
+      broken = false;
+    }
+    if (width <= room - used) {
+      rows.at(-1)!.push(...run);
+      used += width;
+    } else {
+      byColumns(run);
+    }
+  }
+  return rows;
+}
+
+/**
+ * A line on one row, scrolled sideways and cut at the edge: `wrap: 'none'`.
+ *
+ * A wide character the offset falls inside is drawn as the spaces of its half
+ * that is in view, so every row starts in the same column, and one the edge falls
+ * inside is left off. Where the line goes on past the edge, its last column is
+ * the ellipsis.
+ *
+ * @param cells - The line's cells.
+ * @param room - The columns the row holds.
+ * @param offset - The columns left out at the start.
+ * @returns The cells to draw, and whether the line went on past them.
+ */
+function cutRow(
+  cells: readonly Cell[],
+  room: number,
+  offset: number
+): { cells: Cell[]; more: boolean } {
+  const total = cells.reduce((sum, cell) => sum + cell.width, 0);
+  const more = total - offset > room;
+  const limit = more ? room - 1 : room;
+  const out: Cell[] = [];
+  let column = 0;
+  let used = 0;
+  for (const cell of cells) {
+    const start = column;
+    column += cell.width;
+    if (column <= offset) {
+      continue;
+    }
+    // the half of a wide character the offset left in view
+    const shown: Cell =
+      start < offset
+        ? { ...cell, text: ' '.repeat(column - offset), width: column - offset }
+        : cell;
+    if (used + shown.width > limit) {
+      break;
+    }
+    out.push(shown);
+    used += shown.width;
+  }
+  return { cells: out, more };
+}
+
+/** How the rows of a line are cut: the fold, or one row from an offset. */
+type Cutting = { wrap: 'columns' | 'words' } | { offset: number; wrap: 'none' };
 
 /** A fixed-width text: the whole of what the view is made of. */
 function piece(value: string, className: string): Element {
@@ -886,13 +1030,31 @@ interface Drawing {
  * @param drawing - The edits and tokens found for the hunk.
  * @param gutter - What leads the first row, and its width.
  * @param room - The columns for the code.
- * @returns Each row's elements.
+ * @param cutting - How a line too long for the room is cut.
+ * @returns Each row's elements, and how far the line runs past the room.
  */
-function lineRows(line: DiffLine, drawing: Drawing, gutter: string, room: number): Element[][] {
+function lineRows(
+  line: DiffLine,
+  drawing: Drawing,
+  gutter: string,
+  room: number,
+  cutting: Cutting
+): { overflow: number; rows: Element[][] } {
   const kind = KINDS[line.kind];
   const cells = cellsOf(line.text, drawing.tokens.get(line), drawing.changes.get(line) ?? []);
+  let overflow = 0;
+  let more = false;
+  let rows: Cell[][];
+  if (cutting.wrap === 'none') {
+    overflow = Math.max(0, cells.reduce((sum, cell) => sum + cell.width, 0) - room);
+    const cut = cutRow(cells, room, cutting.offset);
+    rows = [cut.cells];
+    more = cut.more;
+  } else {
+    rows = cutting.wrap === 'words' ? foldWords(cells, room) : fold(cells, room);
+  }
 
-  return fold(cells, room).map((row, index) => {
+  const drawn = rows.map((row, index) => {
     const out: Element[] = [];
     if (gutter !== '') {
       out.push(
@@ -941,6 +1103,10 @@ function lineRows(line: DiffLine, drawing: Drawing, gutter: string, room: number
 
     return out;
   });
+  if (more) {
+    drawn[0]!.push(piece(ELLIPSIS, 'sigil-diff-more sigil-muted'));
+  }
+  return { overflow, rows: drawn };
 }
 
 /**
@@ -1140,6 +1306,12 @@ export interface DiffTree {
   hunks: DiffTreeHunk[];
   /** What was drawn: `side-by-side` only if there was the width for it. */
   layout: DiffLayout;
+  /**
+   * With `wrap: 'none'`, how far the widest line runs past the room its side
+   * gives it, in columns: the largest `offset` that still brings more of a line
+   * into view. 0 where every line fits, and whenever lines are folded.
+   */
+  overflow: number;
   width: number;
 }
 
@@ -1207,8 +1379,8 @@ function hunkHeader(hunk: DiffHunk): string {
  * Each visual row is a row of fixed-width texts, the way a rule is: there is no
  * inline layout, so the pieces of one line -- the gutter, the marker, and a run for
  * each stretch of a different look -- are siblings that have already been fitted,
- * and a line too long for the width is folded into more rows by columns before it
- * is built. Fixed width and `white-space: pre`, so the indentation of a line of code
+ * and a line too long for the width is folded into more rows before it is built --
+ * by columns, by words or not at all, as `wrap` says. Fixed width and `white-space: pre`, so the indentation of a line of code
  * survives, which a `normal` text would not keep at the end of a run.
  *
  * @param input - Two texts, or a unified patch.
@@ -1223,6 +1395,15 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
       ? 'side-by-side'
       : 'unified';
   const numbered = opts.lineNumbers !== false;
+  const wrap = opts.wrap ?? 'columns';
+  if (wrap !== 'columns' && wrap !== 'words' && wrap !== 'none') {
+    throw new TypeError(__`Expected diff wrap to be columns, words or none`);
+  }
+  const cutting: Cutting =
+    wrap === 'none'
+      ? { offset: Number.isFinite(opts.offset) ? Math.max(0, Math.floor(opts.offset!)) : 0, wrap }
+      : { wrap };
+  let overflow = 0;
 
   const twoTexts = 'patch' in input || 'files' in input ? undefined : input;
   const files = filesOf(input, opts.context);
@@ -1280,7 +1461,9 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
           const lead = numbered
             ? `${String(line.oldNumber ?? '').padStart(digits)} ${String(line.newNumber ?? '').padStart(digits)} `
             : '';
-          for (const children of lineRows(line, drawing, lead, room)) {
+          const drawn = lineRows(line, drawing, lead, room, cutting);
+          overflow = Math.max(overflow, drawn.overflow);
+          for (const children of drawn.rows) {
             rows.push(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children));
           }
         }
@@ -1290,18 +1473,22 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
 
       const gutter = numbered ? digits + 1 : 0;
       for (const pair of pairLines(hunk.lines)) {
-        const drawn = [pair.left, pair.right].map((line, side) =>
-          line
-            ? lineRows(
-                line,
-                drawing,
-                numbered
-                  ? `${String((side === 0 ? line.oldNumber : line.newNumber) ?? '').padStart(digits)} `
-                  : '',
-                Math.max(1, sides[side]! - gutter - 1)
-              )
-            : []
-        );
+        const drawn = [pair.left, pair.right].map((line, side) => {
+          if (!line) {
+            return [];
+          }
+          const half = lineRows(
+            line,
+            drawing,
+            numbered
+              ? `${String((side === 0 ? line.oldNumber : line.newNumber) ?? '').padStart(digits)} `
+              : '',
+            Math.max(1, sides[side]! - gutter - 1),
+            cutting
+          );
+          overflow = Math.max(overflow, half.overflow);
+          return half.rows;
+        });
         for (let at = 0; at < Math.max(drawn[0]!.length, drawn[1]!.length); at++) {
           rows.push(
             box(
@@ -1327,6 +1514,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     element: box({ class: 'sigil-diff', 'flex-direction': 'column' }, ...rows),
     hunks,
     layout,
+    overflow,
     width,
   };
 }

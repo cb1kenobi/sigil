@@ -4597,6 +4597,8 @@ rows each hunk took.
 | `intraline`   | Set the edited words apart. Defaults to `true`                  |
 | `highlight`   | `(text, lang) => HighlightSpan[]`, the hook `multiline()` takes |
 | `lang`        | The texts' language. Defaults to each file name's extension     |
+| `wrap`        | A long line: `columns` (default), `words`, or `none` to cut it  |
+| `offset`      | With `wrap: 'none'`, the columns scrolled past. Defaults to 0   |
 
 Side by side needs `DIFF_SIDE_BY_SIDE_MIN_WIDTH` (60) columns and draws unified
 below it, so the same call is safe in a narrow terminal. A line wider than its room
@@ -4675,14 +4677,19 @@ Every row sits behind a one-cell mark, blank except for the current hunk's rows,
 which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
 plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
 view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
-and Down, Home and End scroll. `describeDiffView(router, view)` describes the keys
-for a `keyHelp()` footer.
+and Down, Home and End scroll. A line too long for the view is wrapped at words,
+with the spaces a fold lands in dropped, so a padded table row does not become
+rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
+and the left and right arrows then scroll every line sideways together, half a view
+a press, with the line numbers staying put. `describeDiffView(router, view)`
+describes the keys for a `keyHelp()` footer.
 
 | Prop        | Meaning                                                                            |
 | ----------- | ---------------------------------------------------------------------------------- |
 | `content`   | One diff (two texts, `{ patch }` or `{ files }`) or blocks; a `State` to change it |
 | `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
 | `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
+| `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
 | `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
 | `scrollbar` | Draw a scrollbar. Defaults to `true`                                               |
 | `props`     | The host's own props: a size, a border, a class                                    |

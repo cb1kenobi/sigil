@@ -71,6 +71,16 @@ export interface DiffViewProps<T = unknown> {
   props?: ElementPropsWithout<'onKey'>;
   /** Whether to draw a scrollbar. Defaults to `true`. */
   scrollbar?: boolean;
+  /**
+   * Whether a line too long for the view is wrapped onto more rows, at words --
+   * `diffView()`'s `wrap: 'words'` -- or kept on one row, cut at the edge, with
+   * the left and right arrows scrolling every line sideways together, the line
+   * numbers and the markers staying put. `w` switches between the two.
+   *
+   * A boolean is how the view starts, and defaults to `true`; a `State` is the
+   * state itself, which `w` writes and an app writes to switch it.
+   */
+  wrap?: boolean | State<boolean>;
 }
 
 /** Where a diff view's keys are described, which is the whole of what is asked of a router. */
@@ -119,7 +129,8 @@ function read<T>(source: DiffViewProps<T>['content']): DiffViewContent<T> {
  * current one, where it is `▌` in the accent role -- `>` in ASCII -- so the
  * current hunk is told apart at colour level 0 as well. `]` and `[` move the
  * cursor and scroll it into view; the arrows, Page Up and Down, Home and End
- * scroll, as a scroll box's do.
+ * scroll, as a scroll box's do. A long line is wrapped at words, and `w` keeps
+ * each line on one row instead, which the left and right arrows then scroll.
  *
  * @param props - What to draw, the cursor, and the host's props.
  * @returns The host element, which is the one that takes the focus.
@@ -136,7 +147,15 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   ) {
     throw new TypeError(__`Expected diff view current to be a whole number or a State`);
   }
+  if (
+    props.wrap !== undefined &&
+    !(props.wrap instanceof State) &&
+    typeof props.wrap !== 'boolean'
+  ) {
+    throw new TypeError(__`Expected diff view wrap to be a boolean or a State`);
+  }
   const current = props.current instanceof State ? props.current : new State(props.current ?? 0);
+  const wrapping = props.wrap instanceof State ? props.wrap : new State(props.wrap ?? true);
   const glyph = (props.ascii ?? !unicodeSupported()) ? '>' : '▌';
 
   /** The width the layout gave the rows, or 0 before it has. */
@@ -148,6 +167,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let lit = -1;
   /** A reveal asked for before there was a layout to measure it against. */
   let pending = false;
+  /** How far every line is scrolled sideways while lines are not wrapped. */
+  let offset = 0;
+  /** How far the widest line runs past its room, which is as far as `offset` goes. */
+  let overflow = 0;
 
   const scroll = ScrollBox({
     // the view holds the focus and every key, so the box inside it holds neither
@@ -197,9 +220,14 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
    * Draws every row again, for the width there is and the content as it is.
    *
    * @param content - What to draw.
+   * @param sideways - Whether all that moved is the sideways scroll, which keeps
+   *   the rows where they were rather than bringing the current stop into view: a
+   *   reader scrolled away from it to read something is reading it still.
    */
-  const draw = (content: DiffViewContent<T>): void => {
+  const draw = (content: DiffViewContent<T>, sideways = false): void => {
     const room = Math.max(1, width - 1);
+    const wrapped = untrack(() => wrapping.get());
+    let widest = 0;
     const rows: Element[] = [];
     const marks: Element[] = [];
     const stops: { first: number; last: number }[] = [];
@@ -244,18 +272,29 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         lang: props.lang,
         layout: props.layout,
         lineNumbers: props.lineNumbers,
+        offset,
         width: room,
+        wrap: wrapped ? 'words' : 'none',
       });
-      const offset = rows.length;
+      widest = Math.max(widest, tree.overflow);
+      const base = rows.length;
       // a copy, since each row is moved out of the tree into a line of the view's
       for (const row of tree.element.children.slice()) {
         push(row);
       }
       for (const hunk of tree.hunks) {
-        stops.push({ first: offset + hunk.first, last: offset + hunk.end - 1 });
+        stops.push({ first: base + hunk.first, last: base + hunk.end - 1 });
       }
     }
 
+    overflow = widest;
+    if (offset > overflow) {
+      // narrower content, or a wider view: scrolled past every line's end, so it
+      // is drawn again from as far as there is still something to show
+      offset = overflow;
+      draw(content, sideways);
+      return;
+    }
     lines = rows;
     drawn = stops.map((stop, at) => ({
       ...stop,
@@ -271,6 +310,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       current.set(nearest(at));
     }
     light(untrack(() => current.get()));
+    if (sideways) {
+      return;
+    }
     if (drawn.length === 0) {
       // nothing to keep in view, so what is drawn is shown from its start
       viewport.scrollTo(0, 0);
@@ -351,6 +393,33 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
   host.onKey = (event: KeyEvent): void => {
     const k = event.key;
+    if (!event.paste && !k.ctrl && !k.meta && k.name === 'w') {
+      wrapping.set(!untrack(() => wrapping.get()));
+      event.stop();
+      return;
+    }
+    if (
+      !event.paste &&
+      !k.ctrl &&
+      !k.meta &&
+      (k.name === 'left' || k.name === 'right') &&
+      !untrack(() => wrapping.get()) &&
+      overflow > 0
+    ) {
+      // half the view a press, as `less -S` steps; claimed at an end as well, the
+      // way Home is at the top, and left alone where nothing runs past the edge
+      const step = Math.max(1, Math.floor((width - 1) / 2));
+      const next = Math.min(overflow, Math.max(0, offset + (k.name === 'right' ? step : -step)));
+      if (next !== offset) {
+        offset = next;
+        draw(
+          untrack(() => read(props.content)),
+          true
+        );
+      }
+      event.stop();
+      return;
+    }
     if (!event.paste && !k.ctrl && !k.meta && (k.name === ']' || k.name === '[')) {
       // nothing to move over: the key is not ours, and reaches the pane around
       if (drawn.length === 0) {
@@ -373,6 +442,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
   createEffect(() => {
     const content = read(props.content);
+    // read for the redraw a switch asks for; draw() reads it again. Wrapped,
+    // nothing runs past the edge, so the clamp there puts a sideways scroll back
+    // to the start, and lines unwrapped again start from their beginning
+    wrapping.get();
     if (width > 0) {
       draw(content);
     }
@@ -396,7 +469,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
 /**
  * Describes a diff view's keys to a router, for a key-help footer: `]` and `[`
- * for the hunks, and the arrows for scrolling.
+ * for the hunks, `w` for wrapping, and the arrows for scrolling.
  *
  * @param router - What to describe the keys to.
  * @param views - Hosts that `DiffView()` returned.
@@ -418,8 +491,11 @@ export function describeDiffView(
     };
     say(']', __`next hunk`, 2);
     say('[', __`previous hunk`, 2);
+    say('w', __`wrap`, 1);
     say('up', __`scroll`, 0);
     say('down', __`scroll`, 0);
+    say('left', __`scroll sideways`, 0);
+    say('right', __`scroll sideways`, 0);
   }
   return () => {
     for (const fn of off) {
