@@ -9712,6 +9712,19 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   Shift, Ctrl or Meta they are never claimed: those are an app's to bind (Shift
   was claimed until review round 1). `wrap` is a boolean or a `State`, `current`'s
   shape, which `w` writes.
+- **Right goes as far as the widest line in view, asked at each press.** The
+  first version stopped at the widest line in the whole diff, and in the git
+  client that is every file of a commit: one 1,300-column table row let a press
+  scroll a short file into blank space a hundred and sixty times. So `diffView()`
+  reports `rowOverflow`, each row's own, the view keeps it beside the rows, and a
+  press of right takes the widest among the rows on screen -- recomputed then
+  rather than kept, so it follows the view up and down for free. Scrolling up or
+  down never moves the text sideways: right in a view of shorter lines goes
+  nowhere and does not come back either, which would be a jump nobody pressed for,
+  and left still does. The arrows are still claimed whenever anything in the
+  whole diff runs past the edge, since which rows are in view changes with every
+  vertical scroll and a key that is claimed only sometimes is one a pane around
+  the view cannot rely on.
 - **A sideways scroll keeps the rows where they are, and the offset is clamped by
   the drawing.** Every row is drawn again for a scroll, but the current stop is
   not brought back into view: a reader who scrolled away from it to read something

@@ -863,6 +863,20 @@ describe('diff()', () => {
       ).to.have.length(1);
     });
 
+    it('should say how far each row runs past its room, beside the rows', () => {
+      const tree = diffView(
+        { new: 'abcdefghij\nab\n', newName: 'b.txt', old: 'ab\n', oldName: 'a.txt' },
+        { lineNumbers: false, width: 6, wrap: 'none' }
+      );
+
+      // ---, +++, @@, then +abcdefghij, then the context line ab
+      expect(tree.rowOverflow).to.deep.equal([0, 0, 0, 5, 0]);
+      expect(tree.rowOverflow).to.have.length(tree.element.children.length);
+      const folded = diffView({ new: 'abcdefghij', old: '' }, { width: 6 });
+      expect(folded.rowOverflow.every((run) => run === 0)).to.equal(true);
+      expect(folded.rowOverflow).to.have.length(folded.element.children.length);
+    });
+
     it('should report no overflow while folding', () => {
       expect(diffView({ new: 'x'.repeat(60), old: '' }, { width: 20 }).overflow).to.equal(0);
       expect(

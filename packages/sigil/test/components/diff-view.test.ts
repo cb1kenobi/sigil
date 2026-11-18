@@ -382,6 +382,36 @@ describe('DiffView', () => {
       expect(press(short.host, 'left')).toBe(false);
     });
 
+    it('should scroll right only as far as the widest line in view', () => {
+      const content = { new: `${LONG.new}${'short\n'.repeat(10)}`, old: '' };
+      const { host, root } = mount({ content, wrap: false }, 4);
+      picture(root, 20, 4);
+      for (let at = 0; at < 4; at++) {
+        press(host, 'down');
+      }
+      expect(picture(root, 20, 4)).toEqual(['▌+short', '▌+short', '▌+short', '▌+short']);
+
+      // every line in view fits: claimed, and nowhere to go
+      expect(press(host, 'right')).toBe(true);
+      expect(picture(root, 20, 4)[0]).toBe('▌+short');
+
+      // back up to the long line, which has somewhere to go again
+      for (let at = 0; at < 4; at++) {
+        press(host, 'up');
+      }
+      press(host, 'right');
+      expect(picture(root, 20, 4)[1]).toBe('▌+ta gamma delta ep…');
+
+      // down among the short lines, right neither goes on nor comes back
+      for (let at = 0; at < 4; at++) {
+        press(host, 'down');
+      }
+      press(host, 'right');
+      expect(picture(root, 20, 4)[0]).toBe('▌+');
+      press(host, 'left');
+      expect(picture(root, 20, 4)[0]).toBe('▌+short');
+    });
+
     it('should leave a modified arrow to whoever binds it', () => {
       const { host, root } = mount({ content: LONG, wrap: false }, 4);
       picture(root, 20, 4);

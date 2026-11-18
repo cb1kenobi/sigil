@@ -178,6 +178,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let offset = 0;
   /** How far the widest line runs past its room, which is as far as `offset` goes. */
   let overflow = 0;
+  /** How far each row's line runs past its room, beside `lines`. */
+  let runs: number[] = [];
 
   const scroll = ScrollBox({
     // the view holds the focus and every key, so the box inside it holds neither
@@ -224,6 +226,25 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   const viewHeight = (): number => (viewport.content ?? viewport.box)?.height ?? 0;
 
   /**
+   * How far the widest line in view runs past its room: as far as a sideways
+   * scroll goes from where the view is. Asked at each press rather than kept, so
+   * it follows the rows in view as the view scrolls up and down; the whole
+   * diff's widest line before there is a layout to say which rows those are.
+   */
+  const reach = (): number => {
+    const height = viewHeight();
+    if (height <= 0) {
+      return overflow;
+    }
+    const top = Math.max(0, Math.floor(viewport.scroll?.y ?? 0));
+    let most = 0;
+    for (let at = top; at < Math.min(runs.length, top + height); at++) {
+      most = Math.max(most, runs[at] ?? 0);
+    }
+    return most;
+  };
+
+  /**
    * Draws every row again, for the width there is and the content as it is.
    *
    * @param content - What to draw.
@@ -237,8 +258,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     let widest = 0;
     const rows: Element[] = [];
     const marks: Element[] = [];
+    const reaches: number[] = [];
     const stops: { first: number; last: number }[] = [];
-    const push = (row: Element): void => {
+    const push = (row: Element, reach = 0): void => {
+      reaches.push(reach);
       const mark = text(' ', {
         class: 'sigil-diff-view-mark sigil-accent',
         'flex-shrink': 0,
@@ -286,8 +309,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       widest = Math.max(widest, tree.overflow);
       const base = rows.length;
       // a copy, since each row is moved out of the tree into a line of the view's
-      for (const row of tree.element.children.slice()) {
-        push(row);
+      for (const [at, row] of tree.element.children.slice().entries()) {
+        push(row, tree.rowOverflow[at]);
       }
       for (const hunk of tree.hunks) {
         stops.push({ first: base + hunk.first, last: base + hunk.end - 1 });
@@ -303,6 +326,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       return;
     }
     lines = rows;
+    runs = reaches;
     drawn = stops.map((stop, at) => ({
       ...stop,
       lead: at === 0 ? 0 : (stops[at - 1] as { last: number }).last + 1,
@@ -415,9 +439,13 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       overflow > 0
     ) {
       // claimed at an end as well, the way Home is at the top, and left alone where
-      // nothing runs past the edge
-      const step = k.name === 'right' ? SIDEWAYS_STEP : -SIDEWAYS_STEP;
-      const next = Math.min(overflow, Math.max(0, offset + step));
+      // nothing in the diff runs past the edge. Right goes as far as the widest line
+      // in view, and never back: a view scrolled down to shorter lines is not moved
+      // sideways by it, which would be a jump nobody asked for
+      const next =
+        k.name === 'right'
+          ? Math.max(offset, Math.min(reach(), offset + SIDEWAYS_STEP))
+          : Math.max(0, offset - SIDEWAYS_STEP);
       if (next !== offset) {
         offset = next;
         draw(

@@ -1317,6 +1317,13 @@ export interface DiffTree {
    * into view. 0 where every line fits, and whenever lines are folded.
    */
   overflow: number;
+  /**
+   * `overflow` row by row, one for each of `element.children`: how far that
+   * row's line runs past its room, the wider of the two halves side by side, and
+   * 0 for a header. So a view scrolled sideways can stop at the widest line it is
+   * showing rather than the widest in the whole diff.
+   */
+  rowOverflow: number[];
   width: number;
 }
 
@@ -1445,18 +1452,23 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
   const half = Math.floor((width - sep.length) / 2);
   const sides = [half, width - sep.length - half] as const;
   const rows: Element[] = [];
+  const rowOverflow: number[] = [];
   const hunks: DiffTreeHunk[] = [];
+  const add = (row: Element, runs = 0): void => {
+    rows.push(row);
+    rowOverflow.push(runs);
+  };
 
   for (const file of files) {
     if (file.oldName !== undefined || file.newName !== undefined) {
-      rows.push(headerRow(`--- ${file.oldName ?? ''}`, 'sigil-diff-file sigil-heading', width));
-      rows.push(headerRow(`+++ ${file.newName ?? ''}`, 'sigil-diff-file sigil-heading', width));
+      add(headerRow(`--- ${file.oldName ?? ''}`, 'sigil-diff-file sigil-heading', width));
+      add(headerRow(`+++ ${file.newName ?? ''}`, 'sigil-diff-file sigil-heading', width));
     }
 
     for (const hunk of file.hunks) {
       const placed: DiffTreeHunk = { end: 0, file, first: rows.length, hunk };
       hunks.push(placed);
-      rows.push(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
+      add(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
       const drawing = drawingOf(hunk, opts, whole, file);
 
       if (layout === 'unified') {
@@ -1469,7 +1481,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
           const drawn = lineRows(line, drawing, lead, room, cutting);
           overflow = Math.max(overflow, drawn.overflow);
           for (const children of drawn.rows) {
-            rows.push(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children));
+            add(box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children), drawn.overflow);
           }
         }
         placed.end = rows.length;
@@ -1478,6 +1490,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
 
       const gutter = numbered ? digits + 1 : 0;
       for (const pair of pairLines(hunk.lines)) {
+        let runs = 0;
         const drawn = [pair.left, pair.right].map((line, side) => {
           if (!line) {
             return [];
@@ -1491,11 +1504,12 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
             Math.max(1, sides[side]! - gutter - 1),
             cutting
           );
-          overflow = Math.max(overflow, half.overflow);
+          runs = Math.max(runs, half.overflow);
           return half.rows;
         });
+        overflow = Math.max(overflow, runs);
         for (let at = 0; at < Math.max(drawn[0]!.length, drawn[1]!.length); at++) {
-          rows.push(
+          add(
             box(
               { class: 'sigil-diff-row', 'flex-shrink': 0 },
               box(
@@ -1507,7 +1521,8 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
                 { 'flex-shrink': 0, overflow: 'hidden', width: sides[1] },
                 ...(drawn[1]![at] ?? [])
               )
-            )
+            ),
+            runs
           );
         }
       }
@@ -1520,6 +1535,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     hunks,
     layout,
     overflow,
+    rowOverflow,
     width,
   };
 }

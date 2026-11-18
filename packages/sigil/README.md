@@ -4681,7 +4681,7 @@ and Down, Home and End scroll. A line too long for the view is wrapped at words,
 with the spaces a fold lands in dropped, so a padded table row does not become
 rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
 and the left and right arrows then scroll every line sideways together, eight columns
-a press, with the line numbers staying put. `describeDiffView(router, view)`
+a press, with the line numbers staying put, as far as the widest line in view. `describeDiffView(router, view)`
 describes the keys for a `keyHelp()` footer.
 
 | Prop        | Meaning                                                                            |
