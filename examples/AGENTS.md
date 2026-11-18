@@ -1071,6 +1071,18 @@ below with the measurements.
   with no changes writes nothing: review round 1 found the first version
   converting a mixed file on a habitual save while the tab said it was clean.
 
+- **A file that is not UTF-8 is refused, the way a binary one is.**
+  `readFileSync(path, 'utf8')` puts U+FFFD in place of every byte it cannot
+  decode and says nothing, so a Latin-1 `café` opened as `caf�`, and the first
+  save wrote `EF BF BD` over the `E9` -- the same silent conversion as the line
+  endings above, with nothing left to convert back from. `read()` decodes with a
+  `fatal` `TextDecoder` and says `is not UTF-8`. It keeps the BOM
+  (`ignoreBOM: true`), which is what the lenient read did, so a file that has
+  one is written back with it. The NUL check reads the bytes first, so a binary
+  file is still called binary. A lenient decode fails `should refuse a file that
+  is not UTF-8, rather than save U+FFFD over it`, and a stripped BOM fails `should
+  write a byte order mark back with the file it was read with`.
+
 - **`q` is an `onKey` on the root, not a fallback.** Quitting over unsaved work
   asks first, and a fallback could not: every fallback on a key runs, so
   `runApp()`'s own `q` would quit beside it without asking. The root's `onKey`

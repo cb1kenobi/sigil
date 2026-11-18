@@ -33,7 +33,7 @@ afterAll(() => {
 });
 
 /** A directory the test owns, holding `files`, written byte for byte. */
-function workspace(files: Record<string, string>): string {
+function workspace(files: Record<string, string | Uint8Array>): string {
   const dir = mkdtempSync(join(tmpdir(), 'sigil-editor-'));
   made.push(dir);
   for (const [path, text] of Object.entries(files)) {
@@ -492,6 +492,33 @@ describe('the editor', () => {
     await it.press(KEYS.down, KEYS.enter);
     await it.until('Cannot open');
     expect(it.screen()).toContain('Pick a file in the tree');
+  });
+
+  it('should refuse a file that is not UTF-8, rather than save U+FFFD over it', async () => {
+    // `café` in Latin-1: a lenient read is `caf\uFFFD`, and a save of that writes
+    // EF BF BD where the E9 was
+    const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9, 0x0a]);
+    const dir = workspace({ 'latin1.txt': latin1 });
+    const it = await mount(dir);
+    await it.press(KEYS.down, KEYS.enter);
+    await it.until('Cannot open');
+    expect(it.screen()).toContain('Pick a file in the tree');
+    expect(it.writes).toStrictEqual([]);
+    expect(readFileSync(join(dir, 'latin1.txt'))).toEqual(Buffer.from(latin1));
+    expect(() => createWorkspace(dir).read(join(dir, 'latin1.txt'))).toThrow(/is not UTF-8$/);
+  });
+
+  it('should write a byte order mark back with the file it was read with', async () => {
+    const dir = workspace({ 'bom.txt': '\uFEFFone\n' });
+    const it = await mount(dir);
+    await open(it, 'bom.txt');
+    await it.press(KEYS.end, '!', ctrl('s'));
+    expect([...readFileSync(join(dir, 'bom.txt'))]).toEqual([
+      0xef,
+      0xbb,
+      0xbf,
+      ...Buffer.from('one!\n'),
+    ]);
   });
 
   describe('the text area', () => {

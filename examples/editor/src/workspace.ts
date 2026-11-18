@@ -20,9 +20,12 @@ export interface Workspace {
   /**
    * Reads a file as UTF-8.
    *
-   * @throws When it cannot be read, is larger than {@link MAX_BYTES}, or holds a
+   * @throws When it cannot be read, is larger than {@link MAX_BYTES}, holds a
    *   NUL byte -- which is what makes a file binary as far as an editor is
-   *   concerned, and a text area would draw it as nothing useful.
+   *   concerned, and a text area would draw it as nothing useful -- or is not
+   *   UTF-8. A lenient decode puts U+FFFD in place of each byte it cannot read,
+   *   and a save writes that back over the original, so a Latin-1 `café` would be
+   *   lost the first time it was saved.
    */
   read(path: string): string;
   /** Writes a file as UTF-8, replacing what was there. */
@@ -55,11 +58,17 @@ export function createWorkspace(root: string = process.cwd()): Workspace {
       if (size > MAX_BYTES) {
         throw new Error(`${path} is ${Math.round(size / 1024 / 1024)} MiB, past the 8 MiB limit`);
       }
-      const text = readFileSync(path, 'utf8');
-      if (text.includes('\u0000')) {
+      const bytes = readFileSync(path);
+      if (bytes.includes(0)) {
         throw new Error(`${path} is a binary file`);
       }
-      return text;
+      try {
+        // fatal, so a byte that is not UTF-8 refuses the file rather than becoming
+        // U+FFFD; and the BOM kept in the text, so a save writes it back
+        return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      } catch {
+        throw new Error(`${path} is not UTF-8`);
+      }
     },
     write(path, text) {
       writeFileSync(path, text, 'utf8');
