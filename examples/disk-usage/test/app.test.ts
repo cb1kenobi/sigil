@@ -1,6 +1,6 @@
 import type { Disk } from '../src/disk.ts';
 import { exitMounted, mount, type Mounted, removeTempDirs, tempDir, write } from './fixture.ts';
-import { KEYS } from '@ttylabs/sigil/testing';
+import { frame, KEYS } from '@ttylabs/sigil/testing';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -258,29 +258,70 @@ describe('the disk usage visualizer', () => {
   it(
     'should stop showing a scan it threw away, though that scan is still waiting on the disk',
     async () => {
-      // the first scan is held in `src` for good; `r` replaces it, and the
-      // replacement ends -- after which nothing may still be counting
+      // the first scan is held in its very first read for good, so its walk
+      // never looks at the signal again; `r` replaces it, and the replacement
+      // ends -- after which nothing may still be counting
       const work = workspace();
       let first = true;
+      let held!: () => void;
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
       const m = await mount(work, {
         settled: false,
         wrap: (disk): Disk => ({
           ...disk,
           list: async (dir) => {
-            if (first && dir === join(work, 'src')) {
+            if (first && dir === work) {
               first = false;
+              held();
               await new Promise(() => {});
             }
             return disk.list(dir);
           },
         }),
       });
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // the first scan is inside its read before `r` replaces it, whatever the
+      // runner's speed; and the replacement is waited for by what it says, since
+      // the disk never goes quiet for `settle()` to see
+      await holding;
       await m.term.press('r');
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      await m.term.press(KEYS.down);
+      const deadline = Date.now() + 20_000;
+      while (!/Rescanned 5 files/.test(m.screen())) {
+        expect(Date.now(), m.screen()).toBeLessThan(deadline);
+        await frame(m.app);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      // three of the thrown-away scan's progress ticks, which would each have
+      // written its counts back over the header
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      await frame(m.app);
       expect(m.screen()).toMatch(/Rescanned 5 files/);
       expect(m.screen()).not.toMatch(/scanning \d+ files/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should say a directory mapped with Enter that could not be read was not read',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            if (dir === join(work, 'empty')) {
+              throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+            }
+            return disk.list(dir);
+          },
+        }),
+      });
+      await m.press(KEYS.end, KEYS.enter);
+      expect(m.screen()).toMatch(/Map: work[\\/]empty/);
+      expect(mapPart(m)).toMatch(/Could not be read: EACCES/);
+      expect(mapPart(m)).not.toMatch(/Nothing here/);
       m.app.exit(0);
     },
     LONG

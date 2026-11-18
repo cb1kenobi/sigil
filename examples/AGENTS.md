@@ -1343,6 +1343,18 @@ about where the space went.
   `lstat` fails, and deleting the hard-link name that did not count. Not fixed: a
   file length past 2^53 bytes, 9 PB, is rounded by `Number()`; no file is that long.
 
+- **Review round 2, over round 1's fixes: three findings, all fixed.** The
+  thrown-away-scan test waited on the wall clock and could flake on a slow runner;
+  it now waits for the first scan to be inside its read and for the replacement to
+  say `Rescanned`. Worse, it had passed its sabotage for the wrong reason: a scan
+  held in one subdirectory still rejects as soon as any other branch reads the
+  signal, so its timer stopped anyway. Held at its very first read, the timer
+  outlives the scan, and removing the fix fails it. A directory mapped with Enter
+  that could not be read was still called empty: the map now reads the note off
+  the directory it shows. And the queued-read test aborted before anything was
+  queued, so a check outside the limiter passed it; it aborts while one read is in
+  flight and two wait.
+
 - **Not done:** renaming and opening files, which the ticket put out of scope; a
   trash; a filter by name or kind; the blocks a file holds, as against its length;
   and watching the disk, which `r` stands in for.

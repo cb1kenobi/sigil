@@ -205,28 +205,28 @@ describe('scanDisk()', () => {
   });
 
   it('should make no read it had queued once it was told to stop', async () => {
+    // one read at a time, so while the first file's `lstat` is in flight the
+    // other two wait their turn -- and the scan is thrown away during it
     const root = tempDir();
     write(root, { a: 1, b: 2, c: 3 });
     const real = createDisk(root);
     const controller = new AbortController();
-    let stats = 0;
+    const asked: string[] = [];
     const disk: Disk = {
       ...real,
-      async list(dir) {
-        const names = await real.list(dir);
-        // the listing lands after the scan was thrown away
-        controller.abort();
-        return names;
-      },
       async stat(path) {
         if (path !== root) {
-          stats++;
+          asked.push(path);
+          if (asked.length === 1) {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            controller.abort();
+          }
         }
         return real.stat(path);
       },
     };
     await expect(scanDisk(disk, { parallel: 1, signal: controller.signal })).rejects.toThrow();
-    expect(stats).toBe(0);
+    expect(asked).toHaveLength(1);
   });
 
   it('should have no more reads in flight than it was told', async () => {

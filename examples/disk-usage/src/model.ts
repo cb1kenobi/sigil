@@ -296,8 +296,9 @@ export function createModel(): Model {
     if (found === undefined) {
       return '';
     }
-    // a root that could not be listed is not an empty one
-    return printable(found.root.note ?? 'Nothing here takes any space');
+    // a directory that could not be listed is not an empty one, whether it is
+    // the root or one Enter mapped
+    return printable(mapRoot.get()?.note ?? 'Nothing here takes any space');
   };
 
   const mapTitle = (): string => {
