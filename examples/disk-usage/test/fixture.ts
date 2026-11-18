@@ -5,7 +5,10 @@
  *
  * Every delete a test runs is inside one of these directories and nowhere else:
  * the visualizer is pointed at it through `DiskContext`, which is what
- * `src/index.ts` provides with the directory it was given.
+ * `src/index.ts` provides with the directory it was given. So is every trash: the
+ * disk a test mounts moves an item into a directory of its own made here, never
+ * into the trash of the machine the suite runs on, which `@ttylabs/sigil/trash`'s
+ * own tests cover.
  */
 
 import { createDisk, type Disk, DiskContext } from '../src/disk.ts';
@@ -14,8 +17,9 @@ import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 /** Every directory a test file made, which its `afterAll` hands to {@link removeTempDirs}. */
 const made: string[] = [];
@@ -83,7 +87,7 @@ export function exitMounted(): void {
 /** A mounted visualizer, and how a test drives it. */
 export interface Mounted {
   readonly app: RunningApp;
-  /** The disk calls it made, in order, as `remove path` and the like. */
+  /** The disk calls it made that change it, in order, as `remove path` and `trash path`. */
   readonly calls: string[];
   /** Escape, which the router holds back a moment in case it starts a sequence. */
   escape(): Promise<void>;
@@ -118,13 +122,24 @@ export async function mount(
     wrap?: (disk: Disk) => Disk;
   } = {}
 ): Promise<Mounted> {
-  const real = (opts.wrap ?? ((disk: Disk) => disk))(createDisk(root));
+  // a trash of the test's own, in place before any wrap sees the disk: the real
+  // one is the user's
+  const bin = tempDir();
+  const fake: Disk = {
+    ...createDisk(root),
+    async trash(path) {
+      const to = join(bin, basename(path));
+      await rename(path, to);
+      return to;
+    },
+  };
+  const real = (opts.wrap ?? ((disk: Disk) => disk))(fake);
   const calls: string[] = [];
   let running = 0;
   const counted =
     <A extends [string, ...unknown[]], R>(name: string, fn: (...args: A) => Promise<R>) =>
     (...args: A): Promise<R> => {
-      if (name === 'remove') {
+      if (name === 'remove' || name === 'trash') {
         calls.push(`${name} ${args[0]}`);
       }
       running++;
@@ -137,6 +152,7 @@ export async function mount(
     remove: counted('remove', real.remove),
     root: real.root,
     stat: counted('stat', real.stat),
+    trash: counted('trash', real.trash),
   };
   const term = createTestTerminal({
     colorLevel: opts.colorLevel ?? 0,

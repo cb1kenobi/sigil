@@ -1,7 +1,7 @@
 import type { Disk } from '../src/disk.ts';
 import { exitMounted, mount, type Mounted, removeTempDirs, tempDir, write } from './fixture.ts';
 import { frame, KEYS } from '@ttylabs/sigil/testing';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -167,6 +167,89 @@ describe('the disk usage visualizer', () => {
       // and the cursor is on what came after it
       expect(info(m)).toMatch(/work[\\/]src · 12\.0 kB · 70\.6%/);
       expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should move to the trash on t, after a confirm that starts on Yes',
+    async () => {
+      const work = workspace();
+      const m = await mount(work);
+      await m.press(KEYS.down, 't');
+      expect(m.screen()).toMatch(/Move the directory media and everything in it/);
+      await m.escape();
+      expect(existsSync(join(work, 'media'))).toBe(true);
+      expect(m.calls).toStrictEqual([]);
+
+      // Enter takes the button it starts on, which for a trash is Yes
+      await m.press('t', KEYS.enter);
+      expect(existsSync(join(work, 'media'))).toBe(false);
+      expect(m.calls).toStrictEqual([`trash ${join(work, 'media')}`]);
+      expect(m.screen()).toMatch(/❯ ▾ work +17\.0 kB|17\.0 kB in 3 files/);
+      // and it does not claim to have freed what the trash still holds (the
+      // toast covers the end of the line)
+      expect(m.screen()).toMatch(/Moved media to the trash: 80\.0 kB, freed when it is/);
+      expect(m.screen()).not.toMatch(/freed 80/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should leave the item, say why, and not scan again when the trash will not take it',
+    async () => {
+      const work = workspace();
+      let lists = 0;
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          list: async (dir) => {
+            lists++;
+            return disk.list(dir);
+          },
+          trash: async (path) => {
+            throw new Error(`Could not move ${path} to the trash: it is the top of a mount`, {
+              cause: new Error('it is the top of a mount'),
+            });
+          },
+        }),
+      });
+      const scanned = lists;
+      await m.press(KEYS.down, 't', KEYS.enter);
+      // the reason, under the item's own name rather than its whole path
+      expect(m.screen()).toMatch(/Could not move media to the trash: it is/);
+      expect(existsSync(join(work, 'media'))).toBe(true);
+      expect(m.screen()).toMatch(/▸ media +80\.0 kB/);
+      // a trash moves the item or leaves it, so there is nothing to read again
+      expect(lists).toBe(scanned);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should scan again when the trash it moved to is inside the directory scanned',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, {
+        wrap: (disk): Disk => ({
+          ...disk,
+          // a home directory on Linux, whose trash is under it
+          trash: async (path) => {
+            mkdirSync(join(work, 'Trash'), { recursive: true });
+            const to = join(work, 'Trash', 'media');
+            renameSync(path, to);
+            return to;
+          },
+        }),
+      });
+      await m.press(KEYS.down, 't', KEYS.enter);
+      expect(m.screen()).toMatch(/Rescanned 5 files/);
+      // the bytes are still under the root, so the total has not moved
+      expect(m.screen()).toMatch(/97\.0 kB in 5 files/);
+      expect(m.screen()).toMatch(/▸ Trash +80\.0 kB/);
       m.app.exit(0);
     },
     LONG

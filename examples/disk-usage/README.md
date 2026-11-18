@@ -4,8 +4,8 @@ Where the space went. A tree of everything under a directory down the left, each
 with its total, largest first, and a treemap of the same tree on the right: one
 rectangle per file, its area its size, nested by directory, coloured by what kind
 of file it is. The selection is one: moving in the tree outlines the rectangle,
-and clicking a rectangle selects it in the tree. `r` scans again, and `d` deletes
-after a confirm.
+and clicking a rectangle selects it in the tree. `r` scans again, `d` deletes after
+a confirm, and `t` moves to the trash after one.
 
 ```console
 $ pnpm build
@@ -27,6 +27,7 @@ on stderr, exit 1.
 | Enter             | Map the selected directory, or the one a file is in   |
 | Backspace         | Map the directory above the one mapped                |
 | `d`, Delete       | Delete, after a confirm that starts on No             |
+| `t`               | Move to the trash, after a confirm that starts on Yes |
 | `r`               | Scan again                                            |
 | A click on a tile | Select what it is, opening the tree down to it        |
 | `q`               | Quit, with 0                                          |
@@ -70,10 +71,17 @@ so what is selected is always on the map.
   part of the way, it scans again rather than guess at what is left. The root is
   not deleted from here, nothing is while a scan is running, and `r` waits for a
   delete to finish.
+- **Trash can be undone**: `t` moves the selection to the trash -- the Finder's,
+  the Recycle Bin, or the freedesktop trash a Linux desktop reads -- so its
+  confirm starts on Yes. The tree loses it as a delete does, but the line says
+  nothing is freed until the trash is emptied, and a trash inside the directory
+  scanned (a home directory on Linux) is scanned again, since the space only
+  moved. Where the trash will not take it, it stays and the reason is shown: it is
+  never deleted instead.
 - **A name is drawn as it is**, except that a control character in it is drawn as
   `�`, so a name that holds an escape is not a different name on screen.
 
 ## Not here
 
-Renaming and opening files, a trash, filtering by name or kind, and watching the
+Renaming and opening files, filtering by name or kind, and watching the
 disk for changes (`r` scans again).

@@ -8,7 +8,7 @@
  * a screen: what the panes show is a handful of signals over one immutable tree.
  */
 
-import { DiskContext, formatCount, formatSize, isInside, printable } from './disk.ts';
+import { DiskContext, formatCount, formatSize, isInside, printable, reason } from './disk.ts';
 import {
   chainTo,
   type DiskNode,
@@ -113,7 +113,7 @@ export function createModel(): Model {
   let running: AbortController | undefined;
   /**
    * Set from the moment a delete asks until the disk has answered: a second `d`
-   * opens no second confirm, and `r` scans nothing, while a delete is on its way.
+   * or `t` opens no second confirm, and `r` scans nothing, while a delete is on its way.
    * A scan started under an `rm` would read half of what it removes and put it
    * back on screen when it ends.
    */
@@ -381,7 +381,13 @@ export function createModel(): Model {
     }
   };
 
-  const deleteSelected = async (): Promise<void> => {
+  /**
+   * Deletes the selection for good, or moves it to the trash: one confirm, the
+   * same guards, and the sizes taken down after, either way. A delete's confirm
+   * starts on No and a trash's on Yes, the file manager's rule for what can be
+   * taken back.
+   */
+  const removeSelected = async (how: 'delete' | 'trash'): Promise<void> => {
     const found = untrack(() => scan.get());
     const path = untrack(() => current.get());
     const node = nodeAt(path);
@@ -400,20 +406,30 @@ export function createModel(): Model {
       node.kind === 'directory'
         ? `the directory ${node.name} and everything in it (${formatSize(node.bytes)}, ${formatCount(node.files)} files)`
         : `${node.name} (${formatSize(node.bytes)})`;
+    const trashing = how === 'trash';
     deleting = true;
     let failure: unknown;
+    let where = '';
     try {
       const yes = await confirmModal(app.view, {
-        initial: 'no',
+        initial: trashing ? 'yes' : 'no',
         input,
-        message: printable(`Delete ${whole}? It does not go to the trash: this cannot be undone.`),
-        title: 'Delete',
-        yes: 'Delete',
+        message: printable(
+          trashing
+            ? `Move ${whole} to the trash? It can be taken back from there.`
+            : `Delete ${whole}? It does not go to the trash: this cannot be undone.`
+        ),
+        title: trashing ? 'Trash' : 'Delete',
+        yes: trashing ? 'Trash' : 'Delete',
       });
       if (!yes || disposed) {
         return;
       }
-      await disk.remove(node.path);
+      if (trashing) {
+        where = await disk.trash(node.path);
+      } else {
+        await disk.remove(node.path);
+      }
     } catch (err) {
       failure = err;
     } finally {
@@ -423,12 +439,24 @@ export function createModel(): Model {
       return;
     }
     if (failure !== undefined) {
-      toast(
-        `Could not delete ${node.name}: ${failure instanceof Error ? failure.message : String(failure)}`
-      );
-      // part of a directory may have gone before the error, so the sizes are
-      // read again rather than guessed at
+      // a trash moves the item or leaves it, so there is nothing to read again; a
+      // delete can stop part of the way, so what is left is read again rather than
+      // guessed at. `trash()`'s message names the whole path, and its `cause` is
+      // the reason alone, which is what fits beside the name
+      if (trashing) {
+        toast(`Could not move ${node.name} to the trash: ${reason(failure)}`);
+        return;
+      }
+      toast(`Could not delete ${node.name}: ${reason(failure)}`);
       void rescan(true);
+      return;
+    }
+    // a trash inside the directory scanned -- scanning a home directory on Linux,
+    // whose trash is under it -- still holds every byte, somewhere else in the
+    // tree: that is read rather than worked out
+    if (where !== '' && isInside(where, found.root.path)) {
+      void rescan(true);
+      toast(`Moved ${node.name} to the trash`, 'success');
       return;
     }
     // the cursor goes to the next item in the same directory, or the one before
@@ -445,6 +473,14 @@ export function createModel(): Model {
       current.set(next.path);
     }
     const freed = found.root.bytes - after.root.bytes;
+    if (trashing) {
+      // nothing is freed until the trash is emptied, and the line says so
+      status.set(
+        `Moved ${printable(node.name)} to the trash: ${formatSize(freed)}, freed when it is emptied`
+      );
+      toast(`Moved ${node.name} to the trash`, 'success');
+      return;
+    }
     status.set(`Deleted ${printable(node.name)}, freed ${formatSize(freed)}`);
     toast(`Deleted ${node.name}`, 'success');
   };
@@ -460,7 +496,9 @@ export function createModel(): Model {
     if (key.name === 'enter') {
       zoomIn();
     } else if (key.name === 'd' || key.name === 'delete') {
-      void deleteSelected();
+      void removeSelected('delete');
+    } else if (key.name === 't') {
+      void removeSelected('trash');
     } else if (key.name === 'backspace') {
       zoomOut();
     } else {
@@ -482,6 +520,7 @@ export function createModel(): Model {
     say('enter', 'map it');
     say('backspace', 'map up', 2);
     say('d', 'delete', 2);
+    say('t', 'trash', 2);
     // `r` is a fallback: it comes after the focused element, so a dialog keeps
     // it, and it runs with nothing focused. `q` is the runner's
     const askedRescan = (): void => {

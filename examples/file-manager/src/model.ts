@@ -399,7 +399,7 @@ export function createModel(): Model {
     const as = basename(plan.to);
     const copying = held.mode === 'copy';
     // a copy or a move takes nothing away that another key cannot give back, so
-    // its confirm starts on yes; a delete's starts on no
+    // its confirm starts on yes; a delete's starts on no, and a trash's on yes
     const yes = await confirmModal(app.view, {
       initial: 'yes',
       input,
@@ -493,21 +493,25 @@ export function createModel(): Model {
     );
   };
 
-  const deleteEntry = async (): Promise<void> => {
+  /** Deletes the entry for good, or moves it to the trash: `d` and `t`. */
+  const deleteEntry = async (how: 'delete' | 'trash'): Promise<void> => {
     const entry = currentEntry();
     if (!entry) {
       return;
     }
     const tree = entry.kind === 'directory' && !entry.link;
+    const what = tree ? `the directory ${entry.name} and everything in it` : entry.name;
+    const trashing = how === 'trash';
     const yes = await confirmModal(app.view, {
-      initial: 'no',
+      initial: trashing ? 'yes' : 'no',
       input,
       message: printable(
-        `Delete ${tree ? `the directory ${entry.name} and everything in it` : entry.name}? ` +
-          'It does not go to the trash: this cannot be undone.'
+        trashing
+          ? `Move ${what} to the trash? It can be taken back from there.`
+          : `Delete ${what}? It does not go to the trash: this cannot be undone.`
       ),
-      title: 'Delete',
-      yes: 'Delete',
+      title: trashing ? 'Trash' : 'Delete',
+      yes: trashing ? 'Trash' : 'Delete',
     });
     if (!yes) {
       return;
@@ -518,16 +522,28 @@ export function createModel(): Model {
     // every entry with a new object
     const at = rows.findIndex((row) => row.name === entry.name);
     const neighbour = (rows[at + 1] ?? rows[at - 1])?.name;
+    let gone = false;
     await act(
       async () => {
-        await files.remove(entry.path);
+        if (trashing) {
+          // `trash()` puts the whole path in its message and the reason alone in
+          // its `cause`, which is what fits beside the name
+          await files.trash(entry.path).catch((err: Error) => {
+            const why = err.cause instanceof Error ? err.cause.message : err.message;
+            throw new Error(`Could not move ${entry.name} to the trash: ${why}`);
+          });
+        } else {
+          await files.remove(entry.path);
+        }
+        gone = true;
         if (untrack(() => clip.get())?.entry.path === entry.path) {
           clip.set(undefined);
           status.set('');
         }
-        return `Deleted ${entry.name}`;
+        return trashing ? `Moved ${entry.name} to the trash` : `Deleted ${entry.name}`;
       },
-      () => neighbour
+      // a trash that was refused left the entry where it was, and the cursor on it
+      () => (gone ? neighbour : entry.name)
     );
   };
 
@@ -579,7 +595,9 @@ export function createModel(): Model {
       } else if (name === 'r') {
         void renameEntry();
       } else if (name === 'd' || name === 'delete') {
-        void deleteEntry();
+        void deleteEntry('delete');
+      } else if (name === 't') {
+        void deleteEntry('trash');
       } else {
         return;
       }
@@ -624,6 +642,7 @@ export function createModel(): Model {
     say(panels.current, 'p', 'paste', 2);
     say(panels.current, 'r', 'rename', 2);
     say(panels.current, 'd', 'delete', 2);
+    say(panels.current, 't', 'trash', 2);
     say(panels.preview, 'h', 'back');
     say(given.filterBar, 'enter', 'keep');
     say(given.filterBar, 'escape', 'clear');

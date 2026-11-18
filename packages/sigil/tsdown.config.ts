@@ -163,6 +163,7 @@ const config: UserConfig = defineConfig({
     terminal: './src/terminal/index.ts',
     theme: './src/theme/index.ts',
     themes: './src/theme/themes.ts',
+    trash: './src/trash/index.ts',
     updates: './src/updates/index.ts',
     width: './src/width/index.ts',
     which: './src/which.ts',

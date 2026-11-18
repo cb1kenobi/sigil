@@ -13,6 +13,7 @@
  */
 
 import { createContext, type Context } from '@ttylabs/sigil/renderer';
+import { trash } from '@ttylabs/sigil/trash';
 import { cp, lstat, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -59,6 +60,11 @@ export interface Files {
   readonly start: string;
   /** Whether something, even a dangling link, has this path. */
   taken(path: string): Promise<boolean>;
+  /**
+   * Moves a file, a link, or a directory to the trash, and says where it went.
+   * Never deletes: it moves the item or throws.
+   */
+  trash(path: string): Promise<string>;
   /** The path with every link resolved, or the path itself where it cannot be. */
   real(path: string): Promise<string>;
 }
@@ -133,6 +139,7 @@ export function createFiles(opts: FilesOptions = {}): Files {
       }
     },
     start: resolve(opts.start ?? process.cwd()),
+    trash,
     async taken(path) {
       try {
         await lstat(path);
