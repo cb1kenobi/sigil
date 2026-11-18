@@ -44,7 +44,7 @@ import { type Element, type ElementPropsWithout, toDisplayLine } from '../elemen
 import { __, __n } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { trackedRaw } from '../renderer/index.js';
-import { State, untrack } from '../signals/index.js';
+import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
@@ -134,9 +134,10 @@ export interface TreemapProps<T, K = T> {
   /**
    * The tree: its root item, or a `State`, a `Computed` or a function that gives
    * it. `undefined` is nothing to draw. A new root is laid out again; the same
-   * root at the same size is not.
+   * root at the same size is not. A signal is told apart by being one, not by
+   * having a `get()`, so a node with a `get` method of its own is a node.
    */
-  root: T | undefined | { get(): T | undefined } | (() => T | undefined);
+  root: T | undefined | State<T | undefined> | Computed<T | undefined> | (() => T | undefined);
   /**
    * An item's size, in any unit. Nothing above `0` takes no room at all. An item
    * with children is divided among them by theirs, so its own size only decides
@@ -601,6 +602,43 @@ export function treemapTileAt<T, K>(
 }
 
 /**
+ * The tile a cell shows, which is what a click on it means.
+ *
+ * A cell is two pixels, and where one tile ends above another the cell can hold
+ * the upper tile's uncoloured edge over the lower tile's colour -- a `▄` in the
+ * lower tile's colour, with the upper tile's box still reaching into it. So a
+ * half that is coloured wins over one that is an edge, the upper first; a cell
+ * that is edge in both halves goes to whatever box it is in, the upper first.
+ *
+ * @param layout - The map.
+ * @param x - Cell column.
+ * @param y - Cell row.
+ * @returns The tile, or `undefined` over nothing.
+ */
+export function treemapCellTile<T, K>(
+  layout: TreemapLayout<T, K>,
+  x: number,
+  y: number
+): TreemapTile<T> | undefined {
+  const upper = treemapTileAt(layout, x, y * 2);
+  const lower = treemapTileAt(layout, x, y * 2 + 1);
+  const coloured = (tile: TreemapTile<T> | undefined, py: number): boolean => {
+    if (tile === undefined) {
+      return false;
+    }
+    const fill = inside(tile);
+    return x < fill.x + fill.w && py < fill.y + fill.h;
+  };
+  if (coloured(upper, y * 2)) {
+    return upper;
+  }
+  if (coloured(lower, y * 2 + 1)) {
+    return lower;
+  }
+  return upper ?? lower;
+}
+
+/**
  * The part of a box that is coloured: all of it but its last column and its last
  * row, which are left in the terminal's own background so that two tiles side by
  * side never run together, whatever their colours and at every colour level. A box
@@ -916,11 +954,13 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       ? props.current
       : new State<K | undefined>(props.current as K | undefined);
   const source = props.root;
+  // a signal by what it is rather than by having a `get`, because the root is
+  // the app's own node and a node may well have a `get` of its own
   const rootOf = (): T | undefined =>
     typeof source === 'function'
       ? (source as () => T | undefined)()
-      : typeof (source as { get?: unknown } | null | undefined)?.get === 'function'
-        ? (source as { get(): T | undefined }).get()
+      : source instanceof State || source instanceof Computed
+        ? (source.get() as T | undefined)
         : (source as T | undefined);
 
   let laid: { layout: TreemapLayout<T, K>; root: T } | undefined;
@@ -1017,12 +1057,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {
       return;
     }
-    const x = event.x - at.x;
-    // either half of the cell clicked: the upper is as good a guess as any, and
-    // the lower is the one under it when the upper is an edge
-    const tile =
-      treemapTileAt(laid.layout, x, (event.y - at.y) * 2) ??
-      treemapTileAt(laid.layout, x, (event.y - at.y) * 2 + 1);
+    const tile = treemapCellTile(laid.layout, event.x - at.x, event.y - at.y);
     if (tile === undefined) {
       return;
     }

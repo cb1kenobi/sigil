@@ -10,6 +10,7 @@ import {
   type TreemapLayout,
   type TreemapProps,
   type TreemapReader,
+  treemapCellTile,
   treemapMark,
   treemapTileAt,
   treemapTileColors,
@@ -353,6 +354,23 @@ describe('treemapColors()', () => {
   });
 });
 
+describe('treemapCellTile()', () => {
+  it('should give a cell to the tile whose colour it shows, not the one whose edge it holds', () => {
+    // two bands five pixels tall: `top` is rows 0-4 and `bottom` 5-9, and row 4
+    // is `top`'s edge -- so the third cell is `top`'s edge over `bottom`'s colour
+    const root = branch(ROOT, [leaf(ROOT, 'top', 1), leaf(ROOT, 'bottom', 1)]);
+    const map = layout(root, 8, 10);
+    expect(treemapTileAt(map, 0, 4)?.item.name).toBe('top');
+    expect(paint(map, 0).rows[2]).toMatch(/^▄+ $/u);
+    expect(treemapCellTile(map, 0, 2)?.item.name).toBe('bottom');
+    // a cell coloured in both halves is the upper's, and the edge column between
+    // two tiles side by side is still the box it is in
+    expect(treemapCellTile(map, 0, 1)?.item.name).toBe('top');
+    expect(treemapCellTile(map, 7, 1)?.item.name).toBe('top');
+    expect(treemapCellTile(map, 8, 1)).toBeUndefined();
+  });
+});
+
 describe('treemapTileColors()', () => {
   it('should colour a tile of gathered items by what covers the most of them', () => {
     // twenty small items of one kind outweigh ten larger ones of another, and
@@ -621,6 +639,17 @@ describe('Treemap', () => {
     expect(m.screen()).not.toMatch(/\ba\b/);
   });
 
+  it('should draw a root that has a get method of its own as the root', async () => {
+    const node = {
+      ...PAIR,
+      get(name: string): Node | undefined {
+        return PAIR.children?.find((child) => child.name === name);
+      },
+    };
+    const m = await mount({ ...PAIR_PROPS, root: node });
+    expect(m.term.viewport[0]).toMatch(/^a█+ b█+/u);
+  });
+
   it('should move the current item to a tile clicked, and say so', async () => {
     const current = new State<string | undefined>(undefined);
     const picks: unknown[] = [];
@@ -684,7 +713,10 @@ describe('Treemap', () => {
       { ...PAIR_PROPS, current: `${box}/3`, root },
       { columns: 30, rows: 8 }
     );
-    expect(marked.screen()).not.toBe(plain.screen());
+    // the outline is the one the tile it is drawn in gets
+    const whole = await mount({ ...PAIR_PROPS, current: box, root }, { columns: 30, rows: 8 });
+    expect(whole.screen()).not.toBe(plain.screen());
+    expect(marked.screen()).toBe(whole.screen());
     expect(unmarked.screen()).toBe(plain.screen());
   });
 

@@ -19,7 +19,7 @@ import type { Element } from '@ttylabs/sigil/element';
 /**
  * The layout. Every colour but the map's is a role class the framework's sheet
  * gives, so a theme restyles the rest; the map's are the file kinds', which
- * `treemap.ts` picks per colour level.
+ * `map-view.ts` picks per colour level.
  *
  * The tree and the map share the width two to three: the map is the picture and
  * wants the room, and the tree needs enough for a name and a size -- which on a

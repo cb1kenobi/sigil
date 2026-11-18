@@ -3,10 +3,10 @@
     "interface": "TreemapProps",
     "options": [
       {
-        "description": "The tree: its root item, or a `State`, a `Computed` or a function that gives it. `undefined` is nothing to draw. A new root is laid out again; the same root at the same size is not.",
+        "description": "The tree: its root item, or a `State`, a `Computed` or a function that gives it. `undefined` is nothing to draw. A new root is laid out again; the same root at the same size is not. A signal is told apart by being one, not by having a `get()`, so a node with a `get` method of its own is a node.",
         "name": "root",
         "optional": false,
-        "type": "T | undefined | { get(): T | undefined; } | (() => T | undefined)"
+        "type": "T | undefined | State<T | undefined> | Computed<T | undefined> | (() => T | undefined)"
       },
       {
         "description": "An item's size, in any unit. Nothing above `0` takes no room at all. An item with children is divided among them by theirs, so its own size only decides its share beside its siblings.",

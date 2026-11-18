@@ -14,7 +14,7 @@ import type { DiskNode } from './scan.ts';
 import { type Color, DEFAULT_COLOR, palette, rgb } from '@ttylabs/sigil/canvas';
 import { Treemap } from '@ttylabs/sigil/components/treemap';
 import { type Element, raw } from '@ttylabs/sigil/element';
-import type { State } from '@ttylabs/sigil/signals';
+import type { Computed, State } from '@ttylabs/sigil/signals';
 import { quantizeColor } from '@ttylabs/sigil/style';
 import { dirname } from 'node:path';
 
@@ -92,7 +92,7 @@ function parentOf(path: string): string | undefined {
 
 export interface MapViewProps {
   /** What the map draws, or nothing while there is nothing to draw. */
-  readonly root: { get(): DiskNode | undefined };
+  readonly root: Computed<DiskNode | undefined> | State<DiskNode | undefined>;
   /** The path whose tile is outlined, which a click on the map moves. */
   readonly selected: State<string | undefined>;
   /** What to say where there is no map: the scan's progress, or why it is empty. */

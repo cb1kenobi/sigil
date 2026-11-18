@@ -13499,6 +13499,17 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   own went from 0.22 to 0.17 ms at 150 by 90 pixels. Level 2's extra tenth is the
   black and white ink above, about 2% more bytes written.
 
+- **Review round 1: four findings, all fixed.** A click on a cell holding one
+  tile's uncoloured bottom edge over the next tile's colour selected the upper
+  tile, whose colour the cell does not show -- the example's rule, carried over:
+  `treemapCellTile()` now gives a cell to a half that is coloured, the upper
+  first, and only then to whatever box it is in. A root node with a `get` method
+  of its own was called as though it were a signal; a signal is now told apart by
+  `instanceof State` or `Computed` rather than by having a `get`, which is the one
+  place in the library that duck typing could not be kept, because the root is
+  the app's own object. The test of an item deep in a tile drawn whole asserted
+  only that something was outlined, and now that it is that tile's outline. And a
+  comment in the example's `root.tsx` still named the deleted `treemap.ts`.
 - **Not done:** keys between tiles (above); a tooltip or a line for the tile under
   the pointer; zooming, which is an app writing a new `root` -- the example's Enter
   and Backspace; animating one layout into the next; a tile for a parent's own size
