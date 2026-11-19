@@ -313,6 +313,10 @@ const ENTRIES = [
     desc: 'An image: a picture resampled to the box layout gave it and drawn in half blocks, alpha mixed over what is under it',
     name: 'image',
   },
+  {
+    desc: 'A treemap: a tree of sized items as squarified rectangles in half blocks, coloured by a callback, with the current item outlined',
+    name: 'treemap',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

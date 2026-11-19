@@ -1,6 +1,6 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
-import { box, Element, scrollRange, text } from '../../src/element/index.js';
+import { box, Element, raw, renderToString, scrollRange, text } from '../../src/element/index.js';
 import { parseCapabilityResponse } from '../../src/input/capabilities.js';
 import { createInput } from '../../src/input/index.js';
 import {
@@ -16,9 +16,19 @@ import {
   render,
   runWithOwner,
   Show,
+  trackedRaw,
   useContext,
 } from '../../src/renderer/index.js';
-import { createEffects, effect, flush, sinkCount } from '../../src/signals/index.js';
+import {
+  Computed,
+  createEffects,
+  effect,
+  flush,
+  sinkCount,
+  untrack,
+  unwatched,
+  watched,
+} from '../../src/signals/index.js';
 import { State } from '../../src/signals/index.js';
 import { Cascade, parseStylesheet } from '../../src/style/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
@@ -4100,5 +4110,462 @@ describe('a renderer started from an effect', () => {
     expect(seen).to.deep.equal([0, 1]);
     stop();
     view?.dispose();
+  });
+});
+
+describe('trackedRaw()', () => {
+  // SIG-477. A `raw` paints inside the frame, which runs untracked, so what its
+  // paint read was something nothing listened to: a change repainted nothing
+  // unless a text happened to change in the same frame
+  /** A one-line raw that writes what `read()` answers at its top-left cell. */
+  const line = (read: () => string, make = trackedRaw) =>
+    make(
+      {
+        measure: () => ({ height: 1, width: 10 }),
+        paint: (painter, at) => painter.text(at.x, at.y, read()),
+      },
+      { height: 1, width: 10 }
+    );
+
+  it('should repaint when only a signal its paint read has changed', () => {
+    const h = harness(10, 1);
+    const word = new State('before');
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => word.get())
+        ),
+      {
+        backend: h.backend,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+    expect(h.picture()).toBe('before....');
+
+    // nothing but the one signal: no text, no prop, no effect beside the raw
+    word.set('after');
+    view.frame();
+
+    expect(h.picture()).toBe('after.....');
+    view.dispose();
+  });
+
+  it('should be what a plain raw is not, which is the defect', () => {
+    // the same tree through `raw()`, so that the test above cannot pass by way of
+    // the frame repainting everything whenever it is asked
+    const h = harness(10, 1);
+    const word = new State('before');
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => word.get(), raw)
+        ),
+      {
+        backend: h.backend,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+
+    word.set('after');
+    view.frame();
+
+    expect(h.picture()).toBe('before....');
+    view.dispose();
+  });
+
+  it('should follow what its last paint read, and only that', () => {
+    const h = harness(10, 1);
+    const which = new State<'a' | 'b'>('a');
+    const a = new State('a1');
+    const b = new State('b1');
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => (which.get() === 'a' ? a.get() : b.get()))
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    const painted = h.painted;
+
+    // not read by the paint on screen, so not a reason to paint again
+    b.set('b2');
+    view.frame();
+    expect(h.painted).toBe(painted);
+
+    which.set('b');
+    view.frame();
+    expect(h.picture()).toBe('b2........');
+    expect(sinkCount(a)).toBe(0);
+
+    a.set('a2');
+    view.frame();
+    expect(h.painted).toBe(painted + 1);
+    view.dispose();
+  });
+
+  it('should not follow a read the paint untracked', () => {
+    const h = harness(10, 1);
+    const word = new State('before');
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => untrack(() => word.get()))
+        ),
+      {
+        backend: h.backend,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+    const painted = h.painted;
+
+    word.set('after');
+    view.frame();
+
+    expect(h.painted).toBe(painted);
+    view.dispose();
+  });
+
+  it('should paint once for a burst of writes', () => {
+    const h = harness(10, 1);
+    const n = new State(0);
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => String(n.get()))
+        ),
+      {
+        backend: h.backend,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+    const painted = h.painted;
+
+    n.set(1);
+    n.set(2);
+    n.set(3);
+    view.frame();
+    view.frame();
+
+    expect(h.painted).toBe(painted + 1);
+    expect(h.picture()).toBe('3.........');
+    view.dispose();
+  });
+
+  it('should keep a source watched across paints that read it again', () => {
+    // the computed a paint runs in is a new one each time, and the old one is let
+    // go only after the new one has read: a source read by both never loses its
+    // last live sink, so what it subscribes to on `watched` is not torn down and
+    // rebuilt on every frame
+    const h = harness(10, 1);
+    const events: string[] = [];
+    const word = new State('a', {
+      [unwatched]: () => events.push('unwatched'),
+      [watched]: () => events.push('watched'),
+    });
+    const other = new State(0);
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => {
+            other.get();
+            return word.get();
+          })
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+
+    other.set(1);
+    view.frame();
+    other.set(2);
+    view.frame();
+    expect(events).toEqual(['watched']);
+
+    view.dispose();
+    expect(events).toEqual(['watched', 'unwatched']);
+  });
+
+  it('should stop listening when the branch that built it closes', () => {
+    const h = harness(10, 1);
+    const open = new State(true);
+    const word = new State('a');
+    const view = render(
+      () =>
+        Show({
+          children: () => line(() => word.get()),
+          fallback: () => text('closed'),
+          when: () => open.get(),
+        }),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    expect(sinkCount(word)).toBe(1);
+
+    open.set(false);
+    view.frame();
+
+    expect(sinkCount(word)).toBe(0);
+    word.set('b');
+    view.frame();
+    expect(h.picture()).toBe('closed....');
+    view.dispose();
+  });
+
+  it('should paint untracked when built under an owner that has gone', () => {
+    // the rule `createEffect()` follows: a callback that outlived its owner starts
+    // nothing nobody will ever stop
+    const word = new State('a');
+    let late: (() => Element) | undefined;
+    const dispose = createRoot((done) => {
+      const owner = getOwner();
+      late = () => runWithOwner(owner, () => line(() => word.get()));
+      return done;
+    });
+    dispose();
+
+    const element = late?.();
+    expect(renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })).toBe('a');
+    expect(sinkCount(word)).toBe(0);
+  });
+
+  it('should be released with its owner under renderToString(), which has no renderer', () => {
+    const word = new State('a');
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = line(() => word.get());
+      return done;
+    });
+
+    expect(renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })).toBe('a');
+    expect(sinkCount(word)).toBe(1);
+    word.set('b');
+    expect(renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })).toBe('b');
+
+    dispose();
+    expect(sinkCount(word)).toBe(0);
+    // still a raw, painting what it reads: only the listening went
+    word.set('c');
+    expect(renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })).toBe('c');
+  });
+
+  it('should repaint for a second change as it did for the first', () => {
+    // the watcher fires once and is armed again only by the paint that follows,
+    // so a test of one change cannot tell a re-armed watcher from a spent one
+    const h = harness(10, 1);
+    const n = new State(0);
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => String(n.get()))
+        ),
+      {
+        backend: h.backend,
+        effects,
+        terminal: h.terminal,
+      }
+    );
+    const painted = h.painted;
+
+    n.set(1);
+    view.frame();
+    n.set(2);
+    view.frame();
+
+    expect(h.painted).toBe(painted + 2);
+    expect(h.picture()).toBe('2.........');
+    view.dispose();
+  });
+
+  it('should leave a caller that tracks the paint reading what the paint read', () => {
+    // `renderToString()` inside a derivation: the caller used to be made a sink of
+    // the paint's own computed, whose value never changes, so its settling ran the
+    // old paint again, answered "unchanged" and left the watcher spent -- the
+    // string stayed on the second value for good. And each settling ran the old
+    // closure first, into the painter of a paint that was over, so it counts --
+    // through a derivation, since a caller that reads a state directly is marked
+    // dirty by it and recomputes without asking its other sources anything
+    const word = new State('before');
+    const shown = new Computed(() => word.get());
+    let paints = 0;
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = line(() => {
+        paints++;
+        return shown.get();
+      });
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })
+    );
+
+    const seen = [memo.get()];
+    word.set('after');
+    seen.push(memo.get());
+    word.set('later');
+    seen.push(memo.get());
+
+    expect(seen).toEqual(['before', 'after', 'later']);
+    expect(paints).toBe(3);
+    dispose();
+    memo.dispose();
+    expect(sinkCount(shown)).toBe(0);
+  });
+
+  it('should let go of what it read when its owner goes during the paint', () => {
+    const word = new State('a');
+    let element: Element | undefined;
+    createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: () => ({ height: 1, width: 1 }),
+          paint: (painter, at) => {
+            done();
+            painter.text(at.x, at.y, word.get());
+          },
+        },
+        { height: 1, width: 1 }
+      );
+      return done;
+    });
+
+    expect(renderToString(box({}, element as Element), { colorLevel: 0, width: 5 })).toBe('a');
+    expect(sinkCount(word)).toBe(0);
+  });
+
+  it.each([
+    ['before', true],
+    ['after', false],
+  ])('should hand a caller what was read when the owner went %s the read', (_, first) => {
+    // the owner's cleanup used to empty the computed's sources mid-paint, and the
+    // caller was handed the empty list: `renderToString()` in a derivation kept
+    // the string from that paint for good
+    const word = new State('a');
+    const shown = new Computed(() => word.get());
+    let element: Element | undefined;
+    createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: () => ({ height: 1, width: 5 }),
+          paint: (painter, at) => {
+            if (first) {
+              done();
+            }
+            const value = shown.get();
+            if (!first) {
+              done();
+            }
+            painter.text(at.x, at.y, value);
+          },
+        },
+        { height: 1, width: 5 }
+      );
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 5 })
+    );
+
+    expect(memo.get()).toBe('a');
+    word.set('b');
+    expect(memo.get()).toBe('b');
+    memo.dispose();
+    expect(sinkCount(shown)).toBe(0);
+  });
+
+  it('should finish letting go when an unwatched callback throws', () => {
+    // the previous paint's source losing its last sink runs `unwatched`, which may
+    // throw; the throw used to skip everything after it in the paint -- the
+    // computed the owner left behind, and the caller being handed what was read
+    const which = new State('a');
+    const a = new State('A', {
+      [unwatched]: () => {
+        throw new Error('unwatched a');
+      },
+    });
+    const b = new State('B');
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = line(() => (which.get() === 'a' ? a.get() : b.get()));
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 10 })
+    );
+
+    expect(memo.get()).toBe('A');
+    which.set('b');
+    // still raised, once everything else has been done
+    expect(() => memo.get()).toThrow('unwatched a');
+    expect(sinkCount(a)).toBe(0);
+    b.set('B2');
+    expect(memo.get()).toBe('B2');
+    memo.dispose();
+    dispose();
+    expect(sinkCount(b)).toBe(0);
+  });
+
+  it('should let go of the paint before one that threw', () => {
+    // the frame that throws fails the renderer, which disposes the owner and with
+    // it the computed of the paint that threw -- which read `mode` and nothing
+    // else. `word` was read only by the paint before it, and that one is the
+    // paint's own to let go of
+    const h = harness(10, 1);
+    const errors: unknown[] = [];
+    const mode = new State('fine');
+    const word = new State('word');
+    const view = render(
+      () =>
+        box(
+          {},
+          line(() => {
+            if (mode.get() === 'boom') {
+              throw new Error('boom');
+            }
+            return word.get();
+          })
+        ),
+      { backend: h.backend, effects, onError: (error) => errors.push(error), terminal: h.terminal }
+    );
+    expect(sinkCount(word)).toBe(1);
+
+    mode.set('boom');
+    view.frame();
+
+    expect(String(errors[0])).toContain('boom');
+    expect(sinkCount(word)).toBe(0);
+    expect(sinkCount(mode)).toBe(0);
+  });
+
+  it('should refuse a paint that writes a signal', () => {
+    // a paint that wrote what it read would repaint itself every frame for as
+    // long as the app ran; it is a derivation, and a derivation may not write
+    const h = harness(10, 1);
+    const errors: unknown[] = [];
+    const count = new State(0);
+    render(
+      () =>
+        box(
+          {},
+          line(() => {
+            count.set(count.get() + 1);
+            return 'x';
+          })
+        ),
+      { backend: h.backend, effects, onError: (error) => errors.push(error), terminal: h.terminal }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('A Computed may not write to a signal');
+    expect(count.get()).toBe(0);
   });
 });
