@@ -17,8 +17,9 @@ $ pnpm --filter @ttylabs/example-hello start:ui    # the ui-tag twin, unbuilt
 Or from inside an example's directory, `pnpm start`, and `pnpm start:ui` for one
 written twice.
 
-Every example quits on Ctrl-C, and on `q` unless a text field takes the letter
-or there is unsaved work to ask about first. Without a terminal on both sides,
+Every example quits on Ctrl-C, and on `q` when nothing open takes the letter
+first: a text field, a dialog or a menu keeps it, and the editor asks before it
+leaves unsaved work. Without a terminal on both sides,
 piped into `cat` for example, an example refuses: it draws nothing, writes one
 line to stderr, and exits `1`.
 
