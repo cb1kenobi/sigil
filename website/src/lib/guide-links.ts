@@ -22,11 +22,12 @@ import { posix } from 'node:path';
  *   as a line, means the source and stays on GitHub.
  * - the directory those files are in, `../src/components/`, is the components
  *   index, with or without its trailing slash and, as above, without a
- *   fragment. GitHub shows the directory as a list of the files, one per
- *   component and the helpers beside them, so "see all the components" is
- *   true there too, and it is the only spelling of the index that is: an
- *   absolute `/docs/components` is a path GitHub cannot follow, and the link
- *   check refuses it.
+ *   fragment. GitHub shows the directory as a list of the components' source
+ *   files: most are named after their component, and some hold several, as
+ *   the prompts share files. So the link leads to every component there too,
+ *   and it is the only spelling of the index that does: an absolute
+ *   `/docs/components` is a path GitHub cannot follow, and the link check
+ *   refuses it.
  * - anything else in the repository -- a README, the toolchain's own README, a
  *   source file -- is that file on GitHub, on `main`.
  * - a fragment on its own, an absolute URL and a `mailto:` are left as written.
