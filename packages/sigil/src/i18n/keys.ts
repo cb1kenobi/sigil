@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 442 keys, which is what a catalog has to carry to translate sigil's own
+ * 444 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -138,6 +138,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a toast title to be a string',
   'Expected a toast variant to be note, info, success, warning or error',
   'Expected a tooltip anchor to be an element',
+  'Expected a tooltip area to be a function',
   'Expected a tooltip delay in milliseconds',
   'Expected a tooltip input to be a router',
   'Expected a tooltip maxWidth of at least 4 cells',
@@ -221,6 +222,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected tree items to be an array, a root node, a State or a Computed',
   'Expected tree {0} to be a function',
   'Expected treemap size to be a function',
+  'Expected treemap tooltip text to be a function',
   'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',
