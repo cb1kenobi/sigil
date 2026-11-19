@@ -602,9 +602,10 @@ export interface ListViewDescriber {
 }
 
 /**
- * How `describeListView()`, `describeTreeListView()` and `describeDataTable()` word
- * the keys they describe, given after the hosts as a plain object: a class instance
- * is not read as options, for the reason `describedHosts()` gives.
+ * How `describeListView()`, `describeTreeListView()`, `describeDataTable()` and
+ * `describeTreemap()` word the keys they describe, given after the hosts as a plain
+ * object: a class instance is not read as options, for the reason `describedHosts()`
+ * gives.
  */
 export interface DescribeListViewOptions {
   /**
@@ -627,7 +628,7 @@ export interface DescribeListViewOptions {
  * with no word and dropped. A class instance is refused the same way, which is the
  * price of telling a foreign element from options without guessing at its shape.
  * Shared by every describer that takes
- * {@link DescribeListViewOptions}, so the three cannot come to read it differently.
+ * {@link DescribeListViewOptions}, so the four cannot come to read it differently.
  *
  * @param args - What followed the router.
  * @returns The hosts, and the options, checked.

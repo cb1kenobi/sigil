@@ -1,5 +1,6 @@
 import { createCanvas, DEFAULT_COLOR, palette, rgb, type Style } from '../../src/canvas/index.js';
 import {
+  describeTreemap,
   inside,
   layoutTreemap,
   paintTreemap,
@@ -7,19 +8,23 @@ import {
   Treemap,
   type TreemapBox,
   treemapColors,
+  type TreemapDescriber,
   type TreemapLayout,
   type TreemapProps,
   type TreemapReader,
   treemapCellTile,
   treemapMark,
+  treemapNeighbor,
+  type TreemapTile,
   treemapTileAt,
   treemapTileColors,
 } from '../../src/components/treemap.js';
 import { box } from '../../src/element/index.js';
+import type { DescribeOptions } from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
 import { Computed, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
-import { createTestTerminal, frame } from '../../src/testing/index.js';
+import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -332,6 +337,165 @@ describe('treemapTileAt()', () => {
     expect(treemapTileAt(map, 0, 0)?.item.name).toBe('left');
     expect(treemapTileAt(map, 9, 3)?.item.name).toBe('right');
     expect(treemapTileAt(map, 10, 0)).toBeUndefined();
+  });
+});
+
+describe('treemapNeighbor()', () => {
+  /** Boxes laid by hand, each a leaf named by its place: `t0`, `t1`, ... */
+  function laidOut(...boxes: TreemapBox[]): { tiles: TreemapTile<Node>[] } {
+    return {
+      tiles: boxes.map((at, i) => ({
+        ...at,
+        cushion: [0, 0, 0, 0],
+        depth: 1,
+        item: leaf(ROOT, `t${i}`, 1),
+        kind: 'leaf',
+      })),
+    };
+  }
+
+  const named = (tile: TreemapTile<Node> | undefined): string | undefined => tile?.item.name;
+
+  /** Four in a square: `t0` `t1` over `t2` `t3`. */
+  const grid = laidOut(
+    { h: 4, w: 4, x: 0, y: 0 },
+    { h: 4, w: 4, x: 4, y: 0 },
+    { h: 4, w: 4, x: 0, y: 4 },
+    { h: 4, w: 4, x: 4, y: 4 }
+  );
+  const [t0, t1, t2, t3] = grid.tiles;
+
+  it('should move to the tile beside a tile, in each of the four directions', () => {
+    expect(named(treemapNeighbor(grid, t0, 'right'))).toBe('t1');
+    expect(named(treemapNeighbor(grid, t0, 'down'))).toBe('t2');
+    expect(named(treemapNeighbor(grid, t3, 'left'))).toBe('t2');
+    expect(named(treemapNeighbor(grid, t3, 'up'))).toBe('t1');
+    expect(named(treemapNeighbor(grid, t1, 'down'))).toBe('t3');
+    expect(named(treemapNeighbor(grid, t2, 'up'))).toBe('t0');
+  });
+
+  it('should move nowhere past an edge of the map', () => {
+    expect(treemapNeighbor(grid, t0, 'left')).toBeUndefined();
+    expect(treemapNeighbor(grid, t0, 'up')).toBeUndefined();
+    expect(treemapNeighbor(grid, t1, 'right')).toBeUndefined();
+    expect(treemapNeighbor(grid, t2, 'down')).toBeUndefined();
+    expect(treemapNeighbor(grid, t3, 'right')).toBeUndefined();
+    expect(treemapNeighbor(grid, t3, 'down')).toBeUndefined();
+  });
+
+  it('should go to the first tile laid from nothing marked, whichever way', () => {
+    for (const way of ['up', 'down', 'left', 'right'] as const) {
+      expect(treemapNeighbor(grid, undefined, way)).toBe(t0);
+    }
+    expect(treemapNeighbor({ tiles: [] }, undefined, 'right')).toBeUndefined();
+  });
+
+  it('should move from a box with tiles inside it to the tile past it', () => {
+    // the top row as one box, which is how a divided item is marked
+    const row = { h: 4, w: 8, x: 0, y: 0 };
+    expect(named(treemapNeighbor(grid, row, 'down'))).toBe('t2');
+    expect(treemapNeighbor(grid, row, 'right')).toBeUndefined();
+  });
+
+  it('should move to a tile next to it, never over it to one sharing more of the edge', () => {
+    // `t0` tall on the left, `t1` over `t2` beside it, and `t3` past them sharing
+    // all of `t0`'s right edge
+    const map = laidOut(
+      { h: 8, w: 4, x: 0, y: 0 },
+      { h: 3, w: 2, x: 4, y: 0 },
+      { h: 5, w: 2, x: 4, y: 3 },
+      { h: 8, w: 4, x: 6, y: 0 }
+    );
+    expect(named(treemapNeighbor(map, map.tiles[0], 'right'))).toBe('t2');
+    expect(named(treemapNeighbor(map, map.tiles[3], 'left'))).toBe('t2');
+  });
+
+  it('should settle a tie on the edge by the nearer center, and a tie on that by the first laid', () => {
+    // both share two rows of `t0`'s edge, and the second laid, `t2`, has its
+    // center nearer `t0`'s
+    const centers = laidOut(
+      { h: 4, w: 4, x: 0, y: 1 },
+      { h: 5, w: 2, x: 4, y: 3 },
+      { h: 3, w: 2, x: 4, y: 0 }
+    );
+    expect(named(treemapNeighbor(centers, centers.tiles[0], 'right'))).toBe('t2');
+    // and exactly halfway between two of one size: the first laid, whichever
+    // side of the other it is
+    const even = laidOut(
+      { h: 8, w: 4, x: 0, y: 0 },
+      { h: 4, w: 2, x: 4, y: 4 },
+      { h: 4, w: 2, x: 4, y: 0 }
+    );
+    expect(named(treemapNeighbor(even, even.tiles[0], 'right'))).toBe('t1');
+    const swapped = laidOut(
+      { h: 8, w: 4, x: 0, y: 0 },
+      { h: 4, w: 2, x: 4, y: 0 },
+      { h: 4, w: 2, x: 4, y: 4 }
+    );
+    expect(named(treemapNeighbor(swapped, swapped.tiles[0], 'right'))).toBe('t1');
+    // the same across: two side by side under a wide one
+    const across = laidOut(
+      { h: 4, w: 8, x: 0, y: 0 },
+      { h: 2, w: 4, x: 4, y: 4 },
+      { h: 2, w: 4, x: 0, y: 4 }
+    );
+    expect(named(treemapNeighbor(across, across.tiles[0], 'down'))).toBe('t1');
+  });
+
+  it('should take a tile sharing none of the edge only where none does', () => {
+    // `t0` one pixel tall, beside a row no tile is in -- the row a directory
+    // directly under the root keeps -- with `t1` a row down and `t2` three
+    const gap = laidOut(
+      { h: 1, w: 4, x: 0, y: 0 },
+      { h: 3, w: 3, x: 5, y: 1 },
+      { h: 3, w: 3, x: 4, y: 3 }
+    );
+    expect(named(treemapNeighbor(gap, gap.tiles[0], 'right'))).toBe('t1');
+    // a tile that shares it, however far along, comes first
+    const far = laidOut(
+      { h: 1, w: 4, x: 0, y: 0 },
+      { h: 3, w: 3, x: 5, y: 1 },
+      { h: 1, w: 2, x: 9, y: 0 }
+    );
+    expect(named(treemapNeighbor(far, far.tiles[0], 'right'))).toBe('t2');
+  });
+
+  it('should reach every tile of a map laid out, from the first, by the arrows alone', () => {
+    const sub = `${ROOT}/sub`;
+    const deep = `${sub}/deep`;
+    const root = branch(ROOT, [
+      branch(sub, [
+        branch(
+          deep,
+          Array.from({ length: 30 }, (_, i) => leaf(deep, `f${i}`, 100 + i * 37))
+        ),
+        leaf(sub, 'one', 4000),
+      ]),
+      ...Array.from({ length: 12 }, (_, i) => leaf(ROOT, `r${i}`, 500 * (i + 1))),
+    ]);
+    for (const [w, h] of [
+      [40, 30],
+      [17, 9],
+      [120, 70],
+    ] as const) {
+      const map = layout(root, w, h);
+      const seen = new Set<TreemapTile<Node>>();
+      const queue = [map.tiles[0] as TreemapTile<Node>];
+      while (queue.length > 0) {
+        const at = queue.pop() as TreemapTile<Node>;
+        if (seen.has(at)) {
+          continue;
+        }
+        seen.add(at);
+        for (const way of ['up', 'down', 'left', 'right'] as const) {
+          const next = treemapNeighbor(map, at, way);
+          if (next !== undefined) {
+            queue.push(next);
+          }
+        }
+      }
+      expect(seen.size, `${w} by ${h}`).toBe(map.tiles.length);
+    }
   });
 });
 
@@ -878,6 +1042,326 @@ describe('Treemap', () => {
     expect(() =>
       Treemap({ ...PAIR_PROPS, props: { onMouse: () => {} } as never, root: PAIR })
     ).toThrow(/Treemap sets onMouse itself/);
+  });
+
+  it('should refuse an onKey in its props, which it sets itself', () => {
+    expect(() =>
+      Treemap({ ...PAIR_PROPS, props: { onKey: () => {} } as never, root: PAIR })
+    ).toThrow(/Treemap sets onKey itself/);
+  });
+});
+
+describe('Treemap keys', () => {
+  /** Presses keys, one at a time, and waits for the frame after them. */
+  async function press(
+    m: { app: Parameters<typeof frame>[0]; term: { press(...keys: string[]): Promise<void> } },
+    ...keys: string[]
+  ): Promise<void> {
+    for (const key of keys) {
+      await m.term.press(key);
+    }
+    await frame(m.app);
+  }
+
+  /** Shift and an arrow, as xterm sends it. */
+  const SHIFT_RIGHT = '\u001b[1;2C';
+
+  it('should take the focus, and move the current item with the arrows, as a click would', async () => {
+    const current = new State<string | undefined>(undefined);
+    const picks: unknown[] = [];
+    const m = await mount({
+      ...PAIR_PROPS,
+      current,
+      onPick: (key, item, gathered) => picks.push([key, item.name, gathered]),
+      root: PAIR,
+    });
+    expect(m.app.input?.focus.ring()).toHaveLength(1);
+    await press(m, KEYS.tab);
+    // nothing marked yet: any arrow starts at the first tile, `a` on the left
+    await press(m, KEYS.down);
+    expect(current.get()).toBe(`${ROOT}/a`);
+    const marked = m.screen();
+    await press(m, KEYS.right);
+    expect(current.get()).toBe(`${ROOT}/b`);
+    expect(m.screen()).not.toBe(marked);
+    // the right edge, and the top and the bottom: nowhere to go, and nothing said
+    await press(m, KEYS.right, KEYS.up, KEYS.down);
+    expect(current.get()).toBe(`${ROOT}/b`);
+    await press(m, KEYS.left);
+    expect(current.get()).toBe(`${ROOT}/a`);
+    expect(m.screen()).toBe(marked);
+    expect(picks).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/b`, 'b', undefined],
+      [`${ROOT}/a`, 'a', undefined],
+    ]);
+  });
+
+  it('should move onto a tile of gathered items as a click on it does, and back off it', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const current = new State<string | undefined>(`${ROOT}/huge`);
+    const picks: [string, string, readonly Node[] | undefined][] = [];
+    const m = await mount(
+      {
+        ...PAIR_PROPS,
+        current,
+        onPick: (key, item, gathered) => picks.push([key, item.name, gathered]),
+        root,
+      },
+      { columns: 40, rows: 12 }
+    );
+    const map = layoutTreemap(root, 40, 24, READ);
+    const huge = map.byKey.get(`${ROOT}/huge`);
+    const ways = { down: KEYS.down, left: KEYS.left, right: KEYS.right, up: KEYS.up } as const;
+    const back = { down: 'up', left: 'right', right: 'left', up: 'down' } as const;
+    const way = (['right', 'down', 'left', 'up'] as const).find(
+      (it) => treemapNeighbor(map, huge, it)?.kind === 'rest'
+    );
+    expect(way).toBeDefined();
+    await press(m, KEYS.tab, ways[way as keyof typeof ways]);
+    // the largest of them, with all of them, as a click hands them over
+    expect(current.get()).toBe(`${ROOT}/s29`);
+    expect(picks[0]?.[0]).toBe(`${ROOT}/s29`);
+    expect(picks[0]?.[2]).toHaveLength(30);
+    // and from the tile the gathered item is marked by, back the way it came
+    await press(m, ways[back[way as keyof typeof back]]);
+    expect(current.get()).toBe(`${ROOT}/huge`);
+  });
+
+  it('should move from an item deep inside a tile drawn in one piece, given its parent', async () => {
+    const box = `${ROOT}/box`;
+    const root = branch(ROOT, [
+      leaf(ROOT, 'big', 9000),
+      branch(
+        box,
+        Array.from({ length: 40 }, (_, i) => leaf(box, `${i}`, 25))
+      ),
+    ]);
+    const current = new State<string | undefined>(`${box}/3`);
+    const m = await mount(
+      { ...PAIR_PROPS, current, parent: parentOf, root },
+      { columns: 30, rows: 8 }
+    );
+    const map = layoutTreemap(root, 30, 16, READ);
+    const whole = map.byKey.get(box);
+    const big = map.byKey.get(`${ROOT}/big`) as TreemapBox;
+    const toward = (whole?.x ?? 0) > big.x ? KEYS.left : KEYS.up;
+    await press(m, KEYS.tab, toward);
+    expect(current.get()).toBe(`${ROOT}/big`);
+  });
+
+  it('should call onActivate on Enter with the current key, and only while it is marked', async () => {
+    const current = new State<string | undefined>(`${ROOT}/b`);
+    const activated: string[] = [];
+    const m = await mount({
+      ...PAIR_PROPS,
+      current,
+      onActivate: (key) => activated.push(key),
+      root: PAIR,
+    });
+    await press(m, KEYS.tab, KEYS.enter);
+    expect(activated).toStrictEqual([`${ROOT}/b`]);
+    // the root is the whole map and outlines nothing, nor does a key not on it
+    current.set(ROOT);
+    await press(m, KEYS.enter);
+    current.set('/elsewhere');
+    await press(m, KEYS.enter);
+    expect(activated).toStrictEqual([`${ROOT}/b`]);
+  });
+
+  it('should leave what is not its own to what is around it', async () => {
+    const heard: string[] = [];
+    const current = new State<string | undefined>(`${ROOT}/b`);
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    const app = runApp(
+      () =>
+        box(
+          {
+            'flex-grow': 1,
+            onKey: (event) => {
+              heard.push(`${event.key.shift ? 'shift+' : ''}${event.key.name}`);
+            },
+          },
+          Treemap({ ...PAIR_PROPS, current, props: { 'flex-grow': 1 }, root: PAIR })
+        ),
+      { detect: false, mouse: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    const m = { app, term };
+    // Enter with no onActivate, an arrow with Shift, and a letter; the arrow at
+    // the edge is the map's, though it goes nowhere
+    await press(m, KEYS.tab, KEYS.enter, SHIFT_RIGHT, 'x', KEYS.right);
+    expect(heard).toStrictEqual(['enter', 'shift+right', 'x']);
+    expect(current.get()).toBe(`${ROOT}/b`);
+  });
+
+  /** A map inside a box that records every key that reaches it, and the map. */
+  async function wrapped(props: TreemapProps<Node, string>) {
+    const heard: string[] = [];
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    let map: ReturnType<typeof Treemap> | undefined;
+    const app = runApp(
+      () =>
+        box(
+          {
+            'flex-grow': 1,
+            onKey: (event) => {
+              heard.push(`${event.key.shift ? 'shift+' : ''}${event.key.name}`);
+            },
+          },
+          (map = Treemap({ ...props, props: { 'flex-grow': 1, ...props.props } }))
+        ),
+      { detect: false, mouse: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    return { app, heard, map: map as ReturnType<typeof Treemap>, term };
+  }
+
+  it('should move on the root a key finds, though the frame that draws it has not come', async () => {
+    // Enter that zooms and an arrow in the same read: the arrow is on the new root
+    const root = new State<Node | undefined>(PAIR);
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, root });
+    await press(m, KEYS.tab);
+    root.set(branch(ROOT, [leaf(ROOT, 'x', 500), leaf(ROOT, 'y', 500)]));
+    await m.term.press(KEYS.right);
+    expect(current.get()).toBe(`${ROOT}/x`);
+    // and a root gone takes the keys back at once
+    root.set(undefined);
+    await m.term.press(KEYS.right);
+    expect(current.get()).toBe(`${ROOT}/x`);
+  });
+
+  it('should read a click against what is drawn, though a key has seen a newer root', async () => {
+    // `a` on the left, `b` on the right; a key between a new root and its frame
+    // must not change what a click on `a` means
+    const root = new State<Node | undefined>(PAIR);
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, root });
+    await press(m, KEYS.tab);
+    root.set(branch(ROOT, [leaf(ROOT, 'x', 500), leaf(ROOT, 'y', 500)]));
+    await m.term.press('z');
+    await m.click(2, 2);
+    expect(current.get()).toBe(`${ROOT}/a`);
+  });
+
+  it('should take no key where nothing is drawn: no root, or a box laid out to nothing', async () => {
+    const empty = await wrapped({ ...PAIR_PROPS, root: undefined });
+    await press(empty, KEYS.tab, KEYS.right, KEYS.enter);
+    expect(empty.heard).toStrictEqual(['right', 'enter']);
+
+    const current = new State<string | undefined>(undefined);
+    const collapsed = await wrapped({ ...PAIR_PROPS, current, onActivate: () => {}, root: PAIR });
+    await press(collapsed, KEYS.tab);
+    collapsed.map.setProp('flex-grow', 0);
+    collapsed.map.setProp('width', 0);
+    await frame(collapsed.app);
+    await press(collapsed, KEYS.right);
+    expect(collapsed.heard).toStrictEqual(['right']);
+    expect(current.get()).toBeUndefined();
+  });
+
+  it('should leave Enter to what is around it while nothing is outlined, onActivate or not', async () => {
+    const activated: string[] = [];
+    const m = await wrapped({
+      ...PAIR_PROPS,
+      current: ROOT,
+      onActivate: (key) => activated.push(key),
+      root: PAIR,
+    });
+    await press(m, KEYS.tab, KEYS.enter);
+    expect(m.heard).toStrictEqual(['enter']);
+    expect(activated).toStrictEqual([]);
+  });
+
+  it('should activate on Shift-Enter, as a list does, where a terminal tells it apart', async () => {
+    // no sequence the decoder reads says Shift-Enter, so the event is handed over
+    // as a terminal that reports one would have it decoded
+    const activated: string[] = [];
+    const m = await wrapped({
+      ...PAIR_PROPS,
+      current: `${ROOT}/a`,
+      onActivate: (key) => activated.push(key),
+      root: PAIR,
+    });
+    let stopped = false;
+    m.map.onKey?.({
+      current: m.map,
+      key: { ctrl: false, meta: false, name: 'enter', sequence: '\r', shift: true },
+      paste: false,
+      stop: () => {
+        stopped = true;
+      },
+      stopped: false,
+      target: m.map,
+    });
+    expect(activated).toStrictEqual([`${ROOT}/a`]);
+    expect(stopped).toBe(true);
+  });
+
+  it('should take no keys and no focus with focusable: false in its props', async () => {
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, props: { focusable: false }, root: PAIR });
+    expect(m.app.input?.focus.ring()).toStrictEqual([]);
+    await press(m, KEYS.tab, KEYS.right);
+    expect(current.get()).toBeUndefined();
+  });
+});
+
+describe('describeTreemap', () => {
+  /** A router that records what it was told. */
+  function recorder() {
+    const live: { keys: string; opts: DescribeOptions }[] = [];
+    const router: TreemapDescriber = {
+      describe(keys, opts) {
+        const entry = { keys, opts };
+        live.push(entry);
+        return () => void live.splice(live.indexOf(entry), 1);
+      },
+    };
+    const said = () => live.map((e) => `${e.keys} ${e.opts.description} ${e.opts.priority ?? 0}`);
+    return { live, router, said };
+  }
+
+  it('should describe the arrows, scoped to the map, and Enter only where it has onActivate', () => {
+    const { live, router, said } = recorder();
+    const host = Treemap({ ...PAIR_PROPS, root: PAIR });
+    describeTreemap(router, host);
+    expect(said()).toStrictEqual(['up move 1', 'down move 1', 'left move 1', 'right move 1']);
+    expect(live.every((e) => e.opts.scope === host)).toBe(true);
+  });
+
+  it("should say open for Enter, or the caller's word given after the maps", () => {
+    const { router, said } = recorder();
+    const host = Treemap({ ...PAIR_PROPS, onActivate: () => {}, root: PAIR });
+    const off = describeTreemap(router, host);
+    expect(said().at(-1)).toBe('enter open 2');
+    off();
+    describeTreemap(router, host, { activate: 'map it' });
+    expect(said().at(-1)).toBe('enter map it 2');
+  });
+
+  it('should take every description back off', () => {
+    const { live, router } = recorder();
+    const off = describeTreemap(
+      router,
+      Treemap({ ...PAIR_PROPS, root: PAIR }),
+      Treemap({ ...PAIR_PROPS, root: PAIR })
+    );
+    expect(live).toHaveLength(8);
+    off();
+    expect(live).toHaveLength(0);
+  });
+
+  it('should refuse an element that is not a treemap, and describe nothing', () => {
+    const { live, router } = recorder();
+    expect(() => describeTreemap(router, Treemap({ ...PAIR_PROPS, root: PAIR }), box())).toThrow(
+      'Expected an element that Treemap() returned'
+    );
+    expect(live).toHaveLength(0);
   });
 });
 

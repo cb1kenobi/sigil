@@ -701,6 +701,40 @@ describe('the disk usage visualizer', () => {
   );
 
   it(
+    'should move between tiles with the arrows once the map has the focus, and map one with Enter',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, { columns: 120 });
+      await m.press(KEYS.tab);
+      // the footer says what the map's own keys do, and the selection's are still there
+      const footer = m.term.viewport.at(-1) ?? '';
+      expect(footer).toMatch(/move/);
+      expect(footer).toMatch(/enter map it/);
+      expect(footer).toMatch(/backspace map up/);
+
+      // the root is selected, which outlines nothing: an arrow starts at the first
+      // tile, and the tree opens down to it, as a click on it would
+      await m.press(KEYS.right);
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+      expect(m.screen()).toMatch(/❯ │ +├── +clip\.mp4/u);
+      await m.press(KEYS.right);
+      expect(info(m)).toMatch(/song\.mp3 · 20\.0 kB/);
+      // the focus stayed on the map, so the arrows went on moving there
+      await m.press(KEYS.left);
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+
+      // Enter maps the directory the file is in, and Backspace, reaching the box
+      // around both panels, maps the one above it
+      await m.press(KEYS.enter);
+      expect(m.screen()).toMatch(/Map: work[\\/]media/);
+      await m.press(KEYS.backspace);
+      expect(m.screen()).toMatch(/Map: work /);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
     'should say what the pointer is over on the map, and the selection again once it leaves',
     async () => {
       const work = workspace();
