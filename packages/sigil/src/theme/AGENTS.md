@@ -317,7 +317,7 @@ the entry it belongs to.
   It grew from seven names to eighteen when `highlightCode()` arrived, and **every
   one of the eleven is a role rather than a declaration**, so `FRAMEWORK_CSS`
   gained a vocabulary comment and no rule, and `should declare on a role, bar twelve
-  exceptions that say why` is untouched. Each new name takes the role of the thing
+  exceptions that say why` (thirteen since SIG-497) was untouched. Each new name takes the role of the thing
   it is most like rather than a role of its own: `constant` and `hunk` are info, as
   a number and the diff view's hunk header are; `regexp` and `inserted` success, as
   a string and an added line are; `deleted` the error role, as a removed line is;
@@ -332,8 +332,9 @@ the entry it belongs to.
   the twelfth exception, `.sigil-markdown-strong`, already records rather than a
   gap. The only bold role is `.sigil-heading`, and strong text drawn in it is what
   that exception was written to avoid: a theme that coloured headings would colour
-  every strong word. An exception for a source highlighter's tokens would be the
-  sixteenth, for a look nothing asked for, so they are hooks.
+  every strong word. An exception for a source highlighter's tokens would have been
+  the sixteenth (the seventeenth since SIG-497 took that ordinal), for a look nothing
+  asked for, so they are hooks.
   `should give a role to every token it emits but the two Markdown leaves to a
   sheet` in `test/components/highlight.test.ts` holds the table to what the
   highlighter emits, and `should name only roles the framework sheet declares` holds

@@ -93,7 +93,7 @@
         "type": "(key: K) => K | undefined"
       },
       {
-        "description": "The element's own props: a size, a class, `flex-grow`. The map is focusable, which `focusable: false` here takes back, along with its keys. Its `border-color` is the outline's colour, so `.sigil-treemap:focus` gives the focused outline a colour of its own and `.sigil-treemap` the unfocused one.",
+        "description": "The element's own props: a size, a class, `flex-grow`. The map is focusable, which `focusable: false` here takes back, along with its keys. Its `border-color` is the outline's colour: `.sigil-treemap:focus` colours the focused outline, and `.sigil-treemap` from a theme or the app colours both.",
         "name": "props",
         "optional": true,
         "type": "ElementPropsWithout<\"onKey\" | \"onMouse\">"

@@ -79,9 +79,9 @@ export interface TreemapProps<T, K = T> {
    * gathered together -- is a checker of this colour and a second, which is it
    * darkened, or at 16 colours its bright twin. A gathered tile is the colour that
    * covers the most size among what it gathers, unless `moreColor` says. The
-   * outline of the current item is bright white, or green while the map has the
-   * focus, unless the map's `border-color` says otherwise, so no item should be
-   * either.
+   * outline of the current item is bright white, so no item should be; while the
+   * map has the focus it is green, unless the map's `border-color` says otherwise,
+   * and a green item is fine, since the band inside the outline keeps it apart.
    *
    * Called as the map paints, so a signal it reads repaints it. Defaults to one
    * blue for everything.
