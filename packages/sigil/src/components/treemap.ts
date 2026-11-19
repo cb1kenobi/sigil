@@ -53,7 +53,7 @@ import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { type DescribeListViewOptions, describedHosts } from './list-view.js';
+import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 export interface TreemapProps<T, K = T> {

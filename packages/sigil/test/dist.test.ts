@@ -1195,3 +1195,29 @@ describe('the update worker, baked in', () => {
     expect(bundle, 'the last line of the worker').toContain(lines.at(-1));
   });
 });
+
+describe('what the treemap loads', () => {
+  /** The list view's own chunk and the scroll box it windows its rows in. */
+  const LIST = /^(?:list-view|scroll-box)-[\w-]+\.mjs$/;
+
+  it('should not load the list view to import the treemap', () => {
+    // SIG-496: `describeTreemap()` splits its arguments with `describedHosts()`,
+    // and SIG-491 imported that from the list view's module -- which put the list
+    // view, its scroll box, the theme and the input router behind a component that
+    // has no list in it: 250,875 B over 41 modules, against the 180,470 SIG-480
+    // measured. It lives in the footer's module now, which is about describing keys
+    const graph = [...staticGraph('components/treemap.mjs')];
+
+    expect(graph.filter((name) => LIST.test(name))).toEqual([]);
+    // the presence halves: the list view's subpath does load both under those
+    // names, so a chunk renamed out from under the pattern fails here rather than
+    // passing the absence forever -- and the treemap still carries the function
+    expect(
+      [...staticGraph('components/list-view.mjs')].filter((name) => LIST.test(name))
+    ).toHaveLength(2);
+    const message = 'Expected activate to be a non-empty string';
+    expect(graph.some((name) => readFileSync(join(dist, name), 'utf8').includes(message))).toBe(
+      true
+    );
+  });
+});

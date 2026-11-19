@@ -33,9 +33,8 @@ import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { errorMessage } from '../util/error-message.js';
+import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
-  type DescribeListViewOptions,
-  describedHosts,
   describeListView,
   type ListControl,
   listControl,
