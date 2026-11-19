@@ -5282,6 +5282,57 @@ says otherwise -- a height alone gives the width from the proportions, terminal
 or not. `.sigil-image` is the
 class on the element.
 
+#### A treemap
+
+```js
+import { palette, rgb } from '@ttylabs/sigil/canvas';
+import { Treemap } from '@ttylabs/sigil/components/treemap';
+
+const map = Treemap({
+  root: tree, // or a State or a Computed of one
+  size: (node) => node.bytes,
+  children: (node) => node.children,
+  key: (node) => node.path,
+  label: (node) => node.name,
+  color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
+  current, // a State of a key: the item outlined, which a click moves
+  onPick: (key, node) => reveal(key),
+  props: { 'flex-grow': 1 },
+});
+```
+
+Any tree with sizes -- disk use, a bundle's modules, memory by owner -- as nested
+rectangles, each as big as its share and inside its parent's. The layout is
+squarified, which keeps the rectangles near square, and done in half-block
+pixels, which are about square on screen; edges are rounded rather than sizes,
+so neighbours meet with no gap and no overlap.
+
+- **The tree is read through accessors.** `size`, `children` and `key` over your
+  own nodes, so nothing is copied into a shape of ours, and only as deep as there
+  is room to draw: a tree of a hundred thousand items costs what is on screen. An
+  item drawn smaller than three pixels a side is one tile, textured as "many
+  things"; the children of an item too small to draw on their own are gathered
+  into one tile named `37 more` (`moreLabel` and `moreColor` say otherwise). A
+  new tree is a new `root`; the same root at the same size is not laid out again.
+- **Colour is yours, and it degrades.** `color(item, level)` returns a colour for
+  the level the frame is drawn at: an RGB is quantized to 256 or 16 colours, and a
+  palette index the level can show is kept, which is how sixteen hues of your own
+  choosing stay apart at 16. At truecolor each tile is shaded as a cushion, so the
+  nesting shows inside a colour. At level 0 -- a pipe, `NO_COLOR` -- the map is
+  blocks and spaces in the terminal's own colours and the edges between tiles are
+  what show. Every tile keeps its last column and row in the terminal's own
+  background, so two tiles never run together at any level.
+- **`current` is outlined**, in bright white, and a left click on a tile moves it
+  and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
+  the whole list as a third argument. An item with no tile of its own outlines
+  what it was drawn in, and `parent(key)` is what lets one deep inside a tile
+  drawn whole find it.
+- **`empty`** is what is said where there is nothing to draw, and a function is
+  followed, so a scan's progress can live there. The element asks for 40 by 12 and
+  takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
+  is its class. It takes no keys: a list beside it, moving the same `current`, is
+  how the keyboard reaches it.
+
 #### A paginator
 
 ```js
@@ -5612,8 +5663,13 @@ goes to that branch**, however it was closed; a node that was deleted leaves the
 cursor on the row that took its place, as in a list.
 
 A branch whose `items` is a function is read the first time it opens, and what it
-returned is kept, so closing and opening again is instant; `treeListControl(tree)
-.reload(value)` forgets it. A function that returns a list is taken at once; one
+returned is kept, so closing and opening again is instant. Kept until the app says
+otherwise, since the tree cannot see what a function read: when the data behind it
+changes, `treeListControl(tree).reload(value)` marks one branch out of date,
+`reload(value, { subtree: true })` every read branch under it too, and
+`reloadAll()` every one. An open branch reads again at once and a closed one when
+it opens, and what it showed stays on screen until the new read lands, so the
+cursor, the open branches and the scroll stay where they are. A function that returns a list is taken at once; one
 that returns a promise draws `Loading…` under the branch until it lands. A read
 that rejects -- or returns something that is not a list of nodes -- puts `Could not
 load: <message>` there instead, keeps the branch open so the message has somewhere
@@ -5630,8 +5686,8 @@ is a `branch` and `expanded`, and where its read stands (`status`). The guides a
 `.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
 `-label`, and the lines under a branch are `.sigil-tree-loading` and
 `.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
-`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
-`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value, options?)`,
+`reloadAll()`, `status(value)`, and `list` -- the list underneath, which `listControl()` answers for
 too. `describeTreeListView(input, ...trees)` describes the list's keys and the
 tree's, scoped to each, and takes the same options as `describeListView()` after
 the trees.
@@ -6684,7 +6740,9 @@ there for a component you write yourself too:
 - `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
   `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
   over the screen needs: the root a `fixed` box resolves against, the blank fill
-  that hides what is under it at every colour level, and the per-router list of
+  that hides what is under it at every colour level -- its background under the
+  box's border as well, unless the box has a background of its own -- and the
+  per-router list of
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.

@@ -18,6 +18,7 @@ import { TextField } from '../../src/components/text-field.js';
 import { showToast } from '../../src/components/toast.js';
 import { attachTooltip } from '../../src/components/tooltip.js';
 import { TreeListView } from '../../src/components/tree-list-view.js';
+import { Treemap } from '../../src/components/treemap.js';
 import {
   box,
   type Element,
@@ -120,6 +121,13 @@ const CASES: Case[] = [
     }),
     name: 'DiffView',
     owns: ['onKey'],
+  },
+  {
+    make: (props) => ({
+      element: Treemap({ root: 1, size: (n: number) => n, props: props as never }),
+    }),
+    name: 'Treemap',
+    owns: ['onMouse'],
   },
   {
     make: (props) => ({

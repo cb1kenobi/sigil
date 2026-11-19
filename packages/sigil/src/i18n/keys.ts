@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 427 keys, which is what a catalog has to carry to translate sigil's own
+ * 429 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -218,6 +218,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected tree expanded to be an iterable of values or a State',
   'Expected tree items to be an array, a root node, a State or a Computed',
   'Expected tree {0} to be a function',
+  'Expected treemap size to be a function',
   'Expected weekStart to be an integer from 0 to 6',
   'Expected {0} to be a valid Date',
   'Extra arguments are not allowed: {0}',
@@ -432,6 +433,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} is already up to date',
   '{0} is given more than once',
   '{0} is not there',
+  '{0} more',
   '{0} must hold an object',
   '{0} names it, and sigil did not add that',
   '{0} options:',
@@ -449,7 +451,7 @@ export const SIGIL_KEYS: readonly string[] = [
 ];
 
 /**
- * The 6 of those whose catalog entry is an object of plural categories
+ * The 7 of those whose catalog entry is an object of plural categories
  * rather than a string.
  *
  * A catalog may answer either -- a plain string is taken for a language with
@@ -462,6 +464,7 @@ export const SIGIL_PLURAL_KEYS: readonly string[] = [
   '(at most {0} character)',
   'Alias:',
   'Display {0} possibility?',
+  '{0} more',
   '{0} task failed',
   '… {0} more running',
 ];
