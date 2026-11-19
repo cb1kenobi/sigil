@@ -13629,6 +13629,13 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   have: it is handed no router, and taking one for this is a prop every app
   passes for a drag nobody makes on purpose. `should hear a drag from elsewhere
   only as it enters, and be right at the next move` pins both halves.
+- **A router that stops leaves the last tile reported (review round 2).** `stop()`
+  clears every `hover` state without dispatching a `mouseleave` -- the input
+  decision that dispatching into components during a teardown is worse than a
+  state nobody is told about -- so the map is never handed an event to clear it
+  from, and an app's line fed by `onHover` keeps the tile. `runApp()` disposes the
+  view before it stops the router, so an app that quits does not show it; an app
+  that stops its router and keeps the map on screen clears its own line.
 - **The example shows it in the line under the panes, not in a tooltip.**
   `attachTooltip()` anchors a bubble to an element, and the element here is the
   whole map: the bubble would sit at the map's edge rather than by the tile, show

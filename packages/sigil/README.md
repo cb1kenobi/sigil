@@ -5331,9 +5331,11 @@ so neighbours meet with no gap and no overlap.
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it
   is. A small tile has no room for its name, so this is how a status line says
-  what one is. It needs `mouse: { motion: true }`, without which a terminal does
-  not report the pointer between clicks; a new tree under a pointer that is not
-  moving is reported when it next moves, as `:hover` is.
+  what one is. It needs `mouse: { motion: true }`: it reads the router's `:hover`,
+  which is kept only then, so without it nothing is reported, a drag included. It
+  follows the pointer's reports, as `:hover` does, so a new tree under a pointer
+  that is not moving, or a drag that began on another element and holds the
+  pointer, is reported right at the next move.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
