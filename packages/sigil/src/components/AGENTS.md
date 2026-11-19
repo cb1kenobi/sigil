@@ -13819,9 +13819,12 @@ moment the map had the focus.
   runner's `q` and a fallback included. A map has none of the letters by default
   for the same reason, and `vim: true` takes all four: `h` Left, `j` Down, `k` Up,
   `l` Right, each exactly as its arrow -- the same `treemapNeighbor()` move, the
-  same pick, `onPick` and all. A built-in view that took a letter by default
-  would be the first, and leaving them to the app instead would mean every app
-  writing the same `onKey` over a map that has no public way to move.
+  same pick, `onPick` and all. Some views do take letters by default -- the pager
+  its `less` keys, `j` and `k` among them, and `DiffView` its `w` -- but those
+  are a view whose whole job is reading, where the letters are what a reader
+  expects; the views a selection moves through, which is what the map is, keep
+  them behind `vim`. Leaving them to the app instead would mean every app writing
+  the same `onKey` over a map that has no public way to move.
 - **The letters are the arrows' in every other rule too.** Claimed even where
   they go nowhere (`l` at the right edge, as Right there); a key with Ctrl or Alt
   is left to what is around the map, as an arrow with one is; `H` is not `h` --

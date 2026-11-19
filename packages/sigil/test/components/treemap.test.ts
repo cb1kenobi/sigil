@@ -1384,7 +1384,9 @@ describe('Treemap vim keys', () => {
             'flex-grow': 1,
             onKey: (event) => {
               const k = event.key;
-              heard.push(`${k.ctrl ? 'ctrl+' : ''}${k.shift ? 'shift+' : ''}${k.name}`);
+              heard.push(
+                `${k.ctrl ? 'ctrl+' : ''}${k.meta ? 'alt+' : ''}${k.shift ? 'shift+' : ''}${k.name}`
+              );
             },
           },
           Treemap({ ...props, props: { 'flex-grow': 1, ...props.props } })
@@ -1446,13 +1448,14 @@ describe('Treemap vim keys', () => {
     expect(current.get()).toBe(`${ROOT}/a`);
   });
 
-  it('should claim a letter that goes nowhere, and leave a capital or a Ctrl to what is around it', async () => {
+  it('should claim a letter that goes nowhere, and leave a capital, a Ctrl or an Alt to what is around it', async () => {
     // `b` is the right half: `l` from it goes nowhere, and is still the map's, as
     // Right is
     const current = new State<string | undefined>(`${ROOT}/b`);
     const m = await wrapped({ ...PAIR_PROPS, current, root: PAIR, vim: true });
-    await press(m, KEYS.tab, 'l', 'H', '\u000c');
-    expect(m.heard).toStrictEqual(['H', 'ctrl+l']);
+    await press(m, KEYS.tab, 'l', 'H', '\u000c', '\u001bh');
+    // Alt-h from `b` would be `a`, were it the map's
+    expect(m.heard).toStrictEqual(['H', 'ctrl+l', 'alt+h']);
     expect(current.get()).toBe(`${ROOT}/b`);
   });
 });

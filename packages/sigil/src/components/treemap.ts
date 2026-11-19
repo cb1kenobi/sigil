@@ -126,8 +126,8 @@ export interface TreemapProps<T, K = T> {
    */
   onActivate?: (key: K) => void;
   /**
-   * Called when a tile is picked -- a left click on it, or an arrow key moving onto
-   * it -- after `current` has moved to it, with the item's key and the item. A
+   * Called when a tile is picked -- a left click on it, or an arrow key (or, with
+   * `vim`, its letter) moving onto it -- after `current` has moved to it, with the item's key and the item. A
    * tile of gathered items picks the largest of them, and hands over the whole
    * list as `gathered`.
    */
