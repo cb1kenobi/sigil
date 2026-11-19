@@ -393,6 +393,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/64-tree-list-view.js`](components/64-tree-list-view.js)                     | A tree list view: a directory read as it opens, a slow branch and a failing one     |
 | [`components/65-highlight.js`](components/65-highlight.js)                               | One highlighter for markdown, a diff and a text area, and a theme that recolours it |
 | [`components/66-diff-view.js`](components/66-diff-view.js)                               | A diff that scrolls, with a cursor on its hunks and a hunk written back to stage    |
+| [`components/67-treemap.js`](components/67-treemap.js)                                   | A treemap of a bundle: divided, gathered, picked, hovered and zoomed by the app     |
 
 `20-key-help.js` is a footer that is `router.bindings()` rather than a string
 somebody typed: each key is described where it is bound, the footer follows the
@@ -772,6 +773,24 @@ fits; the arrows scroll. The cursor is a `State` the demo holds, and Space asks
 `diffStops()` over the same blocks what is under it and writes it with
 `hunkPatch()`, which is what `git apply --cached` would stage. Piped, a scripted
 keyboard moves through the stops and prints the view after each step.
+
+`67-treemap.js` is one `Treemap` over a made-up bundle, colored by kind: the app's
+code, its dependencies, its styles and its assets. A directory with room is divided
+into its files inside its box -- `node_modules/`, and `react-dom/` inside that --
+one with none is drawn whole as a checker, as `lodash-es/` is, and the smaller files
+of `src/components/`, too small for a tile each, are gathered into one that says how
+many -- `32 more` at 80 columns. A click or an arrow moves the outline and calls
+`onPick`, which a gathered tile hands all its files; `h`, `j`, `k` and `l` move too,
+because the map is `vim`. Enter and a double click call `onActivate`, and what that
+does is the demo's: it maps the directory, or the one a file is in, by writing a new
+root, and Backspace maps the one above. Point at a tile and the line under the map
+says what a click would pick, without picking it -- `onHover`, which needs
+`mouse: { motion: true }`. The colors are asked for at the level the frame is drawn
+at: an RGB the map degrades, and at 16 colors a palette index of the demo's, so four
+kinds stay four hues; with no color the map is shapes. A level as the argument --
+`1`, `2` or `0` -- draws at that one. Piped, a scripted keyboard and pointer drive
+the same app on a test terminal and print the screen after each step, then what each
+kind's color comes to at each level.
 
 ### Try them without a terminal
 
