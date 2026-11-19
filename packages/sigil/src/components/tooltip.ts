@@ -23,7 +23,8 @@
  * not fit, and along the edge when its start would run off the end. It follows
  * the anchor while shown -- a scroll, a reflow, an animation -- and is hidden while
  * the anchor is scrolled out of view. It is never focusable and never moves the
- * focus.
+ * focus. `area` points it at a rectangle inside the anchor rather than at the
+ * whole of it, and moves it when that does: a tile of a treemap under the pointer.
  *
  * `AGENTS.md` records the keyboard answer, the flip, the following, and why
  * `--quiet` hides it.
@@ -40,6 +41,7 @@ import { __ } from '../i18n/index.js';
 import type { InputRouter } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 import { resolveOutput } from '../style/index.js';
 import { unicodeSupported } from './note.js';
 import { opaqueFill, rootOf } from './overlay.js';
@@ -49,6 +51,20 @@ import { refuseOwnedHooks } from './owned-hooks.js';
 export type TooltipSide = 'bottom' | 'left' | 'right' | 'top';
 
 export interface TooltipOptions {
+  /**
+   * The part of the anchor the bubble points at, when that is not the whole of
+   * it: a rectangle in cells, relative to the anchor's top-left corner, or
+   * `undefined` where there is nothing in the anchor to point at, which hides the
+   * bubble while keeping it. Defaults to the whole anchor.
+   *
+   * Asked after every layout, as the anchor's own box is, and in an effect -- so a
+   * signal it reads moves a shown bubble the moment it is set, with nothing laid
+   * out. That is how a treemap points at the tile under the pointer, which moves
+   * with no layout at all. While the pointer is on the bubble, an `undefined`
+   * keeps it where it was: moving onto the bubble leaves the part it pointed at,
+   * and the bubble is hoverable.
+   */
+  area?: () => Box | undefined;
   /**
    * Draw the border with ASCII only. Defaults to what `unicodeSupported()` says,
    * which is the rule `note()` and the modal keep.
@@ -204,28 +220,44 @@ export function placeTooltip(
 }
 
 /**
- * The part of an element anybody can see: its box cut to what clips it, or
- * `undefined` where nothing of it is left.
- *
- * Cut rather than whole, so a tall anchor half scrolled out of its box has its
- * bubble beside the half that is still there rather than beside the half that is
- * not. An element with no width or no height is in view where its edge is,
- * which is the one way a zero-area box can be anywhere.
+ * A box cut to another, or `undefined` where nothing of it is left. A box with
+ * no width or no height is kept where its edge is inside the other, which is the
+ * one way a zero-area box can be anywhere.
  */
-function inView(element: Element): Box | undefined {
-  const at = element.box;
-  const clip = element.clip;
-  if (at === undefined || clip === undefined) {
-    return at;
-  }
-  const x = Math.max(at.x, clip.x);
-  const y = Math.max(at.y, clip.y);
-  const width = Math.min(at.x + at.width, clip.x + clip.width) - x;
-  const height = Math.min(at.y + at.height, clip.y + clip.height) - y;
+function cut(at: Box, by: Box): Box | undefined {
+  const x = Math.max(at.x, by.x);
+  const y = Math.max(at.y, by.y);
+  const width = Math.min(at.x + at.width, by.x + by.width) - x;
+  const height = Math.min(at.y + at.height, by.y + by.height) - y;
   if (width < Math.min(1, at.width) || height < Math.min(1, at.height)) {
     return undefined;
   }
   return { height, width, x, y };
+}
+
+/**
+ * The part of an element anybody can see, or of a rectangle inside it: its box
+ * cut to what clips it, or `undefined` where nothing of it is left.
+ *
+ * Cut rather than whole, so a tall anchor half scrolled out of its box has its
+ * bubble beside the half that is still there rather than beside the half that is
+ * not. A part is relative to the element's box and is cut to that box first, so
+ * a rectangle reaching past the anchor points at no more than the anchor.
+ */
+function inView(element: Element, part?: Box): Box | undefined {
+  const whole = element.box;
+  if (whole === undefined) {
+    return undefined;
+  }
+  const at =
+    part === undefined
+      ? whole
+      : cut(
+          { height: part.height, width: part.width, x: whole.x + part.x, y: whole.y + part.y },
+          whole
+        );
+  const clip = element.clip;
+  return at === undefined || clip === undefined ? at : cut(at, clip);
 }
 
 /** What a bubble's place was computed from: the anchor in view, its own size, and the screen. */
@@ -289,6 +321,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   if (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0) {
     throw new TypeError(__`Expected a tooltip delay in milliseconds`);
   }
+  const area = opts.area;
+  if (area !== undefined && typeof area !== 'function') {
+    throw new TypeError(__`Expected a tooltip area to be a function`);
+  }
   const maxWidth = opts.maxWidth ?? MAX_WIDTH;
   if (!Number.isInteger(maxWidth) || maxWidth < 4) {
     throw new TypeError(__`Expected a tooltip maxWidth of at least 4 cells`);
@@ -302,6 +338,8 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   let bubble: Element | undefined;
   let placedSide: TooltipSide | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  /** Places the shown bubble again, for an `area` that moved with nothing laid out. */
+  let follow: (() => void) | undefined;
   /** Escape was pressed, and nothing has left since. */
   let dismissed = false;
 
@@ -334,6 +372,26 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     let against: Placed | undefined;
     /** It was sent to the corner by the last layout, to be measured with the whole width. */
     let measuring = false;
+    /** The `area` it last pointed at, kept while the pointer is on the bubble. */
+    let pointed: Box | undefined;
+
+    /** Where in the anchor it points, or `undefined` for nowhere. */
+    const target = (it: Element): Box | undefined => {
+      if (area === undefined) {
+        return inView(anchor);
+      }
+      // untracked, since a layout may be run from inside something that tracks:
+      // what the effect below follows is its own read
+      let part = untrack(area);
+      // moving onto the bubble leaves the part it pointed at, and keeping it
+      // there is what lets the pointer reach it, as the whole anchor's does
+      if (part === undefined && it.states.includes('hover')) {
+        part = pointed;
+      }
+      // a copy, so an app that reuses one box and moves it cannot move what is kept
+      pointed = part === undefined ? undefined : { ...part };
+      return part === undefined ? undefined : inView(anchor, part);
+    };
 
     // placed here rather than when it was built, because only the layout knows
     // how big it came out and where the anchor is -- and asked after **every**
@@ -352,7 +410,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
         return false;
       }
       // an anchor a window rebuild took out of the tree is not anywhere to point
-      const at = rootOf(anchor) === root ? inView(anchor) : undefined;
+      const at = rootOf(anchor) === root ? target(it) : undefined;
       const now: Placed = { at, height: size.height, screen, width: size.width };
       if (against !== undefined && samePlaced(against, now)) {
         return false;
@@ -389,6 +447,12 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
       it.setProps({ left: place.x - screen.x, top: place.y - screen.y, visibility: undefined });
       return true;
     };
+    // asked between layouts too, by what follows `area`: the boxes are the last
+    // layout's, which nothing has moved since. A corner pass is never waiting
+    // here, because the layout it asks for is the same frame's next pass
+    follow = () => {
+      element.onLayout?.(element);
+    };
     return element;
   }
 
@@ -403,6 +467,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     cancel();
     bubble?.remove();
     bubble = undefined;
+    follow = undefined;
     placedSide = undefined;
   }
 
@@ -466,12 +531,29 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     remove();
   }
 
+  // a part of the anchor that moved with nothing laid out -- the tile under the
+  // pointer, on a map that stood still -- moves the bubble in the frame it is
+  // set for, rather than at whatever lays the tree out next. First, since its
+  // first run calls the app: a throw there leaves nothing subscribed behind it
+  const offArea =
+    area === undefined
+      ? undefined
+      : createEffect(() => {
+          area();
+          untrack(() => follow?.());
+        });
+
   // every report the tree did not stop, as the cue to read the state again. The
   // state is the answer and the event only the reminder: an element that stops
   // its own `mouseleave` would otherwise strand a bubble, and the next motion
   // anywhere puts it right
   const offMouse = input.onMouse(() => {
     update();
+    // and as the cue to ask `area` again: the pointer leaving the bubble ends what
+    // kept an `area` of nothing pointing where it was, and nothing lays that out
+    if (area !== undefined) {
+      follow?.();
+    }
   });
 
   // Escape is the dismissal, and it is never stopped: the tooltip holds no keys,
@@ -504,6 +586,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     offKey();
     offResize();
     offFocus();
+    offArea?.();
   }
 
   // a tooltip attached inside a component goes when the component does, timer and

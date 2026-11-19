@@ -338,8 +338,8 @@ streams and hands back `press()` and `waitFor()`;
 
 `hello` builds every row by hand. A real app usually shows data: files, log
 lines, a table of processes, a diff. sigil has a component for each of these
-shapes. Each one takes the focus and handles its own keys, so it joins the focus
-ring the way `hello`'s rows do, and Tab moves to it and away.
+shapes. Each one takes the focus and handles its own keys, so it joins the
+focus ring the way `hello`'s rows do, and Tab moves to it and away.
 Import each from its own subpath, such as `@ttylabs/sigil/components/list-view`.
 The link on each name goes to the component's page, with its options and a
 capture of it running.
@@ -393,14 +393,16 @@ out as a patch of its own, which is how the
 as nested rectangles, each as big as its share, so the largest items stand out
 at a glance. It reads your own nodes through `size`, `children` and `key`, so
 nothing is copied. A click on a rectangle, or an arrow key while the map has
-the focus, moves its `current` to that rectangle and calls `onPick`. Enter calls
+the focus, sets its `current` and calls `onPick`. The current rectangle is
+outlined in bright white, and in green while the map has the focus, so you can
+see where the arrows go. Enter, or a double click on a rectangle, calls
 `onActivate(key)`: the disk usage example uses it to show that directory on its
 own. `onHover` names the rectangle under the pointer without moving `current`,
 so a status line can say what a rectangle too small for a label is. It needs
 mouse motion, which an app turns on with `mouse: { motion: true }` in
-`runApp()`'s options. The disk usage example also pairs the map with a
-`TreeListView` that writes the same `current`, so the two always show one
-selection.
+`runApp()`'s options. A list or a tree beside the map can write the same
+`current`: the disk usage example pairs it with a `TreeListView` this way, so
+the two always show one selection.
 
 Around these, every example but `hello` frames its panes in a
 [`Panel`](../src/components/panel.ts) with a title, and uses
@@ -408,6 +410,9 @@ Around these, every example but `hello` frames its panes in a
 whatever has the focus. Most also ask with
 [`confirmModal()`](../src/components/modal.ts) before anything that cannot be
 undone, and say what happened with [`showToast()`](../src/components/toast.ts).
+These are the components a full-screen app is most often built from, not all
+of them. [The rest](../src/components/) include tabs, text fields, buttons, a
+scroll box, and the prompts and spinners a command line uses.
 
 ### Drawing cells of your own
 

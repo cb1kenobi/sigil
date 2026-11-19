@@ -15,6 +15,13 @@
         "type": "string"
       },
       {
+        "description": "The part of the anchor the bubble points at, when that is not the whole of it: a rectangle in cells, relative to the anchor's top-left corner, or `undefined` where there is nothing in the anchor to point at, which hides the bubble while keeping it. Defaults to the whole anchor.",
+        "default": "the whole anchor",
+        "name": "area",
+        "optional": true,
+        "type": "() => Box | undefined"
+      },
+      {
         "description": "Draw the border with ASCII only. Defaults to what `unicodeSupported()` says, which is the rule `note()` and the modal keep.",
         "default": "what `unicodeSupported()` says",
         "name": "ascii",

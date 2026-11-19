@@ -36,9 +36,8 @@ import { createEffect } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
-  type DescribeListViewOptions,
-  describedHosts,
   describeListView,
   type ListControl,
   listControl,

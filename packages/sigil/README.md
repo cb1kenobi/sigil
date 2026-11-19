@@ -2711,7 +2711,9 @@ without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
-element around the component. A wrapper that forwards `props` types them as
+element around the component -- except `onFocusChange`, which is told only to
+the element whose own focus changed, so one around the component never hears
+it; style on `:focus-within` there instead. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
 `refuseOwnedHooks(who, props, hooks)` from
@@ -5297,7 +5299,7 @@ const map = Treemap({
   color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
   current, // a State of a key: the item outlined, which a click or an arrow moves
   onPick: (key, node) => reveal(key),
-  onActivate: (key) => zoomInto(key), // Enter
+  onActivate: (key) => zoomInto(key), // Enter, or a double click on a tile
   props: { 'flex-grow': 1 },
 });
 describeTreemap(input, map, { activate: 'zoom' }); // for keyHelp(), once the router exists
@@ -5328,7 +5330,12 @@ so neighbours meet with no gap and no overlap.
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it.
+  drawn whole find it. While the map has the focus the outline is green, so the
+  reader can tell where the arrows go; only the colour changes, so at colour
+  level 0 a focused map looks like an unfocused one. The colour is the map's
+  `border-color`: the framework's sheet says `.sigil-treemap:focus { border-color:
+  green }`, a `:focus` rule of your own replaces it, and `.sigil-treemap {
+  border-color: … }` colours the outline in both states.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it
@@ -5336,8 +5343,19 @@ so neighbours meet with no gap and no overlap.
   what one is. It needs `mouse: { motion: true }`: it reads the router's `:hover`,
   which is kept only then, so without it nothing is reported, a drag included. It
   follows the pointer's reports, as `:hover` does, so a new tree under a pointer
-  that is not moving, or a drag that began on another element and holds the
-  pointer, is reported right at the next move.
+  that is not moving is reported right at the next move. A drag that began on
+  another element and holds the pointer is followed across the tiles too.
+- **`tooltip` puts a bubble beside the tile under the pointer**:
+  `attachTooltip()`'s options, with `text(key, item, gathered?)` for the words.
+  It shows after `delay`, flips where there is no room, then follows the pointer
+  from tile to tile, stays while the pointer is on it, and goes once the pointer
+  has left both the map and the bubble; like `onHover` it needs
+  `mouse: { motion: true }`.
+
+  ```js
+  Treemap({ ...props, tooltip: { input, text: (key, node) => `${node.name} ${size(node)}` } });
+  ```
+
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
@@ -5351,8 +5369,11 @@ so neighbours meet with no gap and no overlap.
   arrow starts at the top left tile. Enter calls `onActivate(key)` with what is
   outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
   for what is around the map, as going back out is: Backspace is not the map's.
+  A double click on a tile activates too, as on a list: the first click picks it
+  and the second calls `onActivate` as Enter would, without picking it again.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
-  same options as `describeListView()` after the maps.
+  same options as `describeListView()` after the maps. `vim: true` adds `h`, `j`,
+  `k` and `l`, moving as Left, Down, Up and Right do, as it does on a list.
 
 #### A paginator
 
@@ -5623,8 +5644,11 @@ every list in the call. The default is translated with sigil's own strings; a wo
 given here is shown as given, so an app that translates passes its own translation.
 `describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
 checking the options, for a component of your own that describes a list through
-`describeListView()` and takes the same options -- it is what the tree's and the
-table's describers use.
+`describeListView()` and takes the same options -- it is what the tree's, the
+table's and the treemap's describers use. It is published from
+`@ttylabs/sigil/components/key-help`, beside the footer the describers feed, so a
+describer with no list in it does not load the list view; the list view's subpath
+exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
@@ -6453,6 +6477,20 @@ hidden while the anchor is scrolled out of view, coming back when it does.
 (40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
 same arithmetic on its own, for anything else that wants to sit beside a box.
 
+**`area` points it at a rectangle inside the anchor** rather than at the whole of
+it: a function returning `{ x, y, width, height }` in cells from the anchor's
+top-left corner, or `undefined` where there is nothing to point at, which hides
+the bubble until there is. It is asked after every layout and in an effect, so a
+signal it reads moves a shown bubble the moment it is set -- which is how one
+element with parts that are not elements, like a treemap's tiles, gets a bubble
+beside the part under the pointer. While the pointer is on the bubble, an
+`undefined` keeps it where it was, so it can still be reached.
+
+```js
+const part = new State(undefined); // set from your own hit test
+const tip = attachTooltip(chart, { input, text: '', area: () => part.get() });
+```
+
 The bubble is added to the anchor's root as `position: fixed`, above a modal and
 below the debug overlay, and is opaque without a colour. It is **never focusable
 and never moves the focus**, and the anchor's own `onMouse` and `onKey` are left
@@ -7155,6 +7193,23 @@ turning tracking on.
 A press captures the pointer, so a drag that wanders off the region still reaches
 whatever it started on. The consequence is that `x` and `y` may be outside the
 canvas on a captured event, exactly as `clientX` is during a drag in a browser.
+
+Meanwhile `:hover` follows the pointer, and an element the drag crosses is told
+`mouseenter` and `mouseleave` but none of the moves between them, which are the
+holder's. An element that wants those too sets `hearsDrags`: under `motion: true`
+it is then handed each move of somebody else's drag while the pointer is over it,
+as a `mousemove` addressed to itself and not bubbled, after the holder has had
+it. The holder still gets every move and the release. A `Treemap` sets it, so a
+drag that begins elsewhere reports the tiles it crosses.
+
+```js
+element.hearsDrags = true;
+element.onMouse = (event) => {
+  if (event.kind === 'mousemove') {
+    showDropTarget(event.x, event.y); // an app's own
+  }
+};
+```
 
 #### Turning the mouse on takes text selection away
 
