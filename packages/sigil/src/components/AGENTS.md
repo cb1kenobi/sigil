@@ -12858,6 +12858,7 @@ calls too.
   | `Switch`        | `onKey`, `onMouse`, `onFocusChange`             |
   | `RadioSet`      | `onKey`, `onFocusChange`                        |
   | `Slider`        | `onKey`, `onFocusChange`                        |
+  | `Treemap`       | `onKey`, `onMouse`                              |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
@@ -13659,11 +13660,12 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   example did; the map of every gathered key to its tile is built only for the walk
   without `parent`, and only the first time, because building it on every new
   layout cost a quarter of a millisecond a frame on the measurement below.
-- **No keys.** Moving between tiles by arrow is a spatial question with no one
-  right answer over rectangles of every shape, and the one caller moves `current`
-  from a tree list beside the map, which is the keyboard's way in. A key nobody
-  asked for is a shape designed by guessing; the map is not focusable, so it takes
-  no Tab stop either.
+- **No keys, at first.** Moving between tiles by arrow is a spatial question with
+  no one right answer over rectangles of every shape, and the one caller moved
+  `current` from a tree list beside the map, which was the keyboard's way in. A
+  key nobody asked for is a shape designed by guessing, so the map was not
+  focusable either. SIG-491 asked, and answered the question: "A treemap's keys",
+  below.
 - **Colour is a callback, `(item, level) => Color`, and the map degrades it.** It
   is told the level so an app can hand back one of the sixteen at 16 -- which the
   quantizer leaves alone, at 256 too -- and an RGB elsewhere: the example's seven
@@ -13764,8 +13766,110 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   textured tile's second square is the terminal's own there, so a tile one pixel
   tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
   level the map was drawn at and reads the checker the way the paint does.
-- **Not done:** keys between tiles (above); a tooltip at the tile under the
-  pointer rather than at the map's edge; zooming, which is an app writing a new
-  `root` -- the example's Enter and Backspace; animating one layout into the next;
-  a tile for a parent's own size beside its children; and a legend, which is the
-  app's, as the example's swatches are.
+- **Not done:** keys between tiles (SIG-491 did them, below); a tooltip at the tile
+  under the pointer rather than at the map's edge; zooming, which is an app writing
+  a new `root` -- the example's Enter and Backspace; animating one layout into the
+  next; a tile for a parent's own size beside its children; and a legend, which is
+  the app's, as the example's swatches are.
+
+### A treemap's keys: an arrow to the tile beside, and Enter the app's (SIG-491)
+
+The map had no keys, for the reason "No keys, at first" gives; a map on its own,
+or a user looking at the map rather than the list beside it, could not move from a
+tile to the one next to it. It is focusable now, and takes the four arrows and
+Enter.
+
+- **Nearest is the tile next to the edge, then the one most in line.**
+  `treemapNeighbor(layout, from, direction)` is a plain function over the tiles,
+  as the mark and the hit test are. Of the tiles wholly past the outlined box's
+  edge on that side, it takes the one nearest that edge, then the one sharing the
+  most of it, then the one whose center is nearest the box's along it, then the
+  first laid. The ticket's wording was "the tile whose edge faces the current one
+  and overlaps it most, then the closest center", and _facing_ is read as _next
+  to_: overlap first would jump a tall tile over the column of small ones beside
+  it to a big one further on, which every other move on a screen reads as a skip.
+  The tiles of a map almost tile it, so next to is a distance of 0 nearly
+  everywhere; it is a distance rather than a test of touching because a directory
+  directly under the root keeps a column and a row of its own, and the tiles past
+  that start a pixel along. A tile sharing none of the edge is taken only where
+  none shares any, nearest first, which is a one-pixel tile ending beside that
+  row; an arrow at the edge of the map goes nowhere. `should reach every tile of a
+  map laid out, from the first, by the arrows alone` walks three real layouts with
+  it, so a rule that strands a tile fails there.
+- **From what is outlined, which is what the paint outlines.** The box moved from
+  is `treemapMark()`'s for `current`, so an item gathered into a rest moves from
+  the rest, an item deep in a tile drawn whole from that tile, and a divided item
+  from its whole box -- to the tile past it, never into it. With nothing outlined
+  -- no `current`, the root, a key the map does not hold -- an arrow goes to the
+  first tile laid, which is the one in the top left corner.
+- **An arrow is a pick, as a click is.** It writes `current` and calls `onPick`
+  through the one function the click calls, so onto a tile of gathered items it
+  picks the largest and hands over the list -- the ticket's "behaves as clicking
+  it does", and the way an app that zooms on that tile keeps doing so from the
+  keyboard. `onPick` says so: a click or an arrow.
+- **Claimed as a list claims its moves.** An arrow is the map's even where it goes
+  nowhere, a list's rule for Down on its last row; Shift with an arrow, and Ctrl
+  or Alt with any key, is left for what is around it, as a list leaves it, while
+  Shift-Enter activates as it does on a list; a paste is not a key; and with
+  nothing drawn -- no root, a root of no size, a box of no size, before the first
+  paint -- no key is the map's.
+- **A key reads the root as it is, not as it was drawn (review round 1).** The
+  layout was the last paint's, so Enter that zoomed and an arrow in the same read
+  -- before the frame that draws the new root -- moved on the old tree, and the
+  example's follow-the-selection effect then zoomed straight back out. A key now
+  lays out the current root at the size last drawn; a root gone or of no size
+  takes the keys back at once. That layout is **not** kept (review round 2): the
+  first version wrote it into the cache the paint keeps, which is also what a
+  click is hit-tested against, so a click between that key and the next frame
+  picked from a tree the screen did not show yet -- and with a root given as a
+  function that reads no signal, no frame ever came to put it right. What is
+  cached stays what was drawn, and the next paint lays the new root out once
+  more, which is a fraction of a millisecond. A box laid out to nothing clears the layout too,
+  where it used to keep the last one, so a collapsed map took arrows and picked
+  tiles nobody could see.
+- **Enter is `onActivate(key)`, and going back out is not the map's.** In the
+  example Enter maps a directory and Backspace maps the one above, and both are a
+  new `root`, which is the app's ("zooming" under "Not done" above). Enter has
+  something of the map's to hand over -- the key it outlines -- so it is
+  `ListView`'s `onActivate`, claimed only where there is one and only while
+  `current` is outlined, so not for the root. Backspace would hand over nothing:
+  the map does not know where its root came from, and a callback that only
+  forwards a key is a binding the app already has. So it is left to bubble, and
+  the example's Backspace is on the box around both panels. `onActivate` is
+  handed the key alone, not the item: a divided item's box is kept by key without
+  its item, and the one caller needs the path. A double click is not an
+  activation here, as it is on a list -- the click picks, and two picks are two.
+- **Focusable by default, and `focusable: false` in `props` takes it back.** Every
+  component with keys of its own is focusable, and a map whose keys can be
+  reached only by being told about them is the "map on its own" the ticket is
+  about. The props are spread after `focusable: true`, so an app that wants the
+  old Tab ring writes one prop, and the map then takes no keys at all, since an
+  element never focused is offered none. **For Chris to decide:** the default,
+  which is the one part of today's behaviour this changes for every map -- a Tab
+  stop.
+- **`describeTreemap(input, ...maps, options?)`**, scoped to each map: the four
+  arrows as `move`, and Enter where there is an `onActivate`, as `open` or the
+  word given after the maps. It takes `DescribeListViewOptions` and splits its
+  arguments with `describedHosts()`, both from the list view's subpath, which is
+  "One rule for every describer that says `open` for Enter" (SIG-478) kept: a
+  fourth describer reading the word a fourth way is what that entry exists to
+  stop. What it costs is the list view's module graph on the treemap's entry,
+  scroll box and all: 250,762 B over 41 modules as of this change, against the
+  180,470 B SIG-480 measured, and under the 352 KiB ceiling. A lighter published
+  home for `describedHosts()` would take that back and is a move of SIG-478's
+  code, so it is left for a ticket of its own rather than done inside this one.
+- **The focus is not drawn on the map.** The outline is the same focused or not,
+  so at a glance a focused map and an unfocused one look alike, as at level 0 a
+  focused list does; a panel's `:focus-within`, which the example has, is where
+  it shows. A focused outline is a colour, and the outline's colour is already the
+  one bright white no item may be.
+- **The example's map takes the focus.** A click on a tile focused the tree,
+  because the keys for the selection -- Backspace, `d`, `t` -- were on the tree's
+  panel and the map had none. They are on the box around both panels now, and a
+  pick leaves the focus where it is, so a click focuses the map (a press focuses
+  what it lands on) and the arrows go on moving there. Enter on the map is
+  `map it`, as on the tree.
+- **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` and nobody has asked
+  the map for; a way into a divided item without zooming, which would be a second
+  meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
+  over rectangles; and drawing the focus.

@@ -639,10 +639,9 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'treemap',
     name: 'Treemap',
     family: 'fullscreen',
-    exports: ['Treemap'],
+    exports: ['Treemap', 'describeTreemap'],
     registry: 'treemap',
-    // nothing in it takes a key: a click is how it is pointed at
-    example: { probe: false },
+    example: { steps: ['tab', 'right'] },
     related: ['image', 'bar-chart', 'tree-list-view'],
   },
   {

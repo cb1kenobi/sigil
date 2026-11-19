@@ -1,1 +1,1 @@
-export { Treemap, type TreemapProps } from '../treemap.js';
+export { describeTreemap, Treemap, type TreemapDescriber, type TreemapProps } from '../treemap.js';
