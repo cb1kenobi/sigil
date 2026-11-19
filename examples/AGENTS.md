@@ -1400,7 +1400,8 @@ about where the space went.
   scope. A pick on the map, by a click or an arrow, opens the tree down to it and
   no longer moves the focus to the tree: it did so because the map had no keys,
   and now it would take the focus off the map after every arrow. Enter on the map
-  is its `onActivate`, `map it`, the tree's word for the tree's Enter.
+  is its `onActivate`, `map it`, the tree's word for the tree's Enter -- and so,
+  since SIG-498, is a double click on a tile, as on a row.
 
 - **`printable()` is the library's, as the file manager's is.** It was the file
   manager's, written again: a one-line rule, but a rule, and the root file says a

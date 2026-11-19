@@ -5297,7 +5297,7 @@ const map = Treemap({
   color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
   current, // a State of a key: the item outlined, which a click or an arrow moves
   onPick: (key, node) => reveal(key),
-  onActivate: (key) => zoomInto(key), // Enter
+  onActivate: (key) => zoomInto(key), // Enter, or a double click on a tile
   props: { 'flex-grow': 1 },
 });
 describeTreemap(input, map, { activate: 'zoom' }); // for keyHelp(), once the router exists
@@ -5342,6 +5342,8 @@ so neighbours meet with no gap and no overlap.
   arrow starts at the top left tile. Enter calls `onActivate(key)` with what is
   outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
   for what is around the map, as going back out is: Backspace is not the map's.
+  A double click on a tile activates too, as on a list: the first click picks it
+  and the second calls `onActivate` as Enter would, without picking it again.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
   same options as `describeListView()` after the maps.
 
