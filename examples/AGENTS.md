@@ -1253,7 +1253,13 @@ about where the space went.
   message calls `invalidatePaint()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
-  short of the outline, which would otherwise lose its corner to a name.
+  short of the outline, which would otherwise lose its corner to a name -- and of
+  the band inside it too. A label takes one background, read off the pixel under
+  its first cell, and the band is the terminal's own: a name started there had no
+  background, so each letter kept whatever the half block under it had put in its
+  background, which is the tile's colour in some cells and not in others, and
+  which ones moved with the terminal's size. `should give every letter of a name
+  its tile colour behind a selection` fails without it.
 
 - **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
   through a limiter of 48 in flight and nothing waits on a read while holding a

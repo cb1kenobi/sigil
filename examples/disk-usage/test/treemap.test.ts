@@ -375,4 +375,37 @@ describe('paintMap()', () => {
     // the name starts inside the outline's left edge, not on it
     expect(rows[row]?.indexOf('alpha')).toBeGreaterThan(tile.x);
   });
+
+  // the band inside the outline is the terminal's own background, and a name
+  // that started on it took that as its background: none, so each glyph kept
+  // whichever colour the half block under it had put in its background, and
+  // some letters of the name lost their tile's colour and some did not
+  it('should give every letter of a name its tile colour behind a selection', () => {
+    const lib = join(ROOT, 'lib');
+    const root = dir(ROOT, [
+      dir(lib, [file(lib, 'component-options.ts', 700), file(lib, 'styled-screen.ts', 500)]),
+      file(ROOT, 'turbo-build.log', 900),
+    ]);
+    const layout = layoutMap(root, 60, 30);
+    for (const level of [1, 2, 3]) {
+      for (const marked of [lib, join(ROOT, 'turbo-build.log')]) {
+        const { rows, style } = paint(layout, level, layout.byPath.get(marked));
+        let names = 0;
+        for (const name of ['component-options.ts', 'styled-screen.ts', 'turbo-build.log']) {
+          const y = rows.findIndex((line) => line.includes(name.slice(0, 6)));
+          if (y < 0) {
+            continue;
+          }
+          names++;
+          const x = rows[y]?.indexOf(name.slice(0, 6)) ?? -1;
+          for (let i = 0; i < 6; i++) {
+            expect(style(x + i, y)?.bg, `${name} [${i}] at ${level}, ${marked}`).not.toBe(
+              DEFAULT_COLOR
+            );
+          }
+        }
+        expect(names, `names drawn at ${level}, ${marked}`).toBeGreaterThan(1);
+      }
+    }
+  });
 });

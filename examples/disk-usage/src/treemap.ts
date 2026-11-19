@@ -601,27 +601,33 @@ export function paintMap(
   pixels.blit(painter, left, top, { colorLevel: level });
 
   // a name on each tile wide enough to hold one, on its first whole row, and
-  // never over the outline: a label is moved off it, or cut short of it
-  const ringRows = new Set<number>();
-  const ringCells = new Set<string>();
-  if (opts.mark !== undefined) {
-    const ring = inside(opts.mark);
-    const lastY = ring.y + ring.h - 1;
-    for (let x = ring.x; x < ring.x + ring.w; x++) {
-      ringCells.add(`${x},${Math.floor(ring.y / 2)}`);
-      ringCells.add(`${x},${Math.floor(lastY / 2)}`);
+  // never over the outline or the band inside it: a label is moved off them, or
+  // cut short of them. The band is the terminal's own background, and a name
+  // drawn on it has no colour behind it, so each letter would keep whichever
+  // colour the half block under it happened to put in its background
+  const ring = opts.mark === undefined ? undefined : inside(opts.mark);
+  // whether pixel (x, y) is the outline or its band; `across` asks only about
+  // the two runs along the top and the bottom
+  const onRing = (x: number, y: number, across = false): boolean => {
+    if (ring === undefined) {
+      return false;
     }
-    for (let y = ring.y; y <= lastY; y++) {
-      ringCells.add(`${ring.x},${Math.floor(y / 2)}`);
-      ringCells.add(`${ring.x + ring.w - 1},${Math.floor(y / 2)}`);
+    const right = ring.x + ring.w - 1;
+    const bottom = ring.y + ring.h - 1;
+    if (x < ring.x || x > right || y < ring.y || y > bottom) {
+      return false;
     }
-    ringRows.add(Math.floor(ring.y / 2)).add(Math.floor(lastY / 2));
-  }
+    const top = y <= ring.y + 1 || y >= bottom - 1;
+    return across ? top : top || x <= ring.x + 1 || x >= right - 1;
+  };
+  // a cell is two pixels, one above the other
+  const offCell = (x: number, row: number, across = false): boolean =>
+    onRing(x, row * 2, across) || onRing(x, row * 2 + 1, across);
   for (const tile of layout.tiles) {
     const fill = inside(tile);
     let row = Math.ceil(fill.y / 2);
     // a row the outline runs along is given up for the one under it
-    while (ringRows.has(row) && ringCells.has(`${fill.x + 1},${row}`)) {
+    while (offCell(fill.x + 1, row, true)) {
       row++;
     }
     if (row * 2 + 1 > fill.y + fill.h - 1) {
@@ -629,11 +635,11 @@ export function paintMap(
     }
     const limit = fill.x + fill.w - 1;
     let start = fill.x;
-    while (start < limit && ringCells.has(`${start},${row}`)) {
+    while (start < limit && offCell(start, row)) {
       start++;
     }
     let end = start;
-    while (end < limit && !ringCells.has(`${end},${row}`)) {
+    while (end < limit && !offCell(end, row)) {
       end++;
     }
     if (end - start < 3) {
