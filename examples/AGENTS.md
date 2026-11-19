@@ -772,6 +772,23 @@ screen of code.
   row is red with no role on any cell of its own, and a running row is not.
   Dropping `rowClass` from either twin fails it for that twin.
 
+- **The tables pass `follow`, so the cursor stays on its pod (SIG-502).** The
+  README said a table "keyed by namespace and name" kept the cursor on its row
+  through every reading, and it did not: `DataTable`'s `follow` defaults to
+  `false`, htop's behaviour, which keeps the cursor's place on screen and makes
+  whichever row is there current. A key alone decides what the cursor and the
+  ticks hold, not whether the cursor rides with its row. Sorted by CPU, every
+  reading reorders the pods, so the one under the cursor became another pod
+  whenever its place changed, and a rollout taking a worker out from above it
+  did the same unsorted. Enter or `l` then opened a pod the reader never chose.
+  This is a browser of resources one drills into, as k9s is, so following is
+  the right mode. What it costs is the reason the table's default is `false`:
+  sorted by a live column, the highlight can move every second. Here it moves with
+  the pod the reader picked, which is the thing they are about to open. `should
+  keep the cursor on its pod across a reading that reorders the table` sorts by
+  CPU, ticks until the pod has moved, and asserts the cursor is still on it.
+  Dropping `follow` from either twin fails it for that twin.
+
 - **Not done:** a real cluster; and the log as a pager (SIG-387).
 
 ### A file manager in Miller columns, with a preview (SIG-294)
@@ -1391,7 +1408,11 @@ about where the space went.
   selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
-  worth selecting, which is what a terminal reporting the mouse gives up.
+  worth selecting, which is what a terminal reporting the mouse gives up. With
+  motion since SIG-492, so that the line under the panes says what the pointer is
+  over on the map -- name, size and share, or `40 more in work` for a tile of
+  gathered files -- and the selection again once it leaves. A line rather than a
+  tooltip, recorded under "A treemap" in `packages/sigil/src/components`.
 
 - **The map takes the focus, and the arrows on it (SIG-491).** The library's map
   is focusable and moves between tiles by arrow, so the selection's keys --
