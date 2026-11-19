@@ -66,6 +66,8 @@ from `@ttylabs/sigil/components`, so they agree.
   `DataTable` keyed by namespace and name and built with `follow`, so the
   cursor stays on its pod through every reading, as k9s keeps it. Sorted by
   CPU, the pods change places every second and the cursor goes with its pod.
+  A pod that goes, as one does in a rollout, hands the cursor to the row that
+  took its place.
   A table's own default is htop's, which holds the cursor's place on screen and
   lets the rows move under it. A pod in trouble is drawn in the error or
   warning role across its whole row, as k9s draws one, through the table's

@@ -778,11 +778,12 @@ screen of code.
   `false`, htop's behaviour, which keeps the cursor's place on screen and makes
   whichever row is there current. A key alone decides what the cursor and the
   ticks hold, not whether the cursor rides with its row. Sorted by CPU, every
-  reading moved the pods under the cursor, and so did a rollout taking a worker
-  out from above it. Enter or `l` then opened a pod the reader never chose.
+  reading reorders the pods, so the one under the cursor became another pod
+  whenever its place changed, and a rollout taking a worker out from above it
+  did the same unsorted. Enter or `l` then opened a pod the reader never chose.
   This is a browser of resources one drills into, as k9s is, so following is
   the right mode. What it costs is the reason the table's default is `false`:
-  sorted by a live column, the highlight moves every second. Here it moves with
+  sorted by a live column, the highlight can move every second. Here it moves with
   the pod the reader picked, which is the thing they are about to open. `should
   keep the cursor on its pod across a reading that reorders the table` sorts by
   CPU, ticks until the pod has moved, and asserts the cursor is still on it.
