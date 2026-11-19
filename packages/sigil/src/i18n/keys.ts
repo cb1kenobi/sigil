@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 429 keys, which is what a catalog has to carry to translate sigil's own
+ * 442 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -61,6 +61,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Corrupt PNG: the image data inflates to more than the {0} bytes a {1}x{2} image needs',
   'Corrupt PNG: the image data inflates to {0} bytes rather than {1}',
   'Could not load: {0}',
+  'Could not move {0} to the trash: {1}',
   'Could not open {0}: {1}',
   'Count is too large to be exact: {0}',
   'Date must not be after {0}',
@@ -104,6 +105,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a pane size to be a number of cells',
   'Expected a panel titleAlign to be left, center or right',
   'Expected a panel {0} to be a string or a function',
+  'Expected a path to move to the trash',
   'Expected a radio set direction to be column or row',
   'Expected a radio set onChange to be a function',
   'Expected a retry delay in milliseconds',
@@ -285,6 +287,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Order: {0}',
   'PNG too large: {0}x{1} pixels is more than the {2} allowed',
   'PNG too large: {0}x{1} pixels is more than this runtime can hold',
+  'PowerShell answered {0}',
   'Present the result as JSON',
   'Present the result in this format',
   'Press Enter to open your editor',
@@ -335,6 +338,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Waiting for your editor to close the file…',
   'Went back',
   'Which shell?',
+  'Windows would delete it for good rather than recycle it',
   'Wrote {0}',
   'Yes',
   '[command]',
@@ -356,6 +360,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'end',
   'enter',
   'esc',
+  'exited with {0}',
   'expand',
   'first',
   'first tab',
@@ -368,6 +373,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'half page up',
   'home',
   'invert',
+  'it is on another device, and there is no user id to name a trash there',
+  'it is on another device, whose trash at {0} cannot be used',
+  'it is the top of a mount',
+  'its trash at {0} holds a link where a directory should be',
   'last',
   'last tab',
   'less',
@@ -389,6 +398,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'on',
   'open',
   'option {0}',
+  'osascript answered {0}',
+  'osascript gave no reason',
   'page',
   'page down',
   'page up',
@@ -412,6 +423,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'space',
   'submit',
   'tab',
+  'there is no home directory to keep a trash in',
   'this directory',
   'this one',
   'toggle',
@@ -430,6 +442,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '{0} arguments:',
   '{0} cannot hold the value at "{1}": {2}',
   '{0} exited with code {1}',
+  '{0} failed: {1}',
   '{0} is already up to date',
   '{0} is given more than once',
   '{0} is not there',

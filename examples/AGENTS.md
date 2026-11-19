@@ -828,6 +828,22 @@ in half blocks from the start.
   (`planPaste()`, `planRename()`, `nameProblem()`, `isInside()`), asked before a
   confirm is shown, and tested without an app.
 
+- **`t` moves to the trash, and `d` still deletes for good (SIG-481).** The
+  ticket left open whether trash becomes the default; this keeps today's `d`
+  exactly as it was, permanent and starting on No, and adds `t` beside it,
+  through `@ttylabs/sigil/trash`. A trash loses nothing another program cannot
+  give back, so by the rule above its confirm starts on Yes. The disk usage
+  example does the same, with the same key and the same two confirms. Making `d`
+  the trash and moving permanent delete to a modifier is the desktop's own
+  arrangement and the likely end state; it is not taken here because it changes
+  what a key that already deletes does, and that is Chris's call rather than a
+  side effect of a helper landing. A trash that is refused leaves the entry and
+  the cursor where they were, and the toast gives the entry's name and the
+  `cause` of `trash()`'s error, since its message carries the whole path. The
+  tests never reach the real trash: `test/fixture.ts` gives the mounted file
+  system a `trash` that renames into a directory the test made, and the library's
+  own tests cover the platforms.
+
 - **A rename takes a name, never a path.** A `/` is refused everywhere and a `\`
   on Windows, where it separates too, so a rename can never move a file. A name
   that differs only in case is still a rename: on a file system that ignores case
@@ -925,7 +941,7 @@ in half blocks from the start.
   is a name that is taken rather than a case-only rename, and a start spelled
   that way is not respelled. That is the safe direction to be wrong in.
 
-- **Not done:** selecting several files, a trash, making a file or a directory,
+- **Not done:** selecting several files, making a file or a directory,
   opening one in `$EDITOR`, and watching a directory (`R` reads it again).
 
 ### A dashboard, in the shape of shadcn's dashboard-01 (SIG-297)
@@ -1332,15 +1348,26 @@ about where the space went.
   wraps `stat` to report another device for one directory.
 
 - **Delete is permanent and starts on No.** The file manager's rule, for the
-  reason it gives: there is no trash that works the same on three platforms
-  without a dependency, and a confirm that loses work starts on the answer that
-  loses nothing. The message says what is going and how much. The root is not
+  reason it gives: a confirm that loses work starts on the answer that loses
+  nothing. (It also said there was no trash that worked the same on three
+  platforms without a dependency; SIG-481 wrote one, and `t` below is it.) The message says what is going and how much. The root is not
   deleted from here, and nothing is while a scan runs, since the tree on screen is
   about to be replaced; nor does `r` scan, or `d` ask again, until the disk has
   answered a delete, since a scan under an `rm` reads half of what it removes. A delete takes the sizes down at once, over the tree as it
   is now -- a new tree sharing every subtree it did not touch, so the list keeps
   its rows -- and a delete that fails part of the way scans again, since what is
   left is not something to guess at.
+
+- **`t` moves to the trash, beside `d` (SIG-481).** The file manager's entry
+  says why `d` is unchanged and `t` starts on Yes; this one keeps the same keys
+  and confirms. Three things differ from a delete. The line says the bytes are
+  freed when the trash is emptied rather than that they were freed. A trash that
+  `trash()` reports inside the directory scanned -- a home directory on Linux,
+  whose trash is `~/.local/share/Trash` -- is scanned again rather than taken
+  down, since the bytes only moved within the tree. And a refused trash does not
+  scan again: `trash()` moves the item whole or leaves it, so there is nothing to
+  read. The guards are the delete's -- not the root, not during a scan, and
+  nothing else while it is on its way -- by being one function, `removeSelected()`.
 
 - **The tree's children are a function, and every scan write reloads them.**
   `TreeListView` keeps what a branch's function returned, by value, until it is
@@ -1416,5 +1443,5 @@ about where the space went.
   flight and two wait.
 
 - **Not done:** renaming and opening files, which the ticket put out of scope; a
-  trash; a filter by name or kind; the blocks a file holds, as against its length;
+  filter by name or kind; the blocks a file holds, as against its length;
   and watching the disk, which `r` stands in for.

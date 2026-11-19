@@ -13,6 +13,7 @@
  */
 
 import { createContext, type Context } from '@ttylabs/sigil/renderer';
+import { trash } from '@ttylabs/sigil/trash';
 import { realpathSync } from 'node:fs';
 import { lstat, readdir, rm } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
@@ -46,6 +47,11 @@ export interface Disk {
   readonly root: string;
   /** What a name is, without following a link. */
   stat(path: string): Promise<Info>;
+  /**
+   * Moves a file, a link, or a directory to the trash, and says where it went.
+   * Never deletes: it moves the item or throws.
+   */
+  trash(path: string): Promise<string>;
 }
 
 /**
@@ -84,6 +90,7 @@ export function createDisk(root?: string): Disk {
         size: kind === 'file' ? Number(info.size) : 0,
       };
     },
+    trash,
   };
 }
 
@@ -311,4 +318,20 @@ export function isInside(child: string, parent: string): boolean {
     return true;
   }
   return child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+}
+
+/**
+ * Why something failed, in words that fit beside a name: an error's `cause` where
+ * it has one -- `trash()` puts the whole path in its message and the reason alone
+ * in its `cause` -- and its message otherwise.
+ *
+ * @param err - What was thrown.
+ * @returns The reason.
+ */
+export function reason(err: unknown): string {
+  const cause = err instanceof Error ? err.cause : undefined;
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  return err instanceof Error ? err.message : String(err);
 }

@@ -5,7 +5,10 @@
  *
  * Every destructive operation a test runs is run inside one of these directories
  * and nowhere else: the manager is pointed at it through `FilesContext`, which is
- * what `src/ui.ts` provides with the working directory.
+ * what `src/ui.ts` provides with the working directory. A trash too: the file
+ * system a test mounts moves an item into a directory of its own made here, never
+ * into the trash of the machine the suite runs on, which `@ttylabs/sigil/trash`'s
+ * own tests cover.
  */
 
 import { createFiles, type Files, FilesContext } from '../src/files.ts';
@@ -16,8 +19,9 @@ import { encodePng } from '@ttylabs/sigil/png';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 /** Every directory a test file made, which its `afterAll` hands to {@link removeTempDirs}. */
 const made: string[] = [];
@@ -136,7 +140,18 @@ export async function mount(
     wrap?: (files: Files) => Files;
   } = {}
 ): Promise<Mounted> {
-  const real = (opts.wrap ?? ((files: Files) => files))(createFiles({ start }));
+  // a trash of the test's own, in place before any wrap sees the file system: the
+  // real one is the user's
+  const bin = tempDir();
+  const fake: Files = {
+    ...createFiles({ start }),
+    async trash(path) {
+      const to = join(bin, basename(path));
+      await rename(path, to);
+      return to;
+    },
+  };
+  const real = (opts.wrap ?? ((files: Files) => files))(fake);
   let running = 0;
   const counted =
     <A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
@@ -156,6 +171,7 @@ export async function mount(
     same: counted(real.same),
     start: real.start,
     taken: counted(real.taken),
+    trash: counted(real.trash),
   };
   const term = createTestTerminal({
     colorLevel: opts.colorLevel ?? 0,

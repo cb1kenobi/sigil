@@ -1100,6 +1100,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   testing: [100, 51_372],
   theme: [188, 96_225],
   themes: [8, 4_119],
+  // SIG-481: most of it is the C# the Windows half hands PowerShell, which is a
+  // string the minifier cannot shorten, and the rest is `__` and `baseDir()`
+  trash: [40, 20_737],
   updates: [36, 18_536],
   width: [8, 4_220],
   which: [3, 1_446],

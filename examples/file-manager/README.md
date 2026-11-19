@@ -3,8 +3,8 @@
 A file manager in Miller columns: the directory above, the one you are in, and a
 preview of whatever is selected. Text is previewed with syntax highlighting and
 line numbers, Markdown rendered, a PNG drawn in half blocks, and a directory as
-its listing. Copy, move, rename and delete, each behind a confirm; a filter; and
-dot files shown or not.
+its listing. Copy, move, rename, delete and move to the trash, each behind a
+confirm; a filter; and dot files shown or not.
 
 ```console
 $ pnpm build
@@ -33,6 +33,7 @@ The column you are in:
 | `p`                | Paste what `y` or `x` holds into this directory, after a confirm |
 | `r`                | Rename, in a dialog                                              |
 | `d`, Delete        | Delete, after a confirm that starts on No                        |
+| `t`                | Move to the trash, after a confirm that starts on Yes            |
 
 Anywhere:
 
@@ -62,6 +63,10 @@ back to the column. The footer lists the keys of whatever has the focus.
   still a rename on a file system that ignores case.
 - **Delete** removes a directory and everything in it. It does not go to the
   trash, which is why its confirm starts on No: Enter and Escape both keep it.
+- **Trash** moves it to the trash instead -- the Finder's, the Recycle Bin, or
+  the freedesktop trash a Linux desktop reads -- where it can be taken back, so
+  its confirm starts on Yes. Where the trash will not take it, it stays where it
+  is and the reason is shown: it is never deleted instead.
 - Neither a copy nor a move puts a directory inside itself.
 
 Copy and move confirm starting on Yes, because nothing they do loses anything
@@ -104,7 +109,7 @@ it leaves its box empty, as `imageView()` does everywhere.
 
 ## Not yet
 
-- Selecting several files at once; a trash; making a file or a directory; opening
+- Selecting several files at once; making a file or a directory; opening
   a file in `$EDITOR`; watching a directory for changes (`R` reads it again).
 - The Windows hidden attribute: Node does not read it, so a file Explorer hides
   is shown unless its name starts with a dot.

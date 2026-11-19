@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `updates`, `testing`, `reference`, `png`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`
 
 ---
 
@@ -8099,6 +8099,42 @@ process may actually execute, so a directory of the right name is not one.
 
 Pass `path`, `pathExt` or `cwd` to ask about somewhere other than the
 environment.
+
+### `sigil/trash`
+
+Moves a file or a directory to the trash, where the user can take it back.
+
+```js
+import { trash } from '@ttylabs/sigil/trash';
+
+await trash('build/old.log'); // '/Users/me/.Trash/old.log': where it is now
+await trash('notes'); // a directory goes whole; a link goes as a link
+await trash('nope'); // throws: Could not move /…/nope to the trash: ENOENT: …
+```
+
+It never deletes. The item goes to the trash or stays where it was and the
+promise rejects with a message that says why, which is the point of it: a delete
+the user can undo is no use if it sometimes is not one. The message names the
+whole path; its `cause` is the reason alone, for a screen that already shows the
+name.
+
+Each platform is reached with what it already has, so this adds no dependency.
+On macOS it is `NSFileManager`, through `osascript`, so the item goes to the
+trash of the volume it is on and a second `a.txt` is named the way Finder names
+it. On Windows it is the Recycle Bin, through the shell's `IFileOperation` from
+PowerShell, and an item the bin would not keep -- too large for it, or on a
+network drive -- is refused, where Windows itself would delete it without
+asking. Everywhere else it is the freedesktop.org trash, which
+file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
+device as your home, and the trash at the top of the item's own mount for
+anything on another, since a trash on another device would mean a copy. Where
+that mount has no trash you may use, it throws.
+
+The promise settles with the path the item has in the trash -- or with `''` on
+Windows, in the rare case the shell recycles an item without handing back where
+it went, so check before using it as a path. Restoring it is the file manager's
+job: each platform keeps where an item came from in a record of its own beside
+it.
 
 ### `sigil/coerce`
 

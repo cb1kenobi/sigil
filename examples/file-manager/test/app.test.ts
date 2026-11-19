@@ -353,6 +353,61 @@ for (const [syntax, App] of [
       LONG
     );
 
+    it(
+      'should move to the trash on t, after a confirm that starts on Yes',
+      async () => {
+        const { work } = workspace();
+        const trashed: string[] = [];
+        const m = await mount(App, work, {
+          wrap: (files) => ({
+            ...files,
+            trash: async (path) => {
+              trashed.push(path);
+              return files.trash(path);
+            },
+          }),
+        });
+        await m.press('t');
+        expect(m.screen()).toMatch(/Move the directory docs and everything in it/);
+        await m.escape();
+        expect(existsSync(join(work, 'docs'))).toBe(true);
+        expect(trashed).toStrictEqual([]);
+
+        // Enter takes the button it starts on, which for a trash is Yes
+        await m.press('t', KEYS.enter);
+        expect(existsSync(join(work, 'docs'))).toBe(false);
+        expect(trashed).toStrictEqual([join(work, 'docs')]);
+        expect(m.screen()).toMatch(/❯ src\//);
+        expect(m.screen()).toMatch(/Moved docs to the trash/);
+        m.app.exit(0);
+      },
+      LONG
+    );
+
+    it(
+      'should leave the entry and say why when the trash will not take it',
+      async () => {
+        const { work } = workspace();
+        const m = await mount(App, work, {
+          wrap: (files) => ({
+            ...files,
+            trash: async (path) => {
+              throw new Error(`Could not move ${path} to the trash: it is the top of a mount`, {
+                cause: new Error('it is the top of a mount'),
+              });
+            },
+          }),
+        });
+        await m.press('t', KEYS.enter);
+        // the reason, under the entry's own name rather than its whole path
+        expect(m.screen()).toMatch(/Could not move docs to the trash: it is/);
+        expect(existsSync(join(work, 'docs'))).toBe(true);
+        expect(m.screen()).toMatch(/❯ docs\//);
+        m.app.exit(0);
+      },
+      LONG
+    );
+
     it.skipIf(process.platform === 'win32')(
       'should draw a control character in a name as a replacement, not drop it',
       async () => {
