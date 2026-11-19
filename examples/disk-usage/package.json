@@ -1,0 +1,25 @@
+{
+  "name": "@ttylabs/example-disk-usage",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A disk space visualizer in JSX: a size-sorted file tree beside a squarified treemap of the same files, with rescan and delete",
+  "bin": {
+    "disk-usage": "./dist/disk-usage.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "sigil build",
+    "start": "node dist/disk-usage.mjs",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  },
+  "devDependencies": {
+    "@ttylabs/cli": "workspace:*",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

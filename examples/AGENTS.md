@@ -1169,3 +1169,192 @@ below with the measurements.
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and
   showing the caret's line and column, which the area has no handle to read.
+
+### A disk space visualizer, a size-sorted tree beside a treemap (SIG-474)
+
+`examples/disk-usage`, in the shape of DiskSpace and borrowing nothing of it but
+the shape: everything under a directory as a tree down the left with its total,
+largest first, and a treemap of the same tree on the right, one rectangle per
+file, nested by directory. One selection between the two, `r` to scan again, and
+`d` to delete after a confirm. Where the file manager is about the files, this is
+about where the space went.
+
+- **JSX alone, and built.** The screen is two panels, a line and a footer, so a
+  second syntax would compare a dozen lines of markup; what the example is about
+  is the scan and the map, which are plain TypeScript either way. And the tree
+  list view's `row` is typed against its items, which is the half of JSX that pays
+  here. So there is no `src/ui.ts`, and `--version` is the one `sigil build` bakes.
+
+- **The disk through a context, and every delete inside a directory a test
+  made.** `DiskContext` is the file manager's `FilesContext` again, with three
+  calls -- `list`, `stat` (an `lstat`) and `remove` -- and the root. `test/fixture.ts`
+  wraps each to count it, so `settle()` waits for the disk rather than a time, and
+  records every `remove`, so a test asserts the one path that went. Two test files
+  make directories, which is the point the git client's entry gave for the helper
+  to earn its module. The contract tests run it in the repository with no provider,
+  and it only reads there: Tab, `r`, `q` and Ctrl-C. The `KEYED` entry presses `r`
+  and waits for `Rescanned`, which a scan somebody asked for always says -- even
+  one that threw away a first scan still running, as it is in the spawned run,
+  where the key comes on the first frame.
+
+- **The layout is squarified, in half-block pixels.** Bruls, Huizing and van
+  Wijk's algorithm keeps rectangles near square, and on a grid of cells a thin
+  sliver is a rectangle that cannot be drawn at all. A `Pixels` pixel is a cell
+  wide and half a cell tall, which a cell twice as tall as it is wide makes about
+  square, so the layout is done in those and square means square on screen. Edges
+  are rounded rather than sizes, so two neighbours round their shared edge the same
+  way and meet with no gap and no overlap; `squarify()` and `layoutMap()` are plain
+  functions, and `test/treemap.test.ts` asks them at sizes from 3 by 3 up.
+
+- **The depth limit is the cell, not a number.** An item that would get fewer than
+  nine pixels (`MIN_AREA`: three by three, two by two of colour inside its edge) is
+  gathered with the rest of its directory's small items into one tile, labelled
+  `37 more` or `+37`. A directory is divided only where it is at least three pixels
+  a side and its largest item has room of its own; otherwise it is one tile under
+  its own name. So a deep tree on a big screen is drawn deep, and a selection with
+  no tile of its own outlines the tile it went into (`markFor()`).
+
+- **Colour is the kind of file, never depth.** Seven kinds -- code, text and
+  documents, images, audio and video, archives, binaries, other -- because at 16
+  colours there are six hues and a grey, one each, and the selection is bright white,
+  which none is. At 256 each is an RGB quantized by the library's quantizer; at
+  truecolor it is shaded as a cushion (van Wijk and van de Wetering), which is what
+  makes nesting show inside a colour. Not at 256: tried there, the cube cut each
+  cushion into a few flat bands and moved its hue as it darkened -- a yellow tile
+  went olive and then green at its edge, a blue one purple -- so one file read as
+  several, of several kinds. Flat colours hold up at 256. Depth was not given the
+  colour because it is already drawn, by the nesting and the edges, and the
+  question a disk map answers is "what is it", which only a colour says.
+
+- **Two neighbours never merge, at any colour level, because the edge is not a
+  colour.** Each tile keeps its last column and row in the terminal's own
+  background, and a directory directly under the one mapped keeps one more, so the
+  first division reads at a glance. A colour-based edge -- a darker shade, a
+  cushion's crease -- is gone at 16 colours, where two code files are the same
+  blue. A tile of many files is a checker of two shades rather than solid, which is
+  the one difference that survives level 0, where the map is blocks and spaces and
+  a selected tile is drawn hollow.
+
+- **Level 0 is the map's own blit.** `Pixels.blit()` skips a cell whose halves are
+  both the terminal's own and writes a colour for the rest, so at level 0, where
+  there is no colour to write, nothing would be drawn; the image component returns
+  early there for that reason. `paintMap()` writes the half blocks itself at level
+  0, in the terminal's own foreground. A colour the map picks is quantized where it
+  is picked, as the image component does, because degradation happens at resolve
+  time and a `raw` paints after it.
+
+- **A `raw` element repaints when an effect says so.** The map and the swatch
+  beside each file are `raw`, the image component's trapdoor; a paint reads no
+  signal the renderer can see, so an effect over the root, the selection and the
+  message calls `invalidatePaint()`. The layout is cached by the tree's identity
+  and the size, so a move of the selection repaints over the same layout. Labels
+  are written after the pixels, on a tile's first whole row, and moved off or cut
+  short of the outline, which would otherwise lose its corner to a name.
+
+- **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
+  through a limiter of 48 in flight and nothing waits on a read while holding a
+  place, so a directory waiting for its children never starves them; 178,988 files
+  under `/Applications` took 4.2 s, measured as of this change. The scan writes its
+  counts into one object and the screen copies them on a 100 ms timer, rather than
+  a signal write per file. A scan from `r` keeps the last one on screen until it
+  ends; one thrown away -- by another `r`, or by quitting -- changes nothing.
+
+- **What a size is.** A file's length (`st_size`), not the blocks it holds, so one
+  tree says one total on all three platforms and the tests can assert it exactly;
+  a sparse or compressed file is shown at its length, which is the cost. A
+  directory is what is in it, its own entry counting nothing, for the same reason:
+  `4096` on Linux, a few hundred on macOS, `0` on Windows. Sizes are in powers of
+  1000 with one decimal, `8.2 kB`, as the ticket spelt them and as a disk is sold.
+
+- **Links: never followed, and a hard link counted once.** A symbolic link is
+  listed and counts nothing -- its own few bytes differ by platform and Windows
+  says `0` -- so a link to `/` costs one `lstat`. The root is the exception: it was
+  named, so `createDisk()` resolves it once. A file with more than one name is
+  counted at the name that sorts first by code unit, decided after the walk rather
+  than by which name a concurrent walk reached first, so two scans of one tree
+  agree; the others count `0` and the line under the panes says where it was
+  counted. Deleting the counted name moves the bytes to the next one
+  (`removePath()`), since deleting one name of a file frees nothing while another
+  remains. Identity is `dev:ino` read as bigints, because an NTFS file id can pass
+  2^53 and two files would compare equal.
+
+- **A directory on another device is listed and not entered,** as `du -x` reads
+  one. Scanning `/` on Linux would otherwise wander into `/proc`, whose `kcore`
+  claims 128 TB, and into network mounts. A test cannot make a mount point, so it
+  wraps `stat` to report another device for one directory.
+
+- **Delete is permanent and starts on No.** The file manager's rule, for the
+  reason it gives: there is no trash that works the same on three platforms
+  without a dependency, and a confirm that loses work starts on the answer that
+  loses nothing. The message says what is going and how much. The root is not
+  deleted from here, and nothing is while a scan runs, since the tree on screen is
+  about to be replaced; nor does `r` scan, or `d` ask again, until the disk has
+  answered a delete, since a scan under an `rm` reads half of what it removes. A delete takes the sizes down at once, over the tree as it
+  is now -- a new tree sharing every subtree it did not touch, so the list keeps
+  its rows -- and a delete that fails part of the way scans again, since what is
+  left is not something to guess at.
+
+- **The tree's children are a getter, not a function.** `TreeListView` reads a
+  branch whose `items` is a function once and keeps what it returned, by value,
+  for good -- right for a directory read off the disk, wrong for a tree a delete
+  replaces, whose branch keeps the value and changes its children. A getter
+  memoized per node is read only for a branch that is shown, so a tree of 180,000
+  names costs what is open, and a new node is a new choice with new children.
+
+- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
+  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
+  is two meanings for one key, so the tree has no `onActivate` and the panel's
+  `onKey` takes Enter. A double click on a row does nothing; a click on the map
+  selects.
+
+- **The mouse is on.** A treemap is pointed at, and nothing on screen is text
+  worth selecting, which is what a terminal reporting the mouse gives up.
+
+- **`printable()` is the file manager's, written again.** A one-line rule, but a
+  rule, and the root file says a helper has one definition; an example is a unit
+  somebody copies, so neither can import the other's. It is filed as a gap.
+
+- **Sabotage: ten, two survived, and one of those has a test now.** A delete
+  confirm starting on Yes, a device check that enters every directory, an edge
+  coloured like the tile, a hard link whose bytes stay with a deleted name, a map
+  that does not follow the selection out, a delete allowed during a scan, a
+  selected tile drawn solid at level 0, and a failed delete not scanning again each
+  fail a test. The hard links counted at whichever name the walk reached first
+  survived, because a directory lists in byte order on the machines the suite runs
+  on; the test now lists it reversed. The effect that calls `invalidatePaint()`
+  survives by design: a frame paints the whole tree once anything changed, and
+  nothing in the app changes the map without changing a line of text beside it, so
+  removing it changes no screen today. It stays, because the map being right should
+  not rest on that.
+
+- **Review round 1: eight findings, six fixed, each with a test that fails
+  without its fix.** `r` and a second `d` were let through once the confirm
+  closed and before `rm` returned, so a scan could read a directory half removed
+  and put it back; the delete now holds both until the disk answers. A thrown-away
+  scan's progress timer ran until its walk next looked at the signal, writing its
+  counts over the scan that replaced it; it stops on the abort, and a read it had
+  queued is never made. An item with room on paper could be laid as a sliver under
+  half a pixel and round to nothing, and selecting it outlined the whole
+  directory; `markFor()` now outlines a rest only for an item in it, and nothing
+  for one not drawn. A rescan that failed over a tree said only `Scan failed`; it
+  says why. A root that could not be listed was called empty. And the symlink test
+  returned early where links cannot be made, passing on Windows while asserting
+  nothing; it is skipped there now. Also added: the limiter's bound, a file whose
+  `lstat` fails, and deleting the hard-link name that did not count. Not fixed: a
+  file length past 2^53 bytes, 9 PB, is rounded by `Number()`; no file is that long.
+
+- **Review round 2, over round 1's fixes: three findings, all fixed.** The
+  thrown-away-scan test waited on the wall clock and could flake on a slow runner;
+  it now waits for the first scan to be inside its read and for the replacement to
+  say `Rescanned`. Worse, it had passed its sabotage for the wrong reason: a scan
+  held in one subdirectory still rejects as soon as any other branch reads the
+  signal, so its timer stopped anyway. Held at its very first read, the timer
+  outlives the scan, and removing the fix fails it. A directory mapped with Enter
+  that could not be read was still called empty: the map now reads the note off
+  the directory it shows. And the queued-read test aborted before anything was
+  queued, so a check outside the limiter passed it; it aborts while one read is in
+  flight and two wait.
+
+- **Not done:** renaming and opening files, which the ticket put out of scope; a
+  trash; a filter by name or kind; the blocks a file holds, as against its length;
+  and watching the disk, which `r` stands in for.
