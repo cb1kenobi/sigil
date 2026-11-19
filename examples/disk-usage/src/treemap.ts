@@ -596,7 +596,8 @@ export function paintMap(
     }
   }
 
-  blit(pixels, painter, left, top, level);
+  // at level 0 `Pixels` draws which pixels are on, with no colour of their own
+  pixels.blit(painter, left, top, { colorLevel: level });
 
   // a name on each tile wide enough to hold one, on its first whole row, and
   // never over the outline: a label is moved off it, or cut short of it
@@ -652,31 +653,6 @@ export function paintMap(
       painter.text(left + start, top + row, label);
     } else {
       painter.text(left + start, top + row, label, { bg: under, fg: inkOn(under, level) });
-    }
-  }
-}
-
-/**
- * Puts the pixels on the painter. Above level 0 that is `Pixels.blit()`. At level
- * 0 a colour cannot be written, and `Pixels` skips a cell whose halves are both the
- * terminal's own, so the half blocks are written here in the terminal's own
- * foreground: on is a block, off is a space.
- */
-function blit(pixels: Pixels, painter: Painter, left: number, top: number, level: number): void {
-  if (level > 0) {
-    pixels.blit(painter, left, top);
-    return;
-  }
-  for (let row = 0; row < pixels.height; row++) {
-    for (let column = 0; column < pixels.width; column++) {
-      if (!painter.inside(left + column, top + row)) {
-        continue;
-      }
-      const upper = pixels.get(column, row * 2) !== DEFAULT_COLOR;
-      const lower = pixels.get(column, row * 2 + 1) !== DEFAULT_COLOR;
-      if (upper || lower) {
-        painter.text(left + column, top + row, upper && lower ? '█' : upper ? '▀' : '▄');
-      }
     }
   }
 }

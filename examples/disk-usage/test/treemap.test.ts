@@ -347,6 +347,23 @@ describe('paintMap()', () => {
     expect([lit?.fg, lit?.bg]).toContain(rgb(255, 255, 255));
   });
 
+  // the map sets a lit pixel to a colour at level 0 too, and only `Pixels` being
+  // told the level keeps that colour off the screen
+  it('should paint no colour at level 0', () => {
+    const root = dir(ROOT, [file(ROOT, 'a.ts', 500), file(ROOT, 'b.png', 300)]);
+    const layout = layoutMap(root, 20, 12);
+    const { rows, style } = paint(layout, 0, layout.byPath.get(join(ROOT, 'a.ts')));
+    expect(rows.join('')).toMatch(/[▀▄█]/);
+    for (let y = 0; y < rows.length; y++) {
+      for (let x = 0; x < layout.width; x++) {
+        expect([style(x, y)?.fg, style(x, y)?.bg], `${x},${y}`).toEqual([
+          DEFAULT_COLOR,
+          DEFAULT_COLOR,
+        ]);
+      }
+    }
+  });
+
   it('should write a name on a tile wide enough, and keep it off the outline', () => {
     const root = dir(ROOT, [file(ROOT, 'alpha.ts', 600), file(ROOT, 'beta.png', 400)]);
     const layout = layoutMap(root, 30, 12);
