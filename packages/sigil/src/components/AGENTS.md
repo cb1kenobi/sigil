@@ -13612,9 +13612,23 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   in the paint, which is a tracked computed that may not write a signal -- and the
   callback's whole use is writing one -- so it would be a microtask queued out of
   the paint: a second way for the map to call the app, at a moment no event
-  explains. Narrower and documented rather than a second mechanism; `should report a new tile at the next report after a new root
-  under the pointer` pins it. The example covers its one visible case: a hovered
-  path a delete has removed says the selection again.
+  explains. Narrower and documented rather than a second mechanism; `should report
+  a new tile at the next report after a new root under the pointer` pins it. The
+  example covers what a user would see of it: a hovered path a delete has removed,
+  and a gathered tile whose files a delete or a rescan has replaced, say the
+  selection again -- a gathered tile is shown only while every file it holds is
+  still a child of its directory by identity, which a delete keeps for the nodes it
+  did not touch and a rescan does not (review round 1).
+- **A drag that began elsewhere is heard only as it enters and leaves (review
+  round 1, the same limit).** A press captures the pointer for what it landed on,
+  so the motion of a drag from the tree onto the map goes to the tree, and the map
+  -- one element, whose tiles are not elements -- hears its `mouseenter` and
+  nothing until it leaves. So it reports the tile the drag came in over, and the
+  right tile at the first report after the release. Hearing the drag would mean
+  listening past the tree, on the router's own `onMouse()`, which the map does not
+  have: it is handed no router, and taking one for this is a prop every app
+  passes for a drag nobody makes on purpose. `should hear a drag from elsewhere
+  only as it enters, and be right at the next move` pins both halves.
 - **The example shows it in the line under the panes, not in a tooltip.**
   `attachTooltip()` anchors a bubble to an element, and the element here is the
   whole map: the bubble would sit at the map's edge rather than by the tile, show

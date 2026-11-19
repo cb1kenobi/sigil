@@ -993,9 +993,43 @@ describe('Treemap, under the pointer', () => {
     ]);
   });
 
+  it('should hear a drag from elsewhere only as it enters, and be right at the next move', async () => {
+    const { onHover, told } = recorder();
+    const term = createTestTerminal({ colorLevel: 0, columns: 30, rows: 6 });
+    // a box of nothing on the left, and the map on the right: `a` from column 10
+    // and `b` from column 20
+    const app = runApp(
+      () =>
+        box(
+          { 'flex-direction': 'row', 'flex-grow': 1 },
+          box({ 'flex-shrink': 0, width: 10 }),
+          Treemap({
+            ...PAIR_PROPS,
+            onHover,
+            props: { 'flex-shrink': 0, height: 6, width: 20 },
+            root: PAIR,
+          })
+        ),
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    // pressed on the box, dragged onto `a` and on to `b`, and let go there: the
+    // press captured the pointer for the box, so the map hears that it was
+    // entered, and none of the motion after
+    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M', '\u001b[<0;26;3m');
+    await frame(app);
+    expect(told).toStrictEqual([[`${ROOT}/a`, 'a', undefined]]);
+    // and the first move after the release is the map's again
+    await term.press('\u001b[<35;26;3M');
+    await frame(app);
+    expect(told.at(-1)).toStrictEqual([`${ROOT}/b`, 'b', undefined]);
+  });
+
   it('should report nothing without motion tracking, a drag across the map included', async () => {
     const { onHover, told } = recorder();
-    const m = await mount({ ...PAIR_PROPS, onHover, root: PAIR });
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, onHover, root: PAIR });
     // a press on `a`, dragged with the button held onto `b`, and let go there:
     // with no motion report to clear it, a hover read from a drag would stay on
     // `b` after the release
@@ -1003,6 +1037,9 @@ describe('Treemap, under the pointer', () => {
     await frame(m.app);
     await m.move(2, 2);
     expect(told).toStrictEqual([]);
+    // which is not the map hearing nothing: the press and the release were both
+    // on it, so they were a click, and it picked `b`
+    expect(current.get()).toBe(`${ROOT}/b`);
   });
 
   it('should report a new tile at the next report after a new root under the pointer', async () => {

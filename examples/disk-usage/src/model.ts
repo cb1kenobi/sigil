@@ -325,18 +325,25 @@ export function createModel(): Model {
     }
     // the tile under the pointer, while there is one: a small tile carries no
     // name, and this is how to learn what it is without clicking it, which would
-    // move the selection. A tile of gathered files says how many, and where
+    // move the selection. What a delete or a rescan has changed since says the
+    // selection again, until the pointer next moves
     const over = hovered.get();
     if (over?.gathered !== undefined) {
-      const bytes = over.gathered.reduce((sum, node) => sum + node.bytes, 0);
-      const where = printable(shownPath(found.root, dirname(over.path)));
-      return `${over.gathered.length} more in ${where} · ${formatSize(bytes)}${shareOf(found, bytes)}`;
+      // a tile of gathered files says how many, and where -- while they are still
+      // the files in the tree: a delete keeps every node it did not touch, and a
+      // rescan makes them all new
+      const now = new Set(findNode(found.root, dirname(over.path))?.children);
+      if (over.gathered.every((node) => now.has(node))) {
+        const bytes = over.gathered.reduce((sum, node) => sum + node.bytes, 0);
+        const where = printable(shownPath(found.root, dirname(over.path)));
+        return `${over.gathered.length} more in ${where} · ${formatSize(bytes)}${shareOf(found, bytes)}`;
+      }
     }
-    // a path a delete has taken away since says the selection again, until the
-    // pointer next moves
     const path = current.get();
     const node =
-      (over === undefined ? undefined : findNode(found.root, over.path)) ??
+      (over === undefined || over.gathered !== undefined
+        ? undefined
+        : findNode(found.root, over.path)) ??
       (path === undefined ? undefined : findNode(found.root, path));
     if (node === undefined) {
       return '';

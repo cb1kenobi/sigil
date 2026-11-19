@@ -727,6 +727,12 @@ describe('the disk usage visualizer', () => {
 
       await move(at('more'));
       expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
+      // a rescan makes every file a new one: the forty the pointer was over are
+      // not what the tree holds now, so the line says the selection until it moves
+      await m.press('r');
+      expect(info(m)).toBe(selected);
+      await move(at('more'));
+      expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
 
       // onto the tree, which is off the map
       await move([2, 3]);
