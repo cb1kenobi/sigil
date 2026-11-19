@@ -1630,13 +1630,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * @param target - What it was addressed to, which does not change as it walks.
    * @param chain - Who sees it, in order.
    * @param detail - The position, the button, and the modifiers.
+   * @param router - Whether the router's own handlers see it once the chain has.
    * @returns Whether something stopped it.
    */
   function deliver(
     kind: MouseEventKind,
     target: Element | undefined,
     chain: readonly Element[],
-    detail: MouseDetail
+    detail: MouseDetail,
+    router = true
   ): boolean {
     let stopped = false;
     let current: Element | undefined = target;
@@ -1668,6 +1670,10 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       if (stopped) {
         return true;
       }
+    }
+
+    if (!router) {
+      return false;
     }
 
     // past the tree, so the event is not at an element any more
@@ -1743,6 +1749,33 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     for (const it of entered) {
       if (deliver('mouseenter', it, [it], detail)) {
         return;
+      }
+    }
+  }
+
+  /**
+   * Hands a captured move to each element under the pointer that asked to hear
+   * one, `hearsDrags`.
+   *
+   * The capture is untouched: this runs after the holder's move, and adds an event
+   * rather than redirecting one. Each is addressed to the element itself and not
+   * bubbled, the way `mouseenter` is, since an ancestor that did not ask must not
+   * be told -- and it does not reach the router's handlers, which have had this
+   * report's move already. An element on the captured move's own path is skipped,
+   * because it was offered that move by bubbling and a second copy would be one
+   * report heard twice -- the path as it was dispatched along, since a holder's
+   * handler may move itself out of the tree. Read off `hovering`, so it is under
+   * `mouse.motion` alone, and an element is told about the moves while it has
+   * `:hover`, which its own enter and leave bracket.
+   *
+   * @param path - The holder and its ancestors, which have the move already.
+   * @param detail - What the report carried.
+   */
+  function overhear(path: readonly Element[], detail: MouseDetail): void {
+    const told = new Set(path);
+    for (const it of hovering) {
+      if (it.hearsDrags && !told.has(it)) {
+        deliver('mousemove', it, [it], detail, false);
       }
     }
   }
@@ -1951,7 +1984,18 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         if (!captured && !inside) {
           return;
         }
-        bubble('mousemove', target, detail);
+        // the path is read once, before anybody is told, so an element the move
+        // bubbled through is the element `overhear()` skips even where a handler
+        // moved the holder out of the tree on the way
+        const path = ancestry(target);
+        deliver('mousemove', target, path, detail);
+        // and what the drag passes over hears it too, where it asked to. After the
+        // holder, which owns the drag, and whether or not the holder stopped its
+        // move: stopping an event stops it bubbling and does not cancel another
+        // one, the rule the click already follows
+        if (captured) {
+          overhear(path, detail);
+        }
         return;
       }
 

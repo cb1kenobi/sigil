@@ -1,4 +1,5 @@
 import { createCanvas, DEFAULT_COLOR, palette, rgb, type Style } from '../../src/canvas/index.js';
+import { keyHelp } from '../../src/components/key-help.js';
 import {
   describeTreemap,
   inside,
@@ -19,13 +20,18 @@ import {
   treemapTileAt,
   treemapTileColors,
 } from '../../src/components/treemap.js';
-import { box } from '../../src/element/index.js';
-import type { DescribeOptions } from '../../src/input/index.js';
+import { box, renderToString } from '../../src/element/index.js';
+import {
+  createInput,
+  type DescribeOptions,
+  DOUBLE_CLICK_MS,
+  type MouseEvent,
+} from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
-import { Computed, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
 import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The treemap: the layout and the mark over trees built by hand, what reaches the
@@ -1570,6 +1576,260 @@ describe('Treemap focus', () => {
   });
 });
 
+describe('Treemap vim keys', () => {
+  /** Presses keys, one at a time, and waits for the frame after them. */
+  async function press(
+    m: { app: Parameters<typeof frame>[0]; term: { press(...keys: string[]): Promise<void> } },
+    ...keys: string[]
+  ): Promise<void> {
+    for (const key of keys) {
+      await m.term.press(key);
+    }
+    await frame(m.app);
+  }
+
+  /** A map inside a box that records every key that reaches it. */
+  async function wrapped(props: TreemapProps<Node, string>) {
+    const heard: string[] = [];
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    const app = runApp(
+      () =>
+        box(
+          {
+            'flex-grow': 1,
+            onKey: (event) => {
+              const k = event.key;
+              heard.push(
+                `${k.ctrl ? 'ctrl+' : ''}${k.meta ? 'alt+' : ''}${k.shift ? 'shift+' : ''}${k.name}`
+              );
+            },
+          },
+          Treemap({ ...props, props: { 'flex-grow': 1, ...props.props } })
+        ),
+      { detect: false, mouse: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    return { app, heard, term };
+  }
+
+  /** Four items of one size, so there is somewhere to go every way from one of them. */
+  const QUAD = branch(
+    ROOT,
+    ['a', 'b', 'c', 'd'].map((name) => leaf(ROOT, name, 250))
+  );
+
+  /** Each letter, with the arrow it stands for and the way they both go. */
+  const LETTERS = [
+    ['h', KEYS.left, 'left'],
+    ['j', KEYS.down, 'down'],
+    ['k', KEYS.up, 'up'],
+    ['l', KEYS.right, 'right'],
+  ] as const;
+
+  for (const [letter, arrow, way] of LETTERS) {
+    it(`should move ${way} on ${letter} with vim, to the tile the arrow moves to`, async () => {
+      const map = layoutTreemap(QUAD, 20, 12, READ);
+      // a tile with a tile beside it that way, which the map is laid out the same as
+      const from = map.tiles.find((tile) => treemapNeighbor(map, tile, way) !== undefined);
+      const to = treemapNeighbor(map, from, way);
+      expect(from).toBeDefined();
+      const start = READ.key((from as TreemapTile<Node>).item);
+      const current = new State<string | undefined>(start);
+      const picks: string[] = [];
+      const m = await mount({
+        ...PAIR_PROPS,
+        current,
+        onPick: (key) => picks.push(key),
+        root: QUAD,
+        vim: true,
+      });
+      await press(m, KEYS.tab, letter);
+      expect(current.get()).toBe(READ.key((to as TreemapTile<Node>).item));
+      expect(current.get()).not.toBe(start);
+      // a pick, as the arrow's is, and the arrow from the same tile agrees
+      expect(picks).toStrictEqual([current.get()]);
+      current.set(start);
+      await press(m, arrow);
+      expect(picks).toStrictEqual([current.get(), current.get()]);
+    });
+  }
+
+  it('should leave h, j, k and l to what is around it without vim', async () => {
+    const current = new State<string | undefined>(`${ROOT}/a`);
+    const m = await wrapped({ ...PAIR_PROPS, current, root: QUAD });
+    await press(m, KEYS.tab, 'h', 'j', 'k', 'l');
+    expect(m.heard).toStrictEqual(['h', 'j', 'k', 'l']);
+    expect(current.get()).toBe(`${ROOT}/a`);
+  });
+
+  it('should claim a letter that goes nowhere, and leave a capital, a Ctrl or an Alt to what is around it', async () => {
+    // `b` is the right half: `l` from it goes nowhere, and is still the map's, as
+    // Right is
+    const current = new State<string | undefined>(`${ROOT}/b`);
+    const m = await wrapped({ ...PAIR_PROPS, current, root: PAIR, vim: true });
+    await press(m, KEYS.tab, 'l', 'H', '\u000c', '\u001bh');
+    // Alt-h from `b` would be `a`, were it the map's
+    expect(m.heard).toStrictEqual(['H', 'ctrl+l', 'alt+h']);
+    expect(current.get()).toBe(`${ROOT}/b`);
+  });
+});
+
+describe('describeTreemap with vim', () => {
+  it('should put k, j, h and l on the line the arrows are on, only where the map is vim', () => {
+    const live: string[] = [];
+    const router: TreemapDescriber = {
+      describe(keys, opts) {
+        live.push(`${keys} ${opts.description} ${opts.priority ?? 0}`);
+        return () => {};
+      },
+    };
+    describeTreemap(router, Treemap({ ...PAIR_PROPS, root: PAIR, vim: true }));
+    expect(live).toStrictEqual([
+      'up move 1',
+      'down move 1',
+      'left move 1',
+      'right move 1',
+      'k move 1',
+      'j move 1',
+      'h move 1',
+      'l move 1',
+    ]);
+    live.length = 0;
+    describeTreemap(router, Treemap({ ...PAIR_PROPS, root: PAIR, vim: false }));
+    expect(live).toStrictEqual(['up move 1', 'down move 1', 'left move 1', 'right move 1']);
+  });
+
+  it('should read as one line in a footer, each letter after its arrow', () => {
+    const term = createTestTerminal({ columns: 80, rows: 10 });
+    const host = Treemap({ ...PAIR_PROPS, root: PAIR, vim: true });
+    const root = box({ 'flex-direction': 'column' }, host);
+    const input = createInput({ root, terminal: term.terminal });
+    describeTreemap(input, host);
+    const footer = keyHelp(input, { width: 80 });
+    input.focus.focus(host);
+    flush();
+    const line = renderToString(footer, { colorLevel: 0, width: 80 }).trimEnd();
+    expect(line).toContain('↑/↓/←/→/k/j/h/l move');
+    input.stop();
+  });
+});
+
+describe('Treemap double click', () => {
+  // the clock a click is counted against, moved on by hand where two clicks are
+  // to be further apart than a double click
+  const realNow = Date.now.bind(Date);
+  let skew = 0;
+  beforeEach(() => {
+    skew = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A left click on a cell, press and release, as a terminal reports one. */
+  const clickAt = (x: number, y: number): string =>
+    `\u001b[<0;${x + 1};${y + 1}M\u001b[<0;${x + 1};${y + 1}m`;
+
+  /** A map over `root` that writes down every pick and activation, in order. */
+  async function logged(
+    root: Node,
+    opts: { activate?: boolean; columns?: number; rows?: number } = {}
+  ) {
+    const current = new State<string | undefined>(undefined);
+    const log: string[] = [];
+    const gathered: (readonly Node[] | undefined)[] = [];
+    const m = await mount(
+      {
+        ...PAIR_PROPS,
+        current,
+        onActivate:
+          opts.activate === false ? undefined : (key: string) => log.push(`activate ${key}`),
+        onPick: (key, _item, rest) => {
+          log.push(`pick ${key}`);
+          gathered.push(rest);
+        },
+        root,
+      },
+      opts
+    );
+    /** Sends what is given in one read, as a fast double click arrives, and waits a frame. */
+    const send = async (input: string): Promise<void> => {
+      await m.term.press(input);
+      await frame(m.app);
+    };
+    return { ...m, current, gathered, log, send };
+  }
+
+  it('should activate a tile on a double click, after the first click picked it', async () => {
+    const m = await logged(PAIR);
+    // both clicks in one read, as a fast double click arrives
+    await m.send(clickAt(15, 3) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/b`, `activate ${ROOT}/b`]);
+    expect(m.current.get()).toBe(`${ROOT}/b`);
+  });
+
+  it('should activate a tile of gathered items on the largest, as Enter after a click does', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const m = await logged(root, { columns: 40, rows: 12 });
+    const rest = layoutTreemap(root, 40, 24, READ).tiles.find(
+      (tile) => tile.kind === 'rest'
+    ) as TreemapBox;
+    const on = clickAt(rest.x, Math.floor(rest.y / 2));
+    await m.send(on + on);
+    expect(m.log).toStrictEqual([`pick ${ROOT}/s29`, `activate ${ROOT}/s29`]);
+    // picked once, handing over all of them
+    expect(m.gathered).toHaveLength(1);
+    expect(m.gathered[0]).toHaveLength(30);
+    // and Enter, which the click left the map focused for, activates the same key
+    await m.send(KEYS.enter);
+    expect(m.log.at(-1)).toBe(`activate ${ROOT}/s29`);
+  });
+
+  it('should take two clicks further apart, or on two tiles, as two picks', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2));
+    skew += DOUBLE_CLICK_MS + 1;
+    await m.send(clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+
+    skew += DOUBLE_CLICK_MS + 1;
+    m.log.length = 0;
+    await m.send(clickAt(2, 2) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/b`]);
+  });
+
+  it('should take a third click as a pick again, as a list does', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2) + clickAt(2, 2) + clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `activate ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should not activate on a second click once the current item has moved off the tile', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2));
+    // the app moved the selection between the clicks: the second is a click on `a`
+    m.current.set(`${ROOT}/b`);
+    await m.send(clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should pick twice and activate nothing without an onActivate', async () => {
+    const m = await logged(PAIR, { activate: false });
+    await m.send(clickAt(2, 2) + clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should take two clicks on two cells of one tile as a double click on it', async () => {
+    const m = await logged(PAIR);
+    // `b` is the right half: its name's row, then a cell further down and along
+    await m.send(clickAt(12, 1) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/b`, `activate ${ROOT}/b`]);
+  });
+});
+
 describe('Treemap, under the pointer', () => {
   /** What `onHover` was told, a call to an entry: the key, the name, and how many it gathers. */
   function recorder() {
@@ -1682,16 +1942,24 @@ describe('Treemap, under the pointer', () => {
     ]);
   });
 
-  it('should hear a drag from elsewhere only as it enters, and be right at the next move', async () => {
+  it('should follow a drag from elsewhere across its tiles, while the drag keeps the pointer', async () => {
     const { onHover, told } = recorder();
     const term = createTestTerminal({ colorLevel: 0, columns: 30, rows: 6 });
+    // the box records the press, the moves and the release it is handed, which is
+    // the capture the drag rests on
+    const held: string[] = [];
+    const hold = (event: MouseEvent) => {
+      if (/^mouse(down|move|up)$/u.test(event.kind)) {
+        held.push(event.kind);
+      }
+    };
     // a box of nothing on the left, and the map on the right: `a` from column 10
     // and `b` from column 20
     const app = runApp(
       () =>
         box(
           { 'flex-direction': 'row', 'flex-grow': 1 },
-          box({ 'flex-shrink': 0, width: 10 }),
+          box({ 'flex-shrink': 0, onMouse: hold, width: 10 }),
           Treemap({
             ...PAIR_PROPS,
             onHover,
@@ -1704,15 +1972,21 @@ describe('Treemap, under the pointer', () => {
     apps.push(app);
     await frame(app);
     // pressed on the box, dragged onto `a` and on to `b`, and let go there: the
-    // press captured the pointer for the box, so the map hears that it was
-    // entered, and none of the motion after
-    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M', '\u001b[<0;26;3m');
+    // press captured the pointer for the box, and the map hears the drag's moves
+    // over it as well, because it asked to (SIG-501). SIG-492 pinned the map
+    // reporting `a` only, as the drag entered, until the first move after the
+    // release
+    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M');
     await frame(app);
-    expect(told).toStrictEqual([[`${ROOT}/a`, 'a', undefined]]);
-    // and the first move after the release is the map's again
-    await term.press('\u001b[<35;26;3M');
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/b`, 'b', undefined],
+    ]);
+    // and off the map, still held: it is left, and told so
+    await term.press('\u001b[<32;3;3M', '\u001b[<0;3;3m');
     await frame(app);
-    expect(told.at(-1)).toStrictEqual([`${ROOT}/b`, 'b', undefined]);
+    expect(told.at(-1)).toStrictEqual([undefined, undefined, undefined]);
+    expect(held).toStrictEqual(['mousedown', 'mousemove', 'mousemove', 'mousemove', 'mouseup']);
   });
 
   it('should report nothing without motion tracking, a drag across the map included', async () => {

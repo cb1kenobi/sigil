@@ -42,13 +42,18 @@ import {
 } from '../canvas/index.js';
 import { type Element, type ElementPropsWithout, toDisplayLine } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
-import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
+import {
+  type DescribeOptions,
+  DOUBLE_CLICK_MS,
+  type KeyEvent,
+  type MouseEvent,
+} from '../input/index.js';
 import { trackedRaw } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { type DescribeListViewOptions, describedHosts } from './list-view.js';
+import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 
 export interface TreemapProps<T, K = T> {
@@ -123,9 +128,11 @@ export interface TreemapProps<T, K = T> {
   /**
    * Called on Enter, with the map focused, with the key `current` holds -- while
    * the map outlines something for it, so not for the root or a key the map does
-   * not hold. What it does is the app's: the disk usage example maps that
-   * directory, which is writing a new `root`. Without it, Enter is not the map's,
-   * and reaches what is around it.
+   * not hold. A double click on a tile calls it too, as on a list: the first click
+   * picks the tile and the second activates as Enter would, without picking it
+   * again. What it does is the app's: the disk usage example maps that directory,
+   * which is writing a new `root`. Without it, Enter is not the map's, and reaches
+   * what is around it, and a double click is two picks.
    */
   onActivate?: (key: K) => void;
   /**
@@ -143,8 +150,8 @@ export interface TreemapProps<T, K = T> {
    */
   onHover?: (key: K | undefined, item: T | undefined, gathered?: readonly T[]) => void;
   /**
-   * Called when a tile is picked -- a left click on it, or an arrow key moving onto
-   * it -- after `current` has moved to it, with the item's key and the item. A
+   * Called when a tile is picked -- a left click on it, or an arrow key (or, with
+   * `vim`, its letter) moving onto it -- after `current` has moved to it, with the item's key and the item. A
    * tile of gathered items picks the largest of them, and hands over the whole
    * list as `gathered`.
    */
@@ -183,6 +190,14 @@ export interface TreemapProps<T, K = T> {
    * its share beside its siblings.
    */
   size: (item: T) => number;
+  /**
+   * `h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's
+   * spelling: the letters `vim` gives a list (`j`, `k`) and a tree (`h`, `l` as
+   * well), all four here because the map moves four ways. Off by default, as
+   * theirs is: a letter the map takes is one the app cannot bind while the map
+   * has the focus.
+   */
+  vim?: boolean;
 }
 
 /** A rectangle, in whole pixels. */
@@ -1107,10 +1122,11 @@ function moreWords(count: number, room: number): string {
  * to have it fill a panel.
  *
  * It is focusable. With the focus, the arrow keys move `current` to the tile next
- * to it that way ({@link treemapNeighbor}), as a click on that tile would, and
- * Enter calls `onActivate`; `describeTreemap()` lists them for a footer. The
- * outline is two pixels thick while it has the focus, at every colour level, and
- * drawn in the map's `border-color` where it has one.
+ * to it that way ({@link treemapNeighbor}), as a click on that tile would -- and
+ * `h`, `j`, `k` and `l` with `vim` -- and Enter calls `onActivate`, as a double
+ * click on a tile does; `describeTreemap()` lists them for a footer. The outline
+ * is two pixels thick while it has the focus, at every colour level, and drawn in
+ * the map's `border-color` where it has one.
  *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
@@ -1286,6 +1302,11 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     props.onHover?.(keyOf(item), item, tile.kind === 'rest' ? tile.rest : undefined);
   };
 
+  // a drag that began on another element holds the pointer, so its moves over
+  // the map would go to that element alone: the map asks to hear them, and
+  // follows the pointer across its tiles during the drag as well (SIG-501)
+  element.hearsDrags = true;
+
   /** Moves `current` to a tile and says so: what a click and an arrow key both do. */
   const pick = (tile: TreemapTile<T>): void => {
     const item = itemOf(tile);
@@ -1293,6 +1314,54 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     current.set(key);
     props.onPick?.(key, item, tile.kind === 'rest' ? tile.rest : undefined);
   };
+
+  /**
+   * What a key and a double click read: the root as it is now, which a key can
+   * reach before the frame that draws it -- Enter that zoomed, then an arrow in the
+   * same read -- with `current` and the box the paint outlines for it, nothing for
+   * the root. Laid out at the size last drawn, and not kept: `laid` is what is on
+   * screen, which a click is read against until that frame comes. `undefined`
+   * with nothing drawn, or a root gone or of no size.
+   */
+  const outlined = ():
+    | { from: TreemapBox | undefined; key: K | undefined; layout: TreemapLayout<T, K> }
+    | undefined => {
+    if (laid === undefined) {
+      return undefined;
+    }
+    const root = untrack(rootOf);
+    if (root === undefined || !(untrack(() => read.size(root)) > 0)) {
+      return undefined;
+    }
+    const { height, width } = laid.layout;
+    const layout =
+      laid.root === root ? laid.layout : untrack(() => layoutTreemap(root, width, height, read));
+    const key = untrack(() => current.get());
+    const from = untrack(() =>
+      key === undefined || key === keyOf(root)
+        ? undefined
+        : treemapMark(layout, key, { key: keyOf, parent: props.parent })
+    );
+    return { from, key, layout };
+  };
+
+  /**
+   * Calls `onActivate` with `current` while the map outlines it, and says whether
+   * it did: what Enter and a double click both do.
+   */
+  const activate = (seen: ReturnType<typeof outlined>): boolean => {
+    if (props.onActivate === undefined || seen?.key === undefined || seen.from === undefined) {
+      return false;
+    }
+    props.onActivate(seen.key);
+    return true;
+  };
+
+  /**
+   * The click before this one, for telling a double click: when, the key it
+   * picked, and what `current` held after it.
+   */
+  let lastClick: { at: number; current: K | undefined; key: K } | undefined;
 
   element.onMouse = (event: MouseEvent): void => {
     followPointer(event);
@@ -1304,42 +1373,44 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       return;
     }
     event.stop();
+    const now = Date.now();
+    const key = keyOf(itemOf(tile));
+    // a second click on the tile the first one picked, with nothing having moved
+    // `current` between them, activates as Enter would, and does not pick it again
+    const second =
+      props.onActivate !== undefined &&
+      lastClick !== undefined &&
+      lastClick.key === key &&
+      lastClick.current === untrack(() => current.get()) &&
+      now - lastClick.at <= DOUBLE_CLICK_MS;
+    if (second) {
+      lastClick = undefined;
+      activate(outlined());
+      return;
+    }
     pick(tile);
+    lastClick = { at: now, current: untrack(() => current.get()), key };
   };
 
   element.onKey = (event: KeyEvent): void => {
     const k = event.key;
     // Ctrl or Alt is left for what is around the map, as a list leaves it; and
     // with nothing drawn, no key is the map's
-    if (event.paste || k.ctrl || k.meta || laid === undefined) {
+    if (event.paste || k.ctrl || k.meta) {
       return;
     }
-    // the root as it is now, which a key can reach before the frame that draws
-    // it: Enter that zoomed, then an arrow in the same read. Laid out at the size
-    // last drawn, and not kept: `laid` is what is on screen, which a click is read
-    // against until that frame comes
-    const root = untrack(rootOf);
-    if (root === undefined || !(untrack(() => read.size(root)) > 0)) {
+    const seen = outlined();
+    if (seen === undefined) {
       return;
     }
-    const { height, width } = laid.layout;
-    const layout =
-      laid.root === root ? laid.layout : untrack(() => layoutTreemap(root, width, height, read));
-    const key = untrack(() => current.get());
-    // where `current` is drawn, which the paint outlines: nothing for the root
-    const from = untrack(() =>
-      key === undefined || key === keyOf(root)
-        ? undefined
-        : treemapMark(layout, key, { key: keyOf, parent: props.parent })
-    );
+    const { from, layout } = seen;
     if (k.name === 'enter') {
-      if (props.onActivate !== undefined && key !== undefined && from !== undefined) {
+      if (activate(seen)) {
         event.stop();
-        props.onActivate(key);
       }
       return;
     }
-    const direction = ARROWS.get(k.name);
+    const direction = ARROWS.get(k.name) ?? (props.vim ? VIM.get(k.name) : undefined);
     // Shift with an arrow is a range, which a list leaves alone too
     if (direction === undefined || k.shift) {
       return;
@@ -1353,7 +1424,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
   };
 
-  MAPS.set(element, { activate: props.onActivate !== undefined });
+  MAPS.set(element, { activate: props.onActivate !== undefined, vim: props.vim === true });
   return element;
 }
 
@@ -1365,8 +1436,16 @@ const ARROWS = new Map<string, TreemapDirection>([
   ['up', 'up'],
 ]);
 
-/** Each map `Treemap()` built, with whether it claims Enter: what the describer reads. */
-const MAPS = new WeakMap<Element, { readonly activate: boolean }>();
+/** What `vim: true` adds: the letters, by name, as the arrows they stand for. */
+const VIM = new Map<string, TreemapDirection>([
+  ['h', 'left'],
+  ['j', 'down'],
+  ['k', 'up'],
+  ['l', 'right'],
+]);
+
+/** Each map `Treemap()` built, with whether it claims Enter and the letters: what the describer reads. */
+const MAPS = new WeakMap<Element, { readonly activate: boolean; readonly vim: boolean }>();
 
 /** Where a treemap's keys are described, which is the whole of what is asked of a router. */
 export interface TreemapDescriber {
@@ -1377,7 +1456,8 @@ export interface TreemapDescriber {
  * Describes a treemap's keys to a router, for a key-help footer.
  *
  * Scoped to the map, which is the element whose focus makes the keys apply: the
- * four arrows, and Enter where the map has an `onActivate`. Enter is `open` unless
+ * four arrows, `k`/`j`/`h`/`l` where it is `vim` -- on the arrows' line, as `move`
+ * -- and Enter where the map has an `onActivate`. Enter is `open` unless
  * the options after the maps say what it does, as `describeListView()`'s are
  * given: `describeTreemap(input, map, { activate: 'map it' })`.
  *
@@ -1397,11 +1477,11 @@ export function describeTreemap(
     if (model === undefined) {
       throw new TypeError(__`Expected an element that Treemap() returned`);
     }
-    return { activate: model.activate, scope: host };
+    return { activate: model.activate, scope: host, vim: model.vim };
   });
 
   const off: Array<() => void> = [];
-  for (const { activate: claims, scope } of found) {
+  for (const { activate: claims, scope, vim } of found) {
     const say = (spec: string, description: string, priority: number): void => {
       off.push(router.describe(spec, { description, priority, scope }));
     };
@@ -1409,6 +1489,13 @@ export function describeTreemap(
     say('down', __`move`, 1);
     say('left', __`move`, 1);
     say('right', __`move`, 1);
+    if (vim) {
+      // in the arrows' order, so the line reads each letter against its arrow
+      say('k', __`move`, 1);
+      say('j', __`move`, 1);
+      say('h', __`move`, 1);
+      say('l', __`move`, 1);
+    }
     if (claims) {
       say('enter', activate, 2);
     }

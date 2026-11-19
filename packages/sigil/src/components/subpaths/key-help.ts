@@ -1,4 +1,6 @@
 export {
+  type DescribeListViewOptions,
+  describedHosts,
   fitKeyHelp,
   keyHelp,
   type KeyHelpEntry,

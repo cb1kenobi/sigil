@@ -4,8 +4,8 @@ Where the space went. A tree of everything under a directory down the left, each
 with its total, largest first, and a treemap of the same tree on the right: one
 rectangle per file, its area its size, nested by directory, coloured by what kind
 of file it is. The selection is one: moving in the tree outlines the rectangle,
-and clicking a rectangle, or moving to it with the arrows once the map has the
-focus, selects it in the tree. `r` scans again, `d` deletes after
+and clicking a rectangle, or moving to it with the arrows or `h` `j` `k` `l` once
+the map has the focus, selects it in the tree. `r` scans again, `d` deletes after
 a confirm, and `t` moves to the trash after one.
 
 ```console
@@ -25,7 +25,7 @@ on stderr, exit 1.
 | Tab               | Move the focus between the tree and the map           |
 | ↑ ↓, `j` `k`      | Move; the map's outline follows                       |
 | → ←, `l` `h`      | Open a directory, close it, or go to the one it is in |
-| ↑ ↓ ← → on a map  | Move to the rectangle beside the outlined one         |
+| ↑ ↓ ← → on a map  | Move to the next tile that way; `h` `j` `k` `l` too   |
 | Space             | Open or close a directory                             |
 | Enter             | Map the selected directory, or the one a file is in   |
 | Backspace         | Map the directory above the one mapped                |
@@ -36,7 +36,7 @@ on stderr, exit 1.
 | `q`               | Quit, with 0                                          |
 | Ctrl-C            | Quit, with 130                                        |
 
-A double click on a row maps it, as Enter does. Moving the selection out of the
+A double click on a row or a rectangle maps it, as Enter does. Moving the selection out of the
 directory mapped maps the directory both are in, so what is selected is always on
 the map.
 
