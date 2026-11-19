@@ -105,7 +105,13 @@ export function App(): Element {
       <box class="panes">
         {panel}
         <Panel class="map-panel" title={m.mapTitle}>
-          <MapView message={m.mapMessage} onPick={m.pick} root={m.mapRoot} selected={m.current} />
+          <MapView
+            message={m.mapMessage}
+            onHover={m.hover}
+            onPick={m.pick}
+            root={m.mapRoot}
+            selected={m.current}
+          />
         </Panel>
       </box>
       <text class="info">{m.info}</text>

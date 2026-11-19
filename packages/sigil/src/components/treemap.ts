@@ -117,6 +117,20 @@ export interface TreemapProps<T, K = T> {
    */
   moreLabel?: (items: readonly T[], room: number) => string;
   /**
+   * Called when the pointer moves onto another tile, with what a click there
+   * would pick -- the item's key and the item, and for a tile of gathered items
+   * the largest of them and the whole list as `gathered` -- and with `undefined`
+   * twice when it moves off every tile or leaves the map. `current` does not
+   * move. A tile picked out of the layout a click reads, so the two never
+   * disagree about the cell between two tiles.
+   *
+   * Needs the router's `mouse.motion`, which is what reports the pointer with no
+   * button held: without it nothing is reported, a drag included, the rule
+   * `:hover` keeps. Followed from the pointer's reports, as `:hover` is, so a new
+   * root under a pointer that is not moving is reported at its next report.
+   */
+  onHover?: (key: K | undefined, item: T | undefined, gathered?: readonly T[]) => void;
+  /**
    * Called on a left click on a tile, after `current` has moved to it, with the
    * item's key and the item. A click on a tile of gathered items picks the largest
    * of them, and hands over the whole list as `gathered`.
@@ -1104,16 +1118,51 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   );
   element.addClass('sigil-treemap');
 
+  /** The tile a cell on screen shows, read against where and at what level the last paint drew. */
+  const tileUnder = (x: number, y: number): TreemapTile<T> | undefined =>
+    laid === undefined ? undefined : treemapCellTile(laid.layout, x - at.x, y - at.y, drawnAt);
+
+  /** What a tile stands for: its item, or the largest of the items it gathers. */
+  const itemOf = (tile: TreemapTile<T>): T =>
+    tile.kind === 'rest' ? (tile.rest?.[0] ?? tile.item) : tile.item;
+
+  /** The tile `onHover` was last told about. */
+  let hovered: TreemapTile<T> | undefined;
+
+  /**
+   * Follows the pointer for `onHover`, from every report the map is handed.
+   *
+   * The router's own `hover` state says whether the pointer is over the map,
+   * rather than the event's kind: it is written under `mouse.motion` alone, so
+   * without motion tracking nothing is reported, and it is already false when a
+   * `mouseleave` arrives, or when a drag that began on the map hands it a motion
+   * from somewhere else.
+   */
+  const followPointer = (event: MouseEvent): void => {
+    const tile = element.states.includes('hover') ? tileUnder(event.x, event.y) : undefined;
+    if (tile === hovered) {
+      return;
+    }
+    hovered = tile;
+    if (tile === undefined) {
+      props.onHover?.(undefined, undefined);
+      return;
+    }
+    const item = itemOf(tile);
+    props.onHover?.(keyOf(item), item, tile.kind === 'rest' ? tile.rest : undefined);
+  };
+
   element.onMouse = (event: MouseEvent): void => {
+    followPointer(event);
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {
       return;
     }
-    const tile = treemapCellTile(laid.layout, event.x - at.x, event.y - at.y, drawnAt);
+    const tile = tileUnder(event.x, event.y);
     if (tile === undefined) {
       return;
     }
     event.stop();
-    const item = tile.kind === 'rest' ? (tile.rest?.[0] ?? tile.item) : tile.item;
+    const item = itemOf(tile);
     const key = keyOf(item);
     current.set(key);
     props.onPick?.(key, item, tile.kind === 'rest' ? tile.rest : undefined);
