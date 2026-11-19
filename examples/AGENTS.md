@@ -844,9 +844,9 @@ in half blocks from the start.
   painted, so none reaches the terminal either way (measured, with a raw `ESC` in
   a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
   that is not the one on disk, and a tab vanishes rather than indents.
-  `printable()` replaces one for one, so the highlighter's offsets still line up,
-  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
-  the next stop of four.
+  `printable()` from `@ttylabs/sigil/element` replaces one for one, so the
+  highlighter's offsets still line up, and keeps `\n` and `\t` in a file for the
+  pane to lay out; a tab is spaces to the next stop of four.
 
 - **A preview reads the top of a regular file, and never opens anything else.**
   64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
@@ -1314,9 +1314,12 @@ about where the space went.
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
 
-- **`printable()` is the file manager's, written again.** A one-line rule, but a
-  rule, and the root file says a helper has one definition; an example is a unit
-  somebody copies, so neither can import the other's. It is filed as a gap.
+- **`printable()` is the library's, as the file manager's is.** It was the file
+  manager's, written again: a one-line rule, but a rule, and the root file says a
+  helper has one definition, while an example is a unit somebody copies, so
+  neither could import the other's. SIG-475 published it from
+  `@ttylabs/sigil/element`, beside the text element whose set of control
+  characters it shares, and both examples import it.
 
 - **Sabotage: ten, two survived, and one of those has a test now.** A delete
   confirm starting on Yes, a device check that enters every directory, an edge

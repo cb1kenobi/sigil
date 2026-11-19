@@ -12,7 +12,7 @@
  * tests ask them directly; the paint is the only part that needs a painter.
  */
 
-import { type Category, CATEGORIES, isInside, printable } from './disk.ts';
+import { type Category, CATEGORIES, isInside } from './disk.ts';
 import type { DiskNode } from './scan.ts';
 import {
   type Color,
@@ -23,6 +23,7 @@ import {
   rgb,
   rgbChannels,
 } from '@ttylabs/sigil/canvas';
+import { printable } from '@ttylabs/sigil/element';
 import { quantizeColor } from '@ttylabs/sigil/style';
 import { stringWidth } from '@ttylabs/sigil/width';
 import { truncate } from '@ttylabs/sigil/wrap';
