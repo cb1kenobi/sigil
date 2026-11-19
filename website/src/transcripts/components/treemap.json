@@ -75,7 +75,7 @@
         "type": "(key: K) => void"
       },
       {
-        "description": "Called when a tile is picked -- a left click on it, or an arrow key moving onto it -- after `current` has moved to it, with the item's key and the item. A tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
+        "description": "Called when a tile is picked -- a left click on it, or an arrow key (or, with `vim`, its letter) moving onto it -- after `current` has moved to it, with the item's key and the item. A tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
         "name": "onPick",
         "optional": true,
         "type": "(key: K, item: T, gathered?: readonly T[]) => void"
@@ -91,6 +91,12 @@
         "name": "props",
         "optional": true,
         "type": "ElementPropsWithout<\"onKey\" | \"onMouse\">"
+      },
+      {
+        "description": "`h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's spelling and the one `ListView`'s and `TreeListView`'s `vim` adds to theirs. Off by default, as theirs is: a letter the map takes is one the app cannot bind while the map has the focus.",
+        "name": "vim",
+        "optional": true,
+        "type": "boolean"
       }
     ],
     "shared": [],
