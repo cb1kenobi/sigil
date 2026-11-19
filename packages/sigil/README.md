@@ -5337,8 +5337,9 @@ so neighbours meet with no gap and no overlap.
   rectangle: single (`┌─┐`) while the map does not have the focus and double
   (`╔═╗`) while it does, at every colour level, so the reader can tell where the
   arrows go. A rectangle with less than two columns or two whole rows of cells
-  inside its edges is outlined in half blocks instead, the same either way. The
-  frame's colour is the map's `border-color` where a sheet gives one, so
+  inside its edges is outlined in half blocks instead, the same either way. At a
+  colour level the frame's colour is the map's `border-color` where a sheet gives
+  one (at level 0 it is the terminal's own), so
   `.sigil-treemap:focus { border-color: yellow }` colours the focused frame.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,

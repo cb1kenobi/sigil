@@ -14034,8 +14034,14 @@ or something else. It shows now, at every colour level.
   the list's shape. A selector matching `:focus` restyles the map only when a rule
   changes something, so with no sheet the paint would never be asked for. So
   `onFocusChange` in `props` is refused, as `onKey` and `onMouse` are (SIG-305),
-  and the props type leaves it out. An app that wants to hear the focus puts the
-  handler on an element around the map, or uses `:focus-within` there.
+  and the props type leaves it out. A handler on an element around the map does
+  not hear it either: `onFocusChange` is told only to the element whose own state
+  flipped (review round 2 of the rework). So an app that styles on the map's focus
+  uses `:focus-within` on an element around it, and one that needs the event has
+  no way to it yet -- a gap, recorded for Chris, that a `TreemapProps` callback the
+  map calls after its own would close. Pre-existing for every component that owns
+  the hook, and the README's "put a handler for those on an element around the
+  component" says otherwise for `onFocusChange`.
 - **The default stays bright white, focused or not.** The disk usage example
   could colour its focused frame green to match its panels. It does not, because
   the outline is the one colour the docs promise no item is, and a green frame

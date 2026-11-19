@@ -395,7 +395,7 @@ at a glance. It reads your own nodes through `size`, `children` and `key`, so
 nothing is copied. A click on a rectangle, or an arrow key while the map has
 the focus, sets its `current` and calls `onPick`. The current rectangle is
 framed in single lines, and in double lines while the map has the focus, so you
-can see where the arrows go. A list or a tree beside it can write the same
+can see where the arrows go; one too small for a frame keeps a plain outline. A list or a tree beside it can write the same
 `current`: the disk usage example pairs it with a `TreeListView` this way, so
 the two always show one selection.
 

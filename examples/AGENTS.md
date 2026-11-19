@@ -1296,7 +1296,7 @@ about where the space went.
   tile's colour in some cells and not in others, moving with the terminal's
   size. That rule moved into the library with the rest of the map (below), where
   `should keep a name off the band inside a mark, and give every letter a colour`
-  in `packages/sigil/test/components/treemap.test.ts` fails without it. SIG-497 replaced
+  in `packages/sigil/test/components/treemap.test.ts` failed without it. SIG-497 replaced
   the half-block outline and its band with a frame of box-drawing lines, single
   and double while the map has the focus, and the rule followed it as `should keep
   a name off the frame round a mark, and give every letter a colour` -- "A
