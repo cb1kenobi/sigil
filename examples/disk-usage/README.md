@@ -32,8 +32,9 @@ on stderr, exit 1.
 | `q`               | Quit, with 0                                          |
 | Ctrl-C            | Quit, with 130                                        |
 
-Moving the selection out of the directory mapped maps the directory both are in,
-so what is selected is always on the map.
+A double click on a row maps it, as Enter does. Moving the selection out of the
+directory mapped maps the directory both are in, so what is selected is always on
+the map.
 
 ## What it shows
 

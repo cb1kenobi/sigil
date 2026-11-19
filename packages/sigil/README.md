@@ -2653,6 +2653,24 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+`printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
+instead. A `text` element drops one before it paints, so none reaches the
+terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
+`bad[31mname`, which is not the name on disk. Each character is replaced by one,
+so an offset into the result is the same offset into the original, which is what
+a highlighter reads. The set is the one a `text` decides about: C0, `DEL` and
+C1, all of which it drops but the newline and the tab. `keep` names control
+characters to leave alone, such as `'\n\t'` for a file's contents, which a
+`text` lays out in lines and draws a tab of as a space.
+
+```js
+import { printable, text } from '@ttylabs/sigil/element';
+
+printable('bad\u001b[31mname'); // 'bad�[31mname'
+printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
+text(printable(entry.name)); // a name, as it is on disk
+```
+
 A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
 is not a reason to paint again. `trackedRaw(options, props)`, from
 `@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
@@ -5578,7 +5596,14 @@ current row while it does. `.sigil-list` (the host, with `is-multiple`),
 `-scroll`, `-row` (with `is-current`, `is-selected`, `is-disabled`), `-pointer`,
 `-mark`, `-content`, `-text` and `-empty` are the theme hooks, and `props` goes on
 the host. `describeListView(input, ...lists)` describes the keys each list claims,
-scoped to it.
+scoped to it. Enter is described as `open`, and options after the lists name what
+it does instead -- `describeListView(input, list, { activate: 'show' })` -- for
+every list in the call. The default is translated with sigil's own strings; a word
+given here is shown as given, so an app that translates passes its own translation.
+`describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
+checking the options, for a component of your own that describes a list through
+`describeListView()` and takes the same options -- it is what the tree's and the
+table's describers use.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
@@ -5638,8 +5663,13 @@ goes to that branch**, however it was closed; a node that was deleted leaves the
 cursor on the row that took its place, as in a list.
 
 A branch whose `items` is a function is read the first time it opens, and what it
-returned is kept, so closing and opening again is instant; `treeListControl(tree)
-.reload(value)` forgets it. A function that returns a list is taken at once; one
+returned is kept, so closing and opening again is instant. Kept until the app says
+otherwise, since the tree cannot see what a function read: when the data behind it
+changes, `treeListControl(tree).reload(value)` marks one branch out of date,
+`reload(value, { subtree: true })` every read branch under it too, and
+`reloadAll()` every one. An open branch reads again at once and a closed one when
+it opens, and what it showed stays on screen until the new read lands, so the
+cursor, the open branches and the scroll stay where they are. A function that returns a list is taken at once; one
 that returns a promise draws `Loading…` under the branch until it lands. A read
 that rejects -- or returns something that is not a list of nodes -- puts `Could not
 load: <message>` there instead, keeps the branch open so the message has somewhere
@@ -5656,10 +5686,11 @@ is a `branch` and `expanded`, and where its read stands (`status`). The guides a
 `.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
 `-label`, and the lines under a branch are `.sigil-tree-loading` and
 `.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
-`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
-`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value, options?)`,
+`reloadAll()`, `status(value)`, and `list` -- the list underneath, which `listControl()` answers for
 too. `describeTreeListView(input, ...trees)` describes the list's keys and the
-tree's, scoped to each.
+tree's, scoped to each, and takes the same options as `describeListView()` after
+the trees.
 
 #### A data table
 
@@ -5757,7 +5788,8 @@ The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 `sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
 again and rebuilds the rows in view for rows changed in place.
 `describeDataTable(input, ...tables)` describes the list's keys and a digit for
-each column on screen that sorts, which a footer folds into `1/2/3 sort`.
+each column on screen that sorts, which a footer folds into `1/2/3 sort`, and
+takes the same options as `describeListView()` after the tables.
 
 #### A panel
 
@@ -6708,7 +6740,9 @@ there for a component you write yourself too:
 - `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
   `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
   over the screen needs: the root a `fixed` box resolves against, the blank fill
-  that hides what is under it at every colour level, and the per-router list of
+  that hides what is under it at every colour level -- its background under the
+  box's border as well, unless the box has a background of its own -- and the
+  per-router list of
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.

@@ -844,9 +844,9 @@ in half blocks from the start.
   painted, so none reaches the terminal either way (measured, with a raw `ESC` in
   a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
   that is not the one on disk, and a tab vanishes rather than indents.
-  `printable()` replaces one for one, so the highlighter's offsets still line up,
-  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
-  the next stop of four.
+  `printable()` from `@ttylabs/sigil/element` replaces one for one, so the
+  highlighter's offsets still line up, and keeps `\n` and `\t` in a file for the
+  pane to lay out; a tab is spaces to the next stop of four.
 
 - **A preview reads the top of a regular file, and never opens anything else.**
   64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
@@ -1256,7 +1256,31 @@ about where the space went.
   and is `raw()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
-  short of the outline, which would otherwise lose its corner to a name.
+  short of the outline, which would otherwise lose its corner to a name -- and of
+  the band inside it too, which is what stands the outline off the tile beside
+  it. A name started on the band had the terminal's own background, so each
+  letter kept whatever the half block under it had put in its background: the
+  tile's colour in some cells and not in others, moving with the terminal's
+  size. That rule moved into the library with the rest of the map (below), where
+  `should keep a name off the band inside a mark, and give every letter a colour`
+  in `packages/sigil/test/components/treemap.test.ts` fails without it.
+
+- **Every name is black, on its kind's flat colour, at every level -- Chris's
+  call.** The ink was black or white for whichever read on the pixel under the
+  name's first cell, and that pixel is a cushion's: its kind's colour shaded
+  from 0.42 to 1.25 times. Every kind's colour sits near the middle of the
+  range, archives' green right on the cut-off, so within one kind some names
+  were black and some white. Black on the flat colour reads at 4.8:1 or better
+  on all seven kinds (WCAG contrast, measured), white on it at 3.8:1 at best,
+  and the sixteen colours already wrote every name in black, so one ink holds
+  at every level. The flat colour is the name's background whatever the shading
+  under it, since one ink can only read on every name if every name is on one
+  colour. In the library the colours are the app's, so it keeps the general form
+  of that choice: the ink is picked once per tile, on its flat colour, as
+  whichever of black and white has the higher contrast. That is black on all
+  seven of this example's kinds, so the map draws what was chosen, and a dark
+  colour an app picks still gets white. See "A name's ink is chosen once per
+  tile" in `packages/sigil/src/components/AGENTS.md`.
 
 - **The map is the library's `Treemap` (SIG-480).** The layout, the gathering,
   the mark, the paint and the click moved into `@ttylabs/sigil/components/treemap`
@@ -1318,25 +1342,36 @@ about where the space went.
   its rows -- and a delete that fails part of the way scans again, since what is
   left is not something to guess at.
 
-- **The tree's children are a getter, not a function.** `TreeListView` reads a
-  branch whose `items` is a function once and keeps what it returned, by value,
-  for good -- right for a directory read off the disk, wrong for a tree a delete
-  replaces, whose branch keeps the value and changes its children. A getter
-  memoized per node is read only for a branch that is shown, so a tree of 180,000
-  names costs what is open, and a new node is a new choice with new children.
+- **The tree's children are a function, and every scan write reloads them.**
+  `TreeListView` keeps what a branch's function returned, by value, until it is
+  told otherwise -- right for a directory read off the disk, wrong for a tree a
+  delete or a rescan replaces, whose branches keep their values and change their
+  children. So an effect over the scan calls `reloadAll()` (SIG-479): every open
+  branch reads again over the new tree and a closed one when it opens, and the
+  cursor, the open set and the scroll stay put. It was a getter until SIG-479 gave
+  the tree a way to be told, which routed around the cache rather than using it.
+  Each node's choice is still made once, so a read again hands back the same
+  objects for a subtree the delete did not touch and the list keeps their rows; and
+  a branch is read only when it opens, so a tree of 180,000 names costs what is
+  open.
 
-- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
-  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
-  is two meanings for one key, so the tree has no `onActivate` and the panel's
-  `onKey` takes Enter. A double click on a row does nothing; a click on the map
-  selects.
+- **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
+  for a while, because `describeListView()` could only say `enter open`, and a
+  footer saying `open` beside `map it` is two meanings for one key -- which cost a
+  double click on a row, since that is `onActivate` too. SIG-478 gave the
+  describers the word: `describeTreeListView(input, tree, { activate: 'map it' })`.
+  So a double click on a row maps it, as Enter does, and a click on the map
+  selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
 
-- **`printable()` is the file manager's, written again.** A one-line rule, but a
-  rule, and the root file says a helper has one definition; an example is a unit
-  somebody copies, so neither can import the other's. It is filed as a gap.
+- **`printable()` is the library's, as the file manager's is.** It was the file
+  manager's, written again: a one-line rule, but a rule, and the root file says a
+  helper has one definition, while an example is a unit somebody copies, so
+  neither could import the other's. SIG-475 published it from
+  `@ttylabs/sigil/element`, beside the text element whose set of control
+  characters it shares, and both examples import it.
 
 - **Sabotage: ten, two survived, and one of those has a test now.** A delete
   confirm starting on Yes, a device check that enters every directory, an edge

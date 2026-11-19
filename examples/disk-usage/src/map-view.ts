@@ -9,11 +9,11 @@
  * The swatch is a `raw` of its own, the trapdoor the image component is built on.
  */
 
-import { type Category, CATEGORIES, printable } from './disk.ts';
+import { type Category, CATEGORIES } from './disk.ts';
 import type { DiskNode } from './scan.ts';
 import { type Color, DEFAULT_COLOR, palette, rgb } from '@ttylabs/sigil/canvas';
 import { Treemap } from '@ttylabs/sigil/components/treemap';
-import { type Element, raw } from '@ttylabs/sigil/element';
+import { type Element, printable, raw } from '@ttylabs/sigil/element';
 import type { Computed, State } from '@ttylabs/sigil/signals';
 import { quantizeColor } from '@ttylabs/sigil/style';
 import { dirname } from 'node:path';

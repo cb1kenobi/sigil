@@ -7,7 +7,8 @@
  * anywhere in its graph is a module Node cannot load.
  */
 
-import { type Entry, printable } from './files.ts';
+import type { Entry } from './files.ts';
+import { printable } from '@ttylabs/sigil/element';
 
 /**
  * The layout, and the one colour the framework's roles do not give: the border

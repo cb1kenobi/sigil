@@ -558,6 +558,97 @@ describe('paintTreemap()', () => {
     // the name starts inside the outline's left edge, not on it
     expect(rows[row]?.indexOf('alpha')).toBeGreaterThan(tile.x);
   });
+
+  // a name that started on the band inside the outline was drawn on the
+  // terminal's own colour, so each letter kept whichever colour the half block
+  // under it had put in its background; and a name over the band covers what
+  // stands the outline off the tiles beside it
+  it('should keep a name off the band inside a mark, and give every letter a colour', () => {
+    const lib = `${ROOT}/lib`;
+    const root = branch(ROOT, [
+      branch(lib, [leaf(lib, 'component-options', 700), leaf(lib, 'styled-screen', 500)]),
+      leaf(ROOT, 'turbo-build', 900),
+    ]);
+    const map = layout(root, 60, 30);
+    for (const level of [1, 2, 3] as const) {
+      for (const marked of [lib, `${ROOT}/turbo-build`]) {
+        // what the element outlines: an item divided into tiles has no box of its own
+        const mark = treemapMark(map, marked, UP);
+        expect(mark, marked).toBeDefined();
+        const { rows, style } = paint(map, level, mark);
+        const ring = inside(mark as TreemapBox);
+        const right = ring.x + ring.w - 1;
+        const bottom = ring.y + ring.h - 1;
+        const band = (x: number, y: number): boolean =>
+          x >= ring.x &&
+          x <= right &&
+          y >= ring.y &&
+          y <= bottom &&
+          (x <= ring.x + 1 || x >= right - 1 || y <= ring.y + 1 || y >= bottom - 1);
+        let names = 0;
+        for (const name of ['component-options', 'styled-screen', 'turbo-build']) {
+          const y = rows.findIndex((line) => line.includes(name.slice(0, 6)));
+          if (y < 0) {
+            continue;
+          }
+          names++;
+          const x = rows[y]?.indexOf(name.slice(0, 6)) ?? -1;
+          for (let i = 0; i < 6; i++) {
+            const at = `${name} [${i}] at ${level}, ${marked}`;
+            expect(band(x + i, y * 2) || band(x + i, y * 2 + 1), at).toBe(false);
+            expect(style(x + i, y)?.bg, at).not.toBe(DEFAULT_COLOR);
+          }
+        }
+        expect(names, `names drawn at ${level}, ${marked}`).toBeGreaterThan(1);
+      }
+    }
+  });
+
+  // the ink was black or white for whichever read on the pixel under a name's
+  // first cell, which the cushion shades, so names of one colour came out some
+  // black and some white; it is chosen once, on the flat colour, by contrast
+  it('should write every name of a colour in one ink, on that flat colour', () => {
+    // the disk usage example's seven, on each of which black has the contrast
+    const kinds = [
+      rgb(92, 178, 96),
+      rgb(206, 170, 64),
+      rgb(78, 128, 226),
+      rgb(190, 96, 200),
+      rgb(214, 86, 78),
+      rgb(134, 136, 146),
+      rgb(64, 182, 192),
+    ];
+    const items = kinds.map((_, i) => leaf(ROOT, `kind${i}-file`, 900 - i * 60));
+    const map = layout(branch(ROOT, items), 80, 40);
+    const colors = map.tiles.map((tile) => kinds[items.indexOf(tile.item)] ?? DEFAULT_COLOR);
+    for (const level of [1, 2, 3] as const) {
+      const { rows, style } = paint(map, level, undefined, colors);
+      const inks = new Set<unknown>();
+      for (const [i, item] of items.entries()) {
+        const y = rows.findIndex((line) => line.includes(item.name.slice(0, 5)));
+        expect(y, `${item.name} at ${level}`).toBeGreaterThanOrEqual(0);
+        const x = rows[y]?.indexOf(item.name.slice(0, 5)) ?? -1;
+        for (let c = 0; c < 5; c++) {
+          inks.add(style(x + c, y)?.fg);
+          expect(style(x + c, y)?.bg, `${item.name} [${c}] at ${level}`).toBe(
+            treemapColors(kinds[i] as number, level)[0]
+          );
+        }
+      }
+      expect([...inks], `level ${level}`).toEqual([
+        level === 1 ? palette(0) : quantizeColor(rgb(16, 16, 20), level),
+      ]);
+    }
+    // and white where it is white that reads: a dark tile
+    const dark = paint(
+      map,
+      3,
+      undefined,
+      map.tiles.map(() => rgb(20, 30, 60))
+    );
+    const y = dark.rows.findIndex((line) => line.includes('kind0'));
+    expect(dark.style(dark.rows[y]?.indexOf('kind0') ?? -1, y)?.fg).toBe(rgb(250, 250, 250));
+  });
 });
 
 // -- the element --------------------------------------------------------------

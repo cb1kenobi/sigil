@@ -740,7 +740,31 @@ function lightAt(tile: TreemapTile<unknown>, x: number, y: number): number {
   return 0.42 + 0.68 * Math.max(0, cos);
 }
 
-/** Black or white, whichever reads on a colour. */
+/** WCAG's relative luminance of a colour's channels, 0 to 1. */
+function relativeLuminance([r, g, b]: readonly [number, number, number]): number {
+  const linear = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
+/** The two inks a name can be written in. */
+const BLACK_INK = rgb(16, 16, 20);
+const WHITE_INK = rgb(250, 250, 250);
+
+/**
+ * The ink a tile's name is written in: black or white, whichever has the higher
+ * contrast on the tile's flat colour.
+ *
+ * Asked of the flat colour rather than of the pixel under the name, which the
+ * cushion shades from 0.42 to 1.25 times: a colour near the middle of the range
+ * gave black on one name and white on the next, within one colour. And contrast
+ * rather than a cut-off in brightness, because the cut-off sits where neither ink
+ * reads well -- on every colour the disk usage example uses, black reads at 4.8:1
+ * or better and white at 3.8:1 at most, so contrast writes all of them in black,
+ * where the cut-off split them three to four. Black at 16 colours, as it was.
+ */
 function inkOn(color: Color, level: ColorLevel): Color {
   if (level === 1) {
     return palette(0);
@@ -748,10 +772,10 @@ function inkOn(color: Color, level: ColorLevel): Color {
   if (color === DEFAULT_COLOR) {
     return DEFAULT_COLOR;
   }
-  const [r, g, b] = colorRgb(color);
-  const light = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const ink = light > 0.55 ? rgb(16, 16, 20) : rgb(250, 250, 250);
-  return quantizeColor(ink, level);
+  const lit = relativeLuminance(colorRgb(color)) + 0.05;
+  const black = lit / (relativeLuminance(colorRgb(BLACK_INK)) + 0.05);
+  const white = (relativeLuminance(colorRgb(WHITE_INK)) + 0.05) / lit;
+  return quantizeColor(black >= white ? BLACK_INK : WHITE_INK, level);
 }
 
 /** What {@link paintTreemap} is told. */
@@ -840,27 +864,32 @@ export function paintTreemap<T, K>(
   pixels.blit(painter, left, top, { colorLevel: level });
 
   // a name on each tile wide enough to hold one, on its first whole row, and
-  // never over the outline: a label is moved off it, or cut short of it
-  const ringRows = new Set<number>();
-  const ringCells = new Set<string>();
-  if (opts.mark !== undefined) {
-    const ring = inside(opts.mark);
-    const lastY = ring.y + ring.h - 1;
-    for (let x = ring.x; x < ring.x + ring.w; x++) {
-      ringCells.add(`${x},${Math.floor(ring.y / 2)}`);
-      ringCells.add(`${x},${Math.floor(lastY / 2)}`);
+  // never over the outline or the band inside it: a label is moved off them, or
+  // cut short of them. The band is what stands the outline off whatever is under
+  // it, so a name over it would join the mark to the tile next to it
+  const ring = opts.mark === undefined ? undefined : inside(opts.mark);
+  // whether pixel (x, y) is the outline or its band; `across` asks only about
+  // the two runs along the top and the bottom
+  const onRing = (x: number, y: number, across = false): boolean => {
+    if (ring === undefined) {
+      return false;
     }
-    for (let y = ring.y; y <= lastY; y++) {
-      ringCells.add(`${ring.x},${Math.floor(y / 2)}`);
-      ringCells.add(`${ring.x + ring.w - 1},${Math.floor(y / 2)}`);
+    const right = ring.x + ring.w - 1;
+    const bottom = ring.y + ring.h - 1;
+    if (x < ring.x || x > right || y < ring.y || y > bottom) {
+      return false;
     }
-    ringRows.add(Math.floor(ring.y / 2)).add(Math.floor(lastY / 2));
-  }
-  for (const tile of layout.tiles) {
+    const edge = y <= ring.y + 1 || y >= bottom - 1;
+    return across ? edge : edge || x <= ring.x + 1 || x >= right - 1;
+  };
+  // a cell is two pixels, one above the other
+  const offCell = (x: number, row: number, across = false): boolean =>
+    onRing(x, row * 2, across) || onRing(x, row * 2 + 1, across);
+  for (const [i, tile] of layout.tiles.entries()) {
     const fill = inside(tile);
     let row = Math.ceil(fill.y / 2);
     // a row the outline runs along is given up for the one under it
-    while (ringRows.has(row) && ringCells.has(`${fill.x + 1},${row}`)) {
+    while (offCell(fill.x + 1, row, true)) {
       row++;
     }
     if (row * 2 + 1 > fill.y + fill.h - 1) {
@@ -868,11 +897,11 @@ export function paintTreemap<T, K>(
     }
     const limit = fill.x + fill.w - 1;
     let start = fill.x;
-    while (start < limit && ringCells.has(`${start},${row}`)) {
+    while (start < limit && offCell(start, row)) {
       start++;
     }
     let end = start;
-    while (end < limit && !ringCells.has(`${end},${row}`)) {
+    while (end < limit && !offCell(end, row)) {
       end++;
     }
     if (end - start < 3) {
@@ -882,11 +911,14 @@ export function paintTreemap<T, K>(
     if (stringWidth(label) === 0) {
       continue;
     }
-    const under = pixels.get(start, row * 2 + 1);
     if (level <= 0) {
       painter.text(left + start, top + row, label);
     } else {
-      painter.text(left + start, top + row, label, { bg: under, fg: inkOn(under, level) });
+      // the tile's flat colour rather than the pixel under the name, which the
+      // cushion shades: one ink only reads on every name of a colour when every
+      // name of it is on one colour
+      const [flat] = treemapColors(opts.colors?.[i] ?? DEFAULT_TILE, level);
+      painter.text(left + start, top + row, label, { bg: flat, fg: inkOn(flat, level) });
     }
   }
 }
