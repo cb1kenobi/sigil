@@ -13835,8 +13835,9 @@ Enter.
   forwards a key is a binding the app already has. So it is left to bubble, and
   the example's Backspace is on the box around both panels. `onActivate` is
   handed the key alone, not the item: a divided item's box is kept by key without
-  its item, and the one caller needs the path. A double click is not an
-  activation here, as it is on a list -- the click picks, and two picks are two.
+  its item, and the one caller needs the path. A double click was not an
+  activation at first, as it is on a list -- the click picked, and two picks were
+  two; SIG-498 made it one, below.
 - **Focusable by default, and `focusable: false` in `props` takes it back.** Every
   component with keys of its own is focusable, and a map whose keys can be
   reached only by being told about them is the "map on its own" the ticket is
@@ -13871,3 +13872,30 @@ Enter.
   the map for; a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
   over rectangles; and drawing the focus.
+
+### A treemap's double click activates, as a list row's does (SIG-498)
+
+A list calls its `onActivate` on Enter and on a double click; the map's double
+click was two single clicks, so it picked the tile twice and activated nothing.
+
+- **Counted against `DOUBLE_CLICK_MS`, by the map, as a list counts its own.** The
+  router reports a `click` and no count, and "There is no double-click event" in
+  `src/input` is why: one number, each component counting. A second left click on
+  the tile the first one picked -- the same key, so anywhere on the tile -- within
+  that time, with `onActivate` given, is the double click. A third starts again,
+  so it picks, as a list's does.
+- **The second click activates as Enter would, and does not pick again.** The
+  first click picked, `current` and `onPick` both, so a second pick would only say
+  it twice -- or, for an app whose `onPick` intercepts a tile of gathered items by
+  zooming, do that twice. Enter and the second click call one function over the
+  root as it is now, so a tile of gathered items activates the largest of them,
+  which is the key the click put in `current`, exactly as Enter after that click
+  does; and where nothing is outlined the second click does nothing, as Enter
+  would. A list's second click moves the cursor back to its row first; the map's
+  instead counts only while `current` still holds what the first click left
+  there, so a selection something else moved between the two makes the second an
+  ordinary click on that tile rather than an activation of whatever is current.
+- **Without `onActivate`, a double click is still two picks**, as a list without
+  one toggles twice: there is nothing to activate.
+- **The example needed only a test.** Its map's `onActivate` was already `map it`,
+  so a double click on a tile maps the directory, as on a row.

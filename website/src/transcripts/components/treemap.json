@@ -69,7 +69,7 @@
         "type": "(items: readonly T[], room: number) => string"
       },
       {
-        "description": "Called on Enter, with the map focused, with the key `current` holds -- while the map outlines something for it, so not for the root or a key the map does not hold. What it does is the app's: the disk usage example maps that directory, which is writing a new `root`. Without it, Enter is not the map's, and reaches what is around it.",
+        "description": "Called on Enter, with the map focused, with the key `current` holds -- while the map outlines something for it, so not for the root or a key the map does not hold. A double click on a tile calls it too, as on a list: the first click picks the tile and the second activates as Enter would, without picking it again. What it does is the app's: the disk usage example maps that directory, which is writing a new `root`. Without it, Enter is not the map's, and reaches what is around it, and a double click is two picks.",
         "name": "onActivate",
         "optional": true,
         "type": "(key: K) => void"
