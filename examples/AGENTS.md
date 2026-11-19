@@ -844,9 +844,9 @@ in half blocks from the start.
   painted, so none reaches the terminal either way (measured, with a raw `ESC` in
   a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
   that is not the one on disk, and a tab vanishes rather than indents.
-  `printable()` replaces one for one, so the highlighter's offsets still line up,
-  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
-  the next stop of four.
+  `printable()` from `@ttylabs/sigil/element` replaces one for one, so the
+  highlighter's offsets still line up, and keeps `\n` and `\t` in a file for the
+  pane to lay out; a tab is spaces to the next stop of four.
 
 - **A preview reads the top of a regular file, and never opens anything else.**
   64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
@@ -1235,13 +1235,17 @@ about where the space went.
   the one difference that survives level 0, where the map is blocks and spaces and
   a selected tile is drawn hollow.
 
-- **Level 0 is the map's own blit.** `Pixels.blit()` skips a cell whose halves are
-  both the terminal's own and writes a colour for the rest, so at level 0, where
-  there is no colour to write, nothing would be drawn; the image component returns
-  early there for that reason. `paintMap()` writes the half blocks itself at level
-  0, in the terminal's own foreground. A colour the map picks is quantized where it
-  is picked, as the image component does, because degradation happens at resolve
-  time and a `raw` paints after it.
+- **Level 0 is `Pixels`' shapes.** At level 0 there is no colour to write, so
+  `paintMap()` hands `Pixels.blit()` the level and it draws which pixels are on --
+  `█`, `▀` or `▄` in the terminal's own colours -- rather than their colours. The
+  map decides what is on itself: at level 0 it sets a pixel it wants lit to any
+  colour and one it wants dark, a checker's second square and the inside of a
+  selected tile among them, to `DEFAULT_COLOR`. This was the map's own blit until
+  SIG-476 moved it into `Pixels`; the map still sets a lit pixel to a colour, so
+  leaving the level out draws the same blocks with escape sequences in them, which
+  `should paint no colour at level 0` fails on. A colour the map picks is quantized
+  where it is picked, as the image component does, because degradation happens at
+  resolve time and a `raw` paints after it.
 
 - **A `raw` element repaints when an effect says so.** The map and the swatch
   beside each file are `raw`, the image component's trapdoor; a paint reads no
@@ -1249,7 +1253,26 @@ about where the space went.
   message calls `invalidatePaint()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
-  short of the outline, which would otherwise lose its corner to a name.
+  short of the outline, which would otherwise lose its corner to a name -- and of
+  the band inside it too, which is what stands the outline off the tile beside
+  it. A name started on the band had the terminal's own background, so each
+  letter kept whatever the half block under it had put in its background: the
+  tile's colour in some cells and not in others, moving with the terminal's
+  size. `should keep a name off the band inside a selection, and give every
+  letter a colour` fails without it.
+
+- **Every name is black, on its kind's flat colour, at every level -- Chris's
+  call.** The ink was black or white for whichever read on the pixel under the
+  name's first cell, and that pixel is a cushion's: its kind's colour shaded
+  from 0.42 to 1.25 times. Every kind's colour sits near the middle of the
+  range, archives' green right on the cut-off, so within one kind some names
+  were black and some white. Black on the flat colour reads at 4.8:1 or better
+  on all seven kinds (WCAG contrast, measured), white on it at 3.8:1 at best,
+  and the sixteen colours already wrote every name in black, so one ink holds
+  at every level. The flat colour is the name's background whatever the shading
+  under it, since one ink can only read on every name if every name is on one
+  colour. `should write every name in one ink, on the flat colour of its kind`
+  fails if the background goes back to the pixel under the name.
 
 - **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
   through a limiter of 48 in flight and nothing waits on a read while holding a
@@ -1307,18 +1330,23 @@ about where the space went.
   a branch is read only when it opens, so a tree of 180,000 names costs what is
   open.
 
-- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
-  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
-  is two meanings for one key, so the tree has no `onActivate` and the panel's
-  `onKey` takes Enter. A double click on a row does nothing; a click on the map
-  selects.
+- **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
+  for a while, because `describeListView()` could only say `enter open`, and a
+  footer saying `open` beside `map it` is two meanings for one key -- which cost a
+  double click on a row, since that is `onActivate` too. SIG-478 gave the
+  describers the word: `describeTreeListView(input, tree, { activate: 'map it' })`.
+  So a double click on a row maps it, as Enter does, and a click on the map
+  selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
 
-- **`printable()` is the file manager's, written again.** A one-line rule, but a
-  rule, and the root file says a helper has one definition; an example is a unit
-  somebody copies, so neither can import the other's. It is filed as a gap.
+- **`printable()` is the library's, as the file manager's is.** It was the file
+  manager's, written again: a one-line rule, but a rule, and the root file says a
+  helper has one definition, while an example is a unit somebody copies, so
+  neither could import the other's. SIG-475 published it from
+  `@ttylabs/sigil/element`, beside the text element whose set of control
+  characters it shares, and both examples import it.
 
 - **Sabotage: ten, two survived, and one of those has a test now.** A delete
   confirm starting on Yes, a device check that enters every directory, an edge

@@ -15,7 +15,6 @@
  */
 
 import { entryClass, entryLabel } from './common.ts';
-import { printable } from './files.ts';
 import type { PreviewFor } from './preview.ts';
 import {
   highlightCode,
@@ -25,7 +24,7 @@ import {
   type ScrollControl,
   scrollControl,
 } from '@ttylabs/sigil/components';
-import { box, type Element, text } from '@ttylabs/sigil/element';
+import { box, type Element, printable, text } from '@ttylabs/sigil/element';
 import { createEffect } from '@ttylabs/sigil/renderer';
 import type { State } from '@ttylabs/sigil/signals';
 import { untrack } from '@ttylabs/sigil/signals';

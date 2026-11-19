@@ -1352,6 +1352,28 @@ describe('describeTreeListView()', () => {
     expect(live.map(([keys]) => keys)).toEqual(expect.arrayContaining(['h', 'l']));
   });
 
+  it('should say open for Enter, or the word the options give, for a tree with onActivate', () => {
+    const tree = TreeListView({ items: [], onActivate: () => {} });
+    const { live, router } = recorder();
+    const enter = () =>
+      live.filter(([keys]) => keys === 'enter').map(([, opts]) => opts.description);
+    const off = describeTreeListView(router, tree);
+    expect(enter()).toEqual(['open']);
+    off();
+    describeTreeListView(router, tree, { activate: 'map it' });
+    expect(enter()).toEqual(['map it']);
+    expect(live.every(([, opts]) => opts.scope === tree)).toBe(true);
+  });
+
+  it('should refuse an empty word for Enter before describing anything', () => {
+    const tree = TreeListView({ items: [], onActivate: () => {} });
+    const { live, router } = recorder();
+    expect(() => describeTreeListView(router, tree, { activate: '' })).toThrow(
+      'Expected activate to be a non-empty string'
+    );
+    expect(live).toHaveLength(0);
+  });
+
   it('should refuse an element that is not a tree, before describing anything', () => {
     const { live, router } = recorder();
     expect(() => describeTreeListView(router, TreeListView({ items: [] }), box())).toThrow(
