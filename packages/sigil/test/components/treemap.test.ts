@@ -25,9 +25,10 @@ import {
   createInput,
   type DescribeOptions,
   DOUBLE_CLICK_MS,
+  type InputRouter,
   type MouseEvent,
 } from '../../src/input/index.js';
-import { runApp } from '../../src/renderer/app.js';
+import { runApp, useApp } from '../../src/renderer/app.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
 import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
@@ -2017,5 +2018,188 @@ describe('Treemap, under the pointer', () => {
       [`${ROOT}/a`, 'a', undefined],
       [`${ROOT}/other`, 'other', undefined],
     ]);
+  });
+});
+
+describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () => {
+  /**
+   * The map 30 columns wide on a screen of 40, with a box of nothing beside it to
+   * leave onto: `a` is its left half and `b` its right, each the whole height. The
+   * bubble goes on the tile's right, so `a`'s is over `b`'s top rows and `b`'s,
+   * with no room on the right, flips over `a`'s.
+   */
+  async function mapWithTip(
+    props: Partial<TreemapProps<Node, string>> = {},
+    text = (key: string, item: Node, gathered?: readonly Node[]): string =>
+      gathered === undefined ? `${item.name} is here` : `${gathered.length} gathered`
+  ) {
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 6 });
+    const told: (string | undefined)[] = [];
+    const app = runApp(
+      () =>
+        box(
+          { 'flex-direction': 'row', 'flex-grow': 1 },
+          Treemap<Node, string>({
+            ...PAIR_PROPS,
+            onHover: (key) => told.push(key),
+            props: { 'flex-shrink': 0, width: 30 },
+            root: PAIR,
+            tooltip: {
+              ascii: true,
+              delay: 0,
+              input: useApp().input as InputRouter,
+              side: 'right',
+              text,
+            },
+            ...props,
+          }),
+          box({ 'flex-grow': 1 })
+        ),
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    return {
+      app,
+      move: async (x: number, y: number) => {
+        await term.press(`\u001b[<35;${x + 1};${y + 1}M`);
+        await frame(app);
+      },
+      /** Where the words are on screen, as `[column, row]`, or `undefined`. */
+      where: (words: string): [number, number] | undefined => {
+        const y = term.viewport.findIndex((row) => row.includes(words));
+        return y === -1 ? undefined : [(term.viewport[y] as string).indexOf(words), y];
+      },
+      told,
+    };
+  }
+
+  it('should put the bubble beside the tile under the pointer, and follow it from tile to tile', async () => {
+    const m = await mapWithTip();
+    // the layout the map drew: two tiles of fifteen columns
+    const tiles = layoutTreemap(PAIR, 30, 12, READ).tiles;
+    expect(tiles.map((tile) => [tile.x, tile.w, tile.y, tile.h])).toStrictEqual([
+      [0, 15, 0, 12],
+      [15, 15, 0, 12],
+    ]);
+
+    await m.move(2, 4);
+    // on `a`'s right, from its top: the border, then a space, then the words
+    expect(m.where('a is here')).toStrictEqual([17, 1]);
+
+    // onto `b`, below `a`'s bubble: there is no room on `b`'s right, so it
+    // flips to `b`'s left, and it moved in the frame the pointer did
+    await m.move(25, 4);
+    expect(m.where('a is here')).toBeUndefined();
+    expect(m.where('b is here')).toStrictEqual([4, 1]);
+    expect(m.told).toStrictEqual([`${ROOT}/a`, `${ROOT}/b`]);
+  });
+
+  it('should keep the bubble while the pointer is on it, and close it when the pointer leaves the map', async () => {
+    const m = await mapWithTip();
+    await m.move(2, 4);
+    // onto the bubble, which is over `b`: the map has nothing under the
+    // pointer, and the bubble stays to be read
+    await m.move(18, 1);
+    expect(m.told).toStrictEqual([`${ROOT}/a`, undefined]);
+    expect(m.where('a is here')).toStrictEqual([17, 1]);
+
+    // off it, onto `b`
+    await m.move(25, 4);
+    expect(m.where('b is here')).toStrictEqual([4, 1]);
+
+    // off the map, onto the box beside it
+    await m.move(35, 4);
+    expect(m.where('is here')).toBeUndefined();
+    expect(m.told.at(-1)).toBeUndefined();
+
+    // and off the screen altogether, from over the map
+    await m.move(2, 4);
+    expect(m.where('a is here')).toStrictEqual([17, 1]);
+    await m.move(50, 4);
+    expect(m.where('is here')).toBeUndefined();
+  });
+
+  it('should point at the tile inside a border the app gave the map', async () => {
+    // a border puts what the map paints a cell in from its box, and the bubble
+    // has to be beside the tile rather than one cell short of it
+    const m = await mapWithTip({ props: { 'border-style': 'ascii', 'flex-shrink': 0, width: 32 } });
+    await m.move(3, 4);
+    expect(m.where('a is here')).toStrictEqual([18, 2]);
+  });
+
+  it('should point at the whole of a row of cells a tile has half of', async () => {
+    // two bands nine pixels tall: `top`'s ninth pixel is the upper half of the
+    // fifth row of cells and `bottom`'s first the lower half, so `top`'s bubble
+    // goes under that row and `bottom`'s over it, and neither into it
+    const root = branch(ROOT, [leaf(ROOT, 'top', 1), leaf(ROOT, 'bottom', 1)]);
+    expect(
+      layoutTreemap(root, 12, 18, READ).tiles.map((tile) => [tile.item.name, tile.y, tile.h])
+    ).toStrictEqual([
+      ['top', 0, 9],
+      ['bottom', 9, 9],
+    ]);
+    const term = createTestTerminal({ colorLevel: 0, columns: 12, rows: 9 });
+    const app = runApp(
+      () =>
+        Treemap<Node, string>({
+          ...PAIR_PROPS,
+          props: { 'flex-grow': 1 },
+          root,
+          tooltip: {
+            ascii: true,
+            delay: 0,
+            input: useApp().input as InputRouter,
+            // above, where there is room: `top` has none and flips below
+            side: 'top',
+            text: (key, item) => item.name,
+          },
+        }),
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    await term.press('\u001b[<35;2;2M');
+    await frame(app);
+    expect(term.viewport.findIndex((row) => row.includes('| top |'))).toBe(6);
+    // clear of `top`'s bubble, which is over columns 0 to 6
+    await term.press('\u001b[<35;11;8M');
+    await frame(app);
+    expect(term.viewport.findIndex((row) => row.includes('| bottom |'))).toBe(2);
+  });
+
+  it('should hand the words a tile of gathered items the whole list', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const map = layoutTreemap(root, 30, 12, READ);
+    const rest = map.tiles.find((tile) => tile.kind === 'rest') as TreemapBox;
+    const at: [number, number] = [rest.x, Math.floor(rest.y / 2)];
+    expect(treemapCellTile(map, ...at, 0)?.kind).toBe('rest');
+    const m = await mapWithTip({ root });
+    await m.move(...at);
+    expect(m.where('30 gathered')).toBeDefined();
+  });
+
+  it('should hide the bubble over a map with no tile under the pointer', async () => {
+    const tree = new State<Node | undefined>(PAIR);
+    const m = await mapWithTip({ root: tree });
+    await m.move(2, 4);
+    expect(m.where('a is here')).toStrictEqual([17, 1]);
+    // the tree goes, under a pointer still on the map
+    tree.set(undefined);
+    await frame(m.app);
+    await m.move(3, 4);
+    expect(m.told.at(-1)).toBeUndefined();
+    expect(m.where('is here')).toBeUndefined();
+  });
+
+  it('should refuse a tooltip with no words', () => {
+    expect(() =>
+      Treemap({
+        ...PAIR_PROPS,
+        root: PAIR,
+        tooltip: { input: {} as InputRouter } as never,
+      })
+    ).toThrow(/tooltip text/);
   });
 });

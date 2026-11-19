@@ -10848,6 +10848,57 @@ because a dropdown or anything else that sits beside a box wants the same answer
   than tested, for the reason that entry gives. The other thirteen were caught as
   written, including the four on the hook itself: not dispatched, its answer
   dropped, collected only on a size change, and `onResize` told on every layout.
+- **`area` points the bubble at a rectangle inside the anchor (SIG-500).** A
+  treemap's tiles are not elements -- the map is one `raw` -- so anchored to the
+  map, a bubble sat at the map's edge whatever tile the pointer was on. `area` is
+  a function giving a rectangle in cells from the anchor's top-left corner, and
+  the placement, the flip and the clamp are `placeTooltip()`'s as before: the
+  rectangle is simply what is handed to it in place of the anchor's box. One
+  tooltip with a narrower anchor rather than a second component, because every
+  other rule here -- hover or focus, Escape, `--quiet`, the opaque fill, the
+  following -- is the same for a part of an element as for the whole. The
+  rectangle is cut to the anchor's box and then to its clip, so it points at no
+  more than is there to see; `undefined` is "nothing to point at", hidden and kept
+  as for an anchor scrolled out of view.
+- **A rectangle that moves with nothing laid out moves the bubble anyway.** The
+  tile under the pointer changes with no layout at all, so asking only after a
+  layout would leave the bubble beside the last tile until something unrelated
+  laid the tree out. So `area` is also read in an effect, which re-runs the
+  bubble's own `onLayout` against the last layout's boxes when a signal the
+  function read is set, and the router's mouse reports ask it again too. The
+  effect is what `should point at the rectangle, and follow it with nothing laid
+  out` reads, through the bubble's props before any layout. A corner pass (the
+  entry above about a bubble whose size moved) is never pending when either
+  asks: the layout it asks for is the next pass of the same frame.
+- **While the pointer is on the bubble, an `area` of nothing keeps it where it
+  was.** Moving onto the bubble leaves the part it pointed at, so an app's own hit
+  test says nothing is under the pointer, and hiding would make the bubble
+  unreachable -- and, hidden, it is skipped by the hit test, so the next report
+  would land on the anchor and show it again: a blink per report. Keeping it is
+  the hoverable rule above for a part of the anchor. The cost is that the bubble
+  covers the parts beneath it until the pointer leaves it, which is the cost a
+  whole-anchor bubble already has over whatever it is placed on. A
+  `pointer-events` that let the pointer through was the other answer, and is
+  refused for the reason the hit test records: nothing else needs one.
+- **SIG-500's review round 1: eight findings, all fixed, each with a test that
+  fails without it.** An `area` that threw on its first call, inside
+  `attachTooltip()`, left the mouse, key, resize and focus subscriptions behind
+  with no handle to dispose them -- and with the focus on the anchor and no delay,
+  a bubble in the tree: the effect that reads `area` is now the first thing
+  subscribed. The kept rectangle is a copy, so an app that reuses one box and
+  writes into it in place cannot move a bubble the pointer is reading. The
+  treemap's `tooltip` docs said the bubble goes when the pointer leaves the map,
+  where it stays while the pointer is on it. A treemap with no `tooltip` built a
+  `State` for one. And four tests: the rectangle cut to the anchor's clip,
+  `dispose()` ending the effect, a tile starting on an odd pixel row as well as
+  ending on one, and `gathered` reaching `text`.
+- **Round 2, over those fixes: two findings, one taken.** The test of an `area`
+  that throws caught the old order only through the focus, so a mouse
+  subscription moved back in front of the effect would have leaked unseen; it
+  now hovers the anchor after the throw as well, and fails for that order. Not
+  taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
+  a user or an app can see differs, and spying on a constructor pins how rather
+  than what.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
@@ -13685,14 +13736,40 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   view before it stops the router, so an app that quits does not show it; an app
   that stops its router and keeps the map on screen clears its own line.
 - **The example shows it in the line under the panes, not in a tooltip.**
-  `attachTooltip()` anchors a bubble to an element, and the element here is the
-  whole map: the bubble would sit at the map's edge rather than by the tile, show
-  after its delay, and be re-placed for every tile crossed. The line under the
-  panes already says what the selection is, in the words wanted -- path, size,
-  share -- so while the pointer is on the map it says what the pointer is over,
-  and the selection again once it leaves. A gathered tile is said as `40 more in
-  work · 4.0 kB · 4.0%`. It costs the example `mouse: { motion: true }`, a report
-  for every cell the pointer crosses, which "The mouse" says is the app's to pay.
+  Until SIG-500, `attachTooltip()` could anchor a bubble only to an element, and
+  the element here is the whole map, so the bubble would have sat at the map's
+  edge rather than by the tile. That is no longer the reason; the next entry has
+  the ones that are. The line under the panes already says what the selection
+  is, in the words wanted -- path, size, share -- so while the pointer is on the
+  map it says what the pointer is over, and the selection again once it leaves.
+  A gathered tile is said as `40 more in work · 4.0 kB · 4.0%`. It costs the
+  example `mouse: { motion: true }`, a report for every cell the pointer crosses,
+  which "The mouse" says is the app's to pay.
+- **`tooltip` is a bubble beside the tile under the pointer (SIG-500), built in.**
+  `attachTooltip()` on the map with its `area` at the hovered tile's cells, and
+  `text(key, item, gathered?)` for the words -- what `onHover` is told, from the
+  same hit test. Built in rather than left as a few lines in an app, because the
+  lines need the tile's box, which only the map's layout knows, and the
+  conversion has two traps an app would meet one at a time: a tile is in
+  half-block pixels, so a tile starting or ending on an odd pixel row has the
+  whole of that row of cells (`should point at the whole of a row of cells a tile
+  has half of`), and the map paints inside whatever border or padding an app gave
+  it while `area` is measured from the box (`should point at the tile inside a
+  border the app gave the map`). The words are set before the rectangle, so the
+  bubble that moves is the one that says them. A map with no tile under the
+  pointer -- a tree emptied under it -- hides the bubble. It costs the treemap
+  module the tooltip's, which it imports; an app that passes no `tooltip` builds
+  nothing.
+- **The disk usage example keeps its line, and the reasons are what a line does
+  that a bubble does not.** It is read at every colour level and every size: a
+  bubble is three rows over a map that may be eight tall, where the line costs
+  nothing the map has. It holds the whole path, the size, the share and the file
+  count, where a bubble wraps at 40 columns over the tiles it describes. It
+  answers on the report rather than after a delay. And it covers nothing, where a
+  bubble covers the neighbouring tiles the pointer is on its way to. A tooltip is
+  the better answer for an app with no line to spare; it is one prop, and adding
+  it to the example beside the line is Chris's call (recorded as such).
+
 - **What an item with no tile of its own outlines needs `parent`.** Its own tile;
   the tile it was gathered into; a tile of an ancestor drawn in one piece; or, for
   an item divided into its children, its whole box -- `treemapMark()`, the
@@ -13813,11 +13890,10 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   textured tile's second square is the terminal's own there, so a tile one pixel
   tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
   level the map was drawn at and reads the checker the way the paint does.
-- **Not done:** keys between tiles (SIG-491 did them, below); a tooltip at the tile
-  under the pointer rather than at the map's edge; zooming, which is an app writing
-  a new `root` -- the example's Enter and Backspace; animating one layout into the
-  next; a tile for a parent's own size beside its children; and a legend, which is
-  the app's, as the example's swatches are.
+- **Not done:** keys between tiles (SIG-491 did them, below); zooming, which is an
+  app writing a new `root` -- the example's Enter and Backspace; animating one
+  layout into the next; a tile for a parent's own size beside its children; and a
+  legend, which is the app's, as the example's swatches are.
 
 ### A treemap's keys: an arrow to the tile beside, and Enter the app's (SIG-491)
 

@@ -99,6 +99,13 @@
         "type": "ElementPropsWithout<\"onKey\" | \"onMouse\">"
       },
       {
+        "description": "A tooltip beside the tile under the pointer, saying what `text` says of it. It is `attachTooltip()` on the map with its `area` at the tile, so it shows after `delay`, flips where there is no room, and needs the router's `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with the pointer, stays while the pointer is on it, and goes when the pointer has left both the map and the bubble. Taken off with the component it was built in. Defaults to none.",
+        "default": "none",
+        "name": "tooltip",
+        "optional": true,
+        "type": "TreemapTooltip<T, K>"
+      },
+      {
         "description": "`h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's spelling: the letters `vim` gives a list (`j`, `k`) and a tree (`h`, `l` as well), all four here because the map moves four ways. Off by default, as theirs is: a letter the map takes is one the app cannot bind while the map has the focus.",
         "name": "vim",
         "optional": true,

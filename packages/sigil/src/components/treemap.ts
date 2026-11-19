@@ -48,6 +48,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../input/index.js';
+import type { Box } from '../layout/index.js';
 import { trackedRaw } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
@@ -55,6 +56,20 @@ import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
+import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
+
+/**
+ * A tooltip at the tile under the pointer: `attachTooltip()`'s options, with the
+ * words worked out per tile.
+ */
+export interface TreemapTooltip<T, K> extends Omit<TooltipOptions, 'area' | 'text'> {
+  /**
+   * What the bubble says over a tile, given what `onHover` is told about it: the
+   * key and the item a click there would pick, and for a tile of gathered items
+   * the whole list.
+   */
+  text: (key: K, item: T, gathered?: readonly T[]) => string;
+}
 
 export interface TreemapProps<T, K = T> {
   /**
@@ -192,6 +207,16 @@ export interface TreemapProps<T, K = T> {
    * its share beside its siblings.
    */
   size: (item: T) => number;
+  /**
+   * A tooltip beside the tile under the pointer, saying what `text` says of it.
+   * It is `attachTooltip()` on the map with its `area` at the tile, so it shows
+   * after `delay`, flips where there is no room, and needs the router's
+   * `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with
+   * the pointer, stays while the pointer is on it, and goes when the pointer has
+   * left both the map and the bubble. Taken off with the
+   * component it was built in. Defaults to none.
+   */
+  tooltip?: TreemapTooltip<T, K>;
   /**
    * `h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's
    * spelling: the letters `vim` gives a list (`j`, `k`) and a tree (`h`, `l` as
@@ -777,6 +802,18 @@ function before(a: readonly number[], b: readonly number[]): boolean {
 }
 
 /**
+ * The cells a box of pixels covers: a cell holding half of it counts, so a box
+ * starting or ending on an odd pixel row has the whole of that row of cells.
+ *
+ * @param box - The box, in pixels.
+ * @returns The cells, as the layout measures boxes.
+ */
+function treemapCells(box: TreemapBox): Box {
+  const top = Math.floor(box.y / 2);
+  return { height: Math.ceil((box.y + box.h) / 2) - top, width: box.w, x: box.x, y: top };
+}
+
+/**
  * The part of a box that is coloured: all of it but its last column and its last
  * row, which are left in the terminal's own background so that two tiles side by
  * side never run together, whatever their colours and at every colour level. A box
@@ -1129,6 +1166,9 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   if (typeof props.size !== 'function') {
     throw new TypeError(__`Expected treemap size to be a function`);
   }
+  if (props.tooltip !== undefined && typeof props.tooltip?.text !== 'function') {
+    throw new TypeError(__`Expected treemap tooltip text to be a function`);
+  }
   const keyOf = props.key ?? ((item: T) => item as unknown as K);
   const read: TreemapReader<T, K> = {
     children: props.children ?? (() => undefined),
@@ -1262,6 +1302,27 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   /** The tile `onHover` was last told about. */
   let hovered: TreemapTile<T> | undefined;
 
+  /** The cells of the tile under the pointer, relative to where the map paints, for the tooltip. */
+  const pointed = props.tooltip === undefined ? undefined : new State<Box | undefined>(undefined);
+  let tip: TooltipHandle | undefined;
+  if (props.tooltip !== undefined && pointed !== undefined) {
+    tip = attachTooltip(element, {
+      ...props.tooltip,
+      // the tile's cells against the map's box: the paint is inside any border
+      // or padding an app gave the map, and the tooltip measures from the box
+      area: () => {
+        const cells = pointed.get();
+        const outer = element.box;
+        const inner = element.content ?? outer;
+        if (cells === undefined || outer === undefined || inner === undefined) {
+          return cells;
+        }
+        return { ...cells, x: cells.x + inner.x - outer.x, y: cells.y + inner.y - outer.y };
+      },
+      text: '',
+    });
+  }
+
   /**
    * Follows the pointer for `onHover`, from every report the map is handed.
    *
@@ -1278,11 +1339,19 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
     hovered = tile;
     if (tile === undefined) {
+      pointed?.set(undefined);
       props.onHover?.(undefined, undefined);
       return;
     }
     const item = itemOf(tile);
-    props.onHover?.(keyOf(item), item, tile.kind === 'rest' ? tile.rest : undefined);
+    const key = keyOf(item);
+    const gathered = tile.kind === 'rest' ? tile.rest : undefined;
+    if (tip !== undefined && pointed !== undefined && props.tooltip !== undefined) {
+      // the words first, so the bubble that moves is the one that says them
+      tip.setText(props.tooltip.text(key, item, gathered));
+      pointed.set(treemapCells(tile));
+    }
+    props.onHover?.(key, item, gathered);
   };
 
   // a drag that began on another element holds the pointer, so its moves over
