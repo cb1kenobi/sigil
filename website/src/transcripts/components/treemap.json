@@ -69,13 +69,19 @@
         "type": "(items: readonly T[], room: number) => string"
       },
       {
+        "description": "Called on Enter, with the map focused, with the key `current` holds -- while the map outlines something for it, so not for the root or a key the map does not hold. What it does is the app's: the disk usage example maps that directory, which is writing a new `root`. Without it, Enter is not the map's, and reaches what is around it.",
+        "name": "onActivate",
+        "optional": true,
+        "type": "(key: K) => void"
+      },
+      {
         "description": "Called when the pointer moves onto another tile, with what a click there would pick -- the item's key and the item, and for a tile of gathered items the largest of them and the whole list as `gathered` -- and with `undefined` twice when it moves off every tile or leaves the map. `current` does not move. A tile picked out of the layout a click reads, so the two never disagree about the cell between two tiles.",
         "name": "onHover",
         "optional": true,
         "type": "(key: K | undefined, item: T | undefined, gathered?: readonly T[]) => void"
       },
       {
-        "description": "Called on a left click on a tile, after `current` has moved to it, with the item's key and the item. A click on a tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
+        "description": "Called when a tile is picked -- a left click on it, or an arrow key moving onto it -- after `current` has moved to it, with the item's key and the item. A tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
         "name": "onPick",
         "optional": true,
         "type": "(key: K, item: T, gathered?: readonly T[]) => void"
@@ -87,10 +93,10 @@
         "type": "(key: K) => K | undefined"
       },
       {
-        "description": "The element's own props: a size, a class, `flex-grow`.",
+        "description": "The element's own props: a size, a class, `flex-grow`. The map is focusable, which `focusable: false` here takes back, along with its keys.",
         "name": "props",
         "optional": true,
-        "type": "ElementPropsWithout<\"onMouse\">"
+        "type": "ElementPropsWithout<\"onKey\" | \"onMouse\">"
       },
       {
         "description": "A tooltip beside the tile under the pointer, saying what `text` says of it. It is `attachTooltip()` on the map with its `area` at the tile, so it shows after `delay`, flips where there is no room, and needs the router's `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with the pointer, stays while the pointer is on it, and goes when the pointer has left both the map and the bubble. Taken off with the component it was built in. Defaults to none.",
@@ -103,12 +109,27 @@
     "shared": [],
     "signature": "function Treemap<T, K = T>(props: TreemapProps<T, K>): Element"
   },
+  "keys": [
+    {
+      "effect": "change",
+      "keys": [
+        "down",
+        "left"
+      ]
+    },
+    {
+      "effect": "answer",
+      "keys": [
+        "ctrlC"
+      ]
+    }
+  ],
   "registryDescription": "A treemap: a tree of sized items as squarified rectangles in half blocks, coloured by a callback, with the current item outlined",
   "source": "packages/sigil/src/components/treemap.ts",
   "views": {
     "narrow": {
       "columns": 40,
-      "output": "\u001b[30;45mreact-dom 132k\u001b[0m\u001b[35m████\u001b[0m \u001b[30;45mlodash 71k\u001b[0m\u001b[35m█████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[35m▄▄▄▄▄▄▄\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[30;45mdate-fns …\u001b[0m\u001b[35m█\u001b[0m \u001b[30;45mzod 2…\u001b[0m\u001b[35m█\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\n\u001b[97m▄▄▄▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[34m▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m▄▄▄▄▄▄\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[97m█\u001b[0m \u001b[30;44mcharts …\u001b[0m\u001b[34m█\u001b[0m \u001b[30;44mapp …\u001b[0m\u001b[34m█\u001b[0m  \u001b[30;44masse…\u001b[0m\u001b[34m█\u001b[0m\n\u001b[97m█\u001b[0m \u001b[30;44meditor 46k\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█\u001b[0m \u001b[34m██████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[30;44mrout…\u001b[0m\u001b[34m█\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[97m█▄▄▄▄▄▄▄▄▄▄▄▄█\u001b[0m \u001b[34m█████████\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n                                 \u001b[34m▀▀▀▀▀▀\u001b[0m"
+      "output": "\u001b[30;45mreact-dom 132k\u001b[0m\u001b[35m████\u001b[0m \u001b[30;45mlodash 71k\u001b[0m\u001b[35m█████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████████████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[35m▄▄▄▄▄▄▄\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[30;45mdate-fns …\u001b[0m\u001b[35m█\u001b[0m \u001b[30;45mzod 2…\u001b[0m\u001b[35m█\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m██████████████████\u001b[0m \u001b[35m███████████\u001b[0m \u001b[35m███████\u001b[0m\n\u001b[35m▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▀▀▀▀▀▀▀▀▀▀▀\u001b[0m \u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\u001b[95m▄\u001b[0m\u001b[35m▄\u001b[0m\n\u001b[34m▄▄▄▄▄▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[97m▄▄▄▄▄▄▄▄▄\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m▄▄▄▄▄▄\u001b[0m\n\u001b[30;44meditor 46k\u001b[0m\u001b[34m████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m▄▄▄▄▄\u001b[0m \u001b[97m█\u001b[0m \u001b[30;44mapp …\u001b[0m\u001b[34m█\u001b[0m  \u001b[30;44masse…\u001b[0m\u001b[34m█\u001b[0m\n\u001b[34m██████████████\u001b[0m \u001b[97m█\u001b[0m \u001b[30;44mchar…\u001b[0m \u001b[97m█\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[34m██████████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[34m██████████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m▄▄▄▄▄▄\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[34m██████████████\u001b[0m \u001b[97m█\u001b[0m \u001b[34m█████\u001b[0m \u001b[97m█\u001b[0m \u001b[30;44mrout…\u001b[0m\u001b[34m█\u001b[0m  \u001b[34m██████\u001b[0m\n\u001b[34m██████████████\u001b[0m \u001b[97m█▄▄▄▄▄▄▄█\u001b[0m \u001b[34m██████\u001b[0m  \u001b[34m██████\u001b[0m\n                                 \u001b[34m▀▀▀▀▀▀\u001b[0m"
     },
     "rendered": {
       "columns": 80,

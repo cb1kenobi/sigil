@@ -5286,7 +5286,7 @@ class on the element.
 
 ```js
 import { palette, rgb } from '@ttylabs/sigil/canvas';
-import { Treemap } from '@ttylabs/sigil/components/treemap';
+import { describeTreemap, Treemap } from '@ttylabs/sigil/components/treemap';
 
 const map = Treemap({
   root: tree, // or a State or a Computed of one
@@ -5295,10 +5295,12 @@ const map = Treemap({
   key: (node) => node.path,
   label: (node) => node.name,
   color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
-  current, // a State of a key: the item outlined, which a click moves
+  current, // a State of a key: the item outlined, which a click or an arrow moves
   onPick: (key, node) => reveal(key),
+  onActivate: (key) => zoomInto(key), // Enter
   props: { 'flex-grow': 1 },
 });
+describeTreemap(input, map, { activate: 'zoom' }); // for keyHelp(), once the router exists
 ```
 
 Any tree with sizes -- disk use, a bundle's modules, memory by owner -- as nested
@@ -5350,8 +5352,18 @@ so neighbours meet with no gap and no overlap.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
-  is its class. It takes no keys: a list beside it, moving the same `current`, is
-  how the keyboard reaches it.
+  is its class.
+- **The arrow keys move between tiles** once the map has the focus -- it is
+  focusable, and `props: { focusable: false }` takes that back. An arrow moves
+  `current` to the tile next to the one outlined on that side: of the tiles past
+  that edge, the nearest, then the one sharing the most of it, then the one whose
+  center is nearest in line. It is a pick, as a click is, so `onPick` hears it and
+  a tile of gathered items picks the largest of them. With nothing outlined, an
+  arrow starts at the top left tile. Enter calls `onActivate(key)` with what is
+  outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
+  for what is around the map, as going back out is: Backspace is not the map's.
+  `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
+  same options as `describeListView()` after the maps.
 
 #### A paginator
 

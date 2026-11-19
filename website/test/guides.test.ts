@@ -1,3 +1,4 @@
+import { COMPONENTS, COMPONENTS_HREF, componentHref } from '../src/lib/components.ts';
 import { guideLink } from '../src/lib/guide-links.ts';
 import { GUIDES_DIR, guide, guides } from '../src/lib/guides.ts';
 import { includesOf } from '../src/lib/includes.ts';
@@ -166,6 +167,60 @@ describe('a link in a guide', () => {
     );
     assert.equal(guideLink('../../cli/README.md'), `${REPO_URL}/blob/main/packages/cli/README.md`);
     assert.equal(guideLink('../src/'), `${REPO_URL}/blob/main/packages/sigil/src`);
+  });
+
+  it("should turn a link to a component's own source file into its page", () => {
+    assert.equal(guideLink('../src/components/list-view.ts'), '/docs/components/list-view');
+    assert.equal(guideLink('../src/components/treemap.ts'), '/docs/components/treemap');
+    // a file that is not named after a component, and a fragment, mean the source
+    assert.equal(
+      guideLink('../src/components/prompt.ts'),
+      `${REPO_URL}/blob/main/packages/sigil/src/components/prompt.ts`
+    );
+    assert.equal(
+      guideLink('../src/components/treemap.ts#L10'),
+      `${REPO_URL}/blob/main/packages/sigil/src/components/treemap.ts#L10`
+    );
+  });
+
+  it('should link full-screen-apps to the component pages it introduces, each by its own name', () => {
+    // each link with its text, so that a link that lands on the wrong page -- a
+    // typo that still names a real file, two hrefs swapped -- fails here
+    const found: { text: string; to: string | undefined }[] = [];
+    const visit = (node: { type: string; url?: string; value?: string; children?: unknown[] }) => {
+      if (node.type === 'link') {
+        const text = (node.children ?? [])
+          .map((child) => (child as { value?: string }).value ?? '')
+          .join('');
+        found.push({ text, to: guideLink(node.url) });
+      }
+      for (const child of node.children ?? []) {
+        visit(child as Parameters<typeof visit>[0]);
+      }
+    };
+    visit(parseMarkdown(guide('full-screen-apps')!.source));
+
+    const pages = found.filter(({ to }) => to?.startsWith(`${COMPONENTS_HREF}/`));
+    for (const { text, to } of pages) {
+      const entry = COMPONENTS.find(({ slug }) => componentHref(slug) === to);
+      assert.ok(entry?.exports.includes(text.replace(/\(\)$/u, '')), `${text} -> ${to}`);
+    }
+    assert.deepEqual(
+      [...new Set(pages.map(({ to }) => to))].toSorted(),
+      [
+        'data-table',
+        'diff-view',
+        'key-help',
+        'list-view',
+        'modal',
+        'panel',
+        'toast',
+        'tree-list-view',
+        'treemap',
+      ]
+        .map(componentHref)
+        .toSorted()
+    );
   });
 
   it('should leave a fragment, an absolute URL and an absolute path as they were written', () => {

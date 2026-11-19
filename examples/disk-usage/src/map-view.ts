@@ -97,7 +97,12 @@ export interface MapViewProps {
   readonly selected: State<string | undefined>;
   /** What to say where there is no map: the scan's progress, or why it is empty. */
   readonly message: () => string;
-  /** A click on a tile: the path of what it is, or the largest of what it gathers. */
+  /** Enter on the map: the path of what is selected. */
+  readonly onActivate?: (path: string) => void;
+  /**
+   * A tile picked, by a click or an arrow key: the path of what it is, or the
+   * largest of what it gathers.
+   */
   readonly onPick?: (path: string) => void;
   /**
    * The pointer onto a tile: what a click there would pick, with what a tile of
@@ -111,7 +116,7 @@ export interface MapViewProps {
 /**
  * The treemap of a tree, filling the box it is given.
  *
- * @param props - The tree, the selection, and what a click does.
+ * @param props - The tree, the selection, and what a pick and Enter do.
  * @returns The element.
  */
 export function MapView(props: MapViewProps): Element {
@@ -123,6 +128,8 @@ export function MapView(props: MapViewProps): Element {
     key: (node) => node.path,
     label: (node) => printable(node.name) + (node.children === undefined ? '' : '/'),
     moreColor: (nodes, level) => mapColor(gatheredCategory(nodes), level),
+    // handed on as it is, since a map with an onActivate claims Enter
+    onActivate: props.onActivate,
     onHover: (path, _node, gathered) => props.onHover?.(path, gathered),
     onPick: (path) => props.onPick?.(path),
     parent: parentOf,

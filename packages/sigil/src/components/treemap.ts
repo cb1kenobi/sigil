@@ -42,13 +42,14 @@ import {
 } from '../canvas/index.js';
 import { type Element, type ElementPropsWithout, toDisplayLine } from '../element/index.js';
 import { __, __n } from '../i18n/index.js';
-import type { MouseEvent } from '../input/index.js';
+import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { trackedRaw } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+import { type DescribeListViewOptions, describedHosts } from './list-view.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
 
@@ -132,6 +133,14 @@ export interface TreemapProps<T, K = T> {
    */
   moreLabel?: (items: readonly T[], room: number) => string;
   /**
+   * Called on Enter, with the map focused, with the key `current` holds -- while
+   * the map outlines something for it, so not for the root or a key the map does
+   * not hold. What it does is the app's: the disk usage example maps that
+   * directory, which is writing a new `root`. Without it, Enter is not the map's,
+   * and reaches what is around it.
+   */
+  onActivate?: (key: K) => void;
+  /**
    * Called when the pointer moves onto another tile, with what a click there
    * would pick -- the item's key and the item, and for a tile of gathered items
    * the largest of them and the whole list as `gathered` -- and with `undefined`
@@ -146,9 +155,10 @@ export interface TreemapProps<T, K = T> {
    */
   onHover?: (key: K | undefined, item: T | undefined, gathered?: readonly T[]) => void;
   /**
-   * Called on a left click on a tile, after `current` has moved to it, with the
-   * item's key and the item. A click on a tile of gathered items picks the largest
-   * of them, and hands over the whole list as `gathered`.
+   * Called when a tile is picked -- a left click on it, or an arrow key moving onto
+   * it -- after `current` has moved to it, with the item's key and the item. A
+   * tile of gathered items picks the largest of them, and hands over the whole
+   * list as `gathered`.
    */
   onPick?: (key: K, item: T, gathered?: readonly T[]) => void;
   /**
@@ -158,8 +168,11 @@ export interface TreemapProps<T, K = T> {
    * into a tile of gathered items, is outlined.
    */
   parent?: (key: K) => K | undefined;
-  /** The element's own props: a size, a class, `flex-grow`. */
-  props?: ElementPropsWithout<'onMouse'>;
+  /**
+   * The element's own props: a size, a class, `flex-grow`. The map is focusable,
+   * which `focusable: false` here takes back, along with its keys.
+   */
+  props?: ElementPropsWithout<'onKey' | 'onMouse'>;
   /**
    * The tree: its root item, or a `State`, a `Computed` or a function that gives
    * it. `undefined` is nothing to draw. A new root is laid out again; the same
@@ -693,6 +706,79 @@ export function treemapCellTile<T, K>(
   return upper ?? lower;
 }
 
+/** A way an arrow key moves on the map. */
+export type TreemapDirection = 'down' | 'left' | 'right' | 'up';
+
+/**
+ * The tile an arrow key moves to from a box: of the tiles wholly past the box's
+ * edge on that side, the one nearest that edge, then the one sharing the most of
+ * it, then the one whose center is nearest the box's along it, then the first laid.
+ *
+ * So the move is to the tile next to the box, never over it to a bigger one
+ * further on, and between two next to it it is to the one more in line. A tile
+ * that shares none of the edge is taken only where none does, nearest first --
+ * which is a box that ends beside the one-pixel row a directory directly under the
+ * root keeps, where the tiles in line with it start a pixel along. From nothing
+ * marked, every arrow goes to the first tile laid, which is in the top left
+ * corner. Past the edge of the map there is nothing, and the answer is `undefined`.
+ *
+ * @param layout - The map.
+ * @param from - The box moved from, as {@link treemapMark} gives it, or nothing.
+ * @param direction - Which arrow.
+ * @returns The tile, or `undefined` where there is none that way.
+ */
+export function treemapNeighbor<T, K>(
+  layout: Pick<TreemapLayout<T, K>, 'tiles'>,
+  from: TreemapBox | undefined,
+  direction: TreemapDirection
+): TreemapTile<T> | undefined {
+  if (from === undefined) {
+    return layout.tiles[0];
+  }
+  const across = direction === 'left' || direction === 'right';
+  let best: TreemapTile<T> | undefined;
+  let bestRank: readonly number[] = [];
+  for (const tile of layout.tiles) {
+    // how far past the box's edge on that side the tile starts
+    const gap =
+      direction === 'right'
+        ? tile.x - (from.x + from.w)
+        : direction === 'left'
+          ? from.x - (tile.x + tile.w)
+          : direction === 'down'
+            ? tile.y - (from.y + from.h)
+            : from.y - (tile.y + tile.h);
+    if (gap < 0) {
+      continue;
+    }
+    // the two spans along that edge: how much they share, and how far apart
+    // their centers are -- doubled, which orders them the same
+    const [a0, a1, b0, b1] = across
+      ? [from.y, from.y + from.h, tile.y, tile.y + tile.h]
+      : [from.x, from.x + from.w, tile.x, tile.x + tile.w];
+    const shared = Math.min(a1, b1) - Math.max(a0, b0);
+    const off = Math.abs(a0 + a1 - b0 - b1);
+    // a negative `shared` is how far apart the spans are
+    const rank = shared > 0 ? [0, gap, -shared, off] : [1, -shared, gap, off];
+    if (best === undefined || before(rank, bestRank)) {
+      best = tile;
+      bestRank = rank;
+    }
+  }
+  return best;
+}
+
+/** Whether one rank comes before another, read left to right; a tie does not. */
+function before(a: readonly number[], b: readonly number[]): boolean {
+  for (const [i, n] of a.entries()) {
+    const m = b[i] as number;
+    if (n !== m) {
+      return n < m;
+    }
+  }
+  return false;
+}
+
 /**
  * The cells a box of pixels covers: a cell holding half of it counts, so a box
  * starting or ending on an odd pixel row has the whole of that row of cells.
@@ -1030,11 +1116,15 @@ function moreWords(count: number, room: number): string {
  * and takes whatever the layout gives it, down to nothing; `flex-grow: 1` is how
  * to have it fill a panel.
  *
+ * It is focusable. With the focus, the arrow keys move `current` to the tile next
+ * to it that way ({@link treemapNeighbor}), as a click on that tile would, and
+ * Enter calls `onActivate`; `describeTreemap()` lists them for a footer.
+ *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
  */
 export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
-  refuseOwnedHooks('Treemap', props.props, ['onMouse']);
+  refuseOwnedHooks('Treemap', props.props, ['onKey', 'onMouse']);
   if (typeof props.size !== 'function') {
     throw new TypeError(__`Expected treemap size to be a function`);
   }
@@ -1114,6 +1204,8 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       paint: (painter, box, self) => {
         at = { x: box.x, y: box.y };
         if (box.width <= 0 || box.height <= 0) {
+          // nothing drawn, so nothing for a key or a click to be read against
+          laid = undefined;
           return;
         }
         const root = rootOf();
@@ -1154,7 +1246,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
         });
       },
     },
-    { ...props.props }
+    { focusable: true, ...props.props }
   );
   element.addClass('sigil-treemap');
 
@@ -1221,6 +1313,14 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     props.onHover?.(key, item, gathered);
   };
 
+  /** Moves `current` to a tile and says so: what a click and an arrow key both do. */
+  const pick = (tile: TreemapTile<T>): void => {
+    const item = itemOf(tile);
+    const key = keyOf(item);
+    current.set(key);
+    props.onPick?.(key, item, tile.kind === 'rest' ? tile.rest : undefined);
+  };
+
   element.onMouse = (event: MouseEvent): void => {
     followPointer(event);
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {
@@ -1231,10 +1331,119 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       return;
     }
     event.stop();
-    const item = itemOf(tile);
-    const key = keyOf(item);
-    current.set(key);
-    props.onPick?.(key, item, tile.kind === 'rest' ? tile.rest : undefined);
+    pick(tile);
   };
+
+  element.onKey = (event: KeyEvent): void => {
+    const k = event.key;
+    // Ctrl or Alt is left for what is around the map, as a list leaves it; and
+    // with nothing drawn, no key is the map's
+    if (event.paste || k.ctrl || k.meta || laid === undefined) {
+      return;
+    }
+    // the root as it is now, which a key can reach before the frame that draws
+    // it: Enter that zoomed, then an arrow in the same read. Laid out at the size
+    // last drawn, and not kept: `laid` is what is on screen, which a click is read
+    // against until that frame comes
+    const root = untrack(rootOf);
+    if (root === undefined || !(untrack(() => read.size(root)) > 0)) {
+      return;
+    }
+    const { height, width } = laid.layout;
+    const layout =
+      laid.root === root ? laid.layout : untrack(() => layoutTreemap(root, width, height, read));
+    const key = untrack(() => current.get());
+    // where `current` is drawn, which the paint outlines: nothing for the root
+    const from = untrack(() =>
+      key === undefined || key === keyOf(root)
+        ? undefined
+        : treemapMark(layout, key, { key: keyOf, parent: props.parent })
+    );
+    if (k.name === 'enter') {
+      if (props.onActivate !== undefined && key !== undefined && from !== undefined) {
+        event.stop();
+        props.onActivate(key);
+      }
+      return;
+    }
+    const direction = ARROWS.get(k.name);
+    // Shift with an arrow is a range, which a list leaves alone too
+    if (direction === undefined || k.shift) {
+      return;
+    }
+    // claimed even where it goes nowhere: Right at the map's right edge is still
+    // the map's key, a list's rule for Down on its last row
+    event.stop();
+    const tile = treemapNeighbor(layout, from, direction);
+    if (tile !== undefined) {
+      pick(tile);
+    }
+  };
+
+  MAPS.set(element, { activate: props.onActivate !== undefined });
   return element;
+}
+
+/** The arrow keys, by name. A `Map`, so a key name is never looked up on `Object.prototype`. */
+const ARROWS = new Map<string, TreemapDirection>([
+  ['down', 'down'],
+  ['left', 'left'],
+  ['right', 'right'],
+  ['up', 'up'],
+]);
+
+/** Each map `Treemap()` built, with whether it claims Enter: what the describer reads. */
+const MAPS = new WeakMap<Element, { readonly activate: boolean }>();
+
+/** Where a treemap's keys are described, which is the whole of what is asked of a router. */
+export interface TreemapDescriber {
+  describe(keys: string, opts: DescribeOptions): () => void;
+}
+
+/**
+ * Describes a treemap's keys to a router, for a key-help footer.
+ *
+ * Scoped to the map, which is the element whose focus makes the keys apply: the
+ * four arrows, and Enter where the map has an `onActivate`. Enter is `open` unless
+ * the options after the maps say what it does, as `describeListView()`'s are
+ * given: `describeTreemap(input, map, { activate: 'map it' })`.
+ *
+ * @param router - What to describe the keys to.
+ * @param maps - Hosts that `Treemap()` returned, optionally followed by the
+ *   options, which apply to every one of them.
+ * @returns Takes every description back off.
+ */
+export function describeTreemap(
+  router: TreemapDescriber,
+  ...maps: readonly Element[] | readonly [...maps: Element[], options: DescribeListViewOptions]
+): () => void {
+  const { hosts, options } = describedHosts(maps);
+  const activate = options.activate ?? __`open`;
+  const found = hosts.map((host) => {
+    const model = MAPS.get(host);
+    if (model === undefined) {
+      throw new TypeError(__`Expected an element that Treemap() returned`);
+    }
+    return { activate: model.activate, scope: host };
+  });
+
+  const off: Array<() => void> = [];
+  for (const { activate: claims, scope } of found) {
+    const say = (spec: string, description: string, priority: number): void => {
+      off.push(router.describe(spec, { description, priority, scope }));
+    };
+    say('up', __`move`, 1);
+    say('down', __`move`, 1);
+    say('left', __`move`, 1);
+    say('right', __`move`, 1);
+    if (claims) {
+      say('enter', activate, 2);
+    }
+  }
+
+  return () => {
+    for (const fn of off) {
+      fn();
+    }
+  };
 }
