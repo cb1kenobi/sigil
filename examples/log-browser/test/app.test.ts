@@ -218,6 +218,28 @@ describe.each([
     expect(Number(ready)).toBe(Number(desired) - 1);
   });
 
+  it('should keep the cursor on its pod across a reading that reorders the table', async () => {
+    // sorted by CPU, which every reading changes, so the rows move under the cursor
+    const it = await mount(root, { rows: 30 });
+    await it.press('5', KEYS.down, KEYS.down, KEYS.down);
+    expect(it.screen()).toMatch(/CPU ?[▼v]/);
+    const podAt = (line: string): string =>
+      /\b([a-z]+-[a-z0-9]{5}-[a-z0-9]{5})\b/.exec(line)?.[1] ?? '';
+    const pods = (): string[] => it.term.viewport.map(podAt).filter((name) => name !== '');
+    const pod = podAt(cursorRow(it));
+    expect(pod).not.toBe('');
+    const at = pods().indexOf(pod);
+
+    // a second at a time until the pod has moved, which a busy cluster does at once
+    let moved = false;
+    for (let s = 0; s < 30 && !moved; s++) {
+      await it.tick(4);
+      moved = pods().indexOf(pod) !== at;
+    }
+    expect(moved).toBe(true);
+    expect(podAt(cursorRow(it))).toBe(pod);
+  });
+
   it('should filter a table as the filter is typed, and drop it on Escape', async () => {
     const it = await mount(root);
     await it.press('/', 'w', 'r', 'k');

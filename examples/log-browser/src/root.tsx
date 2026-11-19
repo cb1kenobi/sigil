@@ -40,12 +40,17 @@ function LogRow(props: { line: LogLine; query: string }): Element {
   );
 }
 
-/** A table of one kind of resource, keyed by namespace and name so a reading keeps its row. */
+/**
+ * A table of one kind of resource, keyed by namespace and name and following its
+ * row, so the cursor stays on its pod through a reading that reorders the table:
+ * a re-sort by CPU, or a rollout taking a pod out from above it.
+ */
 function ResourceTable(props: { browser: Browser; kind: Kind }): Element {
   const { browser, kind } = props;
   return (
     <DataTable
       columns={browser.columns[kind]}
+      follow
       key={resourceKey}
       onActivate={browser.open(kind)}
       props={{ class: 'grow' }}
