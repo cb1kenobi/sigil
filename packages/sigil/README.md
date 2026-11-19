@@ -5327,6 +5327,13 @@ so neighbours meet with no gap and no overlap.
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
   drawn whole find it.
+- **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
+  moves onto another tile: what a click there would pick, from the same hit test,
+  and `(undefined, undefined)` once it is off the map. `current` stays where it
+  is. A small tile has no room for its name, so this is how a status line says
+  what one is. It needs `mouse: { motion: true }`, without which a terminal does
+  not report the pointer between clicks; a new tree under a pointer that is not
+  moving is reported when it next moves, as `:hover` is.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`

@@ -69,6 +69,12 @@
         "type": "(items: readonly T[], room: number) => string"
       },
       {
+        "description": "Called when the pointer moves onto another tile, with what a click there would pick -- the item's key and the item, and for a tile of gathered items the largest of them and the whole list as `gathered` -- and with `undefined` twice when it moves off every tile or leaves the map. `current` does not move. A tile picked out of the layout a click reads, so the two never disagree about the cell between two tiles.",
+        "name": "onHover",
+        "optional": true,
+        "type": "(key: K | undefined, item: T | undefined, gathered?: readonly T[]) => void"
+      },
+      {
         "description": "Called on a left click on a tile, after `current` has moved to it, with the item's key and the item. A click on a tile of gathered items picks the largest of them, and hands over the whole list as `gathered`.",
         "name": "onPick",
         "optional": true,

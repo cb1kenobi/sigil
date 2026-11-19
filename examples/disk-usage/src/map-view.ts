@@ -99,6 +99,11 @@ export interface MapViewProps {
   readonly message: () => string;
   /** A click on a tile: the path of what it is, or the largest of what it gathers. */
   readonly onPick?: (path: string) => void;
+  /**
+   * The pointer onto a tile: what a click there would pick, with what a tile of
+   * gathered files gathers; nothing when it leaves the map.
+   */
+  readonly onHover?: (path: string | undefined, gathered?: readonly DiskNode[]) => void;
   /** A class for the host. */
   readonly class?: string;
 }
@@ -118,6 +123,7 @@ export function MapView(props: MapViewProps): Element {
     key: (node) => node.path,
     label: (node) => printable(node.name) + (node.children === undefined ? '' : '/'),
     moreColor: (nodes, level) => mapColor(gatheredCategory(nodes), level),
+    onHover: (path, _node, gathered) => props.onHover?.(path, gathered),
     onPick: (path) => props.onPick?.(path),
     parent: parentOf,
     props: { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 },

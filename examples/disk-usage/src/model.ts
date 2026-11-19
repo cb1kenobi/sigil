@@ -55,7 +55,7 @@ export interface Model {
   readonly path: string;
   /** The right of the top line: the total, and how far a scan that is running has got. */
   readonly totals: () => string;
-  /** The line under the panes: what the selection is. */
+  /** The line under the panes: what the pointer is over on the map, or else what the selection is. */
   readonly info: () => string;
   /** The router, which the footer reads. */
   readonly input: InputRouter;
@@ -71,6 +71,8 @@ export interface Model {
   mapIt(path: string): void;
   /** The node a tree row stands for. */
   nodeOf(choice: TreeChoice<string>): DiskNode | undefined;
+  /** The pointer over the map: the path of what is under it, and what a tile gathers; nothing once it is off. */
+  hover(path: string | undefined, gathered?: readonly DiskNode[]): void;
   /** A click on the map: select what was clicked, and open the tree down to it. */
   pick(path: string): void;
   /** The scan the panes show. */
@@ -109,6 +111,10 @@ export function createModel(): Model {
   /** The directory the map shows, by path; the scan's root while it is unset. */
   const zoom = new State<string | undefined>(undefined);
   const status = new State('');
+  /** What the pointer is over on the map: a path, and for a tile of gathered files all of them. */
+  const hovered = new State<{ gathered?: readonly DiskNode[]; path: string } | undefined>(
+    undefined
+  );
 
   let parts: Parts | undefined;
   let disposed = false;
@@ -308,15 +314,34 @@ export function createModel(): Model {
     return `Map: ${printable(shownPath(found.root, top.path))}`;
   };
 
+  /** A size, as a share of the whole scan. */
+  const shareOf = (found: Scan, bytes: number): string =>
+    found.root.bytes > 0 ? ` · ${((bytes / found.root.bytes) * 100).toFixed(1)}%` : '';
+
   const info = (): string => {
     const found = scan.get();
-    const path = current.get();
-    const node = found === undefined || path === undefined ? undefined : findNode(found.root, path);
-    if (found === undefined || node === undefined) {
+    if (found === undefined) {
       return '';
     }
-    const share =
-      found.root.bytes > 0 ? ` · ${((node.bytes / found.root.bytes) * 100).toFixed(1)}%` : '';
+    // the tile under the pointer, while there is one: a small tile carries no
+    // name, and this is how to learn what it is without clicking it, which would
+    // move the selection. A tile of gathered files says how many, and where
+    const over = hovered.get();
+    if (over?.gathered !== undefined) {
+      const bytes = over.gathered.reduce((sum, node) => sum + node.bytes, 0);
+      const where = printable(shownPath(found.root, dirname(over.path)));
+      return `${over.gathered.length} more in ${where} · ${formatSize(bytes)}${shareOf(found, bytes)}`;
+    }
+    // a path a delete has taken away since says the selection again, until the
+    // pointer next moves
+    const path = current.get();
+    const node =
+      (over === undefined ? undefined : findNode(found.root, over.path)) ??
+      (path === undefined ? undefined : findNode(found.root, path));
+    if (node === undefined) {
+      return '';
+    }
+    const share = shareOf(found, node.bytes);
     const what =
       node.kind === 'directory'
         ? ` · ${formatCount(node.files)} files`
@@ -564,6 +589,9 @@ export function createModel(): Model {
     attach,
     current,
     expanded,
+    hover: (path, gathered) => {
+      hovered.set(path === undefined ? undefined : { gathered, path });
+    },
     info,
     input,
     items,
