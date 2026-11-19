@@ -95,14 +95,15 @@ This example was written before the components it wants, on purpose: it was
 the caller those tickets were waiting for. Both have landed -- the live charts
 (SIG-284) and `DataTable` (SIG-281) -- and the monitor still draws with its
 stand-ins, because on the stress workload below the components cost more than
-twice as much a frame: 6.1 ms against 2.6 ms, as of SIG-503. Moving onto them is
-SIG-383, and it waits for SIG-378 and SIG-379. Each stand-in is marked in the
-source and is the least that works.
+twice as much a frame: 6.1 ms against 2.6 ms at the p50, from
+`stress/benchmark.js` as of SIG-503. Moving onto them is SIG-383, and it waits
+for SIG-378 and SIG-379. Each stand-in is marked in the source and is the least
+that works.
 
 - **`LiveChart`** stands in for the live charts. It draws with the `*View()`
-  functions, which take an array and a width when they are built, so this builds
-  a new chart on every tick for every chart on screen, and learns its size
-  through `onResize`.
+  functions, which take their data and a width when they are built, so this
+  builds a new chart on every tick for every chart on screen, and learns its
+  size through `onResize`.
 - **`ProcessTable`** stands in for `DataTable`. Its columns are padded strings and
   its rows are a pool of text elements that it rewrites in place.
 

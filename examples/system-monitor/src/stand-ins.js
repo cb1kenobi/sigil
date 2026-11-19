@@ -21,8 +21,8 @@ import { ui } from '@ttylabs/sigil/template';
  * A chart that redraws when its data changes and when the layout resizes it.
  *
  * stand-in for SIG-284's live charts: the `*View()` charts this draws with take
- * an array and a width when they are built and never change, so this throws the
- * old one away and builds a new one -- every tick, for every chart on screen.
+ * their data and a width when they are built and never change, so this throws
+ * the old one away and builds a new one -- every tick, for every chart on screen.
  * The size comes from `onResize`, the way `TextField` learns its width.
  *
  * @param {{ data: () => readonly number[],

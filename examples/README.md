@@ -14,9 +14,11 @@ $ pnpm --filter @ttylabs/example-hello start       # the JSX twin, built
 $ pnpm --filter @ttylabs/example-hello start:ui    # the ui-tag twin, unbuilt
 ```
 
-Or from inside an example's directory, `pnpm start` and `pnpm start:ui`.
+Or from inside an example's directory, `pnpm start`, and `pnpm start:ui` for one
+written twice.
 
-Every example quits on `q`, and on Ctrl-C. Without a terminal on both sides,
+Every example quits on Ctrl-C, and on `q` unless a text field takes the letter
+or there is unsaved work to ask about first. Without a terminal on both sides,
 piped into `cat` for example, an example refuses: it draws nothing, writes one
 line to stderr, and exits `1`.
 
@@ -30,7 +32,7 @@ line to stderr, and exits `1`.
 | [hello](./hello)                   | The smallest full-screen app, written twice: in JSX, compiled by `sigil build`, and in the `ui` tag, run by plain `node`. The two draw the same screen, and a test checks that they do.                                                                                                                                                                                              |
 | [log-browser](./log-browser)       | A k9s- and lnav-shaped browser, written twice like `hello`: live pod, service and deployment tables with a `:` command bar, a fuzzy filter and a describe pager, and a log of 50,000 simulated lines, or a file, that follows, filters and searches.                                                                                                                                 |
 | [settings](./settings)             | A settings screen and a login form, in JSX, built (`pnpm start`): sections in a sidebar, a radio set, a slider, a switch, checkboxes and text fields, Save and Cancel that wait for unsaved changes, an error line under each field, and a login dialog whose Sign in stays disabled until the form is valid. The mouse works throughout.                                            |
-| [system-monitor](./system-monitor) | A btop-shaped monitor in the `ui` tag, run by plain `node` (`pnpm start`): per-core sparklines, memory and network charts, and a process table that refreshes every second under a selection that keeps its row, with sort, filter, kill behind a confirm dialog, and theme switching. The charts and table are still stand-ins, until sigil's own cost as little (SIG-383).         |
+| [system-monitor](./system-monitor) | A btop-shaped monitor in the `ui` tag, run by plain `node` (`pnpm start`): per-core sparklines, memory and network charts, and a process table that refreshes every second under a selection that keeps its row, with sort, filter, kill behind a confirm dialog, and theme switching. The charts and table are still stand-ins, until sigil's own are as cheap (SIG-383).           |
 
 ## Two syntaxes, one app
 
