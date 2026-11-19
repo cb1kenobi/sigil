@@ -99,6 +99,7 @@ export function App(): Element {
     <MapView
       message={m.mapMessage}
       onActivate={m.mapIt}
+      onHover={m.hover}
       onPick={m.pick}
       root={m.mapRoot}
       selected={m.current}
