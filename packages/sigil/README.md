@@ -5336,8 +5336,8 @@ so neighbours meet with no gap and no overlap.
   what one is. It needs `mouse: { motion: true }`: it reads the router's `:hover`,
   which is kept only then, so without it nothing is reported, a drag included. It
   follows the pointer's reports, as `:hover` does, so a new tree under a pointer
-  that is not moving, or a drag that began on another element and holds the
-  pointer, is reported right at the next move.
+  that is not moving is reported right at the next move. A drag that began on
+  another element and holds the pointer is followed across the tiles too.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
@@ -7160,6 +7160,23 @@ turning tracking on.
 A press captures the pointer, so a drag that wanders off the region still reaches
 whatever it started on. The consequence is that `x` and `y` may be outside the
 canvas on a captured event, exactly as `clientX` is during a drag in a browser.
+
+Meanwhile `:hover` follows the pointer, and an element the drag crosses is told
+`mouseenter` and `mouseleave` but none of the moves between them, which are the
+holder's. An element that wants those too sets `hearsDrags`: under `motion: true`
+it is then handed each move of somebody else's drag while the pointer is over it,
+as a `mousemove` addressed to itself and not bubbled, after the holder has had
+it. The holder still gets every move and the release. A `Treemap` sets it, so a
+drag that begins elsewhere reports the tiles it crosses.
+
+```js
+element.hearsDrags = true;
+element.onMouse = (event) => {
+  if (event.kind === 'mousemove') {
+    showDropTarget(event.x, event.y); // an app's own
+  }
+};
+```
 
 #### Turning the mouse on takes text selection away
 

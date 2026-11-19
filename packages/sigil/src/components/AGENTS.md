@@ -13665,16 +13665,18 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   selection again -- a gathered tile is shown only while every file it holds is
   still a child of its directory by identity, which a delete keeps for the nodes it
   did not touch and a rescan does not (review round 1).
-- **A drag that began elsewhere is heard only as it enters and leaves (review
-  round 1, the same limit).** A press captures the pointer for what it landed on,
-  so the motion of a drag from the tree onto the map goes to the tree, and the map
-  -- one element, whose tiles are not elements -- hears its `mouseenter` and
-  nothing until it leaves. So it reports the tile the drag came in over, and the
-  right tile at the first report after the release. Hearing the drag would mean
-  listening past the tree, on the router's own `onMouse()`, which the map does not
-  have: it is handed no router, and taking one for this is a prop every app
-  passes for a drag nobody makes on purpose. `should hear a drag from elsewhere
-  only as it enters, and be right at the next move` pins both halves.
+- **A drag that began elsewhere is followed across the tiles, because the map
+  sets `hearsDrags` (SIG-501).** A press captures the pointer for what it landed
+  on, so the motion of a drag from the tree onto the map goes to the tree, and the
+  map -- one element, whose tiles are not elements -- used to hear its
+  `mouseenter` and nothing until it left: SIG-492 pinned it reporting the tile the
+  drag came in over, and the right one only at the first report after the release.
+  Hearing the drag meant listening past the tree, on a router the map is not
+  handed. SIG-501 gave the router the opt-in instead -- "An element can hear a drag
+  it does not hold" in `src/input` -- and the map is its first user: the moves
+  arrive as `mousemove`s addressed to the map, `followPointer()` reads them like
+  any other, and the tree still holds the drag. `should follow a drag from
+  elsewhere across its tiles, while the drag keeps the pointer` asserts both.
 - **A router that stops leaves the last tile reported (review round 2).** `stop()`
   clears every `hover` state without dispatching a `mouseleave` -- the input
   decision that dispatching into components during a teardown is worse than a
