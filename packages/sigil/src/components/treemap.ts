@@ -166,9 +166,10 @@ export interface TreemapProps<T, K = T> {
   size: (item: T) => number;
   /**
    * `h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's
-   * spelling and the one `ListView`'s and `TreeListView`'s `vim` adds to theirs.
-   * Off by default, as theirs is: a letter the map takes is one the app cannot
-   * bind while the map has the focus.
+   * spelling: the letters `vim` gives a list (`j`, `k`) and a tree (`h`, `l` as
+   * well), all four here because the map moves four ways. Off by default, as
+   * theirs is: a letter the map takes is one the app cannot bind while the map
+   * has the focus.
    */
   vim?: boolean;
 }
