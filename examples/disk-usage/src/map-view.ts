@@ -100,7 +100,7 @@ export interface MapViewProps {
   /** Enter on the map: the path of what is selected. */
   readonly onActivate?: (path: string) => void;
   /**
-   * A tile picked, by a click or an arrow key: the path of what it is, or the
+   * A tile picked, by a click, an arrow key or its letter: the path of what it is, or the
    * largest of what it gathers.
    */
   readonly onPick?: (path: string) => void;
@@ -136,6 +136,8 @@ export function MapView(props: MapViewProps): Element {
     props: { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 },
     root: props.root,
     size: (node) => node.bytes,
+    // the tree beside it takes `h`, `j`, `k` and `l`, so the map does too
+    vim: true,
   });
 }
 

@@ -13916,10 +13916,49 @@ Enter.
   pick leaves the focus where it is, so a click focuses the map (a press focuses
   what it lands on) and the arrows go on moving there. Enter on the map is
   `map it`, as on the tree.
-- **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` and nobody has asked
-  the map for; a way into a divided item without zooming, which would be a second
+- **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` (SIG-499 gave the
+  map the same option, below); a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
   over rectangles; and drawing the focus.
+
+### A treemap's letters: `h`, `j`, `k` and `l` with `vim` (SIG-499)
+
+The disk usage example's tree takes `h`/`j`/`k`/`l` with `vim` and its map, beside
+it, took only the arrows, so a hand on the letters had to move to the arrows the
+moment the map had the focus.
+
+- **Opt-in, as `vim: true`, the list's and the tree's name for it.** `ListView`,
+  `TreeListView` and `DataTable` each take letters only with `vim` (`j`/`k`/`g`/`G`,
+  and `h`/`l` on a tree), off by default for the reason `find` is: a letter a
+  focused component claims outranks every binding the app has for it, the
+  runner's `q` and a fallback included. A map has none of the letters by default
+  for the same reason, and `vim: true` takes all four: `h` Left, `j` Down, `k` Up,
+  `l` Right, each exactly as its arrow -- the same `treemapNeighbor()` move, the
+  same pick, `onPick` and all. Some views do take letters by default -- the pager
+  its `less` keys, `j` and `k` among them, and `DiffView` its `w` -- but those
+  are a view whose whole job is reading, where the letters are what a reader
+  expects; the views a selection moves through, which is what the map is, keep
+  them behind `vim`. Leaving them to the app instead would mean every app writing
+  the same `onKey` over a map that has no public way to move.
+- **The letters are the arrows' in every other rule too.** Claimed even where
+  they go nowhere (`l` at the right edge, as Right there); a key with Ctrl or Alt
+  is left to what is around the map, as an arrow with one is; `H` is not `h` --
+  the decoder names a capital as itself, so it is not the map's either. No `g`
+  and `G`, which a list takes with `vim` for its ends: the map has no first and
+  last to go to, which is why it takes no Home and End.
+- **`describeTreemap()` lists them only where the map takes them, on the arrows'
+  line.** `move` for each, after the four arrows in the arrows' order, so a
+  footer reads `↑/↓/←/→/k/j/h/l move` -- the list's `↑/↓/k/j move`, each letter
+  after its arrow. One line rather than a second, because a second line would cost
+  its separator and its word as well as the letters: on the line, they are 8
+  columns. Measured in the disk usage example with the map focused and the status
+  showing: the line fitted from 114 columns without the letters and fits from 122
+  with them. It is the footer's lowest priority, so below that it is the first to
+  go, as the tree's `↑/↓/k/j move` already is below about 200 there. That is the
+  cost, and it is why the example test that reads the move line off the footer
+  mounts at 140 columns where it mounted at 120.
+- **The disk usage example turns it on**, since its tree already takes the
+  letters and the selection's own keys (`d`, `t`, Backspace, `r`) use none of them.
 
 ### A treemap's double click activates, as a list row's does (SIG-498)
 

@@ -5354,7 +5354,8 @@ so neighbours meet with no gap and no overlap.
   A double click on a tile activates too, as on a list: the first click picks it
   and the second calls `onActivate` as Enter would, without picking it again.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
-  same options as `describeListView()` after the maps.
+  same options as `describeListView()` after the maps. `vim: true` adds `h`, `j`,
+  `k` and `l`, moving as Left, Down, Up and Right do, as it does on a list.
 
 #### A paginator
 

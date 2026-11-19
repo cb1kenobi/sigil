@@ -704,7 +704,7 @@ describe('the disk usage visualizer', () => {
     'should move between tiles with the arrows once the map has the focus, and map one with Enter',
     async () => {
       const work = workspace();
-      const m = await mount(work, { columns: 120 });
+      const m = await mount(work, { columns: 140 });
       await m.press(KEYS.tab);
       // the footer says what the map's own keys do, and the selection's are still there
       const footer = m.term.viewport.at(-1) ?? '';
@@ -809,6 +809,39 @@ describe('the disk usage visualizer', () => {
           m.app.exit(0);
         }
       }
+    },
+    LONG
+  );
+
+  it(
+    'should move between tiles with h, j, k and l on the map, as with the arrows',
+    async () => {
+      const work = workspace();
+      // the map's move line needs 122 columns here with the letters on it, 8 more
+      // than without, and goes first from a narrower footer, as the tree's does
+      const m = await mount(work, { columns: 140 });
+      await m.press(KEYS.tab);
+      // the letters are on the arrows' line rather than a line of their own
+      expect(m.term.viewport.at(-1) ?? '').toMatch(/↑\/↓\/←\/→\/k\/j\/h\/l move/);
+
+      // where Right went in the test above, `l` goes, and `h` comes back
+      await m.press('l');
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+      await m.press('l');
+      expect(info(m)).toMatch(/song\.mp3 · 20\.0 kB/);
+      await m.press('h');
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+      // `main.ts` is over `util.ts` in the column on the right: `j` goes down to
+      // it and `k` back up, where Down and Up go
+      await m.press('l', 'l');
+      expect(info(m)).toMatch(/main\.ts · 9\.0 kB/);
+      await m.press('j');
+      expect(info(m)).toMatch(/util\.ts · 3\.0 kB/);
+      await m.press('k');
+      expect(info(m)).toMatch(/main\.ts · 9\.0 kB/);
+      await m.press(KEYS.down);
+      expect(info(m)).toMatch(/util\.ts · 3\.0 kB/);
+      m.app.exit(0);
     },
     LONG
   );

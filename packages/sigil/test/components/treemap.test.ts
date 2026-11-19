@@ -1,4 +1,5 @@
 import { createCanvas, DEFAULT_COLOR, palette, rgb, type Style } from '../../src/canvas/index.js';
+import { keyHelp } from '../../src/components/key-help.js';
 import {
   describeTreemap,
   inside,
@@ -19,10 +20,15 @@ import {
   treemapTileAt,
   treemapTileColors,
 } from '../../src/components/treemap.js';
-import { box } from '../../src/element/index.js';
-import { type DescribeOptions, DOUBLE_CLICK_MS, type MouseEvent } from '../../src/input/index.js';
+import { box, renderToString } from '../../src/element/index.js';
+import {
+  createInput,
+  type DescribeOptions,
+  DOUBLE_CLICK_MS,
+  type MouseEvent,
+} from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
-import { Computed, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
 import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1362,6 +1368,145 @@ describe('describeTreemap', () => {
       'Expected an element that Treemap() returned'
     );
     expect(live).toHaveLength(0);
+  });
+});
+
+describe('Treemap vim keys', () => {
+  /** Presses keys, one at a time, and waits for the frame after them. */
+  async function press(
+    m: { app: Parameters<typeof frame>[0]; term: { press(...keys: string[]): Promise<void> } },
+    ...keys: string[]
+  ): Promise<void> {
+    for (const key of keys) {
+      await m.term.press(key);
+    }
+    await frame(m.app);
+  }
+
+  /** A map inside a box that records every key that reaches it. */
+  async function wrapped(props: TreemapProps<Node, string>) {
+    const heard: string[] = [];
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    const app = runApp(
+      () =>
+        box(
+          {
+            'flex-grow': 1,
+            onKey: (event) => {
+              const k = event.key;
+              heard.push(
+                `${k.ctrl ? 'ctrl+' : ''}${k.meta ? 'alt+' : ''}${k.shift ? 'shift+' : ''}${k.name}`
+              );
+            },
+          },
+          Treemap({ ...props, props: { 'flex-grow': 1, ...props.props } })
+        ),
+      { detect: false, mouse: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    return { app, heard, term };
+  }
+
+  /** Four items of one size, so there is somewhere to go every way from one of them. */
+  const QUAD = branch(
+    ROOT,
+    ['a', 'b', 'c', 'd'].map((name) => leaf(ROOT, name, 250))
+  );
+
+  /** Each letter, with the arrow it stands for and the way they both go. */
+  const LETTERS = [
+    ['h', KEYS.left, 'left'],
+    ['j', KEYS.down, 'down'],
+    ['k', KEYS.up, 'up'],
+    ['l', KEYS.right, 'right'],
+  ] as const;
+
+  for (const [letter, arrow, way] of LETTERS) {
+    it(`should move ${way} on ${letter} with vim, to the tile the arrow moves to`, async () => {
+      const map = layoutTreemap(QUAD, 20, 12, READ);
+      // a tile with a tile beside it that way, which the map is laid out the same as
+      const from = map.tiles.find((tile) => treemapNeighbor(map, tile, way) !== undefined);
+      const to = treemapNeighbor(map, from, way);
+      expect(from).toBeDefined();
+      const start = READ.key((from as TreemapTile<Node>).item);
+      const current = new State<string | undefined>(start);
+      const picks: string[] = [];
+      const m = await mount({
+        ...PAIR_PROPS,
+        current,
+        onPick: (key) => picks.push(key),
+        root: QUAD,
+        vim: true,
+      });
+      await press(m, KEYS.tab, letter);
+      expect(current.get()).toBe(READ.key((to as TreemapTile<Node>).item));
+      expect(current.get()).not.toBe(start);
+      // a pick, as the arrow's is, and the arrow from the same tile agrees
+      expect(picks).toStrictEqual([current.get()]);
+      current.set(start);
+      await press(m, arrow);
+      expect(picks).toStrictEqual([current.get(), current.get()]);
+    });
+  }
+
+  it('should leave h, j, k and l to what is around it without vim', async () => {
+    const current = new State<string | undefined>(`${ROOT}/a`);
+    const m = await wrapped({ ...PAIR_PROPS, current, root: QUAD });
+    await press(m, KEYS.tab, 'h', 'j', 'k', 'l');
+    expect(m.heard).toStrictEqual(['h', 'j', 'k', 'l']);
+    expect(current.get()).toBe(`${ROOT}/a`);
+  });
+
+  it('should claim a letter that goes nowhere, and leave a capital, a Ctrl or an Alt to what is around it', async () => {
+    // `b` is the right half: `l` from it goes nowhere, and is still the map's, as
+    // Right is
+    const current = new State<string | undefined>(`${ROOT}/b`);
+    const m = await wrapped({ ...PAIR_PROPS, current, root: PAIR, vim: true });
+    await press(m, KEYS.tab, 'l', 'H', '\u000c', '\u001bh');
+    // Alt-h from `b` would be `a`, were it the map's
+    expect(m.heard).toStrictEqual(['H', 'ctrl+l', 'alt+h']);
+    expect(current.get()).toBe(`${ROOT}/b`);
+  });
+});
+
+describe('describeTreemap with vim', () => {
+  it('should put k, j, h and l on the line the arrows are on, only where the map is vim', () => {
+    const live: string[] = [];
+    const router: TreemapDescriber = {
+      describe(keys, opts) {
+        live.push(`${keys} ${opts.description} ${opts.priority ?? 0}`);
+        return () => {};
+      },
+    };
+    describeTreemap(router, Treemap({ ...PAIR_PROPS, root: PAIR, vim: true }));
+    expect(live).toStrictEqual([
+      'up move 1',
+      'down move 1',
+      'left move 1',
+      'right move 1',
+      'k move 1',
+      'j move 1',
+      'h move 1',
+      'l move 1',
+    ]);
+    live.length = 0;
+    describeTreemap(router, Treemap({ ...PAIR_PROPS, root: PAIR, vim: false }));
+    expect(live).toStrictEqual(['up move 1', 'down move 1', 'left move 1', 'right move 1']);
+  });
+
+  it('should read as one line in a footer, each letter after its arrow', () => {
+    const term = createTestTerminal({ columns: 80, rows: 10 });
+    const host = Treemap({ ...PAIR_PROPS, root: PAIR, vim: true });
+    const root = box({ 'flex-direction': 'column' }, host);
+    const input = createInput({ root, terminal: term.terminal });
+    describeTreemap(input, host);
+    const footer = keyHelp(input, { width: 80 });
+    input.focus.focus(host);
+    flush();
+    const line = renderToString(footer, { colorLevel: 0, width: 80 }).trimEnd();
+    expect(line).toContain('↑/↓/←/→/k/j/h/l move');
+    input.stop();
   });
 });
 
