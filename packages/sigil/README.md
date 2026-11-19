@@ -6866,6 +6866,33 @@ being handed out. That is what [`@ttylabs/screenshot`](../screenshot/README.md)
 reads to turn a frame into an SVG or a PNG, and `rgbChannels(color)` is the other
 half -- a 24-bit colour's channels, `rgb()` read backwards.
 
+#### Finer than a cell: `Dots` and `Pixels`
+
+Two grids draw at finer than a cell by picking the character that looks like it.
+`Dots` is braille, two dots across and four down a cell in one colour, for shape:
+plots and sparklines. `Pixels` is half blocks, one pixel across and two down a
+cell with a colour each, for pictures. Both are sized in cells, ignore a point
+outside the grid, and leave a cell with nothing drawn in it alone, so either can
+sit on a background something else painted.
+
+```js
+import { palette, Pixels } from '@ttylabs/sigil/canvas';
+
+const pixels = new Pixels(20, 5); // 20 pixels across, 10 down
+pixels.set(3, 7, palette(2));
+canvas.paint((p) => pixels.blit(p, 0, 0, { colorLevel }));
+```
+
+`blit()` takes the colour level, and only 0 (or below) changes anything. With no
+colour to write, a picture is drawn as **shapes** with no colour of their own: a
+pixel set to anything but `DEFAULT_COLOR` is on, and a cell is `█`, `▀` or `▄` by
+which of its halves are on. A shape keeps the background under it, as any text
+does, which at level 0 is the terminal's own unless you filled one. So a caller
+that wants a picture to mean something in a pipe or under `NO_COLOR` decides
+there which pixels are on, setting the others to `DEFAULT_COLOR`. At every other
+level, and with no options, each half keeps its colour; `Pixels` does not
+quantize, so at 256 or 16 colours set colours already quantized.
+
 #### What a backend owes it
 
 Movement is relative, and downward movement never scrolls — so **every row of the

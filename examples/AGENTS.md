@@ -1235,13 +1235,17 @@ about where the space went.
   the one difference that survives level 0, where the map is blocks and spaces and
   a selected tile is drawn hollow.
 
-- **Level 0 is the map's own blit.** `Pixels.blit()` skips a cell whose halves are
-  both the terminal's own and writes a colour for the rest, so at level 0, where
-  there is no colour to write, nothing would be drawn; the image component returns
-  early there for that reason. `paintMap()` writes the half blocks itself at level
-  0, in the terminal's own foreground. A colour the map picks is quantized where it
-  is picked, as the image component does, because degradation happens at resolve
-  time and a `raw` paints after it.
+- **Level 0 is `Pixels`' shapes.** At level 0 there is no colour to write, so
+  `paintMap()` hands `Pixels.blit()` the level and it draws which pixels are on --
+  `█`, `▀` or `▄` in the terminal's own colours -- rather than their colours. The
+  map decides what is on itself: at level 0 it sets a pixel it wants lit to any
+  colour and one it wants dark, a checker's second square and the inside of a
+  selected tile among them, to `DEFAULT_COLOR`. This was the map's own blit until
+  SIG-476 moved it into `Pixels`; the map still sets a lit pixel to a colour, so
+  leaving the level out draws the same blocks with escape sequences in them, which
+  `should paint no colour at level 0` fails on. A colour the map picks is quantized
+  where it is picked, as the image component does, because degradation happens at
+  resolve time and a `raw` paints after it.
 
 - **A `raw` element repaints when an effect says so.** The map and the swatch
   beside each file are `raw`, the image component's trapdoor; a paint reads no
