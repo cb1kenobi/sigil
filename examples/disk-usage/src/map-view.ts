@@ -123,7 +123,8 @@ export function MapView(props: MapViewProps): Element {
     key: (node) => node.path,
     label: (node) => printable(node.name) + (node.children === undefined ? '' : '/'),
     moreColor: (nodes, level) => mapColor(gatheredCategory(nodes), level),
-    onActivate: (path) => props.onActivate?.(path),
+    // handed on as it is, since a map with an onActivate claims Enter
+    onActivate: props.onActivate,
     onPick: (path) => props.onPick?.(path),
     parent: parentOf,
     props: { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 },

@@ -628,7 +628,7 @@ export interface DescribeListViewOptions {
  * with no word and dropped. A class instance is refused the same way, which is the
  * price of telling a foreign element from options without guessing at its shape.
  * Shared by every describer that takes
- * {@link DescribeListViewOptions}, so the three cannot come to read it differently.
+ * {@link DescribeListViewOptions}, so the four cannot come to read it differently.
  *
  * @param args - What followed the router.
  * @returns The hosts, and the options, checked.

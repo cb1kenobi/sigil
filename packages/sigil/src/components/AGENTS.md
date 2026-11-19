@@ -12858,6 +12858,7 @@ calls too.
   | `Switch`        | `onKey`, `onMouse`, `onFocusChange`             |
   | `RadioSet`      | `onKey`, `onFocusChange`                        |
   | `Slider`        | `onKey`, `onFocusChange`                        |
+  | `Treemap`       | `onKey`, `onMouse`                              |
 
   `Collapsible`, `Tabs` and `Show`/`For` assign none on the element their `props`
   reach (a `Collapsible`'s hooks are on its title, `Tabs`' on its row), so they
@@ -13739,10 +13740,20 @@ Enter.
   it does", and the way an app that zooms on that tile keeps doing so from the
   keyboard. `onPick` says so: a click or an arrow.
 - **Claimed as a list claims its moves.** An arrow is the map's even where it goes
-  nowhere, a list's rule for Down on its last row; Shift, Ctrl or Alt with one is
-  left for what is around it, as a list leaves it; a paste is not a key; and with
-  nothing drawn -- no root, a root of no size, before the first paint -- no key is
-  the map's.
+  nowhere, a list's rule for Down on its last row; Shift with an arrow, and Ctrl
+  or Alt with any key, is left for what is around it, as a list leaves it, while
+  Shift-Enter activates as it does on a list; a paste is not a key; and with
+  nothing drawn -- no root, a root of no size, a box of no size, before the first
+  paint -- no key is the map's.
+- **A key reads the root as it is, not as it was drawn (review round 1).** The
+  layout was the last paint's, so Enter that zoomed and an arrow in the same read
+  -- before the frame that draws the new root -- moved on the old tree, and the
+  example's follow-the-selection effect then zoomed straight back out. A key now
+  lays out the current root at the size last drawn, through the same cache the
+  paint uses, so the frame after it reuses that layout; a root gone or of no size
+  takes the keys back at once. A box laid out to nothing clears the layout too,
+  where it used to keep the last one, so a collapsed map took arrows and picked
+  tiles nobody could see.
 - **Enter is `onActivate(key)`, and going back out is not the map's.** In the
   example Enter maps a directory and Backspace maps the one above, and both are a
   new `root`, which is the app's ("zooming" under "Not done" above). Enter has

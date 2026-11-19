@@ -1192,6 +1192,98 @@ describe('Treemap keys', () => {
     expect(current.get()).toBe(`${ROOT}/b`);
   });
 
+  /** A map inside a box that records every key that reaches it, and the map. */
+  async function wrapped(props: TreemapProps<Node, string>) {
+    const heard: string[] = [];
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    let map: ReturnType<typeof Treemap> | undefined;
+    const app = runApp(
+      () =>
+        box(
+          {
+            'flex-grow': 1,
+            onKey: (event) => {
+              heard.push(`${event.key.shift ? 'shift+' : ''}${event.key.name}`);
+            },
+          },
+          (map = Treemap({ ...props, props: { 'flex-grow': 1, ...props.props } }))
+        ),
+      { detect: false, mouse: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    return { app, heard, map: map as ReturnType<typeof Treemap>, term };
+  }
+
+  it('should move on the root a key finds, though the frame that draws it has not come', async () => {
+    // Enter that zooms and an arrow in the same read: the arrow is on the new root
+    const root = new State<Node | undefined>(PAIR);
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, root });
+    await press(m, KEYS.tab);
+    root.set(branch(ROOT, [leaf(ROOT, 'x', 500), leaf(ROOT, 'y', 500)]));
+    await m.term.press(KEYS.right);
+    expect(current.get()).toBe(`${ROOT}/x`);
+    // and a root gone takes the keys back at once
+    root.set(undefined);
+    await m.term.press(KEYS.right);
+    expect(current.get()).toBe(`${ROOT}/x`);
+  });
+
+  it('should take no key where nothing is drawn: no root, or a box laid out to nothing', async () => {
+    const empty = await wrapped({ ...PAIR_PROPS, root: undefined });
+    await press(empty, KEYS.tab, KEYS.right, KEYS.enter);
+    expect(empty.heard).toStrictEqual(['right', 'enter']);
+
+    const current = new State<string | undefined>(undefined);
+    const collapsed = await wrapped({ ...PAIR_PROPS, current, onActivate: () => {}, root: PAIR });
+    await press(collapsed, KEYS.tab);
+    collapsed.map.setProp('flex-grow', 0);
+    collapsed.map.setProp('width', 0);
+    await frame(collapsed.app);
+    await press(collapsed, KEYS.right);
+    expect(collapsed.heard).toStrictEqual(['right']);
+    expect(current.get()).toBeUndefined();
+  });
+
+  it('should leave Enter to what is around it while nothing is outlined, onActivate or not', async () => {
+    const activated: string[] = [];
+    const m = await wrapped({
+      ...PAIR_PROPS,
+      current: ROOT,
+      onActivate: (key) => activated.push(key),
+      root: PAIR,
+    });
+    await press(m, KEYS.tab, KEYS.enter);
+    expect(m.heard).toStrictEqual(['enter']);
+    expect(activated).toStrictEqual([]);
+  });
+
+  it('should activate on Shift-Enter, as a list does, where a terminal tells it apart', async () => {
+    // no sequence the decoder reads says Shift-Enter, so the event is handed over
+    // as a terminal that reports one would have it decoded
+    const activated: string[] = [];
+    const m = await wrapped({
+      ...PAIR_PROPS,
+      current: `${ROOT}/a`,
+      onActivate: (key) => activated.push(key),
+      root: PAIR,
+    });
+    let stopped = false;
+    m.map.onKey?.({
+      current: m.map,
+      key: { ctrl: false, meta: false, name: 'enter', sequence: '\r', shift: true },
+      paste: false,
+      stop: () => {
+        stopped = true;
+      },
+      stopped: false,
+      target: m.map,
+    });
+    expect(activated).toStrictEqual([`${ROOT}/a`]);
+    expect(stopped).toBe(true);
+  });
+
   it('should take no keys and no focus with focusable: false in its props', async () => {
     const current = new State<string | undefined>(undefined);
     const m = await mount({ ...PAIR_PROPS, current, props: { focusable: false }, root: PAIR });

@@ -1150,6 +1150,8 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       paint: (painter, box, self) => {
         at = { x: box.x, y: box.y };
         if (box.width <= 0 || box.height <= 0) {
+          // nothing drawn, so nothing for a key or a click to be read against
+          laid = undefined;
           return;
         }
         const root = rootOf();
@@ -1216,12 +1218,19 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
 
   element.onKey = (event: KeyEvent): void => {
     const k = event.key;
-    // Shift, Ctrl or Alt with an arrow is left for what is around the map, as a
-    // list leaves it; and with nothing drawn, no key is the map's
-    if (event.paste || k.ctrl || k.meta || k.shift || laid === undefined) {
+    // Ctrl or Alt is left for what is around the map, as a list leaves it; and
+    // with nothing drawn, no key is the map's
+    if (event.paste || k.ctrl || k.meta || laid === undefined) {
       return;
     }
-    const { layout, root } = laid;
+    // the root as it is now, which a key can reach before the frame that draws
+    // it: Enter that zoomed, then an arrow in the same read. Laid out at the size
+    // last drawn, which is the layout that frame will keep
+    const root = untrack(rootOf);
+    if (root === undefined || !(untrack(() => read.size(root)) > 0)) {
+      return;
+    }
+    const layout = layoutFor(root, laid.layout.width, laid.layout.height);
     const key = untrack(() => current.get());
     // where `current` is drawn, which the paint outlines: nothing for the root
     const from = untrack(() =>
@@ -1237,7 +1246,8 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       return;
     }
     const direction = ARROWS.get(k.name);
-    if (direction === undefined) {
+    // Shift with an arrow is a range, which a list leaves alone too
+    if (direction === undefined || k.shift) {
       return;
     }
     // claimed even where it goes nowhere: Right at the map's right edge is still
