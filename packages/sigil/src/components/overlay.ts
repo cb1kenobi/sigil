@@ -16,6 +16,7 @@
  * records it under "Menus".
  */
 
+import { DEFAULT_COLOR, type Style } from '../canvas/index.js';
 import { cellStyle, type Element, raw } from '../element/index.js';
 import type { InputRouter } from '../input/index.js';
 
@@ -35,7 +36,8 @@ export function rootOf(element: Element): Element {
 }
 
 /**
- * A blank fill over the whole padding box of the element it is appended to.
+ * A blank fill over the whole padding box of the element it is appended to, and
+ * its background under that element's border.
  *
  * A box with no background paints nothing in its empty cells, and a background
  * colour is no answer, because it is dropped at colour level 0 -- so what is under
@@ -44,6 +46,14 @@ export function rootOf(element: Element): Element {
  * in the terminal's own colours. Nothing is declared for it in the sheet; the
  * class is the hook for a theme that wants a colour behind the overlay, and the
  * fill reads its own style so that one rule reaches it.
+ *
+ * The border is outside the padding box and was painted before this fill, as
+ * glyphs that keep the background already in their cells -- which, over the app,
+ * is the app's: a dialog over a coloured panel had a border on that colour, and
+ * over half blocks some of its cells did and some did not. So the fill restyles
+ * the border's cells to its own background, keeping the glyphs, and the overlay's
+ * background wins under its border as it does inside it. A box with a background
+ * of its own is left alone: that one is already under its border.
  *
  * Append it **first**, so that everything else is painted over it.
  *
@@ -55,7 +65,30 @@ export function opaqueFill(className: string): Element {
     {
       measure: () => ({ height: 0, width: 0 }),
       paint: (painter, area, element) => {
-        painter.fill(area.x, area.y, area.width, area.height, cellStyle(element.style));
+        const style = cellStyle(element.style);
+        painter.fill(area.x, area.y, area.width, area.height, style);
+        // the parent's border box less this padding box is its border, whose
+        // glyphs are already drawn: `overlay()` changes their background and
+        // leaves the glyph, the foreground and the rest of the style alone
+        // and only where the parent has no background of its own: one it has is
+        // already under its border, painted before the border was, and is the
+        // box's own background winning -- `.files-menu { background-color: blue }`
+        const parent = element.parent;
+        const edge = parent?.box;
+        if (edge === undefined || parent?.style.backgroundColor !== DEFAULT_COLOR) {
+          return;
+        }
+        const bg = style.bg ?? DEFAULT_COLOR;
+        const own = (cell: Style): Style => ({ ...cell, bg });
+        const right = area.x + area.width;
+        for (let y = edge.y; y < edge.y + edge.height; y++) {
+          if (y >= area.y && y < area.y + area.height) {
+            painter.overlay(edge.x, y, area.x - edge.x, own);
+            painter.overlay(right, y, edge.x + edge.width - right, own);
+          } else {
+            painter.overlay(edge.x, y, edge.width, own);
+          }
+        }
       },
     },
     { bottom: 0, class: className, left: 0, position: 'absolute', right: 0, top: 0 }

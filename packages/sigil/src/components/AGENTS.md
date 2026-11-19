@@ -9893,6 +9893,23 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   colours. Nothing is declared, so the role invariant's exception count is
   untouched; `.sigil-modal-fill` is the hook for a theme that wants a colour behind
   a dialog, and `cellStyle()` is read off it so that one rule reaches the fill.
+- **And the fill's background is under the border too (SIG-493).** The fill covers
+  the padding box and the border is outside it, painted before the fill as glyphs
+  that keep the background already in their cells -- the app's. A dialog over the
+  disk usage example's treemap had green behind parts of its border, and only
+  parts, because a half block puts the colour in its background in some cells and
+  its foreground in others. So `opaqueFill()` restyles the parent's border cells to
+  its own background with `Painter.overlay()`, which keeps the glyph, its colour
+  and its attributes: the parent's border box less the fill's padding box is the
+  border, exactly. It is the fill's job rather than a rule about borders, because
+  a border drawn on what is under it is right everywhere else -- a bordered panel
+  inside a coloured box keeps the box's colour behind its frame. A panel with a
+  background of its own is left alone, since that one is already under its border
+  and is the box's own winning, which is what `.files-menu { background-color:
+  blue }` in the menu's docs asks for. All four overlays take the fill, so one
+  change covers the modal, the menu, the toast and the tooltip. `should draw its
+  border on its own background, not the colour of the app under it` in
+  `test/components/modal.test.ts` fails without the restyle and without the guard.
 - **A focused button is bracketed, not inverted.** `[ Yes ]` against `  No  `, in
   the accent, written by one effect on the focus signal. When this was written the
   collapsible's inverse focus would have needed a `:focus` rule in the sheet, which

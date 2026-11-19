@@ -6664,7 +6664,9 @@ there for a component you write yourself too:
 - `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
   `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
   over the screen needs: the root a `fixed` box resolves against, the blank fill
-  that hides what is under it at every colour level, and the per-router list of
+  that hides what is under it at every colour level -- its background under the
+  box's border as well, unless the box has a background of its own -- and the
+  per-router list of
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.
