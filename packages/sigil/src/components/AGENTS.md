@@ -10892,6 +10892,13 @@ because a dropdown or anything else that sits beside a box wants the same answer
   `State` for one. And four tests: the rectangle cut to the anchor's clip,
   `dispose()` ending the effect, a tile starting on an odd pixel row as well as
   ending on one, and `gathered` reaching `text`.
+- **Round 2, over those fixes: two findings, one taken.** The test of an `area`
+  that throws caught the old order only through the focus, so a mouse
+  subscription moved back in front of the effect would have leaked unseen; it
+  now hovers the anchor after the throw as well, and fails for that order. Not
+  taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
+  a user or an app can see differs, and spying on a constructor pins how rather
+  than what.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which

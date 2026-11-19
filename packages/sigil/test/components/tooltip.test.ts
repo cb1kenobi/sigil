@@ -997,7 +997,7 @@ describe('attachTooltip(), at a rectangle inside the anchor (SIG-500)', () => {
     expect(asked).toBe(before);
   });
 
-  it('should leave nothing behind when the area throws as it is attached', () => {
+  it('should leave nothing behind when the area throws as it is attached', async () => {
     // the focus is on the anchor and there is no delay, so a tooltip that had
     // subscribed to the focus before asking the area would already have a bubble
     const s = scene();
@@ -1014,6 +1014,12 @@ describe('attachTooltip(), at a rectangle inside the anchor (SIG-500)', () => {
         text: 'Orphan',
       })
     ).toThrow('no area');
+    flush();
+    expect(picture(s.root).join('\n')).not.toContain('Orphan');
+    // nor on the mouse: the focus away, and the pointer onto the anchor
+    s.input.focus.focus(s.other);
+    flush();
+    await hover(s);
     flush();
     expect(picture(s.root).join('\n')).not.toContain('Orphan');
   });
