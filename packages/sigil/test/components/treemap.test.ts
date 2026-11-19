@@ -1565,6 +1565,18 @@ describe('Treemap focus', () => {
         expect(on.style(x, y), `${x} at ${level}`).toEqual(off.style(x, y));
       }
     }
+
+    // and one column inside its edges with many whole rows, which a frame's
+    // left and right lines cannot share: a box laid out two pixels wide
+    const narrow = { h: 9, w: 2, x: 3, y: 0 };
+    expect(inside(narrow).w).toBe(1);
+    expect(frameOf(narrow).bottom - frameOf(narrow).top).toBeGreaterThan(1);
+    for (const level of [0, 3] as const) {
+      const off = draw(map, { level, mark: narrow });
+      const on = draw(map, { focused: true, level, mark: narrow });
+      expect(off.rows.join('\n'), `narrow at ${level}`).not.toMatch(LINES);
+      expect(on.rows, `narrow at ${level}`).toEqual(off.rows);
+    }
   });
 
   it("should frame a divided item's box over its tiles, which give way under its lines", () => {
