@@ -338,8 +338,8 @@ streams and hands back `press()` and `waitFor()`;
 
 `hello` builds every row by hand. A real app usually shows data: files, log
 lines, a table of processes, a diff. sigil has a component for each of these
-shapes. Each one but the treemap takes the focus and handles its own keys, so it
-joins the focus ring the way `hello`'s rows do, and Tab moves to it and away.
+shapes. Each one takes the focus and handles its own keys, so it joins the focus
+ring the way `hello`'s rows do, and Tab moves to it and away.
 Import each from its own subpath, such as `@ttylabs/sigil/components/list-view`.
 The link on each name goes to the component's page, with its options and a
 capture of it running.
@@ -392,10 +392,15 @@ out as a patch of its own, which is how the
 **A treemap.** [`Treemap`](../src/components/treemap.ts) draws a tree of sizes
 as nested rectangles, each as big as its share, so the largest items stand out
 at a glance. It reads your own nodes through `size`, `children` and `key`, so
-nothing is copied. It takes no keys: a click on a rectangle sets its `current`
-and calls `onPick`. To reach it from the keyboard, put a list or a tree beside
-it that writes the same `current`. The disk usage example pairs it with a
-`TreeListView` this way, so the two always show one selection.
+nothing is copied. A click on a rectangle, or an arrow key while the map has
+the focus, moves its `current` to that rectangle and calls `onPick`. Enter calls
+`onActivate(key)`: the disk usage example uses it to show that directory on its
+own. `onHover` names the rectangle under the pointer without moving `current`,
+so a status line can say what a rectangle too small for a label is. It needs
+mouse motion, which an app turns on with `mouse: { motion: true }` in
+`runApp()`'s options. The disk usage example also pairs the map with a
+`TreeListView` that writes the same `current`, so the two always show one
+selection.
 
 Around these, every example but `hello` frames its panes in a
 [`Panel`](../src/components/panel.ts) with a title, and uses
