@@ -24,6 +24,7 @@ import { useApp } from '@ttylabs/sigil/app';
 import {
   confirmModal,
   describeTreeListView,
+  describeTreemap,
   type NoteVariant,
   showToast,
   type TreeChoice,
@@ -37,8 +38,13 @@ import { basename, dirname } from 'node:path';
 
 /** What the root hands back once it has built the screen. */
 export interface Parts {
-  /** The panel the tree is in, which scopes the keys the footer lists for it. */
-  readonly panel: Element;
+  /** The treemap, which takes the arrows and Enter once it has the focus. */
+  readonly map: Element;
+  /**
+   * The box both panels are in, which takes the keys for the selection --
+   * Backspace, `d` and `t` -- whichever of the two has the focus.
+   */
+  readonly panes: Element;
   /** The tree list view. */
   readonly tree: Element;
 }
@@ -55,7 +61,7 @@ export interface Model {
   readonly path: string;
   /** The right of the top line: the total, and how far a scan that is running has got. */
   readonly totals: () => string;
-  /** The line under the panes: what the selection is. */
+  /** The line under the panes: what the pointer is over on the map, or else what the selection is. */
   readonly info: () => string;
   /** The router, which the footer reads. */
   readonly input: InputRouter;
@@ -67,11 +73,13 @@ export interface Model {
   readonly mapRoot: Computed<DiskNode | undefined>;
   /** The map's title: which directory it shows. */
   readonly mapTitle: () => string;
-  /** Enter or a double click on a row: map that directory, or the one that file is in. */
+  /** Enter on the tree or the map, or a double click on a row: map that directory, or the one that file is in. */
   mapIt(path: string): void;
   /** The node a tree row stands for. */
   nodeOf(choice: TreeChoice<string>): DiskNode | undefined;
-  /** A click on the map: select what was clicked, and open the tree down to it. */
+  /** The pointer over the map: the path of what is under it, and what a tile gathers; nothing once it is off. */
+  hover(path: string | undefined, gathered?: readonly DiskNode[]): void;
+  /** A tile picked on the map, by a click or an arrow: select it, and open the tree down to it. */
   pick(path: string): void;
   /** The scan the panes show. */
   readonly scan: State<Scan | undefined>;
@@ -109,8 +117,11 @@ export function createModel(): Model {
   /** The directory the map shows, by path; the scan's root while it is unset. */
   const zoom = new State<string | undefined>(undefined);
   const status = new State('');
+  /** What the pointer is over on the map: a path, and for a tile of gathered files all of them. */
+  const hovered = new State<{ gathered?: readonly DiskNode[]; path: string } | undefined>(
+    undefined
+  );
 
-  let parts: Parts | undefined;
   let disposed = false;
   let running: AbortController | undefined;
   /**
@@ -308,15 +319,41 @@ export function createModel(): Model {
     return `Map: ${printable(shownPath(found.root, top.path))}`;
   };
 
+  /** A size, as a share of the whole scan. */
+  const shareOf = (found: Scan, bytes: number): string =>
+    found.root.bytes > 0 ? ` · ${((bytes / found.root.bytes) * 100).toFixed(1)}%` : '';
+
   const info = (): string => {
     const found = scan.get();
-    const path = current.get();
-    const node = found === undefined || path === undefined ? undefined : findNode(found.root, path);
-    if (found === undefined || node === undefined) {
+    if (found === undefined) {
       return '';
     }
-    const share =
-      found.root.bytes > 0 ? ` · ${((node.bytes / found.root.bytes) * 100).toFixed(1)}%` : '';
+    // the tile under the pointer, while there is one: a small tile carries no
+    // name, and this is how to learn what it is without clicking it, which would
+    // move the selection. What a delete or a rescan has changed since says the
+    // selection again, until the pointer next moves
+    const over = hovered.get();
+    if (over?.gathered !== undefined) {
+      // a tile of gathered files says how many, and where -- while they are still
+      // the files in the tree: a delete keeps every node it did not touch, and a
+      // rescan makes them all new
+      const now = new Set(findNode(found.root, dirname(over.path))?.children);
+      if (over.gathered.every((node) => now.has(node))) {
+        const bytes = over.gathered.reduce((sum, node) => sum + node.bytes, 0);
+        const where = printable(shownPath(found.root, dirname(over.path)));
+        return `${over.gathered.length} more in ${where} · ${formatSize(bytes)}${shareOf(found, bytes)}`;
+      }
+    }
+    const path = current.get();
+    const node =
+      (over === undefined || over.gathered !== undefined
+        ? undefined
+        : findNode(found.root, over.path)) ??
+      (path === undefined ? undefined : findNode(found.root, path));
+    if (node === undefined) {
+      return '';
+    }
+    const share = shareOf(found, node.bytes);
     const what =
       node.kind === 'directory'
         ? ` · ${formatCount(node.files)} files`
@@ -342,8 +379,9 @@ export function createModel(): Model {
   };
 
   /**
-   * Enter or a double click, as the tree's `onActivate`: the map shows the directory
-   * activated, or the one a file activated is in.
+   * Enter or a double click, as the tree's `onActivate`, and Enter on the map, as
+   * its own: the map shows the directory activated, or the one a file activated is
+   * in.
    */
   const zoomIn = (path: string): void => {
     const node = nodeAt(path);
@@ -377,9 +415,6 @@ export function createModel(): Model {
     }
     expanded.set(open);
     current.set(path);
-    if (parts) {
-      input.focus.focus(parts.tree);
-    }
   };
 
   /**
@@ -489,7 +524,7 @@ export function createModel(): Model {
   };
 
   // -- keys -------------------------------------------------------------------
-  const treeKey = (event: KeyEvent): void => {
+  const selectionKey = (event: KeyEvent): void => {
     const { key } = event;
     if (key.ctrl || key.meta || event.paste) {
       return;
@@ -507,14 +542,18 @@ export function createModel(): Model {
   };
 
   const attach = (given: Parts): void => {
-    parts = given;
-    given.panel.onKey = treeKey;
+    // the selection's keys are on the box both panels are in, so they reach it
+    // from the map as well as from the tree
+    given.panes.onKey = selectionKey;
 
-    // the footer follows the focus: the tree's own moves, and the panel's keys
-    // described with the panel as the scope
-    const off: (() => void)[] = [describeTreeListView(input, given.tree, { activate: 'map it' })];
+    // the footer follows the focus: the tree's own moves or the map's, and the
+    // selection's keys described with the box around both as the scope
+    const off: (() => void)[] = [
+      describeTreeListView(input, given.tree, { activate: 'map it' }),
+      describeTreemap(input, given.map, { activate: 'map it' }),
+    ];
     const say = (spec: string, description: string, priority = 3): void => {
-      off.push(input.describe(spec, { description, priority, scope: given.panel }));
+      off.push(input.describe(spec, { description, priority, scope: given.panes }));
     };
     say('backspace', 'map up', 2);
     say('d', 'delete', 2);
@@ -564,6 +603,9 @@ export function createModel(): Model {
     attach,
     current,
     expanded,
+    hover: (path, gathered) => {
+      hovered.set(path === undefined ? undefined : { gathered, path });
+    },
     info,
     input,
     items,

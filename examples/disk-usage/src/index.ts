@@ -13,7 +13,9 @@
 // The mouse is on: a treemap is a picture, and pointing at the part of it you
 // want to know about is the first thing anybody does with one. Nothing on the
 // screen is text worth selecting, which is what a terminal reporting the mouse
-// gives up.
+// gives up. With motion, so that the line under the panes can say what the
+// pointer is over -- a small tile has no room for its name -- which costs a
+// report for every cell the pointer crosses.
 import { createDisk, DiskContext } from './disk.ts';
 import { App, stylesheet } from './root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
@@ -32,7 +34,7 @@ export default {
   async run({ argv }: { argv: { dir?: string } }): Promise<void> {
     const disk = createDisk(argv.dir);
     process.exitCode = await runApp(() => provideContext(DiskContext, disk, App), {
-      mouse: true,
+      mouse: { motion: true },
       sheets: [stylesheet],
     }).exited;
   },

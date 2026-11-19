@@ -115,7 +115,7 @@ export async function mount(
   opts: {
     colorLevel?: 0 | 1 | 2 | 3;
     columns?: number;
-    mouse?: boolean;
+    mouse?: boolean | { motion?: boolean };
     rows?: number;
     /** Whether to wait for the first scan before handing it back. Defaults to `true`. */
     settled?: boolean;

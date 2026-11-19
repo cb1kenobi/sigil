@@ -1324,6 +1324,24 @@ describe('@ttylabs/cli', () => {
       }
     });
 
+    it('should evict old cache entries, from the one cache every worktree shares', () => {
+      // turbo keeps every entry until something removes it, and a website build
+      // stores about 450 MB of `.next` -- so without a limit the cache grows by
+      // that much for every change under `packages/sigil/src`. Both limits are
+      // off by default in turbo 2.11. No `cacheDir`, because setting one gives
+      // each git worktree a cache of its own, and the limits would then cover
+      // each separately rather than the one the main checkout holds
+      const rootConfig = JSON.parse(readFileSync(resolve(root, '../../turbo.json'), 'utf-8')) as {
+        cacheDir?: string;
+        cacheMaxAge?: string;
+        cacheMaxSize?: string;
+      };
+
+      expect(rootConfig.cacheMaxAge, 'no cacheMaxAge').toMatch(/^[1-9]\d*[smhdw]$/);
+      expect(rootConfig.cacheMaxSize, 'no cacheMaxSize').toMatch(/^[1-9][\d.]*(MB|GB|TB)$/i);
+      expect(rootConfig.cacheDir, 'a cacheDir stops worktrees sharing one cache').toBeUndefined();
+    });
+
     it('should still capture every directory a build writes', () => {
       // the recorded `registry/**` incident: `@ttylabs/sigil`'s build ends in
       // `node scripts/generate-registry.mjs`, so `registry/` has to be in

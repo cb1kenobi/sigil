@@ -1391,7 +1391,20 @@ about where the space went.
   selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
-  worth selecting, which is what a terminal reporting the mouse gives up.
+  worth selecting, which is what a terminal reporting the mouse gives up. With
+  motion since SIG-492, so that the line under the panes says what the pointer is
+  over on the map -- name, size and share, or `40 more in work` for a tile of
+  gathered files -- and the selection again once it leaves. A line rather than a
+  tooltip, recorded under "A treemap" in `packages/sigil/src/components`.
+
+- **The map takes the focus, and the arrows on it (SIG-491).** The library's map
+  is focusable and moves between tiles by arrow, so the selection's keys --
+  Backspace, `d` and `t` -- moved from the tree's panel to the box around both
+  panels, where they reach it from either, and are described with that box as the
+  scope. A pick on the map, by a click or an arrow, opens the tree down to it and
+  no longer moves the focus to the tree: it did so because the map had no keys,
+  and now it would take the focus off the map after every arrow. Enter on the map
+  is its `onActivate`, `map it`, the tree's word for the tree's Enter.
 
 - **`printable()` is the library's, as the file manager's is.** It was the file
   manager's, written again: a one-line rule, but a rule, and the root file says a

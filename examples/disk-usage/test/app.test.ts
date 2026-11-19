@@ -700,6 +700,82 @@ describe('the disk usage visualizer', () => {
     LONG
   );
 
+  it(
+    'should move between tiles with the arrows once the map has the focus, and map one with Enter',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, { columns: 120 });
+      await m.press(KEYS.tab);
+      // the footer says what the map's own keys do, and the selection's are still there
+      const footer = m.term.viewport.at(-1) ?? '';
+      expect(footer).toMatch(/move/);
+      expect(footer).toMatch(/enter map it/);
+      expect(footer).toMatch(/backspace map up/);
+
+      // the root is selected, which outlines nothing: an arrow starts at the first
+      // tile, and the tree opens down to it, as a click on it would
+      await m.press(KEYS.right);
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+      expect(m.screen()).toMatch(/❯ │ +├── +clip\.mp4/u);
+      await m.press(KEYS.right);
+      expect(info(m)).toMatch(/song\.mp3 · 20\.0 kB/);
+      // the focus stayed on the map, so the arrows went on moving there
+      await m.press(KEYS.left);
+      expect(info(m)).toMatch(/clip\.mp4 · 60\.0 kB/);
+
+      // Enter maps the directory the file is in, and Backspace, reaching the box
+      // around both panels, maps the one above it
+      await m.press(KEYS.enter);
+      expect(m.screen()).toMatch(/Map: work[\\/]media/);
+      await m.press(KEYS.backspace);
+      expect(m.screen()).toMatch(/Map: work /);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
+    'should say what the pointer is over on the map, and the selection again once it leaves',
+    async () => {
+      const work = workspace();
+      // forty small files beside the rest, which the map gathers into one tile
+      write(work, Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${i}.txt`, 100])));
+      const m = await mount(work, { mouse: { motion: true } });
+      const selected = info(m);
+      expect(selected).toMatch(/^ ?work · /);
+      const at = (text: string): [number, number] => {
+        const rows = m.term.viewport;
+        const y = rows.findIndex((row) => row.includes(text));
+        expect(y, text).toBeGreaterThan(0);
+        return [(rows[y] as string).indexOf(text), y];
+      };
+      // SGR reports count from one, and 35 is motion with nothing held
+      const move = async ([x, y]: [number, number]) => {
+        await m.press(`\x1b[<35;${x + 2};${y + 1}M`);
+      };
+
+      await move(at('main.ts'));
+      expect(info(m)).toMatch(/work[\\/]src[\\/]main\.ts · 9\.0 kB/);
+      // pointing is not selecting: the tree's cursor stayed on the root
+      expect(m.screen()).toMatch(/❯ ▾ work/);
+
+      await move(at('more'));
+      expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
+      // a rescan makes every file a new one: the forty the pointer was over are
+      // not what the tree holds now, so the line says the selection until it moves
+      await m.press('r');
+      expect(info(m)).toBe(selected);
+      await move(at('more'));
+      expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
+
+      // onto the tree, which is off the map
+      await move([2, 3]);
+      expect(info(m)).toBe(selected);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
   it.skipIf(process.platform === 'win32')(
     'should draw a control character in a name as a replacement, not drop it',
     async () => {
