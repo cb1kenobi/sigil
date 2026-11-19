@@ -1449,7 +1449,7 @@ describe('Treemap focus', () => {
     const map = layout(root, 20, 12);
     const tile = map.byKey.get(`${ROOT}/a`) as TreemapBox;
     const { y } = probe(tile);
-    const edge = (level: 0 | 1 | 3, outline: number) => {
+    const edge = (level: 0 | 1 | 2 | 3, outline: number) => {
       const canvas = createCanvas({ height: 6, width: 20 });
       canvas.paint((painter) =>
         paintTreemap(painter, 0, 0, map, { label: () => '', level, mark: tile, outline })
@@ -1459,6 +1459,9 @@ describe('Treemap focus', () => {
     };
     expect(edge(3, rgb(255, 200, 0))).toBe(rgb(255, 200, 0));
     expect(edge(1, palette(3))).toBe(palette(3));
+    // degraded to the level, as an item's colour is
+    expect(edge(2, rgb(255, 200, 0))).toBe(quantizeColor(rgb(255, 200, 0), 2));
+    expect(edge(2, rgb(255, 200, 0))).not.toBe(rgb(255, 200, 0));
     // the terminal's own is no colour at all, so the outline stays white
     expect(edge(3, DEFAULT_COLOR)).toBe(rgb(255, 255, 255));
     // and at level 0 there is no colour to give it
@@ -1519,5 +1522,45 @@ describe('Treemap focus', () => {
     expect(() =>
       Treemap({ ...PAIR_PROPS, props: { onFocusChange: () => {} } as never, root: PAIR })
     ).toThrow(/Treemap sets onFocusChange itself/);
+    // and the type leaves it out: `tsc` is what fails if this stops being an error
+    const never = (): void => {
+      // @ts-expect-error -- Treemap sets onFocusChange itself
+      Treemap({ ...PAIR_PROPS, props: { onFocusChange: () => {} }, root: PAIR });
+    };
+    expect(never).toBeTypeOf('function');
+  });
+
+  it("should draw a divided item's box twice as heavy too, keeping a band off its tiles", () => {
+    const lib = `${ROOT}/lib`;
+    const root = branch(ROOT, [
+      leaf(ROOT, 'huge', 30_000),
+      branch(lib, [leaf(lib, 'a', 20_000), leaf(lib, 'b', 20_000)]),
+    ]);
+    const map = layout(root, 40, 24);
+    const box = treemapMark(map, lib, READ) as TreemapBox;
+    expect(box).toBe(map.divided.get(lib));
+    const ring = inside(box);
+    // the third row of cells: inside the first tile of the box, clear of its edges
+    const y = Math.ceil(ring.y / 2) + 2;
+    const draw = (focused: boolean) => {
+      const canvas = createCanvas({ height: 12, width: 40 });
+      canvas.paint((painter) =>
+        paintTreemap(painter, 0, 0, map, { focused, label: () => '', level: 0, mark: box })
+      );
+      canvas.present();
+      const shot = canvas.snapshot();
+      return Array.from({ length: 12 }, (_, r) =>
+        Array.from({ length: 40 }, (_, c) => shot.charAt(c, r)).join('')
+      );
+    };
+    const plain = draw(false);
+    const focused = draw(true);
+    // the box holds tiles, so it is not hollow: the band is what keeps them off it
+    expect(plain[y]?.[ring.x]).toBe('█');
+    expect(plain[y]?.[ring.x + 1]).toBe(' ');
+    expect(plain[y]?.[ring.x + 2]).toBe('█');
+    expect(focused[y]?.[ring.x + 1]).toBe('█');
+    expect(focused[y]?.[ring.x + 2]).toBe(' ');
+    expect(focused[y]?.[ring.x + 3]).toBe('█');
   });
 });

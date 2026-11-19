@@ -883,6 +883,8 @@ export interface TreemapPaint<T> {
   /**
    * Whether the map has the focus, which draws the outline two pixels thick
    * rather than one. A shape rather than a colour, so it shows at level 0 too.
+   * A mark two pixels or less across inside its edges is all outline either
+   * way, so it looks the same.
    */
   readonly focused?: boolean;
   /**

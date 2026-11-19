@@ -13835,6 +13835,14 @@ or something else. It shows now, at every colour level.
   kept off the outline and its band (`should keep a name off the heavier outline
   and the band inside it`). That is the cost, and it falls only on the item
   being looked at.
+- **A mark two pixels or less across shows no focus (review round 1).** A tile
+  three pixels wide, the narrowest the layout draws, leaves a ring two pixels
+  wide inside its edges. Every pixel of that ring is already outline, so the
+  heavier one has nowhere to go and the two look the same. The only room left
+  is outside, which is the gap that keeps the tile off its neighbours, and
+  drawing there is the join refused above. So it is a recorded limit rather than
+  a second mechanism. A ring three or four pixels across still shows it, since
+  its middle is band at a weight of 1 and outline at 2.
 - **The colour is the map's `border-color`, read from its resolved style.** That
   is how a `raw` takes a theme colour (the scroll box's track and thumb are
   `cellStyle(element.style)` over a class of their own). The map has no part to
