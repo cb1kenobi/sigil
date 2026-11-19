@@ -5329,7 +5329,8 @@ so neighbours meet with no gap and no overlap.
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
   drawn whole find it. While the map has the focus the outline is twice as thick,
-  at every colour level, so the reader can tell where the arrows go. Its colour is
+  at every colour level, so the reader can tell where the arrows go (a tile only
+  three pixels across is all outline already, and looks the same). Its colour is
   the map's `border-color` where a sheet gives one, so
   `.sigil-treemap:focus { border-color: yellow }` colours the focused outline.
 - **`empty`** is what is said where there is nothing to draw, and a function is

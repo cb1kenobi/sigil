@@ -87,7 +87,8 @@ export interface TreemapProps<T, K = T> {
    * its own outlines what it was drawn in: the tile it was gathered into, or the
    * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
    * root is the whole map and is not outlined. The outline is twice as heavy
-   * while the map has the focus, which is how a reader tells where the arrows go.
+   * while the map has the focus, which is how a reader tells where the arrows go
+   * -- except round a tile so narrow that its outline is all there is of it.
    */
   current?: K | State<K | undefined>;
   /**
