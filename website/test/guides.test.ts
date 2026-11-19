@@ -168,6 +168,27 @@ describe('a link in a guide', () => {
     assert.equal(guideLink('../src/'), `${REPO_URL}/blob/main/packages/sigil/src`);
   });
 
+  it("should turn a link to a component's own source file into its page", () => {
+    assert.equal(guideLink('../src/components/list-view.ts'), '/docs/components/list-view');
+    assert.equal(guideLink('../src/components/treemap.ts'), '/docs/components/treemap');
+    // a file that is not named after a component, and a fragment, mean the source
+    assert.equal(
+      guideLink('../src/components/prompt.ts'),
+      `${REPO_URL}/blob/main/packages/sigil/src/components/prompt.ts`
+    );
+    assert.equal(
+      guideLink('../src/components/treemap.ts#L10'),
+      `${REPO_URL}/blob/main/packages/sigil/src/components/treemap.ts#L10`
+    );
+  });
+
+  it('should link full-screen-apps to the component pages it introduces', () => {
+    const links = linksOf(guide('full-screen-apps')!.source).map((href) => guideLink(href));
+    for (const slug of ['list-view', 'tree-list-view', 'data-table', 'diff-view', 'treemap']) {
+      assert.ok(links.includes(`/docs/components/${slug}`), slug);
+    }
+  });
+
   it('should leave a fragment, an absolute URL and an absolute path as they were written', () => {
     assert.equal(guideLink('#build-it'), '#build-it');
     assert.equal(guideLink('https://example.com/a#b'), 'https://example.com/a#b');
