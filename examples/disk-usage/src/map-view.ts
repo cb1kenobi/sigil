@@ -130,6 +130,8 @@ export function MapView(props: MapViewProps): Element {
     props: { class: props.class ?? 'map', 'flex-grow': 1, 'min-height': 0, 'min-width': 0 },
     root: props.root,
     size: (node) => node.bytes,
+    // the tree beside it takes `h`, `j`, `k` and `l`, so the map does too
+    vim: true,
   });
 }
 

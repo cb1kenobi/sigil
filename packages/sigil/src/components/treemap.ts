@@ -164,6 +164,13 @@ export interface TreemapProps<T, K = T> {
    * its share beside its siblings.
    */
   size: (item: T) => number;
+  /**
+   * `h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's
+   * spelling and the one `ListView`'s and `TreeListView`'s `vim` adds to theirs.
+   * Off by default, as theirs is: a letter the map takes is one the app cannot
+   * bind while the map has the focus.
+   */
+  vim?: boolean;
 }
 
 /** A rectangle, in whole pixels. */
@@ -1066,8 +1073,9 @@ function moreWords(count: number, room: number): string {
  * to have it fill a panel.
  *
  * It is focusable. With the focus, the arrow keys move `current` to the tile next
- * to it that way ({@link treemapNeighbor}), as a click on that tile would, and
- * Enter calls `onActivate`; `describeTreemap()` lists them for a footer.
+ * to it that way ({@link treemapNeighbor}), as a click on that tile would -- and
+ * `h`, `j`, `k` and `l` with `vim` -- and Enter calls `onActivate`;
+ * `describeTreemap()` lists them for a footer.
  *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
@@ -1248,7 +1256,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
       }
       return;
     }
-    const direction = ARROWS.get(k.name);
+    const direction = ARROWS.get(k.name) ?? (props.vim ? VIM.get(k.name) : undefined);
     // Shift with an arrow is a range, which a list leaves alone too
     if (direction === undefined || k.shift) {
       return;
@@ -1262,7 +1270,7 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
   };
 
-  MAPS.set(element, { activate: props.onActivate !== undefined });
+  MAPS.set(element, { activate: props.onActivate !== undefined, vim: props.vim === true });
   return element;
 }
 
@@ -1274,8 +1282,16 @@ const ARROWS = new Map<string, TreemapDirection>([
   ['up', 'up'],
 ]);
 
-/** Each map `Treemap()` built, with whether it claims Enter: what the describer reads. */
-const MAPS = new WeakMap<Element, { readonly activate: boolean }>();
+/** What `vim: true` adds: the letters, by name, as the arrows they stand for. */
+const VIM = new Map<string, TreemapDirection>([
+  ['h', 'left'],
+  ['j', 'down'],
+  ['k', 'up'],
+  ['l', 'right'],
+]);
+
+/** Each map `Treemap()` built, with whether it claims Enter and the letters: what the describer reads. */
+const MAPS = new WeakMap<Element, { readonly activate: boolean; readonly vim: boolean }>();
 
 /** Where a treemap's keys are described, which is the whole of what is asked of a router. */
 export interface TreemapDescriber {
@@ -1286,7 +1302,8 @@ export interface TreemapDescriber {
  * Describes a treemap's keys to a router, for a key-help footer.
  *
  * Scoped to the map, which is the element whose focus makes the keys apply: the
- * four arrows, and Enter where the map has an `onActivate`. Enter is `open` unless
+ * four arrows, `k`/`j`/`h`/`l` where it is `vim` -- on the arrows' line, as `move`
+ * -- and Enter where the map has an `onActivate`. Enter is `open` unless
  * the options after the maps say what it does, as `describeListView()`'s are
  * given: `describeTreemap(input, map, { activate: 'map it' })`.
  *
@@ -1306,11 +1323,11 @@ export function describeTreemap(
     if (model === undefined) {
       throw new TypeError(__`Expected an element that Treemap() returned`);
     }
-    return { activate: model.activate, scope: host };
+    return { activate: model.activate, scope: host, vim: model.vim };
   });
 
   const off: Array<() => void> = [];
-  for (const { activate: claims, scope } of found) {
+  for (const { activate: claims, scope, vim } of found) {
     const say = (spec: string, description: string, priority: number): void => {
       off.push(router.describe(spec, { description, priority, scope }));
     };
@@ -1318,6 +1335,13 @@ export function describeTreemap(
     say('down', __`move`, 1);
     say('left', __`move`, 1);
     say('right', __`move`, 1);
+    if (vim) {
+      // in the arrows' order, so the line reads each letter against its arrow
+      say('k', __`move`, 1);
+      say('j', __`move`, 1);
+      say('h', __`move`, 1);
+      say('l', __`move`, 1);
+    }
     if (claims) {
       say('enter', activate, 2);
     }

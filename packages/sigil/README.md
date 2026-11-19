@@ -5343,7 +5343,8 @@ so neighbours meet with no gap and no overlap.
   outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
   for what is around the map, as going back out is: Backspace is not the map's.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
-  same options as `describeListView()` after the maps.
+  same options as `describeListView()` after the maps. `vim: true` adds `h`, `j`,
+  `k` and `l`, moving as Left, Down, Up and Right do, as it does on a list.
 
 #### A paginator
 
