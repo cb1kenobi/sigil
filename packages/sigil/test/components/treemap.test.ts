@@ -16,6 +16,7 @@ import {
   treemapTileColors,
 } from '../../src/components/treemap.js';
 import { box } from '../../src/element/index.js';
+import type { MouseEvent } from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
 import { Computed, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
@@ -993,16 +994,24 @@ describe('Treemap, under the pointer', () => {
     ]);
   });
 
-  it('should hear a drag from elsewhere only as it enters, and be right at the next move', async () => {
+  it('should follow a drag from elsewhere across its tiles, while the drag keeps the pointer', async () => {
     const { onHover, told } = recorder();
     const term = createTestTerminal({ colorLevel: 0, columns: 30, rows: 6 });
+    // the box records the press, the moves and the release it is handed, which is
+    // the capture the drag rests on
+    const held: string[] = [];
+    const hold = (event: MouseEvent) => {
+      if (/^mouse(down|move|up)$/u.test(event.kind)) {
+        held.push(event.kind);
+      }
+    };
     // a box of nothing on the left, and the map on the right: `a` from column 10
     // and `b` from column 20
     const app = runApp(
       () =>
         box(
           { 'flex-direction': 'row', 'flex-grow': 1 },
-          box({ 'flex-shrink': 0, width: 10 }),
+          box({ 'flex-shrink': 0, onMouse: hold, width: 10 }),
           Treemap({
             ...PAIR_PROPS,
             onHover,
@@ -1015,15 +1024,21 @@ describe('Treemap, under the pointer', () => {
     apps.push(app);
     await frame(app);
     // pressed on the box, dragged onto `a` and on to `b`, and let go there: the
-    // press captured the pointer for the box, so the map hears that it was
-    // entered, and none of the motion after
-    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M', '\u001b[<0;26;3m');
+    // press captured the pointer for the box, and the map hears the drag's moves
+    // over it as well, because it asked to (SIG-501). SIG-492 pinned the map
+    // reporting `a` only, as the drag entered, until the first move after the
+    // release
+    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M');
     await frame(app);
-    expect(told).toStrictEqual([[`${ROOT}/a`, 'a', undefined]]);
-    // and the first move after the release is the map's again
-    await term.press('\u001b[<35;26;3M');
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/b`, 'b', undefined],
+    ]);
+    // and off the map, still held: it is left, and told so
+    await term.press('\u001b[<32;3;3M', '\u001b[<0;3;3m');
     await frame(app);
-    expect(told.at(-1)).toStrictEqual([`${ROOT}/b`, 'b', undefined]);
+    expect(told.at(-1)).toStrictEqual([undefined, undefined, undefined]);
+    expect(held).toStrictEqual(['mousedown', 'mousemove', 'mousemove', 'mousemove', 'mouseup']);
   });
 
   it('should report nothing without motion tracking, a drag across the map included', async () => {

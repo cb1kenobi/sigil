@@ -1152,6 +1152,10 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     props.onHover?.(keyOf(item), item, tile.kind === 'rest' ? tile.rest : undefined);
   };
 
+  // a drag that began on another element holds the pointer, so its moves over
+  // the map would go to that element alone: the map asks to hear them, and
+  // follows the pointer across its tiles during the drag as well (SIG-501)
+  element.hearsDrags = true;
   element.onMouse = (event: MouseEvent): void => {
     followPointer(event);
     if (event.kind !== 'click' || event.button !== 'left' || laid === undefined) {

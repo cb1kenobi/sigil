@@ -1529,6 +1529,75 @@ mode, and the routing is the router's.
   pane's edge is not a click on anything, and a list's second click activates
   without undoing the toggle the first one made.
 
+- **An element can hear a drag it does not hold, by asking: `hearsDrags`
+  (SIG-501).** The capture above sends every move of a drag to what the press
+  landed on, and an element the drag crosses was told its `mouseenter` and
+  `mouseleave` and nothing between them. SIG-492 found the cost: a `Treemap` the
+  drag crossed reported the tile the drag came in over, and the right one only at
+  the first move after the release. An element that sets `hearsDrags` is now also
+  handed each move of somebody else's drag while it has `:hover`, as a
+  `mousemove` addressed to itself. The capture is not touched, and the change is
+  only additive: the holder gets the same moves and the same release as before,
+  first, and an element that never set the field is told exactly what it was.
+
+  What the web does, since the router borrows from it, is three different things,
+  and this is the third. Plain mouse events have no capture: during a held drag a
+  `mousemove`, `mouseover` and `mouseout` go to whatever is under the pointer.
+  Pointer Events' `setPointerCapture()` sends every pointer event to the capture
+  target and fires the boundary events as though the pointer stayed inside it, so
+  nothing else hears anything. HTML drag and drop suppresses the mouse events and
+  tells the element under the pointer `dragenter`, `dragover` and `dragleave` while
+  the source holds the drag. The router already took the target from pointer
+  capture and `:hover`, enter and leave from plain mouse events (SIG-106);
+  `hearsDrags` is the drag-and-drop half, an element under the pointer hearing a
+  drag it does not own, opted into per element rather than given an event family.
+
+  - **Opt-in, because a move with a button held means "my drag" to a component
+    that has one.** Delivered to every element under the pointer, it would reach
+    every `onMouse` in every app, and the scroll bar is the warning: with its own
+    drag in progress it takes any event carrying a position. Off by default, so
+    nothing that did not ask is told anything new, and the scroll box, the slider
+    and the panes' edges are untouched.
+  - **A `mousemove`, not a new kind.** "A drag is not an event" above holds:
+    adding a `dragover` would widen an exported union every `onMouse` switches over
+    for the sake of the one element that asked, and that element reads a move.
+    It can tell another's drag from its own by whether it had the press.
+  - **Addressed to the element itself, not bubbled, and not seen by the router's
+    handlers**, the way `mouseenter` is addressed: an ancestor that did not ask
+    must not be told, and the router's handlers have had this report's move
+    already, from the holder -- one report is one move to them, which `should leave
+    the capture as it was, and the router hearing each move once` counts.
+  - **An element on the holder's own path is skipped**, since the holder's move
+    bubbled through it and a second copy would be one report heard twice -- and if
+    something below stopped that move, it stopped it from reaching the ancestor,
+    which is what stopping means.
+  - **After the holder, and whether or not the holder stopped its move.** The
+    holder owns the drag, so it goes first; and stopping an event stops it
+    bubbling without cancelling another one, the rule the click already follows.
+  - **Under `mouse.motion` alone, read off the hovered chain.** Without `1003`
+    there is no leave, so a move heard over the element would be the last thing it
+    was told about the pointer -- the hover-from-a-press refusal above, in another
+    form. Reading the chain `setHover()` just wrote, rather than hit-testing again,
+    is what makes the moves fall between the element's own enter and leave.
+  - **The moves and nothing else.** The release is the holder's, which is what
+    ends its drag, and a drop -- the element under a release hearing it -- is a
+    different question nobody has asked yet. The ticket was the motion.
+  - **A field, not a prop.** A reserved prop is a name across `ElementProps`, the
+    template types and three tests pinning the lists, for something only a
+    component that owns `onMouse` decides. It can become one when an app asks.
+
+- **`:hover` keeps following the pointer during a drag (SIG-501), and that was
+  settled rather than left.** The ticket asked whether it should, and it already
+  did: since SIG-106 the hover chain is written from the report whatever is held,
+  and `should follow the pointer during a drag, while the target stays captured`
+  pins it. Pointer capture would pin it to the holder instead, and that is
+  refused. Every sheet with a `:hover` rule would change meaning during a drag;
+  the drag-and-drop shape of a row lighting as something is dragged over it is the
+  useful one; and the hovered chain is what bounds the moves `hearsDrags` hands
+  out, so the two halves agree about where the pointer is. A holder that wants to
+  stay lit while it is dragged off itself knows it holds the drag, because it had
+  the press, and can say so with a class.
+
 ### Selection and the clipboard
 
 What SIG-106 took away, SIG-107 gives back. The argument is not that selection is
