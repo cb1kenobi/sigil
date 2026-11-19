@@ -5339,8 +5339,9 @@ so neighbours meet with no gap and no overlap.
 - **`tooltip` puts a bubble beside the tile under the pointer**:
   `attachTooltip()`'s options, with `text(key, item, gathered?)` for the words.
   It shows after `delay`, flips where there is no room, then follows the pointer
-  from tile to tile, and goes when the pointer leaves the map; like `onHover` it
-  needs `mouse: { motion: true }`.
+  from tile to tile, stays while the pointer is on it, and goes once the pointer
+  has left both the map and the bubble; like `onHover` it needs
+  `mouse: { motion: true }`.
 
   ```js
   Treemap({ ...props, tooltip: { input, text: (key, node) => `${node.name} ${size(node)}` } });

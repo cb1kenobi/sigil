@@ -10880,6 +10880,18 @@ because a dropdown or anything else that sits beside a box wants the same answer
   whole-anchor bubble already has over whatever it is placed on. A
   `pointer-events` that let the pointer through was the other answer, and is
   refused for the reason the hit test records: nothing else needs one.
+- **SIG-500's review round 1: eight findings, all fixed, each with a test that
+  fails without it.** An `area` that threw on its first call, inside
+  `attachTooltip()`, left the mouse, key, resize and focus subscriptions behind
+  with no handle to dispose them -- and with the focus on the anchor and no delay,
+  a bubble in the tree: the effect that reads `area` is now the first thing
+  subscribed. The kept rectangle is a copy, so an app that reuses one box and
+  writes into it in place cannot move a bubble the pointer is reading. The
+  treemap's `tooltip` docs said the bubble goes when the pointer leaves the map,
+  where it stays while the pointer is on it. A treemap with no `tooltip` built a
+  `State` for one. And four tests: the rectangle cut to the anchor's clip,
+  `dispose()` ending the effect, a tile starting on an odd pixel row as well as
+  ending on one, and `gathered` reaching `text`.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which

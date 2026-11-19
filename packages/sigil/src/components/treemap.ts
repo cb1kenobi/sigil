@@ -185,7 +185,8 @@ export interface TreemapProps<T, K = T> {
    * It is `attachTooltip()` on the map with its `area` at the tile, so it shows
    * after `delay`, flips where there is no room, and needs the router's
    * `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with
-   * the pointer and goes when the pointer leaves the map. Taken off with the
+   * the pointer, stays while the pointer is on it, and goes when the pointer has
+   * left both the map and the bubble. Taken off with the
    * component it was built in. Defaults to none.
    */
   tooltip?: TreemapTooltip<T, K>;
@@ -1169,9 +1170,9 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   let hovered: TreemapTile<T> | undefined;
 
   /** The cells of the tile under the pointer, relative to where the map paints, for the tooltip. */
-  const pointed = new State<Box | undefined>(undefined);
+  const pointed = props.tooltip === undefined ? undefined : new State<Box | undefined>(undefined);
   let tip: TooltipHandle | undefined;
-  if (props.tooltip !== undefined) {
+  if (props.tooltip !== undefined && pointed !== undefined) {
     tip = attachTooltip(element, {
       ...props.tooltip,
       // the tile's cells against the map's box: the paint is inside any border
@@ -1205,14 +1206,14 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
     hovered = tile;
     if (tile === undefined) {
-      pointed.set(undefined);
+      pointed?.set(undefined);
       props.onHover?.(undefined, undefined);
       return;
     }
     const item = itemOf(tile);
     const key = keyOf(item);
     const gathered = tile.kind === 'rest' ? tile.rest : undefined;
-    if (tip !== undefined && props.tooltip !== undefined) {
+    if (tip !== undefined && pointed !== undefined && props.tooltip !== undefined) {
       // the words first, so the bubble that moves is the one that says them
       tip.setText(props.tooltip.text(key, item, gathered));
       pointed.set(treemapCells(tile));

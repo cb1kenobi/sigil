@@ -1067,7 +1067,11 @@ describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () =
    * bubble goes on the tile's right, so `a`'s is over `b`'s top rows and `b`'s,
    * with no room on the right, flips over `a`'s.
    */
-  async function mapWithTip(props: Partial<TreemapProps<Node, string>> = {}) {
+  async function mapWithTip(
+    props: Partial<TreemapProps<Node, string>> = {},
+    text = (key: string, item: Node, gathered?: readonly Node[]): string =>
+      gathered === undefined ? `${item.name} is here` : `${gathered.length} gathered`
+  ) {
     const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 6 });
     const told: (string | undefined)[] = [];
     const app = runApp(
@@ -1084,7 +1088,7 @@ describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () =
               delay: 0,
               input: useApp().input as InputRouter,
               side: 'right',
-              text: (key, item) => `${item.name} is here`,
+              text,
             },
             ...props,
           }),
@@ -1165,15 +1169,16 @@ describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () =
 
   it('should point at the whole of a row of cells a tile has half of', async () => {
     // two bands nine pixels tall: `top`'s ninth pixel is the upper half of the
-    // fifth row of cells, so the bubble goes under that row and not into it
+    // fifth row of cells and `bottom`'s first the lower half, so `top`'s bubble
+    // goes under that row and `bottom`'s over it, and neither into it
     const root = branch(ROOT, [leaf(ROOT, 'top', 1), leaf(ROOT, 'bottom', 1)]);
     expect(
-      layoutTreemap(root, 8, 18, READ).tiles.map((tile) => [tile.item.name, tile.y, tile.h])
+      layoutTreemap(root, 12, 18, READ).tiles.map((tile) => [tile.item.name, tile.y, tile.h])
     ).toStrictEqual([
       ['top', 0, 9],
       ['bottom', 9, 9],
     ]);
-    const term = createTestTerminal({ colorLevel: 0, columns: 8, rows: 9 });
+    const term = createTestTerminal({ colorLevel: 0, columns: 12, rows: 9 });
     const app = runApp(
       () =>
         Treemap<Node, string>({
@@ -1184,6 +1189,8 @@ describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () =
             ascii: true,
             delay: 0,
             input: useApp().input as InputRouter,
+            // above, where there is room: `top` has none and flips below
+            side: 'top',
             text: (key, item) => item.name,
           },
         }),
@@ -1194,6 +1201,22 @@ describe('Treemap, with a tooltip at the tile under the pointer (SIG-500)', () =
     await term.press('\u001b[<35;2;2M');
     await frame(app);
     expect(term.viewport.findIndex((row) => row.includes('| top |'))).toBe(6);
+    // clear of `top`'s bubble, which is over columns 0 to 6
+    await term.press('\u001b[<35;11;8M');
+    await frame(app);
+    expect(term.viewport.findIndex((row) => row.includes('| bottom |'))).toBe(2);
+  });
+
+  it('should hand the words a tile of gathered items the whole list', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const map = layoutTreemap(root, 30, 12, READ);
+    const rest = map.tiles.find((tile) => tile.kind === 'rest') as TreemapBox;
+    const at: [number, number] = [rest.x, Math.floor(rest.y / 2)];
+    expect(treemapCellTile(map, ...at, 0)?.kind).toBe('rest');
+    const m = await mapWithTip({ root });
+    await m.move(...at);
+    expect(m.where('30 gathered')).toBeDefined();
   });
 
   it('should hide the bubble over a map with no tile under the pointer', async () => {

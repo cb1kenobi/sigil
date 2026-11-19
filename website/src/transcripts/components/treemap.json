@@ -93,7 +93,7 @@
         "type": "ElementPropsWithout<\"onMouse\">"
       },
       {
-        "description": "A tooltip beside the tile under the pointer, saying what `text` says of it. It is `attachTooltip()` on the map with its `area` at the tile, so it shows after `delay`, flips where there is no room, and needs the router's `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with the pointer and goes when the pointer leaves the map. Taken off with the component it was built in. Defaults to none.",
+        "description": "A tooltip beside the tile under the pointer, saying what `text` says of it. It is `attachTooltip()` on the map with its `area` at the tile, so it shows after `delay`, flips where there is no room, and needs the router's `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with the pointer, stays while the pointer is on it, and goes when the pointer has left both the map and the bubble. Taken off with the component it was built in. Defaults to none.",
         "default": "none",
         "name": "tooltip",
         "optional": true,

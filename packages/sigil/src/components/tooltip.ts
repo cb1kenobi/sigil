@@ -388,7 +388,8 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
       if (part === undefined && it.states.includes('hover')) {
         part = pointed;
       }
-      pointed = part;
+      // a copy, so an app that reuses one box and moves it cannot move what is kept
+      pointed = part === undefined ? undefined : { ...part };
       return part === undefined ? undefined : inView(anchor, part);
     };
 
@@ -530,6 +531,18 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     remove();
   }
 
+  // a part of the anchor that moved with nothing laid out -- the tile under the
+  // pointer, on a map that stood still -- moves the bubble in the frame it is
+  // set for, rather than at whatever lays the tree out next. First, since its
+  // first run calls the app: a throw there leaves nothing subscribed behind it
+  const offArea =
+    area === undefined
+      ? undefined
+      : createEffect(() => {
+          area();
+          untrack(() => follow?.());
+        });
+
   // every report the tree did not stop, as the cue to read the state again. The
   // state is the answer and the event only the reminder: an element that stops
   // its own `mouseleave` would otherwise strand a bubble, and the next motion
@@ -566,17 +579,6 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     input.focus.current.get();
     update();
   });
-
-  // a part of the anchor that moved with nothing laid out -- the tile under the
-  // pointer, on a map that stood still -- moves the bubble in the frame it is
-  // set for, rather than at whatever lays the tree out next
-  const offArea =
-    area === undefined
-      ? undefined
-      : createEffect(() => {
-          area();
-          untrack(() => follow?.());
-        });
 
   function dispose(): void {
     remove();
