@@ -1230,6 +1230,19 @@ describe('Treemap keys', () => {
     expect(current.get()).toBe(`${ROOT}/x`);
   });
 
+  it('should read a click against what is drawn, though a key has seen a newer root', async () => {
+    // `a` on the left, `b` on the right; a key between a new root and its frame
+    // must not change what a click on `a` means
+    const root = new State<Node | undefined>(PAIR);
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, root });
+    await press(m, KEYS.tab);
+    root.set(branch(ROOT, [leaf(ROOT, 'x', 500), leaf(ROOT, 'y', 500)]));
+    await m.term.press('z');
+    await m.click(2, 2);
+    expect(current.get()).toBe(`${ROOT}/a`);
+  });
+
   it('should take no key where nothing is drawn: no root, or a box laid out to nothing', async () => {
     const empty = await wrapped({ ...PAIR_PROPS, root: undefined });
     await press(empty, KEYS.tab, KEYS.right, KEYS.enter);

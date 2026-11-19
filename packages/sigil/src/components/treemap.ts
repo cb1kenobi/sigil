@@ -1225,12 +1225,15 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
     // the root as it is now, which a key can reach before the frame that draws
     // it: Enter that zoomed, then an arrow in the same read. Laid out at the size
-    // last drawn, which is the layout that frame will keep
+    // last drawn, and not kept: `laid` is what is on screen, which a click is read
+    // against until that frame comes
     const root = untrack(rootOf);
     if (root === undefined || !(untrack(() => read.size(root)) > 0)) {
       return;
     }
-    const layout = layoutFor(root, laid.layout.width, laid.layout.height);
+    const { height, width } = laid.layout;
+    const layout =
+      laid.root === root ? laid.layout : untrack(() => layoutTreemap(root, width, height, read));
     const key = untrack(() => current.get());
     // where `current` is drawn, which the paint outlines: nothing for the root
     const from = untrack(() =>

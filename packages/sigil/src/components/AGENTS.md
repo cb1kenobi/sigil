@@ -13749,9 +13749,14 @@ Enter.
   layout was the last paint's, so Enter that zoomed and an arrow in the same read
   -- before the frame that draws the new root -- moved on the old tree, and the
   example's follow-the-selection effect then zoomed straight back out. A key now
-  lays out the current root at the size last drawn, through the same cache the
-  paint uses, so the frame after it reuses that layout; a root gone or of no size
-  takes the keys back at once. A box laid out to nothing clears the layout too,
+  lays out the current root at the size last drawn; a root gone or of no size
+  takes the keys back at once. That layout is **not** kept (review round 2): the
+  first version wrote it into the cache the paint keeps, which is also what a
+  click is hit-tested against, so a click between that key and the next frame
+  picked from a tree the screen did not show yet -- and with a root given as a
+  function that reads no signal, no frame ever came to put it right. What is
+  cached stays what was drawn, and the next paint lays the new root out once
+  more, which is a fraction of a millisecond. A box laid out to nothing clears the layout too,
   where it used to keep the last one, so a collapsed map took arrows and picked
   tiles nobody could see.
 - **Enter is `onActivate(key)`, and going back out is not the map's.** In the
