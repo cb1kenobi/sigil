@@ -12793,9 +12793,10 @@ calls too.
   `describeTreeListView()` and `describeDataTable()`. They take the same
   `DescribeListViewOptions` and split their arguments with the same
   `describedHosts()`, so they cannot come to read it differently. That helper is
-  published on the list view's subpath because a component `sigil add` copies
-  imports its siblings from published subpaths, and the registry test refuses a
-  name the bundle does not export. The audit was
+  published on a subpath because a component `sigil add` copies imports its
+  siblings from published subpaths, and the registry test refuses a name the
+  bundle does not export -- the list view's at first, and the footer's since
+  SIG-496, below. The audit was
   `describe[A-Z]\w*View\(` and every `` __`open` ``: the only other `open` is
   `describeCollapsible()`'s Right, which is the section's own expand and not an
   activation the app defines, so it has no word to change.
@@ -12813,6 +12814,48 @@ calls too.
   an `onActivate`, after the lists before it were described -- half a footer and a
   throw. A list with no `onActivate` claims no Enter, and a word does not make it
   describe one.
+- **`describedHosts()` and `DescribeListViewOptions` live in `key-help.ts`, beside
+  the footer they word keys for (SIG-496).** They were the list view's, and
+  `describeTreemap()` importing them put the list view, its scroll box, the theme
+  and the input router behind a component with no list in it. The footer's module
+  is the one that already describes keys -- `keyLabel()`, `keyHelpEntries()`,
+  `keyHelp()` -- and everything it imports the treemap already loaded, so its own
+  chunk is the whole of what the treemap pays. `list-view.ts` re-exports both, so
+  `@ttylabs/sigil/components/list-view` still exports them and the barrel's two
+  `export *` lines name one binding, as with `console-capture`; the component
+  subpath test's "the very binding the barrel exports" holds the two spellings to
+  one function. Measured with `staticGraph()`, as of this change:
+
+  | entry                   | before                | after                 |
+  | ----------------------- | --------------------- | --------------------- |
+  | `components/treemap`    | 250,875 B, 41 modules | 187,186 B, 32 modules |
+  | `components/list-view`  | 241,212 B, 40 modules | 245,248 B, 41 modules |
+  | `components/data-table` | 250,945 B, 43 modules | 254,930 B, 44 modules |
+  | `components/key-help`   | 176,879 B, 30 modules | 177,259 B, 30 modules |
+
+  SIG-480 measured the treemap at 180,470 B, and the footer's 4,264 B chunk is
+  most of the 6.7 kB left; the rest is SIG-491's key handling in the treemap's own.
+  The list view and the table now load that chunk for the one function, which is the cost of the home; the
+  tree list view already loaded it, through the tree's prompt. Two other homes
+  were measured and refused. `keys.ts` costs the list view nothing (the treemap
+  at 186,897 B, the list view +161 B), but it is the stdin decoder the input
+  router loads, it would need `__` and the element types it has never had, and
+  its own subpath went from 3,669 B over 2 modules to 9,175 over 5 -- past the
+  6 KiB ceiling `dist.test.ts` holds it to, which is a ceiling saying the
+  decoder stays small. A module of its own would save the list view its 4 kB and
+  costs a published subpath for one function, since every module has one and a
+  sibling needs one; that is the exception the one-definition rule says has to
+  argue for itself, and 4 kB on a 245 kB entry does not.
+
+  **The import has to name `key-help`, though the bundle would not care.**
+  rolldown follows a re-export to its binding, so with the function moved, the
+  treemap importing it from `./list-view.js` still builds a graph with no list
+  view in it -- which is why the regression test is written against the old
+  layout rather than the old import line. What would pay is an ejected treemap:
+  `sigil add` rewrites `./list-view.js` to `@ttylabs/sigil/components/list-view`,
+  and that subpath's facade loads the whole list view. `should not load the list
+  view to import the treemap` in `test/dist.test.ts` fails on the old layout
+  naming the list view's and the scroll box's chunks.
 
 ### Components that take `props`
 
@@ -13785,11 +13828,12 @@ Enter.
   arguments with `describedHosts()`, both from the list view's subpath, which is
   "One rule for every describer that says `open` for Enter" (SIG-478) kept: a
   fourth describer reading the word a fourth way is what that entry exists to
-  stop. What it costs is the list view's module graph on the treemap's entry,
+  stop. What it cost was the list view's module graph on the treemap's entry,
   scroll box and all: 250,762 B over 41 modules as of this change, against the
   180,470 B SIG-480 measured, and under the 352 KiB ceiling. A lighter published
-  home for `describedHosts()` would take that back and is a move of SIG-478's
-  code, so it is left for a ticket of its own rather than done inside this one.
+  home for `describedHosts()` was a move of SIG-478's code, so it was left for a
+  ticket of its own: SIG-496 moved it to the footer's module, and the treemap
+  imports it from there (under SIG-478's entry).
 - **The focus is not drawn on the map.** The outline is the same focused or not,
   so at a glance a focused map and an unfocused one look alike, as at level 0 a
   focused list does; a panel's `:focus-within`, which the example has, is where

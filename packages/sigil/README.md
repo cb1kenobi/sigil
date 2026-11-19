@@ -5614,8 +5614,11 @@ every list in the call. The default is translated with sigil's own strings; a wo
 given here is shown as given, so an app that translates passes its own translation.
 `describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
 checking the options, for a component of your own that describes a list through
-`describeListView()` and takes the same options -- it is what the tree's and the
-table's describers use.
+`describeListView()` and takes the same options -- it is what the tree's, the
+table's and the treemap's describers use. It is published from
+`@ttylabs/sigil/components/key-help`, beside the footer the describers feed, so a
+describer with no list in it does not load the list view; the list view's subpath
+exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is

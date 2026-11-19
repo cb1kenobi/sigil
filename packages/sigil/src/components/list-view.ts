@@ -36,9 +36,14 @@ import {
 } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
+import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { ScrollBox, scrollControl, type ScrollControl } from './scroll-box.js';
+
+// published here as well as from the footer's module, where they live since SIG-496,
+// so that an app importing them from the list view's subpath keeps working
+export { type DescribeListViewOptions, describedHosts } from './key-help.js';
 
 // -- the selection, with no elements in it ------------------------------------
 
@@ -599,57 +604,6 @@ export interface ListControl<K> {
 /** Where a list's keys are described, which is the whole of what is asked of a router. */
 export interface ListViewDescriber {
   describe(keys: string, opts: DescribeOptions): () => void;
-}
-
-/**
- * How `describeListView()`, `describeTreeListView()`, `describeDataTable()` and
- * `describeTreemap()` word the keys they describe, given after the hosts as a plain
- * object: a class instance is not read as options, for the reason `describedHosts()`
- * gives.
- */
-export interface DescribeListViewOptions {
-  /**
-   * What Enter does, for a list with an `onActivate` -- `show`, `map it`, `edit`.
-   * Defaults to `open`, which is translated; a word given here is shown as it was
-   * given, since what the app calls its own action is the app's to translate. A list
-   * with no `onActivate` claims no Enter, and this does not make it describe one.
-   */
-  activate?: string;
-}
-
-/**
- * The hosts a describer was handed and the options after them, the options checked.
- *
- * Only the last argument may be options, and only a plain object is -- one whose
- * prototype is `null` or a realm's `Object.prototype`, so a literal from a `vm`
- * context counts. Anything else is left among the hosts for the describer to refuse
- * by its own name: an array of hosts, or an element from a second copy of the
- * package, which is not an `Element` here and would otherwise be taken for options
- * with no word and dropped. A class instance is refused the same way, which is the
- * price of telling a foreign element from options without guessing at its shape.
- * Shared by every describer that takes
- * {@link DescribeListViewOptions}, so the four cannot come to read it differently.
- *
- * @param args - What followed the router.
- * @returns The hosts, and the options, checked.
- */
-export function describedHosts(args: readonly (Element | DescribeListViewOptions)[]): {
-  hosts: readonly Element[];
-  options: DescribeListViewOptions;
-} {
-  const last = args.at(-1);
-  // a root prototype is one with nothing under it, which is what every realm's
-  // `Object.prototype` is and what an array's, a map's or an element's is not
-  const proto: unknown =
-    typeof last === 'object' && last !== null ? Object.getPrototypeOf(last) : undefined;
-  if (proto !== null && (typeof proto !== 'object' || Object.getPrototypeOf(proto) !== null)) {
-    return { hosts: args as readonly Element[], options: {} };
-  }
-  const { activate } = last as DescribeListViewOptions;
-  if (activate !== undefined && (typeof activate !== 'string' || activate === '')) {
-    throw new TypeError(__`Expected activate to be a non-empty string`);
-  }
-  return { hosts: args.slice(0, -1) as readonly Element[], options: { activate } };
 }
 
 /** What the rows draw with, unicode and ASCII. */
