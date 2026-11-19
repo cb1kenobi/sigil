@@ -12850,12 +12850,14 @@ calls too.
   **The import has to name `key-help`, though the bundle would not care.**
   rolldown follows a re-export to its binding, so with the function moved, the
   treemap importing it from `./list-view.js` still builds a graph with no list
-  view in it -- which is why the regression test is written against the old
-  layout rather than the old import line. What would pay is an ejected treemap:
-  `sigil add` rewrites `./list-view.js` to `@ttylabs/sigil/components/list-view`,
-  and that subpath's facade loads the whole list view. `should not load the list
-  view to import the treemap` in `test/dist.test.ts` fails on the old layout
-  naming the list view's and the scroll box's chunks.
+  view in it. What would pay is an ejected treemap: `sigil add` rewrites
+  `./list-view.js` to `@ttylabs/sigil/components/list-view`, and that subpath's
+  facade loads the whole list view. So there are two tests, one per half.
+  `should not load the list view to import the treemap` in `test/dist.test.ts`
+  fails on the old layout, naming the list view's and the scroll box's chunks;
+  `should import describedHosts() from the footer, not from the list view` in
+  `test/registry.test.ts` fails on the old import line, which the first passes
+  (review round 1).
 
 ### Components that take `props`
 
@@ -13825,7 +13827,7 @@ Enter.
 - **`describeTreemap(input, ...maps, options?)`**, scoped to each map: the four
   arrows as `move`, and Enter where there is an `onActivate`, as `open` or the
   word given after the maps. It takes `DescribeListViewOptions` and splits its
-  arguments with `describedHosts()`, both from the list view's subpath, which is
+  arguments with `describedHosts()`, both then from the list view's subpath, which is
   "One rule for every describer that says `open` for Enter" (SIG-478) kept: a
   fourth describer reading the word a fourth way is what that entry exists to
   stop. What it cost was the list view's module graph on the treemap's entry,
