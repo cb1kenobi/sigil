@@ -1766,6 +1766,7 @@ export {
 export {
   arrange,
   arrangedExtent,
+  borderChars,
   cellStyle,
   paint,
   resolveStyles,

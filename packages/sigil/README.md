@@ -2653,6 +2653,11 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+`borderChars(style)` is the eight characters a `border-style` draws a box with --
+top-left, top, top-right, right, bottom-right, bottom, bottom-left, left -- for a
+`raw` that frames something of its own the way a border would, as the treemap
+frames its current item; `undefined` for `none`.
+
 `printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
 instead. A `text` element drops one before it paints, so none reaches the
 terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
@@ -5324,15 +5329,17 @@ so neighbours meet with no gap and no overlap.
   blocks and spaces in the terminal's own colours and the edges between tiles are
   what show. Every tile keeps its last column and row in the terminal's own
   background, so two tiles never run together at any level.
-- **`current` is outlined**, in bright white, and a left click on a tile moves it
+- **`current` is framed**, in bright white, and a left click on a tile moves it
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it. While the map has the focus the outline is twice as thick,
-  at every colour level, so the reader can tell where the arrows go (a tile only
-  three pixels across is all outline already, and looks the same). Its colour is
-  the map's `border-color` where a sheet gives one, so
-  `.sigil-treemap:focus { border-color: yellow }` colours the focused outline.
+  drawn whole find it. The frame is box-drawing lines inside the item's
+  rectangle: single (`┌─┐`) while the map does not have the focus and double
+  (`╔═╗`) while it does, at every colour level, so the reader can tell where the
+  arrows go. A rectangle with less than two columns or two whole rows of cells
+  inside its edges is outlined in half blocks instead, the same either way. The
+  frame's colour is the map's `border-color` where a sheet gives one, so
+  `.sigil-treemap:focus { border-color: yellow }` colours the focused frame.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it

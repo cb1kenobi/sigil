@@ -21,7 +21,7 @@ import {
   type LayoutResult,
   layout,
 } from '../layout/index.js';
-import type { Style, Update } from '../style/index.js';
+import type { BorderStyle, Style, Update } from '../style/index.js';
 import { Cascade, Restyler } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
@@ -44,12 +44,27 @@ import { clipsContent, overlaps } from './scroll.js';
  * of what `border-style` means.
  */
 const BORDERS: Record<string, readonly string[]> = {
-  ascii: ['+', '-', '+', '|', '+', '-', '+', '|'],
-  bold: ['┏', '━', '┓', '┃', '┛', '━', '┗', '┃'],
-  double: ['╔', '═', '╗', '║', '╝', '═', '╚', '║'],
-  round: ['╭', '─', '╮', '│', '╯', '─', '╰', '│'],
-  single: ['┌', '─', '┐', '│', '┘', '─', '└', '│'],
+  ascii: Object.freeze(['+', '-', '+', '|', '+', '-', '+', '|']),
+  bold: Object.freeze(['┏', '━', '┓', '┃', '┛', '━', '┗', '┃']),
+  double: Object.freeze(['╔', '═', '╗', '║', '╝', '═', '╚', '║']),
+  round: Object.freeze(['╭', '─', '╮', '│', '╯', '─', '╰', '│']),
+  single: Object.freeze(['┌', '─', '┐', '│', '┘', '─', '└', '│']),
 };
+
+/**
+ * The eight characters a `border-style` draws a box with: top-left, top,
+ * top-right, right, bottom-right, bottom, bottom-left, left.
+ *
+ * For a `raw` that frames something of its own in the same characters a border
+ * would use, as the treemap frames its current item, so that there is one table
+ * of what each style is drawn with rather than one per reader.
+ *
+ * @param style - The border style.
+ * @returns The characters, or `undefined` for `none`.
+ */
+export function borderChars(style: BorderStyle): readonly string[] | undefined {
+  return Object.hasOwn(BORDERS, style) ? BORDERS[style] : undefined;
+}
 
 /**
  * The cell style a resolved style paints with.
