@@ -1075,6 +1075,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // SIG-282, measured when it was added: the tree's module and the list view's,
   // which it is built on
   'components/tree-list-view': [568, 289_948],
+  // SIG-480, measured when it was added: the treemap's module, `Pixels`, and the
+  // renderer's `trackedRaw()`
+  'components/treemap': [352, 180_470],
   'components/typewriter': [376, 192_912],
   element: [256, 131_505],
   'error-handler': [16, 8_422],

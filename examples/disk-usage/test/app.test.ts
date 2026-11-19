@@ -142,6 +142,44 @@ describe('the disk usage visualizer', () => {
   );
 
   it(
+    'should map the directory a row is double-clicked on, and say map it for Enter',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, { mouse: true });
+      // Enter is the tree's own, worded for what it does here
+      const footer = m.term.viewport.at(-1) ?? '';
+      expect(footer).toMatch(/map it/);
+      expect(footer).not.toMatch(/open/);
+
+      const rows = m.term.viewport;
+      const y = rows.findIndex((row) => / src +12\.0 kB/.test(row));
+      expect(y).toBeGreaterThan(0);
+      const x = (rows[y] as string).indexOf('src') + 1;
+      const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
+      // both clicks in one read, as a fast double click arrives
+      await m.press(click + click);
+      expect(info(m)).toMatch(/work[\\/]src · 12\.0 kB/);
+      expect(m.screen()).toMatch(/Map: work[\\/]src/);
+      expect(mapPart(m)).toMatch(/main\.ts/);
+      expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+
+      // a file maps the directory it is in: back up to the root, then into `src`
+      // by a double click on one of its files
+      await m.press(KEYS.backspace, KEYS.right);
+      expect(m.screen()).toMatch(/Map: work /);
+      const at = m.term.viewport.findIndex((row) => row.includes('util.ts'));
+      expect(at).toBeGreaterThan(0);
+      const column = (m.term.viewport[at] as string).indexOf('util.ts') + 1;
+      const onFile = `\x1b[<0;${column};${at + 1}M\x1b[<0;${column};${at + 1}m`;
+      await m.press(onFile + onFile);
+      expect(info(m)).toMatch(/util\.ts · 3\.0 kB/);
+      expect(m.screen()).toMatch(/Map: work[\\/]src(?![\\/])/);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
+  it(
     'should delete only once the confirm is answered yes, which it does not start on',
     async () => {
       const work = workspace();
@@ -167,6 +205,7 @@ describe('the disk usage visualizer', () => {
       // and the cursor is on what came after it
       expect(info(m)).toMatch(/work[\\/]src · 12\.0 kB · 70\.6%/);
       expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+      expect(m.screen()).not.toMatch(/▸ media/);
       m.app.exit(0);
     },
     LONG
@@ -297,6 +336,8 @@ describe('the disk usage visualizer', () => {
       expect(existsSync(join(work, 'src', 'main.ts'))).toBe(true);
       expect(info(m)).toMatch(/main\.ts · 9\.0 kB/);
       expect(m.screen()).toMatch(/▾ src +9\.0 kB/);
+      // gone from the open branch it was read into, not only from the sizes
+      expect(m.screen()).not.toMatch(/── +util\.ts/u);
       m.app.exit(0);
     },
     LONG

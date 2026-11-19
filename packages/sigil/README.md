@@ -2653,6 +2653,49 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+`printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
+instead. A `text` element drops one before it paints, so none reaches the
+terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
+`bad[31mname`, which is not the name on disk. Each character is replaced by one,
+so an offset into the result is the same offset into the original, which is what
+a highlighter reads. The set is the one a `text` decides about: C0, `DEL` and
+C1, all of which it drops but the newline and the tab. `keep` names control
+characters to leave alone, such as `'\n\t'` for a file's contents, which a
+`text` lays out in lines and draws a tab of as a space.
+
+```js
+import { printable, text } from '@ttylabs/sigil/element';
+
+printable('bad\u001b[31mname'); // 'bad�[31mname'
+printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
+text(printable(entry.name)); // a name, as it is on disk
+```
+
+A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
+is not a reason to paint again. `trackedRaw(options, props)`, from
+`@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
+whenever a signal its last paint read changes, with nothing to list twice and no
+effect beside it. Build it in a component: the listening is let go with the owner
+it was built under, which is what a `Show` closing or a `For` row leaving
+disposes. A tracked paint may not write a signal -- it is a derivation of what it
+read -- and its measure is not tracked, so a raw whose size follows state still
+calls `invalidateMeasure()` from an effect.
+
+```js
+import { trackedRaw } from '@ttylabs/sigil/renderer';
+
+// a component, so the owner it runs under lets the meter's listening go
+function Meter(props) {
+  return trackedRaw(
+    {
+      measure: () => ({ height: 1, width: 10 }),
+      paint: (painter, at) => painter.text(at.x, at.y, '#'.repeat(props.level.get())),
+    },
+    { height: 1, width: 10 }
+  );
+}
+```
+
 A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
 `onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
 assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
@@ -5239,6 +5282,57 @@ says otherwise -- a height alone gives the width from the proportions, terminal
 or not. `.sigil-image` is the
 class on the element.
 
+#### A treemap
+
+```js
+import { palette, rgb } from '@ttylabs/sigil/canvas';
+import { Treemap } from '@ttylabs/sigil/components/treemap';
+
+const map = Treemap({
+  root: tree, // or a State or a Computed of one
+  size: (node) => node.bytes,
+  children: (node) => node.children,
+  key: (node) => node.path,
+  label: (node) => node.name,
+  color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
+  current, // a State of a key: the item outlined, which a click moves
+  onPick: (key, node) => reveal(key),
+  props: { 'flex-grow': 1 },
+});
+```
+
+Any tree with sizes -- disk use, a bundle's modules, memory by owner -- as nested
+rectangles, each as big as its share and inside its parent's. The layout is
+squarified, which keeps the rectangles near square, and done in half-block
+pixels, which are about square on screen; edges are rounded rather than sizes,
+so neighbours meet with no gap and no overlap.
+
+- **The tree is read through accessors.** `size`, `children` and `key` over your
+  own nodes, so nothing is copied into a shape of ours, and only as deep as there
+  is room to draw: a tree of a hundred thousand items costs what is on screen. An
+  item drawn smaller than three pixels a side is one tile, textured as "many
+  things"; the children of an item too small to draw on their own are gathered
+  into one tile named `37 more` (`moreLabel` and `moreColor` say otherwise). A
+  new tree is a new `root`; the same root at the same size is not laid out again.
+- **Colour is yours, and it degrades.** `color(item, level)` returns a colour for
+  the level the frame is drawn at: an RGB is quantized to 256 or 16 colours, and a
+  palette index the level can show is kept, which is how sixteen hues of your own
+  choosing stay apart at 16. At truecolor each tile is shaded as a cushion, so the
+  nesting shows inside a colour. At level 0 -- a pipe, `NO_COLOR` -- the map is
+  blocks and spaces in the terminal's own colours and the edges between tiles are
+  what show. Every tile keeps its last column and row in the terminal's own
+  background, so two tiles never run together at any level.
+- **`current` is outlined**, in bright white, and a left click on a tile moves it
+  and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
+  the whole list as a third argument. An item with no tile of its own outlines
+  what it was drawn in, and `parent(key)` is what lets one deep inside a tile
+  drawn whole find it.
+- **`empty`** is what is said where there is nothing to draw, and a function is
+  followed, so a scan's progress can live there. The element asks for 40 by 12 and
+  takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
+  is its class. It takes no keys: a list beside it, moving the same `current`, is
+  how the keyboard reaches it.
+
 #### A paginator
 
 ```js
@@ -5502,7 +5596,14 @@ current row while it does. `.sigil-list` (the host, with `is-multiple`),
 `-scroll`, `-row` (with `is-current`, `is-selected`, `is-disabled`), `-pointer`,
 `-mark`, `-content`, `-text` and `-empty` are the theme hooks, and `props` goes on
 the host. `describeListView(input, ...lists)` describes the keys each list claims,
-scoped to it.
+scoped to it. Enter is described as `open`, and options after the lists name what
+it does instead -- `describeListView(input, list, { activate: 'show' })` -- for
+every list in the call. The default is translated with sigil's own strings; a word
+given here is shown as given, so an app that translates passes its own translation.
+`describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
+checking the options, for a component of your own that describes a list through
+`describeListView()` and takes the same options -- it is what the tree's and the
+table's describers use.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
@@ -5562,8 +5663,13 @@ goes to that branch**, however it was closed; a node that was deleted leaves the
 cursor on the row that took its place, as in a list.
 
 A branch whose `items` is a function is read the first time it opens, and what it
-returned is kept, so closing and opening again is instant; `treeListControl(tree)
-.reload(value)` forgets it. A function that returns a list is taken at once; one
+returned is kept, so closing and opening again is instant. Kept until the app says
+otherwise, since the tree cannot see what a function read: when the data behind it
+changes, `treeListControl(tree).reload(value)` marks one branch out of date,
+`reload(value, { subtree: true })` every read branch under it too, and
+`reloadAll()` every one. An open branch reads again at once and a closed one when
+it opens, and what it showed stays on screen until the new read lands, so the
+cursor, the open branches and the scroll stay where they are. A function that returns a list is taken at once; one
 that returns a promise draws `Loading…` under the branch until it lands. A read
 that rejects -- or returns something that is not a list of nodes -- puts `Could not
 load: <message>` there instead, keeps the branch open so the message has somewhere
@@ -5580,10 +5686,11 @@ is a `branch` and `expanded`, and where its read stands (`status`). The guides a
 `.sigil-tree-node` (with `is-branch` and `is-open`) of `-guide`, `-toggle` and
 `-label`, and the lines under a branch are `.sigil-tree-loading` and
 `.sigil-tree-error`. `treeListControl(tree)` is the handle: `current`, `expanded`,
-`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
-`status(value)`, and `list` -- the list underneath, which `listControl()` answers for
+`expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value, options?)`,
+`reloadAll()`, `status(value)`, and `list` -- the list underneath, which `listControl()` answers for
 too. `describeTreeListView(input, ...trees)` describes the list's keys and the
-tree's, scoped to each.
+tree's, scoped to each, and takes the same options as `describeListView()` after
+the trees.
 
 #### A data table
 
@@ -5681,7 +5788,8 @@ The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 `sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
 again and rebuilds the rows in view for rows changed in place.
 `describeDataTable(input, ...tables)` describes the list's keys and a digit for
-each column on screen that sorts, which a footer folds into `1/2/3 sort`.
+each column on screen that sorts, which a footer folds into `1/2/3 sort`, and
+takes the same options as `describeListView()` after the tables.
 
 #### A panel
 
@@ -6632,7 +6740,9 @@ there for a component you write yourself too:
 - `rootOf(element)`, `opaqueFill(className)`, `holdInput(input, layer)` and
   `topLayer(input)`, from `@ttylabs/sigil/components/overlay`, are what a box
   over the screen needs: the root a `fixed` box resolves against, the blank fill
-  that hides what is under it at every colour level, and the per-router list of
+  that hides what is under it at every colour level -- its background under the
+  box's border as well, unless the box has a background of its own -- and the
+  per-router list of
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.
@@ -6847,6 +6957,33 @@ a cell is drawn in, read through the style table that painted it without the tab
 being handed out. That is what [`@ttylabs/screenshot`](../screenshot/README.md)
 reads to turn a frame into an SVG or a PNG, and `rgbChannels(color)` is the other
 half -- a 24-bit colour's channels, `rgb()` read backwards.
+
+#### Finer than a cell: `Dots` and `Pixels`
+
+Two grids draw at finer than a cell by picking the character that looks like it.
+`Dots` is braille, two dots across and four down a cell in one colour, for shape:
+plots and sparklines. `Pixels` is half blocks, one pixel across and two down a
+cell with a colour each, for pictures. Both are sized in cells, ignore a point
+outside the grid, and leave a cell with nothing drawn in it alone, so either can
+sit on a background something else painted.
+
+```js
+import { palette, Pixels } from '@ttylabs/sigil/canvas';
+
+const pixels = new Pixels(20, 5); // 20 pixels across, 10 down
+pixels.set(3, 7, palette(2));
+canvas.paint((p) => pixels.blit(p, 0, 0, { colorLevel }));
+```
+
+`blit()` takes the colour level, and only 0 (or below) changes anything. With no
+colour to write, a picture is drawn as **shapes** with no colour of their own: a
+pixel set to anything but `DEFAULT_COLOR` is on, and a cell is `█`, `▀` or `▄` by
+which of its halves are on. A shape keeps the background under it, as any text
+does, which at level 0 is the terminal's own unless you filled one. So a caller
+that wants a picture to mean something in a pipe or under `NO_COLOR` decides
+there which pixels are on, setting the others to `DEFAULT_COLOR`. At every other
+level, and with no options, each half keeps its colour; `Pixels` does not
+quantize, so at 256 or 16 colours set colours already quantized.
 
 #### What a backend owes it
 

@@ -200,6 +200,54 @@ describe('openModal()', () => {
     expect(bg(0, y)).to.equal(palette(8));
   });
 
+  // the fill covers the padding box and the border is drawn outside it, as a
+  // glyph that keeps the background under it -- so every border cell took the
+  // app's colour, and over half blocks some did and some did not
+  it('should draw its border on its own background, not the colour of the app under it', async () => {
+    const s = scene();
+    s.root.setProp('background-color', 'gray');
+    const handle = modalOn(s, { body: 'x', title: 'T', width: 20 });
+    await settle();
+
+    const styles = new StyleTable();
+    const buffer = new CellBuffer(WIDTH, HEIGHT);
+    resolveStyles(s.root, new Restyler(themedCascade()));
+    arrange(s.root, { height: HEIGHT, width: WIDTH });
+    paint(s.root, new Painter(buffer, styles));
+
+    const find = (at: Element): Element | undefined =>
+      at.classes.includes('sigil-modal') ? at : at.children.map(find).find(Boolean);
+    const box = find(handle.element)?.box;
+    expect(box).toBeDefined();
+    const { height, width, x, y } = box as NonNullable<typeof box>;
+    const lines = buffer.toLines();
+    let ring = 0;
+    for (let row = y; row < y + height; row++) {
+      for (let col = x; col < x + width; col++) {
+        if (row > y && row < y + height - 1 && col > x && col < x + width - 1) {
+          continue;
+        }
+        ring++;
+        // still the border, and on the terminal's own background
+        expect(lines[row]?.[col], `${col},${row}`).not.toBe(' ');
+        expect(styles.get(buffer.styleAt(col, row)).bg, `${col},${row}`).toBe(DEFAULT_COLOR);
+      }
+    }
+    expect(ring).toBe(2 * width + 2 * (height - 2));
+    // and the app beside the panel is still grey
+    expect(styles.get(buffer.styleAt(x - 1, y)).bg).toBe(palette(8));
+
+    // a panel with a background of its own already has it under its border, and
+    // the fill leaves that alone: the box's own background is the one that wins
+    find(handle.element)?.setProp('background-color', 'blue');
+    const again = new CellBuffer(WIDTH, HEIGHT);
+    resolveStyles(s.root, new Restyler(themedCascade()));
+    arrange(s.root, { height: HEIGHT, width: WIDTH });
+    paint(s.root, new Painter(again, styles));
+    expect(styles.get(again.styleAt(x, y)).bg).toBe(palette(4));
+    expect(styles.get(again.styleAt(x + width - 1, y + height - 1)).bg).toBe(palette(4));
+  });
+
   it('should bracket the button that has the focus, so it reads without colour', async () => {
     const s = scene();
     modalOn(s, {

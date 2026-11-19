@@ -335,16 +335,3 @@ export function reason(err: unknown): string {
   }
   return err instanceof Error ? err.message : String(err);
 }
-
-/**
- * Text with every control character shown as `�`, one for one: the file
- * manager's rule for a name. A text element drops a control character before it
- * is painted, so `bad<ESC>[31mname` would be drawn as `bad[31mname`, a name that
- * is not the one on disk.
- *
- * @param value - The text.
- * @returns The text, safe to draw.
- */
-export function printable(value: string): string {
-  return value.replace(/\p{Cc}/gu, '\uFFFD');
-}

@@ -82,6 +82,7 @@ import { createRoot, disposeOwner, drainMounts, getOwner, type Owner } from './o
 
 export { For, type ForProps, Show, type ShowProps } from './control.js';
 export { MAX_TIMER_DELAY } from '../util/timer.js';
+export { trackedRaw } from './raw.js';
 export {
   type BlockModifier,
   enableSelection,

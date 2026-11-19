@@ -607,7 +607,13 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'list-view',
     name: 'ListView',
     family: 'fullscreen',
-    exports: ['ListView', 'createListSelection', 'describeListView', 'listControl'],
+    exports: [
+      'ListView',
+      'createListSelection',
+      'describeListView',
+      'describedHosts',
+      'listControl',
+    ],
     registry: 'list-view',
     example: { steps: ['tab', 'down', 'space', 'down', 'down', 'space'] },
   },
@@ -628,6 +634,16 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     registry: 'diff-view',
     example: { steps: ['tab', { text: ']' }] },
     related: ['diff', 'scroll-box'],
+  },
+  {
+    slug: 'treemap',
+    name: 'Treemap',
+    family: 'fullscreen',
+    exports: ['Treemap'],
+    registry: 'treemap',
+    // nothing in it takes a key: a click is how it is pointed at
+    example: { probe: false },
+    related: ['image', 'bar-chart', 'tree-list-view'],
   },
   {
     slug: 'data-table',

@@ -9893,6 +9893,23 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   colours. Nothing is declared, so the role invariant's exception count is
   untouched; `.sigil-modal-fill` is the hook for a theme that wants a colour behind
   a dialog, and `cellStyle()` is read off it so that one rule reaches the fill.
+- **And the fill's background is under the border too (SIG-493).** The fill covers
+  the padding box and the border is outside it, painted before the fill as glyphs
+  that keep the background already in their cells -- the app's. A dialog over the
+  disk usage example's treemap had green behind parts of its border, and only
+  parts, because a half block puts the colour in its background in some cells and
+  its foreground in others. So `opaqueFill()` restyles the parent's border cells to
+  its own background with `Painter.overlay()`, which keeps the glyph, its colour
+  and its attributes: the parent's border box less the fill's padding box is the
+  border, exactly. It is the fill's job rather than a rule about borders, because
+  a border drawn on what is under it is right everywhere else -- a bordered panel
+  inside a coloured box keeps the box's colour behind its frame. A panel with a
+  background of its own is left alone, since that one is already under its border
+  and is the box's own winning, which is what `.files-menu { background-color:
+  blue }` in the menu's docs asks for. All four overlays take the fill, so one
+  change covers the modal, the menu, the toast and the tooltip. `should draw its
+  border on its own background, not the colour of the app under it` in
+  `test/components/modal.test.ts` fails without the restyle and without the guard.
 - **A focused button is bracketed, not inverted.** `[ Yes ]` against `  No  `, in
   the accent, written by one effect on the focus signal. When this was written the
   collapsible's inverse focus would have needed a `:focus` rule in the sheet, which
@@ -12124,7 +12141,8 @@ How each question was settled, the probes and the sabotage pass are in
   default, listed in the sheet's comment.
 - **`describeListView(router, ...lists)` describes the keys each list claims**,
   scoped to it: the moves always, `j`/`k` with `vim`, Space and Ctrl-A with
-  `multiple`, Enter with `onActivate`. Type-to-find is not described, for the reason
+  `multiple`, Enter with `onActivate` -- as `open`, or the word options after the
+  lists give (SIG-478, below). Type-to-find is not described, for the reason
   `describeTabs()` leaves the digits out.
 
 **The contract a table and a tree build on.** Either of two layers, and
@@ -12396,7 +12414,9 @@ each question was settled, the probes and the sabotage pass are in
   no longer shows its children, it closed over the cursor and the cursor goes to it,
   **however it closed** -- Left, a twisty, the app writing the set, a `reload()`.
   If the ancestor is open and showing its children, the node was **deleted** from
-  it, and the list's rule stands. Done before the rows are handed to the list, so
+  it, and the list's rule stands. A `reload()` no longer hides a branch's children
+  while it reads again (SIG-479, below), so the reload that closes over the cursor
+  is now one of a branch never read through, or one whose read again failed. Done before the rows are handed to the list, so
   the list's settle finds the cursor already on a row.
 - **A branch whose `items` is a function is read the first time it opens, and kept.**
   A function that returns a list is taken at once, so a synchronous tree never
@@ -12404,8 +12424,8 @@ each question was settled, the probes and the sabotage pass are in
   the branch until it lands. What it returns is checked as `selectTree()` checks it
   -- a list, of nodes `treeChoiceOf()` accepts -- and anything else is a failed
   read rather than a throw out of an effect. Kept, so closing and opening again is
-  instant; `treeListControl(tree).reload(value)` forgets it, reading again at once
-  if the branch is open and when it next opens if not.
+  instant, and kept until the app says it is out of date -- "A branch's read goes
+  out of date when the app says so", below.
 - **A read that fails says why under the branch, keeps the branch open, and is not
   kept.** `Could not load: <message>`, `.sigil-tree-error sigil-error`, where the
   children would be. `selectTree()` closes the branch and puts the message under its
@@ -12455,6 +12475,83 @@ each question was settled, the probes and the sabotage pass are in
   read, above; an `AbortSignal` for a read; an `enumerator`, which the prompt has;
   and a walk cheaper than one pass over the open rows per change, which nothing has
   measured a need for.
+
+### A branch's read goes out of date when the app says so (SIG-479)
+
+A branch whose `items` is a function kept what it read for the life of the view,
+and `reload(value)` was the only way to drop it: one value, so the app had to know
+every branch whose answer had changed, and the children vanished under a `Loading…`
+line while the read ran. The disk usage example (SIG-474) met it on a delete, which
+makes a new tree under the same paths, and routed around it with getters.
+
+- **An explicit call, not a read that tracks its signals.** The ticket offered both.
+  Re-reading when a reactive input changes would mean running each function in a
+  tracking scope and keeping a computation per read branch -- and it sees only what
+  the function reads **before its first `await`**, so an `async` function that
+  awaits and then reads a signal would be followed for half of what it read, with
+  nothing to say which half. What a branch reads is mostly not a signal at all: a
+  directory, a request, a database. And the function is `selectTree()`'s too, which
+  tracks nothing, so one node would mean two things in two places. The app knows
+  when its data changed; the tree cannot. `reload(value)` is one branch,
+  `reload(value, { subtree: true })` every read branch under it as well, and
+  `reloadAll()` every read branch there is. `reload()` with no value is **not** all
+  of them, because `expand()`, `collapse()` and `toggle()` with no value mean the
+  current node, and one method meaning the other thing would be read wrong.
+- **What a branch showed stays until the read again lands.** A read is marked
+  `stale` and keeps its items; an open branch reads again at once, the walk handing
+  `start()` the stale items to show while the promise is out, with the branch's
+  `status` `loading`. So a cursor on a child is not closed over, the scroll box
+  keeps its count and offset, and nothing flashes. A function that returns a list
+  swaps in the same walk. A read again that **fails** puts the error line where the
+  children were, and a cursor under them goes to the branch by the rule above: the
+  old answer is not shown as though it were current. A second `reload()` while one
+  is out supersedes it as before, and the branch goes on showing the answer before
+  both. This changed `reload(value)` too, which used to forget the answer outright:
+  one value, a subtree and all differing on whether the children vanish would be
+  three rules where one does.
+- **A closed branch reads again when it opens, and nothing else is touched.** Marking
+  is all a call does; the walk is what reads, so a subtree of closed branches costs
+  nothing until each is opened. The open set is never written, so every branch that
+  was open is open after. Reading again calls the function the node has **now** --
+  `parts.choice.items` at walk time -- not the one it was first read with, which is
+  what an immutable tree needs: a new node under the same value carries the new
+  children.
+- **Nothing under a branch being read again is read until that answer lands.**
+  Review round 1 found it: `reloadAll()` marks a branch and the branches under it,
+  the walk reads the top one again and, while that promise is out, walks the last
+  answer -- whose nodes are the old ones, so a branch under it was read again with
+  the **old** function, landed fresh, and the new node the top read handed over was
+  never called. So the walk passes `waiting` down from a branch showing a stale
+  answer: under it a stale read is shown as it is and not started, and an open
+  branch never read draws the loading line without a read behind it. When the
+  answer above lands, the walk meets the new nodes and reads them with their own
+  functions. `status()` says `idle` for that last kind until then, since nothing has
+  been asked; the row's `info.status` says `loading`, which is what it shows.
+- **A read again that fails takes the reads under its last answer out of date.**
+  Also round 1: a failed read keeps no items, so a later
+  `reload(value, { subtree: true })` could not get down to the branches under it,
+  and when the branch was read successfully again they came back as fresh, from
+  before. What they hung from is no longer known, so `fail()` marks them as it
+  records the failure, which is the one moment the old answer is still there to
+  walk. When that marks anything it asks for another walk (review round 2): a
+  failure met during a walk can mark a branch that walk has already drawn, when an
+  old answer kept while its branch was closed repeats a value shown elsewhere --
+  which the walk refuses only when both are shown. It cannot loop, since a failed
+  open branch is not read again until something forgets it.
+- **A subtree is found in the data, not in the last walk.** The walk records only
+  what is shown, and a read branch under a closed one is exactly what a subtree
+  reload is for, so `readsIn()` goes down the tree as it is now, through its
+  lists and through what each read found -- the same places the cache holds. A
+  value met twice on the way is skipped, so a read that hands back an ancestor's
+  value cannot loop.
+- **Each returns whether anything was marked,** as `reload()` did: a read already
+  out of date and not yet read again is nothing more to forget.
+- **SIG-471 is untouched.** A row is still kept while it draws the same thing; a read
+  again rebuilds the branch's own row twice (`loading`, then `loaded`) and a child
+  row only where the function handed back a different object for it. An app that
+  memoizes its nodes, as the disk usage example does, keeps every child row.
+- **Not done:** dropping reads under values no longer in the tree, which
+  `reloadAll()` marks but keeps -- as `seen` keeps every value it met.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 
@@ -12658,6 +12755,64 @@ horizontal axis, above; a range selection, the list's; and moving
 `examples/system-monitor` onto it, which is a change to that app's behaviour (it
 keeps the selection on a **row position** on purpose, its README says so) and
 belongs to whoever owns it.
+
+### The word for Enter is the caller's, given after the hosts (SIG-478)
+
+`describeListView()` said `open` for Enter on every list with an `onActivate`,
+and nothing could change it. The disk usage example's Enter maps a directory, so
+its footer read `enter open` beside its own `enter map it` -- two meanings for one
+key -- and the example moved Enter off the tree's `onActivate` onto its panel,
+which cost it double-click on a row, since `onActivate` is what a double click
+calls too.
+
+- **Options go after the hosts: `describeListView(input, list, { activate: 'show'
+  })`.** The hosts are a rest parameter, so nothing can be appended to the
+  signature, and every call written so far has to go on meaning what it did. The
+  rest is typed as a union of `Element[]` and `[...Element[], options]`, so the
+  compiler refuses options anywhere but last, and at run time the last argument is
+  the options only when it is a **plain object** -- its prototype `null` or a
+  realm's `Object.prototype`, which is any prototype with nothing under it, so a
+  literal built in a `vm` context counts (round 2). Anything else that is not a host stays among the hosts and is refused
+  by the describer's own `Expected an element that ...`, so options between two
+  lists fail as "not a list". Plain rather than "not an `Element`" was review round
+  1's: under the looser test an array of lists (a spread somebody forgot), or a
+  list built by a second copy of the package, was taken for options with no word
+  and dropped -- the call described nothing and threw nothing, where it had always
+  thrown. Both are pinned. The limit it costs is a **class instance**: `new
+  Word()` with an `activate` field type-checks, since the interface is structural,
+  and is refused as not a list. A foreign element is also a class instance, and
+  telling the two apart would mean guessing at an element's shape; options are
+  written as a literal everywhere they appear, so the contract is narrowed to that
+  and the refusal is pinned too. Not a second function (`describeListViewWith()`) and not an options-first
+  overload, because either is a second spelling of one call; not a `ListView`
+  prop, because the word is read only by a footer, and a prop would have to be
+  added to and forwarded by `TreeListView` and `DataTable` as well, where the
+  describer is already the one function all three go through.
+- **One rule for every describer that says `open` for Enter.** That is
+  `describeListView()`, and the two that describe a list through it,
+  `describeTreeListView()` and `describeDataTable()`. They take the same
+  `DescribeListViewOptions` and split their arguments with the same
+  `describedHosts()`, so they cannot come to read it differently. That helper is
+  published on the list view's subpath because a component `sigil add` copies
+  imports its siblings from published subpaths, and the registry test refuses a
+  name the bundle does not export. The audit was
+  `describe[A-Z]\w*View\(` and every `` __`open` ``: the only other `open` is
+  `describeCollapsible()`'s Right, which is the section's own expand and not an
+  activation the app defines, so it has no word to change.
+- **The options apply to every host in the call.** A footer with two lists whose
+  Enter does different things describes them in two calls. Per-host words would
+  need a pairing syntax, `[list, options]`, which is the cost of a case nobody has.
+- **The default is translated and the caller's word is not.** `` __`open` `` is
+  sigil's own English and is a key in its catalog; `map it` is the app's, and an
+  app that translates its own strings passes what its own `__` returned. Passing
+  the caller's word through sigil's `__` would look it up in a catalog that does
+  not carry it -- and if a catalog happened to, would translate an app's word by
+  sigil's meaning of it.
+- **The word is checked before anything is described**, as a non-empty string,
+  since the router would refuse an empty description only on reaching a list with
+  an `onActivate`, after the lists before it were described -- half a footer and a
+  throw. A list with no `onActivate` claims no Enter, and a word does not make it
+  describe one.
 
 ### Components that take `props`
 
@@ -13382,3 +13537,167 @@ duplicates, and each pair was compared before it was folded.
   not audited, and three are in `prompt.ts` code another change is rewriting.
   `test/components/shared-helpers.test.ts` pins each helper's behaviour and counts
   the definitions across `src/`, so a copy that comes back fails there.
+
+### A treemap: any sized tree as squarified rectangles in half blocks (SIG-480)
+
+`src/components/treemap.ts`, `@ttylabs/sigil/components/treemap`. The disk usage
+example (SIG-474) wrote one by hand in `treemap.ts` and `map-view.ts`; this is
+that, with nothing about files left in it, and the example is rewritten on it.
+Every layout and paint decision recorded under "A disk space visualizer" in
+`examples/AGENTS.md` came across unchanged unless it is named below: the
+squarified layout in half-block pixels, edges rounded rather than sizes, the depth
+limit at the cell (`TREEMAP_MIN_AREA`, nine pixels), a tile of many things drawn
+as a checker, every tile's last column and row in the terminal's own background
+and one more inside an item directly under the root, the cushion at truecolor only
+(the example's measurement at 256 is why), level 0 as `Pixels`' shapes with a
+marked tile hollow, and names written after the pixels and kept off the outline.
+
+- **The tree is read through accessors over the app's own nodes**: `size`,
+  `children` and `key`, `ListView`'s `key` shape, with `T` the app's node and `K`
+  what identifies one. A tree of `{ size, children }` was the other shape the
+  ticket offered, and it costs an app a copy of its whole tree on every change --
+  180,000 nodes for the example's `/Applications`, rebuilt after every delete --
+  where the layout reads only as deep as there is room to draw. `TreeListView`'s
+  node shape is a choice to print, not a size. The accessors are read when the map
+  is laid out, untracked, and taken as fixed for a root: a tree that changed is a
+  new `root`, the rule `TreeListView` keeps for what a branch returned. Children in
+  any order are laid largest first -- checked in one pass, sorted only where they
+  are not -- and two arrays rather than an object per child, because a directory of
+  twenty thousand small files is read whole to learn that all of it is gathered.
+- **An item is divided among its children by theirs.** The example compared each
+  child with its directory's `bytes`, which is the children's sum on a disk. A
+  generic parent can count something of its own beside its children (memory: an
+  object and what it holds), so a child's share is its size over the children's
+  sum, and its parent's own size only decides the parent's share among its
+  siblings. Identical on a disk; documented on `size`.
+- **`current` is a key or a `State` of one**, `ListView`'s shape, and a left click
+  writes it and then calls `onPick(key, item, gathered?)`. The click is the
+  component's because a treemap is pointed at -- the example had it, and a picture
+  with no way to point at its parts is half a widget -- and it writes `current`
+  first so that an app keeping a list beside the map in step (the example opens the
+  tree down to the item) acts on what is already selected. A click on a tile of
+  gathered items picks the largest of them and hands over the whole list, which is
+  how an app intercepts that tile: zoom instead of selecting, say. The root is the
+  whole map and is never outlined.
+- **What an item with no tile of its own outlines needs `parent`.** Its own tile;
+  the tile it was gathered into; a tile of an ancestor drawn in one piece; or, for
+  an item divided into its children, its whole box -- `treemapMark()`, the
+  example's `markFor()` with `dirname()` turned into an accessor on keys. Without
+  `parent` only the item and the tile it was gathered into straight away can be
+  found, because the layout never reads below a tile drawn whole and searching the
+  subtree for a key is the whole tree a frame. The walk is bounded at 10,000 steps,
+  so a `parent` that cycles outlines nothing rather than hanging the frame. It asks
+  the one rest under the divided ancestor whether it holds the step below, as the
+  example did; the map of every gathered key to its tile is built only for the walk
+  without `parent`, and only the first time, because building it on every new
+  layout cost a quarter of a millisecond a frame on the measurement below.
+- **No keys.** Moving between tiles by arrow is a spatial question with no one
+  right answer over rectangles of every shape, and the one caller moves `current`
+  from a tree list beside the map, which is the keyboard's way in. A key nobody
+  asked for is a shape designed by guessing; the map is not focusable, so it takes
+  no Tab stop either.
+- **Colour is a callback, `(item, level) => Color`, and the map degrades it.** It
+  is told the level so an app can hand back one of the sixteen at 16 -- which the
+  quantizer leaves alone, at 256 too -- and an RGB elsewhere: the example's seven
+  kinds stay seven distinct hues at 16 that way, where quantizing seven RGBs to
+  sixteen could put two on one. Not called at level 0. The texture's second colour
+  is worked out rather than asked for: the first darkened by 0.74 where the level
+  has the colours for it, and at 16 its bright twin, `n` and `n ± 8` -- with grey's
+  (8) being light grey (7) rather than black, which on a dark terminal is a checker
+  of grey and nothing. Those are exactly the pairs the example listed by hand. A
+  tile of gathered items is the colour covering the most size among them, the
+  largest winning a tie; `moreColor` replaces that for an app that knows better,
+  as the example does from each directory's `mix`. A colour the app returns is
+  read while the map paints, so a signal behind it repaints the map. With no
+  `color` every tile is one blue, which is enough: the edges are what separate
+  tiles, and a hue means something only the app knows. The outline is bright white
+  (`palette(15)` at 16), which the docs say no item should be.
+- **A name on a colour is black or white at 256 too.** The example's ink read the
+  fill's channels with `rgbChannels()`, which has none for a palette index -- and at
+  256 every fill had been quantized to one -- so every name at 256 was drawn in the
+  terminal's own foreground on whatever colour the tile was. It reads `colorRgb()`
+  now, the cube's channels, which is the one change to what the example draws: the
+  cells are identical at every level and the bytes differ only at 256.
+- **A name's ink is chosen once per tile, on its flat colour, by contrast.** It
+  was black or white for whichever read on the pixel under the name's first cell,
+  which the cushion shades from 0.42 to 1.25 times the tile's colour, so names of
+  one colour came out some black and some white -- Chris saw it in the disk usage
+  example, where every kind's colour sits near the middle of the range. The name's
+  background is the tile's flat colour and the ink is decided on it, so every name
+  of a colour is one ink on one colour. Contrast rather than a cut-off in
+  brightness, because the cut-off falls where neither ink reads well: on all seven
+  of the example's colours black reads at 4.8:1 or better and white at 3.8:1 at
+  most, so contrast writes them all in black, which is what Chris chose for the
+  example, while a dark colour an app picks still gets white. Black at 16 colours,
+  as it was. WCAG's relative luminance is written here rather than shared: the
+  library's other brightness, `luminance()` in `src/style/scheme.ts`, is BT.601
+  against a midpoint and answers a different question.
+- **A name is kept off the band inside the outline as well as off the outline.**
+  The band is the terminal's own background and is what stands the outline off
+  the tile beside it. A name started on it had no colour behind it, so each letter
+  kept whatever the half block under it had put in its background, which moved
+  with the terminal's size. `should keep a name off the band inside a mark, and
+  give every letter a colour` and `should write every name of a colour in one ink,
+  on that flat colour` fail without these two, and the second fails an ink that is
+  always black as well.
+- **`label` and `moreLabel` are the names, drawn as a text draws them.**
+  `toDisplayLine()` takes the control characters out, since `painter.text()`
+  refuses one; the example still turns them into `�` with `printable()` before
+  handing them over. `label` defaults to the item itself for a string or a number
+  and to no name otherwise, `ListView`'s rule. A tile of gathered items says
+  `37 more`, `__n`, or `+37` where that does not fit; `moreLabel` is handed the
+  items and the room.
+- **`empty` is a string or a function**, centred, and a function is read in the
+  paint, so a scan's progress in it repaints the map, which the example's message
+  test and one of this file's both hold it to. `ListView`'s `empty` takes a function that builds an
+  element; a `raw` cannot hold one, and a map that switched between a `raw` and an
+  element would be a host box and a `Show` for a line of text. The default is
+  `ListView`'s "Nothing to show", one key for both.
+- **A `trackedRaw()`, asking for 40 by 12 and taking what it is given.** Both
+  minimums are zero, as the image's and the charts' are, and there is no
+  `flex-grow` by default, the charts' rule: `flex-grow: 1` is one prop. The example
+  asked for nothing at all, which in a column without a grow is a map no rows tall.
+  The layout is kept while the root object and the size are the same, so moving
+  `current` repaints over the same rectangles, as before.
+- **Measured, before and after, on the example's own scan of this repository**
+  (28,375 files, read-only), with the old `MapView` and the new one mounted on a
+  test terminal and `app.view.frame()` timed: medians of 30, at a load average of
+  about 2.5 on arm64 macOS, so relative rather than absolute. A paint-only frame
+  (the selection moved) and a layout frame (a new root object) at 150 by 45 and 300
+  by 80, at every level:
+
+  | frame, 150 x 45    | L0 old / new | L1          | L2          | L3           |
+  | ------------------ | ------------ | ----------- | ----------- | ------------ |
+  | paint only, ms     | 2.15 / 2.08  | 1.93 / 2.06 | 2.30 / 2.41 | 2.91 / 3.00  |
+  | layout and paint   | 2.40 / 2.17  | 1.92 / 2.06 | 2.38 / 2.35 | 2.75 / 2.85  |
+  | **300 x 80** paint | 6.50 / 6.55  | 6.15 / 6.22 | 7.08 / 7.27 | 10.09 / 9.84 |
+
+  The same within the run-to-run spread, which was about 0.2 ms; the layout on its
+  own went from 0.22 to 0.17 ms at 150 by 90 pixels. Level 2's extra tenth is the
+  black and white ink above, about 2% more bytes written.
+
+- **Review round 1: four findings, all fixed.** A click on a cell holding one
+  tile's uncoloured bottom edge over the next tile's colour selected the upper
+  tile, whose colour the cell does not show -- the example's rule, carried over:
+  `treemapCellTile()` now gives a cell to a half that is coloured, the upper
+  first, and only then to whatever box it is in. A root node with a `get` method
+  of its own was called as though it were a signal; a signal is now told apart by
+  `instanceof State` or `Computed` rather than by having a `get`, which is the one
+  place in the library that duck typing could not be kept, because the root is
+  the app's own object. The test of an item deep in a tile drawn whole asserted
+  only that something was outlined, and now that it is that tile's outline. And a
+  comment in the example's `root.tsx` still named the deleted `treemap.ts`.
+- **Review round 2, over round 1's fixes: two findings, both fixed.** Narrowing
+  `root` to `State<T | undefined> | Computed<T | undefined>` refused the
+  `new State(node)` an app actually writes, since a signal's type is invariant in
+  what it holds; `State<T>` and `Computed<T>` are in the union now, and a test
+  file `tsc` checks passes both. And the cell hit test asked whether a pixel is
+  inside a tile's coloured part, which at level 0 is not whether it is drawn: a
+  textured tile's second square is the terminal's own there, so a tile one pixel
+  tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
+  level the map was drawn at and reads the checker the way the paint does.
+- **Not done:** keys between tiles (above); a tooltip or a line for the tile under
+  the pointer; zooming, which is an app writing a new `root` -- the example's Enter
+  and Backspace; animating one layout into the next; a tile for a parent's own size
+  beside its children; and a legend, which is the app's, as the example's swatches
+  are.

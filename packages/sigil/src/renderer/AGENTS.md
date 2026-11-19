@@ -767,6 +767,109 @@ the entry it belongs to.
   is not the frame: it runs after one, its throw says nothing about whether what
   is on screen is right, and tearing the app down over it is a worse answer than
   saying so.
+- **A `raw` whose paint follows what it reads is `trackedRaw()`, a helper here,
+  and `raw()` itself stays untracked (SIG-477).** A paint runs inside the frame,
+  and the frame runs untracked, so a signal a paint read was one nothing listened
+  to: every `raw` that drew from state paired its paint with an effect that read
+  the same signals again and called `invalidatePaint()` -- a second list of the
+  paint's inputs, kept by hand, whose omission no screen showed for as long as a
+  text beside the raw changed in the same frame. `trackedRaw(options, props)` is
+  `raw()`'s signature with the paint run inside a `Computed`, a `Watcher` that
+  marks the element for paint when anything that paint read moves, and both let go
+  by the owner it was built under. What the **last** paint read is the whole list,
+  so a branch that stops reading a signal stops being repainted for it.
+
+  It is a helper rather than what every `raw` does, for four reasons, any one of
+  which would have been enough. The element tree does not load the graph today,
+  and `renderToString()` paints raws -- a help screen is one -- so tracking in
+  `raw()` would put `Computed` and `Watcher` on every `--help`. Nothing in
+  `src/element` knows an owner, so a `raw` built for `renderToString()` outside one
+  would subscribe with nothing ever to release it; the renderer is where disposal
+  already lives. The hot path: every `raw` in the library -- the scroll box's track
+  and thumb, the pane's edge, the image -- paints from plain fields and reads no
+  signal, and would pay for listening to nothing. And `renderToString()` has no
+  frame to ask for, so a mark there lands on a tree that records nothing; under an
+  owner it is released with the owner, outside one it never is, which is the rule
+  `createEffect()` already follows and is said so in the TSDoc.
+
+  A computed **per paint**, and the previous one disposed after the new one has
+  read. One kept and forced to re-run would need a write to force it -- a private
+  counter bumped from inside the paint, which is a write during a frame and an
+  error inside a derivation that happened to be painting -- or a `dispose()` before
+  each run, which drops every source's last live sink and fires `unwatched` then
+  `watched` on every frame for a signal that never went away. Watching the new one
+  before reading it and releasing the old one after keeps a source read by both
+  live throughout: `should keep a source watched across paints that read it again`
+  fails the moment the order is swapped. The watcher fires once and is re-armed only
+  by the next paint, so a burst of writes is one mark and a raw nobody paints any
+  more -- taken out of the tree by hand while its owner lives -- is told at most once.
+  Told, not released: what its last paint read keeps it as a sink, `watched`
+  subscriptions included, until the owner goes, which is what the effect beside a
+  plain `raw` did too. A watcher is told when something _may_ have changed, so a
+  `Computed` the paint read that settles on the value it had still repaints the
+  element once -- a frame's paint, where the effect it replaces would have settled
+  and done nothing. Neither was worth a second mechanism.
+
+  **The computed is read untracked, and the caller is handed the paint's reads
+  instead.** A paint is reached from outside a frame too: `renderToString()` inside
+  an effect or a `Computed`. Read tracked, the computed made that caller its sink,
+  and a later write had the caller's settling refresh it -- running the old closure
+  into the painter of a paint that was over, answering "unchanged" because its
+  value is always `undefined`, and leaving the watcher spent with no paint to
+  re-arm it, so the string stayed on the second value for good. Untracked, and
+  then each source the paint read is read again for the caller when one is
+  evaluating, which is exactly what a plain `raw` would have left it depending on.
+  Found by review round 1, as was an owner disposed **during** a paint -- its
+  cleanup let the computed go while it was still reading, and what it read after
+  that put edges back that nothing would take away -- which the paint now
+  releases on its way out. Both are pinned in `trackedRaw()`, and the first one
+  through a `Computed` the paint reads, because a caller reading a `State`
+  directly is marked dirty by it and never asks the computed anything.
+
+  Review round 2, over that fix, found its own two holes, and the answer to both
+  is ordering. The cleanup emptied the computed's sources while it was still
+  painting, so the caller was handed an empty list and kept the string from that
+  paint; the cleanup now leaves the computed it finds mid-paint to the paint, and
+  the paint takes the list of what it read before it lets anything go. And an
+  `unwatched` callback that threw while the previous computed was let go skipped
+  everything after it -- the computed the owner left, and the caller being handed
+  its reads -- so each release step catches on its own and what they threw, with
+  what the paint threw first, is raised once all of it has run: `raise()`, the
+  rule a teardown already follows everywhere else.
+
+  **A tracked paint may not write a signal**, and that is the graph's own rule
+  rather than one added here: it is a derivation of what it read, a `Computed`
+  refuses a write, and the frame reports `A Computed may not write to a signal`. A
+  paint that wrote what it read would otherwise repaint itself on every frame for
+  as long as the app ran. The measure is **not** tracked: no `raw` here sizes
+  itself from a signal, and a measure that did would be a layout mark rather than
+  a paint mark, which is a second helper for a case nobody has.
+
+  What it costs, measured on an Apple M5 Pro on node 24.18.0 as of this change, by
+  `scripts/benchmark-tracked-raw.mjs` over a column of one-row raws each reading
+  one signal, three runs at each of 50, 500 and 2,000 raws on a machine running
+  other work: a plain `raw` painted at 0.5 to 0.8 us a raw, the same tree with a
+  hand-written effect beside each at the same, and `trackedRaw()` at 0.9 to 1.5 us
+  -- 1.5x to 2.1x the paint walk (at 500, medians of 0.25 to 0.34 ms against 0.45
+  to 0.70 ms). About half a microsecond a raw a painted frame, which for the
+  treemap it was written for is noise against a 33 ms frame, and for a plain
+  `raw` is nothing at all, since `raw()` did not change. The script's other
+  column, a write, the flush and the next paint over a tree that records marks,
+  says the same: the change itself costs about nothing either way, and what a
+  tracked raw adds is its paint.
+
+  The hand-written pairs were swept with `grep invalidatePaint`. The disk usage
+  example's map view is the pattern exactly, and moved; its swatch reads no signal
+  and stayed `raw()`. The library's own calls are not the pattern and stayed:
+  `number()`, the prompt's field and `TextArea` call it from an imperative
+  `draw()` after a key, with the state in plain variables rather than signals, and
+  the pane's edge from a class toggle. `decrypt.ts` is the nearest, an effect over
+  `state.frame` -- and it also calls `invalidateMeasure()` on the cipher beside the
+  plain layer, so the effect stays whichever way the plain layer paints, and
+  moving half of it would leave one effect doing one thing for a reason the other
+  half no longer shares. See `trackedRaw()` in `test/renderer/renderer.test.ts`,
+  and `examples/disk-usage/test/map-view.test.ts` for the map on its own.
+
 - **What is deliberately deferred, and why it is not an oversight.** Whether
   `main()` grows a way for a command's `run()` to return a view is the parser's
   surface rather than the renderer's, and it wants the component rewrite (SIG-76)

@@ -440,18 +440,3 @@ export function formatSize(bytes: number): string {
   const shown = value < 10 ? value.toFixed(1).replace(/\.0$/, '') : String(Math.round(value));
   return `${shown} ${unit}`;
 }
-
-/**
- * Text with every control character shown as `�`, one for one, so offsets into it
- * still line up. A text element drops a control character before it is painted, so
- * none reaches the terminal either way -- but dropped, `bad<ESC>[31mname` is drawn
- * as `bad[31mname`, which is a different name from the one on disk, and a tab
- * would vanish rather than indent. Shown, the name says it holds something.
- *
- * @param value - The text.
- * @param keep - Characters to leave alone: a newline in a document.
- * @returns The text.
- */
-export function printable(value: string, keep = ''): string {
-  return value.replace(/\p{Cc}/gu, (ch) => (keep.includes(ch) ? ch : '\uFFFD'));
-}

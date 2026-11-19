@@ -33,8 +33,9 @@ on stderr, exit 1.
 | `q`               | Quit, with 0                                          |
 | Ctrl-C            | Quit, with 130                                        |
 
-Moving the selection out of the directory mapped maps the directory both are in,
-so what is selected is always on the map.
+A double click on a row maps it, as Enter does. Moving the selection out of the
+directory mapped maps the directory both are in, so what is selected is always on
+the map.
 
 ## What it shows
 
@@ -48,7 +49,8 @@ so what is selected is always on the map.
   rectangles' colours one above the other. Every rectangle keeps its last column
   and row in the terminal's own background, so two side by side never run
   together, and a directory directly under the one mapped keeps one more, so the
-  first division -- which directory the space went to -- reads at a glance.
+  first division -- which directory the space went to -- reads at a glance. It is
+  the library's `Treemap`, from `@ttylabs/sigil/components/treemap`.
 - **Colour says what kind of file**: code, text and documents, images, audio and
   video, archives, binaries, and everything else, in the six hues a 16-colour
   terminal has and a grey. At truecolor each rectangle is shaded as a cushion,

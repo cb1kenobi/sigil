@@ -17,7 +17,6 @@ import {
   isHidden,
   planPaste,
   planRename,
-  printable,
   sortEntries,
   visibleEntries,
 } from './files.ts';
@@ -31,7 +30,7 @@ import {
   showToast,
   TextField,
 } from '@ttylabs/sigil/components';
-import type { Element } from '@ttylabs/sigil/element';
+import { type Element, printable } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
 import {
   createBranch,

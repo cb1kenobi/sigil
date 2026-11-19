@@ -860,9 +860,9 @@ in half blocks from the start.
   painted, so none reaches the terminal either way (measured, with a raw `ESC` in
   a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
   that is not the one on disk, and a tab vanishes rather than indents.
-  `printable()` replaces one for one, so the highlighter's offsets still line up,
-  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
-  the next stop of four.
+  `printable()` from `@ttylabs/sigil/element` replaces one for one, so the
+  highlighter's offsets still line up, and keeps `\n` and `\t` in a file for the
+  pane to lay out; a tab is spaces to the next stop of four.
 
 - **A preview reads the top of a regular file, and never opens anything else.**
   64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
@@ -1219,8 +1219,9 @@ about where the space went.
   wide and half a cell tall, which a cell twice as tall as it is wide makes about
   square, so the layout is done in those and square means square on screen. Edges
   are rounded rather than sizes, so two neighbours round their shared edge the same
-  way and meet with no gap and no overlap; `squarify()` and `layoutMap()` are plain
-  functions, and `test/treemap.test.ts` asks them at sizes from 3 by 3 up.
+  way and meet with no gap and no overlap; `squarify()` and `layoutTreemap()` are
+  plain functions, and the library's `test/components/treemap.test.ts` asks them at
+  sizes from 3 by 3 up.
 
 - **The depth limit is the cell, not a number.** An item that would get fewer than
   nine pixels (`MIN_AREA`: three by three, two by two of colour inside its edge) is
@@ -1228,7 +1229,7 @@ about where the space went.
   `37 more` or `+37`. A directory is divided only where it is at least three pixels
   a side and its largest item has room of its own; otherwise it is one tile under
   its own name. So a deep tree on a big screen is drawn deep, and a selection with
-  no tile of its own outlines the tile it went into (`markFor()`).
+  no tile of its own outlines the tile it went into (`treemapMark()`).
 
 - **Colour is the kind of file, never depth.** Seven kinds -- code, text and
   documents, images, audio and video, archives, binaries, other -- because at 16
@@ -1251,21 +1252,68 @@ about where the space went.
   the one difference that survives level 0, where the map is blocks and spaces and
   a selected tile is drawn hollow.
 
-- **Level 0 is the map's own blit.** `Pixels.blit()` skips a cell whose halves are
-  both the terminal's own and writes a colour for the rest, so at level 0, where
-  there is no colour to write, nothing would be drawn; the image component returns
-  early there for that reason. `paintMap()` writes the half blocks itself at level
-  0, in the terminal's own foreground. A colour the map picks is quantized where it
-  is picked, as the image component does, because degradation happens at resolve
-  time and a `raw` paints after it.
+- **Level 0 is `Pixels`' shapes.** At level 0 there is no colour to write, so
+  `paintTreemap()` hands `Pixels.blit()` the level and it draws which pixels are on --
+  `█`, `▀` or `▄` in the terminal's own colours -- rather than their colours. The
+  map decides what is on itself: at level 0 it sets a pixel it wants lit to any
+  colour and one it wants dark, a checker's second square and the inside of a
+  selected tile among them, to `DEFAULT_COLOR`. This was the map's own blit until
+  SIG-476 moved it into `Pixels`; the map still sets a lit pixel to a colour, so
+  leaving the level out draws the same blocks with escape sequences in them, which
+  `should paint no colour at level 0` fails on. A colour the map picks is quantized
+  where it is picked, as the image component does, because degradation happens at
+  resolve time and a `raw` paints after it.
 
-- **A `raw` element repaints when an effect says so.** The map and the swatch
-  beside each file are `raw`, the image component's trapdoor; a paint reads no
-  signal the renderer can see, so an effect over the root, the selection and the
-  message calls `invalidatePaint()`. The layout is cached by the tree's identity
+- **The map repaints for what its paint reads (SIG-477).** The map and the swatch
+  beside each file are `raw`, the image component's trapdoor. The map is built with
+  `trackedRaw()`, so the root, the selection and the message it reads while it
+  paints are what it is repainted for; it used to be `raw()` beside an effect that
+  read the three again and called `invalidatePaint()`. The swatch reads no signal
+  and is `raw()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
-  short of the outline, which would otherwise lose its corner to a name.
+  short of the outline, which would otherwise lose its corner to a name -- and of
+  the band inside it too, which is what stands the outline off the tile beside
+  it. A name started on the band had the terminal's own background, so each
+  letter kept whatever the half block under it had put in its background: the
+  tile's colour in some cells and not in others, moving with the terminal's
+  size. That rule moved into the library with the rest of the map (below), where
+  `should keep a name off the band inside a mark, and give every letter a colour`
+  in `packages/sigil/test/components/treemap.test.ts` fails without it.
+
+- **Every name is black, on its kind's flat colour, at every level -- Chris's
+  call.** The ink was black or white for whichever read on the pixel under the
+  name's first cell, and that pixel is a cushion's: its kind's colour shaded
+  from 0.42 to 1.25 times. Every kind's colour sits near the middle of the
+  range, archives' green right on the cut-off, so within one kind some names
+  were black and some white. Black on the flat colour reads at 4.8:1 or better
+  on all seven kinds (WCAG contrast, measured), white on it at 3.8:1 at best,
+  and the sixteen colours already wrote every name in black, so one ink holds
+  at every level. The flat colour is the name's background whatever the shading
+  under it, since one ink can only read on every name if every name is on one
+  colour. In the library the colours are the app's, so it keeps the general form
+  of that choice: the ink is picked once per tile, on its flat colour, as
+  whichever of black and white has the higher contrast. That is black on all
+  seven of this example's kinds, so the map draws what was chosen, and a dark
+  colour an app picks still gets white. See "A name's ink is chosen once per
+  tile" in `packages/sigil/src/components/AGENTS.md`.
+
+- **The map is the library's `Treemap` (SIG-480).** The layout, the gathering,
+  the mark, the paint and the click moved into `@ttylabs/sigil/components/treemap`
+  with every decision above, and `src/treemap.ts` went with them. What stayed in
+  `map-view.ts` is what is about files: a `DiskNode` read by its `bytes`,
+  `children` and `path`; a label with a `/` on a directory drawn whole; the seven
+  kinds' colours, handed over as the RGB above 16 colours and the hue of the
+  sixteen at 16 (the map works out the darker shade and the bright twin, which are
+  the pairs this example used to list); `parent` as `dirname()`, so a file deep in a
+  directory drawn whole still outlines that tile; and `moreColor`, which colours a
+  tile of gathered items by summing each directory's `mix` rather than counting it
+  as its main kind -- the library adds up whole items, and on this repository's own
+  scan that turned one tile from code-blue to image-magenta. Measured on that scan
+  (28,375 files) at 150 by 45 and 300 by 80, the frame is what it was within the
+  noise, and the cells are identical at every level; the bytes are too, but at
+  256 colours, where a name is now drawn in black or white as at truecolor rather
+  than in the terminal's own foreground. The figures are in the library's entry.
 
 - **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
   through a limiter of 48 in flight and nothing waits on a read while holding a
@@ -1321,25 +1369,36 @@ about where the space went.
   read. The guards are the delete's -- not the root, not during a scan, and
   nothing else while it is on its way -- by being one function, `removeSelected()`.
 
-- **The tree's children are a getter, not a function.** `TreeListView` reads a
-  branch whose `items` is a function once and keeps what it returned, by value,
-  for good -- right for a directory read off the disk, wrong for a tree a delete
-  replaces, whose branch keeps the value and changes its children. A getter
-  memoized per node is read only for a branch that is shown, so a tree of 180,000
-  names costs what is open, and a new node is a new choice with new children.
+- **The tree's children are a function, and every scan write reloads them.**
+  `TreeListView` keeps what a branch's function returned, by value, until it is
+  told otherwise -- right for a directory read off the disk, wrong for a tree a
+  delete or a rescan replaces, whose branches keep their values and change their
+  children. So an effect over the scan calls `reloadAll()` (SIG-479): every open
+  branch reads again over the new tree and a closed one when it opens, and the
+  cursor, the open set and the scroll stay put. It was a getter until SIG-479 gave
+  the tree a way to be told, which routed around the cache rather than using it.
+  Each node's choice is still made once, so a read again hands back the same
+  objects for a subtree the delete did not touch and the list keeps their rows; and
+  a branch is read only when it opens, so a tree of 180,000 names costs what is
+  open.
 
-- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
-  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
-  is two meanings for one key, so the tree has no `onActivate` and the panel's
-  `onKey` takes Enter. A double click on a row does nothing; a click on the map
-  selects.
+- **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
+  for a while, because `describeListView()` could only say `enter open`, and a
+  footer saying `open` beside `map it` is two meanings for one key -- which cost a
+  double click on a row, since that is `onActivate` too. SIG-478 gave the
+  describers the word: `describeTreeListView(input, tree, { activate: 'map it' })`.
+  So a double click on a row maps it, as Enter does, and a click on the map
+  selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
 
-- **`printable()` is the file manager's, written again.** A one-line rule, but a
-  rule, and the root file says a helper has one definition; an example is a unit
-  somebody copies, so neither can import the other's. It is filed as a gap.
+- **`printable()` is the library's, as the file manager's is.** It was the file
+  manager's, written again: a one-line rule, but a rule, and the root file says a
+  helper has one definition, while an example is a unit somebody copies, so
+  neither could import the other's. SIG-475 published it from
+  `@ttylabs/sigil/element`, beside the text element whose set of control
+  characters it shares, and both examples import it.
 
 - **Sabotage: ten, two survived, and one of those has a test now.** A delete
   confirm starting on Yes, a device check that enters every directory, an edge
@@ -1348,11 +1407,12 @@ about where the space went.
   selected tile drawn solid at level 0, and a failed delete not scanning again each
   fail a test. The hard links counted at whichever name the walk reached first
   survived, because a directory lists in byte order on the machines the suite runs
-  on; the test now lists it reversed. The effect that calls `invalidatePaint()`
-  survives by design: a frame paints the whole tree once anything changed, and
-  nothing in the app changes the map without changing a line of text beside it, so
-  removing it changes no screen today. It stays, because the map being right should
-  not rest on that.
+  on; the test now lists it reversed. The effect that called `invalidatePaint()`
+  survived: a frame paints the whole tree once anything changed, and nothing in the
+  app changes the map without changing a line of text beside it, so removing it
+  changed no screen. SIG-477 replaced it with `trackedRaw()`, and
+  `test/map-view.test.ts` mounts the map with nothing beside it, so building it with
+  `raw()` again fails both of that file's tests.
 
 - **Review round 1: eight findings, six fixed, each with a test that fails
   without its fix.** `r` and a second `d` were let through once the confirm
