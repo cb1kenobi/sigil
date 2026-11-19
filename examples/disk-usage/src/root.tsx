@@ -95,6 +95,24 @@ export function App(): Element {
     </Panel>
   );
 
+  const map = (
+    <MapView
+      message={m.mapMessage}
+      onActivate={m.mapIt}
+      onPick={m.pick}
+      root={m.mapRoot}
+      selected={m.current}
+    />
+  );
+  const panes = (
+    <box class="panes">
+      {panel}
+      <Panel class="map-panel" title={m.mapTitle}>
+        {map}
+      </Panel>
+    </box>
+  );
+
   const root = (
     <box class="app">
       <box class="header">
@@ -102,12 +120,7 @@ export function App(): Element {
         <box class="spacer" />
         <text class="totals sigil-muted">{m.totals}</text>
       </box>
-      <box class="panes">
-        {panel}
-        <Panel class="map-panel" title={m.mapTitle}>
-          <MapView message={m.mapMessage} onPick={m.pick} root={m.mapRoot} selected={m.current} />
-        </Panel>
-      </box>
+      {panes}
       <text class="info">{m.info}</text>
       <box class="footer">
         <text class="status sigil-accent">{() => m.status.get()}</text>
@@ -116,6 +129,6 @@ export function App(): Element {
     </box>
   );
 
-  m.attach({ panel, tree });
+  m.attach({ map, panes, tree });
   return root;
 }

@@ -602,9 +602,10 @@ export interface ListViewDescriber {
 }
 
 /**
- * How `describeListView()`, `describeTreeListView()` and `describeDataTable()` word
- * the keys they describe, given after the hosts as a plain object: a class instance
- * is not read as options, for the reason `describedHosts()` gives.
+ * How `describeListView()`, `describeTreeListView()`, `describeDataTable()` and
+ * `describeTreemap()` word the keys they describe, given after the hosts as a plain
+ * object: a class instance is not read as options, for the reason `describedHosts()`
+ * gives.
  */
 export interface DescribeListViewOptions {
   /**
