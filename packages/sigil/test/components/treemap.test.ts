@@ -21,12 +21,17 @@ import {
   treemapTileColors,
 } from '../../src/components/treemap.js';
 import { box, renderToString } from '../../src/element/index.js';
-import { createInput, type DescribeOptions } from '../../src/input/index.js';
+import {
+  createInput,
+  type DescribeOptions,
+  DOUBLE_CLICK_MS,
+  type MouseEvent,
+} from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { quantizeColor } from '../../src/style/index.js';
 import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The treemap: the layout and the mark over trees built by hand, what reaches the
@@ -1505,6 +1510,121 @@ describe('describeTreemap with vim', () => {
   });
 });
 
+describe('Treemap double click', () => {
+  // the clock a click is counted against, moved on by hand where two clicks are
+  // to be further apart than a double click
+  const realNow = Date.now.bind(Date);
+  let skew = 0;
+  beforeEach(() => {
+    skew = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A left click on a cell, press and release, as a terminal reports one. */
+  const clickAt = (x: number, y: number): string =>
+    `\u001b[<0;${x + 1};${y + 1}M\u001b[<0;${x + 1};${y + 1}m`;
+
+  /** A map over `root` that writes down every pick and activation, in order. */
+  async function logged(
+    root: Node,
+    opts: { activate?: boolean; columns?: number; rows?: number } = {}
+  ) {
+    const current = new State<string | undefined>(undefined);
+    const log: string[] = [];
+    const gathered: (readonly Node[] | undefined)[] = [];
+    const m = await mount(
+      {
+        ...PAIR_PROPS,
+        current,
+        onActivate:
+          opts.activate === false ? undefined : (key: string) => log.push(`activate ${key}`),
+        onPick: (key, _item, rest) => {
+          log.push(`pick ${key}`);
+          gathered.push(rest);
+        },
+        root,
+      },
+      opts
+    );
+    /** Sends what is given in one read, as a fast double click arrives, and waits a frame. */
+    const send = async (input: string): Promise<void> => {
+      await m.term.press(input);
+      await frame(m.app);
+    };
+    return { ...m, current, gathered, log, send };
+  }
+
+  it('should activate a tile on a double click, after the first click picked it', async () => {
+    const m = await logged(PAIR);
+    // both clicks in one read, as a fast double click arrives
+    await m.send(clickAt(15, 3) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/b`, `activate ${ROOT}/b`]);
+    expect(m.current.get()).toBe(`${ROOT}/b`);
+  });
+
+  it('should activate a tile of gathered items on the largest, as Enter after a click does', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const m = await logged(root, { columns: 40, rows: 12 });
+    const rest = layoutTreemap(root, 40, 24, READ).tiles.find(
+      (tile) => tile.kind === 'rest'
+    ) as TreemapBox;
+    const on = clickAt(rest.x, Math.floor(rest.y / 2));
+    await m.send(on + on);
+    expect(m.log).toStrictEqual([`pick ${ROOT}/s29`, `activate ${ROOT}/s29`]);
+    // picked once, handing over all of them
+    expect(m.gathered).toHaveLength(1);
+    expect(m.gathered[0]).toHaveLength(30);
+    // and Enter, which the click left the map focused for, activates the same key
+    await m.send(KEYS.enter);
+    expect(m.log.at(-1)).toBe(`activate ${ROOT}/s29`);
+  });
+
+  it('should take two clicks further apart, or on two tiles, as two picks', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2));
+    skew += DOUBLE_CLICK_MS + 1;
+    await m.send(clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+
+    skew += DOUBLE_CLICK_MS + 1;
+    m.log.length = 0;
+    await m.send(clickAt(2, 2) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/b`]);
+  });
+
+  it('should take a third click as a pick again, as a list does', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2) + clickAt(2, 2) + clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `activate ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should not activate on a second click once the current item has moved off the tile', async () => {
+    const m = await logged(PAIR);
+    await m.send(clickAt(2, 2));
+    // the app moved the selection between the clicks: the second is a click on `a`
+    m.current.set(`${ROOT}/b`);
+    await m.send(clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should pick twice and activate nothing without an onActivate', async () => {
+    const m = await logged(PAIR, { activate: false });
+    await m.send(clickAt(2, 2) + clickAt(2, 2));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
+  });
+
+  it('should take two clicks on two cells of one tile as a double click on it', async () => {
+    const m = await logged(PAIR);
+    // `b` is the right half: its name's row, then a cell further down and along
+    await m.send(clickAt(12, 1) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/b`, `activate ${ROOT}/b`]);
+  });
+});
+
 describe('Treemap, under the pointer', () => {
   /** What `onHover` was told, a call to an entry: the key, the name, and how many it gathers. */
   function recorder() {
@@ -1617,16 +1737,24 @@ describe('Treemap, under the pointer', () => {
     ]);
   });
 
-  it('should hear a drag from elsewhere only as it enters, and be right at the next move', async () => {
+  it('should follow a drag from elsewhere across its tiles, while the drag keeps the pointer', async () => {
     const { onHover, told } = recorder();
     const term = createTestTerminal({ colorLevel: 0, columns: 30, rows: 6 });
+    // the box records the press, the moves and the release it is handed, which is
+    // the capture the drag rests on
+    const held: string[] = [];
+    const hold = (event: MouseEvent) => {
+      if (/^mouse(down|move|up)$/u.test(event.kind)) {
+        held.push(event.kind);
+      }
+    };
     // a box of nothing on the left, and the map on the right: `a` from column 10
     // and `b` from column 20
     const app = runApp(
       () =>
         box(
           { 'flex-direction': 'row', 'flex-grow': 1 },
-          box({ 'flex-shrink': 0, width: 10 }),
+          box({ 'flex-shrink': 0, onMouse: hold, width: 10 }),
           Treemap({
             ...PAIR_PROPS,
             onHover,
@@ -1639,15 +1767,21 @@ describe('Treemap, under the pointer', () => {
     apps.push(app);
     await frame(app);
     // pressed on the box, dragged onto `a` and on to `b`, and let go there: the
-    // press captured the pointer for the box, so the map hears that it was
-    // entered, and none of the motion after
-    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M', '\u001b[<0;26;3m');
+    // press captured the pointer for the box, and the map hears the drag's moves
+    // over it as well, because it asked to (SIG-501). SIG-492 pinned the map
+    // reporting `a` only, as the drag entered, until the first move after the
+    // release
+    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M');
     await frame(app);
-    expect(told).toStrictEqual([[`${ROOT}/a`, 'a', undefined]]);
-    // and the first move after the release is the map's again
-    await term.press('\u001b[<35;26;3M');
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/b`, 'b', undefined],
+    ]);
+    // and off the map, still held: it is left, and told so
+    await term.press('\u001b[<32;3;3M', '\u001b[<0;3;3m');
     await frame(app);
-    expect(told.at(-1)).toStrictEqual([`${ROOT}/b`, 'b', undefined]);
+    expect(told.at(-1)).toStrictEqual([undefined, undefined, undefined]);
+    expect(held).toStrictEqual(['mousedown', 'mousemove', 'mousemove', 'mousemove', 'mouseup']);
   });
 
   it('should report nothing without motion tracking, a drag across the map included', async () => {

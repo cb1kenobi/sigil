@@ -772,6 +772,23 @@ screen of code.
   row is red with no role on any cell of its own, and a running row is not.
   Dropping `rowClass` from either twin fails it for that twin.
 
+- **The tables pass `follow`, so the cursor stays on its pod (SIG-502).** The
+  README said a table "keyed by namespace and name" kept the cursor on its row
+  through every reading, and it did not: `DataTable`'s `follow` defaults to
+  `false`, htop's behaviour, which keeps the cursor's place on screen and makes
+  whichever row is there current. A key alone decides what the cursor and the
+  ticks hold, not whether the cursor rides with its row. Sorted by CPU, every
+  reading reorders the pods, so the one under the cursor became another pod
+  whenever its place changed, and a rollout taking a worker out from above it
+  did the same unsorted. Enter or `l` then opened a pod the reader never chose.
+  This is a browser of resources one drills into, as k9s is, so following is
+  the right mode. What it costs is the reason the table's default is `false`:
+  sorted by a live column, the highlight can move every second. Here it moves with
+  the pod the reader picked, which is the thing they are about to open. `should
+  keep the cursor on its pod across a reading that reorders the table` sorts by
+  CPU, ticks until the pod has moved, and asserts the cursor is still on it.
+  Dropping `follow` from either twin fails it for that twin.
+
 - **Not done:** a real cluster; and the log as a pager (SIG-387).
 
 ### A file manager in Miller columns, with a preview (SIG-294)
@@ -1404,7 +1421,8 @@ about where the space went.
   scope. A pick on the map, by a click or an arrow, opens the tree down to it and
   no longer moves the focus to the tree: it did so because the map had no keys,
   and now it would take the focus off the map after every arrow. Enter on the map
-  is its `onActivate`, `map it`, the tree's word for the tree's Enter.
+  is its `onActivate`, `map it`, the tree's word for the tree's Enter -- and so,
+  since SIG-498, is a double click on a tile, as on a row.
 
 - **`printable()` is the library's, as the file manager's is.** It was the file
   manager's, written again: a one-line rule, but a rule, and the root file says a

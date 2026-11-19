@@ -845,4 +845,27 @@ describe('the disk usage visualizer', () => {
     },
     LONG
   );
+
+  it(
+    'should map the directory of a tile double-clicked on the map, as Enter on it does',
+    async () => {
+      const work = workspace();
+      const m = await mount(work, { mouse: true });
+      const rows = m.term.viewport;
+      const y = rows.findIndex((row) => row.includes('main.ts'));
+      expect(y).toBeGreaterThan(0);
+      const x = (rows[y] as string).indexOf('main.ts');
+      // SGR reports count from one
+      const click = `\x1b[<0;${x + 2};${y + 1}M\x1b[<0;${x + 2};${y + 1}m`;
+      // both clicks in one read, as a fast double click arrives: the first selects
+      // the file, and the second maps the directory it is in
+      await m.press(click + click);
+      expect(info(m)).toMatch(/work[\\/]src[\\/]main\.ts · 9\.0 kB/);
+      expect(m.screen()).toMatch(/Map: work[\\/]src(?![\\/])/);
+      expect(mapPart(m)).toMatch(/util\.ts/);
+      expect(mapPart(m)).not.toMatch(/clip\.mp4/);
+      m.app.exit(0);
+    },
+    LONG
+  );
 });

@@ -248,3 +248,17 @@ describe('the registry', () => {
     }
   });
 });
+
+describe('an ejected treemap', () => {
+  it('should import describedHosts() from the footer, not from the list view', () => {
+    // SIG-496. `dist.test.ts` cannot see this half: rolldown follows the list
+    // view's re-export to the footer's module, so a treemap importing from
+    // `./list-view.js` bundles without the list view all the same. The copy
+    // `sigil add` writes is not bundled -- its `./list-view.js` becomes the list
+    // view's subpath, and that loads the list view and its scroll box
+    const { imports } = manifest.entries.treemap as Entry;
+
+    expect(imports).not.toContain('@ttylabs/sigil/components/list-view');
+    expect(imports).toContain('@ttylabs/sigil/components/key-help');
+  });
+});

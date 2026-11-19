@@ -5297,7 +5297,7 @@ const map = Treemap({
   color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
   current, // a State of a key: the item outlined, which a click or an arrow moves
   onPick: (key, node) => reveal(key),
-  onActivate: (key) => zoomInto(key), // Enter
+  onActivate: (key) => zoomInto(key), // Enter, or a double click on a tile
   props: { 'flex-grow': 1 },
 });
 describeTreemap(input, map, { activate: 'zoom' }); // for keyHelp(), once the router exists
@@ -5336,8 +5336,8 @@ so neighbours meet with no gap and no overlap.
   what one is. It needs `mouse: { motion: true }`: it reads the router's `:hover`,
   which is kept only then, so without it nothing is reported, a drag included. It
   follows the pointer's reports, as `:hover` does, so a new tree under a pointer
-  that is not moving, or a drag that began on another element and holds the
-  pointer, is reported right at the next move.
+  that is not moving is reported right at the next move. A drag that began on
+  another element and holds the pointer is followed across the tiles too.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
@@ -5351,6 +5351,8 @@ so neighbours meet with no gap and no overlap.
   arrow starts at the top left tile. Enter calls `onActivate(key)` with what is
   outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
   for what is around the map, as going back out is: Backspace is not the map's.
+  A double click on a tile activates too, as on a list: the first click picks it
+  and the second calls `onActivate` as Enter would, without picking it again.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
   same options as `describeListView()` after the maps. `vim: true` adds `h`, `j`,
   `k` and `l`, moving as Left, Down, Up and Right do, as it does on a list.
@@ -5624,8 +5626,11 @@ every list in the call. The default is translated with sigil's own strings; a wo
 given here is shown as given, so an app that translates passes its own translation.
 `describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
 checking the options, for a component of your own that describes a list through
-`describeListView()` and takes the same options -- it is what the tree's and the
-table's describers use.
+`describeListView()` and takes the same options -- it is what the tree's, the
+table's and the treemap's describers use. It is published from
+`@ttylabs/sigil/components/key-help`, beside the footer the describers feed, so a
+describer with no list in it does not load the list view; the list view's subpath
+exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
@@ -7156,6 +7161,23 @@ turning tracking on.
 A press captures the pointer, so a drag that wanders off the region still reaches
 whatever it started on. The consequence is that `x` and `y` may be outside the
 canvas on a captured event, exactly as `clientX` is during a drag in a browser.
+
+Meanwhile `:hover` follows the pointer, and an element the drag crosses is told
+`mouseenter` and `mouseleave` but none of the moves between them, which are the
+holder's. An element that wants those too sets `hearsDrags`: under `motion: true`
+it is then handed each move of somebody else's drag while the pointer is over it,
+as a `mousemove` addressed to itself and not bubbled, after the holder has had
+it. The holder still gets every move and the release. A `Treemap` sets it, so a
+drag that begins elsewhere reports the tiles it crosses.
+
+```js
+element.hearsDrags = true;
+element.onMouse = (event) => {
+  if (event.kind === 'mousemove') {
+    showDropTarget(event.x, event.y); // an app's own
+  }
+};
+```
 
 #### Turning the mouse on takes text selection away
 
