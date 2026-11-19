@@ -10,11 +10,11 @@
  * the reasons, under "A disk space visualizer".
  */
 
-import { formatSize, printable } from './disk.ts';
+import { formatSize } from './disk.ts';
 import { MapView, Swatch } from './map-view.ts';
 import { createModel } from './model.ts';
 import { keyHelp, Panel, TreeListView } from '@ttylabs/sigil/components';
-import type { Element } from '@ttylabs/sigil/element';
+import { type Element, printable } from '@ttylabs/sigil/element';
 
 /**
  * The layout. Every colour but the map's is a role class the framework's sheet
@@ -68,6 +68,7 @@ export function App(): Element {
       empty="Scanning..."
       expanded={m.expanded}
       items={m.items}
+      onActivate={m.mapIt}
       props={{ class: 'tree' }}
       row={(choice) => {
         const node = m.nodeOf(choice);

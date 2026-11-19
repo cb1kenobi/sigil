@@ -83,7 +83,7 @@ export {
   selectionText,
 } from './selection.js';
 export { type ImageRect, resampleImage } from './image.js';
-export { Dots, Pixels } from './subcell.js';
+export { Dots, Pixels, type PixelsBlitOptions } from './subcell.js';
 export {
   ATTR,
   type Color,

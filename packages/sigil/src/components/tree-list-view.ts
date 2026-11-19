@@ -34,6 +34,8 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { errorMessage } from '../util/error-message.js';
 import {
+  type DescribeListViewOptions,
+  describedHosts,
   describeListView,
   type ListControl,
   listControl,
@@ -778,17 +780,20 @@ export function treeListControl<T = string>(host: Element): TreeListControl<T> |
 /**
  * Describes a tree's keys to a router, for a key-help footer: the list's, which
  * `describeListView()` says, and Right, Left and -- in a single tree -- Space, scoped
- * to the tree.
+ * to the tree. Options after the hosts say what Enter does, as `describeListView()`
+ * takes them: `describeTreeListView(input, tree, { activate: 'show' })`.
  *
  * @param router - What to describe the keys to.
- * @param trees - Hosts that `TreeListView()` returned.
+ * @param trees - Hosts that `TreeListView()` returned, optionally followed by
+ *   `DescribeListViewOptions`, which apply to every one of them.
  * @returns Takes every description back off.
  */
 export function describeTreeListView(
   router: ListViewDescriber,
-  ...trees: readonly Element[]
+  ...trees: readonly Element[] | readonly [...trees: Element[], options: DescribeListViewOptions]
 ): () => void {
-  const found = trees.map((host) => {
+  const { hosts, options } = describedHosts(trees);
+  const found = hosts.map((host) => {
     const model = MODELS.get(host);
     if (model === undefined) {
       throw new TypeError(__`Expected an element that TreeListView() returned`);
@@ -798,7 +803,7 @@ export function describeTreeListView(
 
   const off: Array<() => void> = [];
   for (const { keys, scope } of found) {
-    off.push(describeListView(router, scope));
+    off.push(describeListView(router, scope, options));
     const say = (spec: string, description: string, priority: number): void => {
       const opts: DescribeOptions = { description, priority, scope };
       off.push(router.describe(spec, opts));

@@ -8,7 +8,7 @@
  * a screen: what the panes show is a handful of signals over one immutable tree.
  */
 
-import { DiskContext, formatCount, formatSize, isInside, printable } from './disk.ts';
+import { DiskContext, formatCount, formatSize, isInside } from './disk.ts';
 import {
   chainTo,
   type DiskNode,
@@ -29,7 +29,7 @@ import {
   type TreeChoice,
   treeListControl,
 } from '@ttylabs/sigil/components';
-import type { Element } from '@ttylabs/sigil/element';
+import { type Element, printable } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
 import { createEffect, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
@@ -67,6 +67,8 @@ export interface Model {
   readonly mapRoot: Computed<DiskNode | undefined>;
   /** The map's title: which directory it shows. */
   readonly mapTitle: () => string;
+  /** Enter or a double click on a row: map that directory, or the one that file is in. */
+  mapIt(path: string): void;
   /** The node a tree row stands for. */
   nodeOf(choice: TreeChoice<string>): DiskNode | undefined;
   /** A click on the map: select what was clicked, and open the tree down to it. */
@@ -343,9 +345,12 @@ export function createModel(): Model {
     return found === undefined || path === undefined ? undefined : findNode(found.root, path);
   };
 
-  /** Enter: the map shows the selected directory, or the one a selected file is in. */
-  const zoomIn = (): void => {
-    const node = nodeAt(untrack(() => current.get()));
+  /**
+   * Enter or a double click, as the tree's `onActivate`: the map shows the directory
+   * activated, or the one a file activated is in.
+   */
+  const zoomIn = (path: string): void => {
+    const node = nodeAt(path);
     if (node === undefined) {
       return;
     }
@@ -455,11 +460,7 @@ export function createModel(): Model {
     if (key.ctrl || key.meta || event.paste) {
       return;
     }
-    // Enter is the panel's rather than the tree's `onActivate`, which the footer
-    // would list as "open" beside this
-    if (key.name === 'enter') {
-      zoomIn();
-    } else if (key.name === 'd' || key.name === 'delete') {
+    if (key.name === 'd' || key.name === 'delete') {
       void deleteSelected();
     } else if (key.name === 'backspace') {
       zoomOut();
@@ -475,11 +476,10 @@ export function createModel(): Model {
 
     // the footer follows the focus: the tree's own moves, and the panel's keys
     // described with the panel as the scope
-    const off: (() => void)[] = [describeTreeListView(input, given.tree)];
+    const off: (() => void)[] = [describeTreeListView(input, given.tree, { activate: 'map it' })];
     const say = (spec: string, description: string, priority = 3): void => {
       off.push(input.describe(spec, { description, priority, scope: given.panel }));
     };
-    say('enter', 'map it');
     say('backspace', 'map up', 2);
     say('d', 'delete', 2);
     // `r` is a fallback: it comes after the focused element, so a dialog keeps
@@ -522,6 +522,7 @@ export function createModel(): Model {
     info,
     input,
     items,
+    mapIt: zoomIn,
     mapMessage,
     mapRoot,
     mapTitle,

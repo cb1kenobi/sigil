@@ -37,6 +37,8 @@ import { Computed, State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import {
+  type DescribeListViewOptions,
+  describedHosts,
   describeListView,
   type ListControl,
   listControl,
@@ -754,17 +756,21 @@ export function dataTableControl<K = unknown>(host: Element): DataTableControl<K
  * column on screen that sorts -- which a footer folds into one line, `1/2/3
  * sort`. The digits follow the columns: a column a narrow terminal hid has its
  * digit taken off, and put back when it returns, so the footer never names a
- * digit that does nothing.
+ * digit that does nothing. Options after the hosts say what Enter does, as
+ * `describeListView()` takes them: `describeDataTable(input, table, { activate:
+ * 'inspect' })`.
  *
  * @param router - What to describe the keys to.
- * @param tables - Hosts that `DataTable()` returned.
+ * @param tables - Hosts that `DataTable()` returned, optionally followed by
+ *   `DescribeListViewOptions`, which apply to every one of them.
  * @returns Takes every description back off.
  */
 export function describeDataTable(
   router: DataTableDescriber,
-  ...tables: readonly Element[]
+  ...tables: readonly Element[] | readonly [...tables: Element[], options: DescribeListViewOptions]
 ): () => void {
-  const found = tables.map((host) => {
+  const { hosts, options } = describedHosts(tables);
+  const found = hosts.map((host) => {
     const model = MODELS.get(host);
     if (model === undefined) {
       throw new TypeError(__`Expected an element that DataTable() returned`);
@@ -774,7 +780,7 @@ export function describeDataTable(
 
   const off: Array<() => void> = [];
   for (const model of found) {
-    off.push(describeListView(router, model.list));
+    off.push(describeListView(router, model.list, options));
     // an effect, so a column a resize hid or brought back takes its digit with it
     off.push(
       createEffect(() => {
