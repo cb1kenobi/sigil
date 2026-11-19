@@ -13794,7 +13794,8 @@ Enter.
   so at a glance a focused map and an unfocused one look alike, as at level 0 a
   focused list does; a panel's `:focus-within`, which the example has, is where
   it shows. A focused outline is a colour, and the outline's colour is already the
-  one bright white no item may be.
+  one bright white no item may be. SIG-497 draws it as a shape instead: "A
+  treemap's focus", below.
 - **The example's map takes the focus.** A click on a tile focused the tree,
   because the keys for the selection -- Backspace, `d`, `t` -- were on the tree's
   panel and the map had none. They are on the box around both panels now, and a
@@ -13804,4 +13805,69 @@ Enter.
 - **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` and nobody has asked
   the map for; a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
-  over rectangles; and drawing the focus.
+  over rectangles; and drawing the focus (SIG-497 did, below).
+
+### A treemap's focus: a heavier outline, in the map's `border-color` (SIG-497)
+
+Since SIG-491 the map takes the focus and the arrows, and its outline looked the
+same either way, so a reader could not tell whether an arrow would move the map
+or something else. It shows now, at every colour level.
+
+- **Two pixels thick rather than one, and a shape rather than a colour.** At
+  colour level 0 there is no colour to change, and SIG-278's rule for that level
+  is that a focus is something drawn. A shape drawn at every level is also what
+  lets the map not care which level it is at. Thicker is the outline's own
+  version of `border-style: bold` beside `single`: a heavy frame for the active
+  one. The band of the terminal's own background moves in with the outline, so
+  the outline still stands off what is inside it. That matters at level 0 most,
+  where a divided item's box holds tiles that would otherwise join it.
+  `paintTreemap()` takes it as `focused`, and the ring is measured as a depth in
+  from its nearest side: depth below the weight is outline, depth equal to it is
+  band. At a weight of 1 that is exactly the two tests it replaced, so an
+  unfocused map draws the same cells as before. `should draw the outline twice as
+  heavy while the map has the focus, at every level` holds both halves.
+- **Thicker inwards, because outwards is not free.** The pixels just outside the
+  outline are the gaps that keep it, and each tile beside it, apart. They belong to
+  the marked box (its last column and row) and to its neighbours. Drawing on them
+  joins the outline to the tile next to it, at level 0 completely. Inwards costs
+  the marked item one more pixel each side. It also moves a name on or inside the
+  mark a row down or a column along while the map has the focus, since a name is
+  kept off the outline and its band (`should keep a name off the heavier outline
+  and the band inside it`). That is the cost, and it falls only on the item
+  being looked at.
+- **The colour is the map's `border-color`, read from its resolved style.** That
+  is how a `raw` takes a theme colour (the scroll box's track and thumb are
+  `cellStyle(element.style)` over a class of their own). The map has no part to
+  put a class on: the outline is pixels in its paint. So the property read has to
+  be one that a theme can set on the map, that means nothing else to it, and that
+  does not inherit. `color` inherits, so a map inside `.sigil-error` or a coloured
+  panel would have had its outline turned red by something that was never about
+  the map, which changes today's look for apps that wrote nothing. `border-color`
+  does not inherit, and a map draws no border unless an app gives it a
+  `border-style`. An app that does is drawing the map's frame and the outline
+  in one colour, which reads as one thing. So `.sigil-treemap:focus {
+  border-color: yellow }` colours the focused outline,
+  `.sigil-panel:focus-within .sigil-treemap { ... }` reaches it from around it, and
+  `.sigil-treemap { border-color: ... }` colours both states. Where nothing sets
+  it, it is the terminal's own (`DEFAULT_COLOR`), which is read as "not given".
+  The outline is then bright white as before. Not read at level 0, where the
+  outline is "on" like everything else. `should let a theme colour the focused
+  outline through :focus` runs the sheet through `runApp()` at 16 colours.
+- **Not `.sigil-focus`.** The role is `inverse`, which is a swap of the
+  terminal's two colours on a cell. An outline drawn as half blocks in a colour
+  has no meaning for it, and reading the role's attributes off the map to decide
+  a shape would make `.sigil-focus { inverse: false; text-decoration: underline
+  }`, a theme SIG-278 tests, turn the map's focus off. The role stays on the parts
+  of controls that are text.
+- **The map owns `onFocusChange`.** The paint reads the focus from a variable the
+  handler sets, and the handler asks for the paint, which is the pane edge's and
+  the list's shape. A selector matching `:focus` restyles the map only when a rule
+  changes something, so with no sheet the paint would never be asked for. So
+  `onFocusChange` in `props` is refused, as `onKey` and `onMouse` are (SIG-305),
+  and the props type leaves it out. An app that wants to hear the focus puts the
+  handler on an element around the map, or uses `:focus-within` there.
+- **The default stays bright white, focused or not.** The disk usage example
+  could colour its focused outline green to match its panels. It does not,
+  because the outline is the one colour the docs promise no item is, and a green
+  outline could land on a green tile. The heavier shape is enough on its own, and
+  an app that wants a colour writes one rule.

@@ -74,7 +74,8 @@ export interface TreemapProps<T, K = T> {
    * gathered together -- is a checker of this colour and a second, which is it
    * darkened, or at 16 colours its bright twin. A gathered tile is the colour that
    * covers the most size among what it gathers, unless `moreColor` says. The
-   * outline of the current item is bright white, so no item should be.
+   * outline of the current item is bright white, unless the map's `border-color`
+   * says otherwise, so no item should be.
    *
    * Called as the map paints, so a signal it reads repaints it. Defaults to one
    * blue for everything.
@@ -85,7 +86,8 @@ export interface TreemapProps<T, K = T> {
    * shape `ListView`'s `current` has. A click writes it. An item with no tile of
    * its own outlines what it was drawn in: the tile it was gathered into, or the
    * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
-   * root is the whole map and is not outlined.
+   * root is the whole map and is not outlined. The outline is twice as heavy
+   * while the map has the focus, which is how a reader tells where the arrows go.
    */
   current?: K | State<K | undefined>;
   /**
@@ -141,9 +143,11 @@ export interface TreemapProps<T, K = T> {
   parent?: (key: K) => K | undefined;
   /**
    * The element's own props: a size, a class, `flex-grow`. The map is focusable,
-   * which `focusable: false` here takes back, along with its keys.
+   * which `focusable: false` here takes back, along with its keys. Its
+   * `border-color` is the outline's colour, so `.sigil-treemap:focus` can give the
+   * focused outline one of its own.
    */
-  props?: ElementPropsWithout<'onKey' | 'onMouse'>;
+  props?: ElementPropsWithout<'onFocusChange' | 'onKey' | 'onMouse'>;
   /**
    * The tree: its root item, or a `State`, a `Computed` or a function that gives
    * it. `undefined` is nothing to draw. A new root is laid out again; the same
@@ -876,6 +880,16 @@ export interface TreemapPaint<T> {
   readonly level: ColorLevel;
   /** The box the current item is outlined around, from {@link treemapMark}. */
   readonly mark?: TreemapBox;
+  /**
+   * Whether the map has the focus, which draws the outline two pixels thick
+   * rather than one. A shape rather than a colour, so it shows at level 0 too.
+   */
+  readonly focused?: boolean;
+  /**
+   * The outline's colour, where it is not bright white: the map's `border-color`.
+   * Not read at level 0, or where it is the terminal's own.
+   */
+  readonly outline?: Color;
 }
 
 /**
@@ -920,26 +934,36 @@ export function paintTreemap<T, K>(
     }
   }
 
+  // how many pixels thick the outline is: two while the map has the focus, so
+  // the focus shows as a shape, which every level can draw
+  const weight = opts.focused === true ? 2 : 1;
   if (opts.mark !== undefined) {
     const ring = inside(opts.mark);
-    const mark = level <= 0 ? on : level === 1 ? palette(15) : quantizeColor(MARK, level);
+    const mark =
+      level <= 0
+        ? on
+        : opts.outline !== undefined && opts.outline !== DEFAULT_COLOR
+          ? quantizeColor(opts.outline, level)
+          : level === 1
+            ? palette(15)
+            : quantizeColor(MARK, level);
     // at level 0 the outline is the same "on" as everything else, so a marked
     // tile is hollow: its outline and nothing inside it
     const hollow = level <= 0 && layout.tiles.includes(opts.mark as TreemapTile<T>);
     for (let y = ring.y; y < ring.y + ring.h; y++) {
       for (let x = ring.x; x < ring.x + ring.w; x++) {
-        const edge =
-          x === ring.x || y === ring.y || x === ring.x + ring.w - 1 || y === ring.y + ring.h - 1;
-        // inside the outline, a band of the terminal's own background, so it
-        // stands off whatever it is drawn over
-        const band =
-          x === ring.x + 1 ||
-          y === ring.y + 1 ||
-          x === ring.x + ring.w - 2 ||
-          y === ring.y + ring.h - 2;
-        if (edge) {
+        // how far in from the nearest side of the ring
+        const depth = Math.min(
+          x - ring.x,
+          y - ring.y,
+          ring.x + ring.w - 1 - x,
+          ring.y + ring.h - 1 - y
+        );
+        if (depth < weight) {
           pixels.set(x, y, mark);
-        } else if (band || hollow) {
+        } else if (depth === weight || hollow) {
+          // inside the outline, a band of the terminal's own background, so it
+          // stands off whatever it is drawn over
           pixels.set(x, y, DEFAULT_COLOR);
         }
       }
@@ -965,8 +989,8 @@ export function paintTreemap<T, K>(
     if (x < ring.x || x > right || y < ring.y || y > bottom) {
       return false;
     }
-    const edge = y <= ring.y + 1 || y >= bottom - 1;
-    return across ? edge : edge || x <= ring.x + 1 || x >= right - 1;
+    const edge = y <= ring.y + weight || y >= bottom - weight;
+    return across ? edge : edge || x <= ring.x + weight || x >= right - weight;
   };
   // a cell is two pixels, one above the other
   const offCell = (x: number, row: number, across = false): boolean =>
@@ -1067,13 +1091,15 @@ function moreWords(count: number, room: number): string {
  *
  * It is focusable. With the focus, the arrow keys move `current` to the tile next
  * to it that way ({@link treemapNeighbor}), as a click on that tile would, and
- * Enter calls `onActivate`; `describeTreemap()` lists them for a footer.
+ * Enter calls `onActivate`; `describeTreemap()` lists them for a footer. The
+ * outline is two pixels thick while it has the focus, at every colour level, and
+ * drawn in the map's `border-color` where it has one.
  *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
  */
 export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
-  refuseOwnedHooks('Treemap', props.props, ['onKey', 'onMouse']);
+  refuseOwnedHooks('Treemap', props.props, ['onFocusChange', 'onKey', 'onMouse']);
   if (typeof props.size !== 'function') {
     throw new TypeError(__`Expected treemap size to be a function`);
   }
@@ -1106,6 +1132,8 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   let drawnAt: ColorLevel = 3;
   /** Where the last paint put the map, for a click to be read against. */
   let at = { x: 0, y: 0 };
+  /** Whether the map has the focus, which the outline shows. */
+  let focused = false;
 
   const layoutFor = (root: T, width: number, height: number): TreemapLayout<T, K> => {
     if (
@@ -1183,18 +1211,29 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
                   room
                 )
               : labelOf(tile.item),
+          focused,
           level,
           // the map's own root is the whole map, which an outline says nothing about
           mark:
             marked === undefined || marked === untrack(() => keyOf(root))
               ? undefined
               : treemapMark(layout, marked, { key: keyOf, parent: props.parent }),
+          // a style property that does not inherit, so a colour around the map
+          // never reaches the outline, and one a theme gives `:focus` does
+          outline: self.style.borderColor,
         });
       },
     },
     { focusable: true, ...props.props }
   );
   element.addClass('sigil-treemap');
+
+  // the outline is drawn heavier while the map has the focus, which nothing the
+  // paint reads through a signal says, so the paint is asked for here
+  element.onFocusChange = (_, now): void => {
+    focused = now;
+    element.invalidatePaint();
+  };
 
   /** Moves `current` to a tile and says so: what a click and an arrow key both do. */
   const pick = (tile: TreemapTile<T>): void => {

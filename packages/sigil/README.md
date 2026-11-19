@@ -5328,7 +5328,10 @@ so neighbours meet with no gap and no overlap.
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it.
+  drawn whole find it. While the map has the focus the outline is twice as thick,
+  at every colour level, so the reader can tell where the arrows go. Its colour is
+  the map's `border-color` where a sheet gives one, so
+  `.sigil-treemap:focus { border-color: yellow }` colours the focused outline.
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`

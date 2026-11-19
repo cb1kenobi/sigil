@@ -127,7 +127,7 @@ const CASES: Case[] = [
       element: Treemap({ root: 1, size: (n: number) => n, props: props as never }),
     }),
     name: 'Treemap',
-    owns: ['onKey', 'onMouse'],
+    owns: ['onFocusChange', 'onKey', 'onMouse'],
   },
   {
     make: (props) => ({

@@ -1359,3 +1359,165 @@ describe('describeTreemap', () => {
     expect(live).toHaveLength(0);
   });
 });
+
+describe('Treemap focus', () => {
+  /** A middle row of a box, in cells, and the pixel column one in from its left edge. */
+  function probe(tile: TreemapBox): { x: number; y: number } {
+    return { x: tile.x + 1, y: Math.floor((tile.y + tile.h / 2) / 2) };
+  }
+
+  it('should draw the outline twice as heavy while the map has the focus, at every level', () => {
+    const root = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
+    const map = layout(root, 20, 12);
+    const tile = map.byKey.get(`${ROOT}/a`) as TreemapBox;
+    const { x, y } = probe(tile);
+    const draw = (level: 0 | 1 | 2 | 3, focused: boolean) => {
+      const canvas = createCanvas({ height: 6, width: 20 });
+      canvas.paint((painter) =>
+        paintTreemap(painter, 0, 0, map, {
+          focused,
+          label: (t) => (t.kind === 'rest' ? '' : t.item.name),
+          level,
+          mark: tile,
+        })
+      );
+      canvas.present();
+      const shot = canvas.snapshot();
+      return {
+        rows: Array.from({ length: 6 }, (_, r) =>
+          Array.from({ length: 20 }, (_, c) => shot.charAt(c, r)).join('')
+        ),
+        style: (c: number, r: number) => shot.cellStyle(c, r),
+      };
+    };
+
+    // level 0, where there is no colour: the band inside the outline is blank
+    // until the map has the focus, and then it is the outline's second column
+    const plain = draw(0, false);
+    const focused = draw(0, true);
+    expect(plain.rows[y]?.[tile.x]).toBe('█');
+    expect(plain.rows[y]?.[x]).toBe(' ');
+    expect(focused.rows[y]?.[tile.x]).toBe('█');
+    expect(focused.rows[y]?.[x]).toBe('█');
+    // and the band moved in with it, so the outline still stands off the inside
+    expect(focused.rows[y]?.[x + 1]).toBe(' ');
+    // unfocused is the map as it always was
+    expect(plain.rows).toStrictEqual(paint(map, 0, tile).rows);
+
+    // at a colour level the same column is the outline's colour, not the band's
+    for (const [level, white] of [
+      [1, palette(15)],
+      [2, quantizeColor(rgb(255, 255, 255), 2)],
+      [3, rgb(255, 255, 255)],
+    ] as const) {
+      const off = draw(level, false);
+      const on = draw(level, true);
+      expect(off.style(x, y)?.fg, `level ${level}`).toBe(DEFAULT_COLOR);
+      expect(on.style(x, y)?.fg, `level ${level}`).toBe(white);
+      expect(off.style(tile.x, y)?.fg, `level ${level}`).toBe(white);
+      expect(off.rows).toStrictEqual(paint(map, level, tile).rows);
+    }
+  });
+
+  it('should keep a name off the heavier outline and the band inside it', () => {
+    const root = branch(ROOT, [leaf(ROOT, 'alpha', 500), leaf(ROOT, 'beta', 500)]);
+    const map = layout(root, 30, 16);
+    const tile = map.byKey.get(`${ROOT}/alpha`) as TreemapBox;
+    const canvas = createCanvas({ height: 8, width: 30 });
+    canvas.paint((painter) =>
+      paintTreemap(painter, 0, 0, map, {
+        focused: true,
+        label: (t) => t.item.name,
+        level: 0,
+        mark: tile,
+      })
+    );
+    canvas.present();
+    const shot = canvas.snapshot();
+    const rows = Array.from({ length: 8 }, (_, r) =>
+      Array.from({ length: 30 }, (_, c) => shot.charAt(c, r)).join('')
+    );
+    // two pixels of outline and one of band on the top: rows 0 and 1 are not the
+    // name's, and two columns of outline and one of band on the left
+    const row = rows.findIndex((line) => line.includes('alpha'));
+    expect(row).toBe(2);
+    expect(rows[row]?.indexOf('alpha')).toBe(tile.x + 3);
+  });
+
+  it("should draw the outline in the map's border-color where it is given one", () => {
+    const root = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
+    const map = layout(root, 20, 12);
+    const tile = map.byKey.get(`${ROOT}/a`) as TreemapBox;
+    const { y } = probe(tile);
+    const edge = (level: 0 | 1 | 3, outline: number) => {
+      const canvas = createCanvas({ height: 6, width: 20 });
+      canvas.paint((painter) =>
+        paintTreemap(painter, 0, 0, map, { label: () => '', level, mark: tile, outline })
+      );
+      canvas.present();
+      return canvas.snapshot().cellStyle(tile.x, y)?.fg;
+    };
+    expect(edge(3, rgb(255, 200, 0))).toBe(rgb(255, 200, 0));
+    expect(edge(1, palette(3))).toBe(palette(3));
+    // the terminal's own is no colour at all, so the outline stays white
+    expect(edge(3, DEFAULT_COLOR)).toBe(rgb(255, 255, 255));
+    // and at level 0 there is no colour to give it
+    expect(edge(0, palette(3))).toBe(DEFAULT_COLOR);
+  });
+
+  it('should show the focus on the map at level 0, and take it off again', async () => {
+    const current = new State<string | undefined>(`${ROOT}/a`);
+    const m = await mount({ ...PAIR_PROPS, current, root: PAIR });
+    const tile = layoutTreemap(PAIR, 20, 12, READ).byKey.get(`${ROOT}/a`) as TreemapBox;
+    const { x, y } = probe(tile);
+    const before = m.screen();
+    expect(m.term.viewport[y]?.[x]).toBe(' ');
+
+    await m.term.press(KEYS.tab);
+    await frame(m.app);
+    expect(m.term.viewport[y]?.[x]).toBe('█');
+    expect(m.screen()).not.toBe(before);
+
+    m.app.input?.focus.focus(undefined);
+    await frame(m.app);
+    expect(m.screen()).toBe(before);
+  });
+
+  it('should let a theme colour the focused outline through :focus', async () => {
+    const term = createTestTerminal({ colorLevel: 1, columns: 20, rows: 6 });
+    const app = runApp(
+      () =>
+        Treemap({
+          ...PAIR_PROPS,
+          current: `${ROOT}/a`,
+          props: { 'flex-grow': 1 },
+          root: PAIR,
+        }),
+      {
+        detect: false,
+        sheets: ['.sigil-treemap:focus { border-color: yellow }'],
+        terminal: term.terminal,
+      }
+    );
+    apps.push(app);
+    await frame(app);
+    // an SGR setting the colour as a foreground or a background, read past the
+    // escape that opens it: the outline is half blocks, which use both
+    const sets = (text: string, fg: number) =>
+      new RegExp(`\\[(?:[0-9;]*;)?(?:${fg}|${fg + 10})[;m]`).test(text);
+    const unfocused = term.output;
+    // bright white, and no yellow anywhere
+    expect(sets(unfocused, 97)).toBe(true);
+    expect(sets(unfocused, 33)).toBe(false);
+
+    await term.press(KEYS.tab);
+    await frame(app);
+    expect(sets(term.output.slice(unfocused.length), 33)).toBe(true);
+  });
+
+  it('should refuse an onFocusChange in its props, which it sets itself', () => {
+    expect(() =>
+      Treemap({ ...PAIR_PROPS, props: { onFocusChange: () => {} } as never, root: PAIR })
+    ).toThrow(/Treemap sets onFocusChange itself/);
+  });
+});
