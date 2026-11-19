@@ -71,8 +71,8 @@ export const stylesheet = `
 whatever element has the focus, so no component code is needed for it.
 
 `:focus-within` is its partner for an app with more than one pane. It matches
-the focused element and every element around it, so a pane can show that the
-focus is somewhere inside it. `hello` has one pane and does not need it. The
+the focused element and every element that contains it, so a pane can show that
+the focus is somewhere inside it. `hello` has one pane and does not need it. The
 git client, the file manager and the disk usage example frame each pane in a
 [`Panel`](../src/components/panel.ts) and add one rule to their stylesheets,
 `.sigil-panel:focus-within { border-color: green }`. The border of whichever
@@ -338,45 +338,46 @@ streams and hands back `press()` and `waitFor()`;
 
 `hello` builds every row by hand. A real app usually shows data: files, log
 lines, a table of processes, a diff. sigil has a component for each of these
-shapes. Each one is a single focusable element with its own keys, so it joins
-the focus ring the way `hello`'s rows do, and Tab moves to it and away. Import
-each from its own subpath, such as `@ttylabs/sigil/components/list-view`. The
-link on each name goes to the component's page, with its options and a
+shapes. Each one but the treemap takes the focus and handles its own keys, so it
+joins the focus ring the way `hello`'s rows do, and Tab moves to it and away.
+Import each from its own subpath, such as `@ttylabs/sigil/components/list-view`.
+The link on each name goes to the component's page, with its options and a
 capture of it running.
 
-**A list.** [`ListView`](../src/components/list-view.ts) takes `items`, an
-array or a `State` of one, and a `key` that names each item. It builds only the
-rows in view, so ten thousand rows cost what twenty do. Up, Down, Page Up,
-Page Down, Home and End move the cursor, and Enter calls
-`onActivate(key, item)`. The cursor holds a key rather than a position, so it
-stays on its row when new data arrives in another order.
+**A list.** [`ListView`](../src/components/list-view.ts) takes `items`, an array
+or a `State` or `Computed` of one, and a `key` that names each item. It builds
+only the rows in view, so ten thousand rows cost what twenty do. Up, Down, Page
+Up, Page Down, Home and End move the cursor, and Enter calls `onActivate(key,
+item)`. The cursor holds a key rather than a position, so it stays on its row
+when new data arrives in another order.
 
 A list can also follow its newest row, the way `tail -f` does. Pass `tail`, and
-every change of the items moves the cursor to the last row. Moving up stops
-following, so a reader is not pulled back down while reading; End starts it
+every change of the items moves the cursor to the last row. Moving off the last
+row stops following, and so does scrolling it out of view, so a reader is not
+pulled back down while reading. End, or a move back onto the last row, starts it
 again. Pass a `State<boolean>` as `tail` to show "following" or "paused": the
-list writes it as the reader moves, and the app can write it too. The
-[log browser](../../../examples/log-browser) follows a log of 50,000 lines
-this way.
+list writes it as the reader moves, and the app can write it too. The [log
+browser](../../../examples/log-browser) follows a log of 50,000 lines this way.
 
-**A tree.** [`TreeListView`](../src/components/tree-list-view.ts) is a list of
-a tree's open rows. Right opens a branch and Left closes it. A branch whose
-`items` is a function is read the first time it opens, and what it returned is
-kept, so opening it again is instant. The tree cannot tell when the data behind
-a branch changes, so the app says so through `treeListControl(tree)`:
-`reload(value)` marks one branch out of date, `reload(value, { subtree: true })`
-marks the branches under it too, and `reloadAll()` marks every one. What was on
-screen stays there until the new read lands, so the cursor does not jump. The
-[editor](../../../examples/editor)'s file tree and the
-[disk usage](../../../examples/disk-usage) example's tree are both one.
+**A tree.** [`TreeListView`](../src/components/tree-list-view.ts) is a list of a
+tree's open rows. Right opens a branch, and Left closes it or steps up to the
+branch above. A branch whose `items` is a function is read the first time it
+opens, and what it returned is kept, so opening it again is instant. The tree
+cannot tell when the data behind a branch changes, so the app says so through
+`treeListControl(tree)`: `reload(value)` marks one branch out of date,
+`reload(value, { subtree: true })` marks the branches under it too, and
+`reloadAll()` marks every one. What was on screen stays there until the new read
+lands, so the cursor does not jump. The [editor](../../../examples/editor)'s
+file tree and the [disk usage](../../../examples/disk-usage) example's tree are
+both one.
 
 **A table.** [`DataTable`](../src/components/data-table.ts) is a list with
-columns. A digit key or a click on a heading sorts by that column. When the
-rows update, the cursor stays where it is on screen by default, as it does in
-`htop`, since a table sorted by a live column re-sorts on every update. Pass
-`follow: true` to keep it on its row instead, wherever that row goes. The log
-browser's pods and the [dashboard](../../../examples/dashboard)'s projects are
-tables.
+columns. A digit from 1 to 9, or a click on a heading, sorts by that column.
+When the rows update, the cursor stays where it is on screen by default, as it
+does in `htop`, since a table sorted by a live column re-sorts on every update.
+Pass `follow: true` to keep it on its row instead, wherever that row goes. The
+log browser's pods and the [dashboard](../../../examples/dashboard)'s projects
+are tables.
 
 **A diff.** [`DiffView`](../src/components/diff-view.ts) shows a diff, from two
 texts or from a patch `git diff` printed, with a cursor that stops on each
@@ -395,19 +396,19 @@ and calls `onPick`. To reach it from the keyboard, put a list or a tree beside
 it that writes the same `current`. The disk usage example pairs it with a
 `TreeListView` this way, so the two always show one selection.
 
-Around these, most of the examples use the same few pieces: a
-[`Panel`](../src/components/panel.ts) to frame each pane with a title,
-[`keyHelp()`](../src/components/key-help.ts) for a footer that lists the keys
-of whatever has the focus, [`confirmModal()`](../src/components/modal.ts) to ask
-before anything that cannot be undone, and
-[`showToast()`](../src/components/toast.ts) to say what happened.
+Around these, every example but `hello` frames its panes in a
+[`Panel`](../src/components/panel.ts) with a title, and uses
+[`keyHelp()`](../src/components/key-help.ts) for a footer that lists the keys of
+whatever has the focus. Most also ask with
+[`confirmModal()`](../src/components/modal.ts) before anything that cannot be
+undone, and say what happened with [`showToast()`](../src/components/toast.ts).
 
 ### Drawing cells of your own
 
-When no component fits, a `raw` element from `@ttylabs/sigil/element` paints
-its cells itself, as the treemap does. Its paint runs during the frame and is
-not tracked, so a signal it reads does not repaint it when it changes. Build it
-with `trackedRaw()` from `@ttylabs/sigil/renderer` instead. It takes what
+When no component fits, a `raw` element from `@ttylabs/sigil/element` paints its
+cells itself. Its paint runs during the frame and is not tracked, so a signal it
+reads does not repaint it when it changes. Build it with `trackedRaw()` from
+`@ttylabs/sigil/renderer` instead, as the treemap is built. It takes what
 `raw()` takes, and repaints the element whenever a signal its last paint read
 changes. Build it inside a component, so that it stops listening when the
 component goes away.
@@ -429,8 +430,8 @@ app that removes files should usually offer it. `trash(path)` from
 `@ttylabs/sigil/trash` moves a file or a directory to the Finder's trash on
 macOS, the Recycle Bin on Windows, and the freedesktop.org trash that Linux
 file managers read everywhere else. It never deletes: if the trash will not
-take the item, the item stays where it is and the promise rejects with the
-reason. The file manager and the disk usage example offer `t` for the trash
+take the item, the item stays where it is and the promise rejects with an error that
+says why. The file manager and the disk usage example offer `t` for the trash
 beside `d` for a delete. Each asks first with `confirmModal()`, which starts on
 Yes unless it is passed `initial: 'no'`. The trash's question starts on Yes and
 the delete's on No, because only the trash can be undone.
@@ -441,16 +442,16 @@ The [examples](../../../examples) are complete apps built the way `hello` is,
 each in the shape of a tool you may know. Each has a README that lists its keys
 and what it shows. Read the one closest to what you are building:
 
-| You are building                         | Read                                               | What it shows                                                                                                 |
-| ---------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A form or a settings screen              | [settings](../../../examples/settings)             | Text fields, a radio set, a slider, a switch and checkboxes; a dialog whose button waits for valid input      |
-| A front end for another tool, like `git` | [git-client](../../../examples/git-client)         | Panes of lists beside a `DiffView`, staging single hunks, a text area in a dialog, confirms and toasts        |
-| A viewer for live data or logs           | [log-browser](../../../examples/log-browser)       | Tables of resources that update every second, a `:` command bar, and a log that follows, filters and searches |
-| A file browser                           | [file-manager](../../../examples/file-manager)     | Miller columns of lists, previews of text, Markdown and PNG pictures, file operations, the trash              |
-| A dashboard                              | [dashboard](../../../examples/dashboard)           | A collapsible sidebar, cards, a chart, a table that sorts and pages, a row menu, light and dark themes        |
-| An editor, or anything people type into  | [editor](../../../examples/editor)                 | A file tree, tabs over text areas with highlighting, a Markdown preview, a command palette, unsaved changes   |
-| A picture of sizes                       | [disk-usage](../../../examples/disk-usage)         | A tree beside a `Treemap` with one selection between them, a scan that runs as you watch, the trash           |
-| A monitor that refreshes on a clock      | [system-monitor](../../../examples/system-monitor) | Sparklines and charts, a process table that refreshes every second, a filter, themes                          |
+| You are building                         | Read                                               | What it shows                                                                                                            |
+| ---------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A form or a settings screen              | [settings](../../../examples/settings)             | Text fields, a radio set, a slider, a switch and checkboxes; a dialog whose button waits for valid input                 |
+| A front end for another tool, like `git` | [git-client](../../../examples/git-client)         | Panes of lists beside a `DiffView`, staging single hunks, a text area in a dialog, confirms and toasts                   |
+| A viewer for live data or logs           | [log-browser](../../../examples/log-browser)       | Tables of pods and deployments that update every second, a `:` command bar, and a log that follows, filters and searches |
+| A file browser                           | [file-manager](../../../examples/file-manager)     | Miller columns of lists, previews of text, Markdown and PNG pictures, file operations, the trash                         |
+| A dashboard                              | [dashboard](../../../examples/dashboard)           | A collapsible sidebar, cards, a chart, a table that sorts and pages, a row menu, light and dark themes                   |
+| An editor, or anything people type into  | [editor](../../../examples/editor)                 | A file tree, tabs over text areas with highlighting, a Markdown preview, a command palette, unsaved changes              |
+| A picture of sizes                       | [disk-usage](../../../examples/disk-usage)         | A tree beside a `Treemap` with one selection between them, a scan that runs as you watch, the trash                      |
+| A monitor that refreshes on a clock      | [system-monitor](../../../examples/system-monitor) | Sparklines and charts, a process table that refreshes every second, a filter, themes                                     |
 
 The git client, the log browser and the file manager are written twice, like
 `hello`: once in JSX and once in the `ui` tag. The system monitor is written in
@@ -465,5 +466,7 @@ $ pnpm build
 $ pnpm --filter @ttylabs/example-git-client start
 ```
 
-Every example quits on `q` and on Ctrl-C. [Testing](testing.md) covers the rest
-of `@ttylabs/sigil/testing`, which every example's own tests are written with.
+Every example quits on Ctrl-C, and on `q` unless the focus is in a field that
+types it. The editor asks first while a file is unsaved. [Testing](testing.md)
+covers the rest of `@ttylabs/sigil/testing`, which every example's own tests are
+written with.

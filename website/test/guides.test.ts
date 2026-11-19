@@ -184,7 +184,17 @@ describe('a link in a guide', () => {
 
   it('should link full-screen-apps to the component pages it introduces', () => {
     const links = linksOf(guide('full-screen-apps')!.source).map((href) => guideLink(href));
-    for (const slug of ['list-view', 'tree-list-view', 'data-table', 'diff-view', 'treemap']) {
+    for (const slug of [
+      'list-view',
+      'tree-list-view',
+      'data-table',
+      'diff-view',
+      'treemap',
+      'panel',
+      'key-help',
+      'modal',
+      'toast',
+    ]) {
       assert.ok(links.includes(`/docs/components/${slug}`), slug);
     }
   });
