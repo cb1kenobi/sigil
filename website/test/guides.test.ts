@@ -1,3 +1,4 @@
+import { COMPONENTS, COMPONENTS_HREF, componentHref } from '../src/lib/components.ts';
 import { guideLink } from '../src/lib/guide-links.ts';
 import { GUIDES_DIR, guide, guides } from '../src/lib/guides.ts';
 import { includesOf } from '../src/lib/includes.ts';
@@ -182,21 +183,44 @@ describe('a link in a guide', () => {
     );
   });
 
-  it('should link full-screen-apps to the component pages it introduces', () => {
-    const links = linksOf(guide('full-screen-apps')!.source).map((href) => guideLink(href));
-    for (const slug of [
-      'list-view',
-      'tree-list-view',
-      'data-table',
-      'diff-view',
-      'treemap',
-      'panel',
-      'key-help',
-      'modal',
-      'toast',
-    ]) {
-      assert.ok(links.includes(`/docs/components/${slug}`), slug);
+  it('should link full-screen-apps to the component pages it introduces, each by its own name', () => {
+    // each link with its text, so that a link that lands on the wrong page -- a
+    // typo that still names a real file, two hrefs swapped -- fails here
+    const found: { text: string; to: string | undefined }[] = [];
+    const visit = (node: { type: string; url?: string; value?: string; children?: unknown[] }) => {
+      if (node.type === 'link') {
+        const text = (node.children ?? [])
+          .map((child) => (child as { value?: string }).value ?? '')
+          .join('');
+        found.push({ text, to: guideLink(node.url) });
+      }
+      for (const child of node.children ?? []) {
+        visit(child as Parameters<typeof visit>[0]);
+      }
+    };
+    visit(parseMarkdown(guide('full-screen-apps')!.source));
+
+    const pages = found.filter(({ to }) => to?.startsWith(`${COMPONENTS_HREF}/`));
+    for (const { text, to } of pages) {
+      const entry = COMPONENTS.find(({ slug }) => componentHref(slug) === to);
+      assert.ok(entry?.exports.includes(text.replace(/\(\)$/u, '')), `${text} -> ${to}`);
     }
+    assert.deepEqual(
+      [...new Set(pages.map(({ to }) => to))].toSorted(),
+      [
+        'data-table',
+        'diff-view',
+        'key-help',
+        'list-view',
+        'modal',
+        'panel',
+        'toast',
+        'tree-list-view',
+        'treemap',
+      ]
+        .map(componentHref)
+        .toSorted()
+    );
   });
 
   it('should leave a fragment, an absolute URL and an absolute path as they were written', () => {

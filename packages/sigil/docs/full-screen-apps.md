@@ -360,8 +360,8 @@ list writes it as the reader moves, and the app can write it too. The [log
 browser](../../../examples/log-browser) follows a log of 50,000 lines this way.
 
 **A tree.** [`TreeListView`](../src/components/tree-list-view.ts) is a list of a
-tree's open rows. Right opens a branch, and Left closes it or steps up to the
-branch above. A branch whose `items` is a function is read the first time it
+tree's open rows. Right opens a closed branch. Left closes an open branch, or
+steps up to the branch the row is in. A branch whose `items` is a function is read the first time it
 opens, and what it returned is kept, so opening it again is instant. The tree
 cannot tell when the data behind a branch changes, so the app says so through
 `treeListControl(tree)`: `reload(value)` marks one branch out of date,
@@ -372,7 +372,8 @@ file tree and the [disk usage](../../../examples/disk-usage) example's tree are
 both one.
 
 **A table.** [`DataTable`](../src/components/data-table.ts) is a list with
-columns. A digit from 1 to 9, or a click on a heading, sorts by that column.
+columns. The digits 1 to 9 sort by the column with that number, and a click
+on a heading sorts by that column.
 When the rows update, the cursor stays where it is on screen by default, as it
 does in `htop`, since a table sorted by a live column re-sorts on every update.
 Pass `follow: true` to keep it on its row instead, wherever that row goes. The
@@ -466,7 +467,8 @@ $ pnpm build
 $ pnpm --filter @ttylabs/example-git-client start
 ```
 
-Every example quits on Ctrl-C, and on `q` unless the focus is in a field that
-types it. The editor asks first while a file is unsaved. [Testing](testing.md)
+Every example quits on Ctrl-C. Each also quits on `q`, except while a dialog
+is open or the focus is in a field that types the letter. The editor's `q`
+asks first while a file is unsaved; Ctrl-C does not ask. [Testing](testing.md)
 covers the rest of `@ttylabs/sigil/testing`, which every example's own tests are
 written with.
