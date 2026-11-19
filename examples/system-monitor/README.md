@@ -69,7 +69,7 @@ at the next file, so the shell comes back at once.
 | `src/ui.js`        | The entry: `main()` for `--help` and `--version`, and `runApp()` as its `run` |
 | `src/root.js`      | `App`, the whole screen, and `stylesheet`                                     |
 | `src/system.js`    | `SystemContext`: the sampler, the clock and the kill, replaceable in tests    |
-| `src/stand-ins.js` | Components sigil does not have yet (below)                                    |
+| `src/stand-ins.js` | The chart and the table it draws with instead of sigil's own (below)          |
 | `src/sampler.js`   | Reads the system once a tick and turns two readings into rates                |
 | `src/data.js`      | Pure parsers and helpers, tested against fixtures                             |
 | `test/`            | The parsers, the sampler over a fake machine, the app over a fake terminal    |
@@ -91,14 +91,19 @@ set and the new one does not is gone with its sheet.
 
 ## What is a stand-in
 
-This example was written before the components it wants, on purpose: it is
-the caller those tickets are waiting for. Each stand-in is marked in the source
-and is the least that works.
+This example was written before the components it wants, on purpose: it was
+the caller those tickets were waiting for. Both have landed -- the live charts
+(SIG-284) and `DataTable` (SIG-281) -- and the monitor still draws with its
+stand-ins, because on the stress workload below the components cost more than
+twice as much a frame: 6.1 ms against 2.6 ms, as of SIG-503. Moving onto them is
+SIG-383, and it waits for SIG-378 and SIG-379. Each stand-in is marked in the
+source and is the least that works.
 
-- **`LiveChart`** stands in for SIG-284. The charts take an array and a width
-  when they are built, so this builds a new chart on every tick for every chart
-  on screen, and learns its size through `onResize`.
-- **`ProcessTable`** stands in for SIG-281. Its columns are padded strings and
+- **`LiveChart`** stands in for the live charts. It draws with the `*View()`
+  functions, which take an array and a width when they are built, so this builds
+  a new chart on every tick for every chart on screen, and learns its size
+  through `onResize`.
+- **`ProcessTable`** stands in for `DataTable`. Its columns are padded strings and
   its rows are a pool of text elements that it rewrites in place.
 
 `LiveChart` and `ProcessTable` are written in the `ui` tag, with their handlers as
@@ -140,7 +145,7 @@ counts and no time, are under "A full-screen performance budget" in
 
 ## Not yet
 
-- A JSX version, which waits for SIG-275's build. It will sit beside this one
-  so the two frontends can be compared on a real app.
+- A JSX version. SIG-275's build has landed and the git client, the file
+  manager and the log browser are written twice; this one is not, yet.
 - Per-process detail, a tree view, and disks.
 - Windows.

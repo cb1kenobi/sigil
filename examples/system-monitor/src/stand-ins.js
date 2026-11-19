@@ -1,9 +1,11 @@
 /**
- * Stand-ins for components sigil does not have yet.
+ * Stand-ins for the live charts and `DataTable`, which the monitor was written
+ * before and has not moved onto: it waits until they cost what these do
+ * (SIG-383).
  *
  * Each one is the least that makes the monitor work, kept here rather than in
- * the package so that it can be deleted the day the real component lands. The
- * two that put handlers on nodes inside themselves -- `LiveChart`'s `onResize`,
+ * the package so that it can be deleted the day the monitor moves. The two
+ * that put handlers on nodes inside themselves -- `LiveChart`'s `onResize`,
  * and the table body's `onResize` and `onMouse` -- are written in the `ui` tag
  * with those handlers as props, and `ref` where the component has to hold a node
  * it built. The README has the details, under "What is a stand-in".
@@ -18,10 +20,10 @@ import { ui } from '@ttylabs/sigil/template';
 /**
  * A chart that redraws when its data changes and when the layout resizes it.
  *
- * stand-in for SIG-284: the charts in `@ttylabs/sigil/components` take an array
- * and a width when they are built and never change, so this throws the old one
- * away and builds a new one -- every tick, for every chart on screen. The size
- * comes from `onResize`, the way `TextField` learns its width.
+ * stand-in for SIG-284's live charts: the `*View()` charts this draws with take
+ * an array and a width when they are built and never change, so this throws the
+ * old one away and builds a new one -- every tick, for every chart on screen.
+ * The size comes from `onResize`, the way `TextField` learns its width.
  *
  * @param {{ data: () => readonly number[],
  *   draw: (data: readonly number[], size: { height: number, width: number }) =>
@@ -81,8 +83,9 @@ const COLUMNS = Object.freeze([
  * A table of processes: a header, as many rows as fit, a selection that follows
  * a pid, and a scroll position that keeps the selection on screen.
  *
- * stand-in for SIG-281: the columns are padded strings rather than a layout,
- * because `tableView()` builds a static block and `selectRow()` is a prompt.
+ * stand-in for SIG-281's `DataTable`: the columns are padded strings rather
+ * than a layout, because `tableView()` builds a static block and `selectRow()`
+ * is a prompt.
  * Rows are a pool of text elements the size of the visible area, rewritten in
  * place each tick; the pool is rebuilt when the layout changes its height.
  *
