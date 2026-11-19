@@ -783,14 +783,15 @@ many -- `32 more` at 80 columns. A click or an arrow moves the outline and calls
 `onPick`, which a gathered tile hands all its files; `h`, `j`, `k` and `l` move too,
 because the map is `vim`. Enter and a double click call `onActivate`, and what that
 does is the demo's: it maps the directory, or the one a file is in, by writing a new
-root, and Backspace maps the one above. Point at a tile and the line under the map
-says what a click would pick, without picking it -- `onHover`, which needs
-`mouse: { motion: true }`. The colors are asked for at the level the frame is drawn
-at: an RGB the map degrades, and at 16 colors a palette index of the demo's, so four
-kinds stay four hues; with no color the map is shapes. A level as the argument --
-`1`, `2` or `0` -- draws at that one. Piped, a scripted keyboard and pointer drive
-the same app on a test terminal and print the screen after each step, then what each
-kind's color comes to at each level.
+root -- a file whose directory is already mapped is "opened" -- and Backspace maps
+the one above. Point at a tile and the line under the map says what a click would
+pick, without picking it -- `onHover`, which needs `mouse: { motion: true }`. The
+colors are asked for at the level the frame is drawn at: an RGB the map degrades,
+and at 16 colors a palette index of the demo's, so four kinds stay four hues; with
+no color the map is shapes. On a terminal, a level as the argument -- `1`, `2` or
+`0` -- draws at that one. Piped, a scripted keyboard and pointer drive the same app
+on a test terminal and print the screen after each step, then what each kind's color
+comes to at each level.
 
 ### Try them without a terminal
 

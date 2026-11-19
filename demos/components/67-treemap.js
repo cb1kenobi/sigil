@@ -20,8 +20,9 @@
  * - **A click or an arrow moves `current` and calls `onPick`**; with `vim: true`,
  *   `h`, `j`, `k` and `l` move as the arrows do. Enter and a double click call
  *   `onActivate`, which is the app's: here it maps the directory activated, or the
- *   one a file is in, by writing a new `root`, and Backspace -- the app's own
- *   binding -- maps the one above.
+ *   one a file is in, by writing a new `root` -- and a file whose directory is
+ *   already mapped is "opened" -- and Backspace, the app's own binding, maps the
+ *   one above.
  * - **The pointer is reported, and selects nothing**: `onHover` says what a click
  *   would pick, which is how a tile too small for its name gets one. It needs
  *   `mouse: { motion: true }` in `runApp()`'s options.
@@ -29,10 +30,10 @@
  * The colors are the app's, asked for at the level the frame is drawn at: an RGB
  * the map degrades itself, and at 16 colors a palette index of the app's choosing,
  * which is how four kinds stay four hues. At level 0 the map is shapes in the
- * terminal's own colors: one item solid, many a checker. A level given as the
- * argument is drawn at as it is, without asking the terminal, whose reply may
- * raise the level the environment named but never lower it. The footer is
- * `keyHelp()` over `describeTreemap()`.
+ * terminal's own colors: one item solid, many a checker. On a terminal, a level
+ * given as the argument is drawn at as it is, without asking the terminal, whose
+ * reply may raise the level the environment named but never lower it; piped, the
+ * argument is not read. The footer is `keyHelp()` over `describeTreemap()`.
  *
  * Piped, there is nobody to type or point, so a scripted keyboard and pointer
  * drive the same app on a test terminal and the demo prints the screen after each
@@ -306,7 +307,9 @@ if (live) {
   await term.press(...click(find('react-dom.prod')), KEYS.enter);
   await show('a click on a file in react-dom/, and Enter: onActivate maps its directory');
 
-  await term.press(...click(find('server.js')), ...click(find('server.js')));
+  // one write for both clicks, so a slow machine cannot stretch them apart past
+  // the double click's 400 ms
+  await term.press([...click(find('server.js')), ...click(find('server.js'))].join(''));
   await show('a double click on server.js: onActivate again, which opens it');
 
   await term.press(move({ x: 1, y: HEIGHT }));
