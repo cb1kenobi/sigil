@@ -235,3 +235,33 @@ describe('a link in a guide', () => {
     assert.equal(guideLink('nope.md'), `${REPO_URL}/blob/main/packages/sigil/docs/nope.md`);
   });
 });
+
+describe('a link to the components index', () => {
+  it('should turn the directory of the components into the components index', () => {
+    // the one spelling of the index that GitHub can follow as well: it lists
+    // the directory there, and an absolute `/docs/components` fails the link check
+    assert.equal(guideLink('../src/components/'), COMPONENTS_HREF);
+    assert.equal(guideLink('../src/components'), COMPONENTS_HREF);
+    assert.equal(guideLink('./../src/components/'), COMPONENTS_HREF);
+    // About is in the root `docs/`, so the same directory is spelled from there
+    assert.equal(guideLink('../packages/sigil/src/components/', 'docs'), COMPONENTS_HREF);
+  });
+
+  it('should leave a fragment on it, and any other directory, on GitHub', () => {
+    assert.equal(
+      guideLink('../src/components/#prompts'),
+      `${REPO_URL}/blob/main/packages/sigil/src/components#prompts`
+    );
+    assert.equal(guideLink('../src/'), `${REPO_URL}/blob/main/packages/sigil/src`);
+    assert.equal(
+      guideLink('../../cli/src/components/'),
+      `${REPO_URL}/blob/main/packages/cli/src/components`
+    );
+  });
+
+  it('should be linked from full-screen-apps, so the rule has a reader', () => {
+    const to = linksOf(guide('full-screen-apps')!.source).map((href) => guideLink(href));
+
+    assert.ok(to.includes(COMPONENTS_HREF), to.join('\n'));
+  });
+});

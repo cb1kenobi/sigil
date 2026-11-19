@@ -1006,6 +1006,25 @@ export class Element implements LayoutNode {
   onMouse: MouseHandler | undefined;
 
   /**
+   * Whether `onMouse` is told about a drag passing over this element while
+   * another element holds the pointer, or no element does.
+   *
+   * A press captures the pointer, so every move until the release goes to what
+   * the press landed on, wherever the pointer gets to -- and an element the drag
+   * crosses hears its `mouseenter` and `mouseleave` and nothing between them. Set
+   * this and it is also handed each of those moves while it has `:hover`, as a
+   * `mousemove` addressed to itself and not bubbled, after the element holding the
+   * pointer has had it. The capture does not change: the holder still gets every
+   * move and the release, and the router's own handlers see each move once.
+   *
+   * Under `mouse.motion` only, which is what brackets the moves with an enter and
+   * a leave. Off by default, so an element that never asked is never handed a
+   * move of a drag it does not own. A field rather than a prop, because the
+   * component that owns `onMouse` is what knows whether it wants this.
+   */
+  hearsDrags = false;
+
+  /**
    * What this element does with a bracketed paste that reaches it.
    *
    * One function rather than a list, for the reason `onKey` is one. Read by the

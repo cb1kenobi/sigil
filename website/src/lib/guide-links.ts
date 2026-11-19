@@ -1,4 +1,4 @@
-import { COMPONENTS, componentHref } from './components.ts';
+import { COMPONENTS, COMPONENTS_HREF, componentHref } from './components.ts';
 import { GUIDE_SLUGS, guideHref } from './nav.ts';
 import { repoFileUrl } from './site.ts';
 import { posix } from 'node:path';
@@ -20,6 +20,14 @@ import { posix } from 'node:path';
  *   carries no fragment. On GitHub the same link opens the file the page is
  *   generated from, so it is true in both places; a link with a fragment, such
  *   as a line, means the source and stays on GitHub.
+ * - the directory those files are in, `../src/components/`, is the components
+ *   index, with or without its trailing slash and, as above, without a
+ *   fragment. GitHub shows the directory as a list of the components' source
+ *   files: most are named after their component, and some hold several, as
+ *   the prompts share files. So the link leads to every component there too,
+ *   and it is the only spelling of the index that does: an absolute
+ *   `/docs/components` is a path GitHub cannot follow, and the link check
+ *   refuses it.
  * - anything else in the repository -- a README, the toolchain's own README, a
  *   source file -- is that file on GitHub, on `main`.
  * - a fragment on its own, an absolute URL and a `mailto:` are left as written.
@@ -74,6 +82,10 @@ export function guideLink(href: string | undefined, from: string = FROM): string
     COMPONENTS.some((entry) => entry.slug === component)
   ) {
     return componentHref(component);
+  }
+
+  if (fragment === '' && resolved.replace(/\/$/u, '') === COMPONENT_SOURCES) {
+    return COMPONENTS_HREF;
   }
 
   return `${repoFileUrl(resolved.replace(/\/$/u, ''))}${fragment}`;

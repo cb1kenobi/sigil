@@ -12844,9 +12844,10 @@ calls too.
   `describeTreeListView()` and `describeDataTable()`. They take the same
   `DescribeListViewOptions` and split their arguments with the same
   `describedHosts()`, so they cannot come to read it differently. That helper is
-  published on the list view's subpath because a component `sigil add` copies
-  imports its siblings from published subpaths, and the registry test refuses a
-  name the bundle does not export. The audit was
+  published on a subpath because a component `sigil add` copies imports its
+  siblings from published subpaths, and the registry test refuses a name the
+  bundle does not export -- the list view's at first, and the footer's since
+  SIG-496, below. The audit was
   `describe[A-Z]\w*View\(` and every `` __`open` ``: the only other `open` is
   `describeCollapsible()`'s Right, which is the section's own expand and not an
   activation the app defines, so it has no word to change.
@@ -12864,6 +12865,50 @@ calls too.
   an `onActivate`, after the lists before it were described -- half a footer and a
   throw. A list with no `onActivate` claims no Enter, and a word does not make it
   describe one.
+- **`describedHosts()` and `DescribeListViewOptions` live in `key-help.ts`, beside
+  the footer they word keys for (SIG-496).** They were the list view's, and
+  `describeTreemap()` importing them put the list view, its scroll box, the theme
+  and the input router behind a component with no list in it. The footer's module
+  is the one that already describes keys -- `keyLabel()`, `keyHelpEntries()`,
+  `keyHelp()` -- and everything it imports the treemap already loaded, so its own
+  chunk is the whole of what the treemap pays. `list-view.ts` re-exports both, so
+  `@ttylabs/sigil/components/list-view` still exports them and the barrel's two
+  `export *` lines name one binding, as with `console-capture`; the component
+  subpath test's "the very binding the barrel exports" holds the two spellings to
+  one function. Measured with `staticGraph()`, as of this change:
+
+  | entry                   | before                | after                 |
+  | ----------------------- | --------------------- | --------------------- |
+  | `components/treemap`    | 250,875 B, 41 modules | 187,186 B, 32 modules |
+  | `components/list-view`  | 241,212 B, 40 modules | 245,248 B, 41 modules |
+  | `components/data-table` | 250,945 B, 43 modules | 254,930 B, 44 modules |
+  | `components/key-help`   | 176,879 B, 30 modules | 177,259 B, 30 modules |
+
+  SIG-480 measured the treemap at 180,470 B, and the footer's 4,264 B chunk is
+  most of the 6.7 kB left; the rest is SIG-491's key handling in the treemap's own.
+  The list view and the table now load that chunk for the one function, which is the cost of the home; the
+  tree list view already loaded it, through the tree's prompt. Two other homes
+  were measured and refused. `keys.ts` costs the list view nothing (the treemap
+  at 186,897 B, the list view +161 B), but it is the stdin decoder the input
+  router loads, it would need `__` and the element types it has never had, and
+  its own subpath went from 3,669 B over 2 modules to 9,175 over 5 -- past the
+  6 KiB ceiling `dist.test.ts` holds it to, which is a ceiling saying the
+  decoder stays small. A module of its own would save the list view its 4 kB and
+  costs a published subpath for one function, since every module has one and a
+  sibling needs one; that is the exception the one-definition rule says has to
+  argue for itself, and 4 kB on a 245 kB entry does not.
+
+  **The import has to name `key-help`, though the bundle would not care.**
+  rolldown follows a re-export to its binding, so with the function moved, the
+  treemap importing it from `./list-view.js` still builds a graph with no list
+  view in it. What would pay is an ejected treemap: `sigil add` rewrites
+  `./list-view.js` to `@ttylabs/sigil/components/list-view`, and that subpath's
+  facade loads the whole list view. So there are two tests, one per half.
+  `should not load the list view to import the treemap` in `test/dist.test.ts`
+  fails on the old layout, naming the list view's and the scroll box's chunks;
+  `should import describedHosts() from the footer, not from the list view` in
+  `test/registry.test.ts` fails on the old import line, which the first passes
+  (review round 1).
 
 ### Components that take `props`
 
@@ -13671,16 +13716,18 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   selection again -- a gathered tile is shown only while every file it holds is
   still a child of its directory by identity, which a delete keeps for the nodes it
   did not touch and a rescan does not (review round 1).
-- **A drag that began elsewhere is heard only as it enters and leaves (review
-  round 1, the same limit).** A press captures the pointer for what it landed on,
-  so the motion of a drag from the tree onto the map goes to the tree, and the map
-  -- one element, whose tiles are not elements -- hears its `mouseenter` and
-  nothing until it leaves. So it reports the tile the drag came in over, and the
-  right tile at the first report after the release. Hearing the drag would mean
-  listening past the tree, on the router's own `onMouse()`, which the map does not
-  have: it is handed no router, and taking one for this is a prop every app
-  passes for a drag nobody makes on purpose. `should hear a drag from elsewhere
-  only as it enters, and be right at the next move` pins both halves.
+- **A drag that began elsewhere is followed across the tiles, because the map
+  sets `hearsDrags` (SIG-501).** A press captures the pointer for what it landed
+  on, so the motion of a drag from the tree onto the map goes to the tree, and the
+  map -- one element, whose tiles are not elements -- used to hear its
+  `mouseenter` and nothing until it left: SIG-492 pinned it reporting the tile the
+  drag came in over, and the right one only at the first report after the release.
+  Hearing the drag meant listening past the tree, on a router the map is not
+  handed. SIG-501 gave the router the opt-in instead -- "An element can hear a drag
+  it does not hold" in `src/input` -- and the map is its first user: the moves
+  arrive as `mousemove`s addressed to the map, `followPointer()` reads them like
+  any other, and the tree still holds the drag. `should follow a drag from
+  elsewhere across its tiles, while the drag keeps the pointer` asserts both.
 - **A router that stops leaves the last tile reported (review round 2).** `stop()`
   clears every `hover` state without dispatching a `mouseleave` -- the input
   decision that dispatching into components during a teardown is worse than a
@@ -13756,7 +13803,9 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   read while the map paints, so a signal behind it repaints the map. With no
   `color` every tile is one blue, which is enough: the edges are what separate
   tiles, and a hue means something only the app knows. The outline is bright white
-  (`palette(15)` at 16), which the docs say no item should be.
+  (`palette(15)` at 16), which the docs say no item should be. Since SIG-497 it is
+  the map's `border-color` where one is set, which the framework sheet makes green
+  while the map has the focus (below).
 - **A name on a colour is black or white at 256 too.** The example's ink read the
   fill's channels with `rgbChannels()`, which has none for a palette index -- and at
   256 every fill had been quantized to one -- so every name at 256 was drawn in the
@@ -13911,8 +13960,9 @@ Enter.
   forwards a key is a binding the app already has. So it is left to bubble, and
   the example's Backspace is on the box around both panels. `onActivate` is
   handed the key alone, not the item: a divided item's box is kept by key without
-  its item, and the one caller needs the path. A double click is not an
-  activation here, as it is on a list -- the click picks, and two picks are two.
+  its item, and the one caller needs the path. A double click was not an
+  activation at first, as it is on a list -- the click picked, and two picks were
+  two; SIG-498 made it one, below.
 - **Focusable by default, and `focusable: false` in `props` takes it back.** Every
   component with keys of its own is focusable, and a map whose keys can be
   reached only by being told about them is the "map on its own" the ticket is
@@ -13924,26 +13974,173 @@ Enter.
 - **`describeTreemap(input, ...maps, options?)`**, scoped to each map: the four
   arrows as `move`, and Enter where there is an `onActivate`, as `open` or the
   word given after the maps. It takes `DescribeListViewOptions` and splits its
-  arguments with `describedHosts()`, both from the list view's subpath, which is
+  arguments with `describedHosts()`, both then from the list view's subpath, which is
   "One rule for every describer that says `open` for Enter" (SIG-478) kept: a
   fourth describer reading the word a fourth way is what that entry exists to
-  stop. What it costs is the list view's module graph on the treemap's entry,
+  stop. What it cost was the list view's module graph on the treemap's entry,
   scroll box and all: 250,762 B over 41 modules as of this change, against the
   180,470 B SIG-480 measured, and under the 352 KiB ceiling. A lighter published
-  home for `describedHosts()` would take that back and is a move of SIG-478's
-  code, so it is left for a ticket of its own rather than done inside this one.
+  home for `describedHosts()` was a move of SIG-478's code, so it was left for a
+  ticket of its own: SIG-496 moved it to the footer's module, and the treemap
+  imports it from there (under SIG-478's entry).
 - **The focus is not drawn on the map.** The outline is the same focused or not,
   so at a glance a focused map and an unfocused one look alike, as at level 0 a
   focused list does; a panel's `:focus-within`, which the example has, is where
   it shows. A focused outline is a colour, and the outline's colour is already the
-  one bright white no item may be.
+  one bright white no item may be. SIG-497 made it green anyway, accepting that it
+  can match a tile: "A treemap's focus", below.
 - **The example's map takes the focus.** A click on a tile focused the tree,
   because the keys for the selection -- Backspace, `d`, `t` -- were on the tree's
   panel and the map had none. They are on the box around both panels now, and a
   pick leaves the focus where it is, so a click focuses the map (a press focuses
   what it lands on) and the arrows go on moving there. Enter on the map is
   `map it`, as on the tree.
-- **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` and nobody has asked
-  the map for; a way into a divided item without zooming, which would be a second
+- **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` (SIG-499 gave the
+  map the same option, below); a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
-  over rectangles; and drawing the focus.
+  over rectangles; and drawing the focus (SIG-497 did, as a colour: below).
+
+### A treemap's focus: the outline turns green, and nothing else changes (SIG-497)
+
+Since SIG-491 the map takes the focus and the arrows, and its outline looked the
+same either way, so a reader could not tell whether an arrow would move the map or
+something else. Now the outline is green while the map has the focus.
+
+- **A colour and only a colour, which is Chris's choice after trying two
+  shapes.** The first version drew the outline two pixels thick while the map
+  had the focus, and the second framed the current item in box-drawing lines,
+  single and then double. Both are shapes, which is what SIG-278 asks a focus at
+  colour level 0 to be. Chris tried each and found that both made the tiles
+  inside jump, because a terminal draws them at so coarse a resolution: the
+  thicker outline moved a name a row down, and the double line made the content
+  jump too much. So the
+  outline is main's -- one pixel of half blocks, a one-pixel band of the
+  terminal's own background inside it, names kept off both -- focused or not, and
+  only its colour changes. `paintTreemap()` has no `focused`, so there is no
+  geometry for the focus to reach. `should draw the same cells focused as not, at
+  every level, which are the cells it always drew` mounts the map at every level,
+  compares its screen with `paintTreemap()`'s, then focuses and blurs it.
+- **So a focused map at colour level 0 looks like an unfocused one, and that is
+  the accepted trade.** It reverses the rule #493 started with, that a focus at
+  level 0 is something drawn. What shows the focus there is what showed it
+  before SIG-497: the panel around the map, where an app has one. `should look the
+  same focused or not at level 0, where there is no colour` holds the paint and
+  the mounted screen to it.
+- **The green is the framework sheet's: `.sigil-treemap:focus { border-color:
+  green }`**, the sixteenth declared exception to the role rule (the entry in
+  `src/theme`). The paint reads the map's resolved `border-color` and draws the
+  outline in it, degraded to the level, so the default lives in the sheet like
+  every other default colour. An app or a theme changes it with a `:focus` rule of
+  its own. Where nothing sets it, `border-color` is the terminal's own
+  (`DEFAULT_COLOR`), which is read as "not given", and the outline is bright white
+  as it always was. `palette(2)` is what the sheet's `green` resolves to, and
+  `should outline the current tile in green while the map has the focus, from the
+  framework sheet` reads it off the element rather than spelling it.
+- **`border-color` because it does not inherit and means nothing else to the
+  map.** That is how a `raw` takes a theme colour (the scroll box's track and
+  thumb are `cellStyle(element.style)` over a class of their own), and the map has
+  no part to put a class on: the outline is pixels in its paint. `color` inherits,
+  so a map inside `.sigil-error` or a coloured panel would have had its outline
+  turned red by something that was never about the map. A map draws no border
+  unless an app gives it a `border-style`, and an app that does is drawing the
+  map's frame and the outline in one colour, which reads as one thing.
+- **A theme's or an app's `.sigil-treemap { border-color: … }` colours both
+  states.** The origin decides before specificity is asked, so a one-class rule
+  from either beats the framework's `:focus` one. That is the sheet saying what the
+  outline is; a theme that wants a focus colour as well writes the `:focus` rule
+  beside it. `should outline in the map's border-color where a sheet gives one,
+  which beats the default's green` and `should let an app's or a theme's :focus rule
+  colour the focused outline instead` hold both.
+- **Green can be the colour of the tile it is drawn round, and that is accepted.**
+  SIG-491 gave not drawing the focus as a colour the reason that the outline's
+  bright white is the one colour the docs promise no item is. Green is not that:
+  the disk usage example's archives are green (`ansi: 2`), and a green outline
+  round an archive at 16 colours is the archive's own colour. The band inside the
+  outline and the gap outside it are both the terminal's background, so the
+  outline still reads as a ring standing off the tile; at 256 and truecolor the
+  two greens differ as well. Green because the example's panels turn green on
+  `:focus-within`, so the map's focused outline matches the panel it is in.
+- **Not `.sigil-focus`.** The role is `inverse`, a swap of the terminal's two
+  colours on a cell, which has no meaning for an outline drawn as half blocks in a
+  colour; and reading the role's attributes off the map to decide a colour would
+  make `.sigil-focus { inverse: false; text-decoration: underline }`, a theme
+  SIG-278 tests, take the map's focus away.
+- **The restyle is what repaints the map, so the map has no focus handler.** The
+  first version owned `onFocusChange`, refused one in `props`, and asked for a
+  paint from it, so that the paint would run when the focus moved. Measured on
+  this version, the handler did nothing: a `:focus` rule that changes
+  `border-color` restyles the map, a style compared by value marks its paint
+  ("Style invalidation" in `src/style`), and a tracked raw paints again. Taking
+  the handler out failed no test, including the one that asserts the green on the
+  screen after Tab. With no rule matching `:focus` nothing about the outline
+  changes, so nothing needs painting. So the map owns `onKey` and `onMouse` as
+  before and leaves `onFocusChange` to the app, which can now hear the map's focus
+  from `props` -- an element around the map would not, since a focus change is
+  told only to the element whose own state flipped. `should hear an onFocusChange
+  given in its props, which it leaves to the app`.
+
+### A treemap's letters: `h`, `j`, `k` and `l` with `vim` (SIG-499)
+
+The disk usage example's tree takes `h`/`j`/`k`/`l` with `vim` and its map, beside
+it, took only the arrows, so a hand on the letters had to move to the arrows the
+moment the map had the focus.
+
+- **Opt-in, as `vim: true`, the list's and the tree's name for it.** `ListView`,
+  `TreeListView` and `DataTable` each take letters only with `vim` (`j`/`k`/`g`/`G`,
+  and `h`/`l` on a tree), off by default for the reason `find` is: a letter a
+  focused component claims outranks every binding the app has for it, the
+  runner's `q` and a fallback included. A map has none of the letters by default
+  for the same reason, and `vim: true` takes all four: `h` Left, `j` Down, `k` Up,
+  `l` Right, each exactly as its arrow -- the same `treemapNeighbor()` move, the
+  same pick, `onPick` and all. Some views do take letters by default -- the pager
+  its `less` keys, `j` and `k` among them, and `DiffView` its `w` -- but those
+  are a view whose whole job is reading, where the letters are what a reader
+  expects; the views a selection moves through, which is what the map is, keep
+  them behind `vim`. Leaving them to the app instead would mean every app writing
+  the same `onKey` over a map that has no public way to move.
+- **The letters are the arrows' in every other rule too.** Claimed even where
+  they go nowhere (`l` at the right edge, as Right there); a key with Ctrl or Alt
+  is left to what is around the map, as an arrow with one is; `H` is not `h` --
+  the decoder names a capital as itself, so it is not the map's either. No `g`
+  and `G`, which a list takes with `vim` for its ends: the map has no first and
+  last to go to, which is why it takes no Home and End.
+- **`describeTreemap()` lists them only where the map takes them, on the arrows'
+  line.** `move` for each, after the four arrows in the arrows' order, so a
+  footer reads `↑/↓/←/→/k/j/h/l move` -- the list's `↑/↓/k/j move`, each letter
+  after its arrow. One line rather than a second, because a second line would cost
+  its separator and its word as well as the letters: on the line, they are 8
+  columns. Measured in the disk usage example with the map focused and the status
+  showing: the line fitted from 114 columns without the letters and fits from 122
+  with them. It is the footer's lowest priority, so below that it is the first to
+  go, as the tree's `↑/↓/k/j move` already is below about 200 there. That is the
+  cost, and it is why the example test that reads the move line off the footer
+  mounts at 140 columns where it mounted at 120.
+- **The disk usage example turns it on**, since its tree already takes the
+  letters and the selection's own keys (`d`, `t`, Backspace, `r`) use none of them.
+
+### A treemap's double click activates, as a list row's does (SIG-498)
+
+A list calls its `onActivate` on Enter and on a double click; the map's double
+click was two single clicks, so it picked the tile twice and activated nothing.
+
+- **Counted against `DOUBLE_CLICK_MS`, by the map, as a list counts its own.** The
+  router reports a `click` and no count, and "There is no double-click event" in
+  `src/input` is why: one number, each component counting. A second left click on
+  the tile the first one picked -- the same key, so anywhere on the tile -- within
+  that time, with `onActivate` given, is the double click. A third starts again,
+  so it picks, as a list's does.
+- **The second click activates as Enter would, and does not pick again.** The
+  first click picked, `current` and `onPick` both, so a second pick would only say
+  it twice -- or, for an app whose `onPick` intercepts a tile of gathered items by
+  zooming, do that twice. Enter and the second click call one function over the
+  root as it is now, so a tile of gathered items activates the largest of them,
+  which is the key the click put in `current`, exactly as Enter after that click
+  does; and where nothing is outlined the second click does nothing, as Enter
+  would. A list's second click moves the cursor back to its row first; the map's
+  instead counts only while `current` still holds what the first click left
+  there, so a selection something else moved between the two makes the second an
+  ordinary click on that tile rather than an activation of whatever is current.
+- **Without `onActivate`, a double click is still two picks**, as a list without
+  one toggles twice: there is nothing to activate.
+- **The example needed only a test.** Its map's `onActivate` was already `map it`,
+  so a double click on a tile maps the directory, as on a row.
