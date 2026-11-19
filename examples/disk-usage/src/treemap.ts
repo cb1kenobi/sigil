@@ -499,19 +499,21 @@ function lightAt(tile: Tile, x: number, y: number): number {
   return 0.42 + 0.68 * Math.max(0, cos);
 }
 
-/** Black or white, whichever reads on a colour. */
-function inkOn(color: Color, level: number): Color {
+/**
+ * The ink every name is written in: black, at every level, on its kind's flat
+ * colour. It was black or white for whichever read on the pixel under the
+ * name's first cell, and a pixel of a cushion is its kind's colour shaded from
+ * 0.42 to 1.25 times -- while every kind's colour sits near the middle of the
+ * range, so the answer flipped from one name to the next within a kind. Black on
+ * the flat colour reads at 4.8:1 or better on all seven, white on it at no better
+ * than 3.8:1, and the sixteen colours already wrote every name in black.
+ */
+function ink(level: number): Color {
   if (level === 1) {
     return palette(0);
   }
-  const channels = rgbChannels(color);
-  if (channels === undefined) {
-    return DEFAULT_COLOR;
-  }
-  const [r, g, b] = channels;
-  const light = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const ink = light > 0.55 ? rgb(16, 16, 20) : rgb(250, 250, 250);
-  return level >= 3 ? ink : quantizeColor(ink, 2);
+  const black = rgb(16, 16, 20);
+  return level >= 3 ? black : quantizeColor(black, 2);
 }
 
 /** What {@link paintMap} is told. */
@@ -601,27 +603,32 @@ export function paintMap(
   pixels.blit(painter, left, top, { colorLevel: level });
 
   // a name on each tile wide enough to hold one, on its first whole row, and
-  // never over the outline: a label is moved off it, or cut short of it
-  const ringRows = new Set<number>();
-  const ringCells = new Set<string>();
-  if (opts.mark !== undefined) {
-    const ring = inside(opts.mark);
-    const lastY = ring.y + ring.h - 1;
-    for (let x = ring.x; x < ring.x + ring.w; x++) {
-      ringCells.add(`${x},${Math.floor(ring.y / 2)}`);
-      ringCells.add(`${x},${Math.floor(lastY / 2)}`);
+  // never over the outline or the band inside it: a label is moved off them, or
+  // cut short of them. The band is what stands the outline off whatever is under
+  // it, so a name over it would join the selection to the tile next to it
+  const ring = opts.mark === undefined ? undefined : inside(opts.mark);
+  // whether pixel (x, y) is the outline or its band; `across` asks only about
+  // the two runs along the top and the bottom
+  const onRing = (x: number, y: number, across = false): boolean => {
+    if (ring === undefined) {
+      return false;
     }
-    for (let y = ring.y; y <= lastY; y++) {
-      ringCells.add(`${ring.x},${Math.floor(y / 2)}`);
-      ringCells.add(`${ring.x + ring.w - 1},${Math.floor(y / 2)}`);
+    const right = ring.x + ring.w - 1;
+    const bottom = ring.y + ring.h - 1;
+    if (x < ring.x || x > right || y < ring.y || y > bottom) {
+      return false;
     }
-    ringRows.add(Math.floor(ring.y / 2)).add(Math.floor(lastY / 2));
-  }
+    const top = y <= ring.y + 1 || y >= bottom - 1;
+    return across ? top : top || x <= ring.x + 1 || x >= right - 1;
+  };
+  // a cell is two pixels, one above the other
+  const offCell = (x: number, row: number, across = false): boolean =>
+    onRing(x, row * 2, across) || onRing(x, row * 2 + 1, across);
   for (const tile of layout.tiles) {
     const fill = inside(tile);
     let row = Math.ceil(fill.y / 2);
     // a row the outline runs along is given up for the one under it
-    while (ringRows.has(row) && ringCells.has(`${fill.x + 1},${row}`)) {
+    while (offCell(fill.x + 1, row, true)) {
       row++;
     }
     if (row * 2 + 1 > fill.y + fill.h - 1) {
@@ -629,11 +636,11 @@ export function paintMap(
     }
     const limit = fill.x + fill.w - 1;
     let start = fill.x;
-    while (start < limit && ringCells.has(`${start},${row}`)) {
+    while (start < limit && offCell(start, row)) {
       start++;
     }
     let end = start;
-    while (end < limit && !ringCells.has(`${end},${row}`)) {
+    while (end < limit && !offCell(end, row)) {
       end++;
     }
     if (end - start < 3) {
@@ -649,11 +656,15 @@ export function paintMap(
     if (stringWidth(label) === 0) {
       continue;
     }
-    const under = pixels.get(start, row * 2 + 1);
     if (level <= 0) {
       painter.text(left + start, top + row, label);
     } else {
-      painter.text(left + start, top + row, label, { bg: under, fg: inkOn(under, level) });
+      // the flat colour rather than the pixel under the name, which the cushion
+      // shades: one ink only reads on every name when every name is on one colour
+      painter.text(left + start, top + row, label, {
+        bg: categoryColor(tile.category, level),
+        fg: ink(level),
+      });
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   type ListControl,
   listControl,
   ListView,
+  type DescribeListViewOptions,
   type ListViewDescriber,
   type ListViewProps,
 } from '../../src/components/list-view.js';
@@ -19,6 +20,7 @@ import {
   resolveStyles,
   text,
 } from '../../src/element/index.js';
+import { loadCatalog } from '../../src/i18n/index.js';
 import {
   createInput,
   type DescribeOptions,
@@ -29,6 +31,7 @@ import { createEffect, onCleanup } from '../../src/renderer/index.js';
 import { Computed, flush, State, untrack } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { runInNewContext } from 'node:vm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -1330,6 +1333,110 @@ describe('describeListView()', () => {
     expect(() => describeListView(recorder().router, box())).toThrow(
       'Expected an element that ListView() returned'
     );
+  });
+
+  it('should say open for Enter unless the options after the lists say what it does', () => {
+    const enter = (live: Array<[string, DescribeOptions]>) =>
+      live.filter(([keys]) => keys === 'enter').map(([, opts]) => opts.description);
+    const first = ListView({ items: [], onActivate: () => {} });
+    const second = ListView({ items: [], onActivate: () => {} });
+
+    const { live, router } = recorder();
+    const off = describeListView(router, first, second);
+    expect(enter(live)).toEqual(['open', 'open']);
+    off();
+
+    // the word is the caller's, for every list before it, and is shown as given
+    describeListView(router, first, second, { activate: 'show' });
+    expect(enter(live)).toEqual(['show', 'show']);
+    expect(live.filter(([keys]) => keys === 'enter').map(([, o]) => o.scope)).toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it('should not describe Enter for a list with no onActivate, whatever word it is given', () => {
+    const { live, router } = recorder();
+    describeListView(router, ListView({ items: [] }), { activate: 'show' });
+    expect(live.map(([keys]) => keys)).not.toContain('enter');
+  });
+
+  it('should refuse an activate word that is not a non-empty string, before describing anything', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [] });
+    for (const activate of ['', 42, null]) {
+      expect(() =>
+        describeListView(router, list, { activate } as unknown as DescribeListViewOptions)
+      ).toThrow('Expected activate to be a non-empty string');
+    }
+    expect(live).toHaveLength(0);
+  });
+
+  it('should take options only last, and refuse them anywhere else as not a list', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    const other = ListView({ items: [], onActivate: () => {} });
+    // between two lists, where a describer that looked for options anywhere would
+    // find them
+    expect(() =>
+      // @ts-expect-error -- the options go after the lists
+      describeListView(router, list, { activate: 'show' }, other)
+    ).toThrow('Expected an element that ListView() returned');
+    expect(live).toHaveLength(0);
+  });
+
+  it('should refuse a last argument that is an object but not options, rather than drop it', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    // an element from a second copy of the package is not an Element here, and an
+    // array of lists is a spread somebody forgot: neither is options with no word
+    class Element {}
+    for (const last of [[list], new Element(), new Map()]) {
+      expect(() => describeListView(router, last as never)).toThrow(
+        'Expected an element that ListView() returned'
+      );
+      expect(() => describeListView(router, list, last as never)).toThrow(
+        'Expected an element that ListView() returned'
+      );
+    }
+    expect(live).toHaveLength(0);
+    // a null-prototype object is still a plain one
+    describeListView(router, list, Object.assign(Object.create(null), { activate: 'show' }));
+    expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+  });
+
+  it('should take a literal from another realm as options, and refuse a class instance', () => {
+    const { live, router } = recorder();
+    const list = ListView({ items: [], onActivate: () => {} });
+    // another realm's Object.prototype is still a root prototype
+    const foreign = runInNewContext('({ activate: "show" })') as DescribeListViewOptions;
+    describeListView(router, list, foreign);
+    expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+    live.length = 0;
+    // the limit: an instance cannot be told from a foreign element by its prototype
+    class Word {
+      activate = 'show';
+    }
+    expect(() => describeListView(router, list, new Word())).toThrow(
+      'Expected an element that ListView() returned'
+    );
+    expect(live).toHaveLength(0);
+  });
+
+  it("should translate the default open, and leave the caller's word as given", async () => {
+    await loadCatalog({ de: async () => ({ open: 'öffnen', show: 'zeigen' }) }, {}, 'de');
+    try {
+      const { live, router } = recorder();
+      const list = ListView({ items: [], onActivate: () => {} });
+      const off = describeListView(router, list);
+      expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('öffnen');
+      off();
+      // the app's word is the app's to translate: sigil's catalog is not asked
+      describeListView(router, list, { activate: 'show' });
+      expect(live.find(([keys]) => keys === 'enter')?.[1].description).toBe('show');
+    } finally {
+      await loadCatalog(undefined, {});
+    }
   });
 });
 

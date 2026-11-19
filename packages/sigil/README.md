@@ -5520,7 +5520,14 @@ current row while it does. `.sigil-list` (the host, with `is-multiple`),
 `-scroll`, `-row` (with `is-current`, `is-selected`, `is-disabled`), `-pointer`,
 `-mark`, `-content`, `-text` and `-empty` are the theme hooks, and `props` goes on
 the host. `describeListView(input, ...lists)` describes the keys each list claims,
-scoped to it.
+scoped to it. Enter is described as `open`, and options after the lists name what
+it does instead -- `describeListView(input, list, { activate: 'show' })` -- for
+every list in the call. The default is translated with sigil's own strings; a word
+given here is shown as given, so an app that translates passes its own translation.
+`describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
+checking the options, for a component of your own that describes a list through
+`describeListView()` and takes the same options -- it is what the tree's and the
+table's describers use.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
@@ -5601,7 +5608,8 @@ is a `branch` and `expanded`, and where its read stands (`status`). The guides a
 `expand(value?)`, `collapse(value?)`, `toggle(value?)`, `reload(value)`,
 `status(value)`, and `list` -- the list underneath, which `listControl()` answers for
 too. `describeTreeListView(input, ...trees)` describes the list's keys and the
-tree's, scoped to each.
+tree's, scoped to each, and takes the same options as `describeListView()` after
+the trees.
 
 #### A data table
 
@@ -5699,7 +5707,8 @@ The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 `sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
 again and rebuilds the rows in view for rows changed in place.
 `describeDataTable(input, ...tables)` describes the list's keys and a digit for
-each column on screen that sorts, which a footer folds into `1/2/3 sort`.
+each column on screen that sorts, which a footer folds into `1/2/3 sort`, and
+takes the same options as `describeListView()` after the tables.
 
 #### A panel
 

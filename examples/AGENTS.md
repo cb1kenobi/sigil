@@ -1253,7 +1253,26 @@ about where the space went.
   message calls `invalidatePaint()`. The layout is cached by the tree's identity
   and the size, so a move of the selection repaints over the same layout. Labels
   are written after the pixels, on a tile's first whole row, and moved off or cut
-  short of the outline, which would otherwise lose its corner to a name.
+  short of the outline, which would otherwise lose its corner to a name -- and of
+  the band inside it too, which is what stands the outline off the tile beside
+  it. A name started on the band had the terminal's own background, so each
+  letter kept whatever the half block under it had put in its background: the
+  tile's colour in some cells and not in others, moving with the terminal's
+  size. `should keep a name off the band inside a selection, and give every
+  letter a colour` fails without it.
+
+- **Every name is black, on its kind's flat colour, at every level -- Chris's
+  call.** The ink was black or white for whichever read on the pixel under the
+  name's first cell, and that pixel is a cushion's: its kind's colour shaded
+  from 0.42 to 1.25 times. Every kind's colour sits near the middle of the
+  range, archives' green right on the cut-off, so within one kind some names
+  were black and some white. Black on the flat colour reads at 4.8:1 or better
+  on all seven kinds (WCAG contrast, measured), white on it at 3.8:1 at best,
+  and the sixteen colours already wrote every name in black, so one ink holds
+  at every level. The flat colour is the name's background whatever the shading
+  under it, since one ink can only read on every name if every name is on one
+  colour. `should write every name in one ink, on the flat colour of its kind`
+  fails if the background goes back to the pixel under the name.
 
 - **The scan is asynchronous, bounded, and shown as it goes.** Every read goes
   through a limiter of 48 in flight and nothing waits on a read while holding a
@@ -1305,11 +1324,13 @@ about where the space went.
   memoized per node is read only for a branch that is shown, so a tree of 180,000
   names costs what is open, and a new node is a new choice with new children.
 
-- **Enter is the panel's, not the tree's `onActivate`.** `describeListView()`
-  lists an `onActivate` as `enter open`, and a footer saying `open` beside `map it`
-  is two meanings for one key, so the tree has no `onActivate` and the panel's
-  `onKey` takes Enter. A double click on a row does nothing; a click on the map
-  selects.
+- **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
+  for a while, because `describeListView()` could only say `enter open`, and a
+  footer saying `open` beside `map it` is two meanings for one key -- which cost a
+  double click on a row, since that is `onActivate` too. SIG-478 gave the
+  describers the word: `describeTreeListView(input, tree, { activate: 'map it' })`.
+  So a double click on a row maps it, as Enter does, and a click on the map
+  selects. The test sends both clicks in one read, as a fast double click arrives.
 
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
