@@ -829,7 +829,7 @@ afterEach(() => {
 /** Mounts a treemap over a test terminal of its own, and nothing else. */
 async function mount<T, K>(
   props: TreemapProps<T, K>,
-  opts: { colorLevel?: 0 | 1 | 2 | 3; columns?: number; rows?: number } = {}
+  opts: { colorLevel?: 0 | 1 | 2 | 3; columns?: number; motion?: boolean; rows?: number } = {}
 ) {
   const term = createTestTerminal({
     colorLevel: opts.colorLevel ?? 0,
@@ -842,7 +842,7 @@ async function mount<T, K>(
         ...props,
         props: { 'flex-grow': 1, ...props.props },
       }),
-    { detect: false, mouse: true, terminal: term.terminal }
+    { detect: false, mouse: opts.motion ? { motion: true } : true, terminal: term.terminal }
   );
   apps.push(app);
   await frame(app);
@@ -852,6 +852,11 @@ async function mount<T, K>(
     click: async (x: number, y: number) => {
       // SGR reports count from one
       await term.press(`\u001b[<0;${x + 1};${y + 1}M`, `\u001b[<0;${x + 1};${y + 1}m`);
+      await frame(app);
+    },
+    /** The pointer moving onto a cell with nothing held, or a column past the screen's to leave it. */
+    move: async (x: number, y: number) => {
+      await term.press(`\u001b[<35;${x + 1};${y + 1}M`);
       await frame(app);
     },
     screen: () => term.viewport.join('\n'),
@@ -1497,5 +1502,183 @@ describe('describeTreemap with vim', () => {
     const line = renderToString(footer, { colorLevel: 0, width: 80 }).trimEnd();
     expect(line).toContain('↑/↓/←/→/k/j/h/l move');
     input.stop();
+  });
+});
+
+describe('Treemap, under the pointer', () => {
+  /** What `onHover` was told, a call to an entry: the key, the name, and how many it gathers. */
+  function recorder() {
+    const told: [string | undefined, string | undefined, number | undefined][] = [];
+    const onHover = (key: string | undefined, item: Node | undefined, gathered?: readonly Node[]) =>
+      told.push([key, item?.name, gathered?.length]);
+    return { onHover, told };
+  }
+
+  it('should report the tile under the pointer as it moves, and leave current alone', async () => {
+    const current = new State<string | undefined>(undefined);
+    const picks: unknown[] = [];
+    const { onHover, told } = recorder();
+    const m = await mount(
+      { ...PAIR_PROPS, current, onHover, onPick: (key) => picks.push(key), root: PAIR },
+      { motion: true }
+    );
+    const before = m.screen();
+    await m.move(2, 2);
+    // a move inside the same tile is not another report
+    await m.move(3, 2);
+    await m.move(15, 3);
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/b`, 'b', undefined],
+    ]);
+    expect(current.get()).toBeUndefined();
+    expect(picks).toStrictEqual([]);
+    // nothing is outlined: hovering is not selecting
+    expect(m.screen()).toBe(before);
+  });
+
+  it('should report the tile whose colour an edge cell shows, as a click picks it', async () => {
+    // two bands five pixels tall, as `treemapCellTile()`'s own test has them: the
+    // third row of cells is `top`'s uncoloured edge over `bottom`'s colour, and
+    // `top`'s box still reaches into it. SIG-480's review found a click there
+    // picking `top`
+    const root = branch(ROOT, [leaf(ROOT, 'top', 1), leaf(ROOT, 'bottom', 1)]);
+    const current = new State<string | undefined>(undefined);
+    const { onHover, told } = recorder();
+    const m = await mount(
+      { ...PAIR_PROPS, current, onHover, root },
+      { columns: 8, motion: true, rows: 5 }
+    );
+    expect(m.term.viewport[2]).toMatch(/^▄+ *$/u);
+    await m.move(0, 1);
+    await m.move(0, 2);
+    expect(told).toStrictEqual([
+      [`${ROOT}/top`, 'top', undefined],
+      [`${ROOT}/bottom`, 'bottom', undefined],
+    ]);
+    // and a click on the same cell picks what the hover said
+    await m.click(0, 2);
+    expect(current.get()).toBe(`${ROOT}/bottom`);
+  });
+
+  it('should report the gathered items of a tile of them, as a click hands them over', async () => {
+    const small = Array.from({ length: 30 }, (_, i) => leaf(ROOT, `s${i}`, 10 + i));
+    const root = branch(ROOT, [leaf(ROOT, 'huge', 5000), ...small]);
+    const picks: [string, string, number | undefined][] = [];
+    const { onHover, told } = recorder();
+    const m = await mount(
+      {
+        ...PAIR_PROPS,
+        onHover,
+        onPick: (key, item, gathered) => picks.push([key, item.name, gathered?.length]),
+        root,
+      },
+      { columns: 40, motion: true, rows: 12 }
+    );
+    const map = layoutTreemap(root, 40, 24, READ);
+    const rest = map.tiles.find((tile) => tile.kind === 'rest') as TreemapBox;
+    await m.move(rest.x, Math.floor(rest.y / 2));
+    expect(told).toStrictEqual([[`${ROOT}/s29`, 's29', 30]]);
+    await m.click(rest.x, Math.floor(rest.y / 2));
+    expect(picks).toStrictEqual(told);
+  });
+
+  it('should clear the tile when the pointer leaves the map', async () => {
+    const { onHover, told } = recorder();
+    const term = createTestTerminal({ colorLevel: 0, columns: 20, rows: 6 });
+    // the map on the left half, and a box of nothing on the right
+    const app = runApp(
+      () =>
+        box(
+          { 'flex-direction': 'row', 'flex-grow': 1 },
+          Treemap({ ...PAIR_PROPS, onHover, props: { width: 10 }, root: PAIR }),
+          box({ 'flex-grow': 1 })
+        ),
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    const move = async (x: number, y: number) => {
+      await term.press(`\u001b[<35;${x + 1};${y + 1}M`);
+      await frame(app);
+    };
+    await move(1, 2);
+    await move(15, 2);
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [undefined, undefined, undefined],
+    ]);
+    // and off the screen altogether, from over the map
+    await move(1, 2);
+    await move(40, 2);
+    expect(told.slice(2)).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [undefined, undefined, undefined],
+    ]);
+  });
+
+  it('should hear a drag from elsewhere only as it enters, and be right at the next move', async () => {
+    const { onHover, told } = recorder();
+    const term = createTestTerminal({ colorLevel: 0, columns: 30, rows: 6 });
+    // a box of nothing on the left, and the map on the right: `a` from column 10
+    // and `b` from column 20
+    const app = runApp(
+      () =>
+        box(
+          { 'flex-direction': 'row', 'flex-grow': 1 },
+          box({ 'flex-shrink': 0, width: 10 }),
+          Treemap({
+            ...PAIR_PROPS,
+            onHover,
+            props: { 'flex-shrink': 0, height: 6, width: 20 },
+            root: PAIR,
+          })
+        ),
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    // pressed on the box, dragged onto `a` and on to `b`, and let go there: the
+    // press captured the pointer for the box, so the map hears that it was
+    // entered, and none of the motion after
+    await term.press('\u001b[<0;3;3M', '\u001b[<32;13;3M', '\u001b[<32;26;3M', '\u001b[<0;26;3m');
+    await frame(app);
+    expect(told).toStrictEqual([[`${ROOT}/a`, 'a', undefined]]);
+    // and the first move after the release is the map's again
+    await term.press('\u001b[<35;26;3M');
+    await frame(app);
+    expect(told.at(-1)).toStrictEqual([`${ROOT}/b`, 'b', undefined]);
+  });
+
+  it('should report nothing without motion tracking, a drag across the map included', async () => {
+    const { onHover, told } = recorder();
+    const current = new State<string | undefined>(undefined);
+    const m = await mount({ ...PAIR_PROPS, current, onHover, root: PAIR });
+    // a press on `a`, dragged with the button held onto `b`, and let go there:
+    // with no motion report to clear it, a hover read from a drag would stay on
+    // `b` after the release
+    await m.term.press('\u001b[<0;3;3M', '\u001b[<32;16;3M', '\u001b[<0;16;3m');
+    await frame(m.app);
+    await m.move(2, 2);
+    expect(told).toStrictEqual([]);
+    // which is not the map hearing nothing: the press and the release were both
+    // on it, so they were a click, and it picked `b`
+    expect(current.get()).toBe(`${ROOT}/b`);
+  });
+
+  it('should report a new tile at the next report after a new root under the pointer', async () => {
+    const root = new State<Node | undefined>(PAIR);
+    const { onHover, told } = recorder();
+    const m = await mount({ ...PAIR_PROPS, onHover, root }, { motion: true });
+    await m.move(2, 2);
+    root.set(branch(ROOT, [leaf(ROOT, 'other', 1)]));
+    await frame(m.app);
+    // followed from the pointer's reports, as `:hover` is: nothing moved it yet
+    expect(told).toHaveLength(1);
+    await m.move(2, 2);
+    expect(told).toStrictEqual([
+      [`${ROOT}/a`, 'a', undefined],
+      [`${ROOT}/other`, 'other', undefined],
+    ]);
   });
 });

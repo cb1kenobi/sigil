@@ -13580,6 +13580,72 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   gathered items picks the largest of them and hands over the whole list, which is
   how an app intercepts that tile: zoom instead of selecting, say. The root is the
   whole map and is never outlined.
+- **The tile under the pointer is reported and never selected (SIG-492).** A small
+  tile carries no name, so the only way to learn what one was is to click it, which
+  moves `current`. `onHover(key, item, gathered?)` is told what a click on the cell
+  would pick -- the largest of a tile of gathered items, with the whole list -- each
+  time the pointer moves onto another tile, and `(undefined, undefined)` when it is
+  off every tile or off the map. A callback rather than a `hovered` `State`, which
+  the ticket offered too: a key cannot carry the list a gathered tile stands for,
+  and `onPick` is already the shape. An app that wants a signal sets one from it,
+  as the example does. A move inside one tile is not another report, so an app is
+  told about tiles rather than about cells.
+- **The hover and the click are one hit test.** `tileUnder()` is
+  `treemapCellTile()` against where and at what level the last paint drew, and
+  both read it, so the cell holding one tile's uncoloured edge over the next tile's
+  colour -- review round 1's finding below -- is the lower tile for both. `should
+  report the tile whose colour an edge cell shows, as a click picks it` moves onto
+  that cell and then clicks it.
+- **Whether the pointer is over the map is the router's `hover` state, not the
+  event's kind.** The router writes it under `mouse.motion` alone, so without
+  motion tracking nothing is reported -- a drag across the map included. Reading a
+  hover from a drag under `1002` is what "The mouse" in `src/input` refuses for
+  `:hover`: nothing reports the pointer after the release, so the last tile of the
+  drag would stay reported until the next click. The state is also already false
+  when a `mouseleave` arrives and when a drag that began on the map hands it a
+  motion from outside, so one test covers leaving every way. The map has no
+  children, so its own leave is always the first one the router delivers, and no
+  other element's handler can stop it before it arrives.
+- **Followed from reports, not from layouts, and that is a limit (for Chris to
+  decide).** A new root, or a new size, under a pointer that is not moving is
+  reported at the pointer's next report, as `:hover` is: the router hit-tests on a
+  report and not on a frame either. Reporting it as it happens means noticing it
+  in the paint, which is a tracked computed that may not write a signal -- and the
+  callback's whole use is writing one -- so it would be a microtask queued out of
+  the paint: a second way for the map to call the app, at a moment no event
+  explains. Narrower and documented rather than a second mechanism; `should report
+  a new tile at the next report after a new root under the pointer` pins it. The
+  example covers what a user would see of it: a hovered path a delete has removed,
+  and a gathered tile whose files a delete or a rescan has replaced, say the
+  selection again -- a gathered tile is shown only while every file it holds is
+  still a child of its directory by identity, which a delete keeps for the nodes it
+  did not touch and a rescan does not (review round 1).
+- **A drag that began elsewhere is heard only as it enters and leaves (review
+  round 1, the same limit).** A press captures the pointer for what it landed on,
+  so the motion of a drag from the tree onto the map goes to the tree, and the map
+  -- one element, whose tiles are not elements -- hears its `mouseenter` and
+  nothing until it leaves. So it reports the tile the drag came in over, and the
+  right tile at the first report after the release. Hearing the drag would mean
+  listening past the tree, on the router's own `onMouse()`, which the map does not
+  have: it is handed no router, and taking one for this is a prop every app
+  passes for a drag nobody makes on purpose. `should hear a drag from elsewhere
+  only as it enters, and be right at the next move` pins both halves.
+- **A router that stops leaves the last tile reported (review round 2).** `stop()`
+  clears every `hover` state without dispatching a `mouseleave` -- the input
+  decision that dispatching into components during a teardown is worse than a
+  state nobody is told about -- so the map is never handed an event to clear it
+  from, and an app's line fed by `onHover` keeps the tile. `runApp()` disposes the
+  view before it stops the router, so an app that quits does not show it; an app
+  that stops its router and keeps the map on screen clears its own line.
+- **The example shows it in the line under the panes, not in a tooltip.**
+  `attachTooltip()` anchors a bubble to an element, and the element here is the
+  whole map: the bubble would sit at the map's edge rather than by the tile, show
+  after its delay, and be re-placed for every tile crossed. The line under the
+  panes already says what the selection is, in the words wanted -- path, size,
+  share -- so while the pointer is on the map it says what the pointer is over,
+  and the selection again once it leaves. A gathered tile is said as `40 more in
+  work · 4.0 kB · 4.0%`. It costs the example `mouse: { motion: true }`, a report
+  for every cell the pointer crosses, which "The mouse" says is the app's to pay.
 - **What an item with no tile of its own outlines needs `parent`.** Its own tile;
   the tile it was gathered into; a tile of an ancestor drawn in one piece; or, for
   an item divided into its children, its whole box -- `treemapMark()`, the
@@ -13698,11 +13764,11 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   textured tile's second square is the terminal's own there, so a tile one pixel
   tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
   level the map was drawn at and reads the checker the way the paint does.
-- **Not done:** keys between tiles (SIG-491 did them, below); a tooltip or a line
-  for the tile under the pointer; zooming, which is an app writing a new `root` -- the example's Enter
-  and Backspace; animating one layout into the next; a tile for a parent's own size
-  beside its children; and a legend, which is the app's, as the example's swatches
-  are.
+- **Not done:** keys between tiles (SIG-491 did them, below); a tooltip at the tile
+  under the pointer rather than at the map's edge; zooming, which is an app writing
+  a new `root` -- the example's Enter and Backspace; animating one layout into the
+  next; a tile for a parent's own size beside its children; and a legend, which is
+  the app's, as the example's swatches are.
 
 ### A treemap's keys: an arrow to the tile beside, and Enter the app's (SIG-491)
 

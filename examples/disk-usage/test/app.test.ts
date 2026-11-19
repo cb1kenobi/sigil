@@ -734,6 +734,48 @@ describe('the disk usage visualizer', () => {
     LONG
   );
 
+  it(
+    'should say what the pointer is over on the map, and the selection again once it leaves',
+    async () => {
+      const work = workspace();
+      // forty small files beside the rest, which the map gathers into one tile
+      write(work, Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${i}.txt`, 100])));
+      const m = await mount(work, { mouse: { motion: true } });
+      const selected = info(m);
+      expect(selected).toMatch(/^ ?work · /);
+      const at = (text: string): [number, number] => {
+        const rows = m.term.viewport;
+        const y = rows.findIndex((row) => row.includes(text));
+        expect(y, text).toBeGreaterThan(0);
+        return [(rows[y] as string).indexOf(text), y];
+      };
+      // SGR reports count from one, and 35 is motion with nothing held
+      const move = async ([x, y]: [number, number]) => {
+        await m.press(`\x1b[<35;${x + 2};${y + 1}M`);
+      };
+
+      await move(at('main.ts'));
+      expect(info(m)).toMatch(/work[\\/]src[\\/]main\.ts · 9\.0 kB/);
+      // pointing is not selecting: the tree's cursor stayed on the root
+      expect(m.screen()).toMatch(/❯ ▾ work/);
+
+      await move(at('more'));
+      expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
+      // a rescan makes every file a new one: the forty the pointer was over are
+      // not what the tree holds now, so the line says the selection until it moves
+      await m.press('r');
+      expect(info(m)).toBe(selected);
+      await move(at('more'));
+      expect(info(m)).toMatch(/40 more in work · 4\.0 kB · 4\.0%/);
+
+      // onto the tree, which is off the map
+      await move([2, 3]);
+      expect(info(m)).toBe(selected);
+      m.app.exit(0);
+    },
+    LONG
+  );
+
   it.skipIf(process.platform === 'win32')(
     'should draw a control character in a name as a replacement, not drop it',
     async () => {
