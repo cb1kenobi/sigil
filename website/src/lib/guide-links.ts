@@ -1,3 +1,4 @@
+import { COMPONENTS, componentHref } from './components.ts';
 import { GUIDE_SLUGS, guideHref } from './nav.ts';
 import { repoFileUrl } from './site.ts';
 import { posix } from 'node:path';
@@ -14,6 +15,11 @@ import { posix } from 'node:path';
  * - another guide is its page, with the fragment kept. The fragment is a
  *   heading's anchor and the site slugs headings as that test does, so one the
  *   test accepts is one that lands.
+ * - a component's own source file, `../src/components/list-view.ts`, is that
+ *   component's page, when the file is named after a component and the link
+ *   carries no fragment. On GitHub the same link opens the file the page is
+ *   generated from, so it is true in both places; a link with a fragment, such
+ *   as a line, means the source and stays on GitHub.
  * - anything else in the repository -- a README, the toolchain's own README, a
  *   source file -- is that file on GitHub, on `main`.
  * - a fragment on its own, an absolute URL and a `mailto:` are left as written.
@@ -25,6 +31,9 @@ import { posix } from 'node:path';
 
 /** Where the guides are in the repository, which relative links resolve from. */
 const FROM = 'packages/sigil/docs';
+
+/** Where the components' source files are, each named after its page. */
+const COMPONENT_SOURCES = 'packages/sigil/src/components';
 
 /**
  * @param href - What the markdown said.
@@ -55,6 +64,16 @@ export function guideLink(href: string | undefined, from: string = FROM): string
 
   if (posix.dirname(resolved) === FROM && resolved.endsWith('.md') && isGuide(slug)) {
     return `${guideHref(slug)}${fragment}`;
+  }
+
+  const component = posix.basename(resolved, '.ts');
+  if (
+    fragment === '' &&
+    posix.dirname(resolved) === COMPONENT_SOURCES &&
+    resolved.endsWith('.ts') &&
+    COMPONENTS.some((entry) => entry.slug === component)
+  ) {
+    return componentHref(component);
   }
 
   return `${repoFileUrl(resolved.replace(/\/$/u, ''))}${fragment}`;

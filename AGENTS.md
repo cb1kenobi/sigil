@@ -339,6 +339,21 @@ to name both published packages, and `hashOfInternalDependencies` has to still b
 a key turbo reports, because it is asked about by name and a renamed field would
 read as `undefined`, compare equal to the empty string, and pass forever.
 
+**The local cache evicts old entries, because turbo keeps every one until
+something removes it (SIG-505).** A `website#build` entry stores about 450 MB of
+`.next`, and the website depends on `@ttylabs/sigil`, so every change under
+`packages/sigil/src` adds one -- on a machine that switches branches all day
+the cache reached many GB. `cacheMaxAge: "7d"` and `cacheMaxSize: "5GB"` in the
+root `turbo.json` evict at the start of each `turbo run`, in a background thread,
+oldest first; both are off by default in turbo 2.11, which says it expects to
+turn them on in 3.0. What it costs is that a build older than a week, or pushed
+out by newer ones, is rebuilt rather than restored. Adding them moved no task
+hash. There is deliberately no `cacheDir`: with none, every git worktree writes
+to the main checkout's `.turbo/cache`, so one limit covers every agent worktree
+too, where a relative `cacheDir` would give each worktree a cache of its own.
+`should evict old cache entries, from the one cache every worktree shares` in
+`packages/cli/test/cli.test.ts` holds all three.
+
 `packages/cli/src/` is the bin, `--version`, the schema, `src/report.ts` --
 what the toolchain says, as element trees rendered with `renderToString()` -- `src/utilities/` — the utility generator, whose committed output
 is `packages/sigil/src/style/utilities.ts` and whose `scripts/` writes it —
