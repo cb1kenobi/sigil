@@ -499,19 +499,21 @@ function lightAt(tile: Tile, x: number, y: number): number {
   return 0.42 + 0.68 * Math.max(0, cos);
 }
 
-/** Black or white, whichever reads on a colour. */
-function inkOn(color: Color, level: number): Color {
+/**
+ * The ink every name is written in: black, at every level, on its kind's flat
+ * colour. It was black or white for whichever read on the pixel under the
+ * name's first cell, and a pixel of a cushion is its kind's colour shaded from
+ * 0.42 to 1.25 times -- while every kind's colour sits near the middle of the
+ * range, so the answer flipped from one name to the next within a kind. Black on
+ * the flat colour reads at 4.8:1 or better on all seven, white on it at no better
+ * than 3.8:1, and the sixteen colours already wrote every name in black.
+ */
+function ink(level: number): Color {
   if (level === 1) {
     return palette(0);
   }
-  const channels = rgbChannels(color);
-  if (channels === undefined) {
-    return DEFAULT_COLOR;
-  }
-  const [r, g, b] = channels;
-  const light = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const ink = light > 0.55 ? rgb(16, 16, 20) : rgb(250, 250, 250);
-  return level >= 3 ? ink : quantizeColor(ink, 2);
+  const black = rgb(16, 16, 20);
+  return level >= 3 ? black : quantizeColor(black, 2);
 }
 
 /** What {@link paintMap} is told. */
@@ -602,9 +604,8 @@ export function paintMap(
 
   // a name on each tile wide enough to hold one, on its first whole row, and
   // never over the outline or the band inside it: a label is moved off them, or
-  // cut short of them. The band is the terminal's own background, and a name
-  // drawn on it has no colour behind it, so each letter would keep whichever
-  // colour the half block under it happened to put in its background
+  // cut short of them. The band is what stands the outline off whatever is under
+  // it, so a name over it would join the selection to the tile next to it
   const ring = opts.mark === undefined ? undefined : inside(opts.mark);
   // whether pixel (x, y) is the outline or its band; `across` asks only about
   // the two runs along the top and the bottom
@@ -655,11 +656,15 @@ export function paintMap(
     if (stringWidth(label) === 0) {
       continue;
     }
-    const under = pixels.get(start, row * 2 + 1);
     if (level <= 0) {
       painter.text(left + start, top + row, label);
     } else {
-      painter.text(left + start, top + row, label, { bg: under, fg: inkOn(under, level) });
+      // the flat colour rather than the pixel under the name, which the cushion
+      // shades: one ink only reads on every name when every name is on one colour
+      painter.text(left + start, top + row, label, {
+        bg: categoryColor(tile.category, level),
+        fg: ink(level),
+      });
     }
   }
 }

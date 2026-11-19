@@ -1,4 +1,4 @@
-import { CATEGORIES } from '../src/disk.ts';
+import { CATEGORIES, type Category } from '../src/disk.ts';
 import type { DiskNode } from '../src/scan.ts';
 import {
   type Box,
@@ -23,10 +23,11 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(sep, 'root');
 
 /** A file of `bytes` under `dir`. */
-function file(dir: string, name: string, bytes: number): DiskNode {
+function file(dir: string, name: string, bytes: number, category?: Category): DiskNode {
   return {
     bytes,
-    category: name.endsWith('.ts') ? 'code' : name.endsWith('.png') ? 'image' : 'other',
+    category:
+      category ?? (name.endsWith('.ts') ? 'code' : name.endsWith('.png') ? 'image' : 'other'),
     files: 1,
     kind: 'file',
     name,
@@ -376,11 +377,11 @@ describe('paintMap()', () => {
     expect(rows[row]?.indexOf('alpha')).toBeGreaterThan(tile.x);
   });
 
-  // the band inside the outline is the terminal's own background, and a name
-  // that started on it took that as its background: none, so each glyph kept
-  // whichever colour the half block under it had put in its background, and
-  // some letters of the name lost their tile's colour and some did not
-  it('should give every letter of a name its tile colour behind a selection', () => {
+  // a name that started on the band inside the outline was drawn on the
+  // terminal's own colour, so each letter kept whichever colour the half block
+  // under it had put in its background; and a name over the band covers what
+  // stands the outline off the tiles beside it
+  it('should keep a name off the band inside a selection, and give every letter a colour', () => {
     const lib = join(ROOT, 'lib');
     const root = dir(ROOT, [
       dir(lib, [file(lib, 'component-options.ts', 700), file(lib, 'styled-screen.ts', 500)]),
@@ -389,7 +390,19 @@ describe('paintMap()', () => {
     const layout = layoutMap(root, 60, 30);
     for (const level of [1, 2, 3]) {
       for (const marked of [lib, join(ROOT, 'turbo-build.log')]) {
-        const { rows, style } = paint(layout, level, layout.byPath.get(marked));
+        // what the app outlines: a directory divided into tiles has no box of its own
+        const mark = markFor(layout, marked, ROOT);
+        expect(mark, marked).toBeDefined();
+        const { rows, style } = paint(layout, level, mark);
+        const ring = inside(mark as Box);
+        const right = ring.x + ring.w - 1;
+        const bottom = ring.y + ring.h - 1;
+        const band = (x: number, y: number): boolean =>
+          x >= ring.x &&
+          x <= right &&
+          y >= ring.y &&
+          y <= bottom &&
+          (x <= ring.x + 1 || x >= right - 1 || y <= ring.y + 1 || y >= bottom - 1);
         let names = 0;
         for (const name of ['component-options.ts', 'styled-screen.ts', 'turbo-build.log']) {
           const y = rows.findIndex((line) => line.includes(name.slice(0, 6)));
@@ -399,13 +412,41 @@ describe('paintMap()', () => {
           names++;
           const x = rows[y]?.indexOf(name.slice(0, 6)) ?? -1;
           for (let i = 0; i < 6; i++) {
-            expect(style(x + i, y)?.bg, `${name} [${i}] at ${level}, ${marked}`).not.toBe(
-              DEFAULT_COLOR
-            );
+            const at = `${name} [${i}] at ${level}, ${marked}`;
+            expect(band(x + i, y * 2) || band(x + i, y * 2 + 1), at).toBe(false);
+            expect(style(x + i, y)?.bg, at).not.toBe(DEFAULT_COLOR);
           }
         }
         expect(names, `names drawn at ${level}, ${marked}`).toBeGreaterThan(1);
       }
+    }
+  });
+
+  // the ink was black or white for whichever read on the pixel under a name's
+  // first cell, which the cushion shades, so within one kind some names were
+  // black and some white; every name is black now, on its kind's flat colour
+  it('should write every name in one ink, on the flat colour of its kind', () => {
+    const kinds = CATEGORIES.map((category, i) =>
+      file(ROOT, `${category}-file`, 900 - i * 60, category)
+    );
+    const layout = layoutMap(dir(ROOT, kinds), 80, 40);
+    for (const level of [1, 2, 3]) {
+      const { rows, style } = paint(layout, level);
+      const inks = new Set<unknown>();
+      for (const node of kinds) {
+        const y = rows.findIndex((line) => line.includes(node.name.slice(0, 5)));
+        expect(y, `${node.name} at ${level}`).toBeGreaterThanOrEqual(0);
+        const x = rows[y]?.indexOf(node.name.slice(0, 5)) ?? -1;
+        for (let i = 0; i < 5; i++) {
+          inks.add(style(x + i, y)?.fg);
+          expect(style(x + i, y)?.bg, `${node.name} [${i}] at ${level}`).toBe(
+            categoryColor(node.category, level)
+          );
+        }
+      }
+      expect([...inks], `level ${level}`).toEqual([
+        level === 1 ? palette(0) : level === 3 ? rgb(16, 16, 20) : [...inks][0],
+      ]);
     }
   });
 });
