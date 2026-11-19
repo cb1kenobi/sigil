@@ -2711,7 +2711,9 @@ without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
-element around the component. A wrapper that forwards `props` types them as
+element around the component -- except `onFocusChange`, which is told only to
+the element whose own focus changed, so one around the component never hears
+it; style on `:focus-within` there instead. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
 `refuseOwnedHooks(who, props, hooks)` from
@@ -5328,7 +5330,12 @@ so neighbours meet with no gap and no overlap.
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it.
+  drawn whole find it. While the map has the focus the outline is green, so the
+  reader can tell where the arrows go; only the colour changes, so at colour
+  level 0 a focused map looks like an unfocused one. The colour is the map's
+  `border-color`: the framework's sheet says `.sigil-treemap:focus { border-color:
+  green }`, a `:focus` rule of your own replaces it, and `.sigil-treemap {
+  border-color: … }` colours the outline in both states.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it

@@ -1251,7 +1251,9 @@ about where the space went.
 - **Colour is the kind of file, never depth.** Seven kinds -- code, text and
   documents, images, audio and video, archives, binaries, other -- because at 16
   colours there are six hues and a grey, one each, and the selection is bright white,
-  which none is. At 256 each is an RGB quantized by the library's quantizer; at
+  which none is. While the map has the focus the selection is green (SIG-497), which
+  the archives are too; the band inside the outline and the gap outside it keep it a
+  ring, and it matches the panel's green \`:focus-within\` border. At 256 each is an RGB quantized by the library's quantizer; at
   truecolor it is shaded as a cushion (van Wijk and van de Wetering), which is what
   makes nesting show inside a colour. Not at 256: tried there, the cube cut each
   cushion into a few flat bands and moved its hue as it darkened -- a yellow tile

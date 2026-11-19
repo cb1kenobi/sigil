@@ -20,7 +20,7 @@ import {
   treemapTileAt,
   treemapTileColors,
 } from '../../src/components/treemap.js';
-import { box, renderToString } from '../../src/element/index.js';
+import { box, type Element, renderToString } from '../../src/element/index.js';
 import {
   createInput,
   type DescribeOptions,
@@ -1368,6 +1368,209 @@ describe('describeTreemap', () => {
       'Expected an element that Treemap() returned'
     );
     expect(live).toHaveLength(0);
+  });
+});
+
+describe('Treemap focus', () => {
+  /**
+   * Mounts a map of `PAIR` with `a` current, and hands back the element as well,
+   * whose resolved style is what the outline's colour is read from.
+   */
+  async function mounted(
+    colorLevel: 0 | 1 | 2 | 3,
+    opts: { sheets?: string[]; theme?: string } = {}
+  ) {
+    const term = createTestTerminal({ colorLevel, columns: 20, rows: 6 });
+    let map: Element | undefined;
+    const app = runApp(
+      () =>
+        (map = Treemap({
+          ...PAIR_PROPS,
+          current: `${ROOT}/a`,
+          props: { 'flex-grow': 1 },
+          root: PAIR,
+        })),
+      { detect: false, sheets: opts.sheets, terminal: term.terminal, theme: opts.theme }
+    );
+    apps.push(app);
+    await frame(app);
+    return {
+      app,
+      blur: async () => {
+        app.input?.focus.focus(undefined);
+        await frame(app);
+      },
+      focus: async () => {
+        await term.press(KEYS.tab);
+        await frame(app);
+      },
+      map: map as Element,
+      term,
+    };
+  }
+
+  /** The cell at the middle of `a`'s left edge, which is the outline. */
+  const TILE = layoutTreemap(PAIR, 20, 12, READ).byKey.get(`${ROOT}/a`) as TreemapBox;
+  const EDGE = { x: TILE.x, y: Math.floor((TILE.y + TILE.h / 2) / 2) };
+
+  /** An SGR in `text` that sets palette colour `n` (0 to 7) as a foreground or a background. */
+  const sets = (text: string, n: number) =>
+    new RegExp(`\\[(?:[0-9;]*;)?(?:${30 + n}|${40 + n})[;m]`).test(text);
+
+  /** The outline's colour on the edge cell, painted at `level` in `outline`. */
+  const edge = (level: 0 | 1 | 2 | 3, outline?: number) => {
+    const canvas = createCanvas({ height: 6, width: 20 });
+    canvas.paint((painter) =>
+      paintTreemap(painter, 0, 0, layoutTreemap(PAIR, 20, 12, READ), {
+        label: () => '',
+        level,
+        mark: TILE,
+        outline,
+      })
+    );
+    canvas.present();
+    return canvas.snapshot().cellStyle(EDGE.x, EDGE.y);
+  };
+
+  // the focus is a colour and only a colour: a thicker outline and a frame of box
+  // characters were both tried, and both made what is inside the tile jump
+  it('should draw the same cells focused as not, at every level, which are the cells it always drew', async () => {
+    const map = layoutTreemap(PAIR, 20, 12, READ);
+    for (const level of [0, 1, 2, 3] as const) {
+      const m = await mounted(level);
+      const before = m.term.viewport;
+      // the map as `paintTreemap()` draws it with no focus to speak of, less the
+      // spaces a screen does not keep at the end of a row
+      expect(before, `level ${level}`).toStrictEqual(
+        paint(map, level, map.byKey.get(`${ROOT}/a`)).rows.map((row) => row.trimEnd())
+      );
+      await m.focus();
+      expect(m.app.input?.focus.current.get(), `level ${level}`).toBe(m.map);
+      expect(m.term.viewport, `level ${level}`).toStrictEqual(before);
+      await m.blur();
+      expect(m.term.viewport, `level ${level}`).toStrictEqual(before);
+    }
+  });
+
+  it('should outline the current tile in green while the map has the focus, from the framework sheet', async () => {
+    for (const level of [1, 2, 3] as const) {
+      const m = await mounted(level);
+      // nothing sets it unfocused, so the outline is bright white
+      expect(m.map.style.borderColor, `level ${level}`).toBe(DEFAULT_COLOR);
+      await m.focus();
+      const green = m.map.style.borderColor;
+      // what the sheet's `green` resolves to, which at 16 colours is the palette's
+      expect(green, `level ${level}`).toBe(palette(2));
+      expect(edge(level, green)?.fg, `level ${level}`).toBe(quantizeColor(green, level));
+      await m.blur();
+      expect(m.map.style.borderColor, `level ${level}`).toBe(DEFAULT_COLOR);
+    }
+    // and on the screen at 16 colours, where an SGR names the palette colour
+    const m = await mounted(1);
+    const unfocused = m.term.output;
+    expect(sets(unfocused, 2)).toBe(false);
+    await m.focus();
+    const focused = m.term.output.slice(unfocused.length);
+    expect(sets(focused, 2)).toBe(true);
+    await m.blur();
+    // bright white again
+    expect(m.term.output.slice(unfocused.length + focused.length)).toMatch(/\[(?:[0-9;]*;)?97[;m]/);
+  });
+
+  it('should look the same focused or not at level 0, where there is no colour', async () => {
+    // the paint does not read the colour at level 0
+    for (let y = 0; y < 6; y++) {
+      for (let x = 0; x < 20; x++) {
+        const at = (outline?: number) => {
+          const canvas = createCanvas({ height: 6, width: 20 });
+          canvas.paint((painter) =>
+            paintTreemap(painter, 0, 0, layoutTreemap(PAIR, 20, 12, READ), {
+              label: (t) => (t.kind === 'rest' ? '' : t.item.name),
+              level: 0,
+              mark: TILE,
+              outline,
+            })
+          );
+          canvas.present();
+          const shot = canvas.snapshot();
+          return [shot.charAt(x, y), shot.cellStyle(x, y)];
+        };
+        expect(at(palette(2)), `${x},${y}`).toStrictEqual(at());
+      }
+    }
+    // and a mounted map's screen is the same either way
+    const m = await mounted(0);
+    const before = m.term.viewport;
+    await m.focus();
+    expect(m.app.input?.focus.current.get()).toBe(m.map);
+    expect(m.term.viewport).toStrictEqual(before);
+  });
+
+  it("should let an app's or a theme's :focus rule colour the focused outline instead", async () => {
+    for (const opts of [
+      { sheets: ['.sigil-treemap:focus { border-color: yellow }'] },
+      { theme: '.sigil-treemap:focus { border-color: yellow }' },
+    ]) {
+      const m = await mounted(1, opts);
+      const unfocused = m.term.output;
+      expect(sets(unfocused, 3), JSON.stringify(opts)).toBe(false);
+      await m.focus();
+      expect(m.map.style.borderColor, JSON.stringify(opts)).toBe(palette(3));
+      const focused = m.term.output.slice(unfocused.length);
+      expect(sets(focused, 3), JSON.stringify(opts)).toBe(true);
+      expect(sets(focused, 2), JSON.stringify(opts)).toBe(false);
+    }
+  });
+
+  it("should outline in the map's border-color where a sheet gives one, which beats the default's green", async () => {
+    const m = await mounted(1, { theme: '.sigil-treemap { border-color: magenta }' });
+    expect(m.map.style.borderColor).toBe(palette(5));
+    expect(sets(m.term.output, 5)).toBe(true);
+    expect(m.term.output).not.toMatch(/\[(?:[0-9;]*;)?97[;m]/);
+    // the origin decides before specificity is asked, so the theme's one class
+    // beats the framework's `:focus` and the outline stays the theme's
+    await m.focus();
+    expect(m.map.style.borderColor).toBe(palette(5));
+  });
+
+  it("should draw the outline in the colour it is given, degraded to the level, and white for the terminal's own", () => {
+    expect(edge(3, rgb(255, 200, 0))?.fg).toBe(rgb(255, 200, 0));
+    expect(edge(1, palette(3))?.fg).toBe(palette(3));
+    expect(edge(2, rgb(255, 200, 0))?.fg).toBe(quantizeColor(rgb(255, 200, 0), 2));
+    expect(edge(2, rgb(255, 200, 0))?.fg).not.toBe(rgb(255, 200, 0));
+    // the terminal's own is no colour at all, so the outline stays white
+    expect(edge(3, DEFAULT_COLOR)?.fg).toBe(rgb(255, 255, 255));
+    expect(edge(1)?.fg).toBe(palette(15));
+    // and at level 0 there is no colour to give it
+    expect(edge(0, palette(3))?.fg).toBe(DEFAULT_COLOR);
+  });
+
+  // the restyle a `:focus` rule causes is what repaints the map, since a
+  // border-color that changed marks the element's paint: the map has no focus
+  // handler of its own, so an app may give it one
+  it('should hear an onFocusChange given in its props, which it leaves to the app', async () => {
+    const heard: boolean[] = [];
+    const term = createTestTerminal({ colorLevel: 1, columns: 20, rows: 6 });
+    const app = runApp(
+      () =>
+        Treemap({
+          ...PAIR_PROPS,
+          current: `${ROOT}/a`,
+          props: { 'flex-grow': 1, onFocusChange: (_, now) => heard.push(now) },
+          root: PAIR,
+        }),
+      { detect: false, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    const unfocused = term.output;
+    await term.press(KEYS.tab);
+    await frame(app);
+    app.input?.focus.focus(undefined);
+    await frame(app);
+    expect(heard).toStrictEqual([true, false]);
+    // and the outline still went green and back
+    expect(sets(term.output.slice(unfocused.length), 2)).toBe(true);
   });
 });
 

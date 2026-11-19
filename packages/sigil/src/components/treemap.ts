@@ -79,7 +79,9 @@ export interface TreemapProps<T, K = T> {
    * gathered together -- is a checker of this colour and a second, which is it
    * darkened, or at 16 colours its bright twin. A gathered tile is the colour that
    * covers the most size among what it gathers, unless `moreColor` says. The
-   * outline of the current item is bright white, so no item should be.
+   * outline of the current item is bright white, so no item should be; while the
+   * map has the focus it is green, unless the map's `border-color` says otherwise,
+   * and a green item is fine, since the band inside the outline keeps it apart.
    *
    * Called as the map paints, so a signal it reads repaints it. Defaults to one
    * blue for everything.
@@ -90,7 +92,10 @@ export interface TreemapProps<T, K = T> {
    * shape `ListView`'s `current` has. A click writes it. An item with no tile of
    * its own outlines what it was drawn in: the tile it was gathered into, or the
    * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
-   * root is the whole map and is not outlined.
+   * root is the whole map and is not outlined. The outline is the map's
+   * `border-color`: bright white where nothing sets one, and green while the map
+   * has the focus, which is how a reader tells where the arrows go. Only the
+   * colour changes, so at colour level 0 the two look the same.
    */
   current?: K | State<K | undefined>;
   /**
@@ -162,7 +167,9 @@ export interface TreemapProps<T, K = T> {
   parent?: (key: K) => K | undefined;
   /**
    * The element's own props: a size, a class, `flex-grow`. The map is focusable,
-   * which `focusable: false` here takes back, along with its keys.
+   * which `focusable: false` here takes back, along with its keys. Its
+   * `border-color` is the outline's colour: `.sigil-treemap:focus` colours the
+   * focused outline, and `.sigil-treemap` from a theme or the app colours both.
    */
   props?: ElementPropsWithout<'onKey' | 'onMouse'>;
   /**
@@ -905,6 +912,12 @@ export interface TreemapPaint<T> {
   readonly level: ColorLevel;
   /** The box the current item is outlined around, from {@link treemapMark}. */
   readonly mark?: TreemapBox;
+  /**
+   * The outline's colour, where it is not bright white: the map's `border-color`,
+   * which the framework sheet makes green while the map has the focus. Not read
+   * at level 0, or where it is the terminal's own.
+   */
+  readonly outline?: Color;
 }
 
 /**
@@ -951,7 +964,14 @@ export function paintTreemap<T, K>(
 
   if (opts.mark !== undefined) {
     const ring = inside(opts.mark);
-    const mark = level <= 0 ? on : level === 1 ? palette(15) : quantizeColor(MARK, level);
+    const mark =
+      level <= 0
+        ? on
+        : opts.outline !== undefined && opts.outline !== DEFAULT_COLOR
+          ? quantizeColor(opts.outline, level)
+          : level === 1
+            ? palette(15)
+            : quantizeColor(MARK, level);
     // at level 0 the outline is the same "on" as everything else, so a marked
     // tile is hollow: its outline and nothing inside it
     const hollow = level <= 0 && layout.tiles.includes(opts.mark as TreemapTile<T>);
@@ -1097,7 +1117,9 @@ function moreWords(count: number, room: number): string {
  * It is focusable. With the focus, the arrow keys move `current` to the tile next
  * to it that way ({@link treemapNeighbor}), as a click on that tile would -- and
  * `h`, `j`, `k` and `l` with `vim` -- and Enter calls `onActivate`, as a double
- * click on a tile does; `describeTreemap()` lists them for a footer.
+ * click on a tile does; `describeTreemap()` lists them for a footer. The outline
+ * is the map's `border-color`, which the framework sheet makes green while it has
+ * the focus, and bright white where nothing sets one.
  *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
@@ -1219,6 +1241,9 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
             marked === undefined || marked === untrack(() => keyOf(root))
               ? undefined
               : treemapMark(layout, marked, { key: keyOf, parent: props.parent }),
+          // a style property that does not inherit, so a colour around the map
+          // never reaches the outline, and one a sheet gives `:focus` does
+          outline: self.style.borderColor,
         });
       },
     },

@@ -69,9 +69,11 @@ export const FRAMEWORK_CSS = `
  * placeholder, an answer, a choice hint and a decrypt's cipher cells, which were
  * six rules to find and write before. A role is a single class, so a theme or an
  * app beats it with a single class -- and beats it by *origin* rather than by
- * specificity, which is what makes that enough: every rule in this sheet is
- * (0,1,0) now, so a one-class theme rule meets a one-class default and the origin
- * is the only axis left to decide it. The compound (0,2,0) colour rules this used
+ * specificity, which is what makes that enough: every rule in this sheet but the
+ * treemap's :focus one is (0,1,0), so a one-class theme rule meets a one-class
+ * default and the origin is the only axis left to decide it -- and the origin
+ * decides before specificity is asked, so the one (0,2,0) rule loses to a theme's
+ * one-class rule too. The compound (0,2,0) colour rules this used
  * to say it beat -- .sigil-symbol.is-success and its siblings -- are gone, because
  * the role is where that colour went.
  *
@@ -360,6 +362,23 @@ export const FRAMEWORK_CSS = `
  * border colour is the theme's, and the default is the terminal's foreground.
  */
 .sigil-panel { flex-grow: 1 }
+
+/*
+ * a treemap
+ *
+ * The sixteenth declared exception to the role rule, and the one keyed on a state
+ * again, as the retired sixth was: a focused map's outline is green. The outline is
+ * the current tile's, drawn in the map's border-color, and it is bright white
+ * where nothing sets one -- so the focus is a colour, and only a colour, because a
+ * thicker outline or a frame of box characters made the tiles inside jump. Not the
+ * focus role, which is inverse and means nothing to a half-block outline; not
+ * .sigil-success, which says a thing went well and is not a focus. Green because
+ * the disk usage example's panels go green on :focus-within, so the map's focused
+ * outline matches the panel it is in. A palette index, like every colour here, so
+ * it is the user's own green and needs no light half. At colour level 0 there is
+ * no colour to change, and a focused map looks like an unfocused one.
+ */
+.sigil-treemap:focus { border-color: green }
 
 /*
  * the debug overlay
