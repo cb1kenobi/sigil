@@ -46,8 +46,10 @@ goes outside the group.
 - A heading's anchor is the slug GitHub gives it (`src/lib/markdown-doc.ts`),
   because the guides link to themselves with fragments only GitHub's rule has
   to satisfy. `test/guides.test.ts` follows every link in them: one to a sibling
-  guide becomes its route, one to anything else in the repository becomes that
-  file on GitHub (`src/lib/guide-links.ts`).
+  guide becomes its route, one to a component's own source file
+  (`../src/components/list-view.ts`) becomes that component's page, and one to
+  anything else in the repository becomes that file on GitHub
+  (`src/lib/guide-links.ts`).
 - The parser reference is one page. Its 17 sections cross-link by fragment, the
   link test checks them against one file's headings, and the rail is the
   navigation a split would have needed.
