@@ -13597,8 +13597,6 @@ as a checker, every tile's last column and row in the terminal's own background
 and one more inside an item directly under the root, the cushion at truecolor only
 (the example's measurement at 256 is why), level 0 as `Pixels`' shapes with a
 marked tile hollow, and names written after the pixels and kept off the outline.
-SIG-497 replaced the half-block outline and its band with a frame of box-drawing
-lines for every mark big enough to hold one: "A treemap's focus", below.
 
 - **The tree is read through accessors over the app's own nodes**: `size`,
   `children` and `key`, `ListView`'s `key` shape, with `T` the app's node and `K`
@@ -13728,8 +13726,9 @@ lines for every mark big enough to hold one: "A treemap's focus", below.
   read while the map paints, so a signal behind it repaints the map. With no
   `color` every tile is one blue, which is enough: the edges are what separate
   tiles, and a hue means something only the app knows. The outline is bright white
-  (`palette(15)` at 16), which the docs say no item should be. SIG-497 lets the
-  map's `border-color` give it another.
+  (`palette(15)` at 16), which the docs say no item should be. Since SIG-497 it is
+  the map's `border-color` where one is set, which the framework sheet makes green
+  while the map has the focus (below).
 - **A name on a colour is black or white at 256 too.** The example's ink read the
   fill's channels with `rgbChannels()`, which has none for a palette index -- and at
   256 every fill had been quantized to one -- so every name at 256 was drawn in the
@@ -13757,10 +13756,7 @@ lines for every mark big enough to hold one: "A treemap's focus", below.
   with the terminal's size. `should keep a name off the band inside a mark, and
   give every letter a colour` and `should write every name of a colour in one ink,
   on that flat colour` fail without these two, and the second fails an ink that is
-  always black as well. SIG-497 put a frame where the outline and the band were,
-  and the rule followed it: a name is kept off the frame's lines and the half rows
-  it leaves over, and the first test is now `should keep a name off the frame round
-  a mark, and give every letter a colour`.
+  always black as well.
 - **`label` and `moreLabel` are the names, drawn as a text draws them.**
   `toDisplayLine()` takes the control characters out, since `painter.text()`
   refuses one; the example still turns them into `�` with `printable()` before
@@ -13915,8 +13911,8 @@ Enter.
   so at a glance a focused map and an unfocused one look alike, as at level 0 a
   focused list does; a panel's `:focus-within`, which the example has, is where
   it shows. A focused outline is a colour, and the outline's colour is already the
-  one bright white no item may be. SIG-497 draws it as a shape instead: "A
-  treemap's focus", below.
+  one bright white no item may be. SIG-497 made it green anyway, accepting that it
+  can match a tile: "A treemap's focus", below.
 - **The example's map takes the focus.** A click on a tile focused the tree,
   because the keys for the selection -- Backspace, `d`, `t` -- were on the tree's
   panel and the map had none. They are on the box around both panels now, and a
@@ -13926,127 +13922,86 @@ Enter.
 - **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` (SIG-499 gave the
   map the same option, below); a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
-  over rectangles; and drawing the focus (SIG-497 did, below).
+  over rectangles; and drawing the focus (SIG-497 did, as a colour: below).
 
-### A treemap's focus: a frame in single lines, and double while the map has the focus (SIG-497)
+### A treemap's focus: the outline turns green, and nothing else changes (SIG-497)
 
 Since SIG-491 the map takes the focus and the arrows, and its outline looked the
-same either way, so a reader could not tell whether an arrow would move the map
-or something else. It shows now, at every colour level.
+same either way, so a reader could not tell whether an arrow would move the map or
+something else. Now the outline is green while the map has the focus.
 
-- **The current item is framed in box-drawing lines: single (`┌─┐│└┘`) while the
-  map does not have the focus, double (`╔═╗║╚╝`) while it does.** The first
-  version drew the half-block outline two pixels thick while focused, and Chris,
-  having tried it, found the double-width border worse; he chose this from
-  mockups. A focus at colour level 0 has to be a shape, by SIG-278's rule for that
-  level, and a single line beside a double one is the shape `border-style` already
-  uses for a quiet frame and an active one. The frame takes the same cells in both
-  states, so only the line changes when the focus moves and no name moves with it,
-  which the heavier outline could not say: it moved a name a row down while the map
-  had the focus. It replaces the half-block outline and its band for every mark big
-  enough to hold a frame. `should frame the current item in single lines, and in
-  double while the map has the focus, at every level` holds both, and that the
-  cells are the same.
-- **In whole cells inside the mark, with an edge on a half cell moved in.** The map
-  lays out in pixels, a cell wide and half a cell tall, and a glyph takes a whole
-  cell. The frame goes in the mark's coloured part (`inside()`: all of its box but
-  the last column and pixel row), on the first and last whole cell rows of it, so a
-  top or bottom edge that falls on half a cell moves in to the next whole row. The
-  half row left over is the terminal's own background, which is the part the band
-  played: it stands the frame off whatever is beside it. Never outside, for the
-  reason the heavier outline was drawn inwards rather than out: the gap outside the coloured
-  part belongs to the neighbours, and a frame on it joins the mark to them. It
-  comes out even on both sides because each tile's gap is its own last column and
-  row, so a frame has its left neighbour's gap on its left and its own on its
-  right. `should move an edge on a half cell in to the first whole row, and draw
-  nothing outside the mark` compares every cell outside the mark's box with the map
-  unmarked.
-- **The lines are the outline's colour on the terminal's own background**, so a
-  frame reads the same over any tile; at level 0 they are the terminal's own
-  colours, as everything there is. A marked tile is still hollow at level 0, its
-  frame round nothing but its name, since "on" for the tile and "on" for a line are
-  one colour there; at a colour level the inside is the tile, as the mockup has it.
-- **A mark too small for a frame keeps the half-block outline, and shows no focus.**
-  A frame needs two columns and two whole cell rows inside the coloured part, which
-  is the four corners and nothing between them, the case `paintBorder()` draws as
-  corners too. Less than that has nowhere for the corners to go: the narrowest tile
-  the layout draws is three pixels a side, two of them coloured, which holds one
-  whole row at most. So such a mark is outlined in half blocks with the band inside,
-  exactly as before, and looks the same focused or not. That is a recorded limit,
-  as "two pixels or less" was for the heavier outline, rather than a second
-  mechanism. `should outline a mark too small for a frame in half blocks, the same
-  focused or not` pins it.
-- **A name is kept off the lines, inside the frame.** `offCell()` asks whether a
-  cell is a line of the frame or one of the half rows it leaves over, so a name on
-  the marked tile starts on the first row inside the frame, one column in, and is
-  cut short of the right-hand line; round a mark too small for one, it asks the old
-  pixel question of the outline and its band. Under a name there is always the
-  tile's own colour, which is what the band rule was for. `should keep a name off
-  the frame round a mark, and give every letter a colour` checks every letter
-  focused and not, and that every line of the frame is still there after the names.
-- **A divided item's box is framed over its tiles.** The box holds child tiles
-  rather than a colour of its own, so the lines go on its edge cells and the
-  child pixels under them give way; inside the line is a child tile, not a band,
-  and the children's names are kept off the lines as any name is. `should frame a
-  divided item's box over its tiles, which give way under its lines`.
-- **No ASCII frame, because the map has no ASCII form (for Chris to decide).** The
-  components that draw boxes take `ascii`, defaulting to `!unicodeSupported()`, and
-  draw `+-|` where it is set. The map's tiles are half blocks at every level and in
-  every terminal, and `Pixels` has no ASCII form, so a `+-|` frame would sit on
-  `▀▄█` in exactly the terminal the heuristic says can draw neither -- an `ascii`
-  option on the map that changes only its frame would say something untrue. And
-  `unicodeSupported()` lives in `note.ts`, whose graph has the theme in it: the
-  treemap's entry was 206,164 B over 35 modules, and the union of its static graph
-  with the note's is 239,420 B over 41, which is what importing it would load -- the
-  kind of cost SIG-496 had just taken off. A map that draws in ASCII is a
-  ticket of its own, and its frame's focus would need an answer there (`=` for the
-  focused horizontals is the obvious one).
-- **The lines are `borderChars()` from `@ttylabs/sigil/element`**, the table a
-  border is drawn from, published for this. A helper has one definition: the
-  treemap reads `single` and `double` there rather than spelling eight characters
-  twice. It costs the entry nothing new, since the treemap already imported that
-  module for `toDisplayLine()`: 207,134 B over the same 35 modules after the change,
-  the difference being the frame's own code. See the entry in `src/element`.
-- **The colour is the map's `border-color`, read from its resolved style.** That
-  is how a `raw` takes a theme colour (the scroll box's track and thumb are
-  `cellStyle(element.style)` over a class of their own). The map has no part to
-  put a class on: the frame is cells in its paint. So the property read has to be
-  one that a theme can set on the map, that means nothing else to it, and that
-  does not inherit. `color` inherits, so a map inside `.sigil-error` or a coloured
-  panel would have had its frame turned red by something that was never about the
-  map, which changes today's look for apps that wrote nothing. `border-color` does
-  not inherit, and a map draws no border unless an app gives it a `border-style`.
-  An app that does is drawing the map's frame and the current item's in one
-  colour, which reads as one thing. So `.sigil-treemap:focus { border-color:
-  yellow }` colours the focused frame, `.sigil-panel:focus-within .sigil-treemap {
-  ... }` reaches it from around it, and `.sigil-treemap { border-color: ... }`
-  colours both states. Where nothing sets it, it is the terminal's own
-  (`DEFAULT_COLOR`), which is read as "not given", and the frame is bright white as
-  the outline always was. Not read at level 0. `should let a theme colour the
-  focused frame through :focus` runs the sheet through `runApp()` at 16 colours.
-- **Not `.sigil-focus`.** The role is `inverse`, which is a swap of the
-  terminal's two colours on a cell. Reading the role's attributes off the map to
-  decide a shape would make `.sigil-focus { inverse: false; text-decoration:
-  underline }`, a theme SIG-278 tests, turn the map's focus off. The role stays on
-  the parts of controls that are text.
-- **The map owns `onFocusChange`.** The paint reads the focus from a variable the
-  handler sets, and the handler asks for the paint, which is the pane edge's and
-  the list's shape. A selector matching `:focus` restyles the map only when a rule
-  changes something, so with no sheet the paint would never be asked for. So
-  `onFocusChange` in `props` is refused, as `onKey` and `onMouse` are (SIG-305),
-  and the props type leaves it out. A handler on an element around the map does
-  not hear it either: `onFocusChange` is told only to the element whose own state
-  flipped (review round 2 of the rework). So an app that styles on the map's focus
-  uses `:focus-within` on an element around it, and one that needs the event has
-  no way to it yet -- a gap, recorded for Chris, that a `TreemapProps` callback the
-  map calls after its own would close. Pre-existing for every component that owns
-  the hook, and the README's "put a handler for those on an element around the
-  component" says otherwise for `onFocusChange`.
-- **The default stays bright white, focused or not.** The disk usage example
-  could colour its focused frame green to match its panels. It does not, because
-  the outline is the one colour the docs promise no item is, and a green frame
-  could land on a green tile. The double line is enough on its own, and an app
-  that wants a colour writes one rule.
+- **A colour and only a colour, which is Chris's choice after trying two
+  shapes.** The first version drew the outline two pixels thick while the map
+  had the focus, and the second framed the current item in box-drawing lines,
+  single and then double. Both are shapes, which is what SIG-278 asks a focus at
+  colour level 0 to be. Chris tried each and found that both made the tiles
+  inside jump, because a terminal draws them at so coarse a resolution: the
+  thicker outline moved a name a row down, and the double line made the content
+  jump too much. So the
+  outline is main's -- one pixel of half blocks, a one-pixel band of the
+  terminal's own background inside it, names kept off both -- focused or not, and
+  only its colour changes. `paintTreemap()` has no `focused`, so there is no
+  geometry for the focus to reach. `should draw the same cells focused as not, at
+  every level, which are the cells it always drew` mounts the map at every level,
+  compares its screen with `paintTreemap()`'s, then focuses and blurs it.
+- **So a focused map at colour level 0 looks like an unfocused one, and that is
+  the accepted trade.** It reverses the rule #493 started with, that a focus at
+  level 0 is something drawn. What shows the focus there is what showed it
+  before SIG-497: the panel around the map, where an app has one. `should look the
+  same focused or not at level 0, where there is no colour` holds the paint and
+  the mounted screen to it.
+- **The green is the framework sheet's: `.sigil-treemap:focus { border-color:
+  green }`**, the sixteenth declared exception to the role rule (the entry in
+  `src/theme`). The paint reads the map's resolved `border-color` and draws the
+  outline in it, degraded to the level, so the default lives in the sheet like
+  every other default colour. An app or a theme changes it with a `:focus` rule of
+  its own. Where nothing sets it, `border-color` is the terminal's own
+  (`DEFAULT_COLOR`), which is read as "not given", and the outline is bright white
+  as it always was. `palette(2)` is what the sheet's `green` resolves to, and
+  `should outline the current tile in green while the map has the focus, from the
+  framework sheet` reads it off the element rather than spelling it.
+- **`border-color` because it does not inherit and means nothing else to the
+  map.** That is how a `raw` takes a theme colour (the scroll box's track and
+  thumb are `cellStyle(element.style)` over a class of their own), and the map has
+  no part to put a class on: the outline is pixels in its paint. `color` inherits,
+  so a map inside `.sigil-error` or a coloured panel would have had its outline
+  turned red by something that was never about the map. A map draws no border
+  unless an app gives it a `border-style`, and an app that does is drawing the
+  map's frame and the outline in one colour, which reads as one thing.
+- **A theme's or an app's `.sigil-treemap { border-color: … }` colours both
+  states.** The origin decides before specificity is asked, so a one-class rule
+  from either beats the framework's `:focus` one. That is the sheet saying what the
+  outline is; a theme that wants a focus colour as well writes the `:focus` rule
+  beside it. `should outline in the map's border-color where a sheet gives one,
+  which beats the default's green` and `should let an app's or a theme's :focus rule
+  colour the focused outline instead` hold both.
+- **Green can be the colour of the tile it is drawn round, and that is accepted.**
+  SIG-491 gave not drawing the focus as a colour the reason that the outline's
+  bright white is the one colour the docs promise no item is. Green is not that:
+  the disk usage example's archives are green (`ansi: 2`), and a green outline
+  round an archive at 16 colours is the archive's own colour. The band inside the
+  outline and the gap outside it are both the terminal's background, so the
+  outline still reads as a ring standing off the tile; at 256 and truecolor the
+  two greens differ as well. Green because the example's panels turn green on
+  `:focus-within`, so the map's focused outline matches the panel it is in.
+- **Not `.sigil-focus`.** The role is `inverse`, a swap of the terminal's two
+  colours on a cell, which has no meaning for an outline drawn as half blocks in a
+  colour; and reading the role's attributes off the map to decide a colour would
+  make `.sigil-focus { inverse: false; text-decoration: underline }`, a theme
+  SIG-278 tests, take the map's focus away.
+- **The restyle is what repaints the map, so the map has no focus handler.** The
+  first version owned `onFocusChange`, refused one in `props`, and asked for a
+  paint from it, so that the paint would run when the focus moved. Measured on
+  this version, the handler did nothing: a `:focus` rule that changes
+  `border-color` restyles the map, a style compared by value marks its paint
+  ("Style invalidation" in `src/style`), and a tracked raw paints again. Taking
+  the handler out failed no test, including the one that asserts the green on the
+  screen after Tab. With no rule matching `:focus` nothing about the outline
+  changes, so nothing needs painting. So the map owns `onKey` and `onMouse` as
+  before and leaves `onFocusChange` to the app, which can now hear the map's focus
+  from `props` -- an element around the map would not, since a focus change is
+  told only to the element whose own state flipped. `should hear an onFocusChange
+  given in its props, which it leaves to the app`.
 
 ### A treemap's letters: `h`, `j`, `k` and `l` with `vim` (SIG-499)
 

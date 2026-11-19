@@ -107,19 +107,33 @@ the entry it belongs to.
   `strikethrough` longhand rather than `text-decoration: line-through`, because that
   shorthand resets `underline` as well and a struck link would lose its underline.
   Everything else markdown draws is on a role. `should
-  declare on a role, bar twelve exceptions that say why` is the invariant, and it
+  declare on a role, bar thirteen exceptions that say why` is the invariant, and it
   reads the **parsed** sheet rather than the source, because the comment listing
   the component classes as hooks would otherwise be mistaken for a rule. It was
   three until SIG-136, and the sentence here still said three for a commit after
   the test had been renamed -- which a review round pointed at by asking what
   counts elsewhere in this file the change had made false. It was fourteen until
-  SIG-278, the entry below, and it is twelve with the fifteenth. The fifteenth (SIG-277)
+  SIG-278, the entry below; twelve with the fifteenth, and thirteen with the sixteenth. The fifteenth (SIG-277)
   is `.sigil-panel { flex-grow: 1 }`, and it is the one exception that is a layout default
   and not a look: a panel fills its slot. It is in the sheet because the first version had
   it inline in the component's props, where a stylesheet could not undo it -- a prop beats
   a sheet -- and a panel used as a card in a column had no way to stop growing but a prop.
   The border's colour is deliberately not here; it is the theme's, and the default is the
-  terminal's foreground.
+  terminal's foreground. The sixteenth (SIG-497) is `.sigil-treemap:focus {
+  border-color: green }`, the first rule keyed on a state since the sixth was retired
+  and the one rule in the sheet that is not `(0,1,0)`. A treemap's outline round the
+  current tile is the map's `border-color`, bright white where nothing sets one, and
+  the focus is shown by colour alone: Chris tried a two-pixel outline and a frame of
+  box characters, and both made the tiles inside jump at a terminal's resolution. No
+  role is a focus that is a colour -- `.sigil-focus` is `inverse`, which has no
+  meaning on a half-block outline -- so it is an exception. Green because the disk
+  usage example's panels go green on `:focus-within`, so the focused map matches its
+  panel; a palette index, so it needs no light half. Its specificity costs a theme
+  nothing, since the origin decides before specificity is asked: a theme's
+  `.sigil-treemap { border-color: red }` beats it in both states, which is the theme
+  saying what the outline is. At colour level 0 there is no colour, so the focus does
+  not show there, which is the trade recorded under "A treemap's focus" in
+  `src/components`.
 
 - **The sixth, eighth and ninth are retired into an eighth role, `.sigil-focus`
   (SIG-278).** They were three `:focus` rules saying `inverse` -- the collapsible
@@ -130,7 +144,7 @@ the entry it belongs to.
   same part of every control nested inside a focused one. The rest of the
   exceptions keep their ordinals, because the ordinals are the order they were
   added and are how this file, the sheet and the history name them; eleven were
-  left, and the fifteenth below makes twelve. The shipped themes do not restate it -- a palette is a value for the seven
+  left, the fifteenth below makes twelve and the sixteenth thirteen. The shipped themes do not restate it -- a palette is a value for the seven
   roles that colour a surface, and the focus is the terminal's own two colours
   swapped under any of them. The reasoning, and what every Phase 9 widget does
   under it, is "Focus on a control" in `src/components`.

@@ -2653,11 +2653,6 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
-`borderChars(style)` is the eight characters a `border-style` draws a box with --
-top-left, top, top-right, right, bottom-right, bottom, bottom-left, left -- for a
-`raw` that frames something of its own the way a border would, as the treemap
-frames its current item; `undefined` for `none`.
-
 `printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
 instead. A `text` element drops one before it paints, so none reaches the
 terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
@@ -2716,7 +2711,9 @@ without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
-element around the component. A wrapper that forwards `props` types them as
+element around the component -- except `onFocusChange`, which is told only to
+the element whose own focus changed, so one around the component never hears
+it; style on `:focus-within` there instead. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
 `refuseOwnedHooks(who, props, hooks)` from
@@ -5329,18 +5326,16 @@ so neighbours meet with no gap and no overlap.
   blocks and spaces in the terminal's own colours and the edges between tiles are
   what show. Every tile keeps its last column and row in the terminal's own
   background, so two tiles never run together at any level.
-- **`current` is framed**, in bright white, and a left click on a tile moves it
+- **`current` is outlined**, in bright white, and a left click on a tile moves it
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it. The frame is box-drawing lines inside the item's
-  rectangle: single (`┌─┐`) while the map does not have the focus and double
-  (`╔═╗`) while it does, at every colour level, so the reader can tell where the
-  arrows go. A rectangle with less than two columns or two whole rows of cells
-  inside its edges is outlined in half blocks instead, the same either way. At a
-  colour level the frame's colour is the map's `border-color` where a sheet gives
-  one (at level 0 it is the terminal's own), so
-  `.sigil-treemap:focus { border-color: yellow }` colours the focused frame.
+  drawn whole find it. While the map has the focus the outline is green, so the
+  reader can tell where the arrows go; only the colour changes, so at colour
+  level 0 a focused map looks like an unfocused one. The colour is the map's
+  `border-color`: the framework's sheet says `.sigil-treemap:focus { border-color:
+  green }`, a `:focus` rule of your own replaces it, and `.sigil-treemap {
+  border-color: … }` colours the outline in both states.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it

@@ -20,7 +20,7 @@ import {
   treemapTileAt,
   treemapTileColors,
 } from '../../src/components/treemap.js';
-import { box, renderToString } from '../../src/element/index.js';
+import { box, type Element, renderToString } from '../../src/element/index.js';
 import {
   createInput,
   type DescribeOptions,
@@ -599,71 +599,18 @@ describe('treemapTileColors()', () => {
   });
 });
 
-/** What a frame is drawn with, clockwise from the top-left corner, as `border-style` spells them. */
-const SINGLE = ['┌', '─', '┐', '│', '┘', '─', '└', '│'] as const;
-const DOUBLE = ['╔', '═', '╗', '║', '╝', '═', '╚', '║'] as const;
-/** Any line of either. */
-const LINES = /[┌─┐│┘└╔═╗║╝╚]/u;
-
-interface Frame {
-  bottom: number;
-  left: number;
-  right: number;
-  top: number;
-}
-
-/**
- * The cells a frame round a mark should take: the whole cells inside its
- * coloured part, which is all of the box but its last column and pixel row.
- */
-function frameOf(mark: TreemapBox): Frame {
-  const ring = inside(mark);
-  return {
-    bottom: Math.floor((ring.y + ring.h) / 2) - 1,
-    left: ring.x,
-    right: ring.x + ring.w - 1,
-    top: Math.ceil(ring.y / 2),
-  };
-}
-
-/** The cells of a frame, each with the character it should be drawn with. */
-function frameCells(f: Frame, chars: readonly string[]): [x: number, y: number, char: string][] {
-  const [tl, top, tr, right, br, bottom, bl, left] = chars;
-  const cells: [number, number, string][] = [];
-  for (let x = f.left; x <= f.right; x++) {
-    const end = x === f.left ? 0 : x === f.right ? 2 : 1;
-    cells.push([x, f.top, [tl, top, tr][end] as string]);
-    cells.push([x, f.bottom, [bl, bottom, br][end] as string]);
-  }
-  for (let y = f.top + 1; y < f.bottom; y++) {
-    cells.push([f.left, y, left as string], [f.right, y, right as string]);
-  }
-  return cells;
-}
-
-/** What a frame's cells hold on screen, against what they should. */
-function framed(rows: readonly string[], f: Frame, chars: readonly string[]) {
-  const cells = frameCells(f, chars);
-  return {
-    got: cells.map(([x, y]) => `${x},${y} ${rows[y]?.[x]}`),
-    want: cells.map(([x, y, char]) => `${x},${y} ${char}`),
-  };
-}
-
 /** Paints a layout into a canvas the map's size and reads the cells back. */
 function paint(
   map: TreemapLayout<Node, string>,
   level: 0 | 1 | 2 | 3,
   mark?: TreemapBox,
-  colors?: readonly number[],
-  focused?: boolean
+  colors?: readonly number[]
 ): { rows: string[]; style: (x: number, y: number) => Style | undefined } {
   const height = Math.ceil(map.height / 2);
   const canvas = createCanvas({ height, width: map.width });
   canvas.paint((painter) =>
     paintTreemap(painter, 0, 0, map, {
       colors,
-      focused,
       label: (tile) => (tile.kind === 'rest' ? '' : tile.item.name),
       level,
       mark,
@@ -722,7 +669,7 @@ describe('paintTreemap()', () => {
     expect(cells).not.toContain('█');
   });
 
-  it('should frame the mark, and at level 0 draw a marked tile hollow', () => {
+  it('should outline the mark, and at level 0 draw a marked tile hollow', () => {
     const root = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
     const map = layout(root, 20, 12);
     const tile = map.byKey.get(`${ROOT}/a`) as TreemapBox;
@@ -733,9 +680,8 @@ describe('paintTreemap()', () => {
     const x = tile.x + Math.floor(tile.w / 2);
     expect(plain[y]?.[x]).toBe('█');
     expect(marked[y]?.[x]).toBe(' ');
-    // and its left edge is a line of the frame, where the tile was
-    expect(plain[y]?.[tile.x]).toBe('█');
-    expect(marked[y]?.[tile.x]).toBe('│');
+    // and its left edge is still drawn
+    expect(marked[y]?.[tile.x]).toBe('█');
 
     // at truecolor the outline is white, and bright white at 16
     expect([paint(map, 3, tile).style(tile.x, y)?.fg]).toContain(rgb(255, 255, 255));
@@ -786,10 +732,9 @@ describe('paintTreemap()', () => {
 
   // a name that started on the band inside the outline was drawn on the
   // terminal's own colour, so each letter kept whichever colour the half block
-  // under it had put in its background; and a name over the band covered what
-  // stood the outline off the tiles beside it. The frame took the band's place
-  // (SIG-497), and a name is kept off its lines and the half rows it leaves over
-  it('should keep a name off the frame round a mark, and give every letter a colour', () => {
+  // under it had put in its background; and a name over the band covers what
+  // stands the outline off the tiles beside it
+  it('should keep a name off the band inside a mark, and give every letter a colour', () => {
     const lib = `${ROOT}/lib`;
     const root = branch(ROOT, [
       branch(lib, [leaf(lib, 'component-options', 700), leaf(lib, 'styled-screen', 500)]),
@@ -797,42 +742,35 @@ describe('paintTreemap()', () => {
     ]);
     const map = layout(root, 60, 30);
     for (const level of [1, 2, 3] as const) {
-      for (const focused of [false, true]) {
-        for (const marked of [lib, `${ROOT}/turbo-build`]) {
-          // what the element outlines: an item divided into tiles has no box of its own
-          const mark = treemapMark(map, marked, UP);
-          expect(mark, marked).toBeDefined();
-          const { rows, style } = paint(map, level, mark, undefined, focused);
-          const ring = inside(mark as TreemapBox);
-          const f = frameOf(mark as TreemapBox);
-          expect(f.bottom - f.top, marked).toBeGreaterThan(1);
-          // a line of the frame, or a cell of the half rows an edge on a half
-          // cell leaves over
-          const taken = (x: number, y: number): boolean =>
-            x >= f.left &&
-            x <= f.right &&
-            y >= Math.floor(ring.y / 2) &&
-            y <= Math.floor((ring.y + ring.h - 1) / 2) &&
-            (y <= f.top || y >= f.bottom || x === f.left || x === f.right);
-          let names = 0;
-          for (const name of ['component-options', 'styled-screen', 'turbo-build']) {
-            const y = rows.findIndex((line) => line.includes(name.slice(0, 6)));
-            if (y < 0) {
-              continue;
-            }
-            names++;
-            const x = rows[y]?.indexOf(name.slice(0, 6)) ?? -1;
-            for (let i = 0; i < 6; i++) {
-              const at = `${name} [${i}] at ${level}, ${marked}, focused ${focused}`;
-              expect(taken(x + i, y), at).toBe(false);
-              expect(style(x + i, y)?.bg, at).not.toBe(DEFAULT_COLOR);
-            }
+      for (const marked of [lib, `${ROOT}/turbo-build`]) {
+        // what the element outlines: an item divided into tiles has no box of its own
+        const mark = treemapMark(map, marked, UP);
+        expect(mark, marked).toBeDefined();
+        const { rows, style } = paint(map, level, mark);
+        const ring = inside(mark as TreemapBox);
+        const right = ring.x + ring.w - 1;
+        const bottom = ring.y + ring.h - 1;
+        const band = (x: number, y: number): boolean =>
+          x >= ring.x &&
+          x <= right &&
+          y >= ring.y &&
+          y <= bottom &&
+          (x <= ring.x + 1 || x >= right - 1 || y <= ring.y + 1 || y >= bottom - 1);
+        let names = 0;
+        for (const name of ['component-options', 'styled-screen', 'turbo-build']) {
+          const y = rows.findIndex((line) => line.includes(name.slice(0, 6)));
+          if (y < 0) {
+            continue;
           }
-          expect(names, `names drawn at ${level}, ${marked}`).toBeGreaterThan(1);
-          // and every line of the frame is still there, none written over
-          const lines = framed(rows, f, focused ? DOUBLE : SINGLE);
-          expect(lines.got, `${marked} at ${level}`).toEqual(lines.want);
+          names++;
+          const x = rows[y]?.indexOf(name.slice(0, 6)) ?? -1;
+          for (let i = 0; i < 6; i++) {
+            const at = `${name} [${i}] at ${level}, ${marked}`;
+            expect(band(x + i, y * 2) || band(x + i, y * 2 + 1), at).toBe(false);
+            expect(style(x + i, y)?.bg, at).not.toBe(DEFAULT_COLOR);
+          }
         }
+        expect(names, `names drawn at ${level}, ${marked}`).toBeGreaterThan(1);
       }
     }
   });
@@ -1434,252 +1372,205 @@ describe('describeTreemap', () => {
 });
 
 describe('Treemap focus', () => {
-  /** Paints a map with what is marked and whether it has the focus, and reads the cells back. */
-  function draw(
-    map: TreemapLayout<Node, string>,
-    opts: { focused?: boolean; level: 0 | 1 | 2 | 3; mark?: TreemapBox; outline?: number }
+  /**
+   * Mounts a map of `PAIR` with `a` current, and hands back the element as well,
+   * whose resolved style is what the outline's colour is read from.
+   */
+  async function mounted(
+    colorLevel: 0 | 1 | 2 | 3,
+    opts: { sheets?: string[]; theme?: string } = {}
   ) {
-    const height = Math.ceil(map.height / 2);
-    const canvas = createCanvas({ height, width: map.width });
-    canvas.paint((painter) =>
-      paintTreemap(painter, 0, 0, map, {
-        focused: opts.focused,
-        label: (t) => (t.kind === 'rest' ? '' : t.item.name),
-        level: opts.level,
-        mark: opts.mark,
-        outline: opts.outline,
-      })
+    const term = createTestTerminal({ colorLevel, columns: 20, rows: 6 });
+    let map: Element | undefined;
+    const app = runApp(
+      () =>
+        (map = Treemap({
+          ...PAIR_PROPS,
+          current: `${ROOT}/a`,
+          props: { 'flex-grow': 1 },
+          root: PAIR,
+        })),
+      { detect: false, sheets: opts.sheets, terminal: term.terminal, theme: opts.theme }
     );
-    canvas.present();
-    const shot = canvas.snapshot();
+    apps.push(app);
+    await frame(app);
     return {
-      rows: Array.from({ length: height }, (_, r) =>
-        Array.from({ length: map.width }, (_, c) => shot.charAt(c, r)).join('')
-      ),
-      style: (c: number, r: number) => shot.cellStyle(c, r),
+      app,
+      blur: async () => {
+        app.input?.focus.focus(undefined);
+        await frame(app);
+      },
+      focus: async () => {
+        await term.press(KEYS.tab);
+        await frame(app);
+      },
+      map: map as Element,
+      term,
     };
   }
 
-  /** The outline's colour at a level when nothing gives it one. */
-  const WHITE = {
-    0: DEFAULT_COLOR,
-    1: palette(15),
-    2: quantizeColor(rgb(255, 255, 255), 2),
-    3: rgb(255, 255, 255),
-  } as const;
+  /** The cell at the middle of `a`'s left edge, which is the outline. */
+  const TILE = layoutTreemap(PAIR, 20, 12, READ).byKey.get(`${ROOT}/a`) as TreemapBox;
+  const EDGE = { x: TILE.x, y: Math.floor((TILE.y + TILE.h / 2) / 2) };
 
-  it('should frame the current item in single lines, and in double while the map has the focus, at every level', () => {
-    const root = branch(ROOT, [leaf(ROOT, 'alpha', 500), leaf(ROOT, 'beta', 500)]);
-    const map = layout(root, 30, 16);
-    const tile = map.byKey.get(`${ROOT}/alpha`) as TreemapBox;
-    const f = frameOf(tile);
-    // a frame with rows inside it, which is where the name goes
-    expect(f.bottom - f.top).toBeGreaterThan(2);
-    const single = (line: string) =>
-      [...line].map((c) => SINGLE[DOUBLE.indexOf(c as never)] ?? c).join('');
+  /** An SGR in `text` that sets palette colour `n` (0 to 7) as a foreground or a background. */
+  const sets = (text: string, n: number) =>
+    new RegExp(`\\[(?:[0-9;]*;)?(?:${30 + n}|${40 + n})[;m]`).test(text);
+
+  /** The outline's colour on the edge cell, painted at `level` in `outline`. */
+  const edge = (level: 0 | 1 | 2 | 3, outline?: number) => {
+    const canvas = createCanvas({ height: 6, width: 20 });
+    canvas.paint((painter) =>
+      paintTreemap(painter, 0, 0, layoutTreemap(PAIR, 20, 12, READ), {
+        label: () => '',
+        level,
+        mark: TILE,
+        outline,
+      })
+    );
+    canvas.present();
+    return canvas.snapshot().cellStyle(EDGE.x, EDGE.y);
+  };
+
+  // the focus is a colour and only a colour: a thicker outline and a frame of box
+  // characters were both tried, and both made what is inside the tile jump
+  it('should draw the same cells focused as not, at every level, which are the cells it always drew', async () => {
+    const map = layoutTreemap(PAIR, 20, 12, READ);
     for (const level of [0, 1, 2, 3] as const) {
-      const off = draw(map, { level, mark: tile });
-      const on = draw(map, { focused: true, level, mark: tile });
-      const unfocused = framed(off.rows, f, SINGLE);
-      const focused = framed(on.rows, f, DOUBLE);
-      expect(unfocused.got, `level ${level}`).toEqual(unfocused.want);
-      expect(focused.got, `level ${level}`).toEqual(focused.want);
-      // the same cells either way, so only the line changes and the name stays put
-      expect(on.rows.map(single), `level ${level}`).toEqual(off.rows);
-      expect(off.rows[f.top + 1]?.indexOf('alpha'), `level ${level}`).toBe(f.left + 1);
-      // in the outline's colour, on the terminal's own background
-      for (const shot of [off, on]) {
-        for (const [x, y] of frameCells(f, SINGLE)) {
-          expect([shot.style(x, y)?.fg, shot.style(x, y)?.bg], `${x},${y} at ${level}`).toEqual([
-            WHITE[level],
-            DEFAULT_COLOR,
-          ]);
-        }
-      }
+      const m = await mounted(level);
+      const before = m.term.viewport;
+      // the map as `paintTreemap()` draws it with no focus to speak of, less the
+      // spaces a screen does not keep at the end of a row
+      expect(before, `level ${level}`).toStrictEqual(
+        paint(map, level, map.byKey.get(`${ROOT}/a`)).rows.map((row) => row.trimEnd())
+      );
+      await m.focus();
+      expect(m.app.input?.focus.current.get(), `level ${level}`).toBe(m.map);
+      expect(m.term.viewport, `level ${level}`).toStrictEqual(before);
+      await m.blur();
+      expect(m.term.viewport, `level ${level}`).toStrictEqual(before);
     }
   });
 
-  it('should move an edge on a half cell in to the first whole row, and draw nothing outside the mark', () => {
-    // two items one above the other, split on a half cell
-    const root = branch(ROOT, [leaf(ROOT, 'big', 2), leaf(ROOT, 'small', 1)]);
-    const map = layout(root, 16, 34);
-    const tile = map.byKey.get(`${ROOT}/small`) as TreemapBox;
-    const ring = inside(tile);
-    // the fixture's point: the coloured part starts and ends on half a cell
-    expect(ring.y % 2).toBe(1);
-    expect((ring.y + ring.h) % 2).toBe(1);
-    const f = frameOf(tile);
-    expect(f.top).toBe((ring.y + 1) / 2);
-    for (const level of [0, 3] as const) {
-      const plain = draw(map, { level });
-      for (const focused of [false, true]) {
-        const marked = draw(map, { focused, level, mark: tile });
-        const lines = framed(marked.rows, f, focused ? DOUBLE : SINGLE);
-        expect(lines.got, `level ${level}`).toEqual(lines.want);
-        // the half rows left over are the terminal's own background, where the
-        // map without a mark drew the tile's colour in them
-        for (const y of [f.top - 1, f.bottom + 1]) {
-          const at = `row ${y} at ${level}, focused ${focused}`;
-          expect(plain.rows[y]?.slice(f.left, f.right + 1), at).toMatch(/[▀▄]/u);
-          expect(marked.rows[y]?.slice(f.left, f.right + 1), at).toBe(
-            ' '.repeat(f.right - f.left + 1)
+  it('should outline the current tile in green while the map has the focus, from the framework sheet', async () => {
+    for (const level of [1, 2, 3] as const) {
+      const m = await mounted(level);
+      // nothing sets it unfocused, so the outline is bright white
+      expect(m.map.style.borderColor, `level ${level}`).toBe(DEFAULT_COLOR);
+      await m.focus();
+      const green = m.map.style.borderColor;
+      // what the sheet's `green` resolves to, which at 16 colours is the palette's
+      expect(green, `level ${level}`).toBe(palette(2));
+      expect(edge(level, green)?.fg, `level ${level}`).toBe(quantizeColor(green, level));
+      await m.blur();
+      expect(m.map.style.borderColor, `level ${level}`).toBe(DEFAULT_COLOR);
+    }
+    // and on the screen at 16 colours, where an SGR names the palette colour
+    const m = await mounted(1);
+    const unfocused = m.term.output;
+    expect(sets(unfocused, 2)).toBe(false);
+    await m.focus();
+    const focused = m.term.output.slice(unfocused.length);
+    expect(sets(focused, 2)).toBe(true);
+    await m.blur();
+    // bright white again
+    expect(m.term.output.slice(unfocused.length + focused.length)).toMatch(/\[(?:[0-9;]*;)?97[;m]/);
+  });
+
+  it('should look the same focused or not at level 0, where there is no colour', async () => {
+    // the paint does not read the colour at level 0
+    for (let y = 0; y < 6; y++) {
+      for (let x = 0; x < 20; x++) {
+        const at = (outline?: number) => {
+          const canvas = createCanvas({ height: 6, width: 20 });
+          canvas.paint((painter) =>
+            paintTreemap(painter, 0, 0, layoutTreemap(PAIR, 20, 12, READ), {
+              label: (t) => (t.kind === 'rest' ? '' : t.item.name),
+              level: 0,
+              mark: TILE,
+              outline,
+            })
           );
-        }
-        // and every cell with no pixel of the mark's box in it is as it was
-        const first = Math.floor(tile.y / 2);
-        const last = Math.floor((tile.y + tile.h - 1) / 2);
-        for (let y = 0; y < plain.rows.length; y++) {
-          for (let x = 0; x < map.width; x++) {
-            if (x >= tile.x && x < tile.x + tile.w && y >= first && y <= last) {
-              continue;
-            }
-            const at = `${x},${y} at ${level}, focused ${focused}`;
-            expect(marked.rows[y]?.[x], at).toBe(plain.rows[y]?.[x]);
-            expect(marked.style(x, y), at).toEqual(plain.style(x, y));
-          }
-        }
+          canvas.present();
+          const shot = canvas.snapshot();
+          return [shot.charAt(x, y), shot.cellStyle(x, y)];
+        };
+        expect(at(palette(2)), `${x},${y}`).toStrictEqual(at());
       }
     }
+    // and a mounted map's screen is the same either way
+    const m = await mounted(0);
+    const before = m.term.viewport;
+    await m.focus();
+    expect(m.app.input?.focus.current.get()).toBe(m.map);
+    expect(m.term.viewport).toStrictEqual(before);
   });
 
-  it('should outline a mark too small for a frame in half blocks, the same focused or not', () => {
-    const root = branch(ROOT, [leaf(ROOT, 'big', 4), leaf(ROOT, 'small', 1)]);
-    const map = layout(root, 16, 22);
-    const tile = map.byKey.get(`${ROOT}/small`) as TreemapBox;
-    const ring = inside(tile);
-    // one whole row of cells inside its edges, which a frame's corners cannot share
-    const f = frameOf(tile);
-    expect(f.bottom - f.top).toBeLessThan(1);
-    for (const level of [0, 3] as const) {
-      const off = draw(map, { level, mark: tile });
-      const on = draw(map, { focused: true, level, mark: tile });
-      expect(off.rows.join('\n'), `level ${level}`).not.toMatch(LINES);
-      expect(on.rows, `level ${level}`).toEqual(off.rows);
-      // the outline along the top in the upper half of the cell, and the band
-      // under it in the lower
-      const y = ring.y / 2;
-      expect(Number.isInteger(y)).toBe(true);
-      expect(off.rows[y]?.[ring.x + 3], `level ${level}`).toBe('▀');
-      expect(off.style(ring.x + 3, y)?.fg, `level ${level}`).toBe(WHITE[level]);
-      for (let x = 0; x < map.width; x++) {
-        expect(on.style(x, y), `${x} at ${level}`).toEqual(off.style(x, y));
-      }
-    }
-
-    // and one column inside its edges with many whole rows, which a frame's
-    // left and right lines cannot share: a box laid out two pixels wide
-    const narrow = { h: 9, w: 2, x: 3, y: 0 };
-    expect(inside(narrow).w).toBe(1);
-    expect(frameOf(narrow).bottom - frameOf(narrow).top).toBeGreaterThan(1);
-    for (const level of [0, 3] as const) {
-      const off = draw(map, { level, mark: narrow });
-      const on = draw(map, { focused: true, level, mark: narrow });
-      expect(off.rows.join('\n'), `narrow at ${level}`).not.toMatch(LINES);
-      expect(on.rows, `narrow at ${level}`).toEqual(off.rows);
+  it("should let an app's or a theme's :focus rule colour the focused outline instead", async () => {
+    for (const opts of [
+      { sheets: ['.sigil-treemap:focus { border-color: yellow }'] },
+      { theme: '.sigil-treemap:focus { border-color: yellow }' },
+    ]) {
+      const m = await mounted(1, opts);
+      const unfocused = m.term.output;
+      expect(sets(unfocused, 3), JSON.stringify(opts)).toBe(false);
+      await m.focus();
+      expect(m.map.style.borderColor, JSON.stringify(opts)).toBe(palette(3));
+      const focused = m.term.output.slice(unfocused.length);
+      expect(sets(focused, 3), JSON.stringify(opts)).toBe(true);
+      expect(sets(focused, 2), JSON.stringify(opts)).toBe(false);
     }
   });
 
-  it("should frame a divided item's box over its tiles, which give way under its lines", () => {
-    const lib = `${ROOT}/lib`;
-    const root = branch(ROOT, [
-      leaf(ROOT, 'huge', 30_000),
-      branch(lib, [leaf(lib, 'a', 20_000), leaf(lib, 'b', 20_000)]),
-    ]);
-    const map = layout(root, 40, 24);
-    const box = treemapMark(map, lib, READ) as TreemapBox;
-    expect(box).toBe(map.divided.get(lib));
-    const f = frameOf(box);
-    const plain = draw(map, { level: 0 });
-    for (const focused of [false, true]) {
-      const { rows } = draw(map, { focused, level: 0, mark: box });
-      const lines = framed(rows, f, focused ? DOUBLE : SINGLE);
-      expect(lines.got, `focused ${focused}`).toEqual(lines.want);
-      // where a line is, a tile was
-      expect(plain.rows[f.top + 2]?.[f.left]).toBe('█');
-      // and the box holds tiles, so it is not hollow: inside the line is a tile
-      expect(rows[f.top + 2]?.[f.left + 1], `focused ${focused}`).toBe('█');
-      expect(rows[f.top + 1]?.indexOf('a'), `focused ${focused}`).toBe(f.left + 1);
-    }
+  it("should outline in the map's border-color where a sheet gives one, which beats the default's green", async () => {
+    const m = await mounted(1, { theme: '.sigil-treemap { border-color: magenta }' });
+    expect(m.map.style.borderColor).toBe(palette(5));
+    expect(sets(m.term.output, 5)).toBe(true);
+    expect(m.term.output).not.toMatch(/\[(?:[0-9;]*;)?97[;m]/);
+    // the origin decides before specificity is asked, so the theme's one class
+    // beats the framework's `:focus` and the outline stays the theme's
+    await m.focus();
+    expect(m.map.style.borderColor).toBe(palette(5));
   });
 
-  it("should draw the frame in the map's border-color where it is given one", () => {
-    const root = branch(ROOT, [leaf(ROOT, 'a', 500), leaf(ROOT, 'b', 500)]);
-    const map = layout(root, 20, 12);
-    const tile = map.byKey.get(`${ROOT}/a`) as TreemapBox;
-    const f = frameOf(tile);
-    const edge = (level: 0 | 1 | 2 | 3, outline: number) =>
-      draw(map, { level, mark: tile, outline }).style(f.left, f.top + 1)?.fg;
-    expect(edge(3, rgb(255, 200, 0))).toBe(rgb(255, 200, 0));
-    expect(edge(1, palette(3))).toBe(palette(3));
-    // degraded to the level, as an item's colour is
-    expect(edge(2, rgb(255, 200, 0))).toBe(quantizeColor(rgb(255, 200, 0), 2));
-    expect(edge(2, rgb(255, 200, 0))).not.toBe(rgb(255, 200, 0));
-    // the terminal's own is no colour at all, so the frame stays white
-    expect(edge(3, DEFAULT_COLOR)).toBe(rgb(255, 255, 255));
+  it("should draw the outline in the colour it is given, degraded to the level, and white for the terminal's own", () => {
+    expect(edge(3, rgb(255, 200, 0))?.fg).toBe(rgb(255, 200, 0));
+    expect(edge(1, palette(3))?.fg).toBe(palette(3));
+    expect(edge(2, rgb(255, 200, 0))?.fg).toBe(quantizeColor(rgb(255, 200, 0), 2));
+    expect(edge(2, rgb(255, 200, 0))?.fg).not.toBe(rgb(255, 200, 0));
+    // the terminal's own is no colour at all, so the outline stays white
+    expect(edge(3, DEFAULT_COLOR)?.fg).toBe(rgb(255, 255, 255));
+    expect(edge(1)?.fg).toBe(palette(15));
     // and at level 0 there is no colour to give it
-    expect(edge(0, palette(3))).toBe(DEFAULT_COLOR);
+    expect(edge(0, palette(3))?.fg).toBe(DEFAULT_COLOR);
   });
 
-  it('should show the focus on the map at level 0, and take it off again', async () => {
-    const current = new State<string | undefined>(`${ROOT}/a`);
-    const m = await mount({ ...PAIR_PROPS, current, root: PAIR });
-    const f = frameOf(layoutTreemap(PAIR, 20, 12, READ).byKey.get(`${ROOT}/a`) as TreemapBox);
-    const before = m.screen();
-    expect(m.term.viewport[f.top]?.[f.left]).toBe('┌');
-
-    await m.term.press(KEYS.tab);
-    await frame(m.app);
-    expect(m.term.viewport[f.top]?.[f.left]).toBe('╔');
-    expect(m.term.viewport[f.top + 1]?.[f.left]).toBe('║');
-
-    m.app.input?.focus.focus(undefined);
-    await frame(m.app);
-    expect(m.screen()).toBe(before);
-  });
-
-  it('should let a theme colour the focused frame through :focus', async () => {
+  // the restyle a `:focus` rule causes is what repaints the map, since a
+  // border-color that changed marks the element's paint: the map has no focus
+  // handler of its own, so an app may give it one
+  it('should hear an onFocusChange given in its props, which it leaves to the app', async () => {
+    const heard: boolean[] = [];
     const term = createTestTerminal({ colorLevel: 1, columns: 20, rows: 6 });
     const app = runApp(
       () =>
         Treemap({
           ...PAIR_PROPS,
           current: `${ROOT}/a`,
-          props: { 'flex-grow': 1 },
+          props: { 'flex-grow': 1, onFocusChange: (_, now) => heard.push(now) },
           root: PAIR,
         }),
-      {
-        detect: false,
-        sheets: ['.sigil-treemap:focus { border-color: yellow }'],
-        terminal: term.terminal,
-      }
+      { detect: false, terminal: term.terminal }
     );
     apps.push(app);
     await frame(app);
-    // an SGR setting the colour as a foreground, read past the escape that opens
-    // it: the frame is lines in the outline's colour on the terminal's own
-    const sets = (text: string, fg: number) => new RegExp(`\\[(?:[0-9;]*;)?${fg}[;m]`).test(text);
     const unfocused = term.output;
-    // bright white, and no yellow anywhere
-    expect(sets(unfocused, 97)).toBe(true);
-    expect(sets(unfocused, 33)).toBe(false);
-
     await term.press(KEYS.tab);
     await frame(app);
-    const focused = term.output.slice(unfocused.length);
-    expect(sets(focused, 33)).toBe(true);
-    expect(focused).toContain('╔');
-  });
-
-  it('should refuse an onFocusChange in its props, which it sets itself', () => {
-    expect(() =>
-      Treemap({ ...PAIR_PROPS, props: { onFocusChange: () => {} } as never, root: PAIR })
-    ).toThrow(/Treemap sets onFocusChange itself/);
-    // and the type leaves it out: `tsc` is what fails if this stops being an error
-    const never = (): void => {
-      // @ts-expect-error -- Treemap sets onFocusChange itself
-      Treemap({ ...PAIR_PROPS, props: { onFocusChange: () => {} }, root: PAIR });
-    };
-    expect(never).toBeTypeOf('function');
+    app.input?.focus.focus(undefined);
+    await frame(app);
+    expect(heard).toStrictEqual([true, false]);
+    // and the outline still went green and back
+    expect(sets(term.output.slice(unfocused.length), 2)).toBe(true);
   });
 });
 

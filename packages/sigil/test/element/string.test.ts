@@ -1,6 +1,5 @@
 import { ATTR, DEFAULT_COLOR, palette } from '../../src/canvas/index.js';
 import {
-  borderChars,
   box,
   type Element,
   paragraph,
@@ -624,25 +623,5 @@ describe('where a paragraph and a text break', () => {
 
       expect(draw(crlf), JSON.stringify(crlf)).to.equal(draw(lf));
     }
-  });
-});
-
-describe('borderChars()', () => {
-  // the treemap frames its current item in these, so they are what a border of
-  // the same style draws rather than a second spelling of them
-  it('should give the characters a border of each style is drawn with, and nothing for none', () => {
-    for (const style of ['ascii', 'bold', 'double', 'round', 'single'] as const) {
-      const chars = borderChars(style) ?? [];
-      const [tl, top, tr, right, br, bottom, bl, left] = chars;
-      const drawn = renderToString(
-        box({ 'flex-direction': 'row' }, box({ 'border-style': style }, text('ab'))),
-        { colorLevel: 0, width: 10 }
-      );
-      expect(drawn, style).toBe(
-        [`${tl}${top}${top}${tr}`, `${left}ab${right}`, `${bl}${bottom}${bottom}${br}`].join('\n')
-      );
-      expect(Object.isFrozen(chars), style).toBe(true);
-    }
-    expect(borderChars('none')).toBeUndefined();
   });
 });

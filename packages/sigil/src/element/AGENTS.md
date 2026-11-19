@@ -437,15 +437,3 @@ the entry it belongs to.
   is its type half: see "A component's `props` may not carry a hook it owns" in
   `packages/sigil/src/components`. See "A host element takes the seven hooks as props" in
   `packages/sigil/src/template`.
-
-- **`borderChars(style)` publishes the border table, frozen (SIG-497).** The
-  treemap frames its current item in `single` and `double` lines, and the table
-  in `paint.ts` was private, so its options were to copy eight characters twice
-  or to read them from here. A helper has one definition, so it reads them: an
-  accessor over the table rather than the table, because a `Record` handed out
-  is one a caller can add a style to, and every array in it is frozen for the
-  same reason. It costs the treemap nothing, which already imported this module
-  for `toDisplayLine()`. `gradient.ts` keeps its own copy, for the reason its
-  comment gives -- the style layer cannot import this one -- and
-  `gradient.test.ts` still holds the two together. `borderChars()` in
-  `test/element/string.test.ts` renders a real border of each style beside it.
