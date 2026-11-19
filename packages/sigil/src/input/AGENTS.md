@@ -1561,7 +1561,11 @@ mode, and the routing is the router's.
   - **A `mousemove`, not a new kind.** "A drag is not an event" above holds:
     adding a `dragover` would widen an exported union every `onMouse` switches over
     for the sake of the one element that asked, and that element reads a move.
-    It can tell another's drag from its own by whether it had the press.
+    It can tell another's drag from its own by whether it had the press **of
+    `event.button`**, not by whether it had a press at all: a capture is per
+    button, so an element holding the right button's press is still handed the
+    left button's drag over it (review round 1). `should hand another button's
+    drag to an element holding a press of its own` pins it.
   - **Addressed to the element itself, not bubbled, and not seen by the router's
     handlers**, the way `mouseenter` is addressed: an ancestor that did not ask
     must not be told, and the router's handlers have had this report's move
@@ -1570,7 +1574,10 @@ mode, and the routing is the router's.
   - **An element on the holder's own path is skipped**, since the holder's move
     bubbled through it and a second copy would be one report heard twice -- and if
     something below stopped that move, it stopped it from reaching the ancestor,
-    which is what stopping means.
+    which is what stopping means. The path is read once, before anybody is told,
+    because a holder's handler may move itself out of the tree, and read again
+    afterwards it would be shorter than the path the move went along -- one
+    ancestor told twice (review round 1).
   - **After the holder, and whether or not the holder stopped its move.** The
     holder owns the drag, so it goes first; and stopping an event stops it
     bubbling without cancelling another one, the rule the click already follows.
@@ -1578,7 +1585,16 @@ mode, and the routing is the router's.
     there is no leave, so a move heard over the element would be the last thing it
     was told about the pointer -- the hover-from-a-press refusal above, in another
     form. Reading the chain `setHover()` just wrote, rather than hit-testing again,
-    is what makes the moves fall between the element's own enter and leave.
+    is what makes the moves fall while the element has `:hover`, which its own
+    enter and leave bracket. Not quite "between the events": where an ancestor
+    stopped the `mouseenter`, `setHover()` tells nobody further in, and the element
+    has `:hover` unannounced -- which is also how an ordinary move then reaches it,
+    so the overheard one is no different (review round 1, recorded rather than
+    changed).
+  - **A drag nobody holds counts as somebody else's.** A press on no element --
+    past the tree's edge, inside the canvas -- still captures, and its moves reach
+    the router's handlers alone. An element that asked hears them over it, since
+    they are not its own either way.
   - **The moves and nothing else.** The release is the holder's, which is what
     ends its drag, and a drop -- the element under a release hearing it -- is a
     different question nobody has asked yet. The ticket was the motion.

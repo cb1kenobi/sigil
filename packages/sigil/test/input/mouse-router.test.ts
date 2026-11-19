@@ -1150,3 +1150,83 @@ describe('an element that hears drags', () => {
     ]);
   });
 });
+
+/** Review round 1 of SIG-501: the edges of who holds a drag. */
+describe('an element that hears drags, at the edges of the capture', () => {
+  it('should not hear a move twice where the holder moved itself out of the tree', () => {
+    // the path the move bubbled along is the one skipped, read before anybody is
+    // told: read again afterwards it would be `left` alone, and `outer` would be
+    // handed a second copy of the move it had just had
+    const { feed, terminal } = harness();
+    const { left, outer, root } = tree();
+    outer.hearsDrags = true;
+    left.onMouse = (event) => {
+      if (event.kind === 'mousemove') {
+        left.remove();
+      }
+    };
+    const heard: Array<string | undefined> = [];
+    outer.onMouse = (event) => {
+      if (event.kind === 'mousemove') {
+        heard.push(event.target?.id);
+      }
+    };
+    createInput({ mouse: { motion: true, surface: surface() }, root, terminal });
+
+    feed(press(1, 1));
+    feed(drag(3, 1));
+
+    expect(heard).toEqual(['left']);
+  });
+
+  it('should hear a drag no element holds, which a press on no element still captures', () => {
+    // a press past the tree's right edge lands on nothing, and its drag is
+    // still nobody's to hear but the router's: an element that asked hears it
+    const { feed, terminal } = harness();
+    const { right, root } = tree();
+    right.hearsDrags = true;
+    const heard: Array<[string, string | undefined]> = [];
+    right.onMouse = (event) => void heard.push([event.kind, event.target?.id]);
+    const input = createInput({
+      mouse: { motion: true, surface: surface({ width: 20 }) },
+      root,
+      terminal,
+    });
+    const routed: Array<string | undefined> = [];
+    input.onMouse((event) => {
+      if (event.kind === 'mousemove') {
+        routed.push(event.target?.id);
+      }
+    });
+
+    feed(press(15, 1));
+    feed(drag(3, 1));
+
+    expect(heard).toEqual([
+      ['mouseenter', 'right'],
+      ['mousemove', 'right'],
+    ]);
+    // and the router's handlers had the move once, with no target
+    expect(routed).toEqual([undefined]);
+  });
+
+  it("should hand another button's drag to an element holding a press of its own", () => {
+    // a capture is per button, so the element can tell its own drag from
+    // another's by the button its press was of, not by having had a press
+    const { feed, terminal } = harness();
+    const { right, root } = tree();
+    right.hearsDrags = true;
+    const heard: Array<[string, string | undefined]> = [];
+    right.onMouse = (event) => void heard.push([event.kind, event.button]);
+    createInput({ mouse: { motion: true, surface: surface() }, root, terminal });
+
+    feed(press(1, 1));
+    // the right button pressed over `right`, which then holds that button
+    feed(sgr(2, 3, 1));
+    heard.length = 0;
+    // and the left button's drag, which `left` holds, moving over `right`
+    feed(drag(4, 1));
+
+    expect(heard).toEqual([['mousemove', 'left']]);
+  });
+});

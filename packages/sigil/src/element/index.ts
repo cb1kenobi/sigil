@@ -1007,7 +1007,7 @@ export class Element implements LayoutNode {
 
   /**
    * Whether `onMouse` is told about a drag passing over this element while
-   * another element holds the pointer.
+   * another element holds the pointer, or no element does.
    *
    * A press captures the pointer, so every move until the release goes to what
    * the press landed on, wherever the pointer gets to -- and an element the drag

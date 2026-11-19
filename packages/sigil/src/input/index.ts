@@ -1763,14 +1763,16 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * be told -- and it does not reach the router's handlers, which have had this
    * report's move already. An element on the captured move's own path is skipped,
    * because it was offered that move by bubbling and a second copy would be one
-   * report heard twice. Read off `hovering`, so it is under `mouse.motion` alone,
-   * and an element is told about the moves between its own enter and leave.
+   * report heard twice -- the path as it was dispatched along, since a holder's
+   * handler may move itself out of the tree. Read off `hovering`, so it is under
+   * `mouse.motion` alone, and an element is told about the moves while it has
+   * `:hover`, which its own enter and leave bracket.
    *
-   * @param holder - What the press landed on, which has the move already.
+   * @param path - The holder and its ancestors, which have the move already.
    * @param detail - What the report carried.
    */
-  function overhear(holder: Element | undefined, detail: MouseDetail): void {
-    const told = new Set(ancestry(holder));
+  function overhear(path: readonly Element[], detail: MouseDetail): void {
+    const told = new Set(path);
     for (const it of hovering) {
       if (it.hearsDrags && !told.has(it)) {
         deliver('mousemove', it, [it], detail, false);
@@ -1982,13 +1984,17 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         if (!captured && !inside) {
           return;
         }
-        bubble('mousemove', target, detail);
+        // the path is read once, before anybody is told, so an element the move
+        // bubbled through is the element `overhear()` skips even where a handler
+        // moved the holder out of the tree on the way
+        const path = ancestry(target);
+        deliver('mousemove', target, path, detail);
         // and what the drag passes over hears it too, where it asked to. After the
         // holder, which owns the drag, and whether or not the holder stopped its
         // move: stopping an event stops it bubbling and does not cancel another
         // one, the rule the click already follows
         if (captured) {
-          overhear(target, detail);
+          overhear(path, detail);
         }
         return;
       }
