@@ -5297,7 +5297,7 @@ const map = Treemap({
   color: (node, level) => (level === 1 ? palette(4) : rgb(78, 128, 226)),
   current, // a State of a key: the item outlined, which a click or an arrow moves
   onPick: (key, node) => reveal(key),
-  onActivate: (key) => zoomInto(key), // Enter
+  onActivate: (key) => zoomInto(key), // Enter, or a double click on a tile
   props: { 'flex-grow': 1 },
 });
 describeTreemap(input, map, { activate: 'zoom' }); // for keyHelp(), once the router exists
@@ -5351,6 +5351,8 @@ so neighbours meet with no gap and no overlap.
   arrow starts at the top left tile. Enter calls `onActivate(key)` with what is
   outlined -- zooming in is your new `root` -- and with no `onActivate` it is left
   for what is around the map, as going back out is: Backspace is not the map's.
+  A double click on a tile activates too, as on a list: the first click picks it
+  and the second calls `onActivate` as Enter would, without picking it again.
   `describeTreemap(input, ...maps)` describes the keys for a footer, and takes the
   same options as `describeListView()` after the maps.
 
@@ -5623,8 +5625,11 @@ every list in the call. The default is translated with sigil's own strings; a wo
 given here is shown as given, so an app that translates passes its own translation.
 `describedHosts(args)` splits a describer's arguments into `{ hosts, options }`,
 checking the options, for a component of your own that describes a list through
-`describeListView()` and takes the same options -- it is what the tree's and the
-table's describers use.
+`describeListView()` and takes the same options -- it is what the tree's, the
+table's and the treemap's describers use. It is published from
+`@ttylabs/sigil/components/key-help`, beside the footer the describers feed, so a
+describer with no list in it does not load the list view; the list view's subpath
+exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
 control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is

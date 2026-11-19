@@ -403,6 +403,9 @@ Around these, every example but `hello` frames its panes in a
 whatever has the focus. Most also ask with
 [`confirmModal()`](../src/components/modal.ts) before anything that cannot be
 undone, and say what happened with [`showToast()`](../src/components/toast.ts).
+These are the components a full-screen app is most often built from, not all
+of them. [The rest](../src/components/) include tabs, text fields, buttons, a
+scroll box, and the prompts and spinners a command line uses.
 
 ### Drawing cells of your own
 
