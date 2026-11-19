@@ -1466,4 +1466,11 @@ describe('Treemap double click', () => {
     await m.send(clickAt(2, 2) + clickAt(2, 2));
     expect(m.log).toStrictEqual([`pick ${ROOT}/a`, `pick ${ROOT}/a`]);
   });
+
+  it('should take two clicks on two cells of one tile as a double click on it', async () => {
+    const m = await logged(PAIR);
+    // `b` is the right half: its name's row, then a cell further down and along
+    await m.send(clickAt(12, 1) + clickAt(15, 3));
+    expect(m.log).toStrictEqual([`pick ${ROOT}/b`, `activate ${ROOT}/b`]);
+  });
 });
