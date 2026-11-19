@@ -8,7 +8,7 @@
  * a screen: what the panes show is a handful of signals over one immutable tree.
  */
 
-import { DiskContext, formatCount, formatSize, isInside, printable } from './disk.ts';
+import { DiskContext, formatCount, formatSize, isInside } from './disk.ts';
 import {
   chainTo,
   type DiskNode,
@@ -29,7 +29,7 @@ import {
   type TreeChoice,
   treeListControl,
 } from '@ttylabs/sigil/components';
-import type { Element } from '@ttylabs/sigil/element';
+import { type Element, printable } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
 import { createEffect, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';

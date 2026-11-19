@@ -1,4 +1,4 @@
-import { categoryOf, createDisk, type Disk, formatSize, isInside, printable } from '../src/disk.ts';
+import { categoryOf, createDisk, type Disk, formatSize, isInside } from '../src/disk.ts';
 import { findNode, removePath, scanDisk, shownPath, startProgress } from '../src/scan.ts';
 import { removeTempDirs, tempDir, write } from './fixture.ts';
 import { linkSync, mkdirSync, symlinkSync } from 'node:fs';
@@ -69,14 +69,6 @@ describe('isInside()', () => {
     // a sibling whose name starts with the directory's is not under it
     expect(isInside(join(sep, 'workshop'), base)).toBe(false);
     expect(isInside(sep, base)).toBe(false);
-  });
-});
-
-describe('printable()', () => {
-  it('should draw each control character as a replacement, one for one', () => {
-    expect(printable('bad\u001b[31mname')).toBe('bad�[31mname');
-    expect(printable('tab\there')).toBe('tab�here');
-    expect(printable('plain')).toBe('plain');
   });
 });
 

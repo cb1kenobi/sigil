@@ -844,9 +844,9 @@ in half blocks from the start.
   painted, so none reaches the terminal either way (measured, with a raw `ESC` in
   a text). Dropped, though, `bad<ESC>[31mname` is drawn as `bad[31mname`, a name
   that is not the one on disk, and a tab vanishes rather than indents.
-  `printable()` replaces one for one, so the highlighter's offsets still line up,
-  and keeps `\n` and `\t` in a file for the pane to lay out; a tab is spaces to
-  the next stop of four.
+  `printable()` from `@ttylabs/sigil/element` replaces one for one, so the
+  highlighter's offsets still line up, and keeps `\n` and `\t` in a file for the
+  pane to lay out; a tab is spaces to the next stop of four.
 
 - **A preview reads the top of a regular file, and never opens anything else.**
   64 KB, cut back to the last whole line and then to 1,000 lines; a NUL in the
@@ -1235,13 +1235,17 @@ about where the space went.
   the one difference that survives level 0, where the map is blocks and spaces and
   a selected tile is drawn hollow.
 
-- **Level 0 is the map's own blit.** `Pixels.blit()` skips a cell whose halves are
-  both the terminal's own and writes a colour for the rest, so at level 0, where
-  there is no colour to write, nothing would be drawn; the image component returns
-  early there for that reason. `paintMap()` writes the half blocks itself at level
-  0, in the terminal's own foreground. A colour the map picks is quantized where it
-  is picked, as the image component does, because degradation happens at resolve
-  time and a `raw` paints after it.
+- **Level 0 is `Pixels`' shapes.** At level 0 there is no colour to write, so
+  `paintMap()` hands `Pixels.blit()` the level and it draws which pixels are on --
+  `█`, `▀` or `▄` in the terminal's own colours -- rather than their colours. The
+  map decides what is on itself: at level 0 it sets a pixel it wants lit to any
+  colour and one it wants dark, a checker's second square and the inside of a
+  selected tile among them, to `DEFAULT_COLOR`. This was the map's own blit until
+  SIG-476 moved it into `Pixels`; the map still sets a lit pixel to a colour, so
+  leaving the level out draws the same blocks with escape sequences in them, which
+  `should paint no colour at level 0` fails on. A colour the map picks is quantized
+  where it is picked, as the image component does, because degradation happens at
+  resolve time and a `raw` paints after it.
 
 - **A `raw` element repaints when an effect says so.** The map and the swatch
   beside each file are `raw`, the image component's trapdoor; a paint reads no
@@ -1312,9 +1316,12 @@ about where the space went.
 - **The mouse is on.** A treemap is pointed at, and nothing on screen is text
   worth selecting, which is what a terminal reporting the mouse gives up.
 
-- **`printable()` is the file manager's, written again.** A one-line rule, but a
-  rule, and the root file says a helper has one definition; an example is a unit
-  somebody copies, so neither can import the other's. It is filed as a gap.
+- **`printable()` is the library's, as the file manager's is.** It was the file
+  manager's, written again: a one-line rule, but a rule, and the root file says a
+  helper has one definition, while an example is a unit somebody copies, so
+  neither could import the other's. SIG-475 published it from
+  `@ttylabs/sigil/element`, beside the text element whose set of control
+  characters it shares, and both examples import it.
 
 - **Sabotage: ten, two survived, and one of those has a test now.** A delete
   confirm starting on Yes, a device check that enters every directory, an edge

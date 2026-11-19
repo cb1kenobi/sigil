@@ -2653,6 +2653,24 @@ one line, each line break a space, which is what a table cell or a prefix
 beside a message wants -- a cell two lines tall pushes every row after it down
 by one.
 
+`printable(s, keep?)` draws every control character in a string as `�` (U+FFFD)
+instead. A `text` element drops one before it paints, so none reaches the
+terminal either way -- but dropped, a file named `bad<ESC>[31mname` is drawn as
+`bad[31mname`, which is not the name on disk. Each character is replaced by one,
+so an offset into the result is the same offset into the original, which is what
+a highlighter reads. The set is the one a `text` decides about: C0, `DEL` and
+C1, all of which it drops but the newline and the tab. `keep` names control
+characters to leave alone, such as `'\n\t'` for a file's contents, which a
+`text` lays out in lines and draws a tab of as a space.
+
+```js
+import { printable, text } from '@ttylabs/sigil/element';
+
+printable('bad\u001b[31mname'); // 'bad�[31mname'
+printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
+text(printable(entry.name)); // a name, as it is on disk
+```
+
 A hook is a prop too. `onKey`, `onMouse`, `onPaste`, `onFocusChange`, `onScroll`,
 `onResize` and `onLayout` can be given to `box()`, `text()` and `raw()` as well as
 assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
@@ -6856,6 +6874,33 @@ a cell is drawn in, read through the style table that painted it without the tab
 being handed out. That is what [`@ttylabs/screenshot`](../screenshot/README.md)
 reads to turn a frame into an SVG or a PNG, and `rgbChannels(color)` is the other
 half -- a 24-bit colour's channels, `rgb()` read backwards.
+
+#### Finer than a cell: `Dots` and `Pixels`
+
+Two grids draw at finer than a cell by picking the character that looks like it.
+`Dots` is braille, two dots across and four down a cell in one colour, for shape:
+plots and sparklines. `Pixels` is half blocks, one pixel across and two down a
+cell with a colour each, for pictures. Both are sized in cells, ignore a point
+outside the grid, and leave a cell with nothing drawn in it alone, so either can
+sit on a background something else painted.
+
+```js
+import { palette, Pixels } from '@ttylabs/sigil/canvas';
+
+const pixels = new Pixels(20, 5); // 20 pixels across, 10 down
+pixels.set(3, 7, palette(2));
+canvas.paint((p) => pixels.blit(p, 0, 0, { colorLevel }));
+```
+
+`blit()` takes the colour level, and only 0 (or below) changes anything. With no
+colour to write, a picture is drawn as **shapes** with no colour of their own: a
+pixel set to anything but `DEFAULT_COLOR` is on, and a cell is `█`, `▀` or `▄` by
+which of its halves are on. A shape keeps the background under it, as any text
+does, which at level 0 is the terminal's own unless you filled one. So a caller
+that wants a picture to mean something in a pipe or under `NO_COLOR` decides
+there which pixels are on, setting the others to `DEFAULT_COLOR`. At every other
+level, and with no options, each half keeps its colour; `Pixels` does not
+quantize, so at 256 or 16 colours set colours already quantized.
 
 #### What a backend owes it
 
