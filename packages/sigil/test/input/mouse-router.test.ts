@@ -1210,6 +1210,30 @@ describe('an element that hears drags, at the edges of the capture', () => {
     expect(routed).toEqual([undefined]);
   });
 
+  it('should hear a drag over it unannounced where an ancestor stopped its enter', () => {
+    // recorded rather than changed: a stopped `mouseenter` stops the enters
+    // further in, so `right` has `:hover` with no enter of its own -- and is
+    // handed the drag's move all the same, as an ordinary move would reach it
+    const { feed, terminal } = harness();
+    const { outer, right, root } = tree();
+    right.hearsDrags = true;
+    outer.onMouse = (event) => {
+      if (event.kind === 'mouseenter') {
+        event.stop();
+      }
+    };
+    const heard: string[] = [];
+    right.onMouse = (event) => void heard.push(event.kind);
+    createInput({ mouse: { motion: true, surface: surface() }, root, terminal });
+
+    // pressed on `root` alone, past `outer`, so `outer` is entered on the drag
+    feed(press(8, 1));
+    feed(drag(3, 1));
+
+    expect(right.states).toEqual(['hover']);
+    expect(heard).toEqual(['mousemove']);
+  });
+
   it("should hand another button's drag to an element holding a press of its own", () => {
     // a capture is per button, so the element can tell its own drag from
     // another's by the button its press was of, not by having had a press
