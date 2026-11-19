@@ -1317,12 +1317,18 @@ about where the space went.
   its rows -- and a delete that fails part of the way scans again, since what is
   left is not something to guess at.
 
-- **The tree's children are a getter, not a function.** `TreeListView` reads a
-  branch whose `items` is a function once and keeps what it returned, by value,
-  for good -- right for a directory read off the disk, wrong for a tree a delete
-  replaces, whose branch keeps the value and changes its children. A getter
-  memoized per node is read only for a branch that is shown, so a tree of 180,000
-  names costs what is open, and a new node is a new choice with new children.
+- **The tree's children are a function, and every scan write reloads them.**
+  `TreeListView` keeps what a branch's function returned, by value, until it is
+  told otherwise -- right for a directory read off the disk, wrong for a tree a
+  delete or a rescan replaces, whose branches keep their values and change their
+  children. So an effect over the scan calls `reloadAll()` (SIG-479): every open
+  branch reads again over the new tree and a closed one when it opens, and the
+  cursor, the open set and the scroll stay put. It was a getter until SIG-479 gave
+  the tree a way to be told, which routed around the cache rather than using it.
+  Each node's choice is still made once, so a read again hands back the same
+  objects for a subtree the delete did not touch and the list keeps their rows; and
+  a branch is read only when it opens, so a tree of 180,000 names costs what is
+  open.
 
 - **Enter is the tree's `onActivate`, described as `map it`.** It was the panel's
   for a while, because `describeListView()` could only say `enter open`, and a
