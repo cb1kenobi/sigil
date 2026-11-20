@@ -215,6 +215,12 @@ describe('MONO, which tells its roles apart by attribute alone', () => {
     }
   });
 
+  it('should keep a disabled error dim, so it is not an enabled one', () => {
+    // `font-weight: bold` is a shorthand that resets `dim`, and the error comes after
+    // the muted role in the sheet
+    expect(look('sigil-muted sigil-error', 'dark')).toBe('bold+dim+italic');
+  });
+
   it('should keep an error badge apart from a neutral one and from the other variants', () => {
     const badge = (variant: string) => look(`sigil-badge ${variant}`, 'dark');
     const neutral = look('sigil-badge', 'dark');

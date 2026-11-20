@@ -81,14 +81,16 @@
  * crashing row from the focused one, an error badge from a neutral one. The error
  * is bold italic instead, a pair no other role here says, so it is told apart from
  * all six and still reads under a focus, which adds `inverse` to whatever the row
- * already was.
+ * already was. It is the `bold` longhand and not `font-weight: bold`, because that
+ * shorthand resets `dim` and a disabled row carrying `sigil-muted` and this role
+ * would lose the one thing that says it is disabled.
  */
 export const MONO = `
 .sigil-accent { color: initial; font-weight: bold }
 .sigil-muted { color: initial; dim: true }
 .sigil-heading { color: initial; font-weight: bold; text-decoration: underline }
 .sigil-success { color: initial; font-weight: bold }
-.sigil-error { color: initial; font-weight: bold; italic: true }
+.sigil-error { color: initial; bold: true; italic: true }
 .sigil-warn { color: initial; text-decoration: underline }
 .sigil-info { color: initial; italic: true }
 
