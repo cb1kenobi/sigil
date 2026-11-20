@@ -395,7 +395,7 @@ describe('multiline() charLimit', () => {
   it('should count what the caret steps over rather than code units', async () => {
     // a family is seven code points and eleven code units, and one character to
     // anybody looking at it
-    const family = '👨‍👩‍👧';
+    const family = '👨\u200d👩\u200d👧';
     const ui = screenSetup();
     const answer = multiline({
       ansi: ui.ansi,
@@ -565,7 +565,20 @@ describe('fitted()', () => {
     // joins clusters, so counting the insertion's own is enough. Walked over the
     // joins there are -- regional indicators re-pairing, a ZWJ sequence, a
     // combining mark, an emoji modifier, CRLF -- at every boundary of every value
-    const parts = ['a', '🇺', '🇸', '🇺🇸', '\u200d', '👩', '\u0301', '🏽', '\r', '\n', 'é', '👨‍👩‍👧'];
+    const parts = [
+      'a',
+      '🇺',
+      '🇸',
+      '🇺🇸',
+      '\u200d',
+      '👩',
+      '\u0301',
+      '🏽',
+      '\r',
+      '\n',
+      'é',
+      '👨\u200d👩\u200d👧',
+    ];
     const values = ['', 'ab', '🇺🇸🇫', '🇺', '👩\u200d', 'e\u0301x', '\r', '🇺🇸🇫🇷🇩'];
     const inserts = [...parts, ...parts.flatMap((a) => parts.map((b) => a + b))];
 

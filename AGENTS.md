@@ -697,6 +697,20 @@ These look like bugs and are not. Each is intentional and covered by tests.
   otherwise, and there is no suppression left to keep in place. Both copies say
   it the same way, since two spellings of one rule is how they come to
   disagree.
+- **The source carries no format character either, `\p{Cf}`, and code writes one
+  as an escape** (SIG-483). The bidi controls reorder what an editor and a diff
+  draw without changing what a compiler reads -- "Trojan Source" -- and the
+  zero-width ones are not there to the eye at all, so they defeat the same
+  reader the control character rule protects. The class is named rather than
+  enumerated, for the reason the escape pass says `\p{Cc}`, and it replaced a
+  check for the byte order mark alone. The joiners inside emoji are not exempt
+  by rule: fifteen files held one, and every JavaScript or TypeScript file now
+  writes it as an escape between the pictographs it joins, the same string with
+  the joiner visible -- which is what `width/` already did. What stays literal
+  is a file with no escape for it, and it is a named entry with its reason in
+  `FORMAT_ALLOWED`: today one, `packages/sigil/README.md`, whose examples _are_
+  a joined emoji and where a code span would show an escape as typed. An entry
+  holding none fails, so the list cannot outlive its reason.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken

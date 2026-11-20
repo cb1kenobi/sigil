@@ -276,7 +276,7 @@ const JS_TYPE_NEXT = new Set([
   'type',
 ]);
 
-const IDENT = /[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*/uy;
+const IDENT = /[\p{ID_Start}$_][\p{ID_Continue}$\u200C\u200D]*/uy;
 const JS_NUMBER =
   /(?:0[xX][\da-fA-F_]*|0[oO][0-7_]*|0[bB][01_]*|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?[\d_]+)?)n?/y;
 

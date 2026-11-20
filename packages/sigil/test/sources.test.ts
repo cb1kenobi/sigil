@@ -1,5 +1,6 @@
+import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -93,6 +94,91 @@ function tracked(): string[] {
     .filter(Boolean);
 }
 
+/** A code point as a reader looks it up: `U+202E`. */
+function codePoint(code: number): string {
+  return `U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
+/**
+ * A character that is not there to the eye: `\p{Cf}`, the format characters.
+ *
+ * The control character check is C0, `DEL` and C1, and none of these is one,
+ * so they went through it. The bidi controls -- U+202A to U+202E, U+2066 to
+ * U+2069, and the marks U+200E, U+200F and U+061C -- reorder what an editor and
+ * a diff draw without changing what a compiler reads, which is the "Trojan
+ * Source" attack and the reason GitHub flags them. The zero-width ones --
+ * U+200B to U+200D, and U+FEFF -- are simply invisible, and a byte order mark
+ * also changes how a file parses. SIG-483 was a tool write that turned the
+ * escape for U+202E in a test into the character itself: the check passed it,
+ * and only `od` showed it.
+ *
+ * Every one of them is `\p{Cf}`, so the class is named rather than enumerated,
+ * for the reason the build's escape pass says `\p{Cc}`: a list is a second
+ * definition of a set Unicode already defines. Naming it also takes in the word
+ * joiner, the invisible operators and the tag characters, which are as invisible
+ * as the rest and which no file here holds.
+ */
+const FORMAT = /\p{Cf}/gu;
+
+/**
+ * What may hold one literally anyway, each with the reason it has to.
+ *
+ * JavaScript and TypeScript have an escape for every one of these characters,
+ * so code never needs the literal: the joiners inside the family emoji the tests
+ * measure are written as escapes between the pictographs they join, which is
+ * the same string and shows the reader what is there. Markdown is where there is
+ * no escape, because a code span shows a backslash sequence and a character
+ * reference exactly as typed -- so a document whose example *is* the character
+ * has to hold it. Listed by file rather than inferred from where a joiner sits,
+ * so that the next one is a decision somebody makes.
+ */
+const FORMAT_ALLOWED = new Map([
+  [
+    'packages/sigil/README.md',
+    'the `stringWidth()` example and `charLimit` each show a family emoji, which is one ' +
+      'grapheme cluster because of its joiners, and npm renders the README for people',
+  ],
+]);
+
+/**
+ * Each line of each file that holds a format character, as `name:line: U+202E`.
+ *
+ * A file git would call binary is skipped: it has no diff for an invisible
+ * character to mislead, and `should be text to git` keeps every file that is not
+ * on `ALLOWED` text, so a binary file here is one somebody already listed.
+ */
+function formatCharacters(dir: string, names: readonly string[]): string[] {
+  const offenders: string[] = [];
+
+  for (const name of names) {
+    let raw: Buffer;
+    try {
+      raw = readFileSync(join(dir, name));
+    } catch {
+      continue;
+    }
+    if (raw.subarray(0, 8000).includes(0)) {
+      continue;
+    }
+
+    // `Buffer#toString()` keeps a leading byte order mark where a `TextDecoder`
+    // would strip it, so a mark is found at the start of a file as well as part
+    // way down, which is where the four in `@ttylabs/config-xml`'s comments were
+    const lines = raw.toString('utf8').split('\n');
+    for (const [index, line] of lines.entries()) {
+      const codes = new Set(
+        [...line.matchAll(FORMAT)].map((match) => match[0].codePointAt(0) ?? 0)
+      );
+      if (codes.size > 0) {
+        const labels = [...codes].sort((a, b) => a - b).map(codePoint);
+        offenders.push(`${name}:${index + 1}: ${labels.join(', ')}`);
+      }
+    }
+  }
+
+  return offenders;
+}
+
 describe('committed sources', () => {
   const files = tracked().filter((name) => !allowed(name));
 
@@ -142,9 +228,7 @@ describe('committed sources', () => {
       }
 
       if (found.size > 0) {
-        const names = [...found]
-          .sort((a, b) => a - b)
-          .map((code) => `U+${code.toString(16).toUpperCase().padStart(4, '0')}`);
+        const names = [...found].sort((a, b) => a - b).map(codePoint);
         offenders.push(`${name}: ${names.join(', ')}`);
       }
     }
@@ -152,38 +236,75 @@ describe('committed sources', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  it('should carry no byte order mark, which is the one format character that bites', () => {
-    // the gap the FIGlet pass recorded and the XML store then walked into
-    // again: the check above is C0, `DEL` and C1, and a byte order mark is a
-    // **format** character rather than a control one -- so four literal ones
-    // sat in this repository's comments and `oxlint`'s
-    // `no-irregular-whitespace` was what said so rather than anything here.
-    //
-    // Closed for the mark **alone** rather than by widening to `\p{Cf}`, which
-    // is the obvious generalization and needs an allow-list: there are two
-    // legitimate U+200D in the tree, in `packages/sigil/README.md` and in
-    // `test/components/typewriter.test.ts`, where they are the joiners inside
-    // emoji sequences. A mark needs none, because no file here has a reason to
-    // hold one -- and it is the one that is not merely invisible: it changes
-    // how a file **parses**, which is what the XML store spends a module on.
-    const marked: string[] = [];
+  it('should carry no format character, which is invisible and can reorder a line', () => {
+    // read over every tracked file rather than over `files`, because a file on
+    // `ALLOWED` holds a terminal's own bytes for a reason and has none to hold a
+    // bidi control. This closes what the byte order mark check that used to
+    // stand here was a first step towards: it was the mark alone, because the
+    // two U+200D in the tree then would have needed a list and the mark needed
+    // none (SIG-483 took the list, and found fifteen files rather than two)
+    const offenders = formatCharacters(
+      root,
+      tracked().filter((name) => !FORMAT_ALLOWED.has(name))
+    );
 
-    for (const name of files) {
-      let raw: Buffer;
-      try {
-        raw = readFileSync(join(root, name));
-      } catch {
-        continue;
-      }
-      // read off the bytes rather than the decoded text, so that a mark
-      // anywhere in the file is found rather than only a leading one -- the
-      // four this found were in comments part way down
-      if (raw.includes(Buffer.from('\uFEFF', 'utf8'))) {
-        marked.push(name);
-      }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('should list only files that hold one, so that the list cannot outlive its reason', () => {
+    const all = new Set(tracked());
+
+    for (const name of FORMAT_ALLOWED.keys()) {
+      expect(all.has(name), name).toBe(true);
+      expect(formatCharacters(root, [name]), name).not.toEqual([]);
+    }
+  });
+
+  describe('a planted format character', () => {
+    // built from code points rather than written as escapes, because an escape
+    // written through a tool can land as the character itself, which is how this
+    // check came to be asked for
+    const planted = [
+      0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
+      0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
+    ];
+
+    function plant(content: string | Buffer): string[] {
+      const dir = tempDir('sigil-sources-');
+      writeFileSync(join(dir, 'planted.ts'), content);
+      return formatCharacters(dir, ['planted.ts']);
     }
 
-    expect(marked, marked.join('\n')).toEqual([]);
+    it.each(planted.map((code) => [codePoint(code), code]))('should refuse %s', (name, code) => {
+      const char = String.fromCodePoint(code as number);
+      expect(plant(`const ok = 1;\nconst label = 'a${char}b';\n`)).toEqual([
+        `planted.ts:2: ${name}`,
+      ]);
+    });
+
+    it('should refuse a byte order mark at the very start, which a decoder would strip', () => {
+      expect(plant(`${String.fromCodePoint(0xfeff)}const ok = 1;\n`)).toEqual([
+        'planted.ts:1: U+FEFF',
+      ]);
+    });
+
+    it('should name each character once per line, and every line it is on', () => {
+      const rlo = String.fromCodePoint(0x202e);
+      const pdf = String.fromCodePoint(0x202c);
+      expect(plant(`a${rlo}b${pdf}${rlo}\nok\nc${rlo}\n`)).toEqual([
+        'planted.ts:1: U+202C, U+202E',
+        'planted.ts:3: U+202E',
+      ]);
+    });
+
+    it('should pass the same character written as an escape, which is the fix', () => {
+      const backslash = String.fromCodePoint(0x5c);
+      expect(plant(`const label = 'a${backslash}u202Eb';\n`)).toEqual([]);
+    });
+
+    it('should skip a file git would call binary, which has no diff to mislead', () => {
+      expect(plant(Buffer.from(`\0${String.fromCodePoint(0x202e)}`, 'utf8'))).toEqual([]);
+    });
   });
 
   it('should be text to git, which is what makes a diff readable', () => {

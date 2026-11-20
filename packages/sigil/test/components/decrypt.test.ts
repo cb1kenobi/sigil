@@ -51,7 +51,7 @@ import { describe, expect, it, vi } from 'vitest';
 const ESC = String.fromCharCode(0x1b);
 
 /** The clusters this file leans on, each a thing a naive mask would get wrong. */
-const FAMILY = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+const FAMILY = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
 const FLAG = '\u{1F1EC}\u{1F1E7}';
 const ACUTE = '́';
 const CJK = '日本語';
