@@ -13174,11 +13174,19 @@ value it had ever shown.
   `put()` compares a landing answer with the one `kept` holds, so a retry that lands
   something different from what the failure replaced sets the search going at once
   and `deep` under the old answer is gone with it, where before it waited for the
-  next search. `treeListHeld().kept` counts it. Pinned by five `(SIG-521)` tests in
+  next search. `treeListHeld().kept` counts it. A walk that meets a value which is no
+  longer a function branch drops its entry, since nothing would ever read it
+  again (review round 1). Pinned by seven `(SIG-521)` tests in
   `tree-list-view.test.ts`; sabotage, each caught: the open branch not reaching
   under `kept`, `unfail()` not setting it, a closed branch not reaching under it,
-  `childrenOf()` not reading it, `dropGone()` not looking through it, and `put()`
-  not comparing against it.
+  `childrenOf()` not reading it, `dropGone()` not looking through it, `put()`
+  not comparing against it, a failure that follows not taking `kept` back, and
+  the walk not dropping the entry of a value that stopped being a function. Not
+  pinned, and said so: the `unfail()` in `setOpen()`, which the walk's own call
+  normally reaches first and is there for an `expand()` that comes between a
+  failure landing and the walk that sees it; and the line in `put()` that treats a
+  read begun with nothing to show as no answer at all, which only saves a search
+  at the start of a retry and drops nothing either way.
 
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
@@ -13233,7 +13241,8 @@ places, none of which changes what a walk finds:
   holds more than the walk found, which is a key gone: `treeListHeld().rows` says it
   holds the rows shown and no others, and a removed node is what the test removes.
   The duplicate-value check is one `Map.set` and a size compared, not a `has()`
-  and a `set()`.
+  and a `set()`. New rows are put in the map after the loop, so a walk that throws
+  inside it -- a guide written in a `Computed` -- leaves the map as it was.
 
 **Measured** over the built package, 200,000 open rows, one change that appends 3
 nodes, the CPU time of `items.set()` and `flush()` (user plus system, which counts

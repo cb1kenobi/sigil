@@ -1808,6 +1808,65 @@ describe('TreeListView()', () => {
       expect(picture(host)).toEqual(['❯ └── ▾ a', '      ├──   a1', '      └── ▸ deep']);
     });
 
+    it('should keep what a failed read replaced through a retry that fails again (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1', deep]);
+      const a = { items: () => next, text: 'a' };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      for (let i = 0; i < 2; i++) {
+        next = Promise.reject(new Error('offline'));
+        control(host).reload('a');
+        flush();
+        await landed();
+        expect(control(host).status('a')).toBe('failed');
+        // the failure holds the answer itself, so it is not held twice
+        expect(treeListHeld(host)?.kept).toBe(0);
+      }
+      // a reload while the second read is out supersedes it, and the kept answer stays
+      next = new Promise(() => {});
+      control(host).reload('a');
+      flush();
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      items.set([a]);
+      flush();
+      next = Promise.resolve(['a1', deep]);
+      control(host).reload('a');
+      flush();
+      await landed();
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls.deep).toBe(1);
+    });
+
+    it('should not keep an answer for a value that is no longer a function branch (SIG-521)', async () => {
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1']);
+      const items = new State<TreeChoiceItem[]>([{ items: () => next, text: 'a' }]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      control(host).collapse('a');
+      flush();
+      expect(treeListHeld(host)?.kept).toBe(1);
+
+      items.set([{ items: ['q'], text: 'a' }]);
+      flush();
+      expect(treeListHeld(host)?.kept).toBe(0);
+    });
+
     it('should keep what a failed read replaced while its branch is closed, and through a search (SIG-521)', async () => {
       const calls: Record<string, number> = {};
       const deep = {

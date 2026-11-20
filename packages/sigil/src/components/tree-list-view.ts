@@ -689,6 +689,10 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         if (reached.size > 0) {
           reached.delete(key);
         }
+        // an answer kept for a value that is no longer a function branch is no one's
+        if (kept.size > 0 && !(parts.branch && typeof parts.choice.items === 'function')) {
+          kept.delete(key);
+        }
         const under = seen.get(key);
         if (under === undefined) {
           seen.set(key, false);
@@ -963,24 +967,29 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     const held = untrack(() => listed.get());
     const next: Row<T>[] = [];
     let unchanged = lines.length === held.length;
+    // added to the map after the loop, so a throw inside it leaves the map as it was
+    const added: Row<T>[] = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const was = byKey.get(line.key);
       let row: Row<T>;
       if (was === undefined) {
         row = { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
-        byKey.set(line.key, row);
+        added.push(row);
       } else {
         if (sameRow(was, line)) {
           was.guide.set(line.guide);
           row = was;
         } else {
           row = { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
-          byKey.set(line.key, row);
+          added.push(row);
         }
       }
       next.push(row);
       unchanged &&= row === held[i];
+    }
+    for (const row of added) {
+      byKey.set(row.key, row);
     }
     // the map the rows are found by was added to rather than made again, which for
     // a tree that only grew is a few entries and not 200,000; where it holds more
