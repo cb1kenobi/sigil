@@ -112,9 +112,11 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   source's hash as the entropy; it is not a DLL with a hash beside it.** A hash
   kept next to the file is written by whoever writes the file, so it proves the
   file is intact and nothing about who put it there. A seal made **for the
-  user** can only be made by that user, and unsealing it checks its own MAC: a
-  file another user wrote -- a cache base `XDG_CACHE_HOME` pointed somewhere
-  shared, say -- a plain DLL, a truncated seal, and a real seal made for another
+  user** can be made only by that user -- or by SYSTEM, an administrator or a
+  domain backup-key holder, who are not what this is guarding against -- and
+  unsealing it checks its own MAC: a file another unprivileged user sealed for
+  themselves -- in a cache base `XDG_CACHE_HOME` pointed somewhere shared, say --
+  a plain DLL, a truncated seal, and a real seal made for another
   version's C# all fail to unseal, and each of those is a rebuild over it, never
   an error.
 - **A seal made for the machine is refused before it is unsealed, because
@@ -194,7 +196,8 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   item, rebuilt rather than run -- the one forgery `Assembly.Load()` would not
   refuse by itself, and the case that fails if a miss ever fell back to loading
   the raw bytes; the same stub sealed for the machine, which unseals without
-  error and is rebuilt rather than run, and again with the machine bit cleared;
+  error -- the plant unseals it as the user first, so the rebuild is the guard's
+  doing -- and is rebuilt rather than run, and again with the machine bit cleared;
   two calls racing on an empty cache; an unwritable cache
   compiling every call and still recycling. `test/trash-windows.test.ts` pins
   the key, the file name and what PowerShell is handed, on every platform.

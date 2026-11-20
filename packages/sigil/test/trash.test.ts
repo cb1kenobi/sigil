@@ -467,6 +467,11 @@ describe('trash()', () => {
      * with it is what `recycle()` reports; the item is trashed every time.
      */
     describe.runIf(WINDOWS)('the compiled helper, cached', () => {
+      /** A real assembly with the helper's own name and method, which moves nothing. */
+      const STUB =
+        'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }';
+      const POWERSHELL = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+
       /** Trashes a fresh file through `recycle()` with this cache, and takes it back out. */
       async function once(file: string | undefined, hash = keyOf('sigil-trash-test')) {
         const item = join(made('sigil-trash-cached-'), 'a.txt');
@@ -527,7 +532,7 @@ describe('trash()', () => {
           // bytes that `Assembly.Load()` would have refused anyway. It is loaded
           // here once, the way the script would, so that it is known to be one
           const planted = execFileSync(
-            `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+            POWERSHELL,
             [
               '-NoProfile',
               '-NonInteractive',
@@ -541,8 +546,7 @@ describe('trash()', () => {
               env: {
                 ...process.env,
                 PLANTED_FILE: file,
-                PLANTED_SOURCE:
-                  'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }',
+                PLANTED_SOURCE: STUB,
               },
             }
           );
@@ -559,11 +563,13 @@ describe('trash()', () => {
        * the stub assembly the test above plants, seal it under `scope` and put it
        * at `file`. Returns the flags field of the blob as written, read at the
        * offset the guard reads, so the layout is measured on the runner and not
-       * only assumed; with `clear`, the machine bit is then cleared in the file.
+       * only assumed, then `:` and what the stub answers when the blob is
+       * unsealed as the current user -- which is the proof that it unseals; with
+       * `clear`, the machine bit is then cleared in the file.
        */
       function plantSealed(file: string, scope: 'CurrentUser' | 'LocalMachine', clear = false) {
         return execFileSync(
-          `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+          POWERSHELL,
           [
             '-NoProfile',
             '-NonInteractive',
@@ -573,10 +579,14 @@ describe('trash()', () => {
               'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $dll -OutputType Library; ' +
               "$entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:PLANTED_KEY); " +
               '$sealed = [Security.Cryptography.ProtectedData]::Protect([IO.File]::ReadAllBytes($dll), $entropy, $env:PLANTED_SCOPE); ' +
-              '[Console]::Out.Write([BitConverter]::ToUInt32($sealed, 40)); ' +
+              // what the victim would get from unsealing it, before any edit: proof
+              // that the blob is a valid seal for this entropy, so a rebuild below
+              // is the guard's doing and not a seal that never worked
+              "$t = [Reflection.Assembly]::Load([Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')).GetType('SigilTrash.Bin', $true); " +
+              "[Console]::Out.Write([string][BitConverter]::ToUInt32($sealed, 40) + ':' + $t::Recycle('')); " +
               'if ($env:PLANTED_CLEAR) { $sealed[40] = $sealed[40] -band 0xFB }; ' +
               '[IO.File]::WriteAllBytes($env:PLANTED_FILE, $sealed); ' +
-              'Remove-Item -LiteralPath $dll -Force',
+              'Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue',
           ],
           {
             encoding: 'utf8',
@@ -586,8 +596,7 @@ describe('trash()', () => {
               PLANTED_FILE: file,
               PLANTED_KEY: keyOf('sigil-trash-test'),
               PLANTED_SCOPE: scope,
-              PLANTED_SOURCE:
-                'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }',
+              PLANTED_SOURCE: STUB,
             },
           }
         );
@@ -600,12 +609,12 @@ describe('trash()', () => {
 
           // a seal for the user has no machine bit, which is what makes the bit
           // the thing to read; the file is overwritten below, never run
-          expect(plantSealed(file, 'CurrentUser')).toBe('0');
+          expect(plantSealed(file, 'CurrentUser')).toBe('0:{"path":null}');
 
           // sealed under 'LocalMachine' with the public entropy, the blob unseals
           // for anybody, so unsealing it is no proof of who wrote it: the guard
           // reads the machine bit from the blob and treats it as a miss
-          expect(plantSealed(file, 'LocalMachine')).toBe('4');
+          expect(plantSealed(file, 'LocalMachine')).toBe('4:{"path":null}');
           expect(await once(file)).toBe('saved');
           expect(await once(file)).toBe('hit');
         },
@@ -620,7 +629,7 @@ describe('trash()', () => {
           // the other half of the guard: a flag an attacker can edit is no guard,
           // unless the blob stops unsealing -- which is what this measures. Either
           // outcome of the edit lands on a rebuild, and a hit here would be a hole
-          expect(plantSealed(file, 'LocalMachine', true)).toBe('4');
+          expect(plantSealed(file, 'LocalMachine', true)).toBe('4:{"path":null}');
           expect(await once(file)).toBe('saved');
         },
         SLOW

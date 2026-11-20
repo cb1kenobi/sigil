@@ -190,8 +190,9 @@ namespace SigilTrash {
  *
  * - The cached file is the assembly sealed with DPAPI for the current user, the
  *   entropy being the source's hash. Unsealing checks the seal's own MAC, so a
- *   file another user wrote, one sealed for another source, a truncated one or a
- *   plain DLL all fail to unseal -- and a failure is a rebuild, never an error.
+ *   file another user sealed for themselves, one sealed for another source, a
+ *   truncated one or a plain DLL all fail to unseal -- and a failure is a
+ *   rebuild, never an error.
  *   A hash kept beside the file would be written by whoever wrote the file.
  *   A seal made for the **machine** is refused before it is unsealed, from the
  *   flags field of the blob: DPAPI applies the scope only when sealing, so any

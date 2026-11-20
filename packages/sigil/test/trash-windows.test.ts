@@ -71,6 +71,10 @@ describe('what PowerShell is handed', () => {
     // the script is all the command carries: the C# goes in the environment,
     // which is what keeps the command under Windows' 32,767 characters
     const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le');
+    // a seal made for the machine is refused before anything is unsealed, which
+    // a macOS or Linux run can only see in the text; the Windows jobs run it
+    expect(script.indexOf('ToUInt32($sealed, 40)')).toBeGreaterThan(-1);
+    expect(script.indexOf('ToUInt32($sealed, 40)')).toBeLessThan(script.indexOf('Unprotect('));
     expect(script).not.toContain('namespace SigilTrash');
     expect(script).not.toContain('C:\\a');
     expect(args.join(' ').length).toBeLessThan(16_384);
