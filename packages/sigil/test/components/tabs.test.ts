@@ -25,7 +25,8 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import type { MouseButton, MouseEventKind } from '../../src/input/mouse.js';
-import { flush, State } from '../../src/signals/index.js';
+import { onCleanup } from '../../src/renderer/index.js';
+import { Computed, flush, setErrorHandler, State } from '../../src/signals/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
@@ -605,6 +606,249 @@ describe('a row that does not fit', () => {
       tabs: names.map((label) => ({ children: () => text(`${label} panel`), label })),
     });
     expect(picture(host, 22)[2]).toBe('Summary panel');
+  });
+});
+
+describe('tabs that change while they are up', () => {
+  /** What the effects threw while `fn` ran, which the default handler would print. */
+  const caught = (fn: () => void): unknown[] => {
+    const errors: unknown[] = [];
+    const previous = setErrorHandler((error) => void errors.push(error));
+    try {
+      fn();
+    } finally {
+      setErrorHandler(previous);
+    }
+    return errors;
+  };
+
+  it('should follow a live list of labels, keeping each label by position', () => {
+    const labels = new State<readonly string[]>(['a.txt', 'b.txt']);
+    const row = tabRowView({ active: 1, ascii: false, labels });
+    expect(picture(row, 20)).toEqual([' a.txt  b.txt', '───────━━━━━━━──────']);
+    const second = labelOf(row, 1);
+
+    labels.set(['a.txt', 'b.txt ●']);
+    flush();
+    expect(picture(row, 20)).toEqual([' a.txt  b.txt ●', '───────━━━━━━━━━────']);
+    expect(labelOf(row, 1)).toBe(second);
+
+    labels.set(['a.txt', 'b.txt ●', 'c.txt']);
+    flush();
+    expect(picture(row, 30)[0]).toBe(' a.txt  b.txt ●  c.txt');
+    // a click on the new one picks it, by its position
+    labelOf(row, 2).onMouse?.(mouseEvent('click'));
+    flush();
+    expect(tabsActive(row).get()).toBe(2);
+
+    // the active one taken away reads as the nearest there is
+    labels.set(['a.txt']);
+    flush();
+    expect(picture(row, 10)).toEqual([' a.txt', '━━━━━━━───']);
+    expect(press(row, 'left')).toBe(false);
+  });
+
+  it('should grow a row sized to its content when its labels grow, rather than window them', () => {
+    const labels = new State<readonly string[]>(['a']);
+    const row = tabRowView({ ascii: false, labels });
+    const holder = box({ 'flex-direction': 'row' }, row);
+    expect(picture(holder, 30)[0]).toBe(' a');
+    labels.set(['a', 'bb', 'ccc']);
+    flush();
+    expect(picture(holder, 30)).toEqual([' a  bb  ccc', '━━━─────────']);
+    // and from nothing, which is where an editor with no file open starts
+    labels.set([]);
+    flush();
+    picture(holder, 30);
+    labels.set(['one', 'two']);
+    flush();
+    expect(picture(holder, 30)[0]).toBe(' one  two');
+  });
+
+  it('should window labels that grow past a room whose size does not move', () => {
+    const labels = new State<readonly string[]>(['a', 'b']);
+    const row = tabRowView({ active: 0, ascii: false, labels });
+    expect(picture(row, 12)[0]).toBe(' a  b');
+    labels.set(['alpha', 'beta', 'gamma']);
+    flush();
+    // the row is twelve columns either way, so only `onLayout` tells it again
+    expect(picture(row, 12)[0]).toBe('  alpha    ›');
+  });
+
+  it('should keep an onLayout of the app’s own when it borrows the hook', () => {
+    const labels = new State<readonly string[]>(['a']);
+    // a sibling with a hook of its own counts the layouts: the row's own hook has to
+    // be called on every one of them, the one it was borrowed for included
+    const counts = { app: 0, layouts: 0 };
+    const counter = (key: keyof typeof counts) => (): boolean => {
+      counts[key]++;
+      return false;
+    };
+    const row = tabRowView({ ascii: false, labels, props: { onLayout: counter('app') } });
+    const holder = box({ 'flex-direction': 'column' }, row, box({ onLayout: counter('layouts') }));
+    picture(holder, 10);
+    labels.set(['bbbbbbbbbbbbbbbbbbbb']);
+    flush();
+    picture(holder, 10);
+    picture(holder, 10);
+    expect(counts.app).toBe(counts.layouts);
+    expect(counts.layouts).toBeGreaterThan(3);
+  });
+
+  it('should keep an onLayout set on the row after it was built', () => {
+    const labels = new State<readonly string[]>(['a']);
+    const row = tabRowView({ ascii: false, labels });
+    picture(row, 10);
+    let laid = 0;
+    const mine = (): boolean => {
+      laid++;
+      return false;
+    };
+    row.onLayout = mine;
+    labels.set(['bbb']);
+    flush();
+    picture(row, 10);
+    expect(row.onLayout).toBe(mine);
+    const before = laid;
+    picture(row, 10);
+    expect(laid).toBeGreaterThan(before);
+  });
+
+  it('should borrow again on the next change when an app put its own onLayout over the borrow', () => {
+    const labels = new State<readonly string[]>(['a']);
+    const row = tabRowView({ active: 0, ascii: false, labels });
+    picture(row, 10);
+    labels.set(['aaaa', 'bbbb', 'cccc', 'dddd']);
+    flush();
+    const mine = (): boolean => false;
+    row.onLayout = mine;
+    picture(row, 10);
+    labels.set(['aaaa', 'bbbb', 'cccc', 'eeee']);
+    flush();
+    expect(picture(row, 10)[0]).toBe('  aaaa   ›');
+    expect(row.onLayout).toBe(mine);
+  });
+
+  it('should read a function or a Computed as a live list, and its labels through it', () => {
+    const name = new State('one');
+    const row = tabRowView({ ascii: false, labels: () => [name.get(), 'two'] });
+    name.set('uno');
+    flush();
+    expect(picture(row, 12)[0]).toBe(' uno  two');
+    const computed = tabRowView({ ascii: false, labels: new Computed(() => [name.get()]) });
+    name.set('eins');
+    flush();
+    expect(picture(computed, 12)[0]).toBe(' eins');
+  });
+
+  it('should draw nothing for an empty live list, leave the ring, and come back with a tab', () => {
+    const labels = new State<readonly string[]>([]);
+    const row = tabRowView({ ascii: false, labels });
+    expect(row.focusable).toBe(false);
+    expect(picture(box({ 'flex-direction': 'column' }, row, text('below')), 10)[0]).toBe('below');
+    expect(press(row, 'right')).toBe(false);
+    expect(press(row, '1')).toBe(false);
+
+    labels.set(['a']);
+    flush();
+    expect(row.focusable).toBe(true);
+    expect(picture(row, 10)).toEqual([' a', '━━━───────']);
+    labels.set([]);
+    flush();
+    expect(row.focusable).toBe(false);
+  });
+
+  it('should refuse a live list that is not an array of strings when it is read', () => {
+    expect(() => tabRowView({ labels: () => [1 as unknown as string] })).toThrow(
+      'Expected tab labels to be an array of strings'
+    );
+    // a write at run time is reported where an effect's throw is
+    const errors = caught(() => {
+      const labels = new State<readonly string[]>(['a']);
+      tabRowView({ labels });
+      labels.set('a' as unknown as string[]);
+      flush();
+    });
+    expect(String(errors[0])).toContain('Expected tab labels to be an array of strings');
+  });
+
+  it('should take a label from a State without building the panel again', () => {
+    const built: string[] = [];
+    const name = new State('notes.md');
+    const host = Tabs({
+      ascii: false,
+      tabs: [
+        {
+          children: () => {
+            built.push('notes');
+            return text('the notes');
+          },
+          label: name,
+        },
+        { label: 'other' },
+      ],
+    });
+    const panel = host.children[1]?.children[0];
+    name.set('notes.md ●');
+    flush();
+    expect(picture(host, 24).slice(0, 3)).toEqual([
+      ' notes.md ●  other',
+      '━━━━━━━━━━━━────────────',
+      'the notes',
+    ]);
+    expect(built).toEqual(['notes']);
+    expect(host.children[1]?.children[0]).toBe(panel);
+  });
+
+  it('should build the panel of a tab that appears, dispose of one that goes, and keep the rest', () => {
+    const built: string[] = [];
+    const disposed: string[] = [];
+    const tab = (label: string): Tab => ({
+      children: () => {
+        built.push(label);
+        onCleanup(() => disposed.push(label));
+        return text(`the ${label}`);
+      },
+      label,
+    });
+    const [a, b, c] = [tab('a'), tab('b'), tab('c')];
+    const list = new State<readonly Tab[]>([a, b]);
+    const active = new State(1);
+    const host = Tabs({ active, ascii: false, tabs: list });
+    expect(built).toEqual(['a', 'b']);
+    const panelOfB = host.children[1]?.children[1];
+
+    list.set([a, b, c]);
+    active.set(2);
+    flush();
+    expect(built).toEqual(['a', 'b', 'c']);
+    expect(picture(host, 12)).toEqual([' a  b  c', '──────━━━───', 'the c']);
+
+    // a taken out: its panel goes and is disposed, b keeps the one it had, and the
+    // app moves `active` with the tab, since it is a position
+    list.set([b, c]);
+    active.set(0);
+    flush();
+    expect(disposed).toEqual(['a']);
+    expect(host.children[1]?.children).toHaveLength(2);
+    expect(host.children[1]?.children[0]).toBe(panelOfB);
+    expect(picture(host, 12)).toEqual([' b  c', '━━━─────────', 'the b']);
+    expect(built).toEqual(['a', 'b', 'c']);
+  });
+
+  it('should take an empty live list of tabs, and refuse a tab it cannot draw when it is read', () => {
+    const list = new State<readonly Tab[]>([]);
+    const host = Tabs({ ascii: false, tabs: () => list.get() });
+    expect(picture(host, 10).join('')).toBe('');
+    expect(rowOf(host).focusable).toBe(false);
+    list.set([{ children: () => text('hello'), label: 'hi' }]);
+    flush();
+    expect(picture(host, 10)).toEqual([' hi', '━━━━──────', 'hello']);
+    const errors = caught(() => {
+      list.set([{ label: 3 as unknown as string }]);
+      flush();
+    });
+    expect(String(errors[0])).toContain('Expected every tab to have a label that is a string');
   });
 });
 

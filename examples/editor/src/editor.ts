@@ -44,7 +44,7 @@ export interface Parts {
   readonly root: Element;
   /** The file tree. */
   readonly tree: Element;
-  /** Where the row of tabs goes: one is built whenever the labels change. */
+  /** Where the row of tabs goes. */
   readonly tabs: Element;
   /** Where each document's text area goes. */
   readonly areas: Element;
@@ -74,6 +74,8 @@ export interface Editor {
   readonly previewSubject: Computed<string | undefined>;
   /** The source panel's title: the file's path, and a mark while it is unsaved. */
   readonly title: () => string;
+  /** Where the caret is in the file showing, `Ln 12, Col 5`, or nothing with none open. */
+  readonly position: () => string;
   /** The last thing the editor said: saved, copied, refused. */
   readonly status: State<string>;
   /** The width of the file tree, which its edge drags. */
@@ -81,9 +83,6 @@ export interface Editor {
   /** The width of the preview, which its edge drags. */
   readonly previewWidth: State<number>;
 }
-
-/** What a terminal sends for Ctrl-Home: the text area's move to the start of its value. */
-const CTRL_HOME = '\u001b[1;5H';
 
 /** What closing an unsaved file asks, and its three answers. */
 type CloseAnswer = 'cancel' | 'discard' | 'save';
@@ -184,6 +183,9 @@ export function createEditor(): Editor {
   const buildArea = (doc: Doc): void => {
     const built = owned(() =>
       TextArea({
+        // starts at the top, where a file is read from, rather than at the end of
+        // the value, where a typist is in a field -- and is what the status reads
+        caret: doc.caret,
         // the extension is the language: `highlightCode()` maps every name a
         // language goes by, and marks nothing in one it does not read
         highlight: highlightCode,
@@ -229,13 +231,6 @@ export function createEditor(): Editor {
     active.set(all.length);
     status.set(`Opened ${shownPath(path, workspace.root)}`);
     show();
-    // a text area starts with the caret at the end of its value, which is where a
-    // typist is in a field and the last place to open a file at: a 50,000-line
-    // file would open scrolled to its last line. The area has no handle to move
-    // its caret, so the app sends it the key that does, Ctrl-Home, through the
-    // router as though it had been typed -- the area has the focus, and `show()`
-    // painted the frame that makes the router see it
-    input.feed(CTRL_HOME);
   };
 
   /**
@@ -414,11 +409,14 @@ export function createEditor(): Editor {
       { id: 'source', run: focusSource, title: 'Focus editor' },
       {
         id: 'reload',
+        // every folder that has been read, at any depth and open or not, rather
+        // than the root alone: a file added in an open subfolder is what this is
+        // for. What is on screen stays until each new read lands
         run: () => {
-          treeListControl<string>(parts?.tree as Element)?.reload(files.value ?? workspace.root);
-          status.set('Read the file tree again');
+          treeListControl<string>(parts?.tree as Element)?.reloadAll();
+          status.set('Read every folder in the file tree again');
         },
-        title: 'Reload file tree',
+        title: 'Reload the whole file tree',
       },
       { id: 'quit', keys: 'q', run: () => void quit(), title: 'Quit' },
     ];
@@ -462,28 +460,12 @@ export function createEditor(): Editor {
     parts = given;
     const { root, panels } = given;
 
-    // the row of tabs is built again whenever a label changes -- a file opened or
-    // closed, or a mark coming or going -- because `tabRowView()` reads its labels
-    // once (the components' "Tabs", under "Not done"). The active tab is one state
-    // across every row, so a row built again shows the same tab
-    let row: { dispose: () => void; value: Element } | undefined;
-    const labels = new Computed(() => tabLabels(docs.get(), workspace.root, mark).join('\u0000'));
-    createEffect(() => {
-      const joined = labels.get();
-      const had = row !== undefined && untrack(() => input.focus.current.get()) === row.value;
-      row?.value.remove();
-      row?.dispose();
-      row = undefined;
-      if (joined === '') {
-        return;
-      }
-      row = owned(() => tabRowView({ active, labels: joined.split('\u0000') }));
-      given.tabs.append(row.value);
-      if (had) {
-        input.focus.focus(row.value);
-      }
-    });
-    onCleanup(() => row?.dispose());
+    // one row for the life of the editor, over the labels as they are now: a file
+    // opened or closed, or a mark coming or going, changes them under it. With
+    // nothing open the row draws nothing and is not a stop for Tab
+    given.tabs.append(
+      tabRowView({ active, labels: () => tabLabels(docs.get(), workspace.root, mark) })
+    );
 
     // the tab row writes `active` with its own keys and clicks, which is the one
     // way it changes that `show()` was not called for
@@ -560,6 +542,17 @@ export function createEditor(): Editor {
     return doc.dirty.get() ? `${shown} ${mark}` : shown;
   };
 
+  // one-based, as every editor counts them; the column is the area's offset into
+  // the line, so a character of two code units counts two
+  const position = (): string => {
+    const doc = current();
+    if (doc === undefined) {
+      return '';
+    }
+    const { col, line } = doc.caret.get();
+    return `Ln ${line + 1}, Col ${col + 1}`;
+  };
+
   return {
     activate,
     active,
@@ -567,6 +560,7 @@ export function createEditor(): Editor {
     docs,
     files,
     input,
+    position,
     previewSource,
     previewSubject,
     previewWidth,

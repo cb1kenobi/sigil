@@ -7,7 +7,7 @@
  * terminal.
  */
 
-import { codeLanguage } from '@ttylabs/sigil/components';
+import { codeLanguage, type TextAreaCaret } from '@ttylabs/sigil/components';
 import { Computed, State } from '@ttylabs/sigil/signals';
 import { basename, extname, isAbsolute, relative, sep } from 'node:path';
 
@@ -38,6 +38,11 @@ export interface Doc {
   readonly saved: State<string>;
   /** Whether `value` differs from `saved`: the tab's marker, and the close's question. */
   readonly dirty: Computed<boolean>;
+  /**
+   * Where the caret is: the text area's `caret`, which starts at the top of the
+   * file and is what the status line reads.
+   */
+  readonly caret: State<TextAreaCaret>;
 }
 
 /**
@@ -56,6 +61,7 @@ export function createDoc(path: string, text: string): Doc {
   const ext = extname(path).slice(1);
   const lang = ext === '' ? undefined : ext;
   return {
+    caret: new State<TextAreaCaret>({ col: 0, line: 0 }),
     dirty: new Computed(() => value.get() !== saved.get()),
     eol,
     lang,

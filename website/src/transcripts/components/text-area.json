@@ -3,6 +3,13 @@
     "interface": "TextAreaProps",
     "options": [
       {
+        "description": "Where the caret is.",
+        "default": "the end of the value",
+        "name": "caret",
+        "optional": true,
+        "type": "TextAreaCaret | State<TextAreaCaret>"
+      },
+      {
         "description": "Whether the area refuses input.",
         "default": "`false`",
         "name": "disabled",

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 452 keys, which is what a catalog has to carry to translate sigil's own
+ * 454 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -124,6 +124,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a switch onChange to be a function',
   'Expected a switch state name to be a non-empty string',
   "Expected a switch's two states to have different names",
+  'Expected a text area caret to be a line and a column, or a State',
   'Expected a text area gutter to be a string with no control character',
   'Expected a text area highlight to be a function',
   'Expected a text area lang to be a string',
@@ -186,7 +187,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected every list row to have a key of its own: {0} is used twice',
   'Expected every radio option to be a string or have a label',
   'Expected every radio option to have a different value',
-  'Expected every tab to have a label that is a string',
+  'Expected every tab to have a label that is a string, or a State, a Computed or a function of one',
   'Expected every tree node to have a value of its own: {0} is used twice',
   'Expected items to be an array',
   'Expected list current to be a key or a State, not a Computed, since the list writes it',
@@ -218,8 +219,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected switch value to be a boolean or a State',
   'Expected tab children to be a function that builds the panel',
   'Expected tab labels to be a non-empty array of strings',
+  'Expected tab labels to be an array of strings',
   'Expected tabs active to be a number or a State',
-  'Expected tabs to be a non-empty array',
+  'Expected tabs to be a non-empty array, or a State, a Computed or a function of one',
   'Expected text area disabled to be a boolean, a State, a Computed or a function',
   'Expected text area rows to be a positive whole number',
   'Expected text field disabled to be a boolean, a State, a Computed or a function',

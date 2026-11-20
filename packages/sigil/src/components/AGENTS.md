@@ -9585,15 +9585,59 @@ nothing and stays in the tree.
   is why the role goes on the label and not the row. The count moved everywhere it
   was written: the test name and list in `test/theme.test.ts`,
   `src/theme/AGENTS.md`, and the sheet's comment.
+- **The tabs and their labels can be live, and the row is never built again for
+  them (SIG-467).** `labels` is an array or a `State`, a `Computed` or a function
+  of one; `Tabs()`'s `tabs` the same of `Tab` objects, and a `Tab`'s `label` a
+  string or a live one -- the "anything with a `get()`, or a function" duck that
+  `ListView`'s `items` and `DiffView`'s `content` read, rather than `State`
+  alone, so an app hands over the `Computed` it already has. The editor example
+  built a whole new row whenever a dirty mark came or went or a file opened, and
+  had to put the focus back on it by hand. What each half keeps:
+  - **A label is kept by position.** It is a string, so it has no other identity;
+    the row keeps one text per position and adds or drops them at the end, so a
+    label that changes is the same element and a click on it still picks its
+    position.
+  - **A panel is kept by its `Tab` object**, which is `For`'s keying: a tab that
+    appears has its panel built, under a branch of its own; one that goes has it
+    removed and disposed with whatever it built; one kept keeps its panel and
+    what is in it wherever it moved. `Tabs()` is `For` over the list now even for
+    a fixed array, which builds the same panels once in the same order.
+  - **`active` stays a position**, and the row does not move it when a tab is
+    taken out before it -- `DiffView`'s reason for its `current`: a position is
+    what the keys, the digits and the app all write, and keeping "the same tab"
+    would need an identity the row of strings does not have. An index past the
+    end reads as the nearest, as it always did, and the app writes `active` with
+    the list, as the editor does when a tab closes.
+  - **A live list may be empty, a fixed one may not.** An empty array handed in
+    is still refused, since a row of nothing that can never change is a mistake.
+    An empty live list draws nothing -- no rule under no labels -- so it takes no
+    room, and the row leaves the focus ring until it has a tab, since its keys
+    would do nothing there; a key on it is not claimed. A list or a label read
+    live is checked every time it is read, and a bad one is the effect's throw.
+  - **New labels are drawn whole, and the next layout is asked for the room
+    through `onLayout`, once.** The room the layout last gave may be only what the
+    old labels came to -- a row sized to its content is as wide as it drew -- and
+    windowing new labels into it kept that row that width for good: the editor's
+    row came up one tab wide and stayed so. So a change of labels forgets the room
+    and draws everything, which is the first layout's rule; a content-sized row
+    then grows. A row whose size does not move is never told it again through
+    `onResize`, which asks whether the size moved, so the change borrows the
+    row's `onLayout` for the one layout after it, then puts back whatever was
+    there when it borrowed -- an app's own `onLayout`, from `props` or set on the
+    row since, which the borrowed hook calls too (review round 1: it put back what
+    was there at construction, which dropped one set later). An app that puts its
+    own `onLayout` over the borrow before that layout leaves the row drawn whole
+    until its labels change again, when it borrows afresh, or its size moves
+    (review round 2).
 - **Labels are one line and measured by display width.** `oneLine()` takes escape
   sequences and line breaks out, `stringWidth()` measures, and each label is a
   fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
   uses, so a wide character takes its two cells in the row and in the rule beneath.
 - **Not done:** wrapping the row onto a second line (Textual scrolls, so does
-  this); a `disabled` tab; closing or adding a tab at run time (the tabs are read
-  once, the way a table's columns are); a vertical or bottom-edge row; lazy
-  panels; switching from inside a panel (Ctrl-PageDown); and moving the focus to
-  the row when a panel the focus was in is hidden by an app writing the state --
+  this); a `disabled` tab; a close button on a tab (an app closes one by writing
+  the list); a vertical or bottom-edge row; lazy panels; switching from inside a
+  panel (Ctrl-PageDown); and moving the focus to the row when a panel the focus
+  was in is hidden by an app writing the state, or off a row an app emptied --
   the same gap as the collapsible's, since an element cannot move the focus.
 
 ### A diff view: `diff()`, a Myers diff written here, and a highlight seam it shares
@@ -13681,6 +13725,43 @@ was reached, the measurements and the sabotage pass are in
   selection never copies the numbers; and the focus is `.sigil-focus` on the caret,
   which is what "Focus on a control" settled for this widget, with no caret at
   colour level 0.
+- **The caret is `caret`, a place or a `State` of one, and the state is the one
+  truth (SIG-466).** The shape `Tabs`' `active`, `DiffView`'s `current` and the
+  area's own `value` already have, which is why it is a prop and not methods: a
+  `State` is something an app can both read and write, it is already the
+  subscription a status line needs, and methods would have meant a handle looked
+  up from the host and an `onCaret` beside them to say when to read it. A place
+  is a line and an offset into it, in UTF-16 code units -- what the area keeps,
+  what `slice()` takes, and the one column that is not ambiguous where a wide
+  character or a tab draws wider than it is long. Every move and every edit
+  writes it, from the one place every change already passes through, `redraw()`,
+  and only when the place moved. An app that writes it moves the caret, collapses
+  any selection -- even onto the place it was, since the write is the app saying
+  where the caret is -- and scrolls it into view. A place out of range is the
+  nearest one and an offset inside a cluster the end of that cluster (`snap()`,
+  the edits' own rule), and the state is written back with where the caret went,
+  so it never says what the screen does not; nothing there throws, since a run
+  time write has nowhere for a refusal to land, while a plain place handed in
+  that is not two numbers is refused at construction. A plain place is where the
+  caret **starts**, rather than the end -- the half the editor needed, which
+  opened a 50,000-line file on its last line and typed Ctrl-Home to get out of
+  it. A write the app makes to `value` still puts the caret at the end; a caret
+  written in the same turn, either side of it, is applied after it and wins, so
+  "load this file at line 40" is two writes in any order. That holds from inside
+  `onChange` too, in the middle of an edit: before the area writes where the edit
+  left the caret it takes in what the app wrote since, value and caret, the way
+  an input handler does (review rounds 1 and 2). A write that lands during a drag
+  ends the drag, so the next motion does not put the caret back under the
+  pointer. A caret `State` is one area's: two areas handed one clamp it to their
+  own lines and write it back over each other.
+- **A write the app makes is taken in before a key, not only when the effect
+  runs.** The effect runs with the frame, and a key in the same read as the
+  write -- a burst, a fast typist, a "go to line" bound to a key that then types
+  -- reached the handler first: it edited where the caret had been, and the
+  area's own write of the caret then replaced the app's. So every handler first
+  takes in whatever the app wrote since the area last looked, the value and the
+  caret both, with the same function the effect runs. The value was exposed to
+  the same race before the caret was added, and is fixed by the same call.
 - **Sabotage: forty-two on the area, thirty-four caught.** Every key rule, the
   window, the follow, the selection layer's level-0 and `drawsText` answers, the
   caret in a selection, the splice that overflowed the stack on a 500,000-line
@@ -13693,8 +13774,8 @@ was reached, the measurements and the sabotage pass are in
   dropped, a line break dropped, nothing dropped -- each fail the prompt's tests.
 - **Not done:** undo; soft wrap; `charLimit`; select-all, a double-click word and
   a scroll bar; indenting a selection with Tab; an incremental highlight; a handle
-  for an app to move the caret or read the selection; and `multiline()` onto the
-  element.
+  for an app to read or set the selection (the caret is `caret`, above); and
+  `multiline()` onto the element.
 
 ### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)
 

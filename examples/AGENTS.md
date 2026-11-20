@@ -1120,18 +1120,37 @@ below with the measurements.
   closes. Showing one paints a frame before the next key, the log browser's
   `redraw()` for SIG-384.
 
-- **A file opens at its first line because the editor types Ctrl-Home.** A text
-  area puts the caret at the end of what it is given -- `TextField`'s rule, right
-  for a field -- and has no handle to move it ("Not done" in the area's entry), so
-  a 50,000-line file opened on its last line. The editor feeds `ESC [1;5H`
-  through the router after the area has the focus. Sabotaged, sixteen tests fail.
+- **A file opens at its first line, and the status line says where the caret
+  is, through the area's `caret` (SIG-466).** A text area puts the caret at the
+  end of what it is given -- `TextField`'s rule, right for a field -- so a
+  50,000-line file opened on its last line, and the first version typed Ctrl-Home
+  into the area through the router to get out of it. Each document now holds a
+  `caret` state that starts at the top, the area is handed it, and the footer
+  reads it as `Ln 12, Col 5`, one-based, for the tab showing -- each tab keeps
+  its own, since each document has its own area. The column is the area's offset
+  into the line, so a character of two code units counts two. Without the
+  `caret` prop nineteen tests fail.
 
-- **The tab row is built again whenever a label changes.** `tabRowView()` reads
-  its labels once ("Tabs", under "Not done"), and a dirty mark changes a label.
-  An effect over the labels joined into one string builds a new row, under a
-  branch it disposes with the old one, over the one `active` state -- so the
-  showing tab survives the rebuild, and a focused row is focused again.
+- **One tab row for the life of the editor, over the labels as a function
+  (SIG-467).** The first version built a new row whenever a label changed -- a
+  file opened or closed, a dirty mark coming or going -- because `tabRowView()`
+  read its labels once, and it put the focus back on the new row by hand. The row
+  now takes `() => tabLabels(...)` and follows it. With nothing open it draws
+  nothing and is out of the focus ring, which is what having no row did. `should
+  keep one row of tabs, through opening, a mark and closing` holds the one
+  element, and the focus on it while a mark goes.
 
+- **"Reload the whole file tree" is `reloadAll()` (SIG-488).** It called
+  `reload()` on the root, which reads the root again and leaves every folder
+  opened below it on the listing it had, so a file added in an open subfolder
+  did not appear until that folder was closed and opened. `reloadAll()` marks
+  every folder that has been read out of date -- an open one is read at once, a
+  closed one when it next opens -- and keeps what is on screen until each read
+  lands, so nothing closes. The title says the whole tree, rather than the
+  folder under the cursor, which `reload(value, { subtree: true })` would have
+  been: a command in a palette has no cursor in view to be about. `should reload
+  the whole tree, so a file added in an open subfolder appears` adds a file to an
+  open folder and to one open inside it, and sees both.
 - **Dirty is a comparison, not a flag, and a clean file is not written.** A
   document holds the text as read or last saved and compares, so typing a change
   back out is clean, the settings form's rule. The area keeps `\n` and nothing
@@ -1229,7 +1248,7 @@ below with the measurements.
 
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and
-  showing the caret's line and column, which the area has no handle to read.
+  a "go to line", which `caret` now makes a few lines of the palette's.
 
 ### A disk space visualizer, a size-sorted tree beside a treemap (SIG-474)
 

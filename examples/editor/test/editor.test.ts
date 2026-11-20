@@ -3,6 +3,7 @@ import { LIVE_LIMIT, MAX_PREVIEW } from '../src/preview.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { createWorkspace, type Workspace, WorkspaceContext } from '../src/workspace.ts';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
+import type { Element } from '@ttylabs/sigil/element';
 import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, ctrl, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
@@ -224,6 +225,22 @@ describe('the editor', () => {
     expect(it.screen()).not.toContain('─ Preview');
   });
 
+  it("should show the caret's line and column, for the tab showing", async () => {
+    const it = await mount(workspace({ 'a.txt': 'one\ntwo\nthree\n', 'b.txt': 'b\n' }));
+    expect(it.screen()).not.toMatch(/Ln \d/u);
+    await open(it, 'a.txt');
+    expect(it.screen()).toContain('Ln 1, Col 1');
+    await it.press(KEYS.down, KEYS.down, KEYS.right, KEYS.right);
+    expect(it.screen()).toContain('Ln 3, Col 3');
+    await it.press(KEYS.enter);
+    expect(it.screen()).toContain('Ln 4, Col 1');
+    // each tab keeps its own
+    await open(it, 'b.txt');
+    expect(it.screen()).toContain('Ln 1, Col 1');
+    await it.press(CTRL_PAGE_UP);
+    expect(it.screen()).toContain('Ln 4, Col 1');
+  });
+
   it('should preview Markdown beside the source, and follow the typing', async () => {
     const it = await mount(workspace({ 'README.md': '# Title\n\nSome *words*.\n' }));
     await open(it, 'README.md');
@@ -429,7 +446,37 @@ describe('the editor', () => {
       // the time the next frame has run the effects
       const it = await mount(workspace({ 'a.txt': 'a\n' }));
       await it.press(ctrl('p'), ...'reload', KEYS.enter);
-      expect(it.screen()).toContain('Read the file tree again');
+      expect(it.screen()).toContain('Read every folder in the file tree again');
+    });
+
+    it('should reload the whole tree, so a file added in an open subfolder appears', async () => {
+      // short names, which the narrow tree draws whole three levels down
+      const dir = workspace({ 'src/lib/x.ts': 'd\n', 'src/main.ts': 'm\n', 'top.txt': 't\n' });
+      const it = await mount(dir);
+      // open src, and src/lib under it, in the tree, each read before the next
+      for (const [name, then] of [
+        ['src', `lib${sep}`],
+        ['lib', 'x.ts'],
+      ]) {
+        for (let i = 0; i < 20 && !cursorRow(it).includes(` ${name}${sep}`); i++) {
+          await it.press(KEYS.down);
+        }
+        await it.press(KEYS.enter);
+        await it.until(then);
+      }
+      writeFileSync(join(dir, 'src', 'z.ts'), 'a\n');
+      writeFileSync(join(dir, 'src', 'lib', 'y.ts'), 'n\n');
+      await it.press(KEYS.up);
+      expect(it.screen()).not.toContain('z.ts');
+
+      await it.press(ctrl('p'), ...'reload');
+      expect(it.screen()).toContain('Reload the whole file tree');
+      await it.press(KEYS.enter);
+      await it.until('y.ts');
+      expect(it.screen()).toContain('z.ts');
+      // still open, both of them: nothing was closed and opened again to show it
+      expect(it.screen()).toContain(`▾ src${sep}`);
+      expect(it.screen()).toContain(`▾ lib${sep}`);
     });
 
     it('should run the best match when the typing and the Enter are one read', async () => {
@@ -496,6 +543,42 @@ describe('the editor', () => {
       await it.press(ctrl('p'), ...'preview', KEYS.enter);
       expect(it.screen()).toContain('─ Preview');
     });
+  });
+
+  it('should keep one row of tabs, through opening, a mark and closing', async () => {
+    const it = await mount(workspace({ 'a.txt': 'a\n', 'b.txt': 'b\n' }));
+    /** Every tab row in the tree, which is one element for the life of the editor. */
+    const rows = (): Element[] => {
+      const found: Element[] = [];
+      const walk = (element: Element): void => {
+        if (element.classes.includes('sigil-tabs-row')) {
+          found.push(element);
+        }
+        element.children.forEach(walk);
+      };
+      walk(it.app.view.root);
+      return found;
+    };
+    const [row] = rows();
+    expect(rows()).toHaveLength(1);
+    // with nothing open it is there and draws nothing, and Tab passes it by
+    expect(row?.focusable).toBe(false);
+    await open(it, 'a.txt');
+    await open(it, 'b.txt');
+    await it.press('!');
+    expect(sourceText(it)).toMatch(/ a\.txt +b\.txt ● /u);
+    await it.press(ctrl('s'), ctrl('w'));
+    expect(sourceText(it)).not.toContain('b.txt');
+    expect(rows()).toStrictEqual([row]);
+    expect(row?.focusable).toBe(true);
+    // focused while a mark goes, it keeps the focus: there is no new row to lose it to
+    await it.press('?', KEYS.escape, KEYS.tab);
+    expect(sourceText(it)).toMatch(/ a\.txt ● /u);
+    expect(it.app.input?.focus.current.get()).toBe(row);
+    await it.press(ctrl('s'));
+    expect(sourceText(it)).not.toContain('●');
+    expect(it.app.input?.focus.current.get()).toBe(row);
+    expect(rows()).toStrictEqual([row]);
   });
 
   it('should step through the tabs with Ctrl-PageDown and Ctrl-PageUp, wrapping', async () => {
@@ -592,7 +675,9 @@ describe('the editor', () => {
     });
 
     it('should highlight a language the lexer reads, and leave plain text plain', async () => {
-      const source = 'const answer = 42;\n';
+      // the keyword on the second line, because a file opens with the caret on the
+      // first cell, which draws that cell apart from the rest of its token
+      const source = '\nconst answer = 42;\n';
       const it = await mount(workspace({ 'a.ts': source, 'b.txt': source }), { colorLevel: 1 });
       // a keyword draws in the accent, which is cyan at level 1, and nothing else
       // on these screens is the word `const`

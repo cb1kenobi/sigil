@@ -36,8 +36,9 @@
  * Shift with any of the moves selects, and so does a drag; typing or deleting
  * over a selection replaces it. With `onCopy`, Ctrl-Y copies the selection and
  * Ctrl-X cuts it. Tab is the focus ring's unless `tab` says what it types, and
- * Shift-Tab and Escape are never the area's. `AGENTS.md` has the reasons under
- * "A text area".
+ * Shift-Tab and Escape are never the area's. `caret` is where the caret is, as a
+ * line and an offset into it, for an app to read and to move. `AGENTS.md` has the
+ * reasons under "A text area".
  */
 
 import { selectedStyle } from '../canvas/index.js';
@@ -52,7 +53,7 @@ import {
 import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { controlCondition, type ControlCondition } from './control.js';
 import {
@@ -63,6 +64,7 @@ import {
   type Edit,
   insertAt,
   pastedBlock,
+  snap,
   typedText,
   wordAfter,
   wordBefore,
@@ -79,7 +81,35 @@ import {
 } from './prompt.js';
 import { wheelStep } from './scroll-box.js';
 
+/** Where the caret is: a line, and an offset into that line. */
+export interface TextAreaCaret {
+  /**
+   * The offset into the line, from 0, in UTF-16 code units: what `slice()` takes,
+   * so `line.slice(0, col)` is the text before the caret. Always on a cluster
+   * boundary, so never inside an emoji or between a letter and its accent.
+   */
+  readonly col: number;
+  /** The line, from 0. */
+  readonly line: number;
+}
+
 export interface TextAreaProps {
+  /**
+   * Where the caret is.
+   *
+   * A line and a column is where it starts, rather than the end of the value. A
+   * `State` is the caret itself: every move and every edit writes it, and an app
+   * that writes it moves the caret there, with nothing selected, and scrolls it
+   * into view -- which is how a status line reads `Ln 12, Col 5` and how a "go to
+   * line" is written. A place past either end of a line or of the value is read
+   * as the nearest place there is, and one inside a cluster as the end of that
+   * cluster, and the state is written back with where the caret went.
+   *
+   * A write the app makes to `value` still puts the caret at the end; a caret
+   * written in the same turn as the value, before or after it, is placed in the
+   * new value instead. Defaults to the end of the value.
+   */
+  caret?: TextAreaCaret | State<TextAreaCaret>;
   /**
    * Whether the area refuses input.
    *
@@ -257,6 +287,16 @@ export function TextArea(props: TextAreaProps = {}): Element {
   if (props.lang !== undefined && typeof props.lang !== 'string') {
     throw new TypeError(__`Expected a text area lang to be a string`);
   }
+  if (
+    props.caret !== undefined &&
+    !(props.caret instanceof State) &&
+    (typeof props.caret !== 'object' ||
+      props.caret === null ||
+      typeof props.caret.line !== 'number' ||
+      typeof props.caret.col !== 'number')
+  ) {
+    throw new TypeError(__`Expected a text area caret to be a line and a column, or a State`);
+  }
 
   const value = props.value instanceof State ? props.value : new State(props.value ?? '');
   const { highlight, lang, onChange, onCopy, tab } = props;
@@ -325,6 +365,63 @@ export function TextArea(props: TextAreaProps = {}): Element {
   }
 
   load(seen);
+
+  /**
+   * The caret as a state: the app's, or one made here that nothing else reads. A
+   * plain place handed in is where the caret starts, which the first run of the
+   * effect below puts it, as it would a write.
+   */
+  const caretState =
+    props.caret instanceof State
+      ? props.caret
+      : new State<TextAreaCaret>(props.caret ?? { col: caret.col, line: caret.line });
+  /**
+   * What the area last wrote to `caretState`, or the app's own write once it has
+   * been taken in, so a write the area did not make is told apart -- `seen`'s
+   * rule, by identity. Nothing while what the state holds is not where the caret
+   * is, so the next redraw writes it.
+   */
+  let said: TextAreaCaret | undefined =
+    props.caret === undefined ? untrack(() => caretState.get()) : undefined;
+
+  /**
+   * Moves the caret to a place an app wrote: inside the value, on a cluster
+   * boundary, with nothing selected, and brought into view.
+   *
+   * Run time is where a `State` is written, so nothing here throws: a part that
+   * is not a number reads as 0, and a place out of range as the nearest one.
+   */
+  function place(at: TextAreaCaret | undefined): void {
+    const whole = (part: unknown): number =>
+      typeof part === 'number' && !Number.isNaN(part) ? Math.trunc(part) : 0;
+    const line = Math.min(Math.max(whole(at?.line), 0), lines.length - 1);
+    const text = lines[line];
+    caret = { col: snap(text, Math.min(Math.max(whole(at?.col), 0), text.length)), line };
+    anchor = undefined;
+    goal = undefined;
+    follow = true;
+    // a drag in progress ends: the app has said where the caret is, and the next
+    // motion would otherwise put it back under the pointer
+    dragging = false;
+    // kept when it already says where the caret went, so an app's write costs it
+    // no second one; otherwise the next redraw writes the place it was read as
+    said = at?.line === caret.line && at.col === caret.col ? at : undefined;
+  }
+
+  /**
+   * Writes where the caret is to `caretState`, when it is not what the state already
+   * says -- after taking in a write the app made since the area last looked, which
+   * an `onChange` can have made in the middle of the edit this redraw is for.
+   */
+  function publish(): void {
+    // the value too, which an `onChange` may have written with the caret: the
+    // caret is placed in the new value, not in the lines the edit left
+    untrack(() => adopt(value.get(), caretState.get()));
+    if (said?.line !== caret.line || said.col !== caret.col) {
+      said = { col: caret.col, line: caret.line };
+      caretState.set(said);
+    }
+  }
 
   // ---- the frame -------------------------------------------------------------
 
@@ -752,6 +849,9 @@ export function TextArea(props: TextAreaProps = {}): Element {
     for (const layer of tokenLayers.values()) {
       layer.invalidatePaint();
     }
+    // every change to the caret comes through here -- a key, an edit, the mouse, a
+    // write the app made -- so this is the one place it is said
+    publish();
   }
 
   /** What the value now is, for whatever reads it, and what `highlight` makes of it. */
@@ -1048,6 +1148,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
     if (disabled.get()) {
       return;
     }
+    settle();
     const k = event.key;
     const word = k.ctrl || k.meta;
     const selected = range();
@@ -1129,6 +1230,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
     if (disabled.get()) {
       return;
     }
+    settle();
     // the breaks kept, which is the deliberate inverse of `TextField`: keeping
     // them is the whole point of having more than one line
     insert(pastedBlock(event.text));
@@ -1153,6 +1255,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
     if (disabled.get()) {
       return;
     }
+    settle();
 
     if (event.kind === 'wheel' && event.wheel !== undefined) {
       const sideways = event.wheel === 'left' || event.wheel === 'right' || event.shift;
@@ -1205,18 +1308,47 @@ export function TextArea(props: TextAreaProps = {}): Element {
     }
   };
 
-  rehighlight();
-
-  createEffect(() => {
-    // read here, so a write the app makes replaces what the area holds
-    const now = value.get();
+  /**
+   * Takes in what the app wrote to `value` and to `caret` since the area last
+   * looked, the value first: a value written puts the caret at its end, and a
+   * caret written with it then puts it where the app said, in the new text.
+   *
+   * @returns Whether there was anything to take in.
+   */
+  function adopt(now: string, want: TextAreaCaret | undefined): boolean {
+    let moved = false;
     if (now !== seen) {
       seen = now;
       load(now);
       rehighlight();
       textLayer.invalidateMeasure();
       gutterLayer.invalidateMeasure();
+      moved = true;
     }
+    if (want !== said) {
+      place(want);
+      moved = true;
+    }
+    return moved;
+  }
+
+  /**
+   * What an input handler does first: the effect that takes in the app's writes
+   * runs with the next frame, and a key in the same read as the write -- a test's
+   * burst, a fast typist, a "go to line" bound to a key -- would otherwise edit
+   * where the caret was, and the area's own write would then replace the app's.
+   */
+  function settle(): void {
+    if (untrack(() => adopt(value.get(), caretState.get()))) {
+      redraw();
+    }
+  }
+
+  rehighlight();
+
+  createEffect(() => {
+    // read here, so a write the app makes replaces what the area holds
+    adopt(value.get(), caretState.get());
     redraw();
   });
 

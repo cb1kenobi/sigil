@@ -35,6 +35,7 @@ export const stylesheet = `
   /* what the editor last said keeps its width, and the keys give theirs up:
      "Saved" with the file name cut off says less than the last key listed */
   .status { flex-shrink: 0; white-space: nowrap }
+  .position { flex-shrink: 0; white-space: nowrap }
   .palette { flex-direction: column; row-gap: 1 }
   .palette-row { flex-direction: row; column-gap: 2 }
   .palette-title { flex-direction: row; flex-grow: 1; min-width: 0 }
@@ -97,6 +98,7 @@ export function App(): Element {
       </box>
       <box class="footer">
         {keyHelp(e.input)}
+        <text class="position">{e.position}</text>
         <text class="status sigil-muted">{() => e.status.get()}</text>
       </box>
     </box>

@@ -3,10 +3,10 @@
     "interface": "TabsProps",
     "options": [
       {
-        "description": "The tabs, in order. At least one.",
+        "description": "The tabs, in order. An array is at least one, and fixed.",
         "name": "tabs",
         "optional": false,
-        "type": "readonly Tab[]"
+        "type": "readonly Tab[] | TabsLive<readonly Tab[]>"
       },
       {
         "description": "Which tab is active, as a zero-based index.",
