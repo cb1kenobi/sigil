@@ -692,8 +692,14 @@ export class Element implements LayoutNode {
 
     // moved rather than duplicated: a child already somewhere else is taken
     // from there first, which is what makes `insertBefore` a move -- and the
-    // index is read after it, because taking it out can shift `before`
-    child.#parent?.removeChild(child);
+    // index is read after it, because taking it out can shift `before`. The
+    // taking out records and does not call the tree back: a callback that ran
+    // between the two halves would find the child in no parent, and could put
+    // it somewhere before this call put it here -- in two places at once
+    const from = child.#parent;
+    if (from) {
+      from.#detach(child);
+    }
 
     const at = before === undefined ? this.#children.length : this.#children.indexOf(before);
     if (at === -1) {
@@ -708,7 +714,14 @@ export class Element implements LayoutNode {
     if (child.#focusedIn > 0) {
       this.#light(this.#carry(child.#focusedIn));
     }
+    // the callback runs last, with the whole move committed, and once per tree
+    // that lost or gained a child -- re-entering from it sees a tree that is
+    // consistent, and a re-entrant insert of this child is an ordinary move
+    const left = from ? from.#tree : undefined;
     this.#mark('children');
+    if (from && left && left !== this.#tree) {
+      left.mark('children', from);
+    }
     return this;
   }
 
@@ -734,15 +747,35 @@ export class Element implements LayoutNode {
    * @returns This element.
    */
   removeChild(child: Element): this {
+    if (!this.#detach(child)) {
+      return this;
+    }
+    this.#mark('children');
+    return this;
+  }
+
+  /**
+   * Takes a child out and records it, without calling the tree back.
+   *
+   * Everything a removal changes is committed here -- the child's place, its
+   * tree, the focus counts -- so the callback its caller runs afterwards finds a
+   * tree that agrees with itself. It used to run in the middle, with the child
+   * still in `#children` and an index already read, and a callback that removed
+   * the same child spliced out whichever one had moved into its place.
+   *
+   * @param child - The child to take out.
+   * @returns Whether it was a child of this element.
+   */
+  #detach(child: Element): boolean {
     const at = this.#children.indexOf(child);
     if (at === -1) {
-      return this;
+      return false;
     }
 
     // recorded before the child is detached, because afterwards it has no tree
     // to record against -- and it is recorded against *this* tree rather than
     // the child's own mark, for the same reason
-    this.#tree?.mark('removed', child);
+    this.#tree?.record('removed', child);
     this.#children.splice(at, 1);
     child.#parent = undefined;
     child.#adopt(undefined);
@@ -750,8 +783,8 @@ export class Element implements LayoutNode {
     if (child.#focusedIn > 0) {
       this.#light(this.#carry(-child.#focusedIn));
     }
-    this.#mark('children');
-    return this;
+    this.#tree?.record('children', this);
+    return true;
   }
 
   /**
