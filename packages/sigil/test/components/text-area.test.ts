@@ -374,7 +374,7 @@ describe('TextArea()', () => {
       s.area.onMouse?.(mouse('mousedown', 1, 1));
       expect(caret.get()).toEqual(at(1, 1));
 
-      // with none handed in, there is still one to start from: the end
+      // a place past the end, handed in, starts at the end and is written back
       const bare = new State(at(9, 9));
       scene({ caret: bare, value: 'one\ntwo' });
       expect(bare.get()).toEqual(at(1, 3));
@@ -457,6 +457,25 @@ describe('TextArea()', () => {
       value.set('xyz');
       await s.term.press('?');
       expect(value.get()).toBe('xyz?');
+      // a paste, and a press, are input like a key
+      caret.set(at(0, 0));
+      await s.term.paste('<');
+      expect(value.get()).toBe('<xyz?');
+      value.set('x\ny\nz');
+      s.area.onMouse?.(mouse('mousedown', 0, 1));
+      await settle();
+      await s.term.press('!');
+      expect(value.get()).toBe('x\n!y\nz');
+    });
+
+    it('should keep a caret the app wrote from onChange, rather than write over it', async () => {
+      const caret = new State(at(0, 0));
+      const value = new State('abc\ndef');
+      const s = scene({ caret, onChange: () => caret.set(at(1, 0)), value });
+      await s.term.press('!');
+      expect(caret.get()).toEqual(at(1, 0));
+      await s.term.press('?');
+      expect(value.get()).toBe('!abc\n?def');
     });
   });
 

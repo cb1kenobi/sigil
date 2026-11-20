@@ -254,8 +254,8 @@ export function tabRowView(props: TabRowProps): Element {
   // added rather than written into the props, so an app's own `class` is kept
   host.addClass('sigil-tabs-row');
   host.append(labelRow, ruleLine);
-  /** An `onLayout` the app's props gave the row, which a change of labels borrows the hook from. */
-  const ownLayout = host.onLayout;
+  /** Whether a change of labels has borrowed `onLayout` for the next layout. */
+  let borrowing = false;
   ROWS.set(host, host);
   ACTIVE.set(host, active);
 
@@ -313,11 +313,17 @@ export function tabRowView(props: TabRowProps): Element {
       // through `onLayout`, once, because a row whose size does not move is never
       // told it again through `onResize`. An `onLayout` of the app's own is kept
       room = undefined;
-      host.onLayout = (element): boolean => {
-        host.onLayout = ownLayout;
-        const theirs = ownLayout?.(element) === true;
-        return measure(element) || theirs;
-      };
+      if (!borrowing) {
+        // whatever is there now, which an app may have set after the row was built
+        const own = host.onLayout;
+        borrowing = true;
+        host.onLayout = (element): boolean => {
+          host.onLayout = own;
+          borrowing = false;
+          const theirs = own?.(element) === true;
+          return measure(element) || theirs;
+        };
+      }
     }
   };
 

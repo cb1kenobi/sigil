@@ -9465,8 +9465,9 @@ nothing and stays in the tree.
     then grows. A row whose size does not move is never told it again through
     `onResize`, which asks whether the size moved, so the change borrows the
     row's `onLayout` for the one layout after it, then puts back whatever was
-    there, an app's own `onLayout` from `props` included, which the borrowed hook
-    calls too.
+    there when it borrowed -- an app's own `onLayout`, from `props` or set on the
+    row since, which the borrowed hook calls too (review round 1: it put back what
+    was there at construction, which dropped one set later).
 - **Labels are one line and measured by display width.** `oneLine()` takes escape
   sequences and line breaks out, `stringWidth()` measures, and each label is a
   fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
@@ -13198,7 +13199,11 @@ was reached, the measurements and the sabotage pass are in
   opened a 50,000-line file on its last line and typed Ctrl-Home to get out of
   it. A write the app makes to `value` still puts the caret at the end; a caret
   written in the same turn, either side of it, is applied after it and wins, so
-  "load this file at line 40" is two writes in any order.
+  "load this file at line 40" is two writes in any order. A write the app makes
+  from `onChange`, in the middle of an edit, is taken in before the area writes
+  where the edit left the caret, rather than written over (review round 1). A
+  caret `State` is one area's: two areas handed one clamp it to their own lines
+  and write it back over each other.
 - **A write the app makes is taken in before a key, not only when the effect
   runs.** The effect runs with the frame, and a key in the same read as the
   write -- a burst, a fast typist, a "go to line" bound to a key that then types

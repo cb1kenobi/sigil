@@ -695,6 +695,25 @@ describe('tabs that change while they are up', () => {
     expect(counts.layouts).toBeGreaterThan(3);
   });
 
+  it('should keep an onLayout set on the row after it was built', () => {
+    const labels = new State<readonly string[]>(['a']);
+    const row = tabRowView({ ascii: false, labels });
+    picture(row, 10);
+    let laid = 0;
+    const mine = (): boolean => {
+      laid++;
+      return false;
+    };
+    row.onLayout = mine;
+    labels.set(['bbb']);
+    flush();
+    picture(row, 10);
+    expect(row.onLayout).toBe(mine);
+    const before = laid;
+    picture(row, 10);
+    expect(laid).toBeGreaterThan(before);
+  });
+
   it('should read a function or a Computed as a live list, and its labels through it', () => {
     const name = new State('one');
     const row = tabRowView({ ascii: false, labels: () => [name.get(), 'two'] });

@@ -405,8 +405,16 @@ export function TextArea(props: TextAreaProps = {}): Element {
     said = at?.line === caret.line && at.col === caret.col ? at : undefined;
   }
 
-  /** Writes where the caret is to `caretState`, when it is not what the state already says. */
+  /**
+   * Writes where the caret is to `caretState`, when it is not what the state already
+   * says -- after taking in a write the app made since the area last looked, which
+   * an `onChange` can have made in the middle of the edit this redraw is for.
+   */
   function publish(): void {
+    const pending = untrack(() => caretState.get());
+    if (pending !== said) {
+      place(pending);
+    }
     if (said?.line !== caret.line || said.col !== caret.col) {
       said = { col: caret.col, line: caret.line };
       caretState.set(said);
