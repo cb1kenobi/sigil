@@ -1434,12 +1434,12 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
 
   The decision is the one the ticket proposed, because the build already has the
   thing that makes it cheap. `shakeUtilities()` asks the class evidence about
-  every name the app could write -- each base utility, and each of the sixteen
+  every name the app could write -- each base utility, and each of the fifteen
   variants in front of each -- and `generateUtilities({ variants: [...] })` now
   takes that list of qualified names and prints exactly those rules, in the
   generator's order, inside their `@media` block where they have one. What an
   app pays is the rules it names: two variant classes is two rules and not
-  4,613, and `UTILITY_CSS` and its 13 KB never grew. `variants` is
+  the 5,745 the fifteen variants come to, and `UTILITY_CSS` and its 13 KB never grew. `variants` is
   `boolean | readonly string[]` rather than a new option because the three
   answers -- all, none, these -- are one question. A variant rule stands on its
   own, so `focus:border-green` is kept without `border-green`: a token is whole,
@@ -1456,9 +1456,25 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   any other. A variant does not stack, so `md:focus:p-2` is evidence for
   nothing; that is SIG-528's.
 
+  **That tightening resolves towards dropping in one shape, and it is the
+  documented limit.** A variant in one literal and its utility in another --
+  `` `${wide ? 'md:' : ''}flex-row` ``, `['focus', 'border-green'].join(':')` --
+  leaves `md:` and `flex-row` as two tokens and no evidence for `md:flex-row`, so
+  the rule is dropped, where the base set's `` `${x}flex-row` `` is kept by its
+  open suffix. Counting the pieces apart would keep a whole variant (383 rules)
+  for every `last:` or `checked:` that is only a key prefix, or `border-green`
+  for every variant at once, to rescue a spelling nobody has been seen to write;
+  `build.safelist` takes `md:flex-row` as written. Pinned by `should not
+  assemble a variant out of two literals` in `shake.test.ts`, so changing it is
+  a decision rather than an accident. The same evidence is why a prefix like
+  `` `last:${id}` `` on a string that is no class keeps `last:*`: over-keeping, the
+  safe direction, and a build whose every real class is dynamic can read `0 of 383
+  utility rules, plus 383 variant rules` and not be warned -- `warnEmptyShake()`
+  counts a variant as something kept.
+
   **An app run from source gets the base set and no variant, and that is the
   answer rather than a gap.** `utilitySheet()` is a constant parsed at startup,
-  and giving it variants means either shipping all 4,613 rules to everybody
+  and giving it variants means either shipping all 5,745 variant rules to everybody
   (7.29ms against 0.63ms, a fifth of a CLI's whole startup, for rules almost no
   app names) or putting a class scanner and a generator into the runtime, which
   is the dependency the zero-dependency constraint on this package exists to

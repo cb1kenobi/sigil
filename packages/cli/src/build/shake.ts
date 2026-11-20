@@ -165,7 +165,7 @@ class Evidence implements ClassEvidence {
       // an open token names a *qualified* class only if it is itself half of
       // one: it holds the `:` and something to read beside it. `${h}:${m}` is
       // a clock and leaves the token `:` open on both sides, and counting that
-      // as evidence would keep every variant of every utility -- 4,613 rules --
+      // as evidence would keep every variant of every utility -- 5,745 rules --
       // for an app that formats a time
       const half = token.includes(':') && /\w/.test(token);
 

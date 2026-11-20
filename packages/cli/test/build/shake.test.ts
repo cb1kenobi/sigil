@@ -427,9 +427,22 @@ describe('variant evidence', () => {
     expect(found.mayName('md:border-red')).toBe(false);
   });
 
+  it('should not assemble a variant out of two literals', () => {
+    // the documented limit, pinned so that changing it is a decision: the
+    // variant and the utility are separate tokens, neither is a variant
+    // qualified class, and the answer is the safelist
+    const found = evidenceOf(
+      `export const c = (w: boolean) => \`${'$'}{w ? 'md:' : ''}flex-row\`;\n` +
+        `export const d = ['focus', 'border-green'].join(':');`
+    );
+
+    expect(found.mayName('md:flex-row')).toBe(false);
+    expect(found.mayName('focus:border-green')).toBe(false);
+  });
+
   it('should not read a clock as evidence for every variant', () => {
     // `${hours}:${minutes}` leaves the token `:` open on both sides, and as
-    // evidence that would keep all 4,613 variant rules for an app that prints
+    // evidence that would keep all 5,745 variant rules for an app that prints
     // a time. A token has to hold something beside the colon to be half a class
     const found = evidenceOf('export const c = (h: number, m: number) => `${h}:${m}`;');
 
