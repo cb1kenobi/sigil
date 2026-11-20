@@ -100,8 +100,9 @@ export interface TreeListViewProps<T = string> {
    * Values are where it starts and a `State` is the state itself: Right, Left,
    * Space and a click on the twisty write it, and an app that writes it opens and
    * closes branches. A node's own `expanded: true` adds its value the first time
-   * the node is seen. Closing a branch leaves the branches under it in the set,
-   * so they are open again when it is. Replaced on every write, never mutated.
+   * the node is seen, and again if it leaves the tree and comes back. Closing a
+   * branch leaves the branches under it in the set, so they are open again when
+   * it is. Replaced on every write, never mutated.
    */
   expanded?: Iterable<T> | State<ReadonlySet<T>>;
   /** Type-to-find over the nodes' text, as `ListView`'s. Off by default. */
@@ -118,7 +119,8 @@ export interface TreeListViewProps<T = string> {
    * `text`, so two nodes with one text want a `value` each; two nodes with one
    * value throw. `items` is a list, or a function called the first time the
    * branch opens, whose result, or promise of one, is kept until
-   * `treeListControl(tree).reload()` says it is out of date.
+   * `treeListControl(tree).reload()` says it is out of date or the node leaves
+   * the tree.
    */
   items: TreeListItems<T> | { get(): TreeListItems<T> };
   /** Whether more than one node can be ticked, as `ListView`'s. Defaults to `false`. */
@@ -256,7 +258,18 @@ type Load<T> =
 
 interface Model {
   control: TreeListControl<unknown>;
+  held: () => TreeListHeld;
   keys: { multiple: boolean; vim: boolean };
+}
+
+/** How many values a tree list view holds something for: see {@link treeListHeld}. */
+export interface TreeListHeld {
+  /** Branches with a loading or an error line made for them. */
+  readonly notes: number;
+  /** Branches whose function has been read, or is being read. */
+  readonly reads: number;
+  /** Values the tree has met. */
+  readonly seen: number;
 }
 
 /** Each tree's control, keyed by the host `TreeListView()` returned. */
@@ -307,7 +320,8 @@ function sameRow<T>(a: Row<T>, b: Line<T>): boolean {
  * and opening the branch, or by `reload()`. A branch closed while it is read
  * keeps the read going, and opens again on what it found. What a read found is
  * kept until `reload()` or `reloadAll()` says it is out of date, and shown until
- * the read that replaces it lands.
+ * the read that replaces it lands; a node that leaves the tree takes its read
+ * with it, so one that comes back is read again.
  *
  * @param props - The tree, how a node is drawn, the open set, the selection, and
  *   the host's props.
@@ -349,6 +363,19 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
 
   /** The reads of branches whose `items` is a function, by value. */
   const loads = new Map<T, Load<T>>();
+  /**
+   * Whether a read's answer was replaced or dropped since the last walk that looked
+   * for values gone from the tree: the nodes it held may have gone with it.
+   */
+  let left = false;
+  /** Keeps a read, noting when the answer it replaces is a different one. */
+  const put = (value: T, load: Load<T>): void => {
+    const was = loads.get(value);
+    if (was !== undefined && was.state !== 'failed' && was.items !== undefined) {
+      left ||= load.state === 'failed' || load.items !== was.items;
+    }
+    loads.set(value, load);
+  };
   /** Bumped when a read lands, which is what makes the rows be walked again. */
   const landed = new State(0);
   /** Each read's number, so one that a `reload()` superseded is dropped. */
@@ -358,8 +385,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     disposed = true;
   });
 
-  /** The values seen so far, so a node's own `expanded` is read once and not again. */
-  const seen = new Set<T>();
+  /**
+   * The values seen in the tree, so a node's own `expanded` is read once and not
+   * again, and whether a walk has gone under each -- which is what says a closed
+   * branch may have something below it to keep. A value that leaves the tree is
+   * dropped from here, from `loads` and from `notes` (SIG-487).
+   */
+  const seen = new Map<T, boolean>();
   /** The keys of each branch's loading and error lines. */
   const notes = new Map<T, { error: object; loading: object }>();
   const noteKey = (value: T, kind: 'error' | 'loading'): object => {
@@ -389,7 +421,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       return false;
     }
     if (held.state !== 'failed' && held.items !== undefined) {
-      loads.set(value, { items: held.items, stale: true, state: 'loaded' });
+      put(value, { items: held.items, stale: true, state: 'loaded' });
     } else {
       loads.delete(value);
     }
@@ -444,7 +476,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * and with the items gone a subtree reload could no longer find them.
    */
   const fail = (value: T, message: string, before?: readonly TreeChoiceItem<T>[]): void => {
-    loads.set(value, { message, state: 'failed' });
+    put(value, { message, state: 'failed' });
     if (before === undefined) {
       return;
     }
@@ -474,7 +506,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       fail(value, errorMessage(err), before);
       return;
     }
-    loads.set(value, { items: items as readonly TreeChoiceItem<T>[], state: 'loaded' });
+    put(value, { items: items as readonly TreeChoiceItem<T>[], state: 'loaded' });
   };
 
   /**
@@ -495,7 +527,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       accept(value, result, before);
       return;
     }
-    loads.set(value, { items: before, run, state: 'loading' });
+    put(value, { items: before, run, state: 'loading' });
     const land = (settle: () => void): void => {
       const now = loads.get(value);
       if (disposed || now?.state !== 'loading' || now.run !== run) {
@@ -514,15 +546,65 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * The rows an open set shows, in order: every node whose ancestors are all open,
    * with a loading or an error line under an open branch that has no children yet.
    * Also collects the values of nodes seen for the first time with `expanded: true`.
+   *
+   * With `prune`, it also goes under each closed branch a walk has been under
+   * before, through the values seen there, to find what is still in the tree but
+   * not shown: those are `reached`, and with what is shown they are every value
+   * worth keeping anything for.
    */
   const walk = (
     top: TreeListItems<T>,
     open: ReadonlySet<T>,
-    seed: T[]
-  ): { parents: Map<T, T | undefined>; rows: Line<T>[]; shown: Set<T> } => {
+    seed: T[],
+    prune: boolean
+  ): {
+    parents: Map<T, T | undefined>;
+    reached: Set<T>;
+    rows: Line<T>[];
+    shown: Set<T>;
+  } => {
     const out: Line<T>[] = [];
     const up = new Map<T, T | undefined>();
     const opened = new Set<T>();
+    const reached = new Set<T>();
+
+    /** What a read found, or a list: the children a branch holds, shown or not. */
+    const childrenOf = (parts: TreeChoiceParts<T>): readonly TreeChoiceItem<T>[] | undefined => {
+      const what = parts.choice.items;
+      if (Array.isArray(what)) {
+        return what;
+      }
+      const held = loads.get(parts.value);
+      return held === undefined || held.state === 'failed' ? undefined : held.items;
+    };
+
+    /**
+     * Under a closed branch: only the values seen before, since nothing is kept for
+     * one never seen, and only under the ones a walk went under. Nothing here is
+     * checked or drawn, so a node it cannot read is passed over rather than thrown
+     * at -- a closed branch is read properly when it opens.
+     */
+    const beneath = (items: readonly TreeChoiceItem<T>[]): void => {
+      for (const item of items) {
+        let parts: TreeChoiceParts<T>;
+        try {
+          parts = treeChoiceOf(item);
+        } catch {
+          continue;
+        }
+        const key = parts.value;
+        const under = seen.get(key);
+        // a read that hands back an ancestor's value would otherwise go round
+        if (under === undefined || up.has(key) || reached.has(key)) {
+          continue;
+        }
+        reached.add(key);
+        const children = under && parts.branch ? childrenOf(parts) : undefined;
+        if (children !== undefined) {
+          beneath(children);
+        }
+      }
+    };
 
     const visit = (
       items: readonly TreeChoiceItem<T>[],
@@ -541,8 +623,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
           );
         }
         up.set(key, parent);
-        if (!seen.has(key)) {
-          seen.add(key);
+        // reached under a closed branch and shown as well: counted once
+        if (reached.size > 0) {
+          reached.delete(key);
+        }
+        const under = seen.get(key);
+        if (under === undefined) {
+          seen.set(key, false);
           if (parts.branch && parts.choice.expanded === true && !open.has(key)) {
             seed.push(key);
           }
@@ -604,9 +691,15 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
           status,
         });
         if (!isOpen) {
+          if (prune && under === true && children !== undefined) {
+            beneath(children);
+          }
           continue;
         }
         if (children !== undefined) {
+          if (under !== true) {
+            seen.set(key, true);
+          }
           opened.add(key);
           // what a read again in flight shows is the last answer, and what is
           // under it waits for the new one
@@ -628,7 +721,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     } else {
       visit([top as TreeChoice<T>], 0, '', undefined, true, false);
     }
-    return { parents: up, rows: out, shown: opened };
+    return { parents: up, reached, rows: out, shown: opened };
   };
 
   /** The rows the list is handed, which it follows. */
@@ -657,23 +750,63 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
   };
 
+  /** The tree the last walk read, so a new one is known to have changed it. */
+  let walked: TreeListItems<T> | undefined;
+
+  /**
+   * Forgets what is held for values the tree no longer has: neither shown nor
+   * under a closed branch. A value that comes back is new again -- a branch reads
+   * again, and its own `expanded` is read again.
+   */
+  const dropGone = (found: { parents: Map<T, unknown>; reached: Set<T> }): void => {
+    // everything held is for a value in `seen`, and every value the walk met is
+    // there: so where it met as many as `seen` holds, none went, and a tree that
+    // only grew costs nothing to look through
+    if (found.parents.size + found.reached.size === seen.size) {
+      return;
+    }
+    const gone = (value: T): boolean => !found.parents.has(value) && !found.reached.has(value);
+    for (const held of [seen, loads, notes]) {
+      for (const value of held.keys()) {
+        if (gone(value)) {
+          held.delete(value);
+        }
+      }
+    }
+  };
+
   createEffect(() => {
     const top = read();
     let open = expanded.get();
     landed.get();
     untrack(() => {
       const first = open;
+      // only a new tree, or a read's answer replaced, can take a value out of it, so
+      // only then is it looked for -- opening and closing leave the tree as it was
+      let pruning = left || top !== walked;
+      left = false;
+      walked = top;
       // a node seen for the first time with `expanded: true` opens, and what is
-      // under it is walked at once rather than a frame later
+      // under it is walked at once rather than a frame later; a read the walk
+      // started that replaced an answer walks again, looking for what it took
       let seed: T[] = [];
-      let found = walk(top, open, seed);
-      while (seed.length > 0) {
-        open = new Set([...open, ...seed]);
+      let found = walk(top, open, seed, pruning);
+      while (seed.length > 0 || left) {
+        if (left) {
+          pruning = true;
+          left = false;
+        }
+        if (seed.length > 0) {
+          open = new Set([...open, ...seed]);
+        }
         seed = [];
-        found = walk(top, open, seed);
+        found = walk(top, open, seed, pruning);
       }
       if (open !== first) {
         expanded.set(open);
+      }
+      if (pruning) {
+        dropGone(found);
       }
       lift(found);
       // a row that draws what it drew last time is the same object, so the list
@@ -931,6 +1064,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   };
   MODELS.set(host, {
     control: control as TreeListControl<unknown>,
+    held: () => ({ notes: notes.size, reads: loads.size, seen: seen.size }),
     keys: { multiple, vim: props.vim === true },
   });
   return host;
@@ -944,6 +1078,19 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
  */
 export function treeListControl<T = string>(host: Element): TreeListControl<T> | undefined {
   return MODELS.get(host)?.control as TreeListControl<T> | undefined;
+}
+
+/**
+ * How much a tree list view is holding on to: what it read, the keys of its loading
+ * and error lines, and the values it has met, each counted by value. Every one of
+ * them shrinks when values leave the tree. For a test that says so, and for an app
+ * that wants to watch a long run; not on the published subpath.
+ *
+ * @param host - What `TreeListView()` returned.
+ * @returns The counts, or `undefined` for an element no tree built.
+ */
+export function treeListHeld(host: Element): TreeListHeld | undefined {
+  return MODELS.get(host)?.held();
 }
 
 /**
