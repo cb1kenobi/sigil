@@ -584,7 +584,7 @@ async function resolveExec(spec: Spec, target: Target): Promise<string> {
 
   if (!newest) {
     throw new Error(
-      `${spec.runtime} is not installed${here ? ` in a version that can package itself -- this is ${here.version}` : ''}, and the list of available versions could not be fetched.\n  Pin one with --runtime ${spec.runtime}@<version> and sigil will download it, or install ${spec.runtime} and run this again.`
+      `${spec.runtime} is not installed${here ? ` in a version that can package itself -- this is ${escapeControls(here.version)}` : ''}, and the list of available versions could not be fetched.\n  Pin one with --runtime ${spec.runtime}@<version> and sigil will download it, or install ${spec.runtime} and run this again.`
     );
   }
 

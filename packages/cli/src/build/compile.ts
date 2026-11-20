@@ -609,7 +609,9 @@ function compileBun(bun: string, options: CompileOptions): CompileResult {
       : compileEmbedding(bun, options, embed);
 
   if (run.error) {
-    throw new Error(`Failed to run bun at ${bun}: ${escapeControls(run.error.message)}`);
+    throw new Error(
+      `Failed to run bun at ${escapeControls(bun)}: ${escapeControls(run.error.message)}`
+    );
   }
 
   if (run.status !== 0) {
@@ -812,7 +814,7 @@ function assertEmbedded(out: string, embed: string, bun: string, target: Target)
   // the binary can come out a few hundred kilobytes under the file it embeds
   if (wrote < statSync(embed).size / 2) {
     throw new Error(
-      `${bun} exited cleanly and did not write a binary for ${label(target)} at ${out}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use ${BUN_COMPILES_FROM} or newer.`
+      `${escapeControls(bun)} exited cleanly and did not write a binary for ${label(target)} at ${escapeControls(out)}.\n  A Bun that old accepts "compile" in Bun.build() and ignores it; use ${BUN_COMPILES_FROM} or newer.`
     );
   }
 }
@@ -920,7 +922,9 @@ function compileSea(node: string, config: string, options: CompileOptions): Comp
   const run = spawnSync(node, [`--build-sea=${config}`], { encoding: 'utf-8' });
 
   if (run.error) {
-    throw new Error(`Failed to run node at ${node}: ${escapeControls(run.error.message)}`);
+    throw new Error(
+      `Failed to run node at ${escapeControls(node)}: ${escapeControls(run.error.message)}`
+    );
   }
 
   if (run.status !== 0) {
@@ -1026,7 +1030,7 @@ function sign(file: string, identity: string): void {
   }
 
   if (run.status !== 0) {
-    throw new Error(`codesign failed for ${file}:\n${said(run)}`);
+    throw new Error(`codesign failed for ${escapeControls(file)}:\n${said(run)}`);
   }
 }
 
@@ -1059,7 +1063,7 @@ function assertBuildSea(node: string): void {
   const [wantMajor, wantMinor] = NODE_BUILD_SEA;
 
   throw new Error(
-    `Node ${wantMajor}.${wantMinor} or newer is needed to package with Node, and ${node} is ${version || 'not a node'}. Earlier versions build a single executable through postject, an external tool this toolchain will not install for you. Use --runtime bun, or upgrade Node.`
+    `Node ${wantMajor}.${wantMinor} or newer is needed to package with Node, and ${escapeControls(node)} is ${escapeControls(version) || 'not a node'}. Earlier versions build a single executable through postject, an external tool this toolchain will not install for you. Use --runtime bun, or upgrade Node.`
   );
 }
 
@@ -1114,7 +1118,9 @@ function sizeOf(file: string): number {
   try {
     return statSync(file).size;
   } catch {
-    throw new Error(`The compiler reported success but wrote no binary at ${file}.`);
+    throw new Error(
+      `The compiler reported success but wrote no binary at ${escapeControls(file)}.`
+    );
   }
 }
 

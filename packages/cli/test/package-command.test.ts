@@ -376,6 +376,45 @@ describe('sigil package', () => {
       },
       120_000
     );
+
+    it.skipIf(process.platform === 'win32')(
+      'should not print as it was printed what a too-old node said its version is',
+      async () => {
+        // the version is whatever the `node` on `PATH` printed, and it is quoted
+        // in the refusal when no newer one can be fetched (SIG-510)
+        const name = [...candidates('node', { path: fakebin })].find((one) =>
+          one.startsWith(fakebin)
+        );
+        writeExecutable(
+          name as string,
+          "#!/bin/sh\nprintf 'v1.0.0\\033]0;PWNED\\007\\nforged: error: forged\\n'\n"
+        );
+        vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+
+        let err: string;
+        try {
+          ({ err } = await sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'node',
+            '--target',
+            label(hostTarget())
+          ));
+        } finally {
+          vi.unstubAllGlobals();
+        }
+
+        expect(err).toContain('in a version that can package itself -- this is 1.0.0\\x1B]0;PWNED');
+        expect(err).toContain('\\x0Aforged: error: forged');
+        expect(err).not.toContain(String.fromCharCode(0x1b));
+        expect(err.split('\n').some((line) => line.startsWith('forged: error'))).toBe(false);
+        expect(process.exitCode).toBeTruthy();
+      },
+      120_000
+    );
   });
 
   describe('the bundle it embeds', () => {
