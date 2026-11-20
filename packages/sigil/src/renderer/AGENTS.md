@@ -889,8 +889,15 @@ the entry it belongs to.
   under "last call wins", so a computed is kept per width asked, each replaced by
   the next measure at that width. Once anything moves, the next measure lets every
   width go and starts the list again, so a width no layout asks for any more is
-  not kept as a reason to relay out; without that, a resize drag would hold a
-  computed for every width it passed through until something changed. A measure
+  not kept as a reason to relay out past the next change; without that, a resize
+  drag would hold a computed for every width it passed through until the owner
+  went. Until something moves it still does: a measure that reads a signal and is
+  asked at every width of a drag holds one computed per width -- 300 widths, 300
+  sinks on the signal, measured by review round 1 -- and the next change lets all
+  but one go. That is bounded by the columns a terminal has and costs at most one
+  layout too many, and it is deliberate: dropping a width early to cap the list
+  is the one thing that can lose a reason to relay out, which is the defect this
+  exists for, while holding it costs memory. A measure
   that read no signal at all keeps nothing, so a constant one -- the treemap's --
   holds no edges, and pays only for building and letting go of its computed. Kept
   per width rather than tied to a layout pass because there is no pass to tie it
@@ -914,8 +921,13 @@ the entry it belongs to.
   0.38 us at 500, 0.43 to 0.59 at 50 and 0.34 to 0.44 at 2,000; `trackedRaw()` at
   0.72 to 0.75, 0.94 to 1.05 and 1.10 to 1.35 -- 1.6x to 2.3x the layout walk at
   50 and 500, 3.1x to 3.4x at 2,000. About 0.4 us a raw at 500 and 0.8 to 0.9 us
-  at 2,000 for each frame that lays out, which is fewer frames than paint: a layout
-  happens on a layout mark and a paint on any. A measure that reads nothing is
+  at 2,000 for each layout that asks it, which is fewer frames than paint: a layout
+  happens on a layout mark and a paint on any. That is the steady state -- the
+  column is laid out with nothing written in between -- and a layout after the
+  raw's own signal moved also lets the previous widths go, which is not timed
+  apart. The ranges are one machine's under load and are narrower than the noise:
+  review round 1, at a load average of 21, saw 2.5x and 3.1x at 500 and 2.65x at
+  2,000, 1.33 to 1.37 us against 0.44 to 0.53. A measure that reads nothing is
   0.29 us against 0.57 at 500. The paint columns are SIG-477's within the spread
   (0.44 to 0.67 us plain, 0.81 to 1.51 tracked), and `raw()` did not change, so a
   plain `raw` still pays nothing for any of it.

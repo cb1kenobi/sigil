@@ -3047,8 +3047,15 @@ it is a component rather than the frame effect SIG-103 is.
   paint, because only its paint did -- an effect beside the two used to call
   `invalidateMeasure()` and `invalidatePaint()` for the same marks. The guard lays
   the block out and paints it once before it writes, since a tracked raw listens
-  from its first measure and paint, which on screen is the first frame. The
-  one-element view called `setText()`,
+  from its first measure and paint, which on screen is the first frame. One thing
+  moved with it: the frame used to be copied into a plain field so that a caller
+  tracking its own reads -- `renderToString()` of the block inside an effect or a
+  `Computed` -- never subscribed to `state.frame`, and now it does, because
+  `trackedRaw()` hands such a caller what the measure and the paint read. That is
+  the right answer for the caller, since what it rendered really did change, and
+  it means such a caller runs again on every tick while the text resolves. Nothing
+  in the library is one: `mountLive()` goes through `render()`, and the pane's
+  `measureNode()` is called from its handlers. The one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a

@@ -1506,7 +1506,7 @@ export function text(value: string, props: ElementProps = {}): Element {
  * The trapdoor: a sparkline, an image, anything the layout engine cannot
  * express. It takes part in layout like a text -- it is measured and it is
  * placed -- and what goes inside the box it got is its own business.
-
+ *
  * The paint and the measure are not tracked: a signal either reads is not a
  * reason to paint or measure again, so a raw that draws from state is either told
  * with `invalidatePaint()` and `invalidateMeasure()` or built with `trackedRaw()`

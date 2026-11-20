@@ -4833,6 +4833,58 @@ describe('trackedRaw() measure', () => {
     expect(sinkCount(size)).toBe(0);
   });
 
+  it('should keep listening to what a measure read before it threw', () => {
+    // a throw is the measure's to report, and what it read on the way is still
+    // what a fix arrives through
+    const size = new State(-1);
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = sized(() => {
+        const width = size.get();
+        if (width < 0) {
+          throw new Error('no width yet');
+        }
+        return width;
+      });
+      return done;
+    });
+    const raw = element as Element;
+    const tree = createTree(box({}, raw));
+
+    expect(() => raw.measure?.(10)).toThrow('no width yet');
+    expect(sinkCount(size)).toBe(1);
+    tree.take();
+    size.set(3);
+    expect(tree.take().layout.has(raw)).toBe(true);
+    expect(raw.measure?.(10)).toEqual({ height: 1, width: 3 });
+
+    dispose();
+    expect(sinkCount(size)).toBe(0);
+  });
+
+  it('should hold a width until something moves, and no longer', () => {
+    // what `src/renderer/AGENTS.md` records as deliberate: dropping a width to cap
+    // the list could lose a reason to lay out again, so a drag through many widths
+    // holds one computed for each until the next change lets them go
+    const size = new State(1);
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = sized(() => size.get());
+      return done;
+    });
+    const raw = element as Element;
+    createTree(box({}, raw));
+
+    for (let width = 1; width <= 20; width++) {
+      raw.measure?.(width);
+    }
+    expect(sinkCount(size)).toBe(20);
+    size.set(2);
+    raw.measure?.(20);
+    expect(sinkCount(size)).toBe(1);
+    dispose();
+  });
+
   it('should refuse a measure that writes a signal', () => {
     const h = harness(10, 1);
     const errors: unknown[] = [];
