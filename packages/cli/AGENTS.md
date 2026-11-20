@@ -1864,7 +1864,7 @@ makes it testable with a fixture directory and no bundler at all.
 - **It reads the files rather than `written.output[].code`, which is byte
   identical.** Measured: `write()` hands back exactly what is on disk, sourcemap
   comment included, so reading would have cost nothing. The file is read anyway
-  because the whole reason `escapeControls()` exists is that rolldown's
+  because the whole reason `escapeChunks()` exists is that rolldown's
   in-memory view of a chunk and the bytes it finally writes came apart once, and
   a question about whether **node** can parse the bundle has to ask the bytes
   node will read. The cost is 2.7ms for a 9-chunk 111 kB bundle and 4.8ms for 44
@@ -1885,6 +1885,48 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
+- **The control-character pass refuses a raw control byte in a tagged template,
+  and moves the sourcemap with what it widens.** SIG-394. The pass that escapes
+  every `\p{Cc}` in what a build wrote lives in `src/build/escape-chunks.ts`, and
+  `\xNN` is "the same string to JavaScript" only for the _cooked_ value: a tagged
+  template's `.raw` is the text as written, so `` String.raw`<ESC>x` `` was two
+  characters from source and five once built, and a tag reading `strings.raw`
+  was handed seven where its source said four. Measured on a built fixture before
+  the fix: `{"rawLen":4,"strRaw":2}` from source, `{"rawLen":7,"strRaw":5}`
+  built. Nothing can be written that has no raw byte and keeps the `.raw`, and
+  "leave it raw inside a tagged template" breaks the rule that nothing ships one,
+  so the choice was between rewriting it silently and **refusing**; it refuses,
+  naming the chunk, the line and column, and the code point, and tells the author
+  to write the escape in source -- which is what the pass would have written, now
+  done where the author can see it and where `.raw` is what they meant. The
+  chunk's quasis are found with the oxc parse the build already uses and only for
+  a chunk the pass would change. Only a _tagged_ quasi is asked: an untagged template's raw is
+  unreadable and its cooked value is the same either way. Asked of every chunk
+  before any is written, so a refusal leaves the files as rolldown wrote them for
+  `undo()` to remove, and it is the same shape as the raw JSX gate beside it.
+  What reaches it is only source: the minifier folds a constant into a string or
+  an untagged template and prints it escaped there, and does not fold into a
+  quasi a tag reads. A dependency that ships a raw byte in a tagged template
+  would refuse an app that cannot edit it, which is accepted over a pass that
+  quietly changes what a tag reads; none of this repository's own packages ships
+  one, which `should ship no raw control character` asserts.
+
+  The other half was real and is fixed. The pass rewrote the chunk **after** its
+  sourcemap was written, and a minified chunk is one line, so each escape moved
+  every later token three columns off the entry the map recorded for it:
+  measured, four raw C1 characters ahead of `console.log` put the map's entry for
+  it on the `c); console.wa` of the source. The ticket reasoned about this and
+  had not shown it, and it is not rare -- the runtime's own `U+009B` is folded
+  back raw, so every app has one. `shiftMappings()` reads each segment's
+  generated column, which is the one field that is a difference from the segment
+  before it, moves it by three per replaced character before it, and writes it
+  back; the other fields are copied untouched. A segment at the replaced
+  character stays where the character starts. `packages/sigil`'s copy needs
+  neither half: it writes no sourcemap, and its sources are held free of raw
+  control characters by `sources.test.ts`, so no quasi of its own can hold one.
+  Pinned by `test/escape-chunks.test.ts`, whose two build tests fail with either
+  half taken out.
+
 - **`parseModule()` keeps what it read, keyed by the path and checked against
   the source.** SIG-355. Every pass with a question for a module parsed it
   again to ask, so a comment in `extract.ts` saying the build "parses each
@@ -6437,7 +6479,7 @@ test in this package writes for something to run -- a fake `bun`, a fake
 - **The shipped code does not have the race.** A runtime download is unpacked
   by `tar`, a child, then renamed and `chmod`-ed; `bun build --compile` and
   `node --build-sea` write the binary in their own processes. `sigil build`
-  writes the bin in-process, through rolldown and `escapeControls()`, but
+  writes the bin in-process, through rolldown and `escapeChunks()`, but
   nothing in the toolchain executes it, and the tests run it through `node`,
   which reads it rather than executing it. The toolchain is one thread, too,
   and libuv's spawn returns only once its child has exec'd, so no fork of its
