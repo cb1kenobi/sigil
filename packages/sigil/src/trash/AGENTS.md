@@ -96,12 +96,137 @@ for good. `PostDeleteItem` hands back the item in the bin, which is the path
   `-STA`, because the shell's COM objects want a single-threaded apartment. The
   script goes as `-EncodedCommand` and the path as an environment variable, so
   nothing in a name is ever read as code, and the answer is JSON with everything
-  past ASCII escaped, so nothing rests on the console's code page. Compiling the
-  C# with `Add-Type` costs about a second each call, which is a delete a person
-  asked for, not a loop.
+  past ASCII escaped, so nothing rests on the console's code page. The C# is
+  compiled once and kept, below.
 - The interfaces are declared in vtable order and none may be dropped: COM
   interop checks nothing else.
 - Paths past `MAX_PATH` are not supported; the shell does not take them.
+
+#### Windows: the helper is compiled once, and sealed to the user who compiled it
+
+Every call used to compile the C# with `Add-Type` (SIG-490). It is compiled on a
+call that finds no usable copy, and the assembly is kept under `paths.cache()`
+as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
+
+- **The file is the assembly sealed with DPAPI for the current user, with the
+  source's hash as the entropy; it is not a DLL with a hash beside it.** A hash
+  kept next to the file is written by whoever writes the file, so it proves the
+  file is intact and nothing about who put it there. A seal made **for the
+  user** can be made only by that user -- or by SYSTEM, an administrator or a
+  domain backup-key holder, who are not what this is guarding against -- and
+  unsealing it checks its own MAC: a file another unprivileged user sealed for
+  themselves -- in a cache base `XDG_CACHE_HOME` pointed somewhere shared, say --
+  a plain DLL, a truncated seal, and a real seal made for another
+  version's C# all fail to unseal, and each of those is a rebuild over it, never
+  an error.
+- **A seal made for the machine is refused before it is unsealed, because
+  `Unprotect()`'s `'CurrentUser'` limits nothing.** DPAPI applies the scope only
+  when sealing: a blob sealed with `CRYPTPROTECT_LOCAL_MACHINE` unseals for every
+  user on the machine, whatever scope the caller names, and the entropy is
+  `'sigil-trash ' + sha256(CSHARP)`, which is public. So another local user who
+  can write to the cache path could seal the assembly of their choosing with
+  `ProtectedData.Protect($bytes, $entropy, 'LocalMachine')`, put it at
+  `trash-<hash>.bin`, and have the victim's next `trash()` unseal it without error
+  and run it as the victim. The script reads the blob's flags field first and
+  treats a blob that is under 44 bytes, or has the `0x4` bit set, as a miss. The
+  field is the `dwFlags` of the blob header -- a version (4 bytes), the provider
+  GUID (16), the master key version (4), the master key GUID (16), then the flags
+  at byte 40 -- and `0x4` is `CRYPTPROTECT_LOCAL_MACHINE`. The layout is
+  Microsoft's `CRYPTPROTECT_*` flag values plus the community's reverse
+  engineering of the blob (mimikatz, dpapick); it is not a documented format, so
+  the tests read it back off a real blob on the runner (`'0'` for a user seal,
+  `'4'` for a machine one) rather than trusting it.
+
+  What this does **not** claim is that the flags field is covered by the blob's
+  MAC, because nothing here establishes that. The guard does not need it to be: an
+  attacker who clears the bit in a machine blob still has a blob whose master key
+  is the machine's, and `Unprotect()` without the flag is expected to look for
+  that key among the user's own and fail -- which is a rebuild too. That is an
+  expectation and not a source, so `should not run a machine seal with the machine
+  bit cleared` plants exactly that blob and demands a rebuild: if some Windows
+  unseals it, that test fails on that runner and the guard is open.
+
+- **A seal cannot stop a process running as the same user, which can seal
+  anything it likes:** the entropy is the source's hash and not a secret. For an
+  install the user can write -- a global npm install under `%APPDATA%`, a
+  project's `node_modules` -- that process can already rewrite the sigil the C#
+  comes from, so no file it can write is a boundary against it. Where it does
+  matter is an app installed where the user cannot write, run **elevated** by the
+  same user: a medium-integrity process can plant a sealed file that the next
+  elevated `trash()` loads at high integrity. Before this change it could only
+  race the compile in the user's temp directory; now the plant persists. Not
+  closed, because UAC is not a security boundary in Microsoft's own terms, and
+  skipping the cache whenever the process is elevated would make every elevated
+  app pay the compile on every call to guard against a process that, for the
+  usual per-user install, could already rewrite the app.
+- **The build directory is trusted the way `Add-Type` trusted it,** and what it
+  produced is then sealed. `%TEMP%` is the user's own by default; a `TMP` pointed
+  at a directory others can write into lets them swap the DLL between the compile
+  and the read, which `Add-Type` was open to as well -- the difference is that the
+  swap is now kept.
+- **One read, and the load is from that buffer.** The file is read once into
+  memory, that buffer is what is unsealed, and the unsealed bytes are what
+  `Assembly.Load(byte[])` is handed -- never `LoadFrom()` on the path -- so
+  there is no window between the check and the load for the file to be swapped
+  in, and nothing reads it twice. A file over 1 MiB is not read.
+- **Building is the compile `Add-Type` always did, by hand.** `CSharpCodeProvider`
+  into a directory of its own, named with a fresh GUID under the user's temp
+  directory, which is where `Add-Type` compiled too; the DLL is read back into
+  memory and the directory removed. By hand because `Add-Type` loads what it
+  builds and hands back no bytes to seal.
+- **A cache that cannot be written costs the compile and never the trash.**
+  Saving goes to a fresh name opened `CreateNew`, which refuses anything already
+  there -- a link included -- and is then moved over the cache file. Every
+  failure on the way, no cache base, DPAPI unavailable, a directory where the
+  file should be, a file where the directory should be, is swallowed: the
+  assembly is already in memory and the item is recycled with it. Two calls
+  racing each build and one move wins.
+- **Nothing removes an old version's file.** Two apps on different sigil
+  versions would remove each other's and both pay the compile every call; each
+  is a few kilobytes.
+- **The C# reaches PowerShell in an environment variable, not in the command.**
+  The encoded command was 24,792 characters with the C# in it and Windows stops
+  at 32,767; the script that caches would not have fitted beside it.
+- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`,
+  or `none` when the call failed first -- because that is the whole difference
+  between one call and the next, and the Windows tests in `test/trash.test.ts`
+  pin each case with a cache they name: compiled once and loaded after; garbage,
+  a truncated seal and another source's seal each rebuilt; a real, unsealed
+  assembly with the helper's own name, which would answer without moving the
+  item, rebuilt rather than run -- the one forgery `Assembly.Load()` would not
+  refuse by itself, and the case that fails if a miss ever fell back to loading
+  the raw bytes; the same stub sealed for the machine, which unseals without
+  error -- the plant unseals it as the user first, so the rebuild is the guard's
+  doing -- and is rebuilt rather than run, and again with the machine bit cleared;
+  two calls racing on an empty cache; an unwritable cache
+  compiling every call and still recycling. `test/trash-windows.test.ts` pins
+  the key, the file name and what PowerShell is handed, on every platform.
+- `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also
+  what a reflective loader looks like, and .NET 4.8 shows such a load to AMSI.
+  Defender on the runner lets it through; an endpoint product that blocks it
+  fails the call rather than falling back, which is not handled.
+- The real-trash tests on a Windows runner go through `trash()` and so leave one
+  such file in the runner's own cache, which is what a cache is for.
+
+**Measured on the `windows-latest` runner, as of this change**, from a timing
+test run in the suite and then removed, so each figure is under the suite's own
+parallel load. The ticket said about a second a call, which is not what the
+runner shows: compiling is about a tenth of a second there, and starting
+PowerShell is most of the rest.
+
+|                                  | node 22    | node 24    | node 26    |
+| -------------------------------- | ---------- | ---------- | ---------- |
+| PowerShell starting, nothing run | 324–342 ms | 320–340 ms | 207–214 ms |
+| a call before, compiling         | 420–437 ms | 417–440 ms | 339–353 ms |
+| after: first call, compiled      | 515 ms     | 495 ms     | 342 ms     |
+| after: a call loading the cache  | 380–387 ms | 363–387 ms | 237–247 ms |
+| after: no cache, compiling       | 482–489 ms | 513–514 ms | 309–327 ms |
+
+"Before" and "after" are different runs on different runner instances, which is
+why the no-cache row is not the "before" row: within one run, a call that loads
+the cache is 60–150 ms faster than one that compiles, and 25–65 ms slower than
+PowerShell doing nothing. What is left is PowerShell's own start, which a cache
+cannot touch.
 
 #### Linux and every other Unix: the freedesktop.org spec, written out
 

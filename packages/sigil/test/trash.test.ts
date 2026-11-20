@@ -1,6 +1,8 @@
 import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/trash/freedesktop.js';
 import { trash } from '../src/trash/index.js';
+import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
+import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -395,8 +397,10 @@ describe('trash()', () => {
    */
   describe.runIf(process.platform === 'darwin' || WINDOWS)("the platform's own trash", () => {
     /**
-     * Windows compiles the C# with `Add-Type` on every call, about a second and a
-     * half on a runner -- two calls passed 10 s on node 24 and timed out on node 22.
+     * Each call on Windows starts PowerShell, and one that misses the cache
+     * compiles the C# as well -- under the suite's own load, two calls passed 10 s
+     * on node 24 and timed out on node 22 when every call compiled, and the cached
+     * cases below make several calls each.
      */
     const SLOW = 60_000;
 
@@ -456,5 +460,217 @@ describe('trash()', () => {
       },
       SLOW
     );
+
+    /**
+     * The compiled helper, kept in a cache this test names rather than the
+     * runner's own, so each case starts from a file it wrote. What each call did
+     * with it is what `recycle()` reports; the item is trashed every time.
+     */
+    describe.runIf(WINDOWS)('the compiled helper, cached', () => {
+      /** A real assembly with the helper's own name and method, which moves nothing. */
+      const STUB =
+        'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }';
+      const POWERSHELL = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+
+      /** Trashes a fresh file through `recycle()` with this cache, and takes it back out. */
+      async function once(file: string | undefined, hash = keyOf('sigil-trash-test')) {
+        const item = join(made('sigil-trash-cached-'), 'a.txt');
+        writeFileSync(item, 'a');
+        let where = '';
+        try {
+          const out = await recycle(item, file, hash);
+          where = out.path;
+          expect(where).not.toBe('');
+          expect(existsSync(item)).toBe(false);
+          return out.cache;
+        } finally {
+          await takeOut(where);
+        }
+      }
+
+      it(
+        'should compile once, then load the sealed helper from the cache',
+        async () => {
+          const file = join(made('sigil-trash-cache-'), 'sigil', 'trash.bin');
+
+          expect(await once(file)).toBe('saved');
+          expect(existsSync(file)).toBe(true);
+          expect(await once(file)).toBe('hit');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should rebuild rather than load a file that does not unseal',
+        async () => {
+          const file = join(made('sigil-trash-forged-'), 'trash.bin');
+          expect(await once(file)).toBe('saved');
+          const sealed = readFileSync(file);
+
+          // anything another process could write there: bytes that are not a
+          // seal at all, a seal cut short, and a real seal for another source
+          writeFileSync(file, 'MZ not a seal');
+          expect(await once(file)).toBe('saved');
+          writeFileSync(file, sealed.subarray(0, sealed.length - 1));
+          expect(await once(file)).toBe('saved');
+          writeFileSync(file, sealed);
+          expect(await once(file, keyOf('another source'))).toBe('saved');
+          // and what was rebuilt is good for its own key
+          expect(await once(file, keyOf('another source'))).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should not run a planted assembly that was never sealed',
+        async () => {
+          const file = join(made('sigil-trash-planted-'), 'trash.bin');
+          // a real assembly with the helper's own name and method, which answers
+          // without moving anything and without a path: if it is ever loaded, the
+          // item stays put and `once()` says so, rather than the test passing on
+          // bytes that `Assembly.Load()` would have refused anyway. It is loaded
+          // here once, the way the script would, so that it is known to be one
+          const planted = execFileSync(
+            POWERSHELL,
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $env:PLANTED_FILE -OutputType Library; ' +
+                "$t = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($env:PLANTED_FILE)).GetType('SigilTrash.Bin', $true); " +
+                "[Console]::Out.Write($t::Recycle(''))",
+            ],
+            {
+              encoding: 'utf8',
+              env: {
+                ...process.env,
+                PLANTED_FILE: file,
+                PLANTED_SOURCE: STUB,
+              },
+            }
+          );
+          expect(planted).toBe('{"path":null}');
+
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      /**
+       * What another local user can do with nothing but the public entropy: build
+       * the stub assembly the test above plants, seal it under `scope` and put it
+       * at `file`. Returns the flags field of the blob as written, read at the
+       * offset the guard reads, so the layout is measured on the runner and not
+       * only assumed, then `:` and what the stub answers when the blob is
+       * unsealed as the current user -- which is the proof that it unseals; with
+       * `clear`, the machine bit is then cleared in the file.
+       */
+      function plantSealed(file: string, scope: 'CurrentUser' | 'LocalMachine', clear = false) {
+        return execFileSync(
+          POWERSHELL,
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            'Add-Type -AssemblyName System.Security; ' +
+              "$dll = $env:PLANTED_FILE + '.dll'; " +
+              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $dll -OutputType Library; ' +
+              "$entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:PLANTED_KEY); " +
+              '$sealed = [Security.Cryptography.ProtectedData]::Protect([IO.File]::ReadAllBytes($dll), $entropy, $env:PLANTED_SCOPE); ' +
+              // what the victim would get from unsealing it, before any edit: proof
+              // that the blob is a valid seal for this entropy, so a rebuild below
+              // is the guard's doing and not a seal that never worked
+              "$t = [Reflection.Assembly]::Load([Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')).GetType('SigilTrash.Bin', $true); " +
+              "[Console]::Out.Write([string][BitConverter]::ToUInt32($sealed, 40) + ':' + $t::Recycle('')); " +
+              'if ($env:PLANTED_CLEAR) { $sealed[40] = $sealed[40] -band 0xFB }; ' +
+              '[IO.File]::WriteAllBytes($env:PLANTED_FILE, $sealed); ' +
+              'Remove-Item -LiteralPath $dll -Force -ErrorAction SilentlyContinue',
+          ],
+          {
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              PLANTED_CLEAR: clear ? '1' : '',
+              PLANTED_FILE: file,
+              PLANTED_KEY: keyOf('sigil-trash-test'),
+              PLANTED_SCOPE: scope,
+              PLANTED_SOURCE: STUB,
+            },
+          }
+        );
+      }
+
+      it(
+        'should not run an assembly sealed for the machine, which any user can seal and unseal',
+        async () => {
+          const file = join(made('sigil-trash-machine-'), 'trash.bin');
+
+          // a seal for the user has no machine bit, which is what makes the bit
+          // the thing to read; the file is overwritten below, never run
+          expect(plantSealed(file, 'CurrentUser')).toBe('0:{"path":null}');
+
+          // sealed under 'LocalMachine' with the public entropy, the blob unseals
+          // for anybody, so unsealing it is no proof of who wrote it: the guard
+          // reads the machine bit from the blob and treats it as a miss
+          expect(plantSealed(file, 'LocalMachine')).toBe('4:{"path":null}');
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should not run a machine seal with the machine bit cleared',
+        async () => {
+          const file = join(made('sigil-trash-machine-cleared-'), 'trash.bin');
+
+          // the other half of the guard: a flag an attacker can edit is no guard,
+          // unless the blob stops unsealing -- which is what this measures. Either
+          // outcome of the edit lands on a rebuild, and a hit here would be a hole
+          expect(plantSealed(file, 'LocalMachine', true)).toBe('4:{"path":null}');
+          expect(await once(file)).toBe('saved');
+        },
+        SLOW
+      );
+
+      it(
+        'should have two calls racing on an empty cache both recycle, and leave a usable file',
+        async () => {
+          const file = join(made('sigil-trash-race-'), 'trash.bin');
+
+          const states = await Promise.all([once(file), once(file)]);
+
+          // nothing makes the two start together, so the later one may find the
+          // file the first saved; at most one of them can
+          expect(states.filter((state) => state === 'hit').length).toBeLessThan(2);
+          expect(states).toContain('saved');
+          expect(existsSync(file)).toBe(true);
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should still trash, compiling each time, where the cache cannot be written',
+        async () => {
+          const root = made('sigil-trash-unwritable-');
+          // a file where the cache's directory would be made
+          writeFileSync(join(root, 'taken'), '');
+          const under = join(root, 'taken', 'trash.bin');
+          // a directory where the cache file would be written
+          const occupied = join(root, 'dir.bin');
+          mkdirSync(occupied);
+
+          expect(await once(under)).toBe('built');
+          expect(await once(under)).toBe('built');
+          expect(await once(occupied)).toBe('built');
+          expect(statSync(occupied).isDirectory()).toBe(true);
+          expect(await once(undefined)).toBe('built');
+        },
+        SLOW
+      );
+    });
   });
 });

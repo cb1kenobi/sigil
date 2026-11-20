@@ -91,6 +91,7 @@ import {
   toDisplayLine,
   toDisplayText,
 } from '@ttylabs/sigil/element';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { getQuiet, schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';
@@ -598,6 +599,19 @@ export function writeDiagnostics(
  * the styling taken off -- so a summary is the same words either way and only a
  * pipe is spared the wrap.
  *
+ * Every run is escaped here, which makes this the sink for a summary the way
+ * `diagnosticLocation()` and `diagnosticMessage()` are for a diagnostic
+ * (SIG-457). A summary leads with the app's name and entry and ends in a path
+ * the app chose, and the plain form printed them as they stood: a manifest
+ * named `n<ESC>]0;PWN<BEL>d` retitled the reader's window from every successful
+ * piped `sigil build`, `check`, `package` and `reference`, and one holding a
+ * newline printed a line of its own. `escapeControls()` rather than
+ * `escapeMessage()`, because a run is a word of one line and has no line break
+ * of its own to keep. Both forms are handed the escaped runs, so a terminal
+ * shows `\x1B` where the canvas would otherwise have dropped the character, and
+ * the two still say one thing. A run a producer already escaped -- the
+ * `Not type-checked` note -- passes through unchanged.
+ *
  * @param runs - What the line says.
  * @param stream - Where to write it.
  */
@@ -610,11 +624,14 @@ export function writeSummary(
     return;
   }
 
+  const shown = runs.map((run) =>
+    typeof run === 'string' ? escapeControls(run) : { ...run, text: escapeControls(run.text) }
+  );
   const plain = (): string =>
-    runs.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
+    shown.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
 
   stream.write(
-    `\n${isTerminal(stream) ? render((width) => summaryView(runs, width), stream) : plain()}\n`
+    `\n${isTerminal(stream) ? render((width) => summaryView(shown, width), stream) : plain()}\n`
   );
 }
 

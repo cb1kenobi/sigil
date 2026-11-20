@@ -28,7 +28,7 @@ import { describe, expect, it, vi } from 'vitest';
  */
 
 /** The clusters this file leans on, each a thing a column sweep would cut up. */
-const FAMILY = '\u{1F468}‍\u{1F469}‍\u{1F467}';
+const FAMILY = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
 const FLAG = '\u{1F1EC}\u{1F1E7}';
 const ACUTE = '́';
 const KEYCAP = '1️⃣';

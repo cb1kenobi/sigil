@@ -65,6 +65,17 @@ console.log(
 console.log('\n\na line chart is braille: two dots across and four down a cell:\n');
 console.log(lineChart(latency, { height: 6, width, xLabels: ['00:00', '00:23'] }));
 
+console.log('\n\nfill shades under each line -- an area chart -- and the line stays on top:\n');
+console.log(
+  lineChart(
+    [
+      { data: latency, label: 'p99' },
+      { data: latency.map((ms) => ms / 2), label: 'p50' },
+    ],
+    { fill: true, height: 6, min: 0, width }
+  )
+);
+
 console.log('\n\na gauge is a reading against a range, and changes role as it gets worse:\n');
 for (const used of [0.35, 0.72, 0.93]) {
   console.log(gauge(used, { label: 'Disk', thresholds: { error: 0.9, warn: 0.7 }, width: 24 }));
@@ -76,4 +87,4 @@ console.log(
 console.log('\n\nASCII where the terminal cannot draw blocks or braille:\n');
 console.log(`  ${sparkline(latency, { ascii: true })}`);
 console.log(barChart({ a: 3, b: 7 }, { ascii: true, width: 20 }));
-console.log(lineChart([1, 4, 2, 6, 3], { ascii: true, height: 4, width: 24 }));
+console.log(lineChart([1, 4, 2, 6, 3], { ascii: true, fill: true, height: 4, width: 24 }));

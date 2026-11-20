@@ -250,9 +250,35 @@ export interface StylesheetOptions {
  * @returns Whether the rule applies.
  */
 export function matchesMedia(media: readonly MediaQueryList[], context: MediaContext): boolean {
-  return media.every((list) =>
-    list.some((query) => query.every((condition) => holds(condition, context)))
-  );
+  // loops rather than `every()` and `some()` with arrows, which closed over
+  // `context` and were allocated for every candidate rule of every element
+  // restyled, almost all of them with no media query at all (SIG-455)
+  for (const list of media) {
+    if (!holdsAny(list, context)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Whether any query in a comma-separated list holds. */
+function holdsAny(list: MediaQueryList, context: MediaContext): boolean {
+  for (const query of list) {
+    if (holdsAll(query, context)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whether every condition joined by `and` in one query holds. */
+function holdsAll(query: MediaQuery, context: MediaContext): boolean {
+  for (const condition of query) {
+    if (!holds(condition, context)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function holds(condition: MediaCondition, context: MediaContext): boolean {

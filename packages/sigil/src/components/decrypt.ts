@@ -31,15 +31,8 @@
 // that cannot resolve once it is in somebody's app
 import { strip } from '../ansi/index.js';
 import { cellWidth, type Random, seeded } from '../canvas/index.js';
-import {
-  box,
-  cellStyle,
-  type Element,
-  raw,
-  type RawPaint,
-  toDisplayText,
-} from '../element/index.js';
-import { createEffect, onCleanup } from '../renderer/index.js';
+import { box, cellStyle, type Element, type RawPaint, toDisplayText } from '../element/index.js';
+import { createEffect, onCleanup, trackedRaw } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
@@ -816,15 +809,6 @@ function cutRow(row: PlacedCell[], width: number, mode: TruncateMode): PlacedCel
  * @returns The tree.
  */
 export function decryptView(state: DecryptState): Element {
-  /**
-   * The frame on screen, as a plain field rather than as a signal read.
-   *
-   * The measure and the paint are called by the frame rather than from inside an
-   * effect, and reading a signal from a place that might be tracking is how an
-   * unrelated effect comes to subscribe to this one. The effect below is the one
-   * reader, and it runs as it is created, so nothing ever draws this blank.
-   */
-  let frame = decryptedFrame('');
   /** The last placement, which the measure reads and which only a frame changes. */
   let placed: { limit: number; of: DecryptFrame; rows: PlacedCell[][] } | undefined;
   /** And the last placement *as drawn*, which both layers read. */
@@ -852,6 +836,7 @@ export function decryptView(state: DecryptState): Element {
 
   /** Where the frame's cells land at a width, before anything is cut. */
   function rowsAt(width: number): PlacedCell[][] {
+    const frame = state.frame.get();
     const limit = limitAt(width);
     if (placed?.of !== frame || placed.limit !== limit) {
       placed = { limit, of: frame, rows: placeCells(frame.lines, limit) };
@@ -872,6 +857,7 @@ export function decryptView(state: DecryptState): Element {
    * number.
    */
   function drawnAt(width: number): PlacedCell[][] {
+    const frame = state.frame.get();
     const mode = cipher.style.textOverflow;
     if (drawn?.of !== frame || drawn.mode !== mode || drawn.width !== width) {
       const rows = rowsAt(width).map((row) => cutRow(row, width, mode));
@@ -897,7 +883,7 @@ export function decryptView(state: DecryptState): Element {
     // the narrowest it can be is its widest word, which is what a text reports
     // and is the number `min-width: 0` is written to override
     let word = 0;
-    for (const cells of frame.lines) {
+    for (const cells of state.frame.get().lines) {
       for (const run of cellRuns(cells)) {
         word = run.space ? word : Math.max(word, run.width);
       }
@@ -943,13 +929,23 @@ export function decryptView(state: DecryptState): Element {
   // ancestor's `selectable={false}` reaching the block at all. These cells are the
   // text, so they want exactly what a `text` gets: copyable unless something above
   // said otherwise
-  const cipher = raw(
+  // both tracked, so each says what changed about its own element: the cipher is
+  // what measures the block, so a new frame is a new size and its measure reads
+  // the frame; the plain layer's rectangle is its insets and cannot move, so only
+  // its paint does, and all it is told is to be drawn again. A frame coalesces
+  // the two -- a layout mark repaints everything -- so each says what changed
+  // rather than what the frame will do about it.
+  //
+  // Per tick, which is not a regression: the one-element view wrote the frame
+  // with `setText()`, and that marks layout on every value it has not already
+  // got -- which while jumbling is every tick
+  const cipher = trackedRaw(
     { drawsText: true, measure, paint: layer(true) },
     { class: 'sigil-decrypt-cipher sigil-muted', 'min-width': 0 }
   );
 
   const resolved = layer(false);
-  const plain = raw(
+  const plain = trackedRaw(
     {
       drawsText: true,
       // never asked, because a box given two insets on an axis is as big as they
@@ -972,22 +968,6 @@ export function decryptView(state: DecryptState): Element {
       top: 0,
     }
   );
-
-  createEffect(() => {
-    frame = state.frame.get();
-    // the cipher is what measures the block, so a new frame is a new size; the
-    // plain layer's rectangle is its insets and cannot move, so all it needs is to
-    // be drawn again. A frame coalesces the two -- a layout mark repaints
-    // everything -- so each of these says what changed about its own element
-    // rather than what the frame will do about it, which is the contract
-    // `invalidateMeasure()` and `invalidatePaint()` are each written for.
-    //
-    // Per tick, which is not a regression: the one-element view wrote the frame
-    // with `setText()`, and that marks layout on every value it has not already
-    // got -- which while jumbling is every tick.
-    cipher.invalidateMeasure();
-    plain.invalidatePaint();
-  });
 
   // `position: relative` with no insets moves nothing and is what gives the plain
   // layer a containing block to resolve its own against, which is the same line

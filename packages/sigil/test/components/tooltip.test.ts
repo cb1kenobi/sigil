@@ -571,6 +571,23 @@ describe('attachTooltip()', () => {
     expect(picture(s.root)[4]?.slice(2)).toBe('| Writes it to disk |');
   });
 
+  it('should hide a bubble with nothing to say, and bring it back with words (SIG-464)', async () => {
+    // what a line chart's crosshair asks for where the app's readout says
+    // nothing at a sample: an empty box beside the anchor says only that
+    // something is missing
+    const s = scene();
+    const tip = tipOn(s, { delay: 0, text: '' });
+    await hover(s);
+    expect(picture(s.root).join('\n')).not.toContain('+-');
+
+    tip.setText('Writes it');
+    expect(picture(s.root)[4]?.slice(2)).toBe('| Writes it |');
+
+    tip.setText('');
+    expect(picture(s.root).join('\n')).not.toContain('+-');
+    expect(tip.shown).toBe(true);
+  });
+
   it('should re-place against the right edge when the words grow', async () => {
     // its own size is one of the three things a place is computed from: left where
     // it was, a longer bubble would run into the edge and wrap there

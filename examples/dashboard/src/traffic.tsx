@@ -8,6 +8,11 @@
  *
  * `step: 'fit'` spreads whatever the range holds across the width the layout
  * gives the chart, so seven days and ninety both fill it.
+ *
+ * Both series are shaded under their lines, as shadcn's area chart is, and the
+ * pointer over the plot draws a rule at the day under it with a tooltip saying
+ * that day's figures -- the crosshair, which needs `mouse: { motion: true }`, so
+ * `src/index.ts` asks for it.
  */
 
 import { RANGES } from './data.ts';
@@ -18,6 +23,7 @@ import { unicodeSupported } from '@ttylabs/sigil/components/note';
 import { Panel } from '@ttylabs/sigil/components/panel';
 import { tabRowView } from '@ttylabs/sigil/components/tabs';
 import type { Element } from '@ttylabs/sigil/element';
+import type { InputRouter } from '@ttylabs/sigil/input';
 import { Computed } from '@ttylabs/sigil/signals';
 
 /** What the chart section hands back: the panel, and the tab row the keys reach. */
@@ -30,9 +36,10 @@ export interface TrafficView {
  * Builds the chart section.
  *
  * @param d - The dashboard.
+ * @param input - The router, which the crosshair follows the pointer through.
  * @returns The panel and its range selector.
  */
-export function buildTraffic(d: Dashboard): TrafficView {
+export function buildTraffic(d: Dashboard, input: InputRouter): TrafficView {
   const shown = new Computed(() => d.days.slice(-d.rangeNow.get().days));
   const api = new Computed(() => shown.get().map((day) => day.api));
   const web = new Computed(() => shown.get().map((day) => day.web));
@@ -47,6 +54,13 @@ export function buildTraffic(d: Dashboard): TrafficView {
   const total = (): string => {
     const sum = shown.get().reduce((n, day) => n + requestsOn(day), 0);
     return `${compact(sum)} requests`;
+  };
+  /** What the crosshair's tooltip says: the day, and both figures for it. */
+  const readout = (index: number): string => {
+    const day = shown.get()[index];
+    return day === undefined
+      ? ''
+      : `${shortDate(day.date)}\nAPI ${compact(day.api)}\nWeb ${compact(day.web)}`;
   };
 
   const mark = unicodeSupported() ? '■' : '#';
@@ -71,6 +85,8 @@ export function buildTraffic(d: Dashboard): TrafficView {
         {ranges}
       </box>
       {LineChart({
+        crosshair: { input, text: readout },
+        fill: true,
         format: compact,
         // the legend is in the head, beside the range, where it costs no row
         legend: false,

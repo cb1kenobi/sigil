@@ -7,7 +7,9 @@
 //
 // The mouse is on, because a dashboard is clicked as often as it is typed at: a
 // page in the sidebar, a range, a heading to sort by, a row to tick, a button.
-// `runApp()` leaves it off unless asked.
+// `runApp()` leaves it off unless asked. With motion, so the chart's crosshair
+// can follow the pointer with no button held, which costs a report for every
+// cell the pointer crosses.
 import { App, stylesheet } from './root.tsx';
 import { runApp } from '@ttylabs/sigil/app';
 
@@ -16,6 +18,6 @@ export default {
   desc: 'A dashboard: cards, a chart over a range, and a table of projects',
 
   async run(): Promise<void> {
-    process.exitCode = await runApp(App, { mouse: true, sheets: [stylesheet] }).exited;
+    process.exitCode = await runApp(App, { mouse: { motion: true }, sheets: [stylesheet] }).exited;
   },
 };

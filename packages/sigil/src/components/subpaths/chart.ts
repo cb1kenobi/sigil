@@ -18,6 +18,7 @@ export {
   gaugeView,
   LineChart,
   lineChart,
+  type LineChartCrosshair,
   type LineChartOptions,
   type LineChartProps,
   type LineChartSeries,

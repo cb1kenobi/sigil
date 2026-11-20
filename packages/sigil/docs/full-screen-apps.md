@@ -417,11 +417,12 @@ scroll box, and the prompts and spinners a command line uses.
 ### Drawing cells of your own
 
 When no component fits, a `raw` element from `@ttylabs/sigil/element` paints its
-cells itself. Its paint runs during the frame and is not tracked, so a signal it
-reads does not repaint it when it changes. Build it with `trackedRaw()` from
-`@ttylabs/sigil/renderer` instead, as the treemap is built. It takes what
-`raw()` takes, and repaints the element whenever a signal its last paint read
-changes. Build it inside a component, so that it stops listening when the
+cells itself. Its paint and its measure run during the frame and are not
+tracked, so a signal either reads does not repaint it or resize it when it
+changes. Build it with `trackedRaw()` from `@ttylabs/sigil/renderer` instead, as
+the treemap is built. It takes what `raw()` takes, repaints the element whenever
+a signal its last paint read changes, and lays it out again whenever a signal its
+measure read changes. Build it inside a component, so that it stops listening when the
 component goes away.
 
 ## Names and files from outside the app

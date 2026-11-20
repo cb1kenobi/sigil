@@ -1,3 +1,5 @@
+import { type Day, traffic } from '../src/data.ts';
+import { compact } from '../src/metrics.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
 import type { Element } from '@ttylabs/sigil/element';
@@ -45,7 +47,9 @@ function mount({
   const app = runApp(App, {
     colorLevel,
     detect: false,
-    mouse: true,
+    // with motion, as `src/index.ts` asks: the chart's crosshair follows a pointer
+    // with no button held
+    mouse: { motion: true },
     sheets: [stylesheet],
     terminal: term.terminal,
   });
@@ -175,6 +179,37 @@ describe('the range', () => {
     await s.press('r', 'r');
     // seven days ending on the fixed last day
     expect(s.screen()).toMatch(/Nov 10 +Nov 16/);
+  });
+});
+
+describe('the chart', () => {
+  it('should shade under both lines', async () => {
+    const s = mount();
+    await s.settle();
+    // a screen of every other dot, which is a braille cell of two dots on its left
+    expect(s.screen()).toMatch(/⠅⠅⠅/);
+  });
+
+  it("should follow the pointer with a rule and that day's figures", async () => {
+    const s = mount();
+    await s.press('r', 'r');
+    const labels = s.term.viewport.findIndex((each) => /Nov 10 +Nov 16/.test(each));
+    const axis = s.term.viewport[labels - 1] ?? '';
+    // the last day is at the plot's right edge, which is where its axis ends
+    const x = axis.lastIndexOf('─');
+    const y = labels - 3;
+    // an SGR report counts from one, and 35 is a move with no button held
+    await s.press(`\u001b[<35;${x + 1};${y + 1}M`);
+    expect(s.term.viewport[labels - 1]?.[x]).toBe('┴');
+    const last = traffic().at(-1) as Day;
+    expect(s.screen()).toContain(`│ Nov 16`);
+    expect(s.screen()).toContain(`API ${compact(last.api)}`);
+    expect(s.screen()).toContain(`Web ${compact(last.web)}`);
+
+    // and the rule goes with the pointer, off the chart onto the table
+    await s.press(`\u001b[<35;${x + 1};${labels + 6}M`);
+    expect(s.term.viewport[labels - 1]).not.toContain('┴');
+    expect(s.screen()).not.toContain(`API ${compact(last.api)}`);
   });
 });
 
