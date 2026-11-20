@@ -471,7 +471,13 @@ describe('sigil package', () => {
         expect(err).toContain('Could not package');
         expectInert(err);
       } finally {
-        process.env.TMPDIR = tmp;
+        // an unset variable is put back unset: assigning it `undefined` makes the
+        // string `'undefined'`, which is a directory nobody has
+        if (tmp === undefined) {
+          delete process.env.TMPDIR;
+        } else {
+          process.env.TMPDIR = tmp;
+        }
       }
     }, 60_000);
   });

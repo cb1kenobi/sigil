@@ -332,7 +332,12 @@ const pkg: AnyCommand = command({
       // emptied only now, once the graph says whether `out` holds a module
       // only the bundle reads -- after every refusal that can come before the
       // compile, and before the compile writes the first binary. See `clean()`
-      clean(out, guard, result.modules);
+      try {
+        clean(out, guard, result.modules);
+      } catch (error) {
+        // `rmSync()` quotes the directory it could not empty, which is `--out`
+        throw quoting(error);
+      }
 
       // nothing else creates the output directory any more. It used to appear
       // because the bundle was written into it; now the bundle is elsewhere and

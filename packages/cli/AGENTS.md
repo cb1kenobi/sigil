@@ -1332,8 +1332,13 @@ makes it testable with a fixture directory and no bundler at all.
   in the path is the path's -- where `escaped()` keeps line breaks for a message
   with structure of its own and would let a forged line start. What `tar` said is
   written a line at a time and indented, as `said()` writes a compiler's. Not
-  done: the runtime picker's labels, built from a `PATH` runtime's `--version`
-  and cache directory names, which the canvas garbles but does not act on. `test/package-escape.test.ts` drives each one through a stub
+  done, and shared with `build` where it is not `package`'s alone: the runtime
+  picker's labels, built from a `PATH` runtime's `--version` and cache directory
+  names, which the canvas garbles but does not act on; `readSigilConfig()`'s
+  read and parse failures, which quote the app root; and the bundle stage's
+  `escaped()`, which keeps line breaks and so lets a newline in a root start a
+  line. `clean(out)`'s wrap has no test, because the one error that reaches it
+  needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
   compiler or signer, skipped on Windows, which cannot make the names; the `tar`
   one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
   `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
