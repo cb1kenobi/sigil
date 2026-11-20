@@ -266,6 +266,31 @@ describe('variants', () => {
     expect(style().borderColor).toBe(7);
   });
 
+  it('should put hover behind its own pseudo-class', () => {
+    // SIG-527: the state and the selector were there, and so was the input layer
+    // that sets it
+    expect(generateUtilities({ only: ['border-green'] })).toContain(
+      '.hover\\:border-green:hover { border-color: green }'
+    );
+    const cascade = new Cascade([sheet]);
+    const classes = ['border-white', 'hover:border-green'];
+    expect(cascade.resolve({ classes, type: 'box' }).borderColor).toBe(7);
+    expect(cascade.resolve({ classes, states: ['hover'], type: 'box' }).borderColor).toBe(2);
+  });
+
+  it('should light an element on hover and put it out when the pointer leaves', () => {
+    // the state as the element tree reports it: the pointer entering sets `hover`
+    // and leaving clears it, and nothing in between is the component's
+    const classes = ['border-white', 'hover:border-green'];
+    const row = box({ class: classes.join(' ') });
+    const style = () => new Cascade([sheet]).resolve({ classes, states: row.states, type: 'box' });
+    expect(style().borderColor).toBe(7);
+    row.setState('hover');
+    expect(style().borderColor).toBe(2);
+    row.setState('hover', false);
+    expect(style().borderColor).toBe(7);
+  });
+
   it('should let focus: beat focus-within: on the focused element, as Tailwind does', () => {
     // the focused element matches `:focus-within` too, and the two rules are one
     // class and one pseudo-class each, so source order decides: `focus` comes
@@ -296,8 +321,9 @@ describe('variants', () => {
     // true until it was not
     expect(VARIANT_NAMES).toContain('dark');
     expect(VARIANT_NAMES).toContain('light');
-    // still not until mouse tracking exists
-    expect(VARIANT_NAMES).not.toContain('hover');
+    // the input layer sets `hover` as the pointer moves, so this one is a terminal's
+    // too (SIG-527); the line that said it waited for mouse tracking is gone
+    expect(VARIANT_NAMES).toContain('hover');
   });
 
   it('should put a scheme variant in the query the cascade reads', () => {
@@ -344,7 +370,7 @@ describe('variants', () => {
     // a variant does not stack, and a safelist is written by hand against a
     // vocabulary that moves, which is why `only` ignores a stale name too
     expect(
-      generateUtilities({ only: [], variants: ['hover:p-2', 'md:focus:p-2', 'md:nope'] })
+      generateUtilities({ only: [], variants: ['visited:p-2', 'md:focus:p-2', 'md:nope'] })
     ).toBe(generateUtilities({ only: [], variants: [] }));
   });
 

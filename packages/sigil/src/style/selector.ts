@@ -21,10 +21,10 @@ import { StyleError } from './value.js';
 /**
  * The states an element can report being in, as pseudo-classes.
  *
- * `:focus` is the one that earns the whole feature. `:hover` is here because the
- * selector engine must not assume mouse tracking will never exist; nothing
- * reports it yet, so it matches nothing yet, which is the correct answer rather
- * than a missing one.
+ * `:focus` is the one that earns the whole feature. `:hover` is set by the input
+ * layer as the pointer moves, on the element under it and every ancestor; without
+ * mouse tracking nothing reports it, and it matches nothing, which is the correct
+ * answer rather than a missing one.
  *
  * `focus-within` is the one an element is never *given*: the element tree reports
  * it on the focused element and on every ancestor of it, which is CSS's

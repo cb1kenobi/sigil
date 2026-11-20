@@ -352,7 +352,9 @@ const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
  * that could have generated it, is the shape of stale that nothing in a build
  * catches.
  *
- * Still not `hover:` until mouse tracking exists.
+ * `hover:` is here now: `StyleState` has `hover` and the input layer sets it as the
+ * pointer moves, so the sentence that said it waited for mouse tracking stopped
+ * being true when that landed (SIG-527).
  */
 interface Variant {
   readonly name: string;
@@ -372,11 +374,12 @@ const VARIANTS: readonly Variant[] = [
   { media: '(color-level: 2)', name: 'c256' },
   { media: '(prefers-color-scheme: dark)', name: 'dark' },
   { media: '(prefers-color-scheme: light)', name: 'light' },
-  // before `focus`, which is Tailwind's order in v3 and v4 alike: the focused
-  // element matches `:focus-within` too, both rules are one class and one
-  // pseudo-class, so the later block is what `focus:` beating `focus-within:` on
-  // that element comes down to
+  // `focus-within` and `hover` before `focus`, which is Tailwind's order in v3
+  // and v4 alike: the focused element matches `:focus-within` and usually
+  // `:hover` too, all of them one class and one pseudo-class, so the later block
+  // is what `focus:` beating the other two on that element comes down to
   { name: 'focus-within', pseudo: ':focus-within' },
+  { name: 'hover', pseudo: ':hover' },
   { name: 'focus', pseudo: ':focus' },
   { name: 'disabled', pseudo: ':disabled' },
   { name: 'checked', pseudo: ':checked' },

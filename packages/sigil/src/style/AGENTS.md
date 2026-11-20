@@ -256,7 +256,7 @@ is proved.
   three-place edit rather than a one-place one. Nothing committed changed: the
   committed sheet is the base set, printed with `variants: false`, for the reason
   already recorded -- the variants are 4,996 rules and 7.29ms against the base
-  set's 383 and 0.63ms. `hover:` still waits for mouse tracking.
+  set's 383 and 0.63ms. `hover:` is generated like the rest since SIG-527.
 - **The startup measurement was taken again on a quiet machine, and it is the one
   worth quoting.** The figures under "Asking the terminal what it is" in
   `src/terminal` were interleaved but taken while something else was
@@ -1128,10 +1128,14 @@ toolchain's one reader.
 
 - **An element with no parent is a first child.** It has no siblings, so it is
   the first of them, which is what browsers answer for the root element.
-- **`:hover` parses and matches nothing.** Mouse tracking does not exist yet and
-  the selector engine must not assume it never will; a selector that reads
-  correctly and matches nothing is an answer, and one that throws is a missing
-  feature somebody works around with a class they then cannot remove.
+- **`:hover` parses, and matches what the input layer says is hovered.** It was
+  written when mouse tracking did not exist, on the ground that the selector
+  engine must not assume it never would; a selector that reads correctly and
+  matches nothing is an answer, and one that throws is a missing feature somebody
+  works around with a class they then cannot remove. Mouse tracking exists now:
+  `createInput()` sets `hover` on the whole chain under the pointer and clears it
+  as the pointer leaves, so the engine needed no change -- which is the thing
+  that decision was for.
 - **`:focus-within` is a state to the engine, and the element tree decides who is
   in it (SIG-372).** Matching it as "this node or a descendant has `:focus`" here
   would walk a subtree per match and make the engine know what a descendant is
@@ -1397,8 +1401,9 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   in a shape people already know. `dark:` and `light:` are there now, and the
   sentence they replace said a terminal has no such mode -- it did not until
   `prefers-color-scheme` shipped, and the reason that line and the generator's
-  table had to move together is under "Light and dark". Not `hover:` until mouse
-  tracking exists.
+  table had to move together is under "Light and dark". `hover:` is a variant too
+  now (SIG-527, below): the line that said it waited for mouse tracking was true
+  until the input layer began setting the state.
 - **`focus-within:` sits immediately before `focus:`, which is Tailwind's order
   (SIG-451).** It is a pseudo-class variant like `focus:`, over the state and the
   selector SIG-372 added, so `focus-within:border-green` is
@@ -1425,6 +1430,23 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   does: `UTILITY_CSS` is the base set, so regenerating `utilities.ts` for it was a
   no-op, and an app gets the rule when a build sees `focus-within:border-green`
   in its source (SIG-526, below).
+- **`hover:` sits between `focus-within:` and `focus:`, and it is a variant
+  because the state was already there (SIG-527).** `StyleState` has had `hover`
+  since the selector engine did, and `createInput()` sets it on every element
+  under the pointer and clears it when the pointer leaves, so the variant is the
+  same one-line row `focus-within:` was: `hover:border-green` is
+  `.hover\:border-green:hover { border-color: green }` and nothing else. Three
+  places said it waited for mouse tracking -- the generator's own comment, this
+  file, and `should have the ones a terminal can have and not the ones it
+  cannot`, which asserted `not.toContain('hover')` -- and all three were
+  corrected together, since the test is what would have refused the row. The
+  position is Tailwind's, v3 and v4 alike: `focus-within`, `hover`, `focus`. So on
+  an element that is hovered and focused, `focus:` beats `hover:`, and `hover:`
+  beats `focus-within:` on the ancestor that is both -- one class and one
+  pseudo-class each, so the later block wins. What a pointer does is not tested
+  here: `test/input/mouse-router.test.ts` proves `:hover` is set and cleared by a
+  real report, and this proves the sheet turns the state into a rule. A variant
+  still does not stack, so `hover:` has no `md:` form.
 - **A variant reaches an app through the build, which generates the ones the
   source names; an unbuilt app gets the base set and no variants (SIG-526).**
   `focus:border-green`, `md:flex-row` and `dark:text-red` were generated, tested
