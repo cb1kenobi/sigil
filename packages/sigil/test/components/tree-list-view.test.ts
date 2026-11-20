@@ -6,6 +6,7 @@ import {
   describeTreeListView,
   type TreeListControl,
   treeListControl,
+  treeListHeld,
   TreeListView,
   type TreeListViewProps,
 } from '../../src/components/tree-list-view.js';
@@ -304,6 +305,45 @@ describe('TreeListView()', () => {
       expect(built.sort()).toEqual(['docs', 'guide.md']);
     });
 
+    it('should keep a row whose guide alone moved, and draw its new guide (SIG-471)', () => {
+      const built: string[] = [];
+      const items = new State<TreeChoiceItem[]>(SAMPLE);
+      const host = tree({
+        expanded: ['src'],
+        items,
+        row: (node) => {
+          built.push(node.text);
+          return node.text;
+        },
+      });
+      built.length = 0;
+
+      // `README.md` stops being the last node, and so does `src` when it goes from
+      // the end of the list: their guides move, and so do the guides under `src`
+      items.set([...SAMPLE, 'LICENSE']);
+      flush();
+      expect(picture(host)).toEqual([
+        '❯ ├── ▾ src',
+        '  │   ├──   a.ts',
+        '  │   ├── ▸ lib',
+        '  │   └──   b.ts',
+        '  ├── ▸ docs',
+        '  ├──   README.md',
+        '  └──   LICENSE',
+      ]);
+      items.set([items.get()[2] as string, 'LICENSE', SAMPLE[0] as TreeChoiceItem]);
+      flush();
+      expect(picture(host)).toEqual([
+        '  ├──   README.md',
+        '  ├──   LICENSE',
+        '❯ └── ▾ src',
+        '      ├──   a.ts',
+        '      ├── ▸ lib',
+        '      └──   b.ts',
+      ]);
+      expect(built).toEqual(['LICENSE']);
+    });
+
     it('should show the empty state for an empty tree', () => {
       expect(picture(tree({ empty: 'No files', items: [] }))).toEqual(['No files']);
     });
@@ -538,6 +578,29 @@ describe('TreeListView()', () => {
       flush();
       expect(control(host).current.get()).toBe('c');
       expect(picture(host)).toEqual(['  ├──   a', '  ├──   b', '❯ └──   c']);
+    });
+
+    it('should follow its last row as nodes are added, through the tail it was handed (SIG-470)', async () => {
+      const items = new State<TreeChoiceItem[]>(['a', { items: ['x'], text: 'b' }]);
+      const tail = new State(true);
+      const host = tree({ expanded: ['b'], items, tail }, 3);
+      expect(control(host).current.get()).toBe('x');
+
+      items.set([...items.get(), 'c']);
+      flush();
+      expect(control(host).current.get()).toBe('c');
+      expect(picture(host).at(-1)).toBe('❯ └──   c');
+
+      // a branch read at the end: its loading line is not a row the cursor is on, so
+      // the branch is the last one until its children land, and then the last child
+      const read = deferred<string[]>();
+      items.set([...items.get(), { expanded: true, items: () => read.promise, text: 'slow' }]);
+      flush();
+      expect(control(host).current.get()).toBe('slow');
+      read.resolve(['s1', 's2']);
+      await landed();
+      expect(control(host).current.get()).toBe('s2');
+      expect(tail.get()).toBe(true);
     });
 
     it('should toggle the current node from the control, and report what changed', () => {
@@ -1257,6 +1320,289 @@ describe('TreeListView()', () => {
       flush();
       expect([a, b]).toEqual([2, 2]);
       expect(picture(host)).toEqual(['❯ ├── ▾ a', '  │   └──   a2', '  └── ▾ b', '      └──   b2']);
+    });
+  });
+
+  describe('values that leave the tree (SIG-487)', () => {
+    /** What the tree holds on to. */
+    const held = treeListHeld;
+
+    /** A branch whose function counts its calls, under `name`, and hands back `items()`. */
+    function counting(
+      calls: Record<string, number>,
+      name: string,
+      items: () => TreeChoiceItem[]
+    ): TreeChoiceItem {
+      return {
+        items: () => {
+          calls[name] = (calls[name] ?? 0) + 1;
+          return items();
+        },
+        text: name,
+      };
+    }
+
+    it('should drop the reads and the values of nodes that leave the tree, and keep what is shown', () => {
+      const calls: Record<string, number> = {};
+      const deep = counting(calls, 'deep', () => ['z']);
+      const a = counting(calls, 'a', () => ['a1', deep]);
+      const b = counting(calls, 'b', () => ['b1']);
+      const items = new State<TreeChoiceItem[]>([a, b]);
+      const host = tree({ expanded: ['a', 'deep', 'b'], items });
+      expect(held(host)).toEqual({ notes: 0, reads: 3, seen: 6 });
+
+      items.set([b]);
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 2 });
+      expect(control(host).status('a')).toBe('idle');
+      expect(control(host).status('deep')).toBe('idle');
+      expect(control(host).status('b')).toBe('loaded');
+      expect(picture(host)).toEqual(['❯ └── ▾ b', '      └──   b1']);
+      expect(calls).toEqual({ a: 1, b: 1, deep: 1 });
+    });
+
+    it('should read an open branch that comes back again, rather than show what it found before', () => {
+      let answer = ['old'];
+      const calls: Record<string, number> = {};
+      const a = counting(calls, 'a', () => answer);
+      const items = new State<TreeChoiceItem[]>([a, 'b']);
+      const host = tree({ expanded: ['a'], items });
+
+      items.set(['b']);
+      flush();
+      answer = ['new'];
+      items.set([a, 'b']);
+      flush();
+      expect(calls).toEqual({ a: 2 });
+      expect(picture(host)).toEqual(['  ├── ▾ a', '  │   └──   new', '❯ └──   b']);
+    });
+
+    it('should keep the reads under a closed branch, which is still in the tree', () => {
+      const calls: Record<string, number> = {};
+      const deep = counting(calls, 'deep', () => ['z']);
+      const a = counting(calls, 'a', () => ['a1', deep]);
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a', 'deep'], items });
+      control(host).collapse('a');
+      flush();
+
+      // a new tree is what sets the tree looking for values that went
+      items.set([a, 'c']);
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 2, seen: 5 });
+      control(host).expand('a');
+      flush();
+      expect(calls).toEqual({ a: 1, deep: 1 });
+      expect(picture(host)).toEqual([
+        '❯ ├── ▾ a',
+        '  │   ├──   a1',
+        '  │   └── ▾ deep',
+        '  │       └──   z',
+        '  └──   c',
+      ]);
+    });
+
+    it('should drop the reads under an answer that a read again replaced', () => {
+      let answer: TreeChoiceItem[] = [];
+      const calls: Record<string, number> = {};
+      const deep = counting(calls, 'deep', () => ['z']);
+      answer = ['a1', deep];
+      const host = tree({
+        expanded: ['a', 'deep'],
+        items: [counting(calls, 'a', () => answer)],
+      });
+      expect(held(host)).toEqual({ notes: 0, reads: 2, seen: 4 });
+
+      answer = ['a1'];
+      control(host).reload('a');
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 2 });
+      expect(control(host).status('deep')).toBe('idle');
+
+      // and it is new when it comes back: open, since the open set keeps it, and read
+      answer = ['a1', deep];
+      control(host).reload('a');
+      flush();
+      expect(calls).toEqual({ a: 3, deep: 2 });
+      expect(picture(host)).toEqual([
+        '❯ └── ▾ a',
+        '      ├──   a1',
+        '      └── ▾ deep',
+        '          └──   z',
+      ]);
+    });
+
+    it('should drop the loading line of a branch that left while its read was out, and the read', async () => {
+      const read = deferred<string[]>();
+      const items = new State<TreeChoiceItem[]>([{ items: () => read.promise, text: 'slow' }, 'b']);
+      const host = tree({ expanded: ['slow'], items });
+      expect(held(host)).toEqual({ notes: 1, reads: 1, seen: 2 });
+
+      items.set(['b']);
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      read.resolve(['late']);
+      await landed();
+      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      expect(picture(host)).toEqual(['❯ └──   b']);
+    });
+
+    it('should not look through what it holds when the tree only grew', () => {
+      const items = new State<TreeChoiceItem[]>(Array.from({ length: 10_000 }, (_, i) => `n${i}`));
+      const host = tree({ items });
+      const keys = vi.spyOn(Map.prototype, 'keys');
+      try {
+        items.set([...items.get(), 'more']);
+        flush();
+        const sizes = keys.mock.contexts.map((held) => (held as Map<unknown, unknown>).size);
+        expect(sizes.filter((size) => size > 10_000)).toEqual([]);
+      } finally {
+        keys.mockRestore();
+      }
+      expect(held(host)?.seen).toBe(10_001);
+    });
+
+    it('should count a value once that is both shown and under a closed branch', () => {
+      const items = new State<TreeChoiceItem[]>([{ items: ['dup', 'gone'], text: 'a' }]);
+      const host = tree({ expanded: ['a'], items });
+      control(host).collapse('a');
+      flush();
+      expect(held(host)?.seen).toBe(3);
+
+      // `dup` is met twice, under `a` and at the margin, and `gone` is not met at
+      // all: counted twice, the one would hide the other
+      items.set([{ items: ['dup'], text: 'a' }, 'dup']);
+      flush();
+      expect(held(host)?.seen).toBe(2);
+    });
+
+    it('should count a value once that is shown before it is met under a closed branch', () => {
+      const items = new State<TreeChoiceItem[]>([{ items: ['dup', 'gone'], text: 'a' }]);
+      const host = tree({ expanded: ['a'], items });
+      control(host).collapse('a');
+      flush();
+
+      // the other order from the test above: shown at the margin first, then met
+      // under `a`
+      items.set(['dup', { items: ['dup'], text: 'a' }]);
+      flush();
+      expect(held(host)?.seen).toBe(2);
+    });
+
+    it('should look for values that left a tree its source changed in place', () => {
+      const tick = new State(0);
+      const calls: Record<string, number> = {};
+      const a = counting(calls, 'a', () => ['x']);
+      const nodes: TreeChoiceItem[] = [a, 'b'];
+      const host = tree({
+        expanded: ['a'],
+        items: {
+          get: () => {
+            tick.get();
+            return nodes;
+          },
+        },
+      });
+      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 3 });
+
+      nodes.shift();
+      tick.set(1);
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      nodes.unshift(a);
+      tick.set(2);
+      flush();
+      expect(calls).toEqual({ a: 2 });
+    });
+
+    it('should keep what was under a branch while a read again of it has failed, so a retry finds it as it was', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let fails = false;
+      const a = {
+        items: () => {
+          calls.a = (calls.a ?? 0) + 1;
+          return fails ? Promise.reject(new Error('offline')) : Promise.resolve(['a1', deep]);
+        },
+        text: 'a',
+      };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      fails = true;
+      control(host).reload('a');
+      flush();
+      await landed();
+      expect(picture(host, 40)).toEqual(['❯ └── ▾ a', '      └──   Could not load: offline']);
+      // a new tree while the error shows is no reason to forget what it hides
+      items.set([a]);
+      flush();
+      expect(held(host)?.seen).toBe(4);
+
+      fails = false;
+      control(host).reload('a');
+      flush();
+      await landed();
+      // `deep` stays closed, as the reader left it, and is read when it opens
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls).toEqual({ a: 3, deep: 1 });
+      expect(picture(host)).toEqual(['❯ └── ▾ a', '      ├──   a1', '      └── ▸ deep']);
+    });
+
+    it('should read a node that comes back with expanded: true as new, and open it again', () => {
+      const node = { expanded: true, items: ['x'], text: 'a' };
+      const items = new State<TreeChoiceItem[]>([node, 'b']);
+      const host = tree({ items });
+      control(host).collapse('a');
+      flush();
+      // closing sticks while it is in the tree
+      items.set([node, 'b', 'c']);
+      flush();
+      expect(control(host).expanded.get().has('a')).toBe(false);
+
+      items.set(['b', 'c']);
+      flush();
+      items.set([node, 'b', 'c']);
+      flush();
+      expect(control(host).expanded.get().has('a')).toBe(true);
+    });
+
+    it('should not look for values that left when a branch only opens or closes', () => {
+      const leaves = (name: string): string[] =>
+        Array.from({ length: 2_000 }, (_, i) => `${name} ${i}`);
+      // never opened, so nothing under either can be held: one shown, one under a
+      // branch that was open
+      const never = { items: leaves('never'), text: 'never' };
+      const inner = { items: leaves('inner'), text: 'inner' };
+      const big = { items: [...leaves('big'), inner], text: 'big' };
+      const items = new State<TreeChoiceItem[]>([big, never, { items: ['x'], text: 'small' }]);
+      const host = tree({ expanded: ['big'], items });
+      control(host).collapse('big');
+      flush();
+      expect(held(host)?.seen).toBe(2_004);
+
+      // what is under a closed branch is looked through, a value at a time, only
+      // when the tree may have lost some: never for opening one
+      const get = vi.spyOn(Map.prototype, 'get');
+      try {
+        control(host).expand('small');
+        flush();
+        expect(get.mock.calls.length).toBeLessThan(200);
+        get.mockClear();
+        items.set([...items.get()]);
+        flush();
+        expect(get.mock.calls.length).toBeGreaterThan(2_000);
+        expect(get.mock.calls.length).toBeLessThan(3_000);
+      } finally {
+        get.mockRestore();
+      }
+      expect(held(host)?.seen).toBe(2_005);
     });
   });
 

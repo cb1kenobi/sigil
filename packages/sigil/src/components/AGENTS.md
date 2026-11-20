@@ -12338,9 +12338,23 @@ and they are the prop now.
   to the last row on a change of items; the tail effect's reveal, and its move;
   "in view" read as the whole row; and the last row counted without passing over
   disabled ones.
-- **Not done:** `tail` on `DataTable` and `TreeListView`, which build on
-  `ListView` and pass through what they are asked for -- a table of events wants
-  it, and nothing has asked yet; and an `onScroll` on the list for an app.
+- **Not done:** an `onScroll` on the list for an app. `tail` on `DataTable` and
+  `TreeListView` was the other half of this entry, and is SIG-470's, below.
+
+### `tail` through a table and a tree (SIG-470)
+
+`DataTable` and `TreeListView` take `tail` and hand it to their `ListView`, as they
+already did `selected` and `vim`, so a live table of events follows its newest row.
+
+- **The last row is the list's.** For a table that is the last in the sorted
+  order, so a table sorted by time follows the newest. For a tree it is the last
+  row shown, and a branch being read at the end draws a loading line under it --
+  but that line is a disabled row, and the list's last row passes over disabled
+  ones, so the cursor follows the branch and then its last child when the read
+  lands. Nothing in either needed to know about following.
+- **No control hands the state back**, for the reason SIG-385 gives for
+  `ListControl`: an app that shows it hands one over.
+- **A test each,** which removing the pass-through fails.
 
 ### Rows that grow at the end and drop off the front cost what changed (SIG-386)
 
@@ -12524,11 +12538,11 @@ each question was settled, the probes and the sabotage pass are in
   tree needed nothing new from it. `treeListControl(tree).list` is typed
   `ListControl<unknown>` because its rows include them.
 - **A row is kept while it draws the same thing.** The walk runs again on every
-  change and builds new row records; one whose node, depth, guide, open state and
-  read state match the last walk's is replaced by the last walk's object, so the
-  list -- which rebuilds a row whose item is a different object -- keeps the element.
-  Opening one branch rebuilds that branch's row and builds its children, and
-  nothing else.
+  change and builds new row records; one whose node, depth, open state and read
+  state match the last walk's is replaced by the last walk's object, so the list --
+  which rebuilds a row whose item is a different object -- keeps the element. Its
+  guide is not in that list since SIG-471, below: a kept row is handed it. Opening
+  one branch rebuilds that branch's row and builds its children, and nothing else.
 - **`describeTreeListView(router, ...trees)`** describes the list's keys through
   `describeListView()` and adds Right `expand`, Left `collapse`, `h`/`l` with
   `vim`, and Space `toggle` in a single tree, scoped to each. Every tree is checked
@@ -12614,12 +12628,139 @@ makes a new tree under the same paths, and routed around it with getters.
   value cannot loop.
 - **Each returns whether anything was marked,** as `reload()` did: a read already
   out of date and not yet read again is nothing more to forget.
-- **SIG-471 is untouched.** A row is still kept while it draws the same thing; a read
+- **Keeping rows is untouched.** A row is still kept while it draws the same thing; a read
   again rebuilds the branch's own row twice (`loading`, then `loaded`) and a child
   row only where the function handed back a different object for it. An app that
   memoizes its nodes, as the disk usage example does, keeps every child row.
 - **Not done:** dropping reads under values no longer in the tree, which
-  `reloadAll()` marks but keeps -- as `seen` keeps every value it met.
+  `reloadAll()` marks but keeps -- as `seen` keeps every value it met. Done by
+  SIG-487, below.
+
+### A tree's row is the object it was when only its guide moved (SIG-471)
+
+SIG-386 made the list key only the rows a change added, where its items are the
+ones it last keyed with some dropped off the front and some added at the end -- the
+same objects, compared by identity. The tree kept a row's object only while it drew
+the same thing, guide included, and appending a node moves the guide of the node
+that was last (`└──` to `├──`) and of every row under it. So the check failed at
+that row every time, and the list asked `key` for every row again.
+
+- **The guide is a `State` on the row, and the drawn row follows it.** A row the
+  walk finds drawing what it drew but for its guide is the same object, handed the
+  new guide, and an effect in the row sets the guide's text -- the list builds a
+  row under an owner of its own, so it may hold one. The app's `row` is not called
+  again, which its documentation already said: again when the node, its depth, or
+  whether it is open changes, and the guide was never in that list. `bare`, whether
+  there is a guide at all, which only a root lacks, still decides whether a row is
+  the same, since a bare row has no guide to set.
+- **What the list still cannot take, and why.** A replaced node is a row the list
+  has not seen, which is the list's own rule, so in a tree updated immutably --
+  every ancestor of a changed node a new object -- the list keys everything from
+  the first replaced row; and opening a branch puts rows in the middle, which is
+  not the shape SIG-386 takes. `setRows()` compares keys rather than items, so it
+  already slid for a tree's append before this; what went was a `key` call per
+  row, which for a tree is a property read.
+- **What it is worth.** Little on the clock, and that is worth knowing: at 200,000
+  open rows the list's part was about 5% of a profile of one append, and the rest
+  was the tree's own walk -- `treeChoiceOf()`, a map entry and a guide string per
+  open row -- and its map of the rows by key. Before and after are within the noise
+  of a machine shared with other work, about 55 to 75 ms of CPU per append in the
+  built package. The walk is the tree's "Not done" above, which now has that figure.
+- **Pinned by counting.** `tree-list-view-rekey.test.ts` wraps the `key` the tree
+  hands its list, by a module mock, and counts the calls: 4 for three nodes
+  appended to 10,000, 2 for one node after an open branch of 5,000 whose rows all
+  move their guides, and 1,001 where a node was replaced -- the limit, pinned so
+  that it is a decision. `should keep a row whose guide alone moved, and draw its
+  new guide (SIG-471)` checks the picture and that `row` built the new node alone.
+- **Sabotage: three, three caught.** The guide compared again in `sameRow()`, the
+  new guide not handed to the kept row, and the row's effect not setting it.
+
+### A tree forgets what it held for values that left it (SIG-487)
+
+`loads` kept every branch's read, `seen` every value met and `notes` the keys of
+every loading line, for the life of the view, and `reloadAll()` marks reads but
+keeps them. A long-running tree whose data changes -- the disk usage example after
+a delete or a rescan, the editor as files come and go -- held something for every
+value it had ever shown.
+
+- **What is kept is what the tree still has: shown, or under a closed branch.**
+  The walk knows what is shown. What is under a closed branch is not walked, but
+  its reads are what make opening it again instant, so they have to count: the walk
+  also goes under a closed branch, through the places `readsIn()` goes -- its list,
+  or what its read found -- and every value it meets there is _reached_. Anything
+  else is dropped from all three.
+- **Only through values seen before, and only under branches a walk went under.**
+  Nothing is held for a value never seen, and nothing can be held under a branch no
+  walk entered, so `seen` is a map whose value says whether a walk has gone under
+  that node. That bounds the search by what the reader explored rather than by the
+  data: a closed array of a million nodes that was never opened costs one lookup.
+  The price is a node that moved under a branch no walk entered, which is dropped
+  and read again when it is reached -- a read, not a wrong answer. A node under a
+  closed branch is read with `treeChoiceOf()` in a `try`, since what is under a
+  closed branch is checked when it opens and not before.
+- **Looked for only when the tree may have lost something:** a new tree from
+  `items`, or a read whose answer replaced a different one (`put()` says which).
+  Opening and closing changes nothing in the data, so it never searches -- for a
+  source that hands over the same tree; one that builds a new array on every read,
+  a `filter()` in a `get()`, is a new tree on every walk and searches each time,
+  which costs a search and drops nothing still there. A read the
+  walk itself started that replaced an answer -- a stale branch opening, over a
+  function that returns a list -- walks again with the search on, so what it took
+  is gone before anything can bring it back. A tree is new when `items` hands over
+  a different value, and also when the walk ran with neither the open set nor a
+  landed read to account for it: that is a source that changed its tree in place
+  and woke the walk, which `{ get() }` allows, and it would otherwise never be
+  searched (review round 1). A change in place in the same step as an open or a
+  read landing is accounted for by those and not searched, so what it took is
+  dropped at the next walk that is searched rather than at once (review round 2):
+  a delay, not a wrong picture, unless the value comes back before then.
+- **A failure is not the tree losing what was under the branch.** A read again
+  that fails keeps the answer it replaced as `last`, which is never shown -- the
+  error line is, by SIG-479's rule -- but which the search goes through, so a
+  transient error and a retry that lands find a branch under it as the reader left
+  it, closed and with its read. Dropping it there, which the first version did,
+  made it new: its `expanded: true` was read again and a branch the reader had
+  closed opened (review round 1). Forgetting a failed read -- a retry, or its
+  branch closed -- drops `last` without a search, and the next search drops
+  whatever under it the tree no longer has. SIG-479's marking of those reads as out
+  of date stands: they are read again when they open.
+
+  **The limit, left as one (review round 2):** `last` lives as long as the failure
+  does, not until a retry lands. A search while a retry is in flight, or after the
+  failed branch was closed and before it opens again, reaches nothing under it and
+  drops it, so when the retry lands a branch there that the reader closed and that
+  says `expanded: true` opens, and every read under it is made again. Carrying
+  `last` on the retry's read and on a closed failed branch would close it, at the
+  cost of a third place an answer that is not shown lives; it needs a failure, a
+  search and a retry in one window, so it is written down rather than built.
+
+- **And not even then where nothing left.** Everything held is for a value in
+  `seen`, and every value the walk meets is put there: so where what was shown and
+  what was reached come to as many as `seen` holds, nothing went and nothing is
+  looked through. A tree that only grows -- SIG-471's case -- pays a comparison of
+  sizes. A value both shown and under a closed branch is counted once for that to
+  hold, which a test pins: counted twice, it hid a value that had gone.
+- **A value that comes back is new.** Its branch reads again rather than showing
+  what it found before, which is what the ticket asked, and its own `expanded:
+  true` is read again, so a branch the reader closed that left and came back is
+  open. The open set is the app's and is not touched, so a branch that was open
+  when it left is open when it returns. The case to know about is a tree an app
+  filters: a node the filter hides has left the tree, so clearing the filter reads
+  its function branches again.
+- **SIG-471 holds.** Nothing here changes which row objects a walk keeps, and the
+  counting tests run with the search on, since a new tree is what turns it on.
+- **`treeListHeld(host)`** counts the three, for the test that says they shrink.
+  Exported from the module and not on the subpath, as the treemap's internals are.
+- **Sabotage: ten, ten caught,** two of them only after a test was added for
+  them: nothing dropped; nothing reached under a closed branch; searching on every
+  walk; a replaced answer not noticed; a walk the walk caused not searching; every
+  closed branch searched, and every seen one under it; no branch marked as gone
+  under; a value shown and reached counted twice; and the comparison of sizes
+  removed. Review round 1 added five: `last` not kept, nothing reached through it,
+  a tree changed in place not searched, and a value shown and then met under a
+  closed branch counted twice (the other order from the first) -- each caught; and
+  a failure counted as an answer replaced, which survives because `last` keeps
+  the same values reachable, so it costs a search and drops nothing.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 
