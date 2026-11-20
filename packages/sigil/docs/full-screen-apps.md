@@ -382,7 +382,8 @@ are tables.
 
 **A diff.** [`DiffView`](../src/components/diff-view.ts) shows a diff, from two
 texts or from a patch `git diff` printed, with a cursor that stops on each
-hunk. `]` and `[` move between hunks. Long lines wrap at words. `w` puts each
+hunk. `]` and `[` move between hunks, and with the mouse on a click on a hunk
+makes it current. Long lines wrap at words. `w` puts each
 line on one row instead, cut at the edge, and then Left and Right scroll every
 line sideways together. `diffStops()` and `hunkPatch()` from
 `@ttylabs/sigil/components/diff` find the hunk under the cursor and write it

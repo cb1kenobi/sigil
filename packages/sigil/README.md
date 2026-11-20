@@ -4723,8 +4723,9 @@ its width is the layout's, it scrolls, and it has a cursor that stops on each hu
 Every row sits behind a one-cell mark, blank except for the current hunk's rows,
 which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
 plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
-view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
-and Down, Home and End scroll. A line too long for the view is wrapped at words,
+view, with the file's `---` and `+++` above it where they fit; a click on any row of
+a hunk, its `@@` row included, makes it current where it is, without scrolling; the
+arrows, Page Up and Down, Home and End scroll. A line too long for the view is wrapped at words,
 with the spaces a fold lands in dropped, so a padded table row does not become
 rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
 and the left and right arrows then scroll every line sideways together, eight

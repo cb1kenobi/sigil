@@ -16,8 +16,14 @@ import {
 } from '../../src/components/diff.js';
 import type { Key } from '../../src/components/keys.js';
 import { box, type Element, renderToLines } from '../../src/element/index.js';
-import type { DescribeOptions, KeyEvent } from '../../src/input/index.js';
+import {
+  createInput,
+  type DescribeOptions,
+  type KeyEvent,
+  type MouseEvent,
+} from '../../src/input/index.js';
 import { flush, State } from '../../src/signals/index.js';
+import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -86,6 +92,69 @@ const PATCH = [
   ' twenty-two',
   '',
 ].join('\n');
+
+/** A mouse report as the router delivers one, with a record of whether it was stopped. */
+function mouse(
+  kind: MouseEvent['kind'] = 'click',
+  button: MouseEvent['button'] = 'left'
+): MouseEvent & { claimed: () => boolean } {
+  let stopped = false;
+  return {
+    button,
+    claimed: () => stopped,
+    ctrl: false,
+    current: undefined,
+    kind,
+    meta: false,
+    shift: false,
+    stop(): void {
+      stopped = true;
+    },
+    get stopped() {
+      return stopped;
+    },
+    target: undefined,
+    wheel: undefined,
+    x: 0,
+    y: 0,
+  };
+}
+
+/** Every element under one, itself included. */
+function every(at: Element, out: Element[] = []): Element[] {
+  out.push(at);
+  for (const child of at.children) {
+    every(child, out);
+  }
+  return out;
+}
+
+/**
+ * The first of the view's rows in view whose text holds a piece of text: the box
+ * a click on that row lands on.
+ */
+function rowWith(root: Element, label: string): Element {
+  const found = every(root)
+    .filter((e) => e.classes.includes('sigil-diff-view-line'))
+    .find((row) =>
+      every(row)
+        .map((e) => e.text ?? '')
+        .join('')
+        .includes(label)
+    );
+  if (!found) {
+    throw new Error(`no row ${label}`);
+  }
+  return found;
+}
+
+/** Clicks a row, lets the effects run, and says whether the click was claimed. */
+function clickRow(root: Element, label: string): boolean {
+  const event = mouse();
+  rowWith(root, label).onMouse?.(event);
+  flush();
+  return event.claimed();
+}
 
 /** The rows whose mark is lit. */
 function lit(rows: string[]): string[] {
@@ -177,6 +246,147 @@ describe('DiffView', () => {
       '+TWENTY-ONE',
       ' twenty-two',
     ]);
+  });
+
+  describe('the mouse', () => {
+    it('should make a clicked hunk current, from its @@ row or any line of it', () => {
+      const current = new State(0);
+      const { root } = mount({ content: { patch: PATCH }, current }, 14);
+      picture(root, 30, 14);
+
+      expect(clickRow(root, '@@ -20,3 +20,3 @@')).toBe(true);
+      expect(current.get()).toBe(1);
+      expect(lit(picture(root, 30, 14))[0]).toBe('@@ -20,3 +20,3 @@');
+
+      expect(clickRow(root, '-two')).toBe(true);
+      expect(current.get()).toBe(0);
+      expect(clickRow(root, ' twenty-two')).toBe(true);
+      expect(current.get()).toBe(1);
+      // the current hunk clicked again is still the view's click
+      expect(clickRow(root, '+TWENTY-ONE')).toBe(true);
+      expect(current.get()).toBe(1);
+    });
+
+    it('should leave a click on a row no stop owns to the pane around it', () => {
+      const blocks: DiffBlock[] = [
+        { text: 'Unstaged' },
+        { diff: { patch: PATCH } },
+        { stop: true, text: 'logo.png: binary' },
+      ];
+      const current = new State(1);
+      const { root } = mount({ content: blocks, current }, 20);
+      picture(root, 30, 20);
+
+      // a heading, and a file's header, lead into a stop and are not one
+      expect(clickRow(root, 'Unstaged')).toBe(false);
+      expect(clickRow(root, '+++ b/a.txt')).toBe(false);
+      expect(current.get()).toBe(1);
+      // prose marked as a stop is one
+      expect(clickRow(root, 'logo.png: binary')).toBe(true);
+      expect(current.get()).toBe(2);
+    });
+
+    it('should take only a left click, so the press still focuses the view', () => {
+      const current = new State(0);
+      const { root } = mount({ content: { patch: PATCH }, current }, 14);
+      picture(root, 30, 14);
+      const row = rowWith(root, '+TWENTY-ONE');
+
+      for (const event of [mouse('mousedown'), mouse('mouseup'), mouse('click', 'right')]) {
+        row.onMouse?.(event);
+        flush();
+        expect(event.claimed()).toBe(false);
+      }
+      expect(current.get()).toBe(0);
+    });
+
+    it('should not scroll to a hunk a click made current, which is on screen already', () => {
+      const current = new State(0);
+      const { host, root } = mount({ content: { patch: PATCH }, current }, 7);
+      picture(root, 30, 7);
+      // down a row, to where the second hunk's header is the last row in view
+      press(host, 'down');
+      const before = picture(root, 30, 7);
+      expect(before.at(-1)).toBe(' @@ -20,3 +20,3 @@');
+
+      clickRow(root, '@@ -20,3 +20,3 @@');
+      expect(current.get()).toBe(1);
+      // the same rows, the mark moved onto the one clicked
+      expect(picture(root, 30, 7)).toEqual([
+        ...before.slice(0, -1).map((row) => row.replace(/^▌/, ' ')),
+        '▌@@ -20,3 +20,3 @@',
+      ]);
+
+      // where the app writes it, it is brought into view, as before
+      current.set(0);
+      flush();
+      current.set(1);
+      flush();
+      expect(lit(picture(root, 30, 7))).toHaveLength(5);
+    });
+
+    it('should make a hunk current from a click on either half, side by side', () => {
+      const current = new State(0);
+      const { root } = mount({ content: { patch: PATCH }, current, layout: 'side-by-side' }, 14);
+      const rows = picture(root, 80, 14);
+      // one row holds both halves of a changed line
+      expect(rows.some((row) => row.includes('twenty-one') && row.includes('TWENTY-ONE'))).toBe(
+        true
+      );
+
+      expect(clickRow(root, 'TWENTY-ONE')).toBe(true);
+      expect(current.get()).toBe(1);
+      expect(clickRow(root, 'two')).toBe(true);
+      expect(current.get()).toBe(0);
+    });
+
+    it('should make a hunk current from a click on a row a long line folded onto', () => {
+      const long = `${'word '.repeat(12)}end`;
+      const current = new State(1);
+      const patch = PATCH.replace('-two', `-${long}`);
+      const { root } = mount({ content: { patch }, current }, 20);
+      const rows = picture(root, 30, 20);
+      // the line's last word is on a row of its own, below its first
+      expect(rows.find((row) => row.includes('end'))).not.toContain('-');
+
+      expect(clickRow(root, 'end')).toBe(true);
+      expect(current.get()).toBe(0);
+    });
+
+    it('should focus the view on a press and move the cursor on the click, scrolled', async () => {
+      const term = createTestTerminal({ columns: 30, rows: 7 });
+      const current = new State(0);
+      const { host, root } = mount({ content: { patch: PATCH }, current }, 7);
+      picture(root, 30, 7);
+      const input = createInput({
+        mouse: {
+          surface: {
+            height: 7,
+            locate: async () => true,
+            origin: { x: 0, y: 0 },
+            toCanvas: (column: number, row: number) => ({ x: column - 1, y: row - 1 }),
+            width: 30,
+          },
+        },
+        root,
+        terminal: term.terminal,
+      });
+      // scrolled by four rows, so the screen's row 4 is the view's row 7, the
+      // second hunk's header
+      for (let i = 0; i < 4; i++) {
+        press(host, 'down');
+      }
+      const rows = picture(root, 30, 7);
+      expect(rows[3]).toBe(' @@ -20,3 +20,3 @@');
+
+      await term.press('\x1b[<0;5;4M', '\x1b[<0;5;4m');
+      flush();
+
+      expect(input.focus.current.get()).toBe(host);
+      expect(current.get()).toBe(1);
+      expect(lit(picture(root, 30, 7))[0]).toBe('@@ -20,3 +20,3 @@');
+      input.stop();
+    });
   });
 
   it('should scroll the current hunk into view, with what leads into it where it fits', () => {
