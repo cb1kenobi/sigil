@@ -3981,6 +3981,19 @@ people's software and will move.
   exactly where a project's conventions should be explicit, and it is what stops
   `sigil add` having to guess -- and then print the guess, which is what it does
   when there is no config.
+- **The `AGENTS.md` it writes is the block Getting started tells everyone else
+  to paste, read out of the runtime rather than copied (SIG-533).** One text for
+  an app `new` made and an app somebody pasted it into, so the two cannot be told
+  different things. `packages/sigil/docs/agents.md` ships in `@ttylabs/sigil`,
+  which this package depends on at its own version, so `src/scaffold/agents.ts`
+  resolves it the way any import would and fills the two placeholders the
+  website fills. The site's domain is spelled in that module too, because a
+  published package cannot import the private website, and
+  `should name the site the website is published on` keeps the two spellings one.
+  `CLAUDE.md` is one line, `@AGENTS.md`, because Claude Code reads that file and
+  not the other. Neither is a question: they are a few lines that cost an app
+  nothing, and an agent that never finds the skills is the failure they exist
+  to prevent.
 - **A full-screen app is something a command does, so it is a question after the
   layout and not a third layout (SIG-279).** "Include a full-screen app (TUI)?"
   follows "Will it have subcommands?", and a multi-command app is then asked

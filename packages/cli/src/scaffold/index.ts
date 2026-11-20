@@ -39,6 +39,7 @@
  * editor and `tsc` agreeing with it rather than the build being right alone.
  */
 
+import { agentInstructions } from './agents.ts';
 import {
   component,
   componentPath,
@@ -945,6 +946,12 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
   const files: ScaffoldFile[] = [
     { contents: manifest(opts), path: 'package.json' },
     { contents: readme(opts), path: 'README.md' },
+    // what a coding agent reads first: the block Getting started tells everyone
+    // else to paste in, which points it at the skills both packages ship. Claude
+    // Code reads `CLAUDE.md` rather than `AGENTS.md`, so that file is one import
+    // of the other -- the arrangement this repository uses for itself
+    { contents: `# ${opts.name}\n\n${agentInstructions(opts.version)}`, path: 'AGENTS.md' },
+    { contents: '@AGENTS.md\n', path: 'CLAUDE.md' },
     { contents: 'node_modules\ndist\nrelease\n', path: '.gitignore' },
     // written rather than left to the convention: a scaffold is exactly where
     // a project's conventions should be explicit, and it is what stops

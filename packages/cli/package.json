@@ -18,7 +18,8 @@
     "sigil": "./dist/sigil.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "exports": {

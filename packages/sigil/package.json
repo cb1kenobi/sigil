@@ -16,7 +16,9 @@
   },
   "files": [
     "dist",
-    "registry"
+    "docs",
+    "registry",
+    "skills"
   ],
   "type": "module",
   "sideEffects": false,

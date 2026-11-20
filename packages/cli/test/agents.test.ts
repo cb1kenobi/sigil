@@ -1,9 +1,22 @@
+import { SITE_URL } from '../src/scaffold/agents.ts';
 import { scaffold } from '../src/scaffold/index.ts';
+import {
+  callsIn,
+  codeSpans,
+  commandsIn,
+  exportClaims,
+  exportsOf,
+  installedPathsIn,
+  isToolchainCommand,
+  PROPERTIES,
+  resolves,
+  ships,
+  specifiersIn,
+  workspacePackages,
+} from './agent-text.ts';
 import { docs, readGuide, root } from './guides.ts';
-import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -26,7 +39,14 @@ import { describe, expect, it } from 'vitest';
  *   one the scaffold's `src/` holds, which is what the schema's `baseDir` makes
  *   it relative to;
  * - every `sigil <command>` is a command the toolchain has;
- * - and the only placeholders are the two the website fills.
+ * - every `node_modules/<package>/...` is a file that package ships, which is
+ *   how the block points at the skills;
+ * - and the only placeholders are the two the website fills, one of which
+ *   `sigil new` fills too, with the same site.
+ *
+ * `sigil new` writes this block as a new app's `AGENTS.md`, so it is read in
+ * an app that was never pasted into as well. The helpers are `agent-text.ts`,
+ * which `skills.test.ts` asks the same questions of the skills with.
  *
  * What it does not check is that a sentence is still *true* -- that help really
  * lists both spellings of `'hello, hi'`, say. That is behaviour, and
@@ -34,11 +54,10 @@ import { describe, expect, it } from 'vitest';
  * prose could; what rots silently in a block like this is a name.
  */
 
-const require = createRequire(import.meta.url);
 const markdown = readFileSync(join(docs, 'agents.md'), 'utf-8').replace(/\r\n/g, '\n');
 
 /** Every code span, outside the placeholders. */
-const spans = [...markdown.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]!);
+const spans = codeSpans(markdown);
 
 /** What `sigil new` itself writes, which is the toolchain's own. */
 const versions = (
@@ -69,48 +88,11 @@ function scaffolds(path: string): boolean {
   return scaffolded.some((file) => file === bare || file.startsWith(`${bare}/`));
 }
 
-/**
- * Names written with parentheses that are a declaration's own property rather
- * than anything a module exports. Each one is here on purpose.
- */
-const PROPERTIES: ReadonlySet<string> = new Set([
-  // a command's handler
-  'run',
-]);
-
 /** The placeholders `website/src/lib/includes.ts` fills, and no others. */
 const PLACEHOLDERS = ['site', 'version'];
 
-/** The workspace's package names. */
-function workspacePackages(): Set<string> {
-  return new Set(
-    ['sigil', 'cli', 'config-xml', 'config-yaml'].map(
-      (dir) =>
-        (
-          JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf-8')) as {
-            name: string;
-          }
-        ).name
-    )
-  );
-}
-
-/** Whether a specifier is one this package can import. */
-function resolves(specifier: string): boolean {
-  try {
-    require.resolve(specifier);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function exportsOf(specifier: string): Promise<Record<string, unknown>> {
-  return (await import(pathToFileURL(require.resolve(specifier)).href)) as Record<string, unknown>;
-}
-
 describe('the agent instructions', () => {
-  const specifiers = [...new Set(spans.filter((span) => span.startsWith('@ttylabs/')))];
+  const specifiers = specifiersIn(spans);
 
   it('should be included by the getting-started guide', () => {
     expect(readGuide('getting-started.md')).toMatch(/^<!-- include agents\.md\b/m);
@@ -137,21 +119,20 @@ describe('the agent instructions', () => {
   });
 
   it('should name only exports that the module it names has', async () => {
-    const claims = [...markdown.matchAll(/`(\w+)(?:\(\))?` from `(@ttylabs\/[\w/-]+)`/g)];
+    const claims = exportClaims(markdown);
 
     expect(claims.length).toBeGreaterThan(3);
-    for (const [, name, specifier] of claims) {
-      expect(
-        Object.hasOwn(await exportsOf(specifier!), name!),
-        `${specifier} exports ${name}`
-      ).toBe(true);
+    for (const [name, specifier] of claims) {
+      expect(Object.hasOwn(await exportsOf(specifier), name), `${specifier} exports ${name}`).toBe(
+        true
+      );
     }
   });
 
   it('should name only functions that something exports, or a property it means', async () => {
     // `@ttylabs/cli` is a bin with nothing to import, so it has no exports to ask
     const modules = await Promise.all(specifiers.filter(resolves).map(exportsOf));
-    const calls = spans.flatMap((span) => /^(\w+)\(\)$/.exec(span)?.[1] ?? []);
+    const calls = callsIn(spans);
 
     expect(calls.length).toBeGreaterThan(3);
     for (const name of calls) {
@@ -179,13 +160,33 @@ describe('the agent instructions', () => {
   });
 
   it('should name only commands the toolchain has', () => {
-    const commands = spans.flatMap((span) => /^sigil (\w+)/.exec(span)?.[1] ?? []);
+    const commands = commandsIn(spans);
 
     expect(commands.length).toBeGreaterThan(1);
     for (const command of commands) {
-      expect(existsSync(join(root, 'packages/cli/src/commands', `${command}.ts`)), command).toBe(
-        true
-      );
+      expect(isToolchainCommand(command), command).toBe(true);
     }
+  });
+
+  it('should name only installed files that the package ships', () => {
+    // the skills are reached through this block and nothing else, so a path
+    // that moved, or a file the tarball left out, is a skill no agent finds
+    const packages = workspacePackages();
+    const installed = installedPathsIn(spans);
+
+    expect(installed.length).toBeGreaterThan(1);
+    for (const { name, path } of installed) {
+      const pkg = packages.get(name);
+      expect(pkg, name).toBeDefined();
+      expect(ships(pkg!.dir, pkg!.files, path), `${name} ships ${path}`).toBe(true);
+    }
+  });
+
+  it('should name the site the website is published on', () => {
+    // `sigil new` fills `{{site}}` itself, and the website is a private app it
+    // cannot import -- so the toolchain spells the domain too, and this is what
+    // keeps the two spellings one
+    const site = readFileSync(join(root, 'website/src/lib/site.ts'), 'utf-8');
+    expect(/export const SITE_URL = '([^']+)'/.exec(site)?.[1]).toBe(SITE_URL);
   });
 });
