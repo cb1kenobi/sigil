@@ -30,8 +30,9 @@ import {
   renderToString,
   text as textNode,
 } from '../element/index.js';
-import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import type { Box } from '../layout/index.js';
+import { createEffect, onCleanup } from '../renderer/index.js';
+import { State, untrack } from '../signals/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { maxOf, minOf, stringWidth } from '../width/index.js';
 import { terminalWidth, truncate } from '../wrap/index.js';
@@ -39,6 +40,7 @@ import { colorLevelOf } from './color-level.js';
 import { labelLine, unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { progressPercent, renderBar } from './progress.js';
+import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
 
 /** Which role a chart takes its colour from. `none` is the terminal's own foreground. */
 export type ChartRole = 'accent' | 'error' | 'info' | 'none' | 'success' | 'warn';
@@ -120,6 +122,11 @@ export type ChartSource<T> = T | { get(): T } | (() => T);
 export interface LineChartSeries {
   /** The values. A value that is not a finite number breaks the line. */
   data: ChartSource<readonly number[]>;
+  /**
+   * Whether to shade the plot under the line, down to the bottom of the scale, in
+   * the line's role. Defaults to the chart's `fill`.
+   */
+  fill?: boolean;
   /** What the series is, written in the legend. */
   label?: string;
   /**
@@ -133,6 +140,12 @@ export interface LineChartSeries {
 export interface LineChartOptions extends ChartOptions, ScaleOptions {
   /** Whether to draw the value labels and the axes. Defaults to true. */
   axis?: boolean;
+  /**
+   * Whether to shade the plot under each line, down to the bottom of the scale, in
+   * the line's role -- an area chart. A series' own `fill` overrides it. Defaults
+   * to false.
+   */
+  fill?: boolean;
   /** How a number is written. Defaults to at most two decimals. */
   format?: (value: number) => string;
   /** How tall the plot is, in rows. Defaults to 8. */
@@ -180,8 +193,22 @@ type Row = readonly Segment[];
 
 /** What a chart draws: its rows, and how wide the widest is. */
 interface Drawing {
+  /** Where a line chart drew its crosshair, and what is under it. */
+  readonly crosshair?: CrosshairAt;
   readonly kind: string;
   readonly rows: readonly Row[];
+}
+
+/** The sample a line chart's crosshair stands on. */
+interface CrosshairAt {
+  /** The cell column it is drawn in, from the chart's left edge. */
+  readonly column: number;
+  /** Which sample, counted along the longest series. */
+  readonly index: number;
+  /** The plot's rows, which the crosshair runs down. */
+  readonly rows: number;
+  /** Each series' value there, or `undefined` where it has none. */
+  readonly values: readonly (number | undefined)[];
 }
 
 /** The element tree for a chart, and the room it was drawn for. */
@@ -836,6 +863,8 @@ export function barChart(data: BarData, opts: BarChartOptions = {}): string {
 interface PlotSeries {
   /** The classes its cells take: its series hook, and its role. */
   readonly classes: string;
+  /** Whether the plot under it is shaded. */
+  readonly fill: boolean;
   readonly label: string | undefined;
   readonly values: readonly number[];
 }
@@ -848,6 +877,11 @@ interface LineLayout extends ScaleOptions {
   /** How tall the plot is, in rows, with the axis and the legend not counted. */
   readonly height: number;
   readonly legend: boolean;
+  /**
+   * The cell column the pointer is over, from the chart's left edge, for the
+   * crosshair; `undefined` draws none.
+   */
+  readonly pointer?: number;
   readonly step: number | 'fit';
   /** How wide the whole chart is. */
   readonly width: number;
@@ -880,19 +914,125 @@ function tickRows(height: number): number[] {
  *
  * @param list - The series.
  * @param role - The chart's role, which the first takes when it names none.
+ * @param fill - The chart's `fill`, which a series that says nothing takes.
  * @returns The series, read.
  */
-function plotSeries(list: readonly LineChartSeries[], role: ChartRole | undefined): PlotSeries[] {
+function plotSeries(
+  list: readonly LineChartSeries[],
+  role: ChartRole | undefined,
+  fill: boolean | undefined
+): PlotSeries[] {
   return list.map((series, i) => {
     const fallback =
       i === 0 ? (role ?? 'accent') : (SERIES_ROLES[i % SERIES_ROLES.length] as ChartRole);
     const cls = ROLES[series.role ?? fallback];
     return {
       classes: `sigil-chart-series-${i + 1}${cls ? ` ${cls}` : ''}`,
+      fill: (series.fill ?? fill) === true,
       label: series.label === undefined ? undefined : labelLine(series.label),
       values: read(series.data),
     };
   });
+}
+
+/** The classes a cell of the crosshair takes: its hook, and the muted role. */
+const CROSSHAIR_CLASSES = 'sigil-chart-crosshair sigil-muted';
+
+/**
+ * Which dots of a braille cell are set, as the bits `Dots` keeps them in.
+ *
+ * @param dots - The grid, or nothing.
+ * @param x - Cell column.
+ * @param y - Cell row.
+ * @returns The mask, `0` for none.
+ */
+function maskAt(dots: Dots | undefined, x: number, y: number): number {
+  const cell = dots?.charAt(x, y);
+  return cell === undefined ? 0 : (cell.codePointAt(0) as number) - 0x2800;
+}
+
+/**
+ * @param mask - A cell's dots.
+ * @returns The braille character that draws them.
+ */
+function braille(mask: number): string {
+  return String.fromCodePoint(0x2800 + mask);
+}
+
+/**
+ * Shades the plot under a line: a screen of every other dot across and down, from
+ * just below the line's highest dot in each dot column to the bottom.
+ *
+ * A quarter of the dots rather than all of them, so the shade is a tint and the
+ * line over it is still a line where there is no colour to tell them apart: a
+ * solid shade is a block whose top edge is the line, and a second series drawn
+ * across it is lost. The screen is laid on the plot rather than on each series,
+ * so two shaded series meeting in one cell agree about which dots a shade has. A
+ * dot column the line does not reach -- a gap in the data, or the plot before the
+ * first sample -- is not shaded, since there is nothing there to be under.
+ *
+ * @param line - The series' own line.
+ * @param area - Where the shade is drawn.
+ */
+function shadeUnder(line: Dots, area: Dots): void {
+  for (let x = 0; x < line.dotWidth; x++) {
+    let top = -1;
+    for (let y = 0; y < line.dotHeight; y++) {
+      if (line.get(x, y)) {
+        top = y;
+        break;
+      }
+    }
+    if (top < 0) {
+      continue;
+    }
+    for (let y = top + 1; y < line.dotHeight; y++) {
+      if (x % 2 === 0 && y % 2 === 0) {
+        area.set(x, y);
+      }
+    }
+  }
+}
+
+/**
+ * The sample nearest a cell column of the plot, counted along the longest
+ * series.
+ *
+ * Nearest the middle of the cell, so the crosshair snaps to a sample rather than
+ * standing between two: seven days across a wide plot are seven places it can be.
+ * A column before the first sample a scrolling chart has drawn is none, as is one
+ * outside the plot.
+ *
+ * @param column - The cell column, from the plot's left edge.
+ * @param plotWidth - The plot's width in cells.
+ * @param longest - How many samples the longest series has.
+ * @param step - The chart's step.
+ * @param across - A sample's dot column.
+ * @returns The sample, or `undefined` for none.
+ */
+function sampleUnder(
+  column: number,
+  plotWidth: number,
+  longest: number,
+  step: number | 'fit',
+  across: (k: number) => number
+): number | undefined {
+  if (!Number.isInteger(column) || column < 0 || column >= plotWidth || longest === 0) {
+    return undefined;
+  }
+  const dot = column * 2 + 0.5;
+  const last = plotWidth * 2 - 1;
+  if (step === 'fit') {
+    return longest === 1
+      ? 0
+      : Math.min(longest - 1, Math.max(0, Math.round((dot * (longest - 1)) / last)));
+  }
+  let k = longest - 1 - Math.round((last - dot) / step);
+  // rounded onto a sample past the left edge, the nearest one drawn is the next
+  if (k >= 0 && across(k) < 0) {
+    k += 1;
+  }
+  return k >= 0 && k < longest && across(k) >= 0 ? k : undefined;
 }
 
 /**
@@ -902,7 +1042,8 @@ function plotSeries(list: readonly LineChartSeries[], role: ChartRole | undefine
  * cell's character is the shared grid's, so two lines through one cell are both
  * there; its colour is the **last** series with a dot in it, which is the order a
  * painter draws in and the order a reader can predict -- the series listed last
- * is on top.
+ * is on top. A filled series' shade and the crosshair go under every line, the
+ * crosshair over the shade.
  *
  * @param list - The series.
  * @param layout - The room, the scale and the axes.
@@ -953,26 +1094,30 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
 
   const union = new Dots(plotWidth, height);
   const grids = list.map(() => new Dots(plotWidth, height));
+  const areas = list.map((series) => (series.fill ? new Dots(plotWidth, height) : undefined));
   const place = (value: number): number =>
     high === low
       ? Math.round((union.dotHeight - 1) / 2)
       : Math.round((1 - ratioOf(value, low, high)) * (union.dotHeight - 1));
+  /**
+   * The dot column of a sample, counted along the longest series: every series
+   * ends at the right edge together, at its latest sample.
+   */
+  const across = (k: number): number => {
+    if (step === 'fit') {
+      // one series alone spans the width as it always did
+      return longest === 1
+        ? Math.round((union.dotWidth - 1) / 2)
+        : Math.round((k * (union.dotWidth - 1)) / (longest - 1));
+    }
+    return union.dotWidth - 1 - (longest - 1 - k) * step;
+  };
 
   list.forEach((series, s) => {
     const values = series.values;
     const n = values.length;
     const grid = grids[s] as Dots;
-    const across = (i: number): number => {
-      if (step === 'fit') {
-        // right-aligned on the longest series, so several end together at the
-        // latest sample; one series alone spans the width as it always did
-        const offset = longest - n;
-        return longest === 1
-          ? Math.round((union.dotWidth - 1) / 2)
-          : Math.round(((offset + i) * (union.dotWidth - 1)) / (longest - 1));
-      }
-      return union.dotWidth - 1 - (n - 1 - i) * step;
-    };
+    const offset = longest - n;
 
     let previous: [number, number] | undefined;
     // one sample before the left edge is still drawn to, so a line that scrolls
@@ -986,7 +1131,7 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
         previous = undefined;
         continue;
       }
-      const point: [number, number] = [across(i), place(value)];
+      const point: [number, number] = [across(offset + i), place(value)];
       for (const dots of [grid, union]) {
         if (previous === undefined) {
           dots.set(point[0], point[1]);
@@ -996,7 +1141,24 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
       }
       previous = point;
     }
+
+    const area = areas[s];
+    if (area !== undefined) {
+      shadeUnder(grid, area);
+    }
   });
+
+  const plotLeft = axis ? gutter + 2 : 0;
+  const crosshair =
+    layout.pointer === undefined
+      ? undefined
+      : sampleUnder(layout.pointer - plotLeft, plotWidth, longest, step, across);
+  const cross = new Dots(plotWidth, height);
+  if (crosshair !== undefined) {
+    for (let y = 0; y < cross.dotHeight; y++) {
+      cross.set(across(crosshair), y);
+    }
+  }
 
   const labelAt = new Map(ticks.map((tick) => [tick.row, tick.text]));
   const rows: Row[] = [];
@@ -1008,45 +1170,76 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
       row.push({ text: `${pad(label, gutter, 'right')} ${tick}` });
     }
 
-    // runs of one series; a blank cell joins the run it is in, and the blanks
-    // before the first dot join the first run, so a lone series is one segment
-    const runs: { owner: number | undefined; text: string }[] = [];
+    // runs of one set of classes; a blank cell joins the run it is in, and the
+    // blanks before the first dot join the first run, so a lone series is one
+    // segment
+    const runs: { classes: string | undefined; text: string }[] = [];
     for (let x = 0; x < plotWidth; x++) {
-      const cell = union.charAt(x, y);
-      let owner: number | undefined;
-      if (cell !== undefined) {
-        for (let s = grids.length - 1; s >= 0; s--) {
-          if ((grids[s] as Dots).charAt(x, y) !== undefined) {
-            owner = s;
-            break;
-          }
-        }
-      }
-      const glyph = cell === undefined ? ' ' : plain ? '*' : cell;
+      const { classes, glyph } = cellOf(x, y);
       const run = runs.at(-1);
       if (run === undefined) {
-        runs.push({ owner, text: glyph });
-      } else if (owner === undefined || owner === run.owner) {
+        runs.push({ classes, text: glyph });
+      } else if (classes === undefined || classes === run.classes) {
         run.text += glyph;
-      } else if (run.owner === undefined) {
-        run.owner = owner;
+      } else if (run.classes === undefined) {
+        run.classes = classes;
         run.text += glyph;
       } else {
-        runs.push({ owner, text: glyph });
+        runs.push({ classes, text: glyph });
       }
     }
     for (const part of runs) {
-      row.push({ role: list[part.owner ?? 0]?.classes, text: part.text });
+      row.push({ role: part.classes ?? list[0]?.classes, text: part.text });
     }
     rows.push(row);
   }
 
+  /**
+   * What one cell of the plot shows. A line beats the crosshair and the crosshair
+   * beats an area, so a line is never hidden by either: a cell with a line in it
+   * has every line's dots and the owner's area under them, in the colour of the
+   * last series with a dot there; a cell the crosshair runs through that holds no
+   * line is the crosshair's; and a cell of area alone is the last filled series'.
+   */
+  function cellOf(x: number, y: number): { classes: string | undefined; glyph: string } {
+    const lines = maskAt(union, x, y);
+    if (lines !== 0) {
+      let owner = 0;
+      for (let s = grids.length - 1; s >= 0; s--) {
+        if (maskAt(grids[s] as Dots, x, y) !== 0) {
+          owner = s;
+          break;
+        }
+      }
+      return {
+        classes: list[owner]?.classes,
+        glyph: plain ? '*' : braille(lines | maskAt(areas[owner], x, y)),
+      };
+    }
+    const rule = maskAt(cross, x, y);
+    if (rule !== 0) {
+      return { classes: CROSSHAIR_CLASSES, glyph: plain ? '|' : braille(rule) };
+    }
+    for (let s = areas.length - 1; s >= 0; s--) {
+      const shade = maskAt(areas[s], x, y);
+      if (shade !== 0) {
+        return {
+          classes: `${(list[s] as PlotSeries).classes} sigil-chart-area`,
+          glyph: plain ? ':' : braille(shade),
+        };
+      }
+    }
+    return { classes: undefined, glyph: ' ' };
+  }
+
   if (axis) {
-    rows.push([
-      {
-        text: `${' '.repeat(gutter)} ${plain ? '+' : '└'}${(plain ? '-' : '─').repeat(plotWidth)}`,
-      },
-    ]);
+    // the crosshair meets the axis with a tick, so the sample it stands on is
+    // marked where the x labels are read
+    const at = crosshair === undefined ? -1 : Math.floor(across(crosshair) / 2);
+    const rule = Array.from({ length: plotWidth }, (_, x) =>
+      x === at ? (plain ? '+' : '┴') : plain ? '-' : '─'
+    ).join('');
+    rows.push([{ text: `${' '.repeat(gutter)} ${plain ? '+' : '└'}${rule}` }]);
 
     const [start, end] = layout.xLabels ?? ['', ''];
     if (start !== '' || end !== '') {
@@ -1068,7 +1261,22 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     rows.push(legendRow(list, axis ? gutter + 2 : 0, layout.width, plain));
   }
 
-  return { kind: 'line', rows };
+  return {
+    crosshair:
+      crosshair === undefined
+        ? undefined
+        : {
+            column: plotLeft + Math.floor(across(crosshair) / 2),
+            index: crosshair,
+            rows: height,
+            values: list.map((series) => {
+              const value = series.values[crosshair - (longest - series.values.length)];
+              return isPlottable(value) ? value : undefined;
+            }),
+          },
+    kind: 'line',
+    rows,
+  };
 }
 
 /**
@@ -1190,7 +1398,7 @@ export function lineChartView(
   values: readonly number[] | readonly LineChartSeries[],
   opts: LineChartOptions = {}
 ): ChartView {
-  const list = plotSeries(seriesOf(values), opts.role);
+  const list = plotSeries(seriesOf(values), opts.role, opts.fill);
   return viewOf(lineDrawing(list, printedLayout(list, opts)));
 }
 
@@ -1216,7 +1424,7 @@ export function lineChart(
   values: readonly number[] | readonly LineChartSeries[],
   opts: LineChartOptions = {}
 ): string {
-  const list = plotSeries(seriesOf(values), opts.role);
+  const list = plotSeries(seriesOf(values), opts.role, opts.fill);
   return print(lineDrawing(list, printedLayout(list, opts)), opts);
 }
 
@@ -1477,11 +1685,39 @@ export interface SparklineProps extends ChartElementProps, ScaleOptions {
   width?: number;
 }
 
+/**
+ * A line chart's crosshair: `attachTooltip()`'s options, with the words worked out
+ * per sample.
+ */
+export interface LineChartCrosshair extends Omit<TooltipOptions, 'area' | 'text'> {
+  /**
+   * What the readout says at a sample: its index, counted along the longest
+   * series, and each series' value there in the order they were given, or
+   * `undefined` where one has none. An empty string shows the rule with no
+   * readout. Defaults to a line per series with a value, its label and the value
+   * written by `format`.
+   */
+  text?: (index: number, values: readonly (number | undefined)[]) => string;
+}
+
 export interface LineChartProps extends ChartElementProps, ScaleOptions {
   /** Whether to draw the value labels and the axes. Defaults to true. */
   axis?: boolean;
+  /**
+   * A rule down the plot at the sample under the pointer, and a tooltip beside it
+   * saying each series' value there. It needs the router's `mouse.motion`, since
+   * without it nothing knows where the pointer is; the readout is `attachTooltip()`
+   * pointed at the rule, so it shows at once unless `delay` says otherwise, flips
+   * where there is no room, and goes with the component. Defaults to none.
+   */
+  crosshair?: LineChartCrosshair;
   /** One series' samples, where there is one. `series` is the way to give several. */
   data?: ChartSource<readonly number[]>;
+  /**
+   * Whether to shade the plot under each line, as `lineChart()`'s `fill`. A
+   * series' own `fill` overrides it. Defaults to false.
+   */
+  fill?: boolean;
   /** How a number is written. Defaults to at most two decimals. */
   format?: (value: number) => string;
   /** The plot rows asked for where the layout does not decide. Defaults to 8. */
@@ -1590,6 +1826,8 @@ function checkCells(who: string, name: string, value: number | undefined): void 
  * @param ask - What it asks for, read in the effect so that a change in the data
  *   can change it.
  * @param drawAt - The drawing at a size, read in the effect so that it subscribes.
+ * @param attach - Called with the host and the body the rows are drawn in, before
+ *   the first drawing: what a chart that follows the pointer hangs its tooltip on.
  * @returns The host.
  */
 function liveChart(
@@ -1597,7 +1835,8 @@ function liveChart(
   kind: string,
   props: ChartElementProps,
   ask: () => Size,
-  drawAt: (size: Size) => Drawing
+  drawAt: (size: Size) => Drawing,
+  attach?: (host: Element, body: Element) => void
 ): Element {
   refuseOwnedHooks(who, props.props, ['onResize']);
   if (props.class !== undefined && typeof props.class !== 'string') {
@@ -1710,6 +1949,7 @@ function liveChart(
     return draw();
   };
 
+  attach?.(host, body);
   createEffect(() => {
     draw();
   });
@@ -1776,7 +2016,8 @@ export function Sparkline(props: SparklineProps): Element {
  * `step: 'fit'` spreads a whole series across the width the way `lineChart()`
  * does. Several series share the plot, each in its own role, with a legend under
  * the axis when any has a label. The rows the axis and the legend do not take are
- * the plot's.
+ * the plot's. `fill` shades under the lines, and `crosshair` follows the pointer
+ * with a rule down the plot and a tooltip saying the values under it.
  *
  * @param props - The series, the scale, the axes and the size asked for.
  * @returns The chart's host.
@@ -1791,12 +2032,76 @@ export function LineChart(props: LineChartProps): Element {
   if (props.series !== undefined && !Array.isArray(props.series)) {
     throw new TypeError('Expected line chart series to be an array of { data, label, role }');
   }
+  const crosshair = props.crosshair;
+  if (crosshair !== undefined && (typeof crosshair !== 'object' || crosshair === null)) {
+    throw new TypeError('Expected a line chart crosshair to be an object of tooltip options');
+  }
+  if (crosshair?.text !== undefined && typeof crosshair.text !== 'function') {
+    throw new TypeError('Expected line chart crosshair text to be a function');
+  }
   const list: readonly LineChartSeries[] = props.series ?? [
     { data: props.data as ChartSource<readonly number[]> },
   ];
   const ascii = props.ascii ?? !unicodeSupported();
   const axis = props.axis !== false;
   const legend = props.legend ?? list.some((s) => s.label !== undefined && s.label !== '');
+  const format = props.format ?? formatNumber;
+
+  /** The cell column the pointer is over, from the body's left edge, while it is over the chart. */
+  const pointer = crosshair === undefined ? undefined : new State<number | undefined>(undefined);
+  /** The crosshair's cells, relative to the host's box, for the tooltip to point at. */
+  const pointed = crosshair === undefined ? undefined : new State<Box | undefined>(undefined);
+  let tip: TooltipHandle | undefined;
+  let host: Element | undefined;
+  let body: Element | undefined;
+  /** What the readout last said, so a crosshair that did not move does not set it again. */
+  let said = '';
+
+  /** The default readout: each series with a value there, by its label. */
+  const readout = (_index: number, values: readonly (number | undefined)[]): string =>
+    values
+      .flatMap((value, i) => {
+        if (value === undefined) {
+          return [];
+        }
+        const label = list[i]?.label;
+        return [label === undefined || label === '' ? format(value) : `${label} ${format(value)}`];
+      })
+      .join('\n');
+
+  /**
+   * Says what is under the crosshair, and where it is, after a drawing: the words
+   * first, so the bubble that moves is the one that says them.
+   */
+  const follow = (at: CrosshairAt | undefined): void => {
+    if (crosshair === undefined || pointed === undefined) {
+      return;
+    }
+    const words = at === undefined ? '' : (crosshair.text ?? readout)(at.index, at.values);
+    if (typeof words !== 'string') {
+      throw new TypeError('Expected line chart crosshair text to return a string');
+    }
+    if (words !== said) {
+      // an empty string hides the bubble, which is the tooltip's own rule
+      said = words;
+      tip?.setText(words);
+    }
+    const outer = host?.box;
+    const inner = body?.box ?? outer;
+    const next =
+      at === undefined || outer === undefined || inner === undefined
+        ? undefined
+        : { height: at.rows, width: 1, x: at.column + inner.x - outer.x, y: inner.y - outer.y };
+    const was = untrack(() => pointed.get());
+    if (
+      next?.x !== was?.x ||
+      next?.y !== was?.y ||
+      next?.width !== was?.width ||
+      next?.height !== was?.height
+    ) {
+      pointed.set(next);
+    }
+  };
 
   /** The rows that are not the plot's, given the x labels. */
   const extra = (xLabels: readonly [string, string] | undefined): number =>
@@ -1814,19 +2119,65 @@ export function LineChart(props: LineChartProps): Element {
     }),
     (size) => {
       const xLabels = read(props.xLabels);
-      return lineDrawing(plotSeries(list, props.role), {
+      const drawing = lineDrawing(plotSeries(list, props.role, props.fill), {
         ascii,
         axis,
-        format: props.format ?? formatNumber,
+        format,
         height: Math.max(1, size.height - extra(xLabels)),
         legend,
         max: props.max,
         min: props.min,
+        pointer: pointer?.get(),
         step,
         width: size.width,
         xLabels,
       });
-    }
+      follow(drawing.crosshair);
+      return drawing;
+    },
+    crosshair === undefined
+      ? undefined
+      : (outer, inner) => {
+          host = outer;
+          body = inner;
+          const input = crosshair.input;
+          // the bubble is the tooltip's, pointed at the rule: at once by default,
+          // since a readout that lags the rule it reads is a readout of where the
+          // pointer was, and on the right, where a reader's eye is already going
+          tip = attachTooltip(outer, {
+            ...crosshair,
+            area: () => pointed?.get(),
+            ascii: crosshair.ascii ?? props.ascii,
+            delay: crosshair.delay ?? 0,
+            side: crosshair.side ?? 'right',
+            text: '',
+          });
+          // every report the tree did not stop, read against the router's own
+          // `hover` state, as the tooltip reads it: written under `mouse.motion`
+          // alone, and already false when the pointer has left. The bubble sits
+          // flush against the rule, so a pointer moving on across the plot moves
+          // onto it -- and is then over the bubble rather than the chart, by the
+          // hit test, while still inside the chart's box. That is still the
+          // chart's pointer: otherwise the rule would stop where the bubble
+          // starts and a pointer could never get past it
+          const off = input.onMouse((event) => {
+            const at = inner.box;
+            const area = outer.box;
+            const over =
+              outer.states.includes('hover') ||
+              (tip?.element?.states.includes('hover') === true &&
+                area !== undefined &&
+                event.x >= area.x &&
+                event.x < area.x + area.width &&
+                event.y >= area.y &&
+                event.y < area.y + area.height);
+            const next = at !== undefined && over ? Math.floor(event.x - at.x) : undefined;
+            if (next !== untrack(() => pointer?.get())) {
+              pointer?.set(next);
+            }
+          });
+          onCleanup(off);
+        }
   );
 }
 

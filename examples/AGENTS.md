@@ -1060,9 +1060,17 @@ dark -- built from sigil's own components, with its own data, names and colours.
   presses Down and waits for `Analytics`, which at 60 columns is only in the
   header, since the sidebar starts collapsed there.
 
+- **The chart is shaded under both lines and follows the pointer (SIG-464).**
+  shadcn's chart is an area chart with a hover tooltip, and `LineChart` gained
+  both for it: `fill: true`, and a `crosshair` whose `text` reads the day under the
+  rule out of the shown range, so the readout is the date and both figures. The
+  crosshair needs motion, so `src/index.ts` asks for `mouse: { motion: true }` and
+  the smoke test's `mount()` does what it does; `buildTraffic()` takes the router
+  for it. `should follow the pointer with a rule and that day's figures` aims at the
+  last day by the axis it draws, not by a fixed cell.
+
 - **Not done:** the pages other than the overview, which say they are not drawn;
-  re-collapsing the sidebar on a resize; a hover crosshair or an area fill on the
-  chart, which shadcn's has and `LineChart` does not; and a `ui`-tag twin.
+  re-collapsing the sidebar on a resize; and a `ui`-tag twin.
 
 ### A text editor with a Markdown preview (SIG-296)
 

@@ -389,6 +389,108 @@ describe('lineChart()', () => {
 });
 
 /**
+ * `fill`: the plot under a line shaded in a screen of every other dot, which is a
+ * braille cell's `⠅` -- a quarter of its dots, so the line over it is still the
+ * densest thing in the plot where there is no colour to tell the two apart.
+ */
+describe('lineChart() with fill (SIG-464)', () => {
+  /** A cell's dots, as the bits a braille character adds to U+2800. */
+  const dots = (cell: string | undefined): number =>
+    cell === undefined || cell === ' ' ? 0 : (cell.codePointAt(0) as number) - 0x2800;
+
+  it('should shade under the line down to the bottom, and leave the line as it was', () => {
+    const opts = { axis: false, height: 2, width: 4 };
+    const filled = line([0, 4, 0], { ...opts, fill: true });
+    const bare = line([0, 4, 0], opts);
+
+    expect(filled).toEqual([' ⡰⢧', '⡰⠅⠅⢧']);
+    expect(bare).toEqual([' ⡰⢣', '⡰⠁ ⢣']);
+    // every dot of the line is still there, and the shade only adds to it
+    for (const [y, row] of bare.entries()) {
+      for (const [x, cell] of [...row].entries()) {
+        expect(dots([...(filled[y] ?? '')][x]) & dots(cell)).toBe(dots(cell));
+      }
+    }
+  });
+
+  it('should shade nothing unless asked', () => {
+    expect(line([0, 4, 0], { axis: false, height: 2, width: 4 }).join('')).not.toContain('⠅');
+  });
+
+  it('should leave the shade broken where the line is', () => {
+    const rows = line([4, 4, Number.NaN, 4, 4], { axis: false, fill: true, height: 2, width: 5 });
+    // the missing sample is a column with nothing in it, shade included
+    expect([...(rows[1] ?? '')][2]).toBe(' ');
+  });
+
+  it('should shade with : under a * line in ASCII', () => {
+    expect(line([0, 4, 0], { ascii: true, axis: false, fill: true, height: 2, width: 4 })).toEqual([
+      ' **',
+      '**:*',
+    ]);
+  });
+
+  it('should let a series say for itself, over the chart', () => {
+    const top = { data: [8, 8, 8, 8] };
+    const bottom = { data: [2, 2, 2, 2], fill: false };
+    const both = lineChart([top, bottom], {
+      ...plain,
+      axis: false,
+      fill: true,
+      height: 2,
+      max: 8,
+      min: 0,
+      width: 4,
+    }).split('\n');
+    // the upper one shaded by the chart's fill, the lower one not by its own
+    expect(both[0]).toBe('⠍⠍⠍⠍');
+    expect(both[1]).toBe('⠒⠒⠒⠒');
+  });
+
+  it('should never draw a shade over a line, whichever series it belongs to', () => {
+    // the upper series' shade reaches the lower line's row, and the lower line,
+    // unshaded, is drawn there alone: a line beats a shade in the cell they share
+    const rows = lineChart(
+      [
+        { data: [8, 8, 8, 8], fill: true },
+        { data: [2, 2, 2, 2], role: 'error' },
+      ],
+      { ...plain, axis: false, height: 2, max: 8, min: 0, width: 4 }
+    ).split('\n');
+    expect(rows[1]).toBe('⠒⠒⠒⠒');
+  });
+
+  it('should colour the shade in its series role, and give it a class a theme can reach', () => {
+    const out = lineChart([0, 4, 0], {
+      ...plain,
+      axis: false,
+      colorLevel: 1,
+      fill: true,
+      height: 2,
+      role: 'success',
+      width: 4,
+    });
+    // one green run: the line and the shade under it are one role
+    expect(out.split('\n')[1]).toBe(`${ESC}[32m⡰⠅⠅⢧${ESC}[0m`);
+
+    const { element } = lineChartView([0, 4, 0], {
+      ...plain,
+      axis: false,
+      fill: true,
+      height: 2,
+      width: 4,
+    });
+    const segments = element.children.flatMap((row) => row.children);
+    const shade = segments.find((segment) => segment.classes.includes('sigil-chart-area'));
+    // the cell of shade alone: the one beside it holds the line's dots too, and is the line's
+    expect(shade?.text).toBe('⠅');
+    expect(shade?.classes).toEqual(
+      expect.arrayContaining(['sigil-chart-series-1', 'sigil-accent'])
+    );
+  });
+});
+
+/**
  * The scale used to be read with `Math.min(...values)` and `Math.max(...values)`,
  * which put every value on the stack as an argument and threw `RangeError:
  * Maximum call stack size exceeded` -- past about 125,000 values on a main

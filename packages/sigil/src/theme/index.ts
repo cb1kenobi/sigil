@@ -217,6 +217,8 @@ export const FRAMEWORK_CSS = `
  *   .sigil-chart-gauge  and a -row and a -part of each
  *   .sigil-chart-body  .sigil-chart-sizer  .sigil-chart-legend
  *   .sigil-chart-series-1 and up, one a line on a line chart
+ *   .sigil-chart-area, a line chart's shade, beside its series' classes
+ *   .sigil-chart-crosshair, the rule at the sample under the pointer
  *   .sigil-rule  .sigil-rule-line  .sigil-rule-label
  *   .sigil-diff  .sigil-diff-file  .sigil-diff-hunk  .sigil-diff-row
  *   .sigil-diff-number  .sigil-diff-marker  .sigil-diff-text  .sigil-diff-change
