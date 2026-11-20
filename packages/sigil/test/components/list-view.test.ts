@@ -1148,6 +1148,25 @@ describe('ListView()', () => {
       }
     });
 
+    it('should not drop an error thrown while the new rows are drawn', () => {
+      // a `row` that throws as the window is rebuilt throws after the list moved to
+      // the new items, so the items effect -- which finds them already taken -- will
+      // never report it: the key that took them early is where it goes
+      const items = new State(['a', 'b']);
+      const host = list({
+        items,
+        row: (item) => {
+          if (item === 'boom') {
+            throw new Error('row blew up');
+          }
+          return item;
+        },
+      });
+
+      items.set(['a', 'boom']);
+      expect(() => host.onKey?.(keyEvent('down'))).toThrow('row blew up');
+    });
+
     it('should not take a click on a row the new items dropped', () => {
       const items = new State(['apple', 'banana']);
       const host = list({ items, multiple: true });

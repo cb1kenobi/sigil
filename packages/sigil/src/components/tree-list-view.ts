@@ -640,6 +640,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
 
   /** What the rows were last walked from, so a walk asked for again does nothing. */
   let walked: { landed: number; open: ReadonlySet<T>; top: TreeListItems<T> } | undefined;
+  /**
+   * Whether a walk is running. A lazy branch's read, a `row` or an effect run by one
+   * of the walk's own writes can ask for the rows again from inside it -- through the
+   * list's control -- and gets them as the last walk left them rather than a second
+   * walk inside the first.
+   */
+  let walking = false;
 
   /**
    * Walks the rows again where what they are walked from has moved: the items, the
@@ -649,8 +656,11 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * the rows the Right opened (SIG-469).
    */
   const rewalk = (): void => {
+    if (walking) {
+      return;
+    }
     const top = read();
-    let open = expanded.get();
+    const open = expanded.get();
     const at = landed.get();
     if (
       walked !== undefined &&
@@ -660,7 +670,17 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     ) {
       return;
     }
-    const first = open;
+    walking = true;
+    try {
+      walkFrom(top, open, at);
+    } finally {
+      walking = false;
+    }
+  };
+
+  /** The walk itself, and what it writes: see {@link rewalk}. */
+  const walkFrom = (top: TreeListItems<T>, first: ReadonlySet<T>, at: number): void => {
+    let open = first;
     // a node seen for the first time with `expanded: true` opens, and what is
     // under it is walked at once rather than a frame later
     let seed: T[] = [];
@@ -670,8 +690,6 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       seed = [];
       found = walk(top, open, seed);
     }
-    // before the writes below, which run the effect again: it finds this walk
-    walked = { landed: at, open, top };
     if (open !== first) {
       expanded.set(open);
     }
@@ -682,7 +700,10 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       const was = byKey.get(row.key);
       return was !== undefined && sameRow(was, row) ? was : row;
     });
-    const unchanged = next.length === rows.length && next.every((row, i) => row === rows[i]);
+    // against what the list was handed rather than what the last walk found, which
+    // differ where handing it over threw -- inside a `Computed`, which may not write
+    const held = untrack(() => listed.get());
+    const unchanged = next.length === held.length && next.every((row, i) => row === held[i]);
     rows = next;
     byKey = new Map(next.map((row) => [row.key, row]));
     parents = found.parents;
@@ -690,6 +711,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     if (!unchanged) {
       listed.set(next);
     }
+    // last, so a walk whose writes threw is not taken for one that finished, and is
+    // walked again on the next ask
+    walked = { landed: at, open, top };
   };
 
   createEffect(() => {
@@ -819,8 +843,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     // the rows as a walk now would find them, which the list asks for as it takes
     // its items: the walk is untracked and `listed` is what the list follows. A walk
     // that throws -- two nodes with one value -- leaves the rows as they were, and
-    // the effect above reports it; thrown here, it would also cost the list's own
-    // effect its dependency on `listed`, read after it
+    // the effect above reports it; thrown here, it would be reported again by each of
+    // the list's effects that asked, every time one did
     items: {
       get: () => {
         try {

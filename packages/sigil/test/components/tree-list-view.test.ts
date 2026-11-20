@@ -26,7 +26,7 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { tempDir } from '../temp.js';
@@ -368,6 +368,54 @@ describe('TreeListView()', () => {
       listControl(host)?.selection.index();
 
       expect(walks).toBe(before);
+    });
+
+    it('should read a lazy branch once when its read asks the list for its rows', () => {
+      // the read runs inside a walk, and asking the list's control for its rows asks
+      // the tree for a walk: the second ask gets the rows as they were rather than a
+      // walk inside the walk, which would call the read again until the stack ran out
+      let host: Element | undefined;
+      let reads = 0;
+      host = tree({
+        items: [
+          {
+            items: () => {
+              reads++;
+              listControl(host as Element)?.selection.index();
+              return ['a.ts'];
+            },
+            text: 'src',
+          },
+        ],
+      });
+
+      control(host).expand('src');
+      press(host, 'down');
+
+      expect(reads).toBe(1);
+      expect(control(host).current.get()).toBe('a.ts');
+    });
+
+    it('should draw the new rows after a walk whose handing over threw', () => {
+      // a Computed may not write, so a walk it asks for -- through the list's
+      // control -- cannot hand the list its rows. The next walk has to, rather than
+      // taking the one that threw for one that finished and leaving the old rows up
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const host = tree({ items });
+      const count = new Computed(() => {
+        items.get();
+        return listControl(host)?.selection.rowCount;
+      });
+
+      items.set(['a', 'b', 'c']);
+      try {
+        count.get();
+      } catch {
+        // what the Computed itself makes of it is not the question
+      }
+      flush();
+
+      expect(picture(host).slice(0, 3)).toEqual(['❯ ├──   a', '  ├──   b', '  └──   c']);
     });
 
     it('should leave Right alone on a leaf and on an open branch with nothing in it', () => {
@@ -1340,6 +1388,36 @@ describe('TreeListView()', () => {
     expect(() => TreeListView({ items: ['same', { text: 'other', value: 'same' }] })).toThrow(
       'Expected every tree node to have a value of its own: same is used twice'
     );
+  });
+
+  it('should draw the rows again once items with two nodes of one value are fixed', () => {
+    // the walk throws, and the tree's effect reports it -- once, though the list
+    // asks for a walk again whenever it takes its items, and the fixed items are
+    // drawn when they arrive
+    const written: string[] = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const host = tree({ items });
+
+      items.set(['a', 'a']);
+      flush();
+      // and once: the cursor moving asks the list for its rows again, which asks
+      // for the walk again, which throws again
+      press(host, 'down');
+      control(host).current.set('b');
+      flush();
+      expect(written.join('').split('a is used twice')).toHaveLength(2);
+
+      items.set(['a', 'c']);
+      flush();
+      expect(picture(host).slice(0, 2)).toEqual(['  ├──   a', '❯ └──   c']);
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it('should refuse what it cannot use', () => {

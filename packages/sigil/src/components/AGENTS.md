@@ -12427,12 +12427,15 @@ reason.
   one key throw out of `setRows()` before anything is written, and the items effect
   reports that with the next frame -- which was all that happened before. A key that
   rethrew it would throw out of every key the list is handed until the items were
-  fixed, so the early paths catch it and act on the rows as they were. And `sync()`
-  waits out a second ask from inside itself: a `key` or `disabled` that reads the
-  selection an app is handed asks for the items while they are being taken, which
-  on `main` answered from the rows as they were, and here recursed until the stack
-  ran out.
-  Both found by review round 1.
+  fixed, so the early paths catch it and act on the rows as they were. Only that
+  one, though: a throw after the list moved to the new items -- a `row` that throws
+  as the window is rebuilt -- is one the effect never sees, since the items it reads
+  are the ones the list then holds, so it goes on to the caller rather than nowhere
+  (review round 2, which found the first version of the catch dropping it). And
+  `sync()` waits out a second ask from inside itself: a `key` or `disabled` that
+  reads the selection an app is handed asks for the items while they are being
+  taken, which on `main` answered from the rows as they were, and here recursed
+  until the stack ran out. Found by review round 1, as was the duplicate key.
 - **The `current` state is not part of it.** It is a `State` the app may hold, and
   a read of it between the change and the frame still says where the cursor was.
   `index()` and `keyAt()` answer for the rows as they are now. A call on the
@@ -12466,11 +12469,15 @@ reason.
   `should answer with the best match when the query and the enter are one read`,
   and a second whose starting row still matches as the second row, which a
   highlight that stayed with its row would answer with.
-- **The other components that filter as the user types were checked, and none
-  races.** `autocomplete()`, with a static or an async source,
-  `autocompleteMultiselect()` and `path()` are prompts: each filters and draws
-  inside `key()`, and an async source already refuses Enter while a lookup is out,
-  which is this rule one step along. `select()`, `multiselect()`,
+- **The other components that filter as the user types were checked.**
+  `autocomplete()`, with a static or an async source, `autocompleteMultiselect()`
+  and `path()` are prompts: each filters and draws inside `key()`, and an async
+  source already refuses Enter and Space while a lookup is out, which is this rule
+  one step along. **Tab is the exception, and it is left as it was**: it completes
+  the field from the active row without asking whether a lookup is out, so `z` and
+  Tab in one read over an async source complete to a row of the earlier term's
+  list. Review round 2 reproduced it. It predates this change and shares no code
+  with it, so it is a ticket of its own rather than a fix here. `select()`, `multiselect()`,
   `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
   were read too and take no typed filter. `Dropdown` and `Menu` have no filter
   either, and their effects only draw. `DataTable` is built on the list and gets the
@@ -12488,11 +12495,19 @@ reason.
   from -- the items, the open set and the count of landed reads, which are exactly
   what the effect tracks -- so asking costs nothing where nothing moved, and
   `should walk the rows once per change` counts the walks to keep it so. A walk
-  that throws is reported by the tree's effect and caught in `get()`, which would
-  otherwise cost the list's effect its dependency on the `State` it reads after.
+  that throws is reported by the tree's effect and caught in `get()`; let through,
+  it would be reported again by each of the list's effects that asked, each time
+  one did. Review round 2 found three more, and each has a test: a walk asked for
+  from inside a walk -- a lazy branch's read that asks the list's control for its
+  rows -- now gets the rows the last walk left rather than recursing, through a
+  `walking` flag; the guard's record of what was walked is written **last**, so a
+  walk whose writes threw (asked from a `Computed`, which may not write) is walked
+  again on the next ask; and whether the rows changed is asked of what the list was
+  handed rather than of what the last walk found, which differ where handing over
+  threw.
 - **Pinned in four places.** `a key in the same step as a change of the items` in
   `list-view.test.ts`, with nothing flushed between the change and the key; one
-  filtered `DataTable` test; three in `tree-list-view.test.ts`; and the editor's
+  filtered `DataTable` test; six in `tree-list-view.test.ts`; and the editor's
   palette tests, which type and press
   Enter -- and Down -- in one read. Sabotaged one at a time: the key handler's
   sync, `activate()`'s, the wrapper's, the click's and `'first'` each fail a test

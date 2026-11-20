@@ -1144,17 +1144,25 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
 
   /**
    * `sync()` for a key, a click or a call on the control, which take the items as
-   * they are now rather than as the last frame keyed them (SIG-469). Items it cannot
-   * take -- two rows with one key -- leave the rows as they were, which is where the
-   * throw leaves them, and the items effect reports it with the next frame, as it
-   * did before anything read the items early. Rethrown here, it would be thrown out
-   * of every key the list is handed until the items were fixed.
+   * they are now rather than as the last frame keyed them (SIG-469).
+   *
+   * Items it cannot take -- two rows with one key -- throw before the list moves to
+   * them, so the rows are as they were and the items effect meets the same throw and
+   * reports it with the next frame, as it did before anything read the items early.
+   * That one is dropped here; rethrown, it would be thrown out of every key the list
+   * is handed until the items were fixed. A throw after the list moved to them -- a
+   * `row` that throws as the window is rebuilt -- is one the effect will never see,
+   * since the items it reads are the ones it then holds, so that one goes on to the
+   * caller rather than nowhere.
    */
   const catchUp = (): void => {
+    const was = items;
     try {
       untrack(sync);
-    } catch {
-      // reported by the items effect
+    } catch (error) {
+      if (items !== was) {
+        throw error;
+      }
     }
   };
 
