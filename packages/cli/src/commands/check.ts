@@ -78,7 +78,10 @@ const check: AnyCommand = command({
     // reported with the rest rather than found out at the end of a build
     const found = {
       ...inspected,
-      diagnostics: [...inspected.diagnostics, ...checkConfig(inspected.app.root)],
+      diagnostics: [
+        ...inspected.diagnostics,
+        ...checkConfig(inspected.app.root, inspected.app.manifest.name),
+      ],
     };
 
     if (argv.tree) {

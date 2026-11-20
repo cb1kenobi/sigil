@@ -2147,7 +2147,12 @@ makes it testable with a fixture directory and no bundler at all.
   every section, and the two things it leaves to `sigil package` -- whether
   `package.runtime` and `package.target` are a runtime and a platform -- are
   asked here with `parseSpec()` and `parseTarget()`, the functions `package`
-  asks. A section's rule goes in its reader, never in `check`; `sigil reference`
+  asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
+  `package` both call. What stays with the command is what depends on how it
+  was run: `assertCleanable()` over `build.out` (it needs `--out`, `--bin` and
+  `--no-clean`) and `package`'s refusal of `build.external`. The echoed values in
+  those three messages are escaped where they are thrown. A section's rule goes
+  in its reader, never in `check`; `sigil reference`
   and `sigil add` read the file themselves and were never affected. Pinned in
   `test/check.test.ts`.
 - **The CLI declares its own `check` the way `sigil build` generates an app's

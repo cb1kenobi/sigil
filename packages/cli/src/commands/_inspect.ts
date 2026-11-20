@@ -23,6 +23,7 @@
 
 import {
   appKeys,
+  bakedUpdateCheck,
   checkCatalogs,
   checkMainSettings,
   compileTemplates,
@@ -251,16 +252,29 @@ function checkTranslations(
  * and refuses `sigil.json` and `sigil.jsonc` side by side, so calling it is the
  * whole of the verdict for the file's shape. What it leaves to the command that
  * uses the value is whether `package.runtime` and `package.target` are a runtime
- * and a platform, which `sigil package` asks `parseSpec()` and `parseTarget()`;
- * those are asked here, by the same functions, so a file `package` would refuse
- * for them is one `check` refuses.
+ * and a platform, which `sigil package` asks `parseSpec()` and `parseTarget()`,
+ * and whether `updateCheck` can be baked, which `build` and `package` ask
+ * `bakedUpdateCheck()`; those are asked here, by the same functions, so a file
+ * either would refuse for them is one `check` refuses.
+ *
+ * What stays with the command is what depends on how it was run: whether the
+ * output directory is safe to empty (`--out`, `--bin` and `--no-clean` decide
+ * it) and `package`'s refusal of `build.external`.
  *
  * @param root - The app's root.
+ * @param packageName - The app's own name, which an npm update check defaults to.
  * @returns One error diagnostic, or none.
  */
-export function checkConfig(root: string): Diagnostic[] {
+export function checkConfig(root: string, packageName: string | undefined): Diagnostic[] {
   try {
-    const { package: packaging } = readSigilConfig(root);
+    const config = readSigilConfig(root);
+    const { package: packaging } = config;
+
+    // what `build` and `package` both make of `updateCheck` before they bundle:
+    // a `repo` that is not `owner/name`, and an npm check with no name to ask
+    // about, are refused there and nowhere else. Asked of the same function
+    // with the same arguments, which is what keeps it the same answer
+    bakedUpdateCheck({ compiled: false, config, packageName });
 
     // a falsy runtime is the one `package` asks about rather than parses
     if (packaging?.runtime) {

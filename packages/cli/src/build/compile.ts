@@ -170,7 +170,7 @@ export function parseTarget(text: string): Target {
 
   if (rest.length || !platform || !arch || !isPlatform(platform) || !isArch(arch)) {
     throw new Error(
-      `"${text}" is not a target. Targets are <platform>-<arch>: ${targets().join(', ')}.`
+      `"${escapeControls(text)}" is not a target. Targets are <platform>-<arch>: ${targets().join(', ')}.`
     );
   }
 

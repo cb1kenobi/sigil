@@ -95,15 +95,19 @@ checks translations and templates, looks at the `dev` runner, and reads
 stdout; diagnostics go to stderr.
 
 The config is read in full, whichever command will use each section, through
-the reader `build` uses: a bad value, a section that is not an object, a
+the reader `build` uses: a bad value, a section that is not an object, an
+`updateCheck` that cannot be baked (a `repo` that is not `owner/name`), a
 `package.runtime` or `package.target` that is not one, or both `sigil.json` and
-`sigil.jsonc` at once is an error from `check`, in the same words `build`
-gives it.
+`sigil.jsonc` at once is an error from `check`, in the words the command that
+reads it gives.
 
-What `check` does **not** do, so only `build` finds it:
+What `check` does **not** do, so only `build` or `package` finds it:
 
 - It does not bundle, so an import that cannot be resolved (a package that is
   not installed, say) is a `build` error and not a `check` one.
+- It does not know how the build will be run, so a `build.out` that would empty
+  the app's own source (`"out": "src"`) is refused by `build`, and `package`'s
+  refusal of a non-empty `build.external` is `package`'s.
 
 ### Rules the toolchain enforces
 
