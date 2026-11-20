@@ -734,26 +734,32 @@ describe('a handler that throws', () => {
     input.stop();
   });
 
-  it('should hand what a sequence threw at its deadline to onError rather than to the timer', async () => {
-    const { feed, terminal } = harness();
-    const errors: unknown[] = [];
-    const input = createInput({
-      onError: (error) => errors.push(error),
-      sequenceTimeout: 1,
-      terminal,
-    });
-    input.bind('g', () => {
-      throw new Error('deadline broke');
-    });
-    input.bind('g g', () => {});
+  it('should hand what a sequence threw at its deadline to onError rather than to the timer', () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, terminal } = harness();
+      const errors: unknown[] = [];
+      const input = createInput({
+        onError: (error) => errors.push(error),
+        sequenceTimeout: 50,
+        terminal,
+      });
+      input.bind('g', () => {
+        throw new Error('deadline broke');
+      });
+      input.bind('g g', () => {});
 
-    // `g` is a binding and a prefix, so it waits for a second one and then fires
-    // from the clock, where a throw has no stream to be caught by
-    feed('g');
-    await tick(20);
+      // `g` is a binding and a prefix, so it waits for a second one and then fires
+      // from the clock, where a throw has no stream to be caught by
+      feed('g');
+      expect(errors).toEqual([]);
+      vi.advanceTimersByTime(60);
 
-    expect(errors.map(String)).toEqual(['Error: deadline broke']);
-    input.stop();
+      expect(errors.map(String)).toEqual(['Error: deadline broke']);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should hand what a resize handler threw to onError, and still tell the next one', () => {

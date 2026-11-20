@@ -537,8 +537,12 @@ describe('runApp()', () => {
       resize.app.input?.onResize(() => {
         throw new Error('resize broke');
       });
+      const told: string[] = [];
+      resize.app.input?.onResize(() => void told.push('second'));
       resize.term.resize(20, 5);
       expect(await resize.app.exited).toBe(1);
+      // the router is stopped at the first failure, so the next handler is not told
+      expect(told).toEqual([]);
       expectGivenBack(resize.term);
     });
   });

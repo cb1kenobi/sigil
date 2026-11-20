@@ -469,7 +469,15 @@ the entry it belongs to.
 
   **Without `onError` a throw escapes as it always did**, which is a choice and not
   an omission: a bare router has nobody to report to, and a caller that wants a
-  different answer asks for one. `feed()` is not an entry of its own. It reaches
+  different answer asks for one. **What it does not cover, stated rather than left
+  to be found:** a handler that returns a promise which rejects -- the router never
+  looks at a handler's return value, so an `async` `onSelect` fails as an unhandled
+  rejection, and the handler's own `catch` is where that is dealt with; and
+  `onEnd()`, which is called from the stream's `end` and `error` listeners and from
+  `stop()` and raises what its handlers threw, by the rule recorded under "A router
+  stopped over a failed stream". A failure `runApp()` was holding when its component
+  body then threw is not reported either: the body's error is what the caller gets.
+  `feed()` is not an entry of its own. It reaches
   `route()` and is guarded there, so a throw from a handler a handler fed is
   reported at that event and is not rethrown through the `feed()` call. An
   `onError` that throws is not caught again, which is the router's rule for every

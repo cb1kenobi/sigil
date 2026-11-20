@@ -1235,8 +1235,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         if (next.handlers.size === 0) {
           return;
         }
-        clearSequence();
         try {
+          clearSequence();
           fire(next, keys);
         } catch (error) {
           failed(error);
@@ -2704,6 +2704,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const offResize = terminal.onResize((size) => {
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...resizers]) {
+      // asked again because a handler that failed may have stopped the router, and
+      // `runApp()` does: the rest of the app is not told of a size it will not see
+      if (stopped) {
+        return;
+      }
       if (!resizers.has(handler)) {
         continue;
       }
