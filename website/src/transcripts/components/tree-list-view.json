@@ -3,7 +3,7 @@
     "interface": "TreeListViewProps",
     "options": [
       {
-        "description": "The tree: a list, drawn from the left margin, or one root node whose children hang from it -- as `selectTree()` reads them. A `State` or a `Computed` of either is followed.",
+        "description": "The tree: a list, drawn from the left margin, or one root node whose children hang from it -- as `selectTree()` reads them. A `State` or a `Computed` of either is followed, as is any object with a `get()`. That `get()` is read inside a `Computed`, so it may not write a signal while it is read -- a source that marks itself loading on its first read does it before, or from an effect -- and is read again when a signal it read changes, not on every key.",
         "name": "items",
         "optional": false,
         "type": "TreeListItems<T> | { get(): TreeListItems<T>; }"

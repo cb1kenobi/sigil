@@ -489,6 +489,28 @@ describe('TreeListView()', () => {
       expect(picture(host).join('\n')).toContain('last');
     });
 
+    it('should let go of its source when it is disposed', () => {
+      // the reading of the source is a Computed, and a source holds every sink that
+      // read it until the sink lets go: a tree that did not would stay reachable from
+      // a long-lived State of items for as long as the State lived
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const sinks = (): number => (items as unknown as { sinks: Set<unknown> }).sinks.size;
+      for (let i = 0; i < 5; i++) {
+        let host: Element | undefined;
+        const dispose = createRoot((done) => {
+          host = tree({ items });
+          return done;
+        });
+        flush();
+        dispose();
+        // a key that reaches a tree after it is gone asks for no walk, which would
+        // read the source again and take it back
+        host?.onKey?.(keyEvent('down'));
+        flush();
+      }
+      expect(sinks()).toBe(0);
+    });
+
     it('should read a lazy branch once when its read asks the list for its rows', () => {
       // the read runs inside a walk, and asking the list's control for its rows asks
       // the tree for a walk: the second ask gets the rows as they were rather than a
@@ -1845,6 +1867,26 @@ describe('TreeListView()', () => {
     } finally {
       stderr.mockRestore();
     }
+  });
+
+  it('should refuse a source that writes a signal while it is read, and say what to do', () => {
+    // the source is read inside a Computed, which is what tells a change of the tree
+    // from a read of it, and a Computed may not write -- so a lazy source that sets
+    // its own `loading` on the first read is refused with the rule rather than with
+    // the signal graph's own words
+    const loading = new State(false);
+    expect(() =>
+      TreeListView({
+        items: {
+          get: () => {
+            loading.set(true);
+            return ['a'];
+          },
+        },
+      })
+    ).toThrow(
+      'A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect'
+    );
   });
 
   it('should refuse what it cannot use', () => {

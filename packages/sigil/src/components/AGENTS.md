@@ -12564,6 +12564,39 @@ reason.
   test here; reading the source outside the `Computed` fails five, among them
   `should not walk again for a source that builds a new tree each time it is read`.
 
+  A review of that change found four more things, each checked before anything was
+  done about it:
+
+  - **The `Computed` is disposed with the tree.** A source holds every sink that
+    read it until the sink lets go, so five trees made and disposed over one
+    long-lived `State` of items left it with five sinks, and each tree reachable
+    from it; at 2ac0dabe, with no `Computed`, it was none. `reading.dispose()` is in
+    the tree's cleanup, and since a dispose is a release that a later read undoes, a
+    walk asked for after it -- a key reaching a tree already gone -- is refused.
+    `should let go of its source when it is disposed` counts the sinks, and fails
+    with either half taken out. `DataTable`'s two `Computed`s, `specs` and `sorted`,
+    leak the same way -- five sinks on both `rows` and `columns` after five tables --
+    and are on `main` rather than from this change, so they are left for a ticket.
+  - **A source that writes a signal while it is read is refused, in words that say
+    so.** The graph's own refusal names a `Computed` the app never wrote, so the
+    reading catches that one and throws a `TypeError` naming `TreeListView` and
+    `items.get()`, with what to do instead: write before the read, or from an
+    effect. The `items` documentation says it too. A lazy source that marks itself
+    loading on its first read is the case; at 2ac0dabe it drew. Narrowing the
+    contract was preferred to a mechanism that keeps the guard without it.
+  - **A source that throws before it reads any signal leaves the tree on the rows
+    it had for good**, since the reading caches the throw with nothing to wake it.
+    `main` does the same: its effect read the source first, and an effect whose run
+    threw before reading anything has nothing to wake it either -- measured, both
+    keep the rows they had through the fix and a key after it. 2ac0dabe recovered on
+    the next key, because the list's ask read the source directly. Recorded rather
+    than fixed: it is a source that cannot tell anything it was asked again.
+  - **A `get()` that reads no signal is not read again on a key or a `refresh()`**,
+    which is what `main` did, since nothing tells the reading it may have moved.
+    `ListView`'s `sync()` is the other way round: it calls `get()` on every ask and
+    compares the array it hands back, so a `ListView` over such a source sees a new
+    array on the next key, and a tree over one sees it on the next signal it reads.
+
 - **Pinned in four places.** `a key in the same step as a change of the items` in
   `list-view.test.ts`, with nothing flushed between the change and the key; one
   filtered `DataTable` test; nine in `tree-list-view.test.ts`; and the editor's

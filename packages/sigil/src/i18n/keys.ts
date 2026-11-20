@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 445 keys, which is what a catalog has to carry to translate sigil's own
+ * 446 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -34,6 +34,7 @@ export const SIGIL_KEYS: readonly string[] = [
   '(skip)',
   '({0} to submit)',
   '<command>',
+  'A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect',
   'A list takes type-to-find or vim keys, and not both',
   'A new version of {0} is available: {1} → {2}',
   'Added a block to {0}',

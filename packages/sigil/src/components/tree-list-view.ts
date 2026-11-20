@@ -112,7 +112,10 @@ export interface TreeListViewProps<T = string> {
   /**
    * The tree: a list, drawn from the left margin, or one root node whose children
    * hang from it -- as `selectTree()` reads them. A `State` or a `Computed` of
-   * either is followed.
+   * either is followed, as is any object with a `get()`. That `get()` is read inside
+   * a `Computed`, so it may not write a signal while it is read -- a source that
+   * marks itself loading on its first read does it before, or from an effect -- and
+   * is read again when a signal it read changes, not on every key.
    *
    * A node is a string, or `{ text, value, items, expanded }`. `value` identifies
    * it -- the cursor, the selection and the open set hold values -- and defaults to
@@ -788,7 +791,26 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * `get()` -- hands over the same reading until what it filters changes, so the
    * list asking for the rows on every key costs nothing (SIG-469).
    */
-  const reading = new Computed(() => ({ top: read() }));
+  const reading = new Computed(() => {
+    try {
+      return { top: read() };
+    } catch (err) {
+      // the graph's own refusal, which names a Computed the app never wrote: said
+      // again as the rule a source has to keep, with what to do instead
+      if (err instanceof Error && err.message === 'A Computed may not write to a signal') {
+        throw new TypeError(
+          __`A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect`,
+          { cause: err }
+        );
+      }
+      throw err;
+    }
+  });
+  // a source holds every sink that read it until the sink lets go, so a tree that
+  // did not would stay reachable from a long-lived State of items for as long as the
+  // State lived. A release rather than a destruction: reading it again links it
+  // again, which is why a walk asked for after this is refused
+  onCleanup(() => reading.dispose());
 
   /**
    * What the last walk read: the reading, the open set and the count of reads
@@ -835,7 +857,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * the other finds nothing left to do.
    */
   const walkNow = (): void => {
-    if (walking) {
+    if (walking || disposed) {
       return;
     }
     const now = reading.get();
