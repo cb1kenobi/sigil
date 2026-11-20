@@ -714,9 +714,11 @@ These look like bugs and are not. Each is intentional and covered by tests.
   reason for a joiner is no reason for an override in the page npm renders; and
   an entry naming a character the file no longer holds fails, so the list
   cannot outlive its reason. U+2028 and U+2029 are refused with them though
-  they are not `Cf`: either ends a `//` comment, and that is the one place
+  they are not `Cf`: either ends a `//` comment, which is one of the places
   `oxlint`'s `no-irregular-whitespace` was measured not to look. The no-break
-  space is left out on purpose, as the docblock on `FORMAT` says.
+  space is left out on purpose, as the docblock on `FORMAT` says. A file git
+  calls binary is skipped only when it is on `ALLOWED`, so a NUL is no way past
+  the check, and tracked file names are held to the same class plus `\p{Cc}`.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken

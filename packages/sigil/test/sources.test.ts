@@ -121,11 +121,12 @@ function codePoint(code: number): string {
  * The line and paragraph separators, U+2028 and U+2029 (`\p{Zl}` and `\p{Zp}`),
  * go with them although they are not `Cf`. Each is a line terminator to
  * JavaScript and nothing an editor draws, so one ends a `//` comment and the
- * code after it runs while it reads as the comment -- and that is the one place
+ * code after it runs while it reads as the comment -- and that is a place
  * `oxlint`'s `no-irregular-whitespace` does not look, measured: it flags one in
- * code and in a block comment and is silent on one ending a line comment. The
- * three in the tree were escapes a tool write had turned into the characters,
- * in a YAML test and in a history file, and are escapes again.
+ * code and in a block comment, and is silent on one ending a line comment as it
+ * is in a string. The four in the tree, on three lines of a YAML test and a
+ * history file, were escapes a tool write had turned into the characters, and
+ * are escapes again.
  *
  * What is left out is left out on purpose. A no-break space is `\p{Zs}`, about
  * ten files hold one, and lint refuses it in JavaScript; a variation selector or
@@ -133,6 +134,17 @@ function codePoint(code: number): string {
  * be a decision about its own sweep, not a widening of this one.
  */
 const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * The tracked names that hold a character a reader cannot see: `FORMAT`, and a
+ * control character as well. A path is in a diff as much as a line is, and a
+ * right-to-left override in a file name is the oldest form of this -- a name
+ * ending in `exe` drawn as one that does not.
+ */
+function hiddenInNames(names: readonly string[]): string[] {
+  const hidden = new RegExp(`${FORMAT.source}|\\p{Cc}`, 'u');
+  return names.filter((name) => hidden.test(name)).map((name) => JSON.stringify(name));
+}
 
 /** A file allowed to hold format characters: which ones, and why it has to. */
 interface Allowance {
@@ -304,10 +316,7 @@ describe('committed sources', () => {
   });
 
   it('should name no tracked file with a character a reader cannot see', () => {
-    // a path is in a diff as much as a line is, and a right-to-left override in
-    // a name is the oldest form of this: a name ending in `exe` drawn as one that does not
-    const names = tracked().filter((name) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name));
-    expect(names.map((name) => JSON.stringify(name))).toEqual([]);
+    expect(hiddenInNames(tracked())).toEqual([]);
   });
 
   describe('a planted format character', () => {
@@ -366,6 +375,11 @@ describe('committed sources', () => {
       const binary = Buffer.from(`\0${rlo}`, 'utf8');
       expect(plant(binary, 'website/src/app/favicon.ico')).toEqual([]);
       expect(plant(binary)).toEqual(['planted.ts:1: U+202E']);
+    });
+
+    it('should refuse one in a file name, and a control character there too', () => {
+      const names = ['src/ok.ts', `src/gnp${rlo}.exe`, 'src/a\tb.ts', `src/c${zwj}d.ts`];
+      expect(hiddenInNames(names)).toEqual(names.slice(1).map((name) => JSON.stringify(name)));
     });
   });
 
