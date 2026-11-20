@@ -13156,14 +13156,29 @@ value it had ever shown.
   whatever under it the tree no longer has. SIG-479's marking of those reads as out
   of date stands: they are read again when they open.
 
-  **The limit, left as one (review round 2):** `last` lives as long as the failure
-  does, not until a retry lands. A search while a retry is in flight, or after the
-  failed branch was closed and before it opens again, reaches nothing under it and
-  drops it, so when the retry lands a branch there that the reader closed and that
-  says `expanded: true` opens, and every read under it is made again. Carrying
-  `last` on the retry's read and on a closed failed branch would close it, at the
-  cost of a third place an answer that is not shown lives; it needs a failure, a
-  search and a retry in one window, so it is written down rather than built.
+  **Kept past the failure, until the retry lands (SIG-521).** `last` used to live as
+  long as the failure did: a retry, or closing the failed branch, forgot the failure
+  and its `last` with it, so a search in that window reached nothing under the
+  branch, dropped it, and a branch there that the reader closed and that says
+  `expanded: true` opened when the retry landed, with every read under it made
+  again. `unfail()` is now the one place a failed read is forgotten -- `forget()`,
+  a closed branch the walk meets, and opening one -- and it moves `last` into
+  `kept`, a map by value of an answer that is the tree's and is shown nowhere. The
+  walk reaches under it as it does under `last`, for an open branch whose retry is
+  out and for a closed one, nested or not; a read that lands drops it, a failure
+  that follows takes it back as its own `last`, and a value leaving the tree takes
+  it with the rest. It is the "third place an answer that is not shown lives" the
+  limit was written down to avoid, and it cost one map and one line in each of those
+  four places, which was less than the ticket's other shape -- a third `Load` state
+  every reader of `loads` would have to know. It also closed a smaller gap beside it:
+  `put()` compares a landing answer with the one `kept` holds, so a retry that lands
+  something different from what the failure replaced sets the search going at once
+  and `deep` under the old answer is gone with it, where before it waited for the
+  next search. `treeListHeld().kept` counts it. Pinned by five `(SIG-521)` tests in
+  `tree-list-view.test.ts`; sabotage, each caught: the open branch not reaching
+  under `kept`, `unfail()` not setting it, a closed branch not reaching under it,
+  `childrenOf()` not reading it, `dropGone()` not looking through it, and `put()`
+  not comparing against it.
 
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
