@@ -62,10 +62,56 @@ const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
  *
  * `EPIPE` is the reader closing the pipe -- `mycli --help | head -1` the instant
  * `head` has its line. `ERR_STREAM_DESTROYED` is the same thing arriving through
- * a stream that has already torn down. Neither is the app's fault and neither is
- * worth a stack trace.
+ * a stream that has already torn down. `EOF` is Windows saying `EPIPE` another
+ * way: libuv maps `ERROR_BROKEN_PIPE`, which is what a write to a pipe whose
+ * reader has closed can come back as there, to `EOF`. None of them is the app's
+ * fault and none is worth a stack trace.
  */
-const GONE = new Set(['EPIPE', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END']);
+const GONE = new Set(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END']);
+
+/**
+ * Whether an error from writing to a stream is the reader having gone away.
+ *
+ * The one answer to that question, so that a program which writes to
+ * `process.stdout` itself and one that writes through a terminal agree on which
+ * errors are the far end leaving and which are a real fault.
+ *
+ * @param err - Whatever a write threw or a stream emitted.
+ * @returns `true` for `EPIPE` and its relatives.
+ */
+export function isStreamGone(err: unknown): boolean {
+  return GONE.has((err as NodeJS.ErrnoException | undefined)?.code as string);
+}
+
+/**
+ * Swallows the far end of a stream going away.
+ *
+ * `EPIPE` usually arrives as an `error` event rather than a throw, and an
+ * `error` event with no listener is an uncaught exception -- which is how
+ * `mycli --help | head -1` kills a CLI that did nothing wrong. This is the
+ * listener, and it is the one `createTerminal()` attaches to the streams it
+ * writes to. It is exported for a program that writes to `process.stdout`
+ * directly and has no terminal to do it through: the toolchain's own commands.
+ *
+ * Only a stream that is gone is swallowed. Any other `error` is a real fault
+ * and, with this the only listener, is not delivered to anyone -- so a stream
+ * that can fail some other way should have a listener of its own beside this
+ * one, which is what an `error` event with two listeners is for.
+ *
+ * @param stream - The stream being written to.
+ * @param onGone - Called each time the stream reports that its reader has gone.
+ * @returns A function that takes the listener off again.
+ */
+export function guardGone(stream: OutputStream, onGone?: () => void): () => void {
+  const onStreamError = (...args: unknown[]) => {
+    if (isStreamGone(args[0])) {
+      onGone?.();
+    }
+  };
+
+  stream.on?.('error', onStreamError);
+  return () => void stream.removeListener?.('error', onStreamError);
+}
 
 /** Only what a terminal actually asks of an output stream. */
 export interface OutputStream {
@@ -350,7 +396,7 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     } catch (err) {
       // a synchronous throw is the pipe being gone already. Anything else is a
       // real fault and is not this module's to swallow
-      if (GONE.has((err as NodeJS.ErrnoException)?.code as string)) {
+      if (isStreamGone(err)) {
         closed = true;
         return false;
       }
@@ -358,37 +404,27 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     }
   }
 
-  /**
-   * Swallows the far end going away.
-   *
-   * `EPIPE` usually arrives as an `error` event rather than a throw, and an
-   * `error` event with no listener is an uncaught exception -- which is how
-   * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached to the
-   * stream being written and on the first write to it, since a stream nothing
-   * writes to cannot produce one, and removed by `restore()` along with the
-   * process handlers.
-   */
-  const guards = new Map<OutputStream, (...args: unknown[]) => void>();
+  // attached to the stream being written and on the first write to it, since a
+  // stream nothing writes to cannot produce one, and removed by `restore()`
+  // along with the process handlers
+  const guards = new Map<OutputStream, () => void>();
 
   function guard(stream: OutputStream): void {
     if (guards.has(stream)) {
       return;
     }
 
-    const onStreamError = (...args: unknown[]) => {
-      const err = args[0] as NodeJS.ErrnoException | undefined;
-      if (GONE.has(err?.code as string)) {
+    guards.set(
+      stream,
+      guardGone(stream, () => {
         closed = true;
-      }
-    };
-
-    guards.set(stream, onStreamError);
-    stream.on?.('error', onStreamError);
+      })
+    );
   }
 
   function detachGuards(): void {
-    for (const [stream, onStreamError] of guards) {
-      stream.removeListener?.('error', onStreamError);
+    for (const detach of guards.values()) {
+      detach();
     }
     guards.clear();
   }

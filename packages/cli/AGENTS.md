@@ -3863,6 +3863,47 @@ none of these three is that. The measurement scripts are worth re-running before
 anybody revisits it, because two of the three numbers are facts about other
 people's software and will move.
 
+- **A reader that goes away ends a command's output quietly, and the listener is
+  on the schema rather than in each command** (SIG-537). `sigil add | head -1`
+  exited 1 every time with Node's unhandled-error dump: `head` quits at its
+  line, the next write fails `EPIPE`, and an `error` event on a stream with no
+  listener is an uncaught exception. `check`, `reference` and `--help` only
+  looked safe because their output finishes before `head` closes the pipe; any
+  command whose output grows had it. The commands write to `process.stdout` and
+  `process.stderr` directly, at about three dozen references, so the guard is one
+  `beforeParse` hook on `schema()` in `src/index.ts` that puts `guardGone()` on
+  both streams -- the first thing `main()` fires, so before the help screen,
+  an error or any command writes a byte, and a hook rather than a call in
+  `run()` because the built executable never reaches `run()` (the same reason
+  `settings` lives on the schema). A command added next year is covered without
+  anybody remembering to. The listener is `@ttylabs/sigil/terminal`'s
+  `guardGone()`, the one `createTerminal()` attaches, and nothing here spells
+  `EPIPE` -- which is also what puts `EOF`, Windows's name for the same
+  condition, on the list once for both.
+
+  **The behaviour is the runtime's: stop noticing, do not stop the command.**
+  Later writes land nowhere, nothing is printed, and the exit code is whatever
+  the command's own result was -- `0` for a listing, `1` for a failed `check`,
+  never `141`. A command that quits early would have to decide what "early"
+  means for a build that is half way through writing files, and the runtime
+  made the same call for the same reason. The listener is attached once per
+  stream per process and never taken off, unlike a terminal's: a terminal
+  outlives a command and a bin does not, and the `EPIPE` for the last write
+  arrives after `main()` has resolved. It also covers `--version`, which `run()`
+  answers before the schema exists.
+
+  `test/closed-pipe.test.ts` spawns both `src/sigil.ts` and the built
+  `dist/sigil.mjs` and **closes the read end itself** the moment the child
+  exists, rather than racing a `head`: node has not started yet, so every write
+  meets a reader that is gone. With the hook commented out, 6 of its 8 cases fail
+  on both entries (`add` and `check --tree` into a closed stdout, `check` into a
+  closed stderr); the other two assert that a failing command keeps its own exit
+  code, which an uncaught `EPIPE` also gives, so they pin the rule rather than
+  the guard. Not covered, and said so: the close here is before the first write,
+  so it proves every write is safe but not that a write racing the close is.
+  Windows is unmeasured -- an `EPIPE` there can arrive as `EOF`, which is in the
+  set for that reason, and the three Windows jobs are the check.
+
 ### `sigil new`
 
 - **The scaffold's `tsconfig.json` is not boilerplate.** `lib: ["esnext"]` and

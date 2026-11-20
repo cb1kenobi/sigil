@@ -2827,6 +2827,25 @@ head -1` closes the pipe the instant `head` has its line, and an `EPIPE` with
 no listener is an uncaught exception. After that `terminal.closed` is `true`
 and writes are no-ops.
 
+A program that writes to `process.stdout` itself, with no terminal to go
+through, needs the same listener, and `guardGone()` is it:
+
+```js
+import { guardGone, isStreamGone } from '@ttylabs/sigil/terminal';
+
+const detach = guardGone(process.stdout, () => {
+  // optional: the reader has gone, so stop doing work nobody will see
+});
+// `mycli list | head -1` is now a command that finished, not a stack trace
+
+isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
+```
+
+Only a stream whose reader has gone is swallowed, and the exit code is left
+alone, as it is for `terminal.write()`. It attaches one listener per call, so
+guard a stream once. `isStreamGone()` is the one definition of which errors
+mean that, for a `write()` that throws instead of emitting.
+
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
 `MAX_WIDTH`: that cap is a readability limit on generated prose, while this is
 the real screen, and cursor math needs the real number.

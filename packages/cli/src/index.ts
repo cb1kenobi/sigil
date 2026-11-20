@@ -1,4 +1,5 @@
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
+import { guardGone } from '@ttylabs/sigil/terminal';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -17,6 +18,34 @@ import { readFileSync } from 'node:fs';
 export function version(): string {
   const manifest = new URL('../package.json', import.meta.url);
   return JSON.parse(readFileSync(manifest, 'utf-8')).version as string;
+}
+
+/** The streams already guarded, so that a second parse in one process adds no listener. */
+const guarded = new WeakSet<NodeJS.WriteStream>();
+
+/**
+ * Lets a reader that has gone away end a command's output without a stack.
+ *
+ * `sigil add | head -1` closes the pipe once `head` has its line, the next write
+ * fails `EPIPE`, and an `error` event on a stream with no listener is an
+ * uncaught exception -- so it died with Node's dump (SIG-537). Every command
+ * writes to `process.stdout` and `process.stderr` directly, so the listener goes
+ * on the two streams once, here, rather than in each command: a command written
+ * next year is covered without anybody remembering to. It is the same
+ * `guardGone()` the runtime's terminal attaches, so what counts as the reader
+ * leaving is one definition; and like the terminal it stops *noticing* rather
+ * than stopping the command -- later writes land nowhere and the exit code is
+ * whatever the command's own result was. It is never taken off again: the
+ * process is the lifetime of the guard, and the `EPIPE` for the last write is
+ * the one that arrives after `main()` has resolved.
+ */
+function guardOutput(): void {
+  for (const stream of [process.stdout, process.stderr]) {
+    if (!guarded.has(stream)) {
+      guarded.add(stream);
+      guardGone(stream);
+    }
+  }
 }
 
 /**
@@ -56,6 +85,12 @@ export function schema(): Schema {
     // No command here reads an option it did not declare, which was checked rather
     // than assumed: see "The toolchain refuses unknown options" in AGENTS.md
     settings: { allowUnknownOptions: false },
+
+    // a hook on the schema rather than a call in `run()`, for the reason
+    // `settings` is: the built executable never reaches `run()`. `beforeParse`
+    // is the first thing `main()` fires, so it is on before the help screen, an
+    // error or any command writes a byte
+    hooks: { beforeParse: guardOutput },
   };
 }
 
@@ -103,6 +138,7 @@ function isVersionOnly(argv: readonly string[]): boolean {
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
   if (isVersionOnly(argv ?? process.argv.slice(2))) {
+    guardOutput();
     process.stdout.write(`${version()}\n`);
     return undefined;
   }
