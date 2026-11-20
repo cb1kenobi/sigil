@@ -62,6 +62,7 @@ import { writeDiagnostics, writeSummary } from '../report.ts';
 import { word } from '../shell.ts';
 import { appRuns } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { commandSurface } from '@ttylabs/sigil/reference';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
@@ -263,10 +264,12 @@ const reference: AnyCommand = command({
         }
       );
 
+      // the manifest's name, or the root, as `failure()` names them: `main()`
+      // prints this as it stands (SIG-457)
       throw new Error(
         `The command reference is ${changes.length} file${
           changes.length === 1 ? '' : 's'
-        } out of date in ${app.manifest.name ?? app.root}`
+        } out of date in ${escapeControls(app.manifest.name ?? app.root)}`
       );
     }
 

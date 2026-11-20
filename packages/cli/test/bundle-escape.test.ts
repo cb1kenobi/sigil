@@ -2,6 +2,7 @@ import { bundleError } from '../src/build/bundle.ts';
 import { DiagnosticError, displayPath } from '../src/build/diagnostic.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
+import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -189,6 +190,204 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
 
     expect(code, stderr).toBe(1);
     expect(stderr).toContain(escapeControls(TITLE));
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+});
+
+/**
+ * Text as a regular expression that matches it literally.
+ *
+ * @param text - The text.
+ * @returns The pattern's source.
+ */
+function escapeRe(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The buildable fixture under a root holding a retitle, named one in its
+ * manifest, with its hidden command at a file called one.
+ *
+ * @param name - What the manifest calls the app.
+ * @returns The app's root.
+ */
+function appNamed(name: string): string {
+  const app = linkedFixture(buildable, `sigil-${TITLE}-`);
+  writeFileSync(
+    join(app, 'package.json'),
+    JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
+  );
+  rmSync(join(app, 'src', 'commands', 'quiet.js'));
+  // a package the bundle inlines, which the inlined table names, and a
+  // description `--tree` prints, with a line break of its own to keep
+  const pkg = join(app, 'node_modules', `p${TITLE}`);
+  mkdirSync(pkg);
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ main: 'index.js', name: `p${TITLE}` }));
+  writeFileSync(join(pkg, 'index.js'), "exports.x = 'inlined';\n");
+  writeFileSync(
+    join(app, 'src', 'commands', `a${TITLE}.js`),
+    `import { x } from ${JSON.stringify(`p${TITLE}`)};\n` +
+      `export default { desc: ${JSON.stringify(`d${TITLE}\nmore`)}, hidden: true, run: () => process.stdout.write(\`\${x}\\n\`) };\n`
+  );
+  return app;
+}
+
+// SIG-457: SIG-443 and SIG-447 escaped what a failing build prints, and a build
+// that succeeds still printed the app's name, its entry and its output path as
+// they stood -- each the plain form a pipe gets
+describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
+  it('should not print a control character from the names the app chose', async () => {
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+
+    const { code, stderr, stdout } = await build(app, '0');
+
+    expect(code, stderr).toBe(0);
+    expect(controls(stderr), stderr).toEqual([]);
+    expect(controls(stdout), stdout).toEqual([]);
+    // the summary, which leads with the app's name and ends in the file named
+    // after it, both shown rather than acted on
+    expect(stderr).toContain(`\n${escapeControls(name)} (src/index.ts): `);
+    expect(stderr).toContain(` into dist/${escapeControls(name)}.mjs\n`);
+    // and the size table names the same file the same way, rather than with the
+    // control characters dropped and the rest left
+    const entry = stdout
+      .split('\n')
+      .find((line) => line.startsWith(`${escapeControls(name)}.mjs `));
+    expect(entry, stdout).toMatch(/ kB +entry$/);
+    // and the inlined table names the package the app imports the same way
+    expect(stdout).toMatch(new RegExp(`^p${escapeRe(escapeControls(TITLE))} +[\\d.]+ kB$`, 'm'));
+  }, 60_000);
+
+  it('should not let a newline in the app name forge a line', async () => {
+    const { code, stderr, stdout } = await build(appNamed('a\nFORGED'), '0');
+
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain('a\\x0AFORGED (src/index.ts): ');
+    for (const out of [stderr, stdout]) {
+      expect(
+        out.split('\n').filter((line) => line.startsWith('FORGED')),
+        out
+      ).toEqual([]);
+    }
+  }, 60_000);
+
+  it('should not print one from the tree check prints, nor from its summary', async () => {
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+
+    const { code, stderr, stdout } = await run(cli, app, ['check', app, '--tree'], {
+      FORCE_COLOR: '0',
+    });
+
+    expect(code, stderr).toBe(0);
+    expect(controls(stderr), stderr).toEqual([]);
+    expect(controls(stdout), stdout).toEqual([]);
+    expect(stdout).toContain(`a${escapeControls(TITLE)} (hidden)`);
+    expect(stdout).toContain(escapeControls(displayPath(join('src', 'commands', `a${TITLE}.js`))));
+    // the description keeps its line break for the table to lay out, and is
+    // escaped otherwise
+    expect(stdout).toContain(`d${escapeControls(TITLE)} more`);
+    expect(stderr).toContain(`\n${escapeControls(name)} (src/index.ts): `);
+  }, 60_000);
+
+  it('should not print one from the command --bin refuses to bundle', async () => {
+    // a walked command's name is its file's, and the refusal is an error
+    // `main()` prints as it stands
+    const app = appNamed('buildable');
+
+    const { code, stderr } = await build(app, '0', '--bin', 'src/index.ts');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`"a${escapeControls(TITLE)}" was found by walking`);
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from a reference, written or out of date', async () => {
+    // the summary a written reference ends in, and the error a stale one throws,
+    // which `main()` prints as it stands -- both name the app
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+    const reference = (...argv: string[]) =>
+      run(cli, app, ['reference', app, '--json', '--out', 'surface.json', ...argv], {
+        FORCE_COLOR: '0',
+      });
+
+    const stale = await reference('--check');
+    expect(stale.code, stale.stderr).toBe(1);
+    expect(stale.stderr).toContain(`out of date in ${escapeControls(name)}`);
+    expect(controls(stale.stderr), stale.stderr).toEqual([]);
+
+    const written = await reference();
+    expect(written.code, written.stderr).toBe(0);
+    expect(written.stderr).toContain(`\n${escapeControls(name)} (src/index.ts): 1 file into`);
+    expect(controls(written.stderr), written.stderr).toEqual([]);
+  }, 60_000);
+});
+
+// SIG-456's other half: an error `main()` prints as it stands, quoting the app's
+// root or a value from its config, found by review of SIG-456 and SIG-457
+describe.skipIf(process.platform === 'win32')('an app the toolchain refuses', () => {
+  it('should not print one from the root of an app it cannot read', async () => {
+    const root = tempDir(`sigil-${TITLE}-`);
+    const cases: [string, string[]][] = [
+      // no manifest at all
+      ['No package.json in', []],
+      // a manifest that does not depend on the runtime
+      ['does not depend on', ['package.json', '{"name":"x"}']],
+      // a manifest that does, and no entry
+      [
+        'No entry module found in',
+        ['package.json', '{"name":"x","dependencies":{"@ttylabs/sigil":"*"}}'],
+      ],
+    ];
+
+    for (const [said, file] of cases) {
+      if (file.length) {
+        writeFileSync(join(root, file[0]!), file[1]!);
+      }
+      const { code, stderr } = await run(cli, root, ['build', root], { FORCE_COLOR: '0' });
+
+      expect(code, stderr).toBe(1);
+      expect(stderr).toContain(said);
+      expect(stderr).toContain(escapeControls(TITLE));
+      expect(controls(stderr), stderr).toEqual([]);
+    }
+
+    const { code, stderr } = await run(cli, root, ['build', root, '--entry', `e${TITLE}.ts`], {
+      FORCE_COLOR: '0',
+    });
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`Entry module not found: `);
+    expect(stderr).toContain(`e${escapeControls(TITLE)}.ts`);
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from a root that holds both config files', async () => {
+    const app = appNamed('buildable');
+    writeFileSync(join(app, 'sigil.json'), '{}');
+    writeFileSync(join(app, 'sigil.jsonc'), '{}');
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('has both sigil.json and sigil.jsonc');
+    expect(stderr).toContain(escapeControls(TITLE));
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from an external package names', async () => {
+    const app = appNamed('buildable');
+
+    const { code, stderr } = await run(
+      cli,
+      app,
+      ['package', app, '--runtime', 'node', '--external', `ev${TITLE}il`],
+      { FORCE_COLOR: '0' }
+    );
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`external packages: "ev${escapeControls(TITLE)}il"`);
     expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
 });

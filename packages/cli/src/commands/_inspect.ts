@@ -336,12 +336,18 @@ function walkCommandDir(dir: string, diagnostics: Diagnostic[]): readonly Resolv
  * @param root - What to write paths relative to.
  */
 export function printTree(commands: readonly ResolvedCommand[], root: string): void {
+  // every cell is the app's -- a name, a file, a description -- and is escaped
+  // the way the summary escapes the app's name, rather than left for the table
+  // to drop the control character from (SIG-457)
   const rows = [...walkTree(commands)].map(({ command: cmd, path }) => [
-    `${'  '.repeat(path.length - 1)}${cmd.name}${cmd.hidden ? ' (hidden)' : ''}`,
+    `${'  '.repeat(path.length - 1)}${escapeControls(cmd.name)}${cmd.hidden ? ' (hidden)' : ''}`,
     // a namespace has no module and nothing to run, which is a thing to say
     // rather than a blank: it is the answer to half the questions this is for
-    cmd.module ? displayPath(relative(root, cmd.module)) : `(${cmd.kind}, nothing to run)`,
-    cmd.desc ?? '',
+    cmd.module
+      ? escapeControls(displayPath(relative(root, cmd.module)))
+      : `(${cmd.kind}, nothing to run)`,
+    // a description's own line break is the table's to lay out, as it was
+    escapeMessage(cmd.desc ?? ''),
   ]);
 
   if (rows.length) {
@@ -530,6 +536,11 @@ export function failure(found: Inspection, counts: { errors: number; warnings: n
 
 /**
  * The app and the entry it was read from, as runs a summary leads with.
+ *
+ * Both are the app's -- the manifest's name, the root, the entry's file -- and
+ * are left as they stand: `writeSummary()` escapes every run it is handed, which
+ * is the one place that covers this and every other run a summary carries
+ * (SIG-457).
  *
  * Runs rather than the string this used to be, so that the name is bold and the
  * entry is dim without either carrying a sequence of its own. The entry is in it
