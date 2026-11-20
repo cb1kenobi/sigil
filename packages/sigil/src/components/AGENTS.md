@@ -9911,7 +9911,36 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
   only the window's rows is the lever, and is not taken here.
 
-What is not done: a click to move the cursor to a hunk; scrolling sideways with
+- **A click on a row of a stop makes it current, where it is (SIG-472).** The
+  lists' rule: each row a stop drew -- the `@@` row, a line, a row a long line
+  folded onto, a side by side row either half -- has an `onMouse` that takes the
+  left `click` and not the press, so the press keeps its default action and
+  focuses the view, and a press dragged to another row picks nothing (the click
+  lands on the box holding both). No coordinates are read, so a scrolled view
+  needs nothing of its own: the hit test already found the row. The stop is the
+  one the drawing put the row in, captured when the row is built rather than
+  looked up through a row index, which a later drawing at another width would
+  have renumbered. A row no stop owns -- a section's heading, a file's `---` and
+  `+++`, prose that is not a stop -- has no handler and its click goes on to the
+  pane around; the lead a reveal shows with a stop is not part of it, since
+  clicking `+++ b/a.txt` says nothing about which of that file's hunks was meant.
+  The click is claimed when it lands on the current stop as well, as a list row's
+  is. **It does not scroll**, which is where it parts from `]` and `[`: the
+  reader pointed at the stop on screen, and a reveal of a hunk taller than the
+  view goes to its first row, which would move the line just clicked out from
+  under the pointer. So the click leaves `pointed` for the effect over the cursor,
+  which lights the stop and skips the reveal for that one write; an app writing
+  `current` still brings the stop into view. A drawing in the same flush -- an app
+  whose content is computed from the cursor -- asks the same flag, since it runs
+  before the cursor's effect and reveals too (review round 1). A drawing after
+  that, for a `w`, a new width or refreshed content, reveals the current stop as
+  it always has, clicked or not: that is the drawing's rule, and a reader who
+  scrolled with the arrows meets it the same way. A double click is two clicks, since
+  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
+  row handler and read the line under it, which this leaves room for: the
+  handler is per row already.
+
+What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
 designed by guessing; staging part of a hunk; and folding a hunk away.

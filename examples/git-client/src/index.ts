@@ -26,9 +26,15 @@ export default {
     },
   ] as const,
 
-  async run({ argv }: { argv: { dir?: string } }): Promise<void> {
+  options: {
+    '--mouse':
+      'Click rows and hunks and scroll with the wheel, at the cost of the terminal selecting text',
+  },
+
+  async run({ argv }: { argv: { dir?: string; mouse: boolean } }): Promise<void> {
     const git = createGit({ cwd: argv.dir === undefined ? undefined : resolve(argv.dir) });
     process.exitCode = await runApp(() => provideContext(GitContext, git, App), {
+      mouse: argv.mouse,
       sheets: [stylesheet],
     }).exited;
   },

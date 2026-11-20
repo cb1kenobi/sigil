@@ -10,12 +10,18 @@ pnpm build
 pnpm --filter @ttylabs/example-git-client start            # the JSX twin, built
 pnpm --filter @ttylabs/example-git-client start:ui         # the ui-tag twin, unbuilt
 node examples/git-client/dist/git-client.mjs ~/some/repo   # another repository
+node examples/git-client/dist/git-client.mjs --mouse       # clicks and the wheel
 ```
 
 It runs against the repository it is started in, or the directory it is given,
 and drives `git` through `child_process` -- so `pnpm start` from this directory
 is the sigil repository itself. `q` exits 0 and Ctrl-C exits 130. Without a
 terminal on both ends `runApp()` refuses: one line on stderr, exit 1.
+
+The mouse is off unless you pass `--mouse`. While a terminal reports the mouse
+it does not select text, and copying a line out of a diff matters more than a
+click. With it, a click focuses a pane, picks a row of a list, and makes a hunk
+of the diff current, so Space then stages that hunk; the wheel scrolls.
 
 | Key              | Where    | Does                                                        |
 | ---------------- | -------- | ----------------------------------------------------------- |
