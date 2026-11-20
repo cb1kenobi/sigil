@@ -89,13 +89,13 @@ const PIECES = [
   '🧑\u200D💻',
   '🇯🇵',
   '🇦', // a lone regional indicator, which pairs with whatever follows
-  '1️⃣', // a keycap
-  '©️',
+  '1\uFE0F⃣', // a keycap
+  '©\uFE0F',
   '́', // a combining acute, joining whatever is before it
   '̈',
   '\u200B', // zero width space
   '\u200D', // a joiner on its own
-  '️',
+  '\uFE0F',
   'का', // a spacing mark
   'é',
   '\ud83d', // a lone surrogate

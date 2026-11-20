@@ -175,7 +175,7 @@ describe('note()', () => {
 
     it('should leave no no-break space in what it prints', () => {
       expect(note('x', { colorLevel: 0, env: {}, platform: 'linux', title: 'Hi' })).to.not.contain(
-        ' '
+        '\u00A0'
       );
     });
   });

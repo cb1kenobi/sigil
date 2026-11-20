@@ -182,7 +182,7 @@ const ENTITIES: Record<string, string> = {
   hellip: '…',
   lt: '<',
   mdash: '—',
-  nbsp: ' ',
+  nbsp: '\u00A0',
   ndash: '–',
   quot: '"',
   reg: '®',

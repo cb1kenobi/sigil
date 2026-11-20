@@ -31,7 +31,7 @@ import { describe, expect, it, vi } from 'vitest';
 const FAMILY = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
 const FLAG = '\u{1F1EC}\u{1F1E7}';
 const ACUTE = '́';
-const KEYCAP = '1️⃣';
+const KEYCAP = '1\uFE0F⃣';
 
 /** Written as a code rather than as a byte, because source carries no raw ESC. */
 const ESC = String.fromCharCode(0x1b);
