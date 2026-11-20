@@ -322,6 +322,54 @@ describe('TreeListView()', () => {
       expect(current.get()).toBe('a.ts');
     });
 
+    it('should move over the rows a Right opened when the next key is in the same read', () => {
+      // no frame between the two keys: the tree's walk runs in an effect, so the
+      // list has to ask for it before it moves, or Down goes from `src` to `docs`
+      // over the rows the last frame walked (SIG-469)
+      const host = tree({ items: SAMPLE });
+      const { current } = control(host);
+
+      host.onKey?.(keyEvent('right'));
+      host.onKey?.(keyEvent('down'));
+
+      expect(current.get()).toBe('a.ts');
+    });
+
+    it('should activate a node of the items as they are now when Enter is in the same read', () => {
+      const items = new State<TreeChoiceItem[]>(['apple', 'banana']);
+      const seen: string[] = [];
+      const host = tree({ items, onActivate: (value) => seen.push(value) });
+
+      items.set(['banana']);
+      host.onKey?.(keyEvent('enter'));
+
+      expect(seen).toEqual(['banana']);
+    });
+
+    it('should walk the rows once per change, however often the list asks for them', () => {
+      // every key and every call on the list's control asks the tree for its rows,
+      // so a walk that ran each time would cost a walk per key over a tree that did
+      // not change. A getter on a node's text counts the walks
+      let walks = 0;
+      const items: TreeChoiceItem[] = [
+        {
+          get text() {
+            walks++;
+            return 'counted';
+          },
+        },
+        'other',
+      ];
+      const host = tree({ items });
+      const before = walks;
+
+      press(host, 'down');
+      press(host, 'up');
+      listControl(host)?.selection.index();
+
+      expect(walks).toBe(before);
+    });
+
     it('should leave Right alone on a leaf and on an open branch with nothing in it', () => {
       const host = tree({ expanded: ['empty'], items: [{ items: [], text: 'empty' }, 'leaf'] });
 

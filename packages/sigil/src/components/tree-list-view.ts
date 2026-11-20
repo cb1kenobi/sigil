@@ -638,40 +638,65 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
   };
 
-  createEffect(() => {
+  /** What the rows were last walked from, so a walk asked for again does nothing. */
+  let walked: { landed: number; open: ReadonlySet<T>; top: TreeListItems<T> } | undefined;
+
+  /**
+   * Walks the rows again where what they are walked from has moved: the items, the
+   * open set, or a read that landed. Run by the effect below, and by the list
+   * whenever it takes its items -- which a key and a call on its control do before
+   * the frame that runs the effect, so that a Right and a Down in one read move over
+   * the rows the Right opened (SIG-469).
+   */
+  const rewalk = (): void => {
     const top = read();
     let open = expanded.get();
-    landed.get();
-    untrack(() => {
-      const first = open;
-      // a node seen for the first time with `expanded: true` opens, and what is
-      // under it is walked at once rather than a frame later
-      let seed: T[] = [];
-      let found = walk(top, open, seed);
-      while (seed.length > 0) {
-        open = new Set([...open, ...seed]);
-        seed = [];
-        found = walk(top, open, seed);
-      }
-      if (open !== first) {
-        expanded.set(open);
-      }
-      lift(found);
-      // a row that draws what it drew last time is the same object, so the list
-      // keeps the element it built for it
-      const next = found.rows.map((row) => {
-        const was = byKey.get(row.key);
-        return was !== undefined && sameRow(was, row) ? was : row;
-      });
-      const unchanged = next.length === rows.length && next.every((row, i) => row === rows[i]);
-      rows = next;
-      byKey = new Map(next.map((row) => [row.key, row]));
-      parents = found.parents;
-      shown = found.shown;
-      if (!unchanged) {
-        listed.set(next);
-      }
+    const at = landed.get();
+    if (
+      walked !== undefined &&
+      walked.top === top &&
+      walked.open === open &&
+      walked.landed === at
+    ) {
+      return;
+    }
+    const first = open;
+    // a node seen for the first time with `expanded: true` opens, and what is
+    // under it is walked at once rather than a frame later
+    let seed: T[] = [];
+    let found = walk(top, open, seed);
+    while (seed.length > 0) {
+      open = new Set([...open, ...seed]);
+      seed = [];
+      found = walk(top, open, seed);
+    }
+    // before the writes below, which run the effect again: it finds this walk
+    walked = { landed: at, open, top };
+    if (open !== first) {
+      expanded.set(open);
+    }
+    lift(found);
+    // a row that draws what it drew last time is the same object, so the list
+    // keeps the element it built for it
+    const next = found.rows.map((row) => {
+      const was = byKey.get(row.key);
+      return was !== undefined && sameRow(was, row) ? was : row;
     });
+    const unchanged = next.length === rows.length && next.every((row, i) => row === rows[i]);
+    rows = next;
+    byKey = new Map(next.map((row) => [row.key, row]));
+    parents = found.parents;
+    shown = found.shown;
+    if (!unchanged) {
+      listed.set(next);
+    }
+  };
+
+  createEffect(() => {
+    read();
+    expanded.get();
+    landed.get();
+    untrack(rewalk);
   });
 
   const nodeAt = (value: T | undefined): NodeRow<T> | undefined => {
@@ -791,7 +816,21 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     disabled: (row) => row.kind !== 'node' || disabled?.(row.parts.choice) === true,
     empty: props.empty,
     find: props.find,
-    items: listed,
+    // the rows as a walk now would find them, which the list asks for as it takes
+    // its items: the walk is untracked and `listed` is what the list follows. A walk
+    // that throws -- two nodes with one value -- leaves the rows as they were, and
+    // the effect above reports it; thrown here, it would also cost the list's own
+    // effect its dependency on `listed`, read after it
+    items: {
+      get: () => {
+        try {
+          untrack(rewalk);
+        } catch {
+          // reported by the tree's effect
+        }
+        return listed.get();
+      },
+    },
     key: (row) => row.key,
     label: (row) => (row.kind === 'node' ? row.parts.text : ''),
     multiple: props.multiple,

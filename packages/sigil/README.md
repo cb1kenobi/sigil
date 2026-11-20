@@ -5597,12 +5597,14 @@ cursor: an update that does not move the current row does not scroll back to it.
 New items and a `current` key that only they hold can be written in one step, in
 either order: the list keys the rows before it reads the cursor.
 
-A key, a click and every call on `listControl(list)` -- `activate()`, `reveal()`
-and the selection's moves and reads -- take the items as they are **now**, not as
-the last frame drew them. So a filter typed and Enter pressed in one read, which is
-a paste or fast fingers, opens a row of the filtered list. `follow: 'first'` puts
-the cursor on the first row at every change of the items after the first, which is
-a list ranked as the user types, where the best match is what Enter should open:
+A key, a click and the calls on `listControl(list)` that read or move over the rows
+-- `activate()`, `reveal()`, and the selection's moves and reads -- take the items
+as they are **now**, not as the last frame drew them. So a filter typed and Enter
+pressed in one read, which is a paste or fast fingers, opens a row of the filtered
+list. `follow: 'first'` puts the cursor on the first row at every change of the
+items, which is a list ranked as the user types, where the best match is what Enter
+should open. The first items that hold anything are not a change, so a `current`
+the app gave is where the cursor starts:
 
 ```js
 const query = new State('');

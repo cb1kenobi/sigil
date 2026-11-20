@@ -246,6 +246,18 @@ describe('createListSelection()', () => {
     expect(sel.current.get()).toBe('a');
   });
 
+  it("should start on the current it was given where the first rows were empty, with follow: 'first'", () => {
+    // items that load late: no rows, then the rows -- which are the first ones that
+    // hold anything, and so not a change
+    const sel = createListSelection<string>({ current: 'c', follow: 'first' });
+    sel.setRows([]);
+    sel.setRows(['a', 'b', 'c']);
+    expect(sel.current.get()).toBe('c');
+
+    sel.setRows(['b', 'c']);
+    expect(sel.current.get()).toBe('b');
+  });
+
   it('should refuse a follow it does not know', () => {
     expect(() => createListSelection({ follow: 'last' as never })).toThrow(
       "Expected list follow to be a boolean, 'first' or a State"
@@ -1090,6 +1102,50 @@ describe('ListView()', () => {
       expect(selection.rowCount).toBe(2);
       expect(selection.move(-1)).toBe(true);
       expect(selection.current.get()).toBe('kiwi');
+    });
+
+    it('should answer a callback that reads the selection while the rows are being taken', () => {
+      // `disabled` asks the selection an app is handed for its rows, which asks the
+      // list to take the items, which is what called `disabled`: the second ask waits
+      // the first out rather than recursing -- which would run out of stack and be
+      // dropped as items that cannot be taken, so the asks are counted
+      let host: Element | undefined;
+      let asked = 0;
+      const items = new State(['a', 'b']);
+      host = list({
+        disabled: () => {
+          asked++;
+          return host === undefined ? false : control(host).selection.rowCount < 0;
+        },
+        items,
+      });
+
+      asked = 0;
+      items.set(['b', 'c', 'd']);
+      press(host, 'down');
+      expect(control(host).selection.current.get()).toBe('c');
+      expect(asked).toBeLessThan(20);
+    });
+
+    it('should leave the rows as they were, and the key working, where the new items cannot be taken', () => {
+      // two rows with one key: the items effect reports it, as it did before a key
+      // took the items early, rather than every key throwing it again
+      const written: string[] = [];
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        written.push(String(chunk));
+        return true;
+      });
+      try {
+        const items = new State(['a', 'b']);
+        const host = list({ items });
+
+        items.set(['x', 'x']);
+        expect(() => press(host, 'down')).not.toThrow();
+        expect(control(host).selection.current.get()).toBe('b');
+        expect(written.join('')).toContain('x is used twice');
+      } finally {
+        stderr.mockRestore();
+      }
     });
 
     it('should not take a click on a row the new items dropped', () => {

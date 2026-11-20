@@ -12415,13 +12415,24 @@ reason.
   app to set the cursor in an effect: a filtered `DataTable` and Enter in one read
   is enough.
 - **Every way in takes the items first, through the `sync()` the cursor effect
-  already used.** The key handler, a row's click, and every call on
-  `listControl()`: `activate()`, `reveal()`, `refresh()` and the selection. The
-  selection an app is handed is a wrapper over the one the list holds, each call
-  bringing the rows up to date before it moves or answers, because an app that
-  keeps the focus in a field forwards Up, Down and Enter through the control --
-  which is how the editor's palette does it now. `sync()` is a comparison of one
+  already used.** The key handler, a row's click, and the calls on `listControl()`
+  that read or move over the rows: `activate()`, `reveal()`, `refresh()` and the
+  selection's methods but `isSelected()` and `setRows()`, which do not depend on
+  them. The selection an app is handed is a wrapper over the one the list holds,
+  each call bringing the rows up to date before it moves or answers, because an app
+  that keeps the focus in a field forwards Up, Down and Enter through the control
+  -- which is how the editor's palette does it now. `sync()` is a comparison of one
   array when nothing changed, and the items effect then finds nothing to do.
+- **Items that cannot be taken are left to the effect to report.** Two rows with
+  one key throw out of `setRows()` before anything is written, and the items effect
+  reports that with the next frame -- which was all that happened before. A key that
+  rethrew it would throw out of every key the list is handed until the items were
+  fixed, so the early paths catch it and act on the rows as they were. And `sync()`
+  waits out a second ask from inside itself: a `key` or `disabled` that reads the
+  selection an app is handed asks for the items while they are being taken, which
+  on `main` answered from the rows as they were, and here recursed until the stack
+  ran out.
+  Both found by review round 1.
 - **The `current` state is not part of it.** It is a `State` the app may hold, and
   a read of it between the change and the frame still says where the cursor was.
   `index()` and `keyAt()` answer for the rows as they are now. A call on the
@@ -12433,9 +12444,12 @@ reason.
   for the app to follow.** The ticket asked for the cursor to move in the same step
   as the query, and the only step a list can see is its rows changing -- so
   `'first'` puts the cursor on the first row that is not disabled at every
-  `setRows()` after the first. The first is not a change, so a `current` the app
-  gave is where the cursor starts. With no row it can be on, the key is kept, as it
-  is for the other two. It is the third value of `follow` rather than a prop of its
+  `setRows()`. The first rows that hold anything are not a change, so a `current`
+  the app gave is where the cursor starts -- and they are the first that hold
+  anything rather than the first handed over, or a list whose items load late would
+  lose it to the empty list before them (review round 1). With no row it can be on,
+  the key is kept, as it is for the other two. A list following its `tail` goes to
+  the last row whatever `'first'` says, since following is applied after. It is the third value of `follow` rather than a prop of its
   own because it answers the same question -- what the cursor keeps when the rows
   change -- and a list cannot do two of them. A `DataTable` passes it through,
   since a table filtered as the user types is the same case.
@@ -12459,12 +12473,27 @@ reason.
   which is this rule one step along. `select()`, `multiselect()`,
   `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
   were read too and take no typed filter. `Dropdown` and `Menu` have no filter
-  either, and their effects only draw. `TreeListView` and `DataTable` are built on
-  the list and get the fix with it. The log browser's `n` reads
-  `selection.index()`, and now gets the rows as they are.
-- **Pinned in three places.** `a key in the same step as a change of the items` in
+  either, and their effects only draw. `DataTable` is built on the list and gets the
+  fix with it. The log browser's `n` reads `selection.index()`, and now gets the
+  rows as they are.
+- **`TreeListView` needed a step of its own, which this entry first said it did
+  not.** The tree walks its open rows in an effect and hands the list the result in
+  a `State`, so a list that took its items early took the rows of the last walk:
+  Right and Down in one read went from `src` to `docs` rather than into `src`, and
+  Enter after the items changed activated a node they had dropped. Review round 1
+  reproduced both. The walk is now a function the effect runs and the list asks
+  for: the tree hands the list an object whose `get()` walks first, untracked, and
+  then reads the `State`, so the list follows what it always followed and every
+  early path takes the walk with it. It is guarded by what the rows are walked
+  from -- the items, the open set and the count of landed reads, which are exactly
+  what the effect tracks -- so asking costs nothing where nothing moved, and
+  `should walk the rows once per change` counts the walks to keep it so. A walk
+  that throws is reported by the tree's effect and caught in `get()`, which would
+  otherwise cost the list's effect its dependency on the `State` it reads after.
+- **Pinned in four places.** `a key in the same step as a change of the items` in
   `list-view.test.ts`, with nothing flushed between the change and the key; one
-  filtered `DataTable` test; and the editor's palette tests, which type and press
+  filtered `DataTable` test; three in `tree-list-view.test.ts`; and the editor's
+  palette tests, which type and press
   Enter -- and Down -- in one read. Sabotaged one at a time: the key handler's
   sync, `activate()`'s, the wrapper's, the click's and `'first'` each fail a test
   of their own. The key handler's alone fails only the Down test, since
