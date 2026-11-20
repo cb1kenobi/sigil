@@ -1523,8 +1523,13 @@ describe('TreeListView()', () => {
   });
 
   describe('values that leave the tree (SIG-487)', () => {
-    /** What the tree holds on to. */
-    const held = treeListHeld;
+    /** What the tree holds on to, but for the rows it shows. */
+    const held = (
+      host: Element
+    ): Omit<NonNullable<ReturnType<typeof treeListHeld>>, 'rows'> | undefined => {
+      const all = treeListHeld(host);
+      return all && { kept: all.kept, notes: all.notes, reads: all.reads, seen: all.seen };
+    };
 
     /** A branch whose function counts its calls, under `name`, and hands back `items()`. */
     function counting(
@@ -1984,6 +1989,24 @@ describe('TreeListView()', () => {
         get.mockRestore();
       }
       expect(held(host)?.seen).toBe(2_005);
+    });
+  });
+
+  describe('finding a row by its value (SIG-520)', () => {
+    it('should hold a row for each row shown and no more, though the walk keeps its map from one walk to the next', () => {
+      const items = new State<TreeChoiceItem[]>([{ items: ['x', 'y'], text: 'a' }, 'b', 'c']);
+      const host = tree({ expanded: ['a'], items });
+      expect(treeListHeld(host)?.rows).toBe(5);
+
+      items.set([...items.get(), 'd']);
+      flush();
+      expect(treeListHeld(host)?.rows).toBe(6);
+
+      // a node that leaves is not held for, and one that arrives is
+      items.set(['b', 'd', 'e']);
+      flush();
+      expect(treeListHeld(host)?.rows).toBe(3);
+      expect(picture(host)).toEqual(['❯ ├──   b', '  ├──   d', '  └──   e']);
     });
   });
 

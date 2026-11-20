@@ -13208,6 +13208,65 @@ value it had ever shown.
   a failure counted as an answer replaced, which survives because `last` keeps
   the same values reachable, so it costs a search and drops nothing.
 
+### What a tree's walk costs per row (SIG-520)
+
+SIG-471 kept an unchanged row the same object and found the list's own work was
+about 5% of an append at 200,000 open rows: the rest was the walk of the whole open
+tree, which every change runs. The ticket asked for a walk of only the part that
+changed, or a per-row cost that drops enough to matter. The first is **not done, and
+that was a decision**: a walk that goes only where something changed has to keep
+each row's guide, its parent and the duplicate check valid across walks, and an
+open or a close in the middle, a replaced answer and a source changed in place each
+invalidate a different part of it -- a second, incremental implementation of what
+`walk()` does, beside the one every other path uses, to save tens of milliseconds
+on a tree of a size no terminal draws. The per-row cost was cut instead, in three
+places, none of which changes what a walk finds:
+
+- **`flat()` runs its regex only for a text with a line break in it.** It ran
+  `replaceAll()` over every node's text, and almost none has one. It is in
+  `tree.ts`, so `selectTree()` reads its nodes the same cheaper way.
+- **A node's guide for its children is built only for an open branch.** `rest` was
+  concatenated for every row and used by the few that are open.
+- **The map of rows by key is added to rather than made again,** and a row found in
+  it is compared in the same pass that fills the new array, where there had been a
+  `map()`, an `every()` and a `new Map()` over all of them. It is made again when it
+  holds more than the walk found, which is a key gone: `treeListHeld().rows` says it
+  holds the rows shown and no others, and a removed node is what the test removes.
+  The duplicate-value check is one `Map.set` and a size compared, not a `has()`
+  and a `set()`.
+
+**Measured** over the built package, 200,000 open rows, one change that appends 3
+nodes, the CPU time of `items.set()` and `flush()` (user plus system, which counts
+the collector's threads) on a machine other work was running on, six alternated
+runs of twenty-two changes each, the minimum and the median of the runs' medians
+(`before` is the commit before this one, `after` is this):
+
+| 200,000 open rows, append 3       | before min / median | after min / median |
+| --------------------------------- | ------------------- | ------------------ |
+| flat list of 200,000              | 52.7 / 60.3 ms      | 32.4 / 37.4 ms     |
+| 100 open branches of 2,000        | 64.7 / 85.0 ms      | 37.0 / 50.3 ms     |
+| same, appended to the last branch | 72.9 / 84.9 ms      | 38.6 / 44.9 ms     |
+
+About 40% of an append, and on a quiet machine the rest is the walk's own: a
+`treeChoiceOf()` per row (two objects), a `parents` entry, a line object and a guide
+string, with a `State.set` per kept row. Wall-clock figures on a loaded machine
+move by a factor of two between runs, which is why the table is CPU time and
+minimums. The script is not kept in the repository, because a benchmark that is
+not run is a number that rots; to repeat it, build a tree of 200,000 nodes, draw it
+once with `renderToLines()`, and time `items.set([...nodes, ...three])` with
+`flush()`.
+
+What a further cut would be, if it is ever worth it: a `parent` field on a row in
+place of the `parents` map, with a generation on each row to find a duplicate, which
+takes the 200,000-entry map out of the walk and moves the duplicate check after it.
+Not done because the check then happens after state was written, which is the
+ordering `walkFrom()` keeps on purpose.
+
+SIG-471's counting test holds: the three tests in `tree-list-view-rekey.test.ts`
+pass unchanged. Sabotage: the map of rows made again never (caught by the rows
+count), and `flat()` never joining lines (caught by the existing test of a node
+drawn on one line).
+
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 
 `src/components/data-table.ts`. htop's process list, k9s's resource view and a
