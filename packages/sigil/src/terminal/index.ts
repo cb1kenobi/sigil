@@ -74,46 +74,17 @@ const GONE = new Set(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_
  *
  * The one answer to that question, so that a program which writes to
  * `process.stdout` itself and one that writes through a terminal agree on which
- * errors are the far end leaving and which are a real fault.
+ * errors are the far end leaving and which are a real fault. The terminal's own
+ * listener swallows every error, as best-effort output should; a program whose
+ * output matters attaches one that returns when this says `true` and rethrows
+ * when it says `false`, which is how `mycli > file` on a full disk (`ENOSPC`)
+ * stays a failure while `mycli | head -1` does not.
  *
  * @param err - Whatever a write threw or a stream emitted.
  * @returns `true` for `EPIPE` and its relatives.
  */
 export function isStreamGone(err: unknown): boolean {
   return GONE.has((err as NodeJS.ErrnoException | undefined)?.code as string);
-}
-
-/**
- * Swallows the far end of a stream going away.
- *
- * `EPIPE` usually arrives as an `error` event rather than a throw, and an
- * `error` event with no listener is an uncaught exception -- which is how
- * `mycli --help | head -1` kills a CLI that did nothing wrong. This is the
- * listener, and it is the one `createTerminal()` attaches to the streams it
- * writes to. It is exported for a program that writes to `process.stdout`
- * directly and has no terminal to do it through: the toolchain's own commands.
- *
- * **Every** `error` is swallowed by having a listener at all; `onGone` hears
- * only the reader leaving. Any other error -- `ENOSPC`, `EFBIG` -- is a real
- * fault and, with this the only listener, is delivered to nobody, so a program
- * whose output matters (a file redirect that must not be cut short) should
- * attach a listener of its own that rethrows what `isStreamGone()` says is not
- * the reader leaving. The terminal does not: it has always treated its streams
- * as best-effort.
- *
- * @param stream - The stream being written to.
- * @param onGone - Called each time the stream reports that its reader has gone.
- * @returns A function that takes the listener off again.
- */
-export function guardGone(stream: OutputStream, onGone?: () => void): () => void {
-  const onStreamError = (...args: unknown[]) => {
-    if (isStreamGone(args[0])) {
-      onGone?.();
-    }
-  };
-
-  stream.on?.('error', onStreamError);
-  return () => void stream.removeListener?.('error', onStreamError);
 }
 
 /** Only what a terminal actually asks of an output stream. */
@@ -407,27 +378,36 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     }
   }
 
-  // attached to the stream being written and on the first write to it, since a
-  // stream nothing writes to cannot produce one, and removed by `restore()`
-  // along with the process handlers
-  const guards = new Map<OutputStream, () => void>();
+  /**
+   * Swallows the far end going away.
+   *
+   * `EPIPE` usually arrives as an `error` event rather than a throw, and an
+   * `error` event with no listener is an uncaught exception -- which is how
+   * `mycli --help | head -1` kills a CLI that did nothing wrong. Attached to the
+   * stream being written and on the first write to it, since a stream nothing
+   * writes to cannot produce one, and removed by `restore()` along with the
+   * process handlers.
+   */
+  const guards = new Map<OutputStream, (...args: unknown[]) => void>();
 
   function guard(stream: OutputStream): void {
     if (guards.has(stream)) {
       return;
     }
 
-    guards.set(
-      stream,
-      guardGone(stream, () => {
+    const onStreamError = (...args: unknown[]) => {
+      if (isStreamGone(args[0])) {
         closed = true;
-      })
-    );
+      }
+    };
+
+    guards.set(stream, onStreamError);
+    stream.on?.('error', onStreamError);
   }
 
   function detachGuards(): void {
-    for (const detach of guards.values()) {
-      detach();
+    for (const [stream, onStreamError] of guards) {
+      stream.removeListener?.('error', onStreamError);
     }
     guards.clear();
   }

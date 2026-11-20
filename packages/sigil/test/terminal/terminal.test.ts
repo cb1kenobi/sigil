@@ -1,6 +1,5 @@
 import {
   createTerminal,
-  guardGone,
   isStreamGone,
   type OutputStream,
   type ProcessLike,
@@ -637,37 +636,6 @@ describe('createTerminal()', () => {
 
       expect(proc.killed).to.deep.equal([]);
     });
-  });
-});
-
-describe('guardGone()', () => {
-  // the listener `createTerminal()` attaches, for a program that writes to
-  // `process.stdout` itself (SIG-537): one definition of "the reader left"
-  it('should call back when the stream reports its reader gone, and ignore anything else', () => {
-    const stream = createStream();
-    const onGone = vi.fn();
-
-    guardGone(stream as unknown as OutputStream, onGone);
-    stream.emit('error', Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }));
-    expect(onGone).not.toHaveBeenCalled();
-
-    stream.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));
-    expect(onGone).toHaveBeenCalledTimes(1);
-  });
-
-  it('should be what keeps an error event from being an uncaught exception', () => {
-    const stream = createStream();
-    guardGone(stream as unknown as OutputStream);
-
-    expect(stream.listenerCount('error')).to.equal(1);
-  });
-
-  it('should hand back the way to take the listener off', () => {
-    const stream = createStream();
-    const detach = guardGone(stream as unknown as OutputStream);
-
-    detach();
-    expect(stream.listenerCount('error')).to.equal(0);
   });
 });
 

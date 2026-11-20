@@ -2828,26 +2828,25 @@ no listener is an uncaught exception. After that `terminal.closed` is `true`
 and writes are no-ops.
 
 A program that writes to `process.stdout` itself, with no terminal to go
-through, needs the same listener, and `guardGone()` is it:
+through, needs a listener of its own, and `isStreamGone()` is what it asks:
 
 ```js
-import { guardGone, isStreamGone } from '@ttylabs/sigil/terminal';
+import { isStreamGone } from '@ttylabs/sigil/terminal';
 
-const detach = guardGone(process.stdout, () => {
-  // optional: the reader has gone, so stop doing work nobody will see
+process.stdout.on('error', (err) => {
+  // `mycli list | head -1` is a command that finished, not a stack trace; a
+  // full disk (`ENOSPC`) is still a failure
+  if (!isStreamGone(err)) {
+    throw err;
+  }
 });
-// `mycli list | head -1` is now a command that finished, not a stack trace
 
 isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
 ```
 
-The exit code is left alone, as it is for `terminal.write()`. The listener
-swallows **every** `error` on the stream, and `onGone` hears only the reader
-leaving: for output that must not be cut short silently (`mycli > file` on a full
-disk is `ENOSPC`, not `EPIPE`), add a listener of your own that rethrows when
-`isStreamGone(err)` is false. It attaches one listener per call, so guard a
-stream once. `isStreamGone()` is the one definition of which errors
-mean that, for a `write()` that throws instead of emitting.
+The terminal's own listener swallows every error, since its output is
+best-effort, and leaves the exit code alone; a program with output that must not
+be cut short silently rethrows as above.
 
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
 `MAX_WIDTH`: that cap is a readability limit on generated prose, while this is

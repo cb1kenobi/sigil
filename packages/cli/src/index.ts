@@ -1,5 +1,5 @@
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
-import { guardGone, isStreamGone } from '@ttylabs/sigil/terminal';
+import { isStreamGone } from '@ttylabs/sigil/terminal';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -31,24 +31,22 @@ const guarded = new WeakSet<NodeJS.WriteStream>();
  * uncaught exception -- so it died with Node's dump (SIG-537). Every command
  * writes to `process.stdout` and `process.stderr` directly, so the listener goes
  * on the two streams once, here, rather than in each command: a command written
- * next year is covered without anybody remembering to. It is the same
- * `guardGone()` the runtime's terminal attaches, so what counts as the reader
- * leaving is one definition; and like the terminal it stops *noticing* rather
- * than stopping the command -- later writes land nowhere and the exit code is
- * whatever the command's own result was. It is never taken off again: the
- * process is the lifetime of the guard, and the `EPIPE` for the last write is
- * the one that arrives after `main()` has resolved.
+ * next year is covered without anybody remembering to.
+ *
+ * What counts as the reader leaving is the runtime's `isStreamGone()`, and like
+ * the terminal it then stops *noticing* rather than stopping the command: later
+ * writes land nowhere and the exit code is whatever the command's own result
+ * was. Anything else is a real fault and is thrown from the listener, which is
+ * the uncaught exception it was before the guard existed -- `sigil add > out`
+ * under `ulimit -f 1` is `EFBIG`, and swallowing that exited 0 over a cut-off
+ * file. It is never taken off again: the process is the lifetime of the guard,
+ * and the `EPIPE` for the last write is the one that arrives after `main()` has
+ * resolved.
  */
 export function guardOutput(): void {
   for (const stream of [process.stdout, process.stderr]) {
     if (!guarded.has(stream)) {
       guarded.add(stream);
-      guardGone(stream);
-      // `guardGone()` leaves every error silent, and only the reader leaving is
-      // meant to be: `sigil reference > docs/cli.md` on a full disk is `ENOSPC`
-      // on a `SyncWriteStream`, and swallowing it exited 0 over a cut-off file.
-      // Throwing from the listener is the uncaught exception it was before the
-      // guard existed, which is the right answer for a real fault
       stream.on('error', (err) => {
         if (!isStreamGone(err)) {
           throw err;
@@ -99,7 +97,8 @@ export function schema(): Schema {
     // a hook on the schema rather than a call in `run()`, for the reason
     // `settings` is: the built executable never reaches `run()`. `beforeParse`
     // is the first thing `main()` fires once the schema is built, so it is on
-    // before the help screen or any command writes a byte
+    // before the help screen or any command writes a byte (a `DEBUG` trace of
+    // schema init is written earlier, and nothing here can reach it)
     hooks: { beforeParse: guardOutput },
   };
 }

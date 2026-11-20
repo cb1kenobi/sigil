@@ -129,30 +129,47 @@ describe('a toolchain command whose reader has gone away', () => {
 });
 
 describe('guardOutput()', () => {
-  // the review found `guardGone()` swallows every error, which would have made
-  // `sigil reference > file` on a full disk exit 0 over a cut-off file
-  it('should leave only the reader leaving quiet', () => {
-    guardOutput();
-
-    for (const code of ['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED']) {
-      expect(() =>
-        process.stdout.emit('error', Object.assign(new Error(code), { code }))
-      ).not.toThrow();
+  /**
+   * Runs `body` and takes off whatever `guardOutput()` put on the worker's own
+   * streams afterwards, which the guard itself never does: a bin's process is
+   * its lifetime, and a test file's streams are not.
+   */
+  function scoped(body: () => void): void {
+    const before = [process.stdout, process.stderr].map((s) => new Set(s.listeners('error')));
+    try {
+      body();
+    } finally {
+      [process.stdout, process.stderr].forEach((stream, i) => {
+        for (const fn of stream.listeners('error')) {
+          if (!before[i].has(fn)) {
+            stream.removeListener('error', fn as () => void);
+          }
+        }
+      });
     }
+  }
 
-    expect(() =>
-      process.stdout.emit('error', Object.assign(new Error('no space'), { code: 'ENOSPC' }))
-    ).toThrow('no space');
-    expect(() =>
-      process.stderr.emit('error', Object.assign(new Error('too big'), { code: 'EFBIG' }))
-    ).toThrow('too big');
-  });
+  // the review found a guard that swallowed every error would have made
+  // `sigil reference > file` on a full disk exit 0 over a cut-off file
+  it('should leave only the reader leaving quiet, and guard a stream once', () => {
+    scoped(() => {
+      guardOutput();
+      const once = process.stdout.listenerCount('error');
+      guardOutput();
+      expect(process.stdout.listenerCount('error')).toBe(once);
 
-  it('should add its listeners once however many parses there are', () => {
-    guardOutput();
-    const before = process.stdout.listenerCount('error');
-    guardOutput();
+      for (const code of ['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED']) {
+        expect(() =>
+          process.stdout.emit('error', Object.assign(new Error(code), { code }))
+        ).not.toThrow();
+      }
 
-    expect(process.stdout.listenerCount('error')).toBe(before);
+      expect(() =>
+        process.stdout.emit('error', Object.assign(new Error('no space'), { code: 'ENOSPC' }))
+      ).toThrow('no space');
+      expect(() =>
+        process.stderr.emit('error', Object.assign(new Error('too big'), { code: 'EFBIG' }))
+      ).toThrow('too big');
+    });
   });
 });
