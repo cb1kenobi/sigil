@@ -691,6 +691,34 @@ the entry it belongs to.
   cleanup that registers another sends it where the effect was created rather
   than into the list being walked. Both are pinned: moving the refusal out of the
   `try`, or running the list with the run still current, each fails its own test.
+- **`provideContext()` opens a scope something disposes, in the two places it
+  still did not (SIG-425).** The SIG-344 entries tie a scope to the effect run
+  that opened it; two more shapes left one nothing would ever dispose, both
+  reproduced on `main` before the fix. **Under an owner that is already disposed**
+  the scope was a fresh, live child of a parent nothing will walk again, and it
+  was how an effect got past the refusal a bare `createEffect()` makes there:
+  five calls left five live effects, five sinks and five children on the dead
+  owner. It is born disposed now and taken back off the parent it registered
+  with -- not a throw. `fn` still runs and still reads the value, and what it
+  starts starts nothing and what it registers runs at once, which is the answer
+  `createBranch()` and `onCleanup()` already give under a disposed owner, and a
+  throw would have made `provideContext()` the one entry point that refuses where
+  every other one declines. The scope keeps its parent, so `useContext()` inside
+  it still sees the outer scopes. **Inside a bare signals `effect()`** there is
+  no run list: `runCleanups` is this file's, and a bare effect never sets it, so
+  the scope was unowned by `runWithOwner()` and a re-run left one more behind
+  (six runs, six scopes, six sinks for one write; no cleanup had run). The scope
+  is handed to the signals layer the way a child effect is, through
+  `adoptIntoRun()` in `src/signals/effect.ts`, which adds a disposer to the set
+  the running body's children are held in -- so it is disposed before the next
+  run, and at `dispose()`, and what it throws is reported on a re-run and raised
+  from the disposer, as the run's own cleanups are. That is the same answer as a
+  plain nested `effect()`, which is what the ticket's second question asked.
+  `adoptIntoRun()` is not exported from `signals/index.ts`: it is the owner
+  tree's, and it is a no-op where nothing is running or inside `unowned()` --
+  which is every `createRoot()`, `createBranch()` and `runWithOwner()` -- so a
+  root opened in a bare effect keeps what it builds, as one must. The renderer's
+  own effects are unchanged: their run list is tried first.
 - **An owned effect stopped by hand is taken off its owner (SIG-344).** The
   disposer went onto `owner.cleanups` and stayed there after the caller had
   called it -- a closure over the computed, the body and its cleanups -- so an

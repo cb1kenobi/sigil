@@ -638,6 +638,30 @@ export function unowned<T>(fn: () => T): T {
   }
 }
 
+/**
+ * Hands `dispose` to the effect whose body is running, so it is called when that
+ * run is torn down: before the body runs again, and when the effect is disposed.
+ *
+ * What a bare `effect()` has in place of the run's cleanups. The renderer's
+ * `onCleanup()` joins the *run* of an effect it created; an effect from this
+ * module with no owner above it has no such list, and the one thing it does have
+ * is the set an effect created in its body is added to -- which is what this
+ * adds to, with the same reporting (the error handler on a re-run, a throw out
+ * of the disposer). Not exported from the entry: it is the owner tree's, for a
+ * scope it opened that nothing else will dispose.
+ *
+ * @param dispose - What to call. A throw is reported as a child's would be.
+ * @returns Whether an effect body is running to take it. `false` outside one,
+ *   and inside `unowned()`, where nothing will call it and the caller keeps it.
+ */
+export function adoptIntoRun(dispose: () => void): boolean {
+  if (!currentOwner) {
+    return false;
+  }
+  currentOwner.add(dispose);
+  return true;
+}
+
 export function effect(fn: () => void | (() => void)): () => void {
   return defaultEffects.effect(fn);
 }

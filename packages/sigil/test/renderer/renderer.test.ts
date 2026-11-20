@@ -32,6 +32,7 @@ import {
   createEffects,
   effect,
   flush,
+  setErrorHandler,
   sinkCount,
   untrack,
   unwatched,
@@ -874,6 +875,167 @@ describe('provideContext() inside an effect body', () => {
     expect(runs).toBe(2);
 
     dispose();
+    expect(sinkCount(tick)).toBe(0);
+  });
+});
+
+describe('provideContext() where nothing would ever dispose its scope (SIG-425)', () => {
+  it('should start nothing under an owner that is already disposed', () => {
+    // the scope was a fresh, live child of the dead owner, which is how an
+    // effect got past the refusal a bare `createEffect()` makes there: five
+    // calls left five live effects, five sinks and five children hanging off
+    // an owner nothing would ever walk again
+    const theme = createContext('plain');
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+    let seen = '';
+    const returned: number[] = [];
+
+    createRoot(() => {
+      const branch = createBranch();
+      branch.dispose();
+      for (let i = 0; i < 5; i++) {
+        returned.push(
+          runWithOwner(branch.owner, () =>
+            provideContext(theme, 'dark', () => {
+              createEffect(() => {
+                tick.get();
+                runs++;
+              });
+              onCleanup(() => cleanups++);
+              seen = useContext(theme);
+              return i;
+            })
+          )
+        );
+      }
+    }, effects.effect);
+    effects.flush();
+
+    expect(runs).toBe(0);
+    expect(sinkCount(tick)).toBe(0);
+    // run at once, as an `onCleanup()` is under a disposed owner: nothing else will
+    expect(cleanups).toBe(5);
+    // `fn` still runs and still reads the value, which is what a branch handed
+    // back already disposed does too
+    expect(seen).toBe('dark');
+    expect(returned).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('should still see the outer scopes from a scope under a disposed owner', () => {
+    const outer = createContext('plain');
+    let seen = '';
+
+    createRoot(() => {
+      provideContext(outer, 'dark', () => {
+        const branch = createBranch();
+        branch.dispose();
+        runWithOwner(branch.owner, () =>
+          provideContext(createContext(0), 1, () => {
+            seen = useContext(outer);
+          })
+        );
+      });
+    }, effects.effect);
+
+    expect(seen).toBe('dark');
+  });
+
+  it('should dispose the scope a bare effect opened when the effect runs again', () => {
+    // with no owner there is no run list to join, and `runWithOwner()` unowns
+    // what `fn` builds -- so six runs left six scopes: each write to `tick` ran
+    // six inner effects and left six sinks, and no cleanup had run. A plain
+    // nested `effect()` gives one, one and five
+    const theme = createContext('plain');
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    const stop = effect(() => {
+      provideContext(theme, String(mode.get()), () => {
+        createEffect(() => {
+          tick.get();
+          runs++;
+        });
+        onCleanup(() => cleanups++);
+      });
+    });
+    for (let i = 1; i <= 5; i++) {
+      mode.set(i);
+      flush();
+    }
+    runs = 0;
+    tick.set(1);
+    flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
+
+    stop();
+    expect(sinkCount(tick)).toBe(0);
+    expect(cleanups).toBe(6);
+  });
+
+  it('should report what a cleanup in a bare effect scope threw, as the effect reports its own', () => {
+    const thrown: unknown[] = [];
+    const theme = createContext('plain');
+    const mode = new State(0);
+    const stop = effect(() => {
+      mode.get();
+      provideContext(theme, 'dark', () => {
+        onCleanup(() => {
+          throw new Error('unsubscribe failed');
+        });
+      });
+    });
+
+    // the default scope's handler, put back whatever the assertions do
+    const previous = setErrorHandler((error) => void thrown.push(error));
+    try {
+      mode.set(1);
+      flush();
+    } finally {
+      setErrorHandler(previous);
+    }
+
+    expect(thrown.map((e) => (e as Error).message)).toEqual(['unsubscribe failed']);
+    // and raised out of the disposer where somebody asked, as the run's are
+    expect(stop).toThrow('unsubscribe failed');
+  });
+
+  it('should leave a scope opened by a root inside a bare effect to the root', () => {
+    // the other half of the rule: `createRoot()` owns what it builds, so the
+    // effect that happened to be running does not adopt it
+    const theme = createContext('plain');
+    const mode = new State(0);
+    const tick = new State(0);
+    let cleanups = 0;
+    const disposers: (() => void)[] = [];
+
+    const stop = effect(() => {
+      mode.get();
+      createRoot((dispose) => {
+        disposers.push(dispose);
+        provideContext(theme, 'dark', () => {
+          createEffect(() => void tick.get());
+          onCleanup(() => cleanups++);
+        });
+      });
+    });
+    mode.set(1);
+    flush();
+
+    expect(cleanups).toBe(0);
+    expect(sinkCount(tick)).toBe(2);
+
+    stop();
+    for (const dispose of disposers) {
+      dispose();
+    }
+    expect(cleanups).toBe(2);
     expect(sinkCount(tick)).toBe(0);
   });
 });
