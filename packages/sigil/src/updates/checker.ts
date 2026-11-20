@@ -6,6 +6,7 @@
 // one. What differs between asking npm and asking GitHub is a URL, some
 // headers, and where the version sits in the answer, so that is what this is.
 
+import { escapeControls } from '../util/escape-controls.js';
 import { distTagsURL } from './registry.js';
 
 /**
@@ -121,7 +122,7 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   // URL is built here rather than in the worker
   const parts = repo.split('/');
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
-    throw new TypeError(`Update check repo must be "owner/name", got "${repo}"`);
+    throw new TypeError(`Update check repo must be "owner/name", got "${escapeControls(repo)}"`);
   }
 
   return {
