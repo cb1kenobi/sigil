@@ -34,6 +34,7 @@ import {
   flush,
   setErrorHandler,
   sinkCount,
+  unowned,
   untrack,
   unwatched,
   watched,
@@ -1022,6 +1023,43 @@ describe('provideContext() where nothing would ever dispose its scope (SIG-425)'
 
     stopInner();
     expect(sinkCount(tick)).toBe(0);
+  });
+
+  it('should keep the scope with the run when the body sets signals parentage aside', () => {
+    // `unowned()` clears the signals layer's owner and leaves the run's list
+    // alone, so "no signals-level run" is not evidence the list is a stale outer
+    // one: treating it as such put the scope nowhere, and each re-run left one
+    const theme = createContext('plain');
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+
+    createRoot(() => {
+      createEffect(() => {
+        const m = mode.get();
+        unowned(() =>
+          provideContext(theme, String(m), () => {
+            createEffect(() => {
+              tick.get();
+              runs++;
+            });
+            onCleanup(() => cleanups++);
+          })
+        );
+      });
+    }, effects.effect);
+    for (let i = 1; i <= 5; i++) {
+      mode.set(i);
+      effects.flush();
+    }
+    runs = 0;
+    tick.set(1);
+    effects.flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
   });
 
   it('should report what a cleanup in a bare effect scope threw, as the effect reports its own', () => {

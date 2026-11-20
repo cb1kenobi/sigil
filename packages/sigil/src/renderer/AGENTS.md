@@ -723,7 +723,11 @@ the entry it belongs to.
   clears `runCleanups`, so its first run put the scope into the outer run's list
   and it lived as long as that effect did (found by review). `runOf` records
   which signals-level run the list belongs to and `currentRun()` names the
-  innermost, and where they differ the scope is adopted instead.
+  innermost, and where they differ the scope is adopted instead. Where there is
+  no signals-level run at all the list is still used, because that is
+  `unowned()` inside the body, which sets the signals parentage aside and leaves
+  the run's list alone -- the first version of this treated it as a stale list
+  and leaked a scope per re-run in that shape (found by the second review).
 
   One limit is the signals layer's and is left as it is: when a bare effect is
   stopped, its children are disposed by a loop that stops at the first throw, so

@@ -572,7 +572,11 @@ export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R)
   // handed a child effect, which is what it already disposes on a re-run and
   // reports from the same way. A no-op anywhere else -- under `createRoot()`,
   // `createBranch()` or any `runWithOwner()` the signals layer is detached
-  if (runCleanups && runOf === currentRun()) {
+  // `unowned()` inside the run puts the signals level aside without touching
+  // this list, so `undefined` is not a different run: it is the same one with
+  // its parentage set down, and the list is still the innermost's
+  const run = currentRun();
+  if (runCleanups && (run === undefined || run === runOf)) {
     runCleanups.push(dispose);
   } else {
     adoptIntoRun(dispose);
