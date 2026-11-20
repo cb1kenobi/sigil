@@ -105,7 +105,7 @@ the entry it belongs to.
   focus counts -- recorded with `record()` and no callback; `removeChild()` calls
   it and then marks, and `insertBefore()` calls it for the move and marks once at
   the end, plus once on the old parent's tree when that is a different one, which
-  is the only way it still hears of the loss. So a callback runs at most once per
+  is the only way it still hears of the loss -- both are told even when the first callback throws, as `setState()` does, and that call's trees are read before either runs. So a callback runs at most once per
   tree a call touched, always after the call has finished, and a re-entrant
   insert of the same child is an ordinary move that ends it in the tree exactly
   once. Chosen over refusing a re-entrant call, because every other mutator

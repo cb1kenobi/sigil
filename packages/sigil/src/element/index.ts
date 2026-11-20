@@ -717,10 +717,28 @@ export class Element implements LayoutNode {
     // the callback runs last, with the whole move committed, and once per tree
     // that lost or gained a child -- re-entering from it sees a tree that is
     // consistent, and a re-entrant insert of this child is an ordinary move
+    // both trees are told even when the first callback throws, and both are
+    // read before either runs, since a callback may move this element out of
+    // its tree and the answer to "is it the same one" has to be the call's own
+    const joined = this.#tree;
     const left = from ? from.#tree : undefined;
-    this.#mark('children');
-    if (from && left && left !== this.#tree) {
-      left.mark('children', from);
+    const errors: unknown[] = [];
+    try {
+      this.#mark('children');
+    } catch (error) {
+      errors.push(error);
+    }
+    if (from && left && left !== joined) {
+      try {
+        left.mark('children', from);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw errors.length === 1
+        ? errors[0]
+        : new AggregateError(errors, 'More than one tree callback threw');
     }
     return this;
   }

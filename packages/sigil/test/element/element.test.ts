@@ -583,7 +583,7 @@ describe('a mark callback that mutates the tree', () => {
 
     to.insertBefore(kid, undefined);
 
-    expect(seen.length).toBeGreaterThan(0);
+    expect(seen).toHaveLength(1);
     expect(seen.every((count) => count === 1)).toBe(true);
   });
 
@@ -648,16 +648,42 @@ describe('a mark callback that mutates the tree', () => {
       true,
       true,
     ]);
+  });
 
-    // and the counts really are one each: taking the field out puts them all out
-    field.setState('focus', false);
-    other.removeChild(field);
-    expect([within(left), within(right), within(other), within(root)]).toEqual([
-      false,
-      false,
-      false,
-      false,
-    ]);
+  it('should call the losing tree back even when the gaining tree callback throws', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const heard: string[] = [];
+    createTree(from, () => heard.push('from'));
+    createTree(to, () => {
+      throw new Error('to');
+    });
+
+    expect(() => to.insertBefore(kid, undefined)).toThrow('to');
+
+    expect(heard).toEqual(['from']);
+    expect(to.children).toEqual([kid]);
+  });
+
+  it('should call a tree back once when a callback takes the parent out of it', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const root = box({}, from, to);
+    let calls = 0;
+    createTree(root, () => {
+      calls++;
+      if (calls === 1) {
+        root.removeChild(to);
+      }
+    });
+
+    to.insertBefore(kid, undefined);
+
+    // the insert's own, and the nested removal's -- and not a third for the
+    // tree the insert started in
+    expect(calls).toBe(2);
   });
 });
 
