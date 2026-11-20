@@ -74,6 +74,9 @@ export function buildHeader(d: Dashboard, input: InputRouter, actions: HeaderAct
     const on = d.theme.get();
     return [
       {
+        // opens on the theme in use, so Enter keeps it and a letter or an arrow
+        // starts from it
+        initial: on,
         items: THEMES.map((theme, i) => ({
           hint: i === on ? (ascii ? '*' : '●') : '',
           label: `&${theme.label}`,

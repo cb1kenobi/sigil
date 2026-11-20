@@ -11,6 +11,7 @@ import { openModal } from '../../src/components/modal.js';
 import { holdInput, topLayer } from '../../src/components/overlay.js';
 import { box, text } from '../../src/element/index.js';
 import { createInput, type InputRouter } from '../../src/input/index.js';
+import { effect, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import {
   click,
@@ -633,6 +634,161 @@ describe('menuClass', () => {
     expect(() =>
       attachContextMenu(s.field, { input: s.input, items: ITEMS, menuClass: 1 as never })
     ).toThrow(/menuClass/);
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+});
+
+describe('initial (SIG-463)', () => {
+  /** The rows the pointer is on, the root menu's and a submenu's. */
+  const pointed = (s: ReturnType<typeof scene>) =>
+    picture(s.root).filter((line) => line.includes('❯'));
+
+  /** `ITEMS` with the Export submenu given an `initial`. */
+  const withExport = (initial: MenuItem['initial']): MenuEntry<string>[] =>
+    ITEMS.map((entry) =>
+      'items' in entry && entry.items !== undefined ? { ...entry, initial } : entry
+    );
+
+  it('should open a submenu on its initial from the keys, rather than on its first', async () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    const menu = menuOn(s, { items: withExport(1) });
+    await s.term.press(KEYS.down, KEYS.down, KEYS.right);
+    const lines = picture(s.root);
+    expect(lines.find((line) => line.includes('❯ HTML'))).toBeDefined();
+    expect(lines.join('\n')).not.toContain('❯ PDF');
+    await s.term.press(KEYS.enter);
+    expect((await menu.result)?.value).to.equal('html');
+  });
+
+  it('should open a submenu on its initial when the pointer opens it, as a dropdown shows its value', async () => {
+    const s = scene();
+    menuOn(s, { items: withExport(1) });
+    await s.term.press(move(6, rowOf(picture(s.root), 'Export')));
+    expect(pointed(s).map((line) => /❯ (\w+)/.exec(line)?.[1])).toEqual(['Export', 'HTML']);
+  });
+
+  it('should ask a function each time the submenu opens, so it opens on what is current now', async () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    let current = 1;
+    let asked = 0;
+    menuOn(s, {
+      items: withExport(() => {
+        asked++;
+        return current;
+      }),
+    });
+    expect(asked, 'not when the menu is built').to.equal(0);
+    await s.term.press(KEYS.down, KEYS.down, KEYS.right);
+    expect(picture(s.root).join('\n')).toContain('❯ HTML');
+    await s.term.press(KEYS.left);
+    current = 0;
+    await s.term.press(KEYS.right);
+    expect(picture(s.root).join('\n')).toContain('❯ PDF');
+    expect(asked).to.equal(2);
+  });
+
+  it('should read an answer that is not a position as no initial at all', async () => {
+    for (const answer of [undefined, -1, 2, 0.5, Number.NaN]) {
+      const s = scene({ at: { x: 0, y: 1 } });
+      const keys = menuOn(s, { items: withExport(() => answer) });
+      await s.term.press(KEYS.down, KEYS.down, KEYS.right);
+      expect(picture(s.root).join('\n'), `${answer}, from the keys`).toContain('❯ PDF');
+      keys.close();
+      menuOn(s, { items: withExport(() => answer) });
+      await s.term.press(move(6, rowOf(picture(s.root), 'Export')));
+      expect(pointed(s), `${answer}, from the pointer`).toHaveLength(1);
+    }
+  });
+
+  it('should highlight nothing for an initial that is disabled, as the root menu does', async () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    const items: MenuEntry<string>[] = [
+      {
+        initial: 1,
+        items: [
+          { label: 'PDF', value: 'pdf' },
+          { disabled: true, label: 'HTML', value: 'html' },
+        ],
+        label: 'E&xport',
+      },
+    ];
+    menuOn(s, { items });
+    await s.term.press(KEYS.right);
+    expect(pointed(s)).toHaveLength(1);
+    // and the next key starts from the top, as it does with nothing highlighted
+    await s.term.press(KEYS.down);
+    expect(picture(s.root).join('\n')).toContain('❯ PDF');
+  });
+
+  it('should take a function as the root menu initial too, asked once as it opens', () => {
+    const s = scene();
+    const current = new State(1);
+    menuOn(s, { initial: () => current.get() });
+    expect(pointed(s)[0]).toContain('Save As');
+  });
+
+  it('should ask a function untracked, so an effect that opens a menu does not depend on it', () => {
+    const s = scene();
+    const current = new State(1);
+    let runs = 0;
+    const stop = effect(() => {
+      runs++;
+      if (runs === 1) {
+        menuOn(s, { initial: () => current.get() });
+      }
+    });
+    handles.push({ dispose: stop });
+    current.set(0);
+    flush();
+    expect(runs).to.equal(1);
+  });
+
+  it("should choose a pointer-opened submenu's initial on Enter, since the keys are the deepest menu's", async () => {
+    const s = scene();
+    const menu = menuOn(s, { items: withExport(1) });
+    await s.term.press(move(6, rowOf(picture(s.root), 'Export')));
+    await s.term.press(KEYS.enter);
+    expect(menu.open, 'Enter chose something').to.equal(false);
+    expect((await menu.result)?.value).to.equal('html');
+  });
+
+  it('should take nothing from the app when a root initial throws', () => {
+    const s = scene();
+    expect(() =>
+      menuOn(s, {
+        initial: () => {
+          throw new Error('nope');
+        },
+      })
+    ).toThrow(/nope/);
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+
+  it('should refuse an initial that is not a position or a function, and one on an item with no submenu', () => {
+    const s = scene();
+    for (const initial of [-1, 0.5, '0', null]) {
+      expect(() => menuOn(s, { items: withExport(initial as never) }), String(initial)).toThrow(
+        /initial/
+      );
+      expect(() => menuOn(s, { initial: initial as never }), String(initial)).toThrow(/initial/);
+    }
+    // past the end: Export has two entries, the root five
+    expect(() => menuOn(s, { items: withExport(2) })).toThrow(/initial/);
+    expect(() => menuOn(s, { initial: 5 })).toThrow(/initial/);
+    expect(() => menuOn(s, { items: [{ initial: 0, label: 'Save', value: 'save' }] })).toThrow(
+      /submenu/
+    );
+    // all the way down
+    expect(() =>
+      menuOn(s, {
+        items: [
+          {
+            items: [{ initial: 5, items: [{ label: 'a', value: 'a' }], label: 'Deep' }],
+            label: 'Top',
+          },
+        ],
+      })
+    ).toThrow(/initial/);
     expect(topLayer(s.input)).toBeUndefined();
   });
 });

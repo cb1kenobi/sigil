@@ -714,7 +714,10 @@ so Ctrl-N, Ctrl-O and Ctrl-Y work with no menu open. The list shows each file's
 size and modified date, and the dropdown really sorts it -- by name, by size largest
 first, or by date newest first, with an arrow on the column. Tab to the dropdown and
 Enter, Space or Down opens the list under it with the value highlighted, while a
-letter picks the next choice starting with it without opening anything. Right click
+letter picks the next choice starting with it without opening anything. View > Sort
+by is the same choice as a submenu, and opens on the sort in use, whichever of the
+two changed it last: its `initial` is a function the menu asks each time it opens.
+Right click
 a file, or press Shift-F10 or the Menu key with the focus on one, for a menu about
 that file, at the pointer or under the row. The focus never leaves where it was
 while a menu is open, and the keys are the menu's until it closes, so `q` does not

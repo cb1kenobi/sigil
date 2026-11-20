@@ -34,6 +34,7 @@ import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { onCleanup } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { isAbort } from './keys.js';
 import type { ModalHost } from './modal.js';
@@ -54,6 +55,19 @@ export interface MenuItem<T = unknown> {
   disabled?: boolean | string;
   /** Shown at the right of the row, muted: the key that does the same, usually. */
   hint?: string;
+  /**
+   * Which entry of its submenu is highlighted when the submenu opens: the current
+   * choice of a submenu that offers a choice, such as a theme. `openMenu()`'s
+   * option of the same name, read the same way -- see {@link MenuInitial}. Only an
+   * item with `items` may have one.
+   *
+   * Without one, a submenu opened from the keys highlights its first entry on offer
+   * and one the pointer opened highlights nothing until the pointer is over a row.
+   * With one, it highlights that entry however it was opened, as a dropdown shows
+   * its value -- so Enter after the pointer opened it chooses that entry, since the
+   * keys are the deepest open menu's.
+   */
+  initial?: MenuInitial;
   /**
    * A submenu. An item with one opens it rather than being chosen, and draws an
    * arrow at its right.
@@ -78,6 +92,22 @@ export interface MenuItem<T = unknown> {
  */
 export type MenuEntry<T = unknown> = MenuItem<T> | Separator;
 
+/**
+ * Which entry a menu highlights when it opens: a position, or a function asked for
+ * one each time that menu opens.
+ *
+ * A function is what a menu built once and opened many times wants -- a menubar's,
+ * or a submenu in one -- since the choice that is current can change between two
+ * openings: `() => THEMES.indexOf(theme.get())`. It is asked untracked, so an
+ * effect that opens a menu does not come to depend on what it reads. What it
+ * answers is not checked where the menu was built, which is the only place a
+ * position can be, so an answer that is not the position of an entry -- `-1`, or
+ * `undefined` for "none" -- counts as no `initial` at all rather than a throw from
+ * the key that opened it. A position that is a separator or disabled highlights
+ * nothing, whichever way it was given.
+ */
+export type MenuInitial = number | (() => number | undefined);
+
 /** Where a menu is put: the renderer, or any element that is the router's root. */
 export type MenuHost = ModalHost;
 
@@ -98,10 +128,13 @@ export interface MenuOptions<T = unknown> {
   /** What it opens beside, or the cell it opens at. */
   at: MenuAnchor;
   /**
-   * Which entry is highlighted when it opens, by position. Defaults to the first
-   * one on offer. A position that is a separator or disabled highlights nothing.
+   * Which entry is highlighted when it opens: a position, or a function asked for
+   * one as it opens, whose answer counts as none when it is not a position (see
+   * {@link MenuInitial}). Defaults to the first one on offer. A position that is a
+   * separator or disabled highlights nothing. A submenu takes its own `initial` on
+   * the item that opens it.
    */
-  initial?: number;
+  initial?: MenuInitial;
   /** The router the keys come from. */
   input: InputRouter;
   /** What it offers. */
@@ -245,7 +278,44 @@ export function checkMenuEntries(items: unknown): void {
     if (item.items !== undefined) {
       checkMenuEntries(item.items);
     }
+    if (item.initial !== undefined) {
+      if (item.items === undefined) {
+        throw new TypeError(__`Expected a menu item with an initial to have a submenu`);
+      }
+      checkMenuInitial(item.initial, item.items.length);
+    }
   }
+}
+
+/**
+ * Throws unless an `initial` is the position of one of a menu's entries, or a
+ * function. Asked where the menu is built, with its entries, for the reason
+ * `checkMenuEntries()` is.
+ *
+ * @param initial - What was passed.
+ * @param count - How many entries the menu has.
+ */
+export function checkMenuInitial(initial: unknown, count: number): void {
+  if (
+    initial !== undefined &&
+    typeof initial !== 'function' &&
+    !(typeof initial === 'number' && Number.isInteger(initial) && initial >= 0 && initial < count)
+  ) {
+    throw new TypeError(__`Expected menu initial to be the position of an item`);
+  }
+}
+
+/**
+ * The position an `initial` names now: a function asked, untracked, and an answer
+ * that is not the position of one of `count` entries read as none.
+ *
+ * @param initial - The option, already checked by `checkMenuInitial()`.
+ * @param count - How many entries the menu has.
+ * @returns The position, or `undefined` for the menu's own default.
+ */
+export function menuInitial(initial: MenuInitial | undefined, count: number): number | undefined {
+  const at = typeof initial === 'function' ? untrack(initial) : initial;
+  return typeof at === 'number' && Number.isInteger(at) && at >= 0 && at < count ? at : undefined;
 }
 
 /**
@@ -679,10 +749,16 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
       }
       return true;
     }
+    // a function that throws goes out through the key or the pointer that got
+    // here, as any app callback would; the session is still open, so Escape still
+    // closes it
+    const given = menuInitial(row.item?.initial, sub.length);
     truncate(depth);
     rowAnchors.add(row.element);
     const child = push(sub, row.element, 'right', 0, -1);
-    if (how === 'keys') {
+    if (given !== undefined) {
+      highlight(child, given);
+    } else if (how === 'keys') {
       highlight(child, nextEnabled(child.rows, -1, 1));
     }
     return true;
@@ -1019,12 +1095,12 @@ export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): Men
   if (opts.minWidth !== undefined && !(Number.isInteger(opts.minWidth) && opts.minWidth >= 0)) {
     throw new TypeError(__`Expected a menu minWidth to be a whole number of cells`);
   }
-  if (
-    opts.initial !== undefined &&
-    !(Number.isInteger(opts.initial) && opts.initial >= 0 && opts.initial < opts.items.length)
-  ) {
-    throw new TypeError(__`Expected menu initial to be the position of an item`);
-  }
+  checkMenuInitial(opts.initial, opts.items.length);
+
+  // asked before the session takes the input, so a function that throws takes nothing
+  const initial =
+    menuInitial(opts.initial, opts.items.length) ??
+    opts.items.findIndex((entry) => !isSeparator(entry) && (entry.disabled ?? false) === false);
 
   let settle!: (item: MenuItem<T> | undefined) => void;
   const result = new Promise<MenuItem<T> | undefined>((resolve) => {
@@ -1042,9 +1118,6 @@ export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): Men
       }
     },
   });
-  const initial =
-    opts.initial ??
-    opts.items.findIndex((entry) => !isSeparator(entry) && (entry.disabled ?? false) === false);
   session.root(opts.items, at, { initial, minWidth: opts.minWidth ?? 0, side });
 
   return {

@@ -28,11 +28,11 @@
         "type": "boolean"
       },
       {
-        "description": "Which entry is highlighted when it opens, by position. Defaults to the first one on offer. A position that is a separator or disabled highlights nothing.",
+        "description": "Which entry is highlighted when it opens: a position, or a function asked for one as it opens, whose answer counts as none when it is not a position (see `MenuInitial`). Defaults to the first one on offer. A position that is a separator or disabled highlights nothing. A submenu takes its own `initial` on the item that opens it.",
         "default": "the first one on offer",
         "name": "initial",
         "optional": true,
-        "type": "number"
+        "type": "MenuInitial"
       },
       {
         "description": "Classes put on the menu and on every submenu it opens, beside `sigil-menu`, so a theme can style these menus apart from every other: `.files-menu { background-color: blue }`. A menu is drawn on the root rather than inside whatever opened it, so a rule written under that element cannot reach it. Space-separated for several.",

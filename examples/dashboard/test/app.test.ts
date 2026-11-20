@@ -415,4 +415,19 @@ describe('the themes', () => {
     await s.press('t', 'd');
     expect(background(s.app)).not.toStrictEqual(system);
   });
+
+  it('should open the Theme submenu on the theme in use, not on its first', async () => {
+    const s = mount();
+    await s.settle();
+    // Dark, two presses on from System
+    await s.press('t', 't');
+    await s.press(KEYS.tab, KEYS.tab, KEYS.enter, KEYS.right);
+    expect(s.line('❯ Dark')).toContain('●');
+    expect(s.screen()).not.toContain('❯ System');
+    // Enter keeps it rather than going back to the first, and the focus is
+    // still on the button, so Enter opens the menu again
+    await s.press(KEYS.enter);
+    await s.press(KEYS.enter, KEYS.right);
+    expect(s.line('❯ Dark')).toContain('●');
+  });
 });
