@@ -6397,6 +6397,9 @@ test in this package writes for something to run -- a fake `bun`, a fake
   `executable.test.ts` reads every test file in every package, the examples and
   the website's tests, and fails on an octal `mode:` or `chmod` with an execute
   bit anywhere but through the helper. The exceptions -- directories, a mocked
-  `mkdirSync`, and `which.test.ts` and `editor.test.ts`'s files that nothing
-  runs -- are named with a count, so a stub added beside one is still a decision
-  somebody makes. A mode held in a variable is out of its reach.
+  `mkdirSync`, and files that are looked up or access-checked and never run --
+  are named with a count, so a new mode in one of those files is a decision
+  somebody makes. Two limits are written down beside it rather than closed: a
+  mode in a variable, or set some other way such as a shell `chmod +x`, is out
+  of its reach, and so is a second call to a helper whose one mode is already
+  counted -- `which.test.ts`'s `exe()` and `editor.test.ts`'s `bin()`.

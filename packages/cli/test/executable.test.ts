@@ -88,8 +88,11 @@ describe('writing an executable', () => {
 
   /**
    * The modes with an execute bit set that are not a stub somebody runs, and
-   * why. Counted rather than exempted wholesale, so that a stub added to one
-   * of these files is a decision somebody makes.
+   * why. Counted rather than exempted wholesale, so that a new mode in one of
+   * these files is a decision somebody makes. What the count cannot see is a
+   * second call to a helper already counted -- `which.test.ts`'s `exe()` and
+   * `editor.test.ts`'s `bin()` each set their one mode -- so a test that runs
+   * what one of those wrote is a stub this does not catch.
    */
   const exempt: Record<string, { count: number; why: string }> = {
     'packages/cli/test/copy-fixture.test.ts': {
@@ -102,7 +105,9 @@ describe('writing an executable', () => {
     },
     'packages/sigil/test/completion-install.test.ts': {
       count: 4,
-      why: 'directories made unwritable and given back',
+      why:
+        'directories made unwritable and given back, and one file a route gate ' +
+        'checks for access and never runs',
     },
     'packages/sigil/test/components/editor.test.ts': {
       count: 1,
@@ -127,11 +132,13 @@ describe('writing an executable', () => {
   };
 
   /**
-   * A `mode:` option, or a `chmod` call's mode, spelled as an octal literal.
-   * Which of them has an execute bit is decided below rather than in the
-   * pattern.
+   * A `mode:` option, or a `chmod`, `fchmod` or `lchmod` call's mode, spelled
+   * as an octal literal. Which of them has an execute bit is decided below
+   * rather than in the pattern. A mode in a variable or an expression, or one
+   * set some other way -- `openSync()`'s third argument, a shell `chmod +x` --
+   * is out of its reach.
    */
-  const mode = /\bmode:\s*0o([0-7]+)|\bchmod(?:Sync)?\([^;]*?,\s*0o([0-7]+)\s*\)/g;
+  const mode = /\bmode:\s*0o([0-7]+)|\b[fl]?chmod(?:Sync)?\([^;]*?,\s*0o([0-7]+)\s*\)/g;
 
   const executables = Object.fromEntries(
     sources

@@ -55,7 +55,9 @@ export function writeExecutable(path: string, contents: string | Uint8Array, mod
   if (wrote.status !== 0) {
     // a signal leaves `status` null and usually nothing on stderr, so it is
     // named or the message would end in a colon
-    const why = wrote.stderr.trim() || `sh was killed by ${wrote.signal ?? 'nothing it said'}`;
+    const why =
+      wrote.stderr.trim() ||
+      (wrote.signal ? `sh was killed by ${wrote.signal}` : `sh exited ${wrote.status}`);
     throw new Error(`Could not write ${path}: ${why}`);
   }
 
