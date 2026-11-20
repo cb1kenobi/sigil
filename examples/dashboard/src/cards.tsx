@@ -11,13 +11,12 @@
 
 import { type Kpi, trendLabel, verdict } from './metrics.ts';
 import type { Dashboard } from './model.ts';
-import { badgeView, type BadgeVariant } from '@ttylabs/sigil/components/badge';
+import { Badge, type BadgeVariant } from '@ttylabs/sigil/components/badge';
 import { Gauge, Sparkline } from '@ttylabs/sigil/components/chart';
 import { unicodeSupported } from '@ttylabs/sigil/components/note';
 import { Panel } from '@ttylabs/sigil/components/panel';
-import { box, type Element } from '@ttylabs/sigil/element';
-import { createEffect } from '@ttylabs/sigil/renderer';
-import { untrack } from '@ttylabs/sigil/signals';
+import type { Element } from '@ttylabs/sigil/element';
+import { Computed, untrack } from '@ttylabs/sigil/signals';
 
 /** The badge a card wears: its change, or for a card that is a state, the state. */
 export function badgeFor(kpi: Kpi, ascii: boolean): { label: string; variant: BadgeVariant } {
@@ -32,28 +31,6 @@ export function badgeFor(kpi: Kpi, ascii: boolean): { label: string; variant: Ba
     label: trendLabel(kpi.change, ascii),
     variant: tone === 'good' ? 'success' : tone === 'bad' ? 'error' : 'neutral',
   };
-}
-
-/**
- * A badge whose label and colour follow a signal.
- *
- * `badgeView()` builds a fixed tree, so this builds a new one whenever what it
- * reads changes and puts it in the old one's place. A gap, listed in the README:
- * a badge an app wants live is one an app has to rebuild.
- *
- * @param read - The label and the variant, read in an effect.
- * @returns The box the badge sits in.
- */
-function LiveBadge(read: () => { label: string; variant: BadgeVariant }): Element {
-  const host = box({ 'flex-shrink': 0 });
-  createEffect(() => {
-    const { label, variant } = read();
-    for (const child of host.children.slice()) {
-      host.removeChild(child);
-    }
-    host.append(badgeView(label, { variant }).element);
-  });
-  return host;
 }
 
 /** What one card is handed. */
@@ -72,6 +49,8 @@ interface CardProps {
 function Card({ d, index }: CardProps): Element {
   const ascii = !unicodeSupported();
   const kpi = (): Kpi => d.kpis.get()[index] as Kpi;
+  // one reading for both of the badge's props, so a change is one redraw
+  const badge = new Computed(() => badgeFor(kpi(), ascii));
   // a card is a trend or a share of a whole for its life, so which chart it
   // draws is decided once
   const chart = untrack(() => kpi().ratio !== undefined)
@@ -91,7 +70,7 @@ function Card({ d, index }: CardProps): Element {
     <Panel class="card" footer={() => kpi().footer} title={() => kpi().title}>
       <text class="figure sigil-heading">{() => kpi().value}</text>
       <box class="card-trend">
-        {LiveBadge(() => badgeFor(kpi(), ascii))}
+        <Badge label={() => badge.get().label} variant={() => badge.get().variant} />
         <text class="card-note sigil-muted">{() => kpi().note}</text>
       </box>
       {chart}

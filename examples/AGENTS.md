@@ -1044,8 +1044,10 @@ dark -- built from sigil's own components, with its own data, names and colours.
   effects. Both clicks have to arrive in one read for the gap to show, which is
   how the test sends them.
 
-- **A card's badge is rebuilt when its figure moves.** `badgeView()` draws a
-  fixed label, so `LiveBadge()` replaces it in an effect. The table's status cell
+- **A card's badge follows its figure, and is written to in place.** `Badge` takes
+  its label and variant as functions over one `Computed` (SIG-460); it used to be a
+  `LiveBadge()` that rebuilt `badgeView()` in an effect, which `badgeView()` had no
+  other answer to. The table's status cell
   is not a badge: ten solid green blocks down one column outshouted everything on
   the screen, so it is a mark and a word in the status's role, as a
   `{ element, width }` cell.

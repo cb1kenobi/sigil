@@ -7920,6 +7920,48 @@ What is deliberately not done: a `muted` or `accent` variant (the ticket named
 five, and either is one line in `ROLES` the day a caller wants it); an icon or
 symbol per variant; case folding; and a badge carrying a colour in its props.
 
+**A live badge is a `Badge` component beside `badgeView()`, not `badgeView()`
+widened (SIG-460).** The dashboard's KPI cards rebuilt a `badgeView()` in an effect
+whenever the range moved, because a view is a fixed tree.
+
+- **A component, because that is the split every sibling already has.**
+  `sparkline()` / `sparklineView()` are the printed pair and `Sparkline` is the live
+  element; `Panel` takes a function for each label. A `badgeView()` that took a
+  signal would have to return a tree that updates itself while still being a
+  `{ element, width }` -- and `width` is a number, which a changing label makes
+  stale, so a table cell built from it would be measured once and wrong. The view
+  stays what it was, a snapshot with a width, and the component is the element a
+  tree holds.
+- **`label` and `variant` take a value, anything with a `get()`, or a function** --
+  `BadgeSource<T>`, which is `ChartSource<T>`'s shape and is declared in `badge.ts`
+  rather than imported from `chart.ts`, whose module is five times the size of the
+  badge's. A badge only reads them, so a `Computed` is right (SIG-334's rule for
+  which props a control writes; a badge writes none). `colorLevel` is read once:
+  brackets against padding is a property of where the badge is drawn, and a level
+  that moves is a terminal that was resized to another terminal.
+- **One definition of what a badge says.** `badgeParts()` decides the content and
+  the classes and both `badgeView()` and `Badge()` call it, so the padding, the
+  level 0 brackets and the role classes cannot disagree between the two. The test
+  that compares their pictures at both levels is the guard.
+- **Written in place.** One `text`, whose text is set and whose variant classes are
+  swapped (`sigil-badge-<variant>` and the role class come off, the new ones go on;
+  a class the app passed that is not one of those is never touched; one that is
+  spelled the same as a variant class is the variant's to remove). Plain values start no
+  effect, so a badge that never changes costs what a view does -- and `badgeView()`
+  itself imports no signal machinery.
+- **What it costs the static path:** `badge.ts` imports `createEffect` from
+  `../renderer/index.js`, as 36 other components do, so the
+  `components/badge` subpath's static graph went from about 150 kB to 209 kB as of
+  SIG-460 (the same walk gives `components/panel` 209 kB), under the 316 KiB
+  ceiling in `dist.test.ts`. `badge()` and `badgeView()` still call nothing from it.
+  Importing `renderer/owner.js` directly would be a third spelling nothing else
+  uses.
+- **An unknown variant throws a `TypeError` when `Badge()` first reads it** -- a
+  later one from a signal is reported by the effect, as any effect's throw is, and
+  the badge keeps what it last drew -- and not in `badgeView()`, which has always written a class for whatever it was handed. A
+  variant arriving from a signal is the case where the type cannot help, and
+  `Object.hasOwn()` is what stops `toString` passing for one.
+
 ### A rule: a horizontal divider, with an optional label
 
 SIG-180 asked for what Textual's `Rule` and `ink-divider` draw: a line across the
