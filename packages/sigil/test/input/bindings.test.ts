@@ -336,6 +336,10 @@ describe('an overlay that holds every key', () => {
     flush();
 
     const hold = input.hold(box({}));
+    // opening one is a change in itself: an overlay that describes nothing leaves
+    // the footer empty rather than showing the app's dead keys
+    flush();
+    expect(seen.at(-1)).toEqual([]);
     hold.describe('escape', { description: 'close' });
     flush();
     hold.release();

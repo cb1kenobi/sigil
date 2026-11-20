@@ -241,7 +241,7 @@ describe('openMenu()', () => {
 
     expect(listed()).toEqual(['move', 'move', 'select', 'select', 'close']);
     menu.close();
-    expect(listed()).toEqual(['next', 'previous', 'select', 'close']);
+    expect(listed()).toEqual(['select', 'close']);
   });
 
   it('should close on Tab and let the Tab move the focus on', async () => {

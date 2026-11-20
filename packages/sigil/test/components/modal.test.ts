@@ -921,7 +921,7 @@ describe('a modal and the key-help footer', () => {
     const s = scene();
     s.input.bind('c', () => {}, { description: 'commit' });
     s.input.fallback('q', () => {}, { description: 'quit' });
-    modalOn(s, { title: 'Sure?' });
+    modalOn(s, { actions: [{ label: 'Yes' }, { label: 'No' }], title: 'Sure?' });
     await settle();
 
     expect(described(s)).toEqual([
@@ -930,6 +930,14 @@ describe('a modal and the key-help footer', () => {
       'enter select',
       'escape close',
     ]);
+  });
+
+  it('should not list Tab when there is nowhere for it to go', async () => {
+    const s = scene();
+    modalOn(s, { title: 'Sure?' });
+    await settle();
+
+    expect(described(s)).toEqual(['enter select', 'escape close']);
   });
 
   it("should list the app's keys again once it is closed", async () => {
@@ -952,7 +960,7 @@ describe('a modal and the key-help footer', () => {
   it('should list a key an element inside it declares, and not one outside', async () => {
     const s = scene();
     const field = text('field', { focusable: true });
-    s.input.describe('x', { description: 'outside', scope: s.one });
+    s.input.describe('x', { description: 'outside', scope: s.root });
     modalOn(s, { body: field });
     s.input.describe('ctrl+s', { description: 'commit', scope: field });
     s.input.focus.focus(field);
