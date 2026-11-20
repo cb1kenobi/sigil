@@ -5142,7 +5142,7 @@ not a view built again every tick.
   them. Bars grow from zero, or from the lowest value where some are negative; a
   value above the bottom is always at least an eighth of a cell, so a small number
   is not drawn as none.
-- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step })`**
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
   `[{ data, label, role }]`: they share the plot, each in its own role, a cell
@@ -5153,7 +5153,12 @@ not a view built again every tick.
   '10:10']` sets the first and last points under it. Every sample is spread
   across the width unless `step` says how many dot columns apart they are, with
   the latest at the right edge. A value that is not a finite number **breaks** the
-  line rather than being bridged.
+  line rather than being bridged. `fill: true` shades the plot under every line
+  down to the bottom of the scale -- an area chart -- and `fill` on a series says
+  so for that one alone. The shade is a quarter of a cell's dots, in the line's
+  role, so the line stays the densest thing in the plot where there is no colour
+  to tell the two apart; a line is never drawn under a shade, whichever series
+  either belongs to. In ASCII the shade is `:` under the `*` line.
 - **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
   reading against its range. `value` is a ratio unless `max` says otherwise, so
   `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
@@ -5168,7 +5173,9 @@ foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`
 and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
 theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
-`.sigil-chart-series-1` and up, and its legend `.sigil-chart-legend`. A bar takes
+`.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
+`.sigil-chart-area` beside its series' classes, and a crosshair
+`.sigil-chart-crosshair`. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts
@@ -5220,12 +5227,24 @@ picture.
   it. Taller than a row, it stacks the eighths into an area, so three rows is
   twenty-four heights. Where the layout leaves its width to it, it asks for a
   column a sample of the series' capacity.
-- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend })`**
+- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend, fill, crosshair })`**
   scrolls: the latest sample is at the right edge and each one before it a dot
   column further left, two to a cell, so a 40-column plot holds the last 80.
   `step: 3` spaces them three dots apart, and `step: 'fit'` spreads a whole
   series across the width as `lineChart()` does. The rows the axis, the x labels
-  and the legend leave are the plot's.
+  and the legend leave are the plot's. `fill` shades under the lines as
+  `lineChart()`'s does.
+- **`crosshair: { input, text }`** follows the pointer: a rule down the plot at
+  the sample nearest it, a tick on the axis under that sample, and a tooltip
+  beside the rule saying each series' value there -- `attachTooltip()` pointed at
+  the rule, so it takes the tooltip's options, shows at once unless `delay` says
+  otherwise, and goes on the right unless `side` does. `text(index, values)` writes
+  the readout: `index` counts along the longest series and `values` holds each
+  series' value there, `undefined` where it has none, so an app can put the day a
+  sample stands for above the figures; an empty string draws the rule alone. It
+  needs `mouse: { motion: true }`, since without motion nothing knows where the
+  pointer is. There is no horizontal line, because the value is not where the
+  pointer is: what the readout names is each line's value at that sample.
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
   and take the rows the values and the labels leave.

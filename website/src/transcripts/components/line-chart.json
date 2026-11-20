@@ -24,6 +24,13 @@
         "type": "Record<string, string | undefined>"
       },
       {
+        "description": "Whether to shade the plot under each line, down to the bottom of the scale, in the line's role -- an area chart. A series' own `fill` overrides it. Defaults to false.",
+        "default": "false",
+        "name": "fill",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
         "description": "How a number is written. Defaults to at most two decimals.",
         "default": "at most two decimals",
         "name": "format",

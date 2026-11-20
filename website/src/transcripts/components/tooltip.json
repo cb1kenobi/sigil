@@ -9,7 +9,7 @@
         "type": "InputRouter"
       },
       {
-        "description": "What it says. Wraps at `maxWidth`.",
+        "description": "What it says. Wraps at `maxWidth`. An empty string says nothing, and a bubble with nothing to say is hidden rather than drawn as an empty box, until `setText()` gives it words again.",
         "name": "text",
         "optional": false,
         "type": "string"

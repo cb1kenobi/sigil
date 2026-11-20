@@ -7473,7 +7473,94 @@ questions were settled as below. The sabotage runs are in
   time axis that labels more than its two ends; `selectable: false` on a live
   chart's body, which the printed tree does not set either; and a mouse readout of
   the value under the pointer, which is a tooltip's job and wants the samples'
-  positions, which a drawing does not keep.
+  positions, which a drawing does not keep. SIG-464 did the last, below, by having
+  the drawing say where its crosshair stands.
+
+### A line chart's area and crosshair (SIG-464)
+
+`fill` on `lineChart()`, `LineChart` and a series, and `crosshair` on `LineChart`.
+Found writing the dashboard, whose model -- shadcn's interactive area chart -- shades
+under its lines and shows the values under the pointer.
+
+- **The shade is a quarter of the dots, not all of them.** Every other dot across
+  and down, from just under the line's highest dot in each dot column to the bottom
+  of the scale: a braille cell's `⠅`. A solid shade was the obvious build and fails
+  without colour -- a block whose top edge is the line, and a second series drawn
+  across it is lost in the first one's block. Half the dots in a checkerboard was
+  tried next and was still too dense at `NO_COLOR` for a lower line to read through
+  an upper shade. A quarter is a tint in colour and a texture without it, and the
+  line stays the densest thing in the plot. The screen is laid on the plot's dot
+  grid rather than per series, so two shades meeting in a cell agree about which
+  dots are a shade's. A dot column the line does not reach -- a gap, or the plot
+  before a scrolling chart's history -- is not shaded, which is the gap rule: a
+  missing sample is drawn as nothing, shade included. In ASCII a cell of shade is
+  `:` under the `*` line.
+- **A line beats the crosshair and the crosshair beats a shade, whichever series
+  each belongs to.** A cell with a line in it is every line's dots and the owning
+  series' shade, in the owner's colour -- the paint-order rule of the live charts
+  entry above, unchanged -- so an upper series' shade never puts dots into a lower
+  series' line or takes its colour. A cell the crosshair runs through with no line
+  in it is the crosshair's, `.sigil-chart-crosshair` and `.sigil-muted`; the rule is
+  broken where it meets a line, which marks the point it stands on. A cell of shade
+  alone is the last filled series', with `.sigil-chart-area` beside its series'
+  classes -- a hook, and no framework rule, for the reason the series classes have
+  none. `should never draw a shade over a line, whichever series it belongs to` is
+  the pin for a line against a shade, and fails for a cell that takes every
+  series' shade; `should draw a line over the rule, and the rule over a shade` is
+  the pin for the crosshair's two, in ASCII, where each cell's glyph says which of
+  the three it is.
+- **The crosshair is a vertical rule snapped to a sample, and nothing horizontal.**
+  The rule stands at the sample nearest the middle of the pointer's cell, counted
+  along the longest series -- seven days across a wide plot are seven places it can
+  be -- and the axis gets a `┴` under it. Where the pointer's cell holds several
+  samples -- two at a step of one, many where `fit` spreads more samples than the
+  plot has dot columns -- it is the **newest** of them, and two equally near go to
+  the newer. Review round 1 found the first version rounding half towards the
+  older, which left the latest sample of a scrolling chart -- the one it is read
+  for -- under no column at all; round 2 found the same in `fit` over a long range,
+  the dashboard's 90 days on a narrow plot. Something in such a cell is always
+  unreadable, since a cell is the pointer's resolution, and the older samples are
+  the ones to lose. A horizontal line at the pointer's height
+  would name a value nothing has: what the readout says is each line's value at
+  that sample, and a reader's eye finds those on the lines. A column left of a
+  scrolling chart's history, or over the gutter, has no sample and draws nothing.
+- **The pointer column is the state, and the drawing snaps it.** The chart keeps
+  the cell column the pointer is over, not the sample, and `lineDrawing()` works out
+  the sample with the geometry it has just computed and hands back where it put the
+  rule and each series' value there. So a range switched under a still pointer, or
+  a `Series` pushed to, re-snaps and re-reads in the same drawing with nothing
+  remembered to go stale. That is the half the earlier "Not done" said was missing:
+  a drawing that keeps where its samples are. What it does remember is the column
+  relative to the chart at the last report, so a layout that moves the chart under
+  a still pointer -- the dashboard's sidebar collapsing -- moves the rule with the
+  chart until the next report. That is a limit and not fixed: the router's own
+  `hover` is just as stale until then, since nothing reports a pointer that did not
+  move, and the next motion puts both right.
+- **The readout is `attachTooltip()` pointed at the rule, and it shows at once.**
+  `crosshair` takes the tooltip's options, so it needs the router -- which is also
+  how the chart hears the pointer, through `input.onMouse()` read against the
+  router's `hover` state as the tooltip reads it, and the host's own `onMouse`
+  stays the app's. `delay` defaults to `0` and `side` to `right`: a readout that
+  lags the rule is a readout of where the pointer was. `text(index, values)` is the
+  app's way to put the day above the figures; the default is a line per series with
+  a value, its label and `format`'s number.
+- **A pointer that moves on onto the bubble is still the chart's.** The bubble is
+  flush against the rule, so a pointer carrying on to the right is over the bubble
+  by the hit test -- and the chart's `hover` state goes false. Read literally that
+  took the rule away and left the bubble where it was, since the tooltip keeps a
+  bubble the pointer is on: the pointer could never get past it. So the chart also
+  counts a pointer that is on its bubble and inside the chart's own box. `should
+  keep following a pointer that has moved on onto the readout` fails without it.
+- **An empty readout draws the rule alone, and that needed the tooltip to hide an
+  empty bubble.** The tooltip keeps a bubble the pointer is on even when its `area`
+  says nowhere, so a readout that went empty under the pointer stayed up saying the
+  old figures. A tooltip with nothing to say is now hidden like one pointing at
+  nothing -- recorded under the tooltip's own entry -- and the chart sets the empty
+  string like any other.
+- **It needs `mouse.motion`, and says so rather than turning it on.** The tooltip's
+  and `:hover`'s reason: `1003` is a report per cell crossed, and the app decides.
+  The dashboard asks for it, and `60-live-charts.js` now runs through `runApp()`
+  inline so that it has a router to hand the chart.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -10928,6 +11015,13 @@ because a dropdown or anything else that sits beside a box wants the same answer
   taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
   a user or an app can see differs, and spying on a constructor pins how rather
   than what.
+- **A bubble with nothing to say is hidden, not drawn empty (SIG-464).** `text: ''`
+  and `setText('')` hide the bubble the way an `area` of nothing does -- it stays in
+  the tree, `shown` stays true, and the next words bring it back where it belongs.
+  An empty box beside an anchor says only that something is missing, and a line
+  chart's crosshair needed the hiding to hold while the pointer is on the bubble,
+  where an `area` of nothing keeps it. `should hide a bubble with nothing to say,
+  and bring it back with words` is the pin.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
