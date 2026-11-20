@@ -61,7 +61,7 @@ describe('the framework sheet', () => {
    * built-ins share is a role by this test's own definition. A component puts it
    * on the part that shows its focus from `onFocusChange`.
    *
-   * The twelve exceptions are declared rather than discovered. Three are
+   * The thirteen exceptions are declared rather than discovered. Three are
    * `inverse`, the focus role's declaration, and none is the focus:
    * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
    * focus; `.sigil-badge` is how a role's colour becomes a background; and
@@ -89,8 +89,10 @@ describe('the framework sheet', () => {
    * because that is what the author of the markdown wrote -- the words' meaning
    * rather than a colour -- and the bold one is not the heading role, or a theme
    * that coloured headings would colour every strong word.
+   * `.sigil-treemap:focus` is the one keyed on a state: a focused map's outline is
+   * green, a colour and only a colour, and no role is a focus that is a colour.
    */
-  it('should declare on a role, bar twelve exceptions that say why', () => {
+  it('should declare on a role, bar thirteen exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -114,6 +116,7 @@ describe('the framework sheet', () => {
       '.sigil-qrcode-paint',
       '.sigil-scroll-track',
       '.sigil-text-field',
+      '.sigil-treemap:focus',
     ];
 
     // the selectors that carry a declaration, read off the parsed sheet rather

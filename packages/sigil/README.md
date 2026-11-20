@@ -2711,7 +2711,9 @@ without a word. `TextField` owns `onKey`, `onPaste`, `onFocusChange` and
 `tabRowView` `onKey`, `onFocusChange` and `onResize`; `openModal` `onPaste`;
 `showToast` `onMouse`; `attachTooltip` `onLayout`; `Dropdown` `onKey`, `onMouse`
 and `onFocusChange`. Put a handler for those on an
-element around the component. A wrapper that forwards `props` types them as
+element around the component -- except `onFocusChange`, which is told only to
+the element whose own focus changed, so one around the component never hears
+it; style on `:focus-within` there instead. A wrapper that forwards `props` types them as
 `ElementPropsWithout<...>` with the same hooks: a value typed plain `ElementProps`
 no longer fits, because it may carry a handler the component would replace.
 `refuseOwnedHooks(who, props, hooks)` from
@@ -5328,7 +5330,12 @@ so neighbours meet with no gap and no overlap.
   and calls `onPick(key, item)`; on a gathered tile, with the largest of them and
   the whole list as a third argument. An item with no tile of its own outlines
   what it was drawn in, and `parent(key)` is what lets one deep inside a tile
-  drawn whole find it.
+  drawn whole find it. While the map has the focus the outline is green, so the
+  reader can tell where the arrows go; only the colour changes, so at colour
+  level 0 a focused map looks like an unfocused one. The colour is the map's
+  `border-color`: the framework's sheet says `.sigil-treemap:focus { border-color:
+  green }`, a `:focus` rule of your own replaces it, and `.sigil-treemap {
+  border-color: … }` colours the outline in both states.
 - **`onHover(key, item, gathered?)` is told what is under the pointer**, as it
   moves onto another tile: what a click there would pick, from the same hit test,
   and `(undefined, undefined)` once it is off the map. `current` stays where it
@@ -5338,6 +5345,17 @@ so neighbours meet with no gap and no overlap.
   follows the pointer's reports, as `:hover` does, so a new tree under a pointer
   that is not moving is reported right at the next move. A drag that began on
   another element and holds the pointer is followed across the tiles too.
+- **`tooltip` puts a bubble beside the tile under the pointer**:
+  `attachTooltip()`'s options, with `text(key, item, gathered?)` for the words.
+  It shows after `delay`, flips where there is no room, then follows the pointer
+  from tile to tile, stays while the pointer is on it, and goes once the pointer
+  has left both the map and the bubble; like `onHover` it needs
+  `mouse: { motion: true }`.
+
+  ```js
+  Treemap({ ...props, tooltip: { input, text: (key, node) => `${node.name} ${size(node)}` } });
+  ```
+
 - **`empty`** is what is said where there is nothing to draw, and a function is
   followed, so a scan's progress can live there. The element asks for 40 by 12 and
   takes what the layout gives it; `flex-grow: 1` fills a panel. `.sigil-treemap`
@@ -6458,6 +6476,20 @@ hidden while the anchor is scrolled out of view, coming back when it does.
 `maxWidth`
 (40) is where the words wrap. `placeTooltip(anchor, size, screen, side)` is the
 same arithmetic on its own, for anything else that wants to sit beside a box.
+
+**`area` points it at a rectangle inside the anchor** rather than at the whole of
+it: a function returning `{ x, y, width, height }` in cells from the anchor's
+top-left corner, or `undefined` where there is nothing to point at, which hides
+the bubble until there is. It is asked after every layout and in an effect, so a
+signal it reads moves a shown bubble the moment it is set -- which is how one
+element with parts that are not elements, like a treemap's tiles, gets a bubble
+beside the part under the pointer. While the pointer is on the bubble, an
+`undefined` keeps it where it was, so it can still be reached.
+
+```js
+const part = new State(undefined); // set from your own hit test
+const tip = attachTooltip(chart, { input, text: '', area: () => part.get() });
+```
 
 The bubble is added to the anchor's root as `position: fixed`, above a modal and
 below the debug overlay, and is opaque without a colour. It is **never focusable

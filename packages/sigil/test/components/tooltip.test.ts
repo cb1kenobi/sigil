@@ -8,8 +8,9 @@ import {
 } from '../../src/components/tooltip.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type InputRouter } from '../../src/input/index.js';
+import type { Box } from '../../src/layout/index.js';
 import { createRoot } from '../../src/renderer/index.js';
-import { flush } from '../../src/signals/index.js';
+import { flush, State } from '../../src/signals/index.js';
 import { setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -793,5 +794,240 @@ describe('attachTooltip()', () => {
     expect(() => attachTooltip(s.anchor, { ...ok, delay: -1 })).toThrow('delay');
     expect(() => attachTooltip(s.anchor, { ...ok, maxWidth: 2 })).toThrow('maxWidth');
     expect(() => attachTooltip(s.anchor, { ...ok, quiet: 'no' as never })).toThrow('quiet');
+  });
+});
+
+describe('attachTooltip(), at a rectangle inside the anchor (SIG-500)', () => {
+  /** An empty box 20 by 4 at (2, 2), which is hoverable as a box with no background is. */
+  function field() {
+    const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
+    const anchor = box({
+      height: 4,
+      id: 'field',
+      left: 2,
+      position: 'absolute',
+      top: 2,
+      width: 20,
+    });
+    const root = box({ height: HEIGHT, position: 'relative', width: WIDTH }, anchor);
+    const input = createInput({
+      mouse: { motion: true, surface: surface() },
+      root,
+      terminal: term.terminal,
+    });
+    routers.push(input);
+    picture(root);
+    return { anchor, input, root, term };
+  }
+
+  /** A tooltip on the field pointing at `part`, shown at once. */
+  function tipAt(f: ReturnType<typeof field>, part: State<Box | undefined>) {
+    const tip = attachTooltip(f.anchor, {
+      area: () => part.get(),
+      ascii: true,
+      delay: 0,
+      input: f.input,
+      text: 'Here',
+    });
+    handles.push(tip);
+    return tip;
+  }
+
+  it('should point at the rectangle, and follow it with nothing laid out', async () => {
+    const f = field();
+    // the field's second row, columns 10 to 12: on screen, row 3 from column 12
+    const part = new State<Box | undefined>({ height: 1, width: 3, x: 10, y: 1 });
+    const tip = tipAt(f, part);
+    await f.term.press(move(4, 4));
+    flush();
+    let lines = picture(f.root);
+    expect(tip.side).toBe('bottom');
+    expect(lines[4]?.indexOf('+')).toBe(12);
+    expect(lines[5]?.slice(12)).toBe('| Here |');
+
+    // the field's last row from its first column: what moves a treemap's tile
+    // under the pointer is a signal, and no layout follows it, so the effect is
+    // what has to have moved the bubble before anything lays the tree out
+    part.set({ height: 1, width: 3, x: 0, y: 3 });
+    flush();
+    const bubble = tip.element as Element;
+    expect([bubble.props.left, bubble.props.top]).toStrictEqual([2, 6]);
+    lines = picture(f.root);
+    expect(lines[7]?.slice(2)).toBe('| Here |');
+  });
+
+  it('should cut a rectangle reaching past the anchor to the anchor', async () => {
+    const f = field();
+    // ten rows tall from the field's top: cut, it ends where the field does, on
+    // row 5, and there is room below; whole, it would end past the screen
+    const part = new State<Box | undefined>({ height: 10, width: 30, x: 15, y: 0 });
+    const tip = tipAt(f, part);
+    await f.term.press(move(4, 4));
+    flush();
+    const lines = picture(f.root);
+    expect(tip.side).toBe('bottom');
+    expect(lines[6]?.indexOf('+')).toBe(17);
+  });
+
+  it('should hide for a rectangle of nothing, and keep it while the pointer is on the bubble', async () => {
+    const f = field();
+    const part = new State<Box | undefined>({ height: 1, width: 3, x: 10, y: 1 });
+    const tip = tipAt(f, part);
+    await f.term.press(move(4, 4));
+    flush();
+    picture(f.root);
+
+    // onto the bubble, which is over the field's last two rows: the app's own
+    // hit test has nothing there, and the bubble stays where it was
+    await f.term.press(move(14, 6));
+    part.set(undefined);
+    flush();
+    expect(tip.element?.states).toContain('hover');
+    let lines = picture(f.root);
+    expect(tip.side).toBe('bottom');
+    expect(lines[5]?.slice(12)).toBe('| Here |');
+
+    // back onto the field, where there is still nothing to point at: hidden by
+    // the report that left the bubble, since nothing lays that out
+    await f.term.press(move(4, 4));
+    expect((tip.element as Element).props.visibility).toBe('hidden');
+    lines = picture(f.root);
+    expect(tip.shown, 'kept, for the next rectangle').toBe(true);
+    expect(tip.side).toBe(undefined);
+    expect(lines.join('\n')).not.toContain('Here');
+
+    part.set({ height: 1, width: 3, x: 0, y: 0 });
+    flush();
+    lines = picture(f.root);
+    expect(tip.side).toBe('bottom');
+    expect(lines[4]?.slice(2)).toBe('| Here |');
+
+    // and off the field altogether
+    await f.term.press(move(30, 10));
+    expect(tip.shown).toBe(false);
+  });
+
+  it('should keep where it was, not a box the app went on to move', async () => {
+    // one box object, reused: an app's own hit test writing into it in place
+    const f = field();
+    const reused = { height: 1, width: 3, x: 10, y: 1 };
+    const over = new State(true);
+    const tip = attachTooltip(f.anchor, {
+      area: () => (over.get() ? reused : undefined),
+      ascii: true,
+      delay: 0,
+      input: f.input,
+      text: 'Here',
+    });
+    handles.push(tip);
+    await f.term.press(move(4, 4));
+    flush();
+    picture(f.root);
+    await f.term.press(move(14, 6));
+    over.set(false);
+    flush();
+    reused.x = 0;
+    reused.y = 3;
+    // another report on the bubble, which asks the area again
+    await f.term.press(move(15, 6));
+    expect(picture(f.root)[5]?.slice(12)).toBe('| Here |');
+  });
+
+  it('should cut the rectangle to what clips the anchor', async () => {
+    // the field in a box two rows tall that hides the rest: its last row is not
+    // on screen, so a rectangle there has nothing to point at
+    const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
+    const anchor = box({ 'flex-shrink': 0, height: 4, id: 'field', width: 20 });
+    const root = box(
+      { height: HEIGHT, position: 'relative', width: WIDTH },
+      box({ height: 2, left: 2, overflow: 'hidden', position: 'absolute', top: 2 }, anchor)
+    );
+    const input = createInput({
+      mouse: { motion: true, surface: surface() },
+      root,
+      terminal: term.terminal,
+    });
+    routers.push(input);
+    picture(root);
+    const part = new State<Box | undefined>({ height: 1, width: 3, x: 10, y: 3 });
+    const tip = attachTooltip(anchor, {
+      area: () => part.get(),
+      ascii: true,
+      delay: 0,
+      input,
+      text: 'Here',
+    });
+    handles.push(tip);
+    await term.press(move(4, 3));
+    flush();
+    let lines = picture(root);
+    expect(tip.shown).toBe(true);
+    expect(tip.side).toBe(undefined);
+    expect(lines.join('\n')).not.toContain('Here');
+
+    // and the row that is on screen is pointed at as before
+    part.set({ height: 1, width: 3, x: 10, y: 1 });
+    flush();
+    lines = picture(root);
+    expect(tip.side).toBe('bottom');
+    expect(lines[5]?.slice(12)).toBe('| Here |');
+  });
+
+  it('should stop following the rectangle once disposed', async () => {
+    const f = field();
+    let asked = 0;
+    const part = new State<Box | undefined>({ height: 1, width: 3, x: 10, y: 1 });
+    const tip = attachTooltip(f.anchor, {
+      area: () => {
+        asked++;
+        return part.get();
+      },
+      ascii: true,
+      delay: 0,
+      input: f.input,
+      text: 'Here',
+    });
+    await f.term.press(move(4, 4));
+    flush();
+    picture(f.root);
+    tip.dispose();
+    const before = asked;
+    part.set({ height: 1, width: 3, x: 0, y: 0 });
+    flush();
+    expect(asked).toBe(before);
+  });
+
+  it('should leave nothing behind when the area throws as it is attached', async () => {
+    // the focus is on the anchor and there is no delay, so a tooltip that had
+    // subscribed to the focus before asking the area would already have a bubble
+    const s = scene();
+    s.input.focus.focus(s.anchor);
+    flush();
+    expect(() =>
+      attachTooltip(s.anchor, {
+        area: () => {
+          throw new Error('no area');
+        },
+        ascii: true,
+        delay: 0,
+        input: s.input,
+        text: 'Orphan',
+      })
+    ).toThrow('no area');
+    flush();
+    expect(picture(s.root).join('\n')).not.toContain('Orphan');
+    // nor on the mouse: the focus away, and the pointer onto the anchor
+    s.input.focus.focus(s.other);
+    flush();
+    await hover(s);
+    flush();
+    expect(picture(s.root).join('\n')).not.toContain('Orphan');
+  });
+
+  it('should refuse an area that is not a function', () => {
+    const f = field();
+    expect(() =>
+      attachTooltip(f.anchor, { area: { x: 0 } as never, input: f.input, text: 'x' })
+    ).toThrow('area');
   });
 });

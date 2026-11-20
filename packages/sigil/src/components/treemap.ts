@@ -48,6 +48,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../input/index.js';
+import type { Box } from '../layout/index.js';
 import { trackedRaw } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
@@ -55,6 +56,20 @@ import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
+import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
+
+/**
+ * A tooltip at the tile under the pointer: `attachTooltip()`'s options, with the
+ * words worked out per tile.
+ */
+export interface TreemapTooltip<T, K> extends Omit<TooltipOptions, 'area' | 'text'> {
+  /**
+   * What the bubble says over a tile, given what `onHover` is told about it: the
+   * key and the item a click there would pick, and for a tile of gathered items
+   * the whole list.
+   */
+  text: (key: K, item: T, gathered?: readonly T[]) => string;
+}
 
 export interface TreemapProps<T, K = T> {
   /**
@@ -79,7 +94,9 @@ export interface TreemapProps<T, K = T> {
    * gathered together -- is a checker of this colour and a second, which is it
    * darkened, or at 16 colours its bright twin. A gathered tile is the colour that
    * covers the most size among what it gathers, unless `moreColor` says. The
-   * outline of the current item is bright white, so no item should be.
+   * outline of the current item is bright white, so no item should be; while the
+   * map has the focus it is green, unless the map's `border-color` says otherwise,
+   * and a green item is fine, since the band inside the outline keeps it apart.
    *
    * Called as the map paints, so a signal it reads repaints it. Defaults to one
    * blue for everything.
@@ -90,7 +107,10 @@ export interface TreemapProps<T, K = T> {
    * shape `ListView`'s `current` has. A click writes it. An item with no tile of
    * its own outlines what it was drawn in: the tile it was gathered into, or the
    * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
-   * root is the whole map and is not outlined.
+   * root is the whole map and is not outlined. The outline is the map's
+   * `border-color`: bright white where nothing sets one, and green while the map
+   * has the focus, which is how a reader tells where the arrows go. Only the
+   * colour changes, so at colour level 0 the two look the same.
    */
   current?: K | State<K | undefined>;
   /**
@@ -162,7 +182,9 @@ export interface TreemapProps<T, K = T> {
   parent?: (key: K) => K | undefined;
   /**
    * The element's own props: a size, a class, `flex-grow`. The map is focusable,
-   * which `focusable: false` here takes back, along with its keys.
+   * which `focusable: false` here takes back, along with its keys. Its
+   * `border-color` is the outline's colour: `.sigil-treemap:focus` colours the
+   * focused outline, and `.sigil-treemap` from a theme or the app colours both.
    */
   props?: ElementPropsWithout<'onKey' | 'onMouse'>;
   /**
@@ -185,6 +207,16 @@ export interface TreemapProps<T, K = T> {
    * its share beside its siblings.
    */
   size: (item: T) => number;
+  /**
+   * A tooltip beside the tile under the pointer, saying what `text` says of it.
+   * It is `attachTooltip()` on the map with its `area` at the tile, so it shows
+   * after `delay`, flips where there is no room, and needs the router's
+   * `mouse.motion`, as `onHover` does; once shown it moves from tile to tile with
+   * the pointer, stays while the pointer is on it, and goes when the pointer has
+   * left both the map and the bubble. Taken off with the
+   * component it was built in. Defaults to none.
+   */
+  tooltip?: TreemapTooltip<T, K>;
   /**
    * `h`, `j`, `k` and `l` to move as Left, Down, Up and Right do, which is vim's
    * spelling: the letters `vim` gives a list (`j`, `k`) and a tree (`h`, `l` as
@@ -770,6 +802,18 @@ function before(a: readonly number[], b: readonly number[]): boolean {
 }
 
 /**
+ * The cells a box of pixels covers: a cell holding half of it counts, so a box
+ * starting or ending on an odd pixel row has the whole of that row of cells.
+ *
+ * @param box - The box, in pixels.
+ * @returns The cells, as the layout measures boxes.
+ */
+function treemapCells(box: TreemapBox): Box {
+  const top = Math.floor(box.y / 2);
+  return { height: Math.ceil((box.y + box.h) / 2) - top, width: box.w, x: box.x, y: top };
+}
+
+/**
  * The part of a box that is coloured: all of it but its last column and its last
  * row, which are left in the terminal's own background so that two tiles side by
  * side never run together, whatever their colours and at every colour level. A box
@@ -905,6 +949,12 @@ export interface TreemapPaint<T> {
   readonly level: ColorLevel;
   /** The box the current item is outlined around, from {@link treemapMark}. */
   readonly mark?: TreemapBox;
+  /**
+   * The outline's colour, where it is not bright white: the map's `border-color`,
+   * which the framework sheet makes green while the map has the focus. Not read
+   * at level 0, or where it is the terminal's own.
+   */
+  readonly outline?: Color;
 }
 
 /**
@@ -951,7 +1001,14 @@ export function paintTreemap<T, K>(
 
   if (opts.mark !== undefined) {
     const ring = inside(opts.mark);
-    const mark = level <= 0 ? on : level === 1 ? palette(15) : quantizeColor(MARK, level);
+    const mark =
+      level <= 0
+        ? on
+        : opts.outline !== undefined && opts.outline !== DEFAULT_COLOR
+          ? quantizeColor(opts.outline, level)
+          : level === 1
+            ? palette(15)
+            : quantizeColor(MARK, level);
     // at level 0 the outline is the same "on" as everything else, so a marked
     // tile is hollow: its outline and nothing inside it
     const hollow = level <= 0 && layout.tiles.includes(opts.mark as TreemapTile<T>);
@@ -1097,7 +1154,9 @@ function moreWords(count: number, room: number): string {
  * It is focusable. With the focus, the arrow keys move `current` to the tile next
  * to it that way ({@link treemapNeighbor}), as a click on that tile would -- and
  * `h`, `j`, `k` and `l` with `vim` -- and Enter calls `onActivate`, as a double
- * click on a tile does; `describeTreemap()` lists them for a footer.
+ * click on a tile does; `describeTreemap()` lists them for a footer. The outline
+ * is the map's `border-color`, which the framework sheet makes green while it has
+ * the focus, and bright white where nothing sets one.
  *
  * @param props - The tree, how it is read, and what is marked.
  * @returns The element: `.sigil-treemap`.
@@ -1106,6 +1165,9 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   refuseOwnedHooks('Treemap', props.props, ['onKey', 'onMouse']);
   if (typeof props.size !== 'function') {
     throw new TypeError(__`Expected treemap size to be a function`);
+  }
+  if (props.tooltip !== undefined && typeof props.tooltip?.text !== 'function') {
+    throw new TypeError(__`Expected treemap tooltip text to be a function`);
   }
   const keyOf = props.key ?? ((item: T) => item as unknown as K);
   const read: TreemapReader<T, K> = {
@@ -1219,6 +1281,9 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
             marked === undefined || marked === untrack(() => keyOf(root))
               ? undefined
               : treemapMark(layout, marked, { key: keyOf, parent: props.parent }),
+          // a style property that does not inherit, so a colour around the map
+          // never reaches the outline, and one a sheet gives `:focus` does
+          outline: self.style.borderColor,
         });
       },
     },
@@ -1237,6 +1302,27 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
   /** The tile `onHover` was last told about. */
   let hovered: TreemapTile<T> | undefined;
 
+  /** The cells of the tile under the pointer, relative to where the map paints, for the tooltip. */
+  const pointed = props.tooltip === undefined ? undefined : new State<Box | undefined>(undefined);
+  let tip: TooltipHandle | undefined;
+  if (props.tooltip !== undefined && pointed !== undefined) {
+    tip = attachTooltip(element, {
+      ...props.tooltip,
+      // the tile's cells against the map's box: the paint is inside any border
+      // or padding an app gave the map, and the tooltip measures from the box
+      area: () => {
+        const cells = pointed.get();
+        const outer = element.box;
+        const inner = element.content ?? outer;
+        if (cells === undefined || outer === undefined || inner === undefined) {
+          return cells;
+        }
+        return { ...cells, x: cells.x + inner.x - outer.x, y: cells.y + inner.y - outer.y };
+      },
+      text: '',
+    });
+  }
+
   /**
    * Follows the pointer for `onHover`, from every report the map is handed.
    *
@@ -1253,11 +1339,19 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     }
     hovered = tile;
     if (tile === undefined) {
+      pointed?.set(undefined);
       props.onHover?.(undefined, undefined);
       return;
     }
     const item = itemOf(tile);
-    props.onHover?.(keyOf(item), item, tile.kind === 'rest' ? tile.rest : undefined);
+    const key = keyOf(item);
+    const gathered = tile.kind === 'rest' ? tile.rest : undefined;
+    if (tip !== undefined && pointed !== undefined && props.tooltip !== undefined) {
+      // the words first, so the bubble that moves is the one that says them
+      tip.setText(props.tooltip.text(key, item, gathered));
+      pointed.set(treemapCells(tile));
+    }
+    props.onHover?.(key, item, gathered);
   };
 
   // a drag that began on another element holds the pointer, so its moves over

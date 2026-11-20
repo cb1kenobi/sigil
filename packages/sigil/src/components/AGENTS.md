@@ -10848,6 +10848,57 @@ because a dropdown or anything else that sits beside a box wants the same answer
   than tested, for the reason that entry gives. The other thirteen were caught as
   written, including the four on the hook itself: not dispatched, its answer
   dropped, collected only on a size change, and `onResize` told on every layout.
+- **`area` points the bubble at a rectangle inside the anchor (SIG-500).** A
+  treemap's tiles are not elements -- the map is one `raw` -- so anchored to the
+  map, a bubble sat at the map's edge whatever tile the pointer was on. `area` is
+  a function giving a rectangle in cells from the anchor's top-left corner, and
+  the placement, the flip and the clamp are `placeTooltip()`'s as before: the
+  rectangle is simply what is handed to it in place of the anchor's box. One
+  tooltip with a narrower anchor rather than a second component, because every
+  other rule here -- hover or focus, Escape, `--quiet`, the opaque fill, the
+  following -- is the same for a part of an element as for the whole. The
+  rectangle is cut to the anchor's box and then to its clip, so it points at no
+  more than is there to see; `undefined` is "nothing to point at", hidden and kept
+  as for an anchor scrolled out of view.
+- **A rectangle that moves with nothing laid out moves the bubble anyway.** The
+  tile under the pointer changes with no layout at all, so asking only after a
+  layout would leave the bubble beside the last tile until something unrelated
+  laid the tree out. So `area` is also read in an effect, which re-runs the
+  bubble's own `onLayout` against the last layout's boxes when a signal the
+  function read is set, and the router's mouse reports ask it again too. The
+  effect is what `should point at the rectangle, and follow it with nothing laid
+  out` reads, through the bubble's props before any layout. A corner pass (the
+  entry above about a bubble whose size moved) is never pending when either
+  asks: the layout it asks for is the next pass of the same frame.
+- **While the pointer is on the bubble, an `area` of nothing keeps it where it
+  was.** Moving onto the bubble leaves the part it pointed at, so an app's own hit
+  test says nothing is under the pointer, and hiding would make the bubble
+  unreachable -- and, hidden, it is skipped by the hit test, so the next report
+  would land on the anchor and show it again: a blink per report. Keeping it is
+  the hoverable rule above for a part of the anchor. The cost is that the bubble
+  covers the parts beneath it until the pointer leaves it, which is the cost a
+  whole-anchor bubble already has over whatever it is placed on. A
+  `pointer-events` that let the pointer through was the other answer, and is
+  refused for the reason the hit test records: nothing else needs one.
+- **SIG-500's review round 1: eight findings, all fixed, each with a test that
+  fails without it.** An `area` that threw on its first call, inside
+  `attachTooltip()`, left the mouse, key, resize and focus subscriptions behind
+  with no handle to dispose them -- and with the focus on the anchor and no delay,
+  a bubble in the tree: the effect that reads `area` is now the first thing
+  subscribed. The kept rectangle is a copy, so an app that reuses one box and
+  writes into it in place cannot move a bubble the pointer is reading. The
+  treemap's `tooltip` docs said the bubble goes when the pointer leaves the map,
+  where it stays while the pointer is on it. A treemap with no `tooltip` built a
+  `State` for one. And four tests: the rectangle cut to the anchor's clip,
+  `dispose()` ending the effect, a tile starting on an odd pixel row as well as
+  ending on one, and `gathered` reaching `text`.
+- **Round 2, over those fixes: two findings, one taken.** The test of an `area`
+  that throws caught the old order only through the focus, so a mouse
+  subscription moved back in front of the effect would have leaked unseen; it
+  now hovers the anchor after the throw as well, and fails for that order. Not
+  taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
+  a user or an app can see differs, and spying on a constructor pins how rather
+  than what.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
@@ -13685,14 +13736,40 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   view before it stops the router, so an app that quits does not show it; an app
   that stops its router and keeps the map on screen clears its own line.
 - **The example shows it in the line under the panes, not in a tooltip.**
-  `attachTooltip()` anchors a bubble to an element, and the element here is the
-  whole map: the bubble would sit at the map's edge rather than by the tile, show
-  after its delay, and be re-placed for every tile crossed. The line under the
-  panes already says what the selection is, in the words wanted -- path, size,
-  share -- so while the pointer is on the map it says what the pointer is over,
-  and the selection again once it leaves. A gathered tile is said as `40 more in
-  work · 4.0 kB · 4.0%`. It costs the example `mouse: { motion: true }`, a report
-  for every cell the pointer crosses, which "The mouse" says is the app's to pay.
+  Until SIG-500, `attachTooltip()` could anchor a bubble only to an element, and
+  the element here is the whole map, so the bubble would have sat at the map's
+  edge rather than by the tile. That is no longer the reason; the next entry has
+  the ones that are. The line under the panes already says what the selection
+  is, in the words wanted -- path, size, share -- so while the pointer is on the
+  map it says what the pointer is over, and the selection again once it leaves.
+  A gathered tile is said as `40 more in work · 4.0 kB · 4.0%`. It costs the
+  example `mouse: { motion: true }`, a report for every cell the pointer crosses,
+  which "The mouse" says is the app's to pay.
+- **`tooltip` is a bubble beside the tile under the pointer (SIG-500), built in.**
+  `attachTooltip()` on the map with its `area` at the hovered tile's cells, and
+  `text(key, item, gathered?)` for the words -- what `onHover` is told, from the
+  same hit test. Built in rather than left as a few lines in an app, because the
+  lines need the tile's box, which only the map's layout knows, and the
+  conversion has two traps an app would meet one at a time: a tile is in
+  half-block pixels, so a tile starting or ending on an odd pixel row has the
+  whole of that row of cells (`should point at the whole of a row of cells a tile
+  has half of`), and the map paints inside whatever border or padding an app gave
+  it while `area` is measured from the box (`should point at the tile inside a
+  border the app gave the map`). The words are set before the rectangle, so the
+  bubble that moves is the one that says them. A map with no tile under the
+  pointer -- a tree emptied under it -- hides the bubble. It costs the treemap
+  module the tooltip's, which it imports; an app that passes no `tooltip` builds
+  nothing.
+- **The disk usage example keeps its line, and the reasons are what a line does
+  that a bubble does not.** It is read at every colour level and every size: a
+  bubble is three rows over a map that may be eight tall, where the line costs
+  nothing the map has. It holds the whole path, the size, the share and the file
+  count, where a bubble wraps at 40 columns over the tiles it describes. It
+  answers on the report rather than after a delay. And it covers nothing, where a
+  bubble covers the neighbouring tiles the pointer is on its way to. A tooltip is
+  the better answer for an app with no line to spare; it is one prop, and adding
+  it to the example beside the line is Chris's call (recorded as such).
+
 - **What an item with no tile of its own outlines needs `parent`.** Its own tile;
   the tile it was gathered into; a tile of an ancestor drawn in one piece; or, for
   an item divided into its children, its whole box -- `treemapMark()`, the
@@ -13726,7 +13803,9 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   read while the map paints, so a signal behind it repaints the map. With no
   `color` every tile is one blue, which is enough: the edges are what separate
   tiles, and a hue means something only the app knows. The outline is bright white
-  (`palette(15)` at 16), which the docs say no item should be.
+  (`palette(15)` at 16), which the docs say no item should be. Since SIG-497 it is
+  the map's `border-color` where one is set, which the framework sheet makes green
+  while the map has the focus (below).
 - **A name on a colour is black or white at 256 too.** The example's ink read the
   fill's channels with `rgbChannels()`, which has none for a palette index -- and at
   256 every fill had been quantized to one -- so every name at 256 was drawn in the
@@ -13811,11 +13890,10 @@ marked tile hollow, and names written after the pixels and kept off the outline.
   textured tile's second square is the terminal's own there, so a tile one pixel
   tall over a leaf leaves `▄` cells showing the leaf. `treemapCellTile()` takes the
   level the map was drawn at and reads the checker the way the paint does.
-- **Not done:** keys between tiles (SIG-491 did them, below); a tooltip at the tile
-  under the pointer rather than at the map's edge; zooming, which is an app writing
-  a new `root` -- the example's Enter and Backspace; animating one layout into the
-  next; a tile for a parent's own size beside its children; and a legend, which is
-  the app's, as the example's swatches are.
+- **Not done:** keys between tiles (SIG-491 did them, below); zooming, which is an
+  app writing a new `root` -- the example's Enter and Backspace; animating one
+  layout into the next; a tile for a parent's own size beside its children; and a
+  legend, which is the app's, as the example's swatches are.
 
 ### A treemap's keys: an arrow to the tile beside, and Enter the app's (SIG-491)
 
@@ -13909,7 +13987,8 @@ Enter.
   so at a glance a focused map and an unfocused one look alike, as at level 0 a
   focused list does; a panel's `:focus-within`, which the example has, is where
   it shows. A focused outline is a colour, and the outline's colour is already the
-  one bright white no item may be.
+  one bright white no item may be. SIG-497 made it green anyway, accepting that it
+  can match a tile: "A treemap's focus", below.
 - **The example's map takes the focus.** A click on a tile focused the tree,
   because the keys for the selection -- Backspace, `d`, `t` -- were on the tree's
   panel and the map had none. They are on the box around both panels now, and a
@@ -13919,7 +13998,86 @@ Enter.
 - **Not done:** `h`/`j`/`k`/`l`, which a list takes with `vim` (SIG-499 gave the
   map the same option, below); a way into a divided item without zooming, which would be a second
   meaning for Enter; Page Up and Down, Home and End, which have no obvious meaning
-  over rectangles; and drawing the focus.
+  over rectangles; and drawing the focus (SIG-497 did, as a colour: below).
+
+### A treemap's focus: the outline turns green, and nothing else changes (SIG-497)
+
+Since SIG-491 the map takes the focus and the arrows, and its outline looked the
+same either way, so a reader could not tell whether an arrow would move the map or
+something else. Now the outline is green while the map has the focus.
+
+- **A colour and only a colour, which is Chris's choice after trying two
+  shapes.** The first version drew the outline two pixels thick while the map
+  had the focus, and the second framed the current item in box-drawing lines,
+  single and then double. Both are shapes, which is what SIG-278 asks a focus at
+  colour level 0 to be. Chris tried each and found that both made the tiles
+  inside jump, because a terminal draws them at so coarse a resolution: the
+  thicker outline moved a name a row down, and the double line made the content
+  jump too much. So the
+  outline is main's -- one pixel of half blocks, a one-pixel band of the
+  terminal's own background inside it, names kept off both -- focused or not, and
+  only its colour changes. `paintTreemap()` has no `focused`, so there is no
+  geometry for the focus to reach. `should draw the same cells focused as not, at
+  every level, which are the cells it always drew` mounts the map at every level,
+  compares its screen with `paintTreemap()`'s, then focuses and blurs it.
+- **So a focused map at colour level 0 looks like an unfocused one, and that is
+  the accepted trade.** It reverses the rule #493 started with, that a focus at
+  level 0 is something drawn. What shows the focus there is what showed it
+  before SIG-497: the panel around the map, where an app has one. `should look the
+  same focused or not at level 0, where there is no colour` holds the paint and
+  the mounted screen to it.
+- **The green is the framework sheet's: `.sigil-treemap:focus { border-color:
+  green }`**, the sixteenth declared exception to the role rule (the entry in
+  `src/theme`). The paint reads the map's resolved `border-color` and draws the
+  outline in it, degraded to the level, so the default lives in the sheet like
+  every other default colour. An app or a theme changes it with a `:focus` rule of
+  its own. Where nothing sets it, `border-color` is the terminal's own
+  (`DEFAULT_COLOR`), which is read as "not given", and the outline is bright white
+  as it always was. `palette(2)` is what the sheet's `green` resolves to, and
+  `should outline the current tile in green while the map has the focus, from the
+  framework sheet` reads it off the element rather than spelling it.
+- **`border-color` because it does not inherit and means nothing else to the
+  map.** That is how a `raw` takes a theme colour (the scroll box's track and
+  thumb are `cellStyle(element.style)` over a class of their own), and the map has
+  no part to put a class on: the outline is pixels in its paint. `color` inherits,
+  so a map inside `.sigil-error` or a coloured panel would have had its outline
+  turned red by something that was never about the map. A map draws no border
+  unless an app gives it a `border-style`, and an app that does is drawing the
+  map's frame and the outline in one colour, which reads as one thing.
+- **A theme's or an app's `.sigil-treemap { border-color: … }` colours both
+  states.** The origin decides before specificity is asked, so a one-class rule
+  from either beats the framework's `:focus` one. That is the sheet saying what the
+  outline is; a theme that wants a focus colour as well writes the `:focus` rule
+  beside it. `should outline in the map's border-color where a sheet gives one,
+  which beats the default's green` and `should let an app's or a theme's :focus rule
+  colour the focused outline instead` hold both.
+- **Green can be the colour of the tile it is drawn round, and that is accepted.**
+  SIG-491 gave not drawing the focus as a colour the reason that the outline's
+  bright white is the one colour the docs promise no item is. Green is not that:
+  the disk usage example's archives are green (`ansi: 2`), and a green outline
+  round an archive at 16 colours is the archive's own colour. The band inside the
+  outline and the gap outside it are both the terminal's background, so the
+  outline still reads as a ring standing off the tile; at 256 and truecolor the
+  two greens differ as well. Green because the example's panels turn green on
+  `:focus-within`, so the map's focused outline matches the panel it is in.
+- **Not `.sigil-focus`.** The role is `inverse`, a swap of the terminal's two
+  colours on a cell, which has no meaning for an outline drawn as half blocks in a
+  colour; and reading the role's attributes off the map to decide a colour would
+  make `.sigil-focus { inverse: false; text-decoration: underline }`, a theme
+  SIG-278 tests, take the map's focus away.
+- **The restyle is what repaints the map, so the map has no focus handler.** The
+  first version owned `onFocusChange`, refused one in `props`, and asked for a
+  paint from it, so that the paint would run when the focus moved. Measured on
+  this version, the handler did nothing: a `:focus` rule that changes
+  `border-color` restyles the map, a style compared by value marks its paint
+  ("Style invalidation" in `src/style`), and a tracked raw paints again. Taking
+  the handler out failed no test, including the one that asserts the green on the
+  screen after Tab. With no rule matching `:focus` nothing about the outline
+  changes, so nothing needs painting. So the map owns `onKey` and `onMouse` as
+  before and leaves `onFocusChange` to the app, which can now hear the map's focus
+  from `props` -- an element around the map would not, since a focus change is
+  told only to the element whose own state flipped. `should hear an onFocusChange
+  given in its props, which it leaves to the app`.
 
 ### A treemap's letters: `h`, `j`, `k` and `l` with `vim` (SIG-499)
 
