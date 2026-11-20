@@ -1,10 +1,14 @@
 import {
   markdown,
   type MarkdownBlock,
+  type MarkdownOptions,
   type MarkdownInline,
   markdownText,
+  markdownView,
   parseMarkdown,
 } from '../../src/components/index.js';
+import { type Element, renderToString } from '../../src/element/index.js';
+import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -23,6 +27,10 @@ import { describe, expect, it } from 'vitest';
  * of it. Taken one side after the other, best of three, `_*` read eight times
  * larger came out 27 times slower in the full suite, where on its own it is 3.5.
  * A side under two milliseconds counts as two, which is what the timer can say.
+ *
+ * The two tests that draw (SIG-423) count calls to an element's `measure` instead
+ * (SIG-437): they are about how often the layout measures, which is a number and
+ * not a duration, and a duration failed them once in a loaded full run.
  */
 
 /**
@@ -51,6 +59,41 @@ function costRatio(small: string, large: string, work: (source: string) => unkno
     bestLarge = Math.min(bestLarge, time(large));
   }
   return Math.max(bestLarge, 2) / Math.max(bestSmall, 2);
+}
+
+/**
+ * How much more measuring drawing `large` takes than drawing `small`: how many
+ * times the layout asked an element for its size, rather than how long it took
+ * (SIG-437).
+ *
+ * The layout calls an element's `measure` once for each width it measures it at,
+ * so a draw that measures a deep document at one more width per level is a count
+ * that grows with the square of the depth -- and the count is the same on a
+ * loaded machine as on an idle one, which a clock is not: the two timing tests
+ * this replaced each failed once in a full run. Every element's `measure` is
+ * wrapped before the draw, and nothing else about the tree is touched.
+ */
+function measuringRatio(small: string, large: string, opts: MarkdownOptions): number {
+  const count = (source: string): number => {
+    const { element, width } = markdownView(source, opts);
+    let calls = 0;
+    const walk = (node: Element): void => {
+      const measure = node.measure;
+      if (measure) {
+        node.measure = (at) => {
+          calls++;
+          return measure(at);
+        };
+      }
+      for (const child of node.children) {
+        walk(child);
+      }
+    };
+    walk(element);
+    renderToString(element, { cascade: themedCascade(opts), colorLevel: 0, width });
+    return calls;
+  };
+  return count(large) / count(small);
 }
 
 /** How many containers deep a document goes. */
@@ -437,7 +480,7 @@ describe('parseMarkdown() on malformed input', () => {
       ]);
     });
 
-    it('should draw deep nesting in time linear in its depth, not in its square', () => {
+    it('should draw deep nesting in measuring linear in its depth, not in its square', () => {
       // a row measures a flexible child at the whole row's width and then at the
       // width it got, so the body inside each list item was measured at one more
       // width per level, and so was everything in it: at sixty a paragraph a
@@ -445,20 +488,23 @@ describe('parseMarkdown() on malformed input', () => {
       // Drawn at a width that indents every level, so this is the measure alone
       // and not the depth rule above
       const wide = { ...plain, width: 400 };
-      const draw = (source: string): string => markdown(source, wide);
-      expect(growth((depth) => `${'- '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
-      expect(growth((depth) => `${'> '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
-      expect(growth((depth) => `${'1. '.repeat(depth)}a\n\n`.repeat(8), 12, draw)).toBeLessThan(24);
+      // eight times the depth is about 6 times the measuring, where the square of
+      // it is 64: the old row came to 50
+      for (const marker of ['- ', '> ', '1. ']) {
+        const at = (depth: number): string => `${marker.repeat(depth)}a\n\n`.repeat(8);
+        expect(measuringRatio(at(12), at(96), wide), JSON.stringify(marker)).toBeLessThan(12);
+      }
     });
 
     it('should measure the words of a paragraph under deep quotes once, not once per quote', () => {
       // linear in its lines and always was, but every word was measured at one
       // more width per quote around it: the paragraph under 99 quotes cost about
       // forty times what it does unquoted. What is left is the bars, which are
-      // drawn on every line, and is about two and a half
-      const draw = (source: string): string => markdown(source, { ...plain, width: 400 });
+      // drawn on every line and measure nothing: the count came to 1.01 times
       const lines = `a\n${'b\n'.repeat(2000)}`;
-      expect(costRatio(lines, `${'> '.repeat(99)}${lines}`, draw)).toBeLessThan(10);
+      expect(
+        measuringRatio(lines, `${'> '.repeat(99)}${lines}`, { ...plain, width: 400 })
+      ).toBeLessThan(2);
     });
 
     it('should read a footnote definition at the limit as text, not as a link definition', () => {

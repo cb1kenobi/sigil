@@ -11783,6 +11783,19 @@ of 24, and 6 to 9 after. The lazy lines are measured against the same paragraph
 unquoted, about 40 times before and 2.1 after, against a limit of 10. What is left
 there is the bars, which are drawn on every line.
 
+- **The two growth tests count the layout's `measure` calls and time nothing
+  (SIG-437).** Each failed once in a loaded full-suite run, passing alone, which
+  is a wall clock reading its neighbours. What they guard is how often the layout
+  measures an element, which is a count: `measuringRatio()` wraps every element's
+  `measure` and divides the calls for the large document by the calls for the
+  small one, the same on any machine. Depth 12 to 96 is 6.3 times the calls now
+  and 49.5 on the pre-SIG-423 `markdown.ts`, against a limit of 12; the lazy lines
+  are 1.01 times unquoted and were 53.5, against a limit of 2. Counting calls to
+  the width module was tried first and cannot see this: it was 7.4 times before
+  and after, because the text measure caches by width and the extra cost was in
+  the boxes above it. The parse-time `growth()` tests are left on the clock; they
+  have never failed, and a parse has no call to count.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
