@@ -405,3 +405,24 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   before the DA1 written after it, whether DECRQM is implemented, what a real round
   trip costs, and whether `mode 9999` comes back `unrecognised` rather than silent
   -- which is DECRPM's whole value in one line.
+- **`Terminal.width` asks a live TTY before it reads `COLUMNS`, and `terminalWidth()`
+  still reads `COLUMNS` first** (SIG-404). Both are right, for different streams.
+  `COLUMNS` is how a caller states a width when the stream cannot be asked -- a
+  pipe, a file, a test with no pseudo-terminal -- and `terminalWidth()` documents
+  it as first because its readers are prose: help, a rule, a note, wrapped text,
+  where `COLUMNS=60 mycli --help` is a user asking for narrower output. A
+  `Terminal` is the other thing, the screen a canvas is sized to and a live
+  region's erase arithmetic counts rows against. An exported `COLUMNS` (GNU
+  `watch`, an Emacs shell, some rc files) is whatever the shell last said, so read
+  first it answered 80 for a 120-column window, and answered 80 again after every
+  resize, because the resize event re-asks the same function. So `createTerminal()`
+  passes `streamFirst: isTTY` and a TTY that reports a positive `columns` is
+  believed; `COLUMNS` is the answer for one that reports none, and for every
+  stream that is not a TTY. `isTTY` is the terminal's own -- the `isTTY` option
+  over the stream's -- so one decision is made in one place. Nothing was
+  removed: the testing helpers set `COLUMNS` and the stream's `columns` to the
+  same number (`runOnTerminal()`), or pass no `env` at all (`createTestTerminal()`),
+  so neither can disagree with itself (a spawned run has no `resize()` to make
+  them). `terminalWidth()` itself is unchanged by default: it gained the
+  `streamFirst` option and nothing else. Covered by `size` in
+  `test/terminal/terminal.test.ts`, which pins both streams.

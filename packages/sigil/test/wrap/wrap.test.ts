@@ -61,6 +61,14 @@ describe('terminalWidth()', () => {
     expect(terminalWidth({ env: { COLUMNS: '400' }, stream: undefined })).toBe(MAX_WIDTH);
   });
 
+  it('should read the stream before COLUMNS when asked to, and COLUMNS when it has none', () => {
+    const env = { COLUMNS: '55' };
+    expect(terminalWidth({ env, stream: { columns: 60 }, streamFirst: true })).toBe(60);
+    expect(terminalWidth({ env, stream: {}, streamFirst: true })).toBe(55);
+    expect(terminalWidth({ env, stream: { columns: 0 }, streamFirst: true })).toBe(55);
+    expect(terminalWidth({ env: {}, stream: {}, streamFirst: true })).toBe(DEFAULT_WIDTH);
+  });
+
   it('should ignore a COLUMNS that is not a width', () => {
     // the whole string, not as much of it as parses: `12junk` is not somebody
     // saying twelve

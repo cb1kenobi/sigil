@@ -2568,7 +2568,11 @@ terminalWidth({ env: { COLUMNS: '72' } }); // 72
 `COLUMNS` is read first, since it is how a caller states a width the stream
 cannot be asked for. The result is capped at `MAX_WIDTH` (100) — long lines are
 harder to read than narrow ones — and `opts.max`, `opts.fallback`, `opts.env`,
-and `opts.stream` each override a step.
+and `opts.stream` each override a step. `opts.streamFirst` swaps the first two
+for a stream that is a live terminal: its width is read before `COLUMNS`, which
+is then only what is used when it reports none. `Terminal.width` does that for
+a TTY, so an exported `COLUMNS` cannot freeze a full-screen app at a width the
+window has since left.
 
 Wrapping is ANSI-aware and grapheme-aware: a style open at a line break is
 closed and reopened, so a background color never bleeds into the margin.

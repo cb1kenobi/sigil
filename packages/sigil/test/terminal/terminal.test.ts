@@ -198,6 +198,55 @@ describe('createTerminal()', () => {
       expect(term.width).to.equal(132);
     });
 
+    // an exported `COLUMNS` -- GNU `watch`, an Emacs shell -- is whatever the
+    // shell last said, and read first it outlives every resize of a live screen
+    it('should not let an exported COLUMNS override the width of a live TTY', () => {
+      const stdout = createStream({ columns: 120, isTTY: true });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        stdout: stdout as unknown as OutputStream,
+      });
+      expect(term.width).to.equal(120);
+
+      stdout.columns = 90;
+      expect(term.width).to.equal(90);
+    });
+
+    it('should use COLUMNS when a TTY reports no width', () => {
+      const stdout = createStream({ columns: undefined, isTTY: true });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        stdout: stdout as unknown as OutputStream,
+      });
+      expect(term.width).to.equal(80);
+    });
+
+    // the other stream: a pipe or a file has no screen to ask, and `COLUMNS` is
+    // how a caller or a test says what to wrap to
+    it('should still read COLUMNS first when the stream is not a TTY', () => {
+      const stdout = createStream({ columns: 120, isTTY: false });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        stdout: stdout as unknown as OutputStream,
+      });
+      expect(term.width).to.equal(80);
+
+      const bare = createStream({ columns: undefined, isTTY: false });
+      expect(
+        createTerminal({ env: { COLUMNS: '70' }, stdout: bare as unknown as OutputStream }).width
+      ).to.equal(70);
+    });
+
+    it('should follow an isTTY option over what the stream says about itself', () => {
+      const stdout = createStream({ columns: 120, isTTY: false });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        isTTY: true,
+        stdout: stdout as unknown as OutputStream,
+      });
+      expect(term.width).to.equal(120);
+    });
+
     it('should tell subscribers the new size on a resize', () => {
       const { stdout, term } = setup({ columns: 80, rows: 24 });
       const seen: { height: number; width: number }[] = [];
