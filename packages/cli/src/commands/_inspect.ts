@@ -506,7 +506,10 @@ function escaped(error: unknown): unknown {
  * @returns The phrase, with no punctuation of its own.
  */
 export function utilityRules(styles: ShakenStyles): string {
-  return `${styles.kept} of ${styles.total} utility rules`;
+  const base = `${styles.kept} of ${styles.total} utility rules`;
+  // said only when there are some, so the phrase an app that names no variant
+  // has always read is the phrase it still reads
+  return styles.variants > 0 ? `${base}, plus ${styles.variants} variant rules` : base;
 }
 
 /**

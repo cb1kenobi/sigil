@@ -75,8 +75,19 @@ export interface UtilityOptions {
   readonly only?: readonly string[];
   /** How far `w-N` and `h-N` go, in cells. */
   readonly sizing?: number;
-  /** Whether to generate the variants as well as the base set. */
-  readonly variants?: boolean;
+  /**
+   * Whether to generate the variants as well as the base set: all of them, none
+   * of them, or only the variant-qualified names listed -- `focus:border-green`,
+   * `md:flex-row` -- which is what a build that has seen which ones an app
+   * names asks for (SIG-526).
+   *
+   * A list is independent of `only`: `only` filters the base set and a list
+   * here names variant rules directly, because a rule in a variant does not
+   * need its unqualified twin to be in the sheet. A name nothing generates is
+   * ignored, for the reason `only` ignores one, and so is a stacked name
+   * (`md:focus:p-2`) -- a variant does not stack.
+   */
+  readonly variants?: boolean | readonly string[];
 }
 
 const DEFAULTS = { sizing: 12, spacing: 8, variants: true } as const;
@@ -405,9 +416,20 @@ export function generateUtilities(opts: UtilityOptions = {}): string {
     lines.push(`  ${rule(utility, '')}`);
   }
 
-  if (base.length && (opts.variants ?? DEFAULTS.variants)) {
+  const variants = opts.variants ?? DEFAULTS.variants;
+  // a list names rules outright and so needs no base rule beside it; `true`
+  // is a variant of every base rule printed, as it always was
+  const wanted = Array.isArray(variants) ? new Set<string>(variants) : undefined;
+  const subjects = wanted ? utilities(opts) : base;
+
+  if (wanted ? wanted.size > 0 : base.length > 0 && variants === true) {
     for (const variant of VARIANTS) {
-      const body = base.map((utility) => rule(utility, variant.name, variant.pseudo));
+      const body = subjects
+        .filter((utility) => !wanted || wanted.has(`${variant.name}:${utility.name}`))
+        .map((utility) => rule(utility, variant.name, variant.pseudo));
+      if (body.length === 0) {
+        continue;
+      }
       if (variant.media) {
         lines.push(`  @media ${variant.media} {`);
         lines.push(...body.map((line) => `    ${line}`));

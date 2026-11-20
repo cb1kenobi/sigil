@@ -2476,6 +2476,19 @@ other is refused with numbers.
   original constant is still statically referenced. At 19 rules and 0.023 ms
   that is not a loss worth inventing a seam for.
 
+- **A shaken sheet carries the variant rules an app names, which the committed
+  sheet does not hold (SIG-526).** The shake used to filter the base set and print
+  it with `variants: false`, so nothing with a `focus:` or an `md:` in front of
+  it ever reached a build. `shakeUtilities()` now also asks the evidence about
+  each `variant:utility` name and generates just those, and the summary says
+  `25 of 383 utility rules, plus 2 variant rules` when there are any -- the
+  phrase an app with none reads is unchanged, since several tests and every
+  reader of that line depend on it. The reasoning, the clock-shaped evidence that
+  is refused, and what an unbuilt app gets are under "The utility layer" in
+  `packages/sigil/src/style/AGENTS.md`. `--no-shake` ships the base set and no
+  variant, because nothing reads the evidence; `warnEmptyShake()` counts a
+  variant as something kept.
+
 - **Measured on `test/fixtures/styled/`, which draws with utilities**: 383 rules
   shaken to 25, and the bundle **133,692 B to 122,234 B**. Startup goes with it,
   and by more than the parse alone, because 11.5 kB less source is also less for

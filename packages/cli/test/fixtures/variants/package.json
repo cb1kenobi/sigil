@@ -1,0 +1,12 @@
+{
+  "name": "variants",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "variants": "./dist/variants.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "@ttylabs/sigil": "workspace:*"
+  }
+}
