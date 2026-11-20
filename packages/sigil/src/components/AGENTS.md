@@ -7829,18 +7829,20 @@ whenever the range moved, because a view is a fixed tree.
   that compares their pictures at both levels is the guard.
 - **Written in place.** One `text`, whose text is set and whose variant classes are
   swapped (`sigil-badge-<variant>` and the role class come off, the new ones go on;
-  an app's own `class` is never in the set it removes). Plain values start no
+  a class the app passed that is not one of those is never touched; one that is
+  spelled the same as a variant class is the variant's to remove). Plain values start no
   effect, so a badge that never changes costs what a view does -- and `badgeView()`
   itself imports no signal machinery.
 - **What it costs the static path:** `badge.ts` imports `createEffect` from
-  `../renderer/index.js`, as the 38 other components that use an effect do, so the
+  `../renderer/index.js`, as 36 other components do, so the
   `components/badge` subpath's static graph went from about 150 kB to 209 kB as of
   SIG-460 (the same walk gives `components/panel` 209 kB), under the 316 KiB
   ceiling in `dist.test.ts`. `badge()` and `badgeView()` still call nothing from it.
   Importing `renderer/owner.js` directly would be a third spelling nothing else
   uses.
-- **An unknown variant throws a `TypeError` in `Badge()`** and not in
-  `badgeView()`, which has always written a class for whatever it was handed. A
+- **An unknown variant throws a `TypeError` when `Badge()` first reads it** -- a
+  later one from a signal is reported by the effect, as any effect's throw is, and
+  the badge keeps what it last drew -- and not in `badgeView()`, which has always written a class for whatever it was handed. A
   variant arriving from a signal is the case where the type cannot help, and
   `Object.hasOwn()` is what stops `toString` passing for one.
 

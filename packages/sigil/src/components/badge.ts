@@ -166,7 +166,9 @@ function read<T>(source: BadgeSource<T>): T {
  *
  * @param props - The label, the variant, and the element's own props.
  * @returns The badge, a single `text`.
- * @throws If `variant` is given and is not one of the five.
+ * @throws If `variant` is not one of the five, when it is first read. A signal that
+ * later holds one that is not is reported by the effect, which keeps what the badge
+ * last drew until a valid one arrives.
  */
 export function Badge(props: BadgeProps): Element {
   const live = (source: unknown): boolean =>
@@ -178,7 +180,7 @@ export function Badge(props: BadgeProps): Element {
 
   /** What the sources say now, validated. */
   const parts = (): BadgeParts => {
-    const variant = props.variant === undefined ? 'neutral' : read(props.variant);
+    const variant = (props.variant === undefined ? undefined : read(props.variant)) ?? 'neutral';
     if (variant !== 'neutral' && !Object.hasOwn(ROLES, variant)) {
       throw new TypeError(
         `Expected a badge variant to be neutral, success, warning, error or info, not ${String(variant)}`

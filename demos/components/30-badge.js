@@ -7,6 +7,7 @@
 import { Badge, badge, badgeView, table } from '@ttylabs/sigil/components';
 import { renderToString } from '@ttylabs/sigil/element';
 import { flush, State } from '@ttylabs/sigil/signals';
+import { themedCascade } from '@ttylabs/sigil/theme';
 
 console.log('the five variants, each from a theme role:\n');
 for (const variant of ['neutral', 'success', 'warning', 'error', 'info']) {
@@ -47,7 +48,7 @@ const live = Badge({
   label: () => `${change.get() > 0 ? '+' : ''}${change.get()}%`,
   variant: () => (change.get() >= 0 ? 'success' : 'error'),
 });
-const draw = () => renderToString(live, { colorLevel: 1, width: 8 });
+const draw = () => renderToString(live, { cascade: themedCascade(), colorLevel: 1, width: 8 });
 console.log(`  ${draw()}`);
 change.set(-2);
 await flush();

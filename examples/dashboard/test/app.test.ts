@@ -90,6 +90,14 @@ function background(app: RunningApp): unknown {
   return root.style.backgroundColor;
 }
 
+/** Every element under `root`, and `root`, that wears `name`. */
+function withClass(root: Element, name: string): Element[] {
+  return [
+    ...(root.classes.includes(name) ? [root] : []),
+    ...root.children.flatMap((child) => withClass(child, name)),
+  ];
+}
+
 /** The figure on the last card, which counts the projects that are not paused. */
 function active(screen: string): number {
   const figures = screen.split('\n').find((each) => each.includes('$'));
@@ -177,8 +185,13 @@ describe('the range', () => {
     const badges = (): string[] => s.line('from ').match(/\[[^\]]+\]/g) ?? [];
     const before = badges();
     expect(before.length).toBe(4);
+    const elements = withClass(s.app.view.root, 'sigil-badge');
+    expect(elements.length).toBe(4);
 
     await s.press('r');
+
+    // the same four elements, written to rather than replaced
+    expect(withClass(s.app.view.root, 'sigil-badge')).toEqual(elements);
 
     const after = badges();
     expect(after.length).toBe(4);

@@ -181,10 +181,18 @@ describe('Badge()', () => {
   });
 
   it('should be one text element, with no effect, when given plain values', () => {
-    const el = Badge({ colorLevel: 1, label: 'beta' });
+    let effects = 0;
+    const el = createRoot(
+      () => Badge({ colorLevel: 1, label: 'beta', variant: 'info' }),
+      (fn) => {
+        effects++;
+        return fn() ?? (() => {});
+      }
+    );
 
+    expect(effects).to.equal(0);
     expect(el.type).to.equal('text');
-    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-neutral']);
+    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
   });
 
   it('should follow a State for its label and its variant', async () => {
@@ -260,6 +268,12 @@ describe('Badge()', () => {
 
     expect(el.classes).to.include.members(['trend', 'wide', 'sigil-error']);
     expect(el.props['flex-shrink']).to.equal(1);
+  });
+
+  it('should read an undefined variant from a signal as neutral, like an omitted one', () => {
+    const el = Badge({ colorLevel: 1, label: 'x', variant: () => undefined as never });
+
+    expect(el.classes).to.include('sigil-badge-neutral');
   });
 
   it('should refuse a variant it does not know', () => {
