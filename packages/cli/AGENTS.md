@@ -1917,7 +1917,15 @@ makes it testable with a fixture directory and no bundler at all.
   raw byte in a literal raw. A raw `U+2028` or `U+2029` in a quasi is the third
   thing the review found: they are not control characters and are left alone, but
   a sourcemap starts a new line at either, so the pass counts them as line starts
-  when it records where it widened.
+  when it records where it widened. Round 2 found a fourth: a backslash before
+  a raw byte in an **untagged** template (`` `a\<ESC>b` `` cooks to `a<ESC>b`),
+  which the pass turned into `\\x1B` -- a backslash and the text `x1B` -- because
+  the minifier prints a template's text as it found it, where a string literal is
+  reprinted and is safe. Refused with the rest, for an odd run of backslashes only.
+  A pass that throws, as opposed to refusing, unwinds the output through
+  `undo()` as well, since what rolldown wrote still holds the raw bytes; that
+  path is covered by `escapeChunks()` writing nothing when a map is malformed,
+  and not end to end, because rolldown does not write a malformed map.
 
   The other half was real and is fixed. The pass rewrote the chunk **after** its
   sourcemap was written, and a minified chunk is one line, so each escape moved

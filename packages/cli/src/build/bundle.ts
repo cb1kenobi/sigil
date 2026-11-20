@@ -864,13 +864,23 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // rewrites the files the gates above read. A raw control character in a
     // tagged template or a regular expression is refused rather than escaped, since an escape changes
     // what the tag's `.raw` says -- SIG-394, and `escape-chunks.ts` for why
-    const raw = escapeChunks(out, written.output);
+    let raw: ReturnType<typeof escapeChunks>;
+    try {
+      raw = escapeChunks(out, written.output);
+    } catch (e) {
+      // a pass that could not finish, by a map it could not read or a file it
+      // could not write: the build fails, and what rolldown wrote still holds
+      // the raw bytes the pass is for, so it is not left behind
+      undo(out, written.output);
+      throw e;
+    }
+
     if (raw) {
       undo(out, written.output);
       const where = `${escapeValue(raw.chunk)}:${raw.line}:${raw.column}`;
       const code = `U+${raw.codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
       throw new Error(
-        `Cannot build: ${where} holds a raw control character (${code}) inside ${raw.in}.\n  A build escapes every control character so a crash cannot write one to the reader's terminal, and an escape would change what a tag reads from \`strings.raw\` or what \`RegExp.prototype.source\` returns. Write it as an escape (\`\\x1B\`, \`\\u009B\`) in the module this chunk is named for, where the build leaves it as it is.`
+        `Cannot build: ${where} holds a raw control character (${code}) inside ${raw.in}.\n  A build escapes every control character so a crash cannot write one to the reader's terminal, and an escape would change what the program reads -- \`strings.raw\`, \`RegExp.prototype.source\`, or the string a backslash before it makes. Write it as an escape (\`\\x1B\`, \`\\u009B\`) in the module that holds it, where the build leaves it as it is. The chunk's name says which module, unless it is shared.`
       );
     }
 

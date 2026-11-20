@@ -19,7 +19,7 @@
  * escapes were folded straight back. What is written is the only thing the
  * minifier is finished with. Escaping a raw byte inside a string to `\xNN` is
  * the same string to JavaScript and inert to a terminal, so doing it last is
- * safe as well as sufficient -- **except in three places, which are the reason
+ * safe as well as sufficient -- **except in four places, which are the reason
  * this is a module of its own** (SIG-394):
  *
  * - **A tagged template's raw strings.** `\xNN` is the same *cooked* string, and
@@ -31,13 +31,17 @@
  * - **A regular expression literal's source.** The same shape, found by review:
  *   matching is unchanged, but `re.source` and `String(re)` are text as written,
  *   and the minifier leaves a raw byte in a literal raw. Refused alongside.
+ * - **A backslash before one, in an untagged template.** `` `\<ESC>` `` cooks to
+ *   `ESC`, and the minifier prints the template's text as it found it, so the pass
+ *   would write `\\x1B` -- a backslash and the text `x1B`. A string literal does
+ *   not have this: it is reprinted. Refused alongside; found by review round 2.
  * - **The sourcemap.** A one-line minified chunk has every token on line one,
  *   and widening it by three columns per escape moved each later token off the
  *   column the map recorded for it. See `shiftMappings()`.
  *
  * The same rule `packages/sigil`'s own build runs over its own output, said here
  * because an app's bundle is the other place the runtime's source ends up. That
- * copy needs neither of the two: it writes no sourcemap, and nothing in the
+ * copy needs none of these: it writes no sourcemap, and nothing in the
  * source it reads can hold a raw control character to begin with.
  */
 
@@ -84,7 +88,10 @@ const WIDENS_BY = 3;
 /** A raw control character found where it cannot be escaped. */
 export interface UnescapableControl {
   /** What holds it, for the sentence that names it. */
-  readonly in: 'a regular expression literal' | 'a tagged template';
+  readonly in:
+    | 'a regular expression literal'
+    | 'a tagged template'
+    | 'a template, after a backslash';
   /** The chunk, as rolldown named it. */
   readonly chunk: string;
   /** One-based, in the chunk. */
@@ -144,6 +151,41 @@ export function escapeCode(code: string): { code: string; moved: Map<number, num
 }
 
 /**
+ * The first control character in some text that the file's own formatting does
+ * not account for.
+ *
+ * @param text - The text.
+ * @returns The character, or `undefined`.
+ */
+function firstControl(text: string): string | undefined {
+  return [...text.matchAll(CONTROL)].find((m) => !FORMATTING.has(m[0]))?.[0];
+}
+
+/**
+ * The first control character in a template's raw text that a backslash makes
+ * part of an escape.
+ *
+ * `` `a\<ESC>b` `` cooks to `a<ESC>b`, because a backslash before a character
+ * that means nothing special is that character -- and the pass writes `\x1B` for
+ * the byte, which is a backslash escaped and then the text `x1B`. The minifier
+ * prints an untagged template's text as it found it, so this reaches a chunk
+ * from source, which is what a string literal never does: it is reprinted.
+ * An odd run of backslashes is the one that escapes it; an even run is pairs.
+ *
+ * @param text - The template element's raw text.
+ * @returns The character, or `undefined`.
+ */
+function escapedControl(text: string): string | undefined {
+  for (const m of text.matchAll(/(\\+)(\p{Cc})/gu)) {
+    if (m[1]!.length % 2 && !FORMATTING.has(m[2]!)) {
+      return m[2];
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * The first raw control character sitting where an escape would change what the
  * program can read.
  *
@@ -178,9 +220,8 @@ export function unescapableControl(file: string, code: string): UnescapableContr
 
   let found: UnescapableControl | undefined;
 
-  /** Records the first control character in `text`, searched for from `from`. */
-  const look = (text: string, from: number, holder: UnescapableControl['in']): void => {
-    const c = [...text.matchAll(CONTROL)].find((m) => !FORMATTING.has(m[0]))?.[0];
+  /** Records `c`, searched for from `from`, as what was found. */
+  const look = (c: string | undefined, from: number, holder: UnescapableControl['in']): void => {
     if (c === undefined) {
       return;
     }
@@ -207,14 +248,16 @@ export function unescapableControl(file: string, code: string): UnescapableContr
 
     if (node.type === 'TaggedTemplateExpression') {
       for (const quasi of node.quasi.quasis) {
-        look(quasi.value.raw, quasi.start, 'a tagged template');
+        look(firstControl(quasi.value.raw), quasi.start, 'a tagged template');
 
         if (found) {
           break;
         }
       }
     } else if (node.type === 'Literal' && 'regex' in node && node.regex) {
-      look(node.regex.pattern, node.start, 'a regular expression literal');
+      look(firstControl(node.regex.pattern), node.start, 'a regular expression literal');
+    } else if (node.type === 'TemplateElement') {
+      look(escapedControl(node.value.raw), node.start, 'a template, after a backslash');
     }
 
     return !found;

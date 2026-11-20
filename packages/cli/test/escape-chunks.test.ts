@@ -1,6 +1,12 @@
-import { escapeCode, unescapableControl, shiftMappings } from '../src/build/escape-chunks.ts';
+import {
+  escapeChunks,
+  escapeCode,
+  unescapableControl,
+  shiftMappings,
+} from '../src/build/escape-chunks.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run } from './spawned.ts';
+import { tempDir } from './temp.ts';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { SourceMap } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -94,6 +100,21 @@ describe('shiftMappings', () => {
 });
 
 describe('unescapableControl', () => {
+  it('should find a control character a backslash makes part of an escape, in a template', () => {
+    // `\<ESC>` cooks to ESC, and `\\x1B` is a backslash and four more characters
+    expect(unescapableControl('app.mjs', `const a = \`a\\${ESC}b\`;\n`)).toEqual({
+      chunk: 'app.mjs',
+      codePoint: 0x1b,
+      column: 14,
+      in: 'a template, after a backslash',
+      line: 1,
+    });
+    // an even run is a backslash and then a character an escape is right for,
+    // and a backslash before a tab or a line break is the file's own formatting
+    expect(unescapableControl('app.mjs', `const a = \`a\\\\${ESC}b\`;\n`)).toBeUndefined();
+    expect(unescapableControl('app.mjs', 'const a = `a\\\tb\\\nc`;\n')).toBeUndefined();
+  });
+
   it('should find a raw control character in a tagged template, and say where', () => {
     expect(unescapableControl('app.mjs', `const a = 1;\nconst b = tag\`x${ESC}[1m\`;\n`)).toEqual({
       chunk: 'app.mjs',
@@ -241,4 +262,44 @@ describe('a build with a control character in it', () => {
     expect(code, stderr).toBe(1);
     expect(stderr).toContain('inside a regular expression literal');
   }, 60_000);
+});
+
+describe('escapeChunks', () => {
+  /** An output directory with one chunk and a map beside it. */
+  function written(code: string, mappings: string): string {
+    const dir = tempDir('sigil-escape-chunks-out-');
+    writeFileSync(join(dir, 'a.mjs'), code);
+    writeFileSync(join(dir, 'a.mjs.map'), JSON.stringify({ mappings, version: 3 }));
+    return dir;
+  }
+
+  const output = [
+    { fileName: 'a.mjs', type: 'chunk' },
+    { fileName: 'a.mjs.map', type: 'asset' },
+  ];
+
+  it('should escape the chunk and move its map', () => {
+    const dir = written(`x(${CSI});`, 'AAAA,GAAG');
+
+    expect(escapeChunks(dir, output)).toBeUndefined();
+    expect(readFileSync(join(dir, 'a.mjs'), 'utf-8')).toBe('x(\\x9B);');
+    expect(JSON.parse(readFileSync(join(dir, 'a.mjs.map'), 'utf-8')).mappings).toBe('AAAA,MAAG');
+  });
+
+  it('should write nothing when a chunk is refused', () => {
+    const dir = written(`a(${ESC});\n`, 'AAAA');
+    writeFileSync(join(dir, 'b.mjs'), `tag\`${ESC}\`;\n`);
+
+    expect(escapeChunks(dir, [...output, { fileName: 'b.mjs', type: 'chunk' }])?.chunk).toBe(
+      'b.mjs'
+    );
+    expect(readFileSync(join(dir, 'a.mjs'), 'utf-8')).toBe(`a(${ESC});\n`);
+  });
+
+  it('should write nothing when a map cannot be read, which is not a refusal', () => {
+    const dir = written(`a(${ESC});\n`, 'AAAA,g');
+
+    expect(() => escapeChunks(dir, output)).toThrow('Malformed sourcemap segment');
+    expect(readFileSync(join(dir, 'a.mjs'), 'utf-8')).toBe(`a(${ESC});\n`);
+  });
 });
