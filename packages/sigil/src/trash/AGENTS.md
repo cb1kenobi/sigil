@@ -96,12 +96,81 @@ for good. `PostDeleteItem` hands back the item in the bin, which is the path
   `-STA`, because the shell's COM objects want a single-threaded apartment. The
   script goes as `-EncodedCommand` and the path as an environment variable, so
   nothing in a name is ever read as code, and the answer is JSON with everything
-  past ASCII escaped, so nothing rests on the console's code page. Compiling the
-  C# with `Add-Type` costs about a second each call, which is a delete a person
-  asked for, not a loop.
+  past ASCII escaped, so nothing rests on the console's code page. The C# is
+  compiled once and kept, below.
 - The interfaces are declared in vtable order and none may be dropped: COM
   interop checks nothing else.
 - Paths past `MAX_PATH` are not supported; the shell does not take them.
+
+#### Windows: the helper is compiled once, and sealed to the user who compiled it
+
+Every call used to compile the C# with `Add-Type` (SIG-490). It is compiled on a
+call that finds no usable copy, and the assembly is kept under `paths.cache()`
+as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
+
+- **The file is the assembly sealed with DPAPI for the current user, with the
+  source's hash as the entropy; it is not a DLL with a hash beside it.** A hash
+  kept next to the file is written by whoever writes the file, so it proves the
+  file is intact and nothing about who put it there. A seal can only be made by
+  the user it is sealed for, and unsealing checks its own MAC: a file another
+  user wrote -- a cache base `XDG_CACHE_HOME` pointed somewhere shared, say --
+  a plain DLL, a truncated seal, and a real seal made for another version's C#
+  all fail to unseal, and each of those is a rebuild over it, never an error.
+  What a seal cannot stop is a process running as the same user, which can seal
+  anything it likes; that process can already rewrite the sigil install the C#
+  comes from, so no file it can write would be a boundary against it.
+- **One read, and the load is from that buffer.** The file is read once into
+  memory, that buffer is what is unsealed, and the unsealed bytes are what
+  `Assembly.Load(byte[])` is handed -- never `LoadFrom()` on the path -- so
+  there is no window between the check and the load for the file to be swapped
+  in, and nothing reads it twice. A file over 1 MiB is not read.
+- **Building is the compile `Add-Type` always did, by hand.** `CSharpCodeProvider`
+  into a directory of its own, named with a fresh GUID under the user's temp
+  directory, which is where `Add-Type` compiled too; the DLL is read back into
+  memory and the directory removed. By hand because `Add-Type` loads what it
+  builds and hands back no bytes to seal.
+- **A cache that cannot be written costs the compile and never the trash.**
+  Saving goes to a fresh name opened `CreateNew`, which refuses anything already
+  there -- a link included -- and is then moved over the cache file. Every
+  failure on the way, no cache base, DPAPI unavailable, a directory where the
+  file should be, a file where the directory should be, is swallowed: the
+  assembly is already in memory and the item is recycled with it. Two calls
+  racing each build and one move wins.
+- **Nothing removes an old version's file.** Two apps on different sigil
+  versions would remove each other's and both pay the compile every call; each
+  is a few kilobytes.
+- **The C# reaches PowerShell in an environment variable, not in the command.**
+  The encoded command was 24,792 characters with the C# in it and Windows stops
+  at 32,767; the script that caches would not have fitted beside it.
+- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`,
+  or `none` when the call failed first -- because that is the whole difference
+  between one call and the next, and the Windows tests in `test/trash.test.ts`
+  pin each case with a cache they name: compiled once and loaded after; garbage,
+  a truncated seal and another source's seal each rebuilt; an unwritable cache
+  compiling every call and still recycling. `test/trash-windows.test.ts` pins
+  the key, the file name and what PowerShell is handed, on every platform.
+- The real-trash tests on a Windows runner go through `trash()` and so leave one
+  such file in the runner's own cache, which is what a cache is for.
+
+**Measured on the `windows-latest` runner, as of this change**, from a timing
+test run in the suite and then removed, so each figure is under the suite's own
+parallel load. The ticket said about a second a call, which is not what the
+runner shows: compiling is about a tenth of a second there, and starting
+PowerShell is most of the rest.
+
+|                                  | node 22    | node 24    | node 26    |
+| -------------------------------- | ---------- | ---------- | ---------- |
+| PowerShell starting, nothing run | 324–342 ms | 320–340 ms | 207–214 ms |
+| a call before, compiling         | 420–437 ms | 417–440 ms | 339–353 ms |
+| after: first call, compiled      | 515 ms     | 495 ms     | 342 ms     |
+| after: a call loading the cache  | 380–387 ms | 363–387 ms | 237–247 ms |
+| after: no cache, compiling       | 482–489 ms | 513–514 ms | 309–327 ms |
+
+"Before" and "after" are different runs on different runner instances, which is
+why the no-cache row is not the "before" row: within one run, a call that loads
+the cache is 60–150 ms faster than one that compiles, and 25–65 ms slower than
+PowerShell doing nothing. What is left is PowerShell's own start, which a cache
+cannot touch.
 
 #### Linux and every other Unix: the freedesktop.org spec, written out
 

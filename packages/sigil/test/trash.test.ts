@@ -396,9 +396,10 @@ describe('trash()', () => {
    */
   describe.runIf(process.platform === 'darwin' || WINDOWS)("the platform's own trash", () => {
     /**
-     * Windows compiles the C# on any call that misses the cache, about a second
-     * and a half on a runner -- two calls passed 10 s on node 24 and timed out on
-     * node 22 when every call compiled.
+     * Each call on Windows starts PowerShell, and one that misses the cache
+     * compiles the C# as well -- under the suite's own load, two calls passed 10 s
+     * on node 24 and timed out on node 22 when every call compiled, and the cached
+     * cases below make several calls each.
      */
     const SLOW = 60_000;
 

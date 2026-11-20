@@ -8200,7 +8200,9 @@ trash of the volume it is on and a second `a.txt` is named the way Finder names
 it. On Windows it is the Recycle Bin, through the shell's `IFileOperation` from
 PowerShell, and an item the bin would not keep -- too large for it, or on a
 network drive -- is refused, where Windows itself would delete it without
-asking. Everywhere else it is the freedesktop.org trash, which
+asking. The few lines of C# that reach the shell are compiled on the first call
+and kept in the cache directory, sealed for the current user so that nobody else
+can put a file there that would run in their place. Everywhere else it is the freedesktop.org trash, which
 file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
 device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where
