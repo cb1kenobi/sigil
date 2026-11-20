@@ -356,7 +356,7 @@ waits for it rather than reporting a silence that is not one.
 | [`components/27-charts.js`](components/27-charts.js)                                     | A sparkline, bars, a braille line chart and a gauge                                 |
 | [`components/28-calendar.js`](components/28-calendar.js)                                 | A month grid: printed, picked from, or under a date field                           |
 | [`components/29-toggle.js`](components/29-toggle.js)                                     | A toggle prompt: two named states, flipped with the arrows, Tab or Space            |
-| [`components/30-badge.js`](components/30-badge.js)                                       | A short status label, in a table cell or on a line                                  |
+| [`components/30-badge.js`](components/30-badge.js)                                       | A short status label, in a table cell, on a line, or live from signals              |
 | [`components/31-rule.js`](components/31-rule.js)                                         | A horizontal divider, with a label set into it                                      |
 | [`components/32-paginator.js`](components/32-paginator.js)                               | Page state, and a dot or numeric indicator of where you are                         |
 | [`components/33-masked-text.js`](components/33-masked-text.js)                           | A masked text prompt: a line that follows a template                                |
@@ -975,7 +975,9 @@ the writing, so a pipe gets what a terminal gets. A piped run is colour level 0,
 what it prints is the bracketed form, `[PASS]`; `FORCE_COLOR=1` shows the same
 labels as padding on a coloured ground. The table is the point of the third block:
 its status column holds `badgeView()` trees, because a string cell has its escape
-sequences dropped and would print a badge's colour as literal characters.
+sequences dropped and would print a badge's colour as literal characters. The
+last block is `Badge`, the live form: it is drawn at colour level 1 whatever the
+pipe says, so that the change of variant between its two lines shows.
 
 The typewriter and the decrypt answer the same way to a preference rather than to
 a pipe, so a terminal whose user has asked for less motion gets the text in one go

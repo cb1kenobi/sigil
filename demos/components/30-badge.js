@@ -4,7 +4,9 @@
  *   node demos/components/30-badge.js
  *   NO_COLOR=1 node demos/components/30-badge.js
  */
-import { badge, badgeView, table } from '@ttylabs/sigil/components';
+import { Badge, badge, badgeView, table } from '@ttylabs/sigil/components';
+import { renderToString } from '@ttylabs/sigil/element';
+import { flush, State } from '@ttylabs/sigil/signals';
 
 console.log('the five variants, each from a theme role:\n');
 for (const variant of ['neutral', 'success', 'warning', 'error', 'info']) {
@@ -37,3 +39,16 @@ console.log(
 console.log('\n\nwith no colour the padding becomes brackets, so a label is still set apart:\n');
 console.log(`  ${badge('PASS', { colorLevel: 0, variant: 'success' })} 148 tests in 2.1s`);
 console.log(`  ${badge('FAIL', { colorLevel: 0, variant: 'error' })} build.test.ts`);
+
+console.log('\n\na live badge follows signals, and is the one element written to in place:\n');
+const change = new State(4);
+const live = Badge({
+  colorLevel: 1,
+  label: () => `${change.get() > 0 ? '+' : ''}${change.get()}%`,
+  variant: () => (change.get() >= 0 ? 'success' : 'error'),
+});
+const draw = () => renderToString(live, { colorLevel: 1, width: 8 });
+console.log(`  ${draw()}`);
+change.set(-2);
+await flush();
+console.log(`  ${draw()}`);

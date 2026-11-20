@@ -97,8 +97,9 @@ Each is marked in the source.
 - **The row menu finds its row by class.** Nothing hands out the element a
   table's row was built as, so the menu walks the table for the `sigil-list-row`
   that is `is-current` to open under its right end.
-- **A badge that changes is built again.** `badgeView()` draws a fixed label, so
-  each card's badge is rebuilt in an effect when its figure moves.
+- **A card's badge follows its figure.** Each card hands `Badge` the label and the
+  variant as functions over one `Computed`, and the badge rewrites its own text and
+  classes when the figure moves.
 - **A theme restates every role.** The colour scheme a renderer reads is fixed
   when it starts, so a theme that means light on a dark terminal cannot lean on the
   framework's `prefers-color-scheme` defaults and sets each colour itself.

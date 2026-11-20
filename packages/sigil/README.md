@@ -4562,6 +4562,24 @@ result side of `--quiet`, like `table()` and `note()`. **In a table, use
 you override one: the level is what picks brackets or padding, and a badge built
 for one level and drawn at another is still legible but not the same shape.
 
+**`Badge` is the live form**, for a badge that changes -- a trend, a build status:
+
+```js
+import { Badge } from '@ttylabs/sigil/components/badge';
+
+Badge({
+  label: () => `${change.get() > 0 ? '+' : ''}${change.get()}%`,
+  variant: () => (change.get() >= 0 ? 'success' : 'error'),
+});
+```
+
+`label` and `variant` each take a value, a `State` or a `Computed`, or a function
+of signals, as a chart's data does. It is one `text` element written to in place
+when what it reads changes -- its text and its variant classes, nothing rebuilt --
+and what it draws is `badgeView()`'s, padding and level 0 brackets included. Plain
+values start no effect. `colorLevel` is fixed for its life, and `class` and `props`
+are its own.
+
 #### Rule
 
 ```js

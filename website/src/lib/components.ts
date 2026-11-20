@@ -435,7 +435,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'badge',
     name: 'badge()',
     family: 'output',
-    exports: ['badge', 'badgeView'],
+    exports: ['badge', 'badgeView', 'Badge'],
     registry: 'badge',
   },
   {

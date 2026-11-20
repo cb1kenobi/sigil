@@ -170,6 +170,21 @@ describe('the range', () => {
     expect(s.screen()).toContain('vs prior 7d');
   });
 
+  it("should rewrite each card's badge in place when the range moves", async () => {
+    const s = mount();
+    await s.settle();
+    // level 0 draws a badge in brackets, and the badges share a line with their notes
+    const badges = (): string[] => s.line('from ').match(/\[[^\]]+\]/g) ?? [];
+    const before = badges();
+    expect(before.length).toBe(4);
+
+    await s.press('r');
+
+    const after = badges();
+    expect(after.length).toBe(4);
+    expect(after).not.toEqual(before);
+  });
+
   it('should put the first and last day of the range under the chart', async () => {
     const s = mount();
     await s.press('r', 'r');
