@@ -1507,10 +1507,11 @@ export function text(value: string, props: ElementProps = {}): Element {
  * express. It takes part in layout like a text -- it is measured and it is
  * placed -- and what goes inside the box it got is its own business.
 
- * The paint is not tracked: a signal it reads is not a reason to paint again, so
- * a raw that draws from state is either told with `invalidatePaint()` or built
- * with `trackedRaw()` from `@ttylabs/sigil/renderer`, which takes these same
- * arguments and repaints for whatever its last paint read.
+ * The paint and the measure are not tracked: a signal either reads is not a
+ * reason to paint or measure again, so a raw that draws from state is either told
+ * with `invalidatePaint()` and `invalidateMeasure()` or built with `trackedRaw()`
+ * from `@ttylabs/sigil/renderer`, which takes these same arguments, repaints for
+ * whatever its last paint read and lays out again for whatever its measure read.
  *
  * @param options - How it measures and how it paints.
  * @param props - Style props, plus `class`, `id` and `key`.

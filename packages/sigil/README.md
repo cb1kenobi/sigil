@@ -2671,15 +2671,15 @@ printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
 text(printable(entry.name)); // a name, as it is on disk
 ```
 
-A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
-is not a reason to paint again. `trackedRaw(options, props)`, from
-`@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
-whenever a signal its last paint read changes, with nothing to list twice and no
+A `raw` paints its own cells, and neither its paint nor its measure is
+**tracked**: a signal either reads is not a reason to paint or measure again.
+`trackedRaw(options, props)`, from `@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the
+element whenever a signal its last paint read changes, and lays it out again
+whenever a signal its measure read changes, with nothing to list twice and no
 effect beside it. Build it in a component: the listening is let go with the owner
 it was built under, which is what a `Show` closing or a `For` row leaving
-disposes. A tracked paint may not write a signal -- it is a derivation of what it
-read -- and its measure is not tracked, so a raw whose size follows state still
-calls `invalidateMeasure()` from an effect.
+disposes. A tracked paint or measure may not write a signal -- it is a derivation
+of what it read.
 
 ```js
 import { trackedRaw } from '@ttylabs/sigil/renderer';

@@ -1,6 +1,14 @@
 import { createCanvas } from '../../src/canvas/index.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
-import { box, Element, raw, renderToString, scrollRange, text } from '../../src/element/index.js';
+import {
+  box,
+  createTree,
+  Element,
+  raw,
+  renderToString,
+  scrollRange,
+  text,
+} from '../../src/element/index.js';
 import { parseCapabilityResponse } from '../../src/input/capabilities.js';
 import { createInput } from '../../src/input/index.js';
 import {
@@ -4559,6 +4567,283 @@ describe('trackedRaw()', () => {
           line(() => {
             count.set(count.get() + 1);
             return 'x';
+          })
+        ),
+      { backend: h.backend, effects, onError: (error) => errors.push(error), terminal: h.terminal }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0])).toContain('A Computed may not write to a signal');
+    expect(count.get()).toBe(0);
+  });
+});
+
+describe('trackedRaw() measure', () => {
+  // SIG-486. The measure runs in the layout, which runs untracked, so a raw whose
+  // size followed state needed an effect beside it calling `invalidateMeasure()`:
+  // without it a change resized nothing unless something else relaid out in the
+  // same frame
+  /** A one-row raw as wide as `width()` says, filling whatever box it gets with `#`. */
+  const sized = (width: () => number, make = trackedRaw) =>
+    make(
+      {
+        measure: () => ({ height: 1, width: width() }),
+        // reads no signal, so only the measure can be what moves the picture
+        paint: (painter, at) => painter.text(at.x, at.y, '#'.repeat(at.width)),
+      },
+      {}
+    );
+
+  it('should lay out again when only a signal its measure read has changed', () => {
+    const h = harness(10, 1);
+    const size = new State(2);
+    const view = render(
+      () =>
+        box(
+          {},
+          sized(() => size.get()),
+          text('x')
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    expect(h.picture()).toBe('##x.......');
+
+    // nothing but the one signal: no text, no prop, no effect beside the raw
+    size.set(4);
+    view.frame();
+
+    expect(h.picture()).toBe('####x.....');
+    view.dispose();
+  });
+
+  it('should be what a plain raw is not, which is the defect', () => {
+    const h = harness(10, 1);
+    const size = new State(2);
+    const view = render(
+      () =>
+        box(
+          {},
+          sized(() => size.get(), raw),
+          text('x')
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+
+    size.set(4);
+    view.frame();
+
+    expect(h.picture()).toBe('##x.......');
+    view.dispose();
+  });
+
+  it('should lay out again for a second change as it did for the first', () => {
+    // the watcher fires once and is armed again only by the measure that follows
+    const h = harness(10, 1);
+    const size = new State(2);
+    const view = render(
+      () =>
+        box(
+          {},
+          sized(() => size.get()),
+          text('x')
+        ),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+
+    size.set(4);
+    view.frame();
+    size.set(6);
+    view.frame();
+
+    expect(h.picture()).toBe('######x...');
+    size.set(1);
+    view.frame();
+    expect(h.picture()).toBe('#x........');
+    view.dispose();
+  });
+
+  it('should follow what the measure read at every width a layout asked', () => {
+    // a layout asks a measure more than once, at the width the element is placed
+    // at and at the room it was offered, and uses both answers: what only one of
+    // them read is still a reason to lay out again, so the list is not the last
+    // measure's alone
+    const narrow = new State(1);
+    const wide = new State(1);
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: (width) => ({ height: width < 8 ? narrow.get() : wide.get(), width }),
+          paint: () => {},
+        },
+        {}
+      );
+      return done;
+    });
+    const raw = element as Element;
+    const tree = createTree(box({}, raw));
+
+    raw.measure?.(5);
+    raw.measure?.(10);
+    tree.take();
+
+    narrow.set(2);
+    expect(tree.take().layout.has(raw), 'what only the first width read').toBe(true);
+
+    // and once something has moved, the next measures are the whole list again:
+    // a width that is no longer asked for is let go rather than kept
+    raw.measure?.(10);
+    expect(sinkCount(narrow)).toBe(0);
+    narrow.set(3);
+    expect(tree.take().layout.has(raw), 'a width nobody asks for any more').toBe(false);
+    wide.set(2);
+    expect(tree.take().layout.has(raw), 'what the width still asked for read').toBe(true);
+
+    dispose();
+    expect(sinkCount(wide)).toBe(0);
+  });
+
+  it('should keep a source watched across measures that read it again', () => {
+    const events: string[] = [];
+    const size = new State(2, {
+      [unwatched]: () => events.push('unwatched'),
+      [watched]: () => events.push('watched'),
+    });
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = sized(() => size.get());
+      return done;
+    });
+    const raw = element as Element;
+    createTree(box({}, raw));
+
+    raw.measure?.(10);
+    raw.measure?.(10);
+    raw.measure?.(5);
+    // after a change too, when every width is let go and the list starts again
+    size.set(3);
+    raw.measure?.(10);
+    expect(events).toEqual(['watched']);
+
+    dispose();
+    expect(events).toEqual(['watched', 'unwatched']);
+  });
+
+  it('should stop listening when the branch that built it closes', () => {
+    const h = harness(10, 1);
+    const open = new State(true);
+    const size = new State(2);
+    const view = render(
+      () =>
+        Show({
+          children: () => sized(() => size.get()),
+          fallback: () => text('closed'),
+          when: () => open.get(),
+        }),
+      { backend: h.backend, effects, terminal: h.terminal }
+    );
+    // one per width the layout asked at, which is more than one
+    expect(sinkCount(size)).toBeGreaterThan(0);
+
+    open.set(false);
+    view.frame();
+
+    expect(sinkCount(size)).toBe(0);
+    view.dispose();
+  });
+
+  it('should not follow a read the measure untracked', () => {
+    const size = new State(2);
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = sized(() => untrack(() => size.get()));
+      return done;
+    });
+    const raw = element as Element;
+    const tree = createTree(box({}, raw));
+
+    raw.measure?.(10);
+    tree.take();
+    size.set(3);
+
+    expect(tree.take().layout.has(raw)).toBe(false);
+    expect(sinkCount(size)).toBe(0);
+    dispose();
+  });
+
+  it('should leave a caller that tracks the measure reading what the measure read', () => {
+    // `renderToString()` inside a derivation, which takes its height from the
+    // measure: handed the measure's reads, it runs again when they move, where a
+    // caller made a sink of the measure's own computed would be asked nothing
+    const rows = new State(1);
+    const shown = new Computed(() => rows.get());
+    let element: Element | undefined;
+    const dispose = createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: () => ({ height: shown.get(), width: 1 }),
+          paint: (painter, at) => {
+            for (let y = 0; y < at.height; y++) {
+              painter.text(at.x, at.y + y, '#');
+            }
+          },
+        },
+        {}
+      );
+      return done;
+    });
+    const memo = new Computed(() =>
+      renderToString(box({}, element as Element), { colorLevel: 0, width: 5 })
+    );
+
+    const seen = [memo.get()];
+    rows.set(2);
+    seen.push(memo.get());
+    rows.set(3);
+    seen.push(memo.get());
+
+    expect(seen).toEqual(['#', '#\n#', '#\n#\n#']);
+    dispose();
+    memo.dispose();
+    expect(sinkCount(shown)).toBe(0);
+  });
+
+  it('should let go of what it read when its owner goes during the measure', () => {
+    const size = new State(1);
+    let element: Element | undefined;
+    createRoot((done) => {
+      element = trackedRaw(
+        {
+          measure: () => {
+            done();
+            return { height: 1, width: size.get() };
+          },
+          paint: () => {},
+        },
+        {}
+      );
+      return done;
+    });
+    const raw = element as Element;
+
+    expect(raw.measure?.(10)).toEqual({ height: 1, width: 1 });
+    expect(sinkCount(size)).toBe(0);
+    // and measures untracked from then on
+    raw.measure?.(10);
+    expect(sinkCount(size)).toBe(0);
+  });
+
+  it('should refuse a measure that writes a signal', () => {
+    const h = harness(10, 1);
+    const errors: unknown[] = [];
+    const count = new State(0);
+    render(
+      () =>
+        box(
+          {},
+          sized(() => {
+            count.set(count.get() + 1);
+            return 1;
           })
         ),
       { backend: h.backend, effects, onError: (error) => errors.push(error), terminal: h.terminal }

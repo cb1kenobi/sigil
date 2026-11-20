@@ -3042,12 +3042,17 @@ it is a component rather than the frame effect SIG-103 is.
   below has an entry about.
 
 - **Per-tick invalidation is not a regression, and it was checked rather than
-  assumed.** The effect calls `invalidateMeasure()` on the cipher and
-  `invalidatePaint()` on the plain layer; the one-element view called `setText()`,
+  assumed.** Both layers are `trackedRaw()` (SIG-486), so a new frame marks the
+  cipher for layout, because its measure read the frame, and the plain layer for
+  paint, because only its paint did -- an effect beside the two used to call
+  `invalidateMeasure()` and `invalidatePaint()` for the same marks. The guard lays
+  the block out and paints it once before it writes, since a tracked raw listens
+  from its first measure and paint, which on screen is the first frame. The
+  one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a
-  jumble does not produce. Each call says what changed about **its own** element
+  jumble does not produce. Each mark says what changed about **its own** element
   rather than what the frame will do about it: a frame coalesces them today, since
   a layout mark repaints everything, which is why the guard reads the marks rather
   than the picture and why it is written against the day paint is narrowed.

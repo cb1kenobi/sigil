@@ -928,16 +928,15 @@ describe('decryptView()', () => {
   // insets and cannot move. A frame coalesces the two today -- a layout mark
   // repaints everything -- so this reads the marks rather than the picture
   it('should record a measure on the cipher and a repaint on the plain layer', () => {
-    // a scheduler that runs what it is handed, so that writing the frame runs the
-    // effect rather than leaving it on a microtask the assertion would precede
-    const scope = createEffects();
-    scope.setScheduler((run) => run());
     const state = decryptState('ab');
 
     createRoot((release) => {
       const root = decryptView(state);
       const tree = createTree(root);
       const [cipher, plain] = root.children;
+      // both layers are tracked, and listen to what they read from the first
+      // time they are measured and painted -- which on screen is the first frame
+      renderToString(root, { width: 40 });
       tree.take();
 
       state.frame.set(part('ab', [0, 1], 0));
@@ -952,7 +951,7 @@ describe('decryptView()', () => {
       ).to.equal(true);
       release();
       return undefined;
-    }, scope.effect);
+    });
   });
 
   // which cells are break opportunities is asked of the plan rather than of what is

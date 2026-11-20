@@ -841,9 +841,9 @@ the entry it belongs to.
   rather than one added here: it is a derivation of what it read, a `Computed`
   refuses a write, and the frame reports `A Computed may not write to a signal`. A
   paint that wrote what it read would otherwise repaint itself on every frame for
-  as long as the app ran. The measure is **not** tracked: no `raw` here sizes
-  itself from a signal, and a measure that did would be a layout mark rather than
-  a paint mark, which is a second helper for a case nobody has.
+  as long as the app ran. The measure was **not** tracked at first, on the reading
+  that no `raw` here sized itself from a signal; `decrypt` did, and SIG-486 tracks
+  it -- the entry below.
 
   What it costs, measured on an Apple M5 Pro on node 24.18.0 as of this change, by
   `scripts/benchmark-tracked-raw.mjs` over a column of one-row raws each reading
@@ -863,12 +863,62 @@ the entry it belongs to.
   and stayed `raw()`. The library's own calls are not the pattern and stayed:
   `number()`, the prompt's field and `TextArea` call it from an imperative
   `draw()` after a key, with the state in plain variables rather than signals, and
-  the pane's edge from a class toggle. `decrypt.ts` is the nearest, an effect over
-  `state.frame` -- and it also calls `invalidateMeasure()` on the cipher beside the
-  plain layer, so the effect stays whichever way the plain layer paints, and
-  moving half of it would leave one effect doing one thing for a reason the other
-  half no longer shares. See `trackedRaw()` in `test/renderer/renderer.test.ts`,
-  and `examples/disk-usage/test/map-view.test.ts` for the map on its own.
+  the pane's edge from a class toggle. `decrypt.ts` was the nearest, an effect over
+  `state.frame` -- and it also called `invalidateMeasure()` on the cipher beside the
+  plain layer, so it stayed until the measure was tracked as well, and moved with
+  SIG-486. See `trackedRaw()` in `test/renderer/renderer.test.ts`, and
+  `examples/disk-usage/test/map-view.test.ts` for the map on its own.
+
+- **`trackedRaw()` tracks its measure too, and what it follows is the last
+  measure at each width (SIG-486).** A measure runs in the layout, which is as
+  untracked as the paint, so a `raw` whose size followed state still needed an
+  effect beside it calling `invalidateMeasure()` -- `decrypt`'s cipher had one --
+  and leaving it out went unnoticed until the state changed the size with nothing
+  else relaying out in the same frame. Each measure now runs in a `Computed` of
+  its own, a second `Watcher` calls `invalidateMeasure()` when anything it read
+  moves, and the owner lets go of both kinds. A second watcher rather than the
+  paint's, because the two marks are different answers -- a layout mark measures
+  again and a paint mark does not -- and a signal both read is marked twice,
+  which the frame coalesces since a layout mark repaints everything.
+
+  **The list is per width, not the last call's.** A layout asks a measure more
+  than once and uses more than one answer: `flex.ts` asks at the width the
+  element will be placed at for the height and at the room it was offered for the
+  basis, and the renderer asks `measureNode()` before `layout()`. A measure that
+  read one signal at a narrow width and another at a wide one would lose the first
+  under "last call wins", so a computed is kept per width asked, each replaced by
+  the next measure at that width. Once anything moves, the next measure lets every
+  width go and starts the list again, so a width no layout asks for any more is
+  not kept as a reason to relay out; without that, a resize drag would hold a
+  computed for every width it passed through until something changed. A measure
+  that read no signal at all keeps nothing, so a constant one -- the treemap's --
+  holds no edges, and pays only for building and letting go of its computed. Kept
+  per width rather than tied to a layout pass because there is no pass to tie it
+  to: `measureNode()`, `layout()` and the pane's own `measureNode()` each ask, and
+  none of them tells the element it is starting.
+
+  The rest is the paint's, said once more: watched before it is read and the one
+  it replaces let go after, so a source both read stays live (`should keep a
+  source watched across measures that read it again`); read untracked, with the
+  caller handed what was read, so `renderToString()` in a derivation takes its new
+  height (`should leave a caller that tracks the measure reading what the measure
+  read`); left to the measure when the owner goes during it; and a measure that
+  writes a signal is refused. Each of those, the per-width list and the restart
+  was sabotaged and its test failed.
+
+  What it costs, measured on an Apple M5 Pro on node 24.18.0 as of this change
+  with eight other builds and test runs going on the same machine, by the same
+  `scripts/benchmark-tracked-raw.mjs`, which now times `arrange()` as a `layout`
+  column and whose measure reads the row's signal (`static` makes it read
+  nothing). Three runs at each size, per raw per layout: a plain `raw` at 0.35 to
+  0.38 us at 500, 0.43 to 0.59 at 50 and 0.34 to 0.44 at 2,000; `trackedRaw()` at
+  0.72 to 0.75, 0.94 to 1.05 and 1.10 to 1.35 -- 1.6x to 2.3x the layout walk at
+  50 and 500, 3.1x to 3.4x at 2,000. About 0.4 us a raw at 500 and 0.8 to 0.9 us
+  at 2,000 for each frame that lays out, which is fewer frames than paint: a layout
+  happens on a layout mark and a paint on any. A measure that reads nothing is
+  0.29 us against 0.57 at 500. The paint columns are SIG-477's within the spread
+  (0.44 to 0.67 us plain, 0.81 to 1.51 tracked), and `raw()` did not change, so a
+  plain `raw` still pays nothing for any of it.
 
 - **What is deliberately deferred, and why it is not an oversight.** Whether
   `main()` grows a way for a command's `run()` to return a view is the parser's
