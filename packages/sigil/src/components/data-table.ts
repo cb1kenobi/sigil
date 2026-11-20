@@ -137,7 +137,10 @@ export interface DataTableProps<T, K = T> {
    * is how an app hides a column, adds one or changes a width: replace the array.
    */
   columns: DataTableColumns<T>;
-  /** The current row, as its key, or the state that holds it: `ListView`'s `current`. */
+  /**
+   * The current row, as its key, or the state that holds it, never a `Computed`:
+   * `ListView`'s `current`.
+   */
   current?: K | State<K | undefined>;
   /** Whether a row is disabled: drawn muted and passed over, as in a list. */
   disabled?: (row: T) => boolean;

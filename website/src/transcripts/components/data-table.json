@@ -21,7 +21,7 @@
         "type": "boolean"
       },
       {
-        "description": "The current row, as its key, or the state that holds it: `ListView`'s `current`.",
+        "description": "The current row, as its key, or the state that holds it, never a `Computed`: `ListView`'s `current`.",
         "name": "current",
         "optional": true,
         "type": "K | State<K | undefined>"

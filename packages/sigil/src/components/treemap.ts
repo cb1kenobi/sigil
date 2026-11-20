@@ -105,10 +105,10 @@ export interface TreemapProps<T, K = T> {
   color?: (item: T, level: ColorLevel) => Color;
   /**
    * The item marked with an outline, as its key, or the state that holds it -- the
-   * shape `ListView`'s `current` has. A click writes it, so a `Computed` is refused. An item with no tile of
-   * its own outlines what it was drawn in: the tile it was gathered into, or the
-   * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
-   * root is the whole map and is not outlined. The outline is the map's
+   * shape `ListView`'s `current` has. A click writes it, so a `Computed` is
+   * refused. An item with no tile of its own outlines what it was drawn in: the
+   * tile it was gathered into, or the tile of an ancestor drawn in one piece --
+   * which takes `parent` to find. The root is the whole map and is not outlined. The outline is the map's
    * `border-color`: bright white where nothing sets one, and green while the map
    * has the focus, which is how a reader tells where the arrows go. Only the
    * colour changes, so at colour level 0 the two look the same.

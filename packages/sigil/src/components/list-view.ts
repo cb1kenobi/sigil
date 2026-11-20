@@ -458,8 +458,8 @@ export interface ListViewProps<T, K = T> {
    */
   ascii?: boolean;
   /**
-   * The current row, as its key, or the state that holds it: see
-   * {@link ListSelectionOptions.current}.
+   * The current row, as its key, or the state that holds it, never a `Computed`:
+   * see {@link ListSelectionOptions.current}.
    */
   current?: K | State<K | undefined>;
   /**

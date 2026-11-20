@@ -13500,8 +13500,22 @@ was never read. No error, and a derivation that did nothing at all.
   app's own object with a `get` of its own, and duck typing would refuse it; a test
   pins an option value with a `get()` being selected. The cost of `instanceof` is
   that a `Computed` from a second copy of the package is not recognised and is
-  taken as a value, as before. An option whose value really _is_ a `Computed` can
-  no longer be named by `value`; nobody keys a choice by a signal.
+  taken as a value, as before.
+- **A key that really is a `Computed` is named through a `State`.** A list keys a
+  row by the item itself unless it is given a `key`, so a list of signals -- an
+  inspector -- has `Computed` keys, and `current: b` used to start on row `b`; it
+  is refused now, like any `Computed`, and `current: new State(b)` says the same
+  thing unambiguously. The same holds for an option whose value is a `Computed`,
+  and for a tree's and a treemap's `current`. The rare app keying by a signal pays
+  one wrapper so that every app passing a derivation hears about it, rather than
+  the other way round.
+- **A function is still taken as a value, deliberately.** `() => level.get()` is
+  the template's spelling of a reactive prop, and as a `value` it selects nothing
+  and is never called, which is this ticket's silent no-op in another shape. It is
+  not refused because a choice's value may well be a function -- an action to run
+  -- and a function cannot be told from one; `disabled` can take one only because
+  a function there is never a legitimate value. Following one live is the same
+  question as following a `Computed`, and has the same answer.
 - **The same defect in four more places, fixed the same way.** Swept every
   `instanceof State ?` in `src/components/`: a list's `current` (in
   `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s

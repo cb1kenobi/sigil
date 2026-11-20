@@ -439,6 +439,16 @@ describe('createListSelection()', () => {
       'Expected list current to be a key or a State, not a Computed, since the list writes it'
     );
   });
+
+  it('should take a Computed key through a State, for a list keyed by its signals', () => {
+    const a = new Computed(() => 1);
+    const b = new Computed(() => 2);
+    const sel = createListSelection<Computed<number>>({
+      current: new State<Computed<number> | undefined>(b),
+    });
+    sel.setRows([a, b]);
+    expect(sel.current.get()).toBe(b);
+  });
 });
 
 describe('ListView()', () => {
