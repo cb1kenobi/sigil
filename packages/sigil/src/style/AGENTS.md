@@ -1400,6 +1400,32 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   `prefers-color-scheme` shipped, and the reason that line and the generator's
   table had to move together is under "Light and dark". Not `hover:` until mouse
   tracking exists.
+- **`focus-within:` sits immediately before `focus:`, which is Tailwind's order
+  (SIG-451).** It is a pseudo-class variant like `focus:`, over the state and the
+  selector SIG-372 added, so `focus-within:border-green` is
+  `.focus-within\:border-green:focus-within { border-color: green }` and nothing
+  else. Where it goes in `VARIANTS` is the only decision in it, because the
+  focused element matches `:focus-within` too -- see "`focus-within` is carried"
+  in `src/element` -- and the two rules have the same specificity, one class and
+  one pseudo-class each, so the block printed later wins on that element. Tailwind
+  puts `focus-within` before `focus` in v3 and v4 alike, so `focus:` beats
+  `focus-within:` on the element that has the focus and only `focus-within:`
+  applies to its ancestors, and that pair resolves here as it does there. The pair
+  is all that does: the other state variants are not in Tailwind's order --
+  `first:`, `last:` and `checked:` come before `focus-within:` there, and
+  `disabled:` after `focus:` -- so on a first child that holds the focus,
+  `first:border-red focus-within:border-green` is green in Tailwind and red here,
+  because `first:` is printed later. They were left where they are: matching it
+  means moving `first:`, `last:` and `checked:` above `focus:` as well, which
+  changes which of two _existing_ classes wins on an element that is both, and
+  that is a change to class strings people have already written rather than part
+  of adding one. A variant still does not stack -- there is no
+  `dark:focus-within:` -- so the media variants meet it only through specificity,
+  where a pseudo-class variant's two beats a media variant's one whatever the
+  order, exactly as `focus:` already did. And it ships the way every variant
+  does, which is in the generator only: `UTILITY_CSS` and a shaken sheet are the
+  base set, per the entry above, so regenerating `utilities.ts` for it was a
+  no-op, and no app can load the rule until the variants ship at all.
 - **`@apply` is one statement, and an `@apply` in a comment is not one.** The
   name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
   so `@apply foo { bar: 1; }` swallowed the block after it and a missing
