@@ -669,6 +669,12 @@ export class Element implements LayoutNode {
     if (this.type !== 'box') {
       throw new Error(`A ${this.type} element cannot have children`);
     }
+    // a tree's root is what the tree is built around, and nothing tells the tree
+    // it lost it: the move told only the gaining tree, so the old one went on
+    // naming an element that is now another tree's
+    if (child.#tree?.root === child) {
+      throw new Error("A tree's root element cannot be moved into another element");
+    }
     // every check is made before anything is detached, so a call that throws
     // leaves the tree as it found it -- the child taken out of its old parent
     // and then refused was a child in neither. The brand check keeps a `null`

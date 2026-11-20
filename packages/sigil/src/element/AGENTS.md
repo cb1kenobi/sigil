@@ -117,6 +117,25 @@ the entry it belongs to.
   throws now throws over a removal that has happened rather than one that has
   not. A `before` the callback moved away is not a case: nothing runs between the
   check and the splice any more. See `test/element/element.test.ts`.
+- **A tree's root cannot be moved into another element (SIG-525).** The call
+  above tells the tree that gained the child and, when the child had a parent,
+  the tree that lost it -- and a root has no parent, so there was nobody to read
+  the old tree from: `other.append(root)` marked the new tree, left
+  `oldTree.root` naming an element that was now another tree's, and never told
+  the old tree anything. Measured on `origin/main` after SIG-450 had merged, so
+  the defect is not that change's. `insertBefore()` refuses it, before it
+  changes anything, with `A tree's root element cannot be moved into another
+  element`. Refusing was chosen over telling the old tree because a tree with a
+  root that is somewhere else has no definition to tell it: it would need a new
+  root, or an empty state, or a callback for being rootless, each of them a
+  contract nothing asks for. The only caller of `createTree()` is the renderer,
+  which builds its root and never moves it, and no example does either, so
+  nothing depended on the move. The root of a tree is therefore the one
+  element `insertBefore()` and `append()` never take; take its _children_
+  anywhere. Left alone: `createTree()` over an element that already has a
+  parent, whose `remove()` would leave the same stale `root` -- it is a root
+  that was never detached to begin with, which is a question about
+  `createTree()` and not about a move. See `test/element/element.test.ts`.
 - **`focus-within` is carried, not searched for, and it is reported rather than
   set (SIG-372).** An element is in it while it or a descendant holds `focus`,
   which is CSS's rule -- the focused element matches `:focus-within` too. Each
