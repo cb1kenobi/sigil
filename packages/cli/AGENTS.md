@@ -1543,7 +1543,12 @@ makes it testable with a fixture directory and no bundler at all.
   hide it, and a string cannot be told from the literal it was computed from at
   run time. No warning and no comparison against the manifest is added for it --
   the app that computes its version should declare a function, which is what
-  the type's own documentation says.
+  the type's own documentation says. The same holds for a string computed from
+  the environment, `process.env.npm_package_version ?? '0.0.0'`: set under
+  `pnpm dev` and unset when the built bin is run directly, so the built app
+  prints `0.0.0` where the bake used to supply the manifest's. And "a function
+  is still replaced" means when the manifest has a `version`: with none,
+  nothing is baked and the function stands.
 
   `defaultLocale` is the same precedence with none of the exception: nothing
   computes a locale from a path, so a `defaultLocale` the schema declares simply

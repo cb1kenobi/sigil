@@ -817,12 +817,7 @@ describe('a version and a default locale the schema states', () => {
   const MANIFEST = '1.0.0';
 
   /** Builds a copy of `buildable` whose entry is `schema`; returns the app and its bin. */
-  async function variant(
-    name: string,
-    schema: string,
-    files: Record<string, string> = {},
-    manifest: Record<string, unknown> = { version: MANIFEST }
-  ) {
+  async function variant(name: string, schema: string, files: Record<string, string> = {}) {
     const dir = linkedFixture(app, `sigil-version-${name}-`);
     writeFileSync(
       join(dir, 'package.json'),
@@ -830,7 +825,7 @@ describe('a version and a default locale the schema states', () => {
         dependencies: { '@ttylabs/sigil': '*' },
         name: 'buildable',
         type: 'module',
-        ...manifest,
+        version: MANIFEST,
       })
     );
     writeFileSync(join(dir, 'src', 'index.ts'), schema);
@@ -895,7 +890,7 @@ describe('a version and a default locale the schema states', () => {
     expect(result.stdout).toBe(source.stdout);
   }, 60_000);
 
-  it('should print a version stated by a schema that is a function, or a promise of one', async () => {
+  it('should print a version stated by an async schema function', async () => {
     const { bin } = await variant(
       'async',
       `${header}export default async () => ({ ...base, version: '9.9.9' });\n`

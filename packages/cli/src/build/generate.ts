@@ -349,8 +349,9 @@ export function generateBin(options: GenerateBinOptions): string {
   //   app prints. One that throws at import never reached this line -- `import
   //   * as app` runs before `compose()` -- so the override was not saving that
   //   case either. A computed string cannot be told from a stated one once it
-  //   is a string, and the app that computes its version eagerly is told to use
-  //   the function spelling
+  //   is a string, and the app that computes its version eagerly -- from a path
+  //   or from `process.env.npm_package_version`, unset outside a package
+  //   manager -- is told to use the function spelling
   // - nothing declared at all is the ordinary case, and the manifest fills it in
   const bakedVersion =
     version === undefined
