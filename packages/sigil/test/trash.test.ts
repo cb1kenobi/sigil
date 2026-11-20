@@ -1,5 +1,6 @@
 import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/trash/freedesktop.js';
 import { trash } from '../src/trash/index.js';
+import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
 import {
   chmodSync,
@@ -395,8 +396,9 @@ describe('trash()', () => {
    */
   describe.runIf(process.platform === 'darwin' || WINDOWS)("the platform's own trash", () => {
     /**
-     * Windows compiles the C# with `Add-Type` on every call, about a second and a
-     * half on a runner -- two calls passed 10 s on node 24 and timed out on node 22.
+     * Windows compiles the C# on any call that misses the cache, about a second
+     * and a half on a runner -- two calls passed 10 s on node 24 and timed out on
+     * node 22 when every call compiled.
      */
     const SLOW = 60_000;
 
@@ -456,5 +458,82 @@ describe('trash()', () => {
       },
       SLOW
     );
+
+    /**
+     * The compiled helper, kept in a cache this test names rather than the
+     * runner's own, so each case starts from a file it wrote. What each call did
+     * with it is what `recycle()` reports; the item is trashed every time.
+     */
+    describe.runIf(WINDOWS)('the compiled helper, cached', () => {
+      /** Trashes a fresh file through `recycle()` with this cache, and takes it back out. */
+      async function once(file: string | undefined, hash = keyOf('sigil-trash-test')) {
+        const item = join(made('sigil-trash-cached-'), 'a.txt');
+        writeFileSync(item, 'a');
+        let where = '';
+        try {
+          const out = await recycle(item, file, hash);
+          where = out.path;
+          expect(where).not.toBe('');
+          expect(existsSync(item)).toBe(false);
+          return out.cache;
+        } finally {
+          await takeOut(where);
+        }
+      }
+
+      it(
+        'should compile once, then load the sealed helper from the cache',
+        async () => {
+          const file = join(made('sigil-trash-cache-'), 'sigil', 'trash.bin');
+
+          expect(await once(file)).toBe('saved');
+          expect(existsSync(file)).toBe(true);
+          expect(await once(file)).toBe('hit');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should rebuild rather than load a file that does not unseal',
+        async () => {
+          const file = join(made('sigil-trash-forged-'), 'trash.bin');
+          expect(await once(file)).toBe('saved');
+          const sealed = readFileSync(file);
+
+          // anything another process could write there: bytes that are not a
+          // seal at all, a seal cut short, and a real seal for another source
+          writeFileSync(file, 'MZ not a seal');
+          expect(await once(file)).toBe('saved');
+          writeFileSync(file, sealed.subarray(0, sealed.length - 1));
+          expect(await once(file)).toBe('saved');
+          writeFileSync(file, sealed);
+          expect(await once(file, keyOf('another source'))).toBe('saved');
+          // and what was rebuilt is good for its own key
+          expect(await once(file, keyOf('another source'))).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should still trash, compiling each time, where the cache cannot be written',
+        async () => {
+          const root = made('sigil-trash-unwritable-');
+          // a file where the cache's directory would be made
+          writeFileSync(join(root, 'taken'), '');
+          const under = join(root, 'taken', 'trash.bin');
+          // a directory where the cache file would be written
+          const occupied = join(root, 'dir.bin');
+          mkdirSync(occupied);
+
+          expect(await once(under)).toBe('built');
+          expect(await once(under)).toBe('built');
+          expect(await once(occupied)).toBe('built');
+          expect(statSync(occupied).isDirectory()).toBe(true);
+          expect(await once(undefined)).toBe('built');
+        },
+        SLOW
+      );
+    });
   });
 });

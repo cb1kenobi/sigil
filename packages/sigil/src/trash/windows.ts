@@ -12,7 +12,9 @@
  */
 
 import { __ } from '../i18n/index.js';
+import { cache } from '../paths.js';
 import { run } from './spawn.js';
+import { join } from 'node:path';
 
 /**
  * The C#: the three COM interfaces it needs, a sink that refuses a delete that
@@ -180,22 +182,147 @@ namespace SigilTrash {
 }`;
 
 /**
- * The PowerShell around it. The path is read from the environment rather than
- * spliced into the script, so nothing in a name can be read as code, and a
- * failure anywhere -- the C# not compiling included -- still answers in JSON.
+ * The PowerShell around it, which compiles the C# once per source and keeps the
+ * assembly in the cache directory -- verified before it is loaded, and loaded
+ * from the very bytes that were verified.
+ *
+ * `AGENTS.md` beside this file has the whole of the reasoning; in short:
+ *
+ * - The cached file is the assembly sealed with DPAPI for the current user, the
+ *   entropy being the source's hash. Unsealing checks the seal's own MAC, so a
+ *   file another user wrote, one sealed for another source, a truncated one or a
+ *   plain DLL all fail to unseal -- and a failure is a rebuild, never an error.
+ *   A hash kept beside the file would be written by whoever wrote the file.
+ * - It is read once, into memory, and that buffer is what is unsealed and what
+ *   `Assembly.Load()` is handed, so nothing can swap the file between the check
+ *   and the load: the file is never opened a second time.
+ * - Building writes the DLL into a directory of its own under the user's temp
+ *   directory, which is where `Add-Type` always compiled, and reads it back the
+ *   same way. Saving goes through a fresh name opened `CreateNew`, which refuses
+ *   anything already at it, and every failure to save is swallowed: a cache that
+ *   cannot be written costs the compile, as it always did, and never the trash.
+ *
+ * The path, the cache file, the key and the C# itself all come from the
+ * environment rather than being spliced into the script, so nothing in a name
+ * can be read as code -- and keeping the C# out of the command line is what
+ * leaves it room under Windows' 32,767 characters. A failure anywhere, the C#
+ * not compiling included, still answers in JSON.
  */
 const SCRIPT = `$ErrorActionPreference = 'Stop'
+$state = 'none'
 try {
-  Add-Type -TypeDefinition @'
-${CSHARP}
-'@
-  [Console]::Out.Write([SigilTrash.Bin]::Recycle($env:SIGIL_TRASH_PATH))
+  $cache = [string]$env:SIGIL_TRASH_CACHE
+  $entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:SIGIL_TRASH_KEY)
+  $assembly = $null
+  $sealer = $false
+  if ($cache) {
+    try {
+      Add-Type -AssemblyName System.Security
+      $sealer = $true
+      $sealed = $null
+      $file = New-Object IO.FileInfo $cache
+      if ($file.Exists -and $file.Length -lt 1048576) {
+        $sealed = [IO.File]::ReadAllBytes($cache)
+      }
+      if ($null -ne $sealed) {
+        $bytes = [Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')
+        $assembly = [Reflection.Assembly]::Load($bytes)
+        $state = 'hit'
+      }
+    } catch {
+      $assembly = $null
+    }
+  }
+  if (-not $assembly) {
+    $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
+    [void][IO.Directory]::CreateDirectory($dir)
+    try {
+      $params = New-Object CodeDom.Compiler.CompilerParameters
+      $params.GenerateInMemory = $false
+      $params.OutputAssembly = Join-Path $dir 'SigilTrash.dll'
+      $params.TempFiles = New-Object CodeDom.Compiler.TempFileCollection $dir, $false
+      $built = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($params, [string]$env:SIGIL_TRASH_SOURCE)
+      $failed = @($built.Errors | Where-Object { -not $_.IsWarning })
+      if ($failed.Count) {
+        throw [string]$failed[0]
+      }
+      $bytes = [IO.File]::ReadAllBytes($params.OutputAssembly)
+    } finally {
+      Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $assembly = [Reflection.Assembly]::Load($bytes)
+    $state = 'built'
+    if ($sealer) {
+      $temp = $null
+      try {
+        $sealed = [Security.Cryptography.ProtectedData]::Protect($bytes, $entropy, 'CurrentUser')
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($cache))
+        $temp = $cache + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+        $stream = New-Object IO.FileStream $temp, 'CreateNew', 'Write'
+        try {
+          $stream.Write($sealed, 0, $sealed.Length)
+        } finally {
+          $stream.Dispose()
+        }
+        if ([IO.File]::Exists($cache)) {
+          [IO.File]::Delete($cache)
+        }
+        [IO.File]::Move($temp, $cache)
+        $temp = $null
+        $state = 'saved'
+      } catch {
+      } finally {
+        if ($temp) {
+          Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+      }
+    }
+  }
+  $bin = $assembly.GetType('SigilTrash.Bin', $true)
+  [Console]::Out.Write('{"cache":"' + $state + '","answer":' + $bin::Recycle([string]$env:SIGIL_TRASH_PATH) + '}')
 } catch {
   $m = [string]$_.Exception.Message
   $e = ($m.ToCharArray() | ForEach-Object { if ([int]$_ -lt 32 -or [int]$_ -gt 126 -or $_ -eq '"' -or $_ -eq '\\') { '\\u{0:x4}' -f [int]$_ } else { [string]$_ } }) -join ''
-  [Console]::Out.Write('{"error":"' + $e + '"}')
+  [Console]::Out.Write('{"cache":"' + $state + '","answer":{"error":"' + $e + '"}}')
 }
 `;
+
+/**
+ * What became of the compiled helper on one call: loaded from the cache (`hit`),
+ * compiled and kept (`saved`), compiled and not kept because the cache could not
+ * be written (`built`), or nothing yet because the call failed first (`none`).
+ */
+export type CacheState = 'built' | 'hit' | 'none' | 'saved';
+
+/** The C#'s own hash, computed once: what the cache file is named for and sealed to. */
+let key: string | undefined;
+
+/**
+ * A source's key: SHA-256, in hex.
+ *
+ * `node:crypto` is asked for rather than imported, as `config/atomic.ts` asks for
+ * it, since only a call on Windows needs it.
+ */
+export function keyOf(source: string): string {
+  return process.getBuiltinModule('node:crypto').createHash('sha256').update(source).digest('hex');
+}
+
+/**
+ * Where the compiled helper for a key is kept, under a cache base directory.
+ *
+ * Named for the key, so a newer sigil with different C# never reads an older
+ * one's file; the seal is what proves it, and the name only keeps two versions
+ * on one machine from overwriting each other. Nothing removes an old one: two
+ * apps on different versions would remove each other's, and each is a few
+ * kilobytes.
+ *
+ * @param base - The cache base, as `paths.cache()` answers; nothing for none.
+ * @param hash - The source's key.
+ * @returns The file, or nothing, in which case the helper is compiled every call.
+ */
+export function cacheFile(base: string | undefined, hash: string): string | undefined {
+  return base ? join(base, 'sigil', `trash-${hash.slice(0, 16)}.bin`) : undefined;
+}
 
 /** Windows PowerShell, which every Windows this runs on has, at the path it always has. */
 function powershell(): string {
@@ -211,6 +338,26 @@ function powershell(): string {
  * @throws If the bin would not take it, which leaves it where it was.
  */
 export async function trashWindows(path: string): Promise<string> {
+  key ??= keyOf(CSHARP);
+  return (await recycle(path, cacheFile(cache(), key), key)).path;
+}
+
+/**
+ * `trashWindows()` with the cache named rather than found, and saying what became
+ * of it -- the seam the tests use, since what is cached is the whole of the
+ * difference between one call and the next.
+ *
+ * @param path - Absolute.
+ * @param file - Where the compiled helper is kept; nothing to compile it every call.
+ * @param hash - The key the helper is sealed to.
+ * @returns Where the item went, and what became of the helper.
+ * @throws If the bin would not take it, which leaves it where it was.
+ */
+export async function recycle(
+  path: string,
+  file: string | undefined,
+  hash: string
+): Promise<{ cache: CacheState; path: string }> {
   const out = await run(
     powershell(),
     [
@@ -222,24 +369,32 @@ export async function trashWindows(path: string): Promise<string> {
       '-EncodedCommand',
       Buffer.from(SCRIPT, 'utf16le').toString('base64'),
     ],
-    { SIGIL_TRASH_PATH: path }
+    {
+      // set even when empty, so that one inherited from the caller's environment
+      // cannot name a cache this call was not given
+      SIGIL_TRASH_CACHE: file ?? '',
+      SIGIL_TRASH_KEY: hash,
+      SIGIL_TRASH_PATH: path,
+      SIGIL_TRASH_SOURCE: CSHARP,
+    }
   );
-  let answer: { error?: string; path?: string | null; refused?: string };
+  let reply: {
+    answer?: { error?: string; path?: string | null; refused?: string };
+    cache?: CacheState;
+  };
   try {
-    answer = JSON.parse(out.trim());
+    reply = JSON.parse(out.trim());
   } catch {
     throw new Error(__`PowerShell answered ${JSON.stringify(out.trim())}`);
   }
+  const answer = reply.answer ?? {};
   if (answer.refused !== undefined) {
     throw new Error(__`Windows would delete it for good rather than recycle it`);
   }
   if (answer.error !== undefined) {
     throw new Error(answer.error);
   }
-  if (!answer.path) {
-    // recycled, but the shell did not say where: the item is in the bin, so this
-    // is not a failure to report as one
-    return '';
-  }
-  return answer.path;
+  // recycled, but the shell did not say where: the item is in the bin, so this
+  // is not a failure to report as one
+  return { cache: reply.cache ?? 'none', path: answer.path || '' };
 }
