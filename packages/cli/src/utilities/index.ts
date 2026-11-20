@@ -361,6 +361,11 @@ const VARIANTS: readonly Variant[] = [
   { media: '(color-level: 2)', name: 'c256' },
   { media: '(prefers-color-scheme: dark)', name: 'dark' },
   { media: '(prefers-color-scheme: light)', name: 'light' },
+  // before `focus`, which is Tailwind's order in v3 and v4 alike: the focused
+  // element matches `:focus-within` too, both rules are one class and one
+  // pseudo-class, so the later block is what `focus:` beating `focus-within:` on
+  // that element comes down to
+  { name: 'focus-within', pseudo: ':focus-within' },
   { name: 'focus', pseudo: ':focus' },
   { name: 'disabled', pseudo: ':disabled' },
   { name: 'checked', pseudo: ':checked' },

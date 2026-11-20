@@ -328,6 +328,12 @@ describe('matching', () => {
     );
   });
 
+  it('should hand out matched rules nobody can write, since every call shares them', () => {
+    const [first] = cascade.match(button);
+    expect(cascade.match(button)[0]).toBe(first);
+    expect(Object.isFrozen(first)).toBe(true);
+  });
+
   it('should not report a rule whose bucket the element is not in', () => {
     // bucketed by the rightmost simple selector, so a `text` rule is never even
     // looked at for a box

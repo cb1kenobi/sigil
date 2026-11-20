@@ -85,6 +85,7 @@ import {
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
 import { table } from '@ttylabs/sigil/components/table';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { canReadKeys } from '@ttylabs/sigil/input';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -409,7 +410,9 @@ function assertSelfContained(external: readonly string[]): void {
     return;
   }
 
-  const named = external.map((pkg) => `"${pkg}"`).join(', ');
+  // a package name from `sigil.json` or `--external`, which `main()` prints as
+  // it stands
+  const named = external.map((pkg) => `"${escapeControls(pkg)}"`).join(', ');
 
   throw new Error(
     `Cannot package an app with external packages: ${named}.\n  An external is the app saying that package must be installed where it runs, and a single binary is the app saying nothing has to be installed -- so the binary could not work. On the node runtime it would be built and reported successfully and then fail on first use, because a single executable cannot resolve anything outside itself.\n  A package carrying a native binding cannot be inlined at all, so an app with one is a "sigil build" plus its node_modules rather than a binary.`
@@ -850,8 +853,10 @@ function describeSigning(identity: string | undefined): string {
  * @param compiled - What was built, in the order it was named.
  */
 function printBinaries(compiled: readonly Built[]): void {
+  // the file is named after the app's manifest, for `printSizes()`'s reason in
+  // `build.ts`
   const rows = compiled.map((one) => [
-    one.file,
+    escapeControls(one.file),
     label(one.target),
     `${(one.size / 1048576).toFixed(1)} MB`,
     describeSigning(one.signed),

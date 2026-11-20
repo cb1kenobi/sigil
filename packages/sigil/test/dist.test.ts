@@ -767,12 +767,20 @@ describe('what importing the package costs', () => {
     // barrel pays for -- about 6 ms more, measured in src/components/AGENTS.md
     // -- and the bytes are ordinary growth, so the ceiling stays, at 1.32x
     //
+    // 657,059 B over 151 when SIG-464 gave the line chart a fill under its line
+    // and a crosshair, which crossed the 640 KiB: `main` was at 654,056 B over
+    // the same 151, 1.002x under it rather than the 1.4x it was set at, after
+    // the components added since SIG-330. The chart added 3,003 B of its own code
+    // and no module at all -- the module list was the same before and after --
+    // so it is ordinary growth, and the ceiling moved to 896 KiB, which is 1.40x
+    // of the new figure
+    //
     // A ceiling rather than a measurement, at about 1.4x, so ordinary growth
     // never touches it and a second runtime stack does
     const graph = staticGraph('components.mjs');
     const bytes = graphBytes(graph);
 
-    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(640 * 1024);
+    expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(896 * 1024);
   });
 
   // SIG-183 put seven spinner sets in the components entry and the rest in the

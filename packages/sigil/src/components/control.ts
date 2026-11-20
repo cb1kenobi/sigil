@@ -6,8 +6,10 @@
  * `Button`, `Checkbox`, `RadioSet` and `Switch` each answer these questions,
  * and the answer is the same every time -- so it is written once, here, rather
  * than four times beside each other; `TextField`, `TextArea`, `Slider` and
- * `Dropdown` read their `disabled` through `controlCondition()` as well. Published, for the reason
- * every sibling is: an ejected checkbox imports it from
+ * `Dropdown` read their `disabled` through `controlCondition()` as well, and
+ * `controlState()` is what everything that writes a value of the app's own type
+ * -- a radio set, a dropdown, a list's cursor, a table's sort -- takes it
+ * through. Published, for the reason every sibling is: an ejected checkbox imports it from
  * `@ttylabs/sigil/components/control`, and a control an app writes for itself
  * can follow the same rules by calling the same functions.
  *
@@ -17,7 +19,7 @@
 import type { Element } from '../element/index.js';
 import type { DescribeOptions } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
-import { State } from '../signals/index.js';
+import { Computed, State } from '../signals/index.js';
 
 /** Where a control's keys are described, which is the whole of what is asked of a router. */
 export interface ControlDescriber {
@@ -57,6 +59,36 @@ export function controlFlag(value: unknown, message: string): State<boolean> {
     throw new TypeError(message);
   }
   return new State(value ?? false);
+}
+
+/**
+ * A value to start from, or the `State` that is the value -- for what a
+ * component writes and can hold anything: a radio set's or a dropdown's `value`,
+ * a list's `current`, a table's `sort`.
+ *
+ * `controlFlag()` is the boolean case, and it refuses a `Computed` by refusing
+ * everything that is neither a boolean nor a `State`. A value here is the app's
+ * own type, so nothing can be refused by its shape -- except a `Computed`, which
+ * is a signal and never a value: wrapped in a new `State` it became the value
+ * itself, selected nothing, and was never read again, so the derivation the app
+ * wrote did nothing at all. It cannot be written, which is what the component
+ * does with this, so it is refused rather than followed. Told apart by
+ * `instanceof`, as the treemap tells its `root` apart, because the value may well
+ * be the app's own object with a `get` of its own.
+ *
+ * @param value - What the caller passed.
+ * @param message - The `TypeError` to throw for a `Computed`.
+ * @returns The state: the caller's own, or a new one holding the value.
+ * @throws If `value` is a `Computed`.
+ */
+export function controlState<T>(value: T | State<T>, message: string): State<T> {
+  if (value instanceof State) {
+    return value as State<T>;
+  }
+  if (value instanceof Computed) {
+    throw new TypeError(message);
+  }
+  return new State(value);
 }
 
 /**

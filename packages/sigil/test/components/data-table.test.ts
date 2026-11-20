@@ -963,6 +963,25 @@ describe('DataTable()', () => {
     );
   });
 
+  // a Computed is not a State, so it was wrapped as a sort to start from, and
+  // refused as one naming the column `undefined`, which says the wrong thing
+  it('should refuse a Computed sort, which a click on a heading could not write', () => {
+    const by = new State({ column: 'a' });
+    const sort = new Computed(() => by.get());
+    expect(() => DataTable({ columns: ['a'], rows: [], sort: sort as never })).toThrow(
+      'Expected data table sort to be a sort or a State, not a Computed, since the table writes it'
+    );
+  });
+
+  // the cursor was taken as a key no row has, and never read again
+  it('should refuse a Computed current, which the moves could not write', () => {
+    const key = new State(0);
+    const current = new Computed(() => key.get());
+    expect(() => DataTable({ columns: ['a'], current: current as never, rows: [] })).toThrow(
+      'Expected list current to be a key or a State, not a Computed, since the list writes it'
+    );
+  });
+
   it('should name a column with no key by its place', () => {
     const host = DataTable({
       ascii: false,

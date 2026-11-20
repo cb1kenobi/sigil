@@ -16,7 +16,7 @@
         "type": "boolean"
       },
       {
-        "description": "The current node, as its value, or the state that holds it -- the shape `ListView`'s `current` has. Left out, the cursor starts on the first row.",
+        "description": "The current node, as its value, or the state that holds it -- the shape `ListView`'s `current` has, a `Computed` refused. Left out, the cursor starts on the first row.",
         "name": "current",
         "optional": true,
         "type": "T | State<T | undefined>"

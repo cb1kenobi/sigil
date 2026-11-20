@@ -4,14 +4,18 @@ import {
   Gauge,
   LineChart,
   lineChart,
+  type LineChartProps,
   Series,
   Sparkline,
   sparkline,
 } from '../../src/components/chart.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
+import type { InputRouter } from '../../src/input/index.js';
+import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
+import { createTestTerminal, frame } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * The live charts: fed from a signal, a `Series` or a function, and drawn at the
@@ -477,5 +481,289 @@ describe('a live chart’s host', () => {
     await flush();
     picture(root, 20);
     expect(labels()).toBe(before);
+  });
+});
+
+/**
+ * The crosshair: a rule at the sample under the pointer, and a tooltip saying the
+ * values there. The pointer is a motion report on a test terminal, through
+ * `runApp()`, since what the chart follows is the router's `hover` state and the
+ * report's position -- neither of which a picture of the tree has.
+ */
+describe('LineChart, with a crosshair (SIG-464)', () => {
+  const apps: { exit(code: number): void }[] = [];
+  afterEach(() => {
+    for (const app of apps.splice(0)) {
+      app.exit(0);
+    }
+  });
+
+  /**
+   * A 30-column chart at the left of a 40-column screen, so a column past it is
+   * off the chart. Four samples, `fit`: the gutter is one digit and its tick, so
+   * the plot starts at column 3 and the samples are at columns 3, 12, 20 and 29.
+   */
+  async function mount(
+    chart: (input: InputRouter) => Partial<LineChartProps>,
+    opts: { motion?: boolean } = {}
+  ) {
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+    const app = runApp(
+      () => {
+        const input = useApp().input as InputRouter;
+        return row(
+          LineChart({
+            ascii: false,
+            crosshair: { input },
+            props: { height: 6, width: 30 },
+            series: [{ data: [1, 5, 3, 8], label: 'API' }],
+            step: 'fit',
+            ...chart(input),
+          })
+        );
+      },
+      {
+        detect: false,
+        mouse: opts.motion === false ? true : { motion: true },
+        terminal: term.terminal,
+      }
+    );
+    apps.push(app);
+    await frame(app);
+    return {
+      /** The pointer onto a cell with nothing held; an SGR report counts from one. */
+      move: async (x: number, y: number) => {
+        await term.press(`${ESC}[<35;${x + 1};${y + 1}M`);
+        await frame(app);
+        await frame(app);
+      },
+      screen: () => term.viewport.map((line) => line.trimEnd()),
+      term,
+    };
+  }
+
+  /** The column of the axis tick the crosshair puts under its sample, or -1. */
+  const tick = (screen: string[]): number => (screen[4] ?? '').indexOf('┴');
+
+  it('should draw a rule at the sample nearest the pointer, and say its value beside it', async () => {
+    const m = await mount(() => ({}));
+    expect(tick(m.screen())).toBe(-1);
+
+    // column 14 is nearer the second sample, at 12, than the third, at 20
+    await m.move(14, 1);
+    const screen = m.screen();
+    expect(tick(screen)).toBe(12);
+    // the rule runs down every row of the plot that no line is drawn through
+    const ruled = screen.slice(0, 4).filter((line) => /[⡇⢸]/.test(line[12] ?? ''));
+    expect(ruled.length).toBeGreaterThan(0);
+    expect(screen.join('\n')).toContain('│ API 5 │');
+  });
+
+  it('should keep following a pointer that has moved on onto the readout', async () => {
+    // the bubble is flush against the rule, so a pointer carrying on to the right
+    // is over the bubble rather than the chart -- and is still the chart's
+    const m = await mount(() => ({}));
+    await m.move(14, 1);
+    expect(m.screen()[1]?.slice(13, 22)).toBe('│ API 5 │');
+
+    await m.move(18, 1);
+    expect(tick(m.screen())).toBe(20);
+    expect(m.screen().join('\n')).toContain('│ API 3 │');
+  });
+
+  it('should take the rule and the readout away when the pointer leaves the chart', async () => {
+    const m = await mount(() => ({}));
+    await m.move(14, 1);
+    expect(tick(m.screen())).toBe(12);
+
+    await m.move(35, 1);
+    expect(tick(m.screen())).toBe(-1);
+    expect(m.screen().join('\n')).not.toContain('API 5');
+  });
+
+  it('should draw nothing while the pointer is over the axis labels', async () => {
+    const m = await mount(() => ({}));
+    await m.move(0, 1);
+    expect(tick(m.screen())).toBe(-1);
+    expect(m.screen().join('\n')).not.toContain('│ API');
+  });
+
+  it('should follow nothing without motion tracking', async () => {
+    const m = await mount(() => ({}), { motion: false });
+    await m.move(14, 1);
+    expect(tick(m.screen())).toBe(-1);
+  });
+
+  it('should hand text the sample and every series’ value there, and show only the rule for nothing', async () => {
+    const seen: [number, readonly (number | undefined)[]][] = [];
+    const m = await mount((input) => ({
+      crosshair: {
+        input,
+        text: (index, values) => {
+          seen.push([index, values]);
+          return index === 3 ? '' : `day ${index}`;
+        },
+      },
+      series: [
+        { data: [1, 5, 3, 8], label: 'API' },
+        { data: [2, Number.NaN, 4], label: 'Web' },
+      ],
+    }));
+    await m.move(20, 1);
+    // the shorter series ends with the longer one, so its third value is under
+    // the longer one's fourth, and its first is under the second
+    expect(seen.at(-1)).toEqual([2, [3, undefined]]);
+    expect(m.screen().join('\n')).toContain('│ day 2 │');
+
+    await m.move(29, 1);
+    expect(seen.at(-1)).toEqual([3, [8, 4]]);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).not.toContain('day');
+  });
+
+  it('should say what is under a still pointer when the data moves', async () => {
+    const data = new State<readonly number[]>([1, 5, 3, 8]);
+    const m = await mount(() => ({ series: [{ data, label: 'API' }] }));
+    await m.move(14, 1);
+    expect(m.screen().join('\n')).toContain('API 5');
+
+    data.set([1, 6, 3, 8]);
+    await flush();
+    await m.move(14, 1);
+    expect(m.screen().join('\n')).toContain('API 6');
+  });
+
+  it('should find nothing left of a scrolling chart’s history, and the newest sample under the last column', async () => {
+    // a step of one puts the four samples in the last two cells, two to a cell
+    const m = await mount(() => ({ step: 1 }));
+    await m.move(10, 1);
+    expect(tick(m.screen())).toBe(-1);
+    // two samples one cell, the pointer as near one as the other: the newer, so
+    // the latest -- what a scrolling chart is read for -- is under the last column
+    await m.move(28, 1);
+    expect(tick(m.screen())).toBe(28);
+    expect(m.screen().join('\n')).toContain('│ API 5 │');
+    await m.move(29, 1);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).toContain('│ API 8 │');
+  });
+
+  it('should read the newest sample under the last column where fit puts several in a cell', async () => {
+    // ninety samples over a plot of 27 cells, 54 dot columns: several to a cell
+    const seen: number[] = [];
+    const m = await mount((input) => ({
+      crosshair: {
+        input,
+        text: (index) => {
+          seen.push(index);
+          return `day ${index}`;
+        },
+      },
+      series: [{ data: Array.from({ length: 90 }, (_, i) => i % 7), label: 'API' }],
+    }));
+    await m.move(29, 1);
+    expect(seen.at(-1)).toBe(89);
+    // and a cell before it the newest of its own, which is not the nearest: plot
+    // cell 17 is dots 34 and 35, and 59 is the last sample at or before dot 35,
+    // `round(59 * 53 / 89)`
+    await m.move(20, 1);
+    expect(seen.at(-1)).toBe(59);
+  });
+
+  it('should snap a column left of the first sample drawn to the nearest one that is', async () => {
+    // a plot two cells wide at a step of four: rounded from the left cell, the
+    // nearest sample is one before the left edge, and the next one is drawn
+    const m = await mount(() => ({
+      axis: false,
+      legend: false,
+      props: { height: 2, width: 2 },
+      series: [{ data: [1, 2, 3], label: 'API' }],
+      step: 4,
+    }));
+    await m.move(0, 0);
+    expect(m.screen().join('\n')).toContain('│ API 3 │');
+  });
+
+  it('should draw a line over the rule, and the rule over a shade', async () => {
+    // ASCII, where a line is `*`, a shade `:` and the rule `|`, so each cell says
+    // which of the three it is
+    const m = await mount(() => ({ ascii: true, fill: true }));
+    const before = m
+      .screen()
+      .slice(0, 4)
+      .map((line) => line[12]);
+    expect(before).toContain('*');
+    expect(before).toContain(':');
+
+    await m.move(14, 1);
+    const after = m
+      .screen()
+      .slice(0, 4)
+      .map((line) => line[12]);
+    expect(after).toEqual(before.map((cell) => (cell === '*' ? '*' : '|')));
+  });
+
+  it('should point the readout at the rule inside a border and padding', async () => {
+    const m = await mount(() => ({
+      props: { 'border-style': 'round', height: 8, 'padding-left': 2, width: 30 },
+    }));
+    await m.move(14, 2);
+    const screen = m.screen();
+    const at = screen.findIndex((line) => line.includes('┴'));
+    const column = (screen[at] ?? '').indexOf('┴');
+    // the bubble's corner is beside the rule's top, which is the plot's first row
+    expect(screen[1]?.[column + 1]).toBe('╭');
+    expect(screen[2]).toContain('API');
+  });
+
+  it('should stop hearing the pointer when it goes', async () => {
+    let subscribed = 0;
+    let unsubscribed = 0;
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+    const app = runApp(
+      () => {
+        const input = useApp().input as InputRouter;
+        // the router, with its mouse subscriptions counted
+        const counted = new Proxy(input, {
+          get(target, key) {
+            if (key === 'onMouse') {
+              return (handler: Parameters<InputRouter['onMouse']>[0]) => {
+                subscribed += 1;
+                const off = target.onMouse(handler);
+                return () => {
+                  unsubscribed += 1;
+                  off();
+                };
+              };
+            }
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return LineChart({ ascii: false, crosshair: { input: counted }, data: [1, 2, 3] });
+      },
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    await frame(app);
+    // the chart's own, and its tooltip's
+    expect(subscribed).toBe(2);
+    app.exit(0);
+    await app.exited;
+    expect(unsubscribed).toBe(subscribed);
+  });
+
+  it('should draw the rule as | and its tick as + in ASCII', async () => {
+    const m = await mount(() => ({ ascii: true }));
+    await m.move(14, 1);
+    const screen = m.screen();
+    expect(screen[4]?.[12]).toBe('+');
+    expect(screen.slice(0, 4).some((line) => line[12] === '|')).toBe(true);
+  });
+
+  it('should refuse a crosshair that is not one', () => {
+    expect(() => LineChart({ crosshair: 'yes' as never, data: [1] })).toThrow(/crosshair/);
+    expect(() =>
+      LineChart({ crosshair: { input: {} as InputRouter, text: 'API' as never }, data: [1] })
+    ).toThrow(/crosshair text/);
   });
 });

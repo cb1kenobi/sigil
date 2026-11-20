@@ -34,10 +34,16 @@ await main({
       },
     ],
 
+    options: {
+      '--mouse':
+        'Click rows and hunks and scroll with the wheel, at the cost of the terminal selecting text',
+    },
+
     async run({ argv }): Promise<void> {
       const dir = argv.dir as string | undefined;
       const git = createGit({ cwd: dir === undefined ? undefined : resolve(dir) });
       process.exitCode = await runApp(() => provideContext(GitContext, git, App), {
+        mouse: argv.mouse as boolean,
         sheets: [stylesheet],
       }).exited;
     },

@@ -16,6 +16,7 @@ import {
   targets,
   type Target,
 } from '../src/build/compile.ts';
+import { writeExecutable } from './executable.ts';
 import { candidates } from '@ttylabs/sigil/which';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -212,7 +213,7 @@ describe('what gets code-signed', () => {
     const first = [...candidates('bun', { path: fakebin })].find((one) => one.startsWith(fakebin));
 
     expect(first, 'candidates() offered nothing inside the fixture directory').toBeDefined();
-    writeFileSync(first as string, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeExecutable(first as string, '#!/bin/sh\nexit 0\n');
     process.env.PATH = fakebin;
   });
 
@@ -356,13 +357,12 @@ describe('a compile that fails partway', () => {
 
     const name = [...candidates('bun', { path: fakebin })].find((one) => one.startsWith(fakebin));
 
-    writeFileSync(
+    writeExecutable(
       name as string,
       // the outfile is the argument after `--outfile`, which is how the real
       // call is spelled -- a stub that guessed the position would stop
       // reproducing the moment the arguments were reordered
-      '#!/bin/sh\nwhile [ "$1" != "--outfile" ]; do shift; done\nprintf PARTIAL > "$2"\nexit 1\n',
-      { mode: 0o755 }
+      '#!/bin/sh\nwhile [ "$1" != "--outfile" ]; do shift; done\nprintf PARTIAL > "$2"\nexit 1\n'
     );
     process.env.PATH = fakebin;
   });

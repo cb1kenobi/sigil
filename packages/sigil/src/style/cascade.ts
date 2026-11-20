@@ -25,13 +25,13 @@ import {
 } from './properties.js';
 import {
   compareSpecificity,
-  keysFor,
   matches,
   type Selector,
   type Specificity,
   type StyleNode,
   type StyleState,
   statesBeyondSubject,
+  UNIVERSAL_KEY,
 } from './selector.js';
 import {
   DEFAULT_MEDIA,
@@ -42,6 +42,7 @@ import {
   ORIGINS,
   type Origin,
   type Rule,
+  type RuleDeclaration,
   type Stylesheet,
 } from './stylesheet.js';
 
@@ -100,10 +101,56 @@ export interface Matched {
 
 /** One rule filed under one of its selectors' buckets. */
 interface Candidate {
-  readonly order: number;
-  readonly origin: Origin;
-  readonly rule: Rule;
+  /**
+   * What `match()` reports when this is the selector of its rule that matched
+   * best: built once with the index rather than once per match, since nothing in
+   * it depends on the element (SIG-455).
+   */
+  readonly matched: Matched;
   readonly selector: Selector;
+}
+
+/**
+ * Which rules one `match()` has already found, and where it put each.
+ *
+ * Indexed by a rule's source order, which is what a rule with several selectors
+ * is deduplicated on: `seen[order]` is meaningful only while `stamp[order]` is
+ * the call's own generation, so a call starts by bumping the generation rather
+ * than by clearing anything -- the same trick, and the same doubles, as the
+ * winners table below. A `Map` per call was what this replaced (SIG-455).
+ */
+interface Seen {
+  generation: number;
+  readonly seen: Int32Array;
+  readonly stamp: Float64Array;
+}
+
+/**
+ * The bucket index, built once per change to the sheet set, and the table that
+ * deduplicates against it.
+ *
+ * The table lives here because its size is the index's rule count, and an index
+ * taken once per `match()` is what keeps a call consistent with itself even if
+ * the sheet set moves under it.
+ */
+interface Index {
+  /**
+   * The buckets, by what a selector's `key` names -- an id, a class or a type,
+   * each without the `#` or `.` the key spells it with, so that matching looks a
+   * bucket up by the element's own name rather than by a string built per call.
+   */
+  readonly classes: Map<string, Candidate[]>;
+  readonly ids: Map<string, Candidate[]>;
+  readonly rules: number;
+  readonly types: Map<string, Candidate[]>;
+  readonly universal: Candidate[];
+  /**
+   * The table not in use, or `undefined` while a `match()` holds it. Borrowed
+   * rather than shared for the reason the winners table is: matching calls into
+   * the `StyleNode`, which an app may implement, and a getter on one can start
+   * another match on this same cascade.
+   */
+  spare: Seen | undefined;
 }
 
 /**
@@ -164,6 +211,13 @@ const SLOT = new Map<PropertyName, number>(PROPERTY_NAMES.map((name, at) => [nam
  */
 interface Scratch {
   generation: number;
+  /**
+   * The rules the resolve matched, written from the front by `#collect()` and
+   * emptied again once the resolve is done with them, so that a table kept
+   * between resolves holds no rule a sheet taken out of the cascade had. It was
+   * a fresh array per resolve (SIG-455).
+   */
+  readonly matched: (Matched | undefined)[];
   readonly stamp: Float64Array;
   readonly winner: Int32Array;
 }
@@ -172,15 +226,16 @@ interface Scratch {
  * The scratch not in use, or `undefined` while a resolve holds it.
  *
  * Borrowed rather than shared, so that a resolve which somehow started inside
- * another one gets a table of its own instead of overwriting the winners of the
- * one it interrupted. Nothing does that today -- once `match()` has returned,
- * everything a resolve calls is a pure function of the declarations, the parent
- * style and the colour level -- but a `Stylesheet` is a plain object an app can
- * build by hand, and a getter on one of its declarations would be the way in.
- * A resolve that throws while it holds the table never hands it back, and the
- * next one makes another; one that throws after, from `degradeInto()`, has
- * already handed it back with its generation spent, which is all a later
- * resolve needs of it.
+ * another one gets a table of its own instead of overwriting the winners, or the
+ * matched rules, of the one it interrupted. Nothing in the library does that, but
+ * there are two ways in: matching calls into the `StyleNode`, which an app may
+ * implement with getters, and a `Stylesheet` is a plain object an app can build
+ * by hand, so a getter on one of its declarations is the other. Everything else a
+ * resolve calls is a pure function of the declarations, the parent style and the
+ * colour level. A resolve that throws while it holds the table never hands it
+ * back, and the next one makes another; one that throws after, from
+ * `degradeInto()`, has already handed it back with its generation spent and its
+ * rules let go, which is all a later resolve needs of it.
  */
 let spare: Scratch | undefined;
 
@@ -192,6 +247,53 @@ let spare: Scratch | undefined;
  * in `CascadeResult` already, which is what makes sharing it safe to promise.
  */
 const UNLOCKED: ReadonlySet<PropertyName> = new Set();
+
+/** What `node.classes` is read as when an element has none. */
+const NO_CLASSES: readonly string[] = [];
+
+/**
+ * Tests one bucket's candidates against an element, for `#collect()`: writes
+ * each rule that matches into `out` after the `count` already there, or over the
+ * entry it already has when a more specific selector of the same rule matches,
+ * and returns the new count.
+ */
+function collectFrom(
+  bucket: readonly Candidate[] | undefined,
+  node: StyleNode,
+  media: MediaContext,
+  table: Seen,
+  out: (Matched | undefined)[],
+  count: number
+): number {
+  if (bucket === undefined) {
+    return count;
+  }
+  const { generation, seen, stamp } = table;
+  for (const candidate of bucket) {
+    const matched = candidate.matched;
+    const order = matched.order;
+    const at = stamp[order] === generation ? (seen[order] as number) : -1;
+    if (at >= 0 && compareSpecificity((out[at] as Matched).specificity, matched.specificity) >= 0) {
+      continue;
+    }
+    if (!matchesMedia(matched.rule.media, media)) {
+      continue;
+    }
+    if (!matches(candidate.selector, node)) {
+      continue;
+    }
+    if (at >= 0) {
+      // a more specific selector of a rule already found: it keeps its place,
+      // which is what the map this replaced did on a second `set()`
+      out[at] = matched;
+    } else {
+      stamp[order] = generation;
+      seen[order] = count;
+      out[count++] = matched;
+    }
+  }
+  return count;
+}
 
 /**
  * The cascade: a set of stylesheets, and the answer for any one element.
@@ -206,7 +308,7 @@ export class Cascade {
   /** What the media queries are asked about. A renderer sets it on resize. */
   media: MediaContext;
 
-  #buckets: Map<string, Candidate[]> | undefined;
+  #buckets: Index | undefined;
   #keyframes: Map<string, Keyframes> | undefined;
   #reaching: Set<StyleState> | undefined;
   readonly #listeners = new Set<() => void>();
@@ -413,34 +515,58 @@ export class Cascade {
    * selector, so the specificity reported is the highest among the selectors
    * that actually matched.
    *
+   * The array is the caller's; the objects in it are the cascade's, the same
+   * ones on every call until the sheet set changes, and frozen.
+   *
+   * `resolveSheets()` does not call this -- it matches into an array it reuses --
+   * so a subclass that overrides it changes what `match()` answers and not what
+   * an element resolves to.
+   *
    * @param node - The element.
    * @returns The matched rules, in no particular order.
    */
   match(node: StyleNode): Matched[] {
-    const best = new Map<number, Matched>();
+    const out: Matched[] = [];
+    this.#collect(node, out);
+    return out;
+  }
 
-    for (const key of keysFor(node)) {
-      for (const candidate of this.#index().get(key) ?? []) {
-        const found = best.get(candidate.order);
-        if (found && compareSpecificity(found.specificity, candidate.selector.specificity) >= 0) {
-          continue;
-        }
-        if (!matchesMedia(candidate.rule.media, this.media)) {
-          continue;
-        }
-        if (!matches(candidate.selector, node)) {
-          continue;
-        }
-        best.set(candidate.order, {
-          order: candidate.order,
-          origin: candidate.origin,
-          rule: candidate.rule,
-          specificity: candidate.selector.specificity,
-        });
-      }
+  /**
+   * Writes the rules that match an element into `out` from the front, and says
+   * how many there were.
+   *
+   * What `match()` and `resolveSheets()` share. It allocates nothing in the
+   * common case: the matched rule is the candidate's own, the deduplication is a
+   * borrowed table, and `out` is whatever array the caller hands over -- which
+   * for a resolve is one it reuses (SIG-455).
+   */
+  #collect(node: StyleNode, out: (Matched | undefined)[]): number {
+    // taken once, so that a sheet added from inside a match -- by a getter on a
+    // node -- cannot leave this call reading orders from two different indexes
+    const index = this.#index();
+    const table = index.spare ?? {
+      generation: 0,
+      seen: new Int32Array(index.rules),
+      stamp: new Float64Array(index.rules),
+    };
+    index.spare = undefined;
+    table.generation++;
+
+    // the buckets `keysFor()` names, in its order, looked up by the name itself:
+    // building its keys was an array and a string per class on every call
+    const { type, id, classes } = node;
+    const media = this.media;
+    let count = collectFrom(index.universal, node, media, table, out, 0);
+    count = collectFrom(index.types.get(type), node, media, table, out, count);
+    if (id !== undefined) {
+      count = collectFrom(index.ids.get(id), node, media, table, out, count);
+    }
+    for (const name of classes ?? NO_CLASSES) {
+      count = collectFrom(index.classes.get(name), node, media, table, out, count);
     }
 
-    return [...best.values()];
+    index.spare = table;
+    return count;
   }
 
   /**
@@ -452,26 +578,33 @@ export class Cascade {
    */
   resolveSheets(node: StyleNode, parent?: Style): CascadeResult {
     const style = (parent ? inheritFrom(parent) : initialStyle()) as Record<PropertyName, unknown>;
-    const matched = this.match(node);
 
-    // borrowed only once matching is over, so the window it is held across
-    // calls nothing that is not this file's or a pure helper's
+    // borrowed before matching, because the matched rules are written into it:
+    // matching calls into the `StyleNode`, so a resolve started from there finds
+    // the table out and makes its own
     const scratch = spare ?? {
       generation: 0,
+      matched: [],
       stamp: new Float64Array(PROPERTY_NAMES.length),
       winner: new Int32Array(PROPERTY_NAMES.length),
     };
     spare = undefined;
+    const { matched, stamp, winner } = scratch;
+    const count = this.#collect(node, matched);
     const generation = ++scratch.generation;
-    const { stamp, winner } = scratch;
     let locked: Set<PropertyName> | undefined;
     // a name the table has no slot for, which only a hand-built sheet can carry:
     // kept by name, as every property was before, so two of them never compete
     let strays: Map<string, number> | undefined;
 
-    for (let at = 0; at < matched.length; at++) {
+    for (let at = 0; at < count; at++) {
       const rule = matched[at] as Matched;
-      for (const declaration of rule.rule.declarations) {
+      // indexed rather than `for...of`, which V8 was measured not optimizing
+      // away here: an iterator and its results, about 120 bytes a resolve on a
+      // sheet of one rule, where the loops in `collectFrom()` cost nothing (SIG-455)
+      const declarations = rule.rule.declarations;
+      for (let d = 0; d < declarations.length; d++) {
+        const declaration = declarations[d] as RuleDeclaration;
         const property = declaration.property;
         const important = declaration.important;
         const slot = SLOT.get(property);
@@ -507,6 +640,8 @@ export class Cascade {
       }
     }
 
+    // let go of the rules, so the table kept for the next resolve holds none
+    matched.fill(undefined, 0, count);
     spare = scratch;
 
     // the last pass over a resolved style, so nothing downstream ever holds a
@@ -537,36 +672,54 @@ export class Cascade {
   }
 
   /** Builds the bucket index, once per change to the sheet set. */
-  #index(): Map<string, Candidate[]> {
+  #index(): Index {
     if (this.#buckets) {
       return this.#buckets;
     }
 
-    const buckets = new Map<string, Candidate[]>();
+    const classes = new Map<string, Candidate[]>();
+    const ids = new Map<string, Candidate[]>();
+    const types = new Map<string, Candidate[]>();
+    const universal: Candidate[] = [];
     let order = 0;
 
     for (const sheet of this.#sheets) {
       for (const rule of sheet.rules) {
         const at = order++;
         for (const selector of rule.selectors) {
-          const bucket = buckets.get(selector.key);
           const candidate: Candidate = {
-            order: at,
-            origin: sheet.origin,
-            rule,
+            // frozen, since every match until the sheet set changes hands out
+            // this one object: a caller that wrote to it would move every later
+            // answer, where a fresh one per call could only move its own
+            matched: Object.freeze({
+              order: at,
+              origin: sheet.origin,
+              rule,
+              specificity: selector.specificity,
+            }),
             selector,
           };
+          const key = selector.key;
+          if (key === UNIVERSAL_KEY) {
+            universal.push(candidate);
+            continue;
+          }
+          // the key's first character says which kind of name follows, as
+          // `keyOf()` spells it: `#` an id, `.` a class, and a type has neither
+          const map = key[0] === '#' ? ids : key[0] === '.' ? classes : types;
+          const name = map === types ? key : key.slice(1);
+          const bucket = map.get(name);
           if (bucket) {
             bucket.push(candidate);
           } else {
-            buckets.set(selector.key, [candidate]);
+            map.set(name, [candidate]);
           }
         }
       }
     }
 
-    this.#buckets = buckets;
-    return buckets;
+    this.#buckets = { classes, ids, rules: order, spare: undefined, types, universal };
+    return this.#buckets;
   }
 }
 

@@ -3045,12 +3045,24 @@ it is a component rather than the frame effect SIG-103 is.
   below has an entry about.
 
 - **Per-tick invalidation is not a regression, and it was checked rather than
-  assumed.** The effect calls `invalidateMeasure()` on the cipher and
-  `invalidatePaint()` on the plain layer; the one-element view called `setText()`,
+  assumed.** Both layers are `trackedRaw()` (SIG-486), so a new frame marks the
+  cipher for layout, because its measure read the frame, and the plain layer for
+  paint, because only its paint did -- an effect beside the two used to call
+  `invalidateMeasure()` and `invalidatePaint()` for the same marks. The guard lays
+  the block out and paints it once before it writes, since a tracked raw listens
+  from its first measure and paint, which on screen is the first frame. One thing
+  moved with it: the frame used to be copied into a plain field so that a caller
+  tracking its own reads -- `renderToString()` of the block inside an effect or a
+  `Computed` -- never subscribed to `state.frame`, and now it does, because
+  `trackedRaw()` hands such a caller what the measure and the paint read. That is
+  the right answer for the caller, since what it rendered really did change, and
+  it means such a caller runs again on every tick while the text resolves. Nothing
+  in the library is one: `mountLive()` goes through `render()`, and the pane's
+  `measureNode()` is called from its handlers. The one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a
-  jumble does not produce. Each call says what changed about **its own** element
+  jumble does not produce. Each mark says what changed about **its own** element
   rather than what the frame will do about it: a frame coalesces them today, since
   a layout mark repaints everything, which is why the guard reads the marks rather
   than the picture and why it is written against the day paint is narrowed.
@@ -7461,7 +7473,94 @@ questions were settled as below. The sabotage runs are in
   time axis that labels more than its two ends; `selectable: false` on a live
   chart's body, which the printed tree does not set either; and a mouse readout of
   the value under the pointer, which is a tooltip's job and wants the samples'
-  positions, which a drawing does not keep.
+  positions, which a drawing does not keep. SIG-464 did the last, below, by having
+  the drawing say where its crosshair stands.
+
+### A line chart's area and crosshair (SIG-464)
+
+`fill` on `lineChart()`, `LineChart` and a series, and `crosshair` on `LineChart`.
+Found writing the dashboard, whose model -- shadcn's interactive area chart -- shades
+under its lines and shows the values under the pointer.
+
+- **The shade is a quarter of the dots, not all of them.** Every other dot across
+  and down, from just under the line's highest dot in each dot column to the bottom
+  of the scale: a braille cell's `⠅`. A solid shade was the obvious build and fails
+  without colour -- a block whose top edge is the line, and a second series drawn
+  across it is lost in the first one's block. Half the dots in a checkerboard was
+  tried next and was still too dense at `NO_COLOR` for a lower line to read through
+  an upper shade. A quarter is a tint in colour and a texture without it, and the
+  line stays the densest thing in the plot. The screen is laid on the plot's dot
+  grid rather than per series, so two shades meeting in a cell agree about which
+  dots are a shade's. A dot column the line does not reach -- a gap, or the plot
+  before a scrolling chart's history -- is not shaded, which is the gap rule: a
+  missing sample is drawn as nothing, shade included. In ASCII a cell of shade is
+  `:` under the `*` line.
+- **A line beats the crosshair and the crosshair beats a shade, whichever series
+  each belongs to.** A cell with a line in it is every line's dots and the owning
+  series' shade, in the owner's colour -- the paint-order rule of the live charts
+  entry above, unchanged -- so an upper series' shade never puts dots into a lower
+  series' line or takes its colour. A cell the crosshair runs through with no line
+  in it is the crosshair's, `.sigil-chart-crosshair` and `.sigil-muted`; the rule is
+  broken where it meets a line, which marks the point it stands on. A cell of shade
+  alone is the last filled series', with `.sigil-chart-area` beside its series'
+  classes -- a hook, and no framework rule, for the reason the series classes have
+  none. `should never draw a shade over a line, whichever series it belongs to` is
+  the pin for a line against a shade, and fails for a cell that takes every
+  series' shade; `should draw a line over the rule, and the rule over a shade` is
+  the pin for the crosshair's two, in ASCII, where each cell's glyph says which of
+  the three it is.
+- **The crosshair is a vertical rule snapped to a sample, and nothing horizontal.**
+  The rule stands at the sample nearest the middle of the pointer's cell, counted
+  along the longest series -- seven days across a wide plot are seven places it can
+  be -- and the axis gets a `┴` under it. Where the pointer's cell holds several
+  samples -- two at a step of one, many where `fit` spreads more samples than the
+  plot has dot columns -- it is the **newest** of them, and two equally near go to
+  the newer. Review round 1 found the first version rounding half towards the
+  older, which left the latest sample of a scrolling chart -- the one it is read
+  for -- under no column at all; round 2 found the same in `fit` over a long range,
+  the dashboard's 90 days on a narrow plot. Something in such a cell is always
+  unreadable, since a cell is the pointer's resolution, and the older samples are
+  the ones to lose. A horizontal line at the pointer's height
+  would name a value nothing has: what the readout says is each line's value at
+  that sample, and a reader's eye finds those on the lines. A column left of a
+  scrolling chart's history, or over the gutter, has no sample and draws nothing.
+- **The pointer column is the state, and the drawing snaps it.** The chart keeps
+  the cell column the pointer is over, not the sample, and `lineDrawing()` works out
+  the sample with the geometry it has just computed and hands back where it put the
+  rule and each series' value there. So a range switched under a still pointer, or
+  a `Series` pushed to, re-snaps and re-reads in the same drawing with nothing
+  remembered to go stale. That is the half the earlier "Not done" said was missing:
+  a drawing that keeps where its samples are. What it does remember is the column
+  relative to the chart at the last report, so a layout that moves the chart under
+  a still pointer -- the dashboard's sidebar collapsing -- moves the rule with the
+  chart until the next report. That is a limit and not fixed: the router's own
+  `hover` is just as stale until then, since nothing reports a pointer that did not
+  move, and the next motion puts both right.
+- **The readout is `attachTooltip()` pointed at the rule, and it shows at once.**
+  `crosshair` takes the tooltip's options, so it needs the router -- which is also
+  how the chart hears the pointer, through `input.onMouse()` read against the
+  router's `hover` state as the tooltip reads it, and the host's own `onMouse`
+  stays the app's. `delay` defaults to `0` and `side` to `right`: a readout that
+  lags the rule is a readout of where the pointer was. `text(index, values)` is the
+  app's way to put the day above the figures; the default is a line per series with
+  a value, its label and `format`'s number.
+- **A pointer that moves on onto the bubble is still the chart's.** The bubble is
+  flush against the rule, so a pointer carrying on to the right is over the bubble
+  by the hit test -- and the chart's `hover` state goes false. Read literally that
+  took the rule away and left the bubble where it was, since the tooltip keeps a
+  bubble the pointer is on: the pointer could never get past it. So the chart also
+  counts a pointer that is on its bubble and inside the chart's own box. `should
+  keep following a pointer that has moved on onto the readout` fails without it.
+- **An empty readout draws the rule alone, and that needed the tooltip to hide an
+  empty bubble.** The tooltip keeps a bubble the pointer is on even when its `area`
+  says nowhere, so a readout that went empty under the pointer stayed up saying the
+  old figures. A tooltip with nothing to say is now hidden like one pointing at
+  nothing -- recorded under the tooltip's own entry -- and the chart sets the empty
+  string like any other.
+- **It needs `mouse.motion`, and says so rather than turning it on.** The tooltip's
+  and `:hover`'s reason: `1003` is a report per cell crossed, and the app decides.
+  The dashboard asks for it, and `60-live-charts.js` now runs through `runApp()`
+  inline so that it has a router to hand the chart.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -9812,7 +9911,36 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
   only the window's rows is the lever, and is not taken here.
 
-What is not done: a click to move the cursor to a hunk; scrolling sideways with
+- **A click on a row of a stop makes it current, where it is (SIG-472).** The
+  lists' rule: each row a stop drew -- the `@@` row, a line, a row a long line
+  folded onto, a side by side row either half -- has an `onMouse` that takes the
+  left `click` and not the press, so the press keeps its default action and
+  focuses the view, and a press dragged to another row picks nothing (the click
+  lands on the box holding both). No coordinates are read, so a scrolled view
+  needs nothing of its own: the hit test already found the row. The stop is the
+  one the drawing put the row in, captured when the row is built rather than
+  looked up through a row index, which a later drawing at another width would
+  have renumbered. A row no stop owns -- a section's heading, a file's `---` and
+  `+++`, prose that is not a stop -- has no handler and its click goes on to the
+  pane around; the lead a reveal shows with a stop is not part of it, since
+  clicking `+++ b/a.txt` says nothing about which of that file's hunks was meant.
+  The click is claimed when it lands on the current stop as well, as a list row's
+  is. **It does not scroll**, which is where it parts from `]` and `[`: the
+  reader pointed at the stop on screen, and a reveal of a hunk taller than the
+  view goes to its first row, which would move the line just clicked out from
+  under the pointer. So the click leaves `pointed` for the effect over the cursor,
+  which lights the stop and skips the reveal for that one write; an app writing
+  `current` still brings the stop into view. A drawing in the same flush -- an app
+  whose content is computed from the cursor -- asks the same flag, since it runs
+  before the cursor's effect and reveals too (review round 1). A drawing after
+  that, for a `w`, a new width or refreshed content, reveals the current stop as
+  it always has, clicked or not: that is the drawing's rule, and a reader who
+  scrolled with the arrows meets it the same way. A double click is two clicks, since
+  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
+  row handler and read the line under it, which this leaves room for: the
+  handler is per row already.
+
+What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
 designed by guessing; staging part of a hunk; and folding a hunk away.
@@ -10916,6 +11044,13 @@ because a dropdown or anything else that sits beside a box wants the same answer
   taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
   a user or an app can see differs, and spying on a constructor pins how rather
   than what.
+- **A bubble with nothing to say is hidden, not drawn empty (SIG-464).** `text: ''`
+  and `setText('')` hide the bubble the way an `area` of nothing does -- it stays in
+  the tree, `shown` stays true, and the next words bring it back where it belongs.
+  An empty box beside an anchor says only that something is missing, and a line
+  chart's crosshair needed the hiding to hold while the pointer is on the bubble,
+  where an `area` of nothing keeps it. `should hide a bubble with nothing to say,
+  and bring it back with words` is the pin.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
@@ -13768,10 +13903,9 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
   still refused; that is why this is a second function beside `controlFlag()`
   rather than `controlFlag()` widened, which would have let a `Computed` reach a
-  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
-  and `Dropdown` still read anything that is not a `State` as a value to start
-  from, so a `Computed` there becomes the value rather than being refused -- left
-  as it was, since it is a `value` question and not a `disabled` one.
+  `set()` it does not have. The other controls' `value` was left alone here, as
+  a `value` question rather than a `disabled` one, and SIG-448 answered it: a
+  `Computed` there is refused too (below).
 - **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
   open. `() => boolean` is the template's convention for a reactive prop
   (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
@@ -13811,6 +13945,70 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   `control.test.ts` pins the four readable shapes, the tracking, the truth reading
   and the refusals; `button.test.ts` drives a function through the `ui` tag; and
   `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
+
+### A value a component writes refuses a `Computed`, whatever its type (SIG-448)
+
+`controlState()` in `control.ts`. `RadioSet` and `Dropdown` read `value` as
+`value instanceof State ? value : new State(value)`, and a `Computed` is not a
+`State` -- so it was wrapped as a value to start from: the set selected nothing,
+the field showed its placeholder, and a change to what the `Computed` derived from
+was never read. No error, and a derivation that did nothing at all.
+
+- **Refused, not followed.** The ticket left it open. Following one would make the
+  component's own writes -- a key, a click, a pick -- go somewhere, and a
+  `Computed` has no `set()`: either the control would stop answering its keys, or
+  it would keep a private value the derivation overwrites on its next change, which
+  is two owners of one value. Every sibling whose value has a fixed type already
+  refuses one, by refusing anything that is neither that type nor a `State`:
+  `checked` and a switch's `value` through `controlFlag()`, and the hand-written
+  checks in `TextField`, `TextArea`, `Slider`, `Tabs`, `Collapsible`, `Pane` and
+  `DiffView`. Following would have made these two the odd ones out; refusing makes
+  them the same. An app that wants a control to track a derived value writes the
+  value into the `State` it hands over, from an effect -- which is also what keeps
+  the keys working.
+- **`controlState()` is the generic `controlFlag()`.** Where the value is the
+  app's own type nothing can be refused by its shape, except a `Computed`, which is
+  a signal and never a value -- so that is all it refuses. Told apart by
+  `instanceof`, the treemap's `root` rule (SIG-480), because a value may be the
+  app's own object with a `get` of its own, and duck typing would refuse it; a test
+  pins an option value with a `get()` being selected. The cost of `instanceof` is
+  that a `Computed` from a second copy of the package is not recognised and is
+  taken as a value, as before.
+- **A key that really is a `Computed` is named through a `State`.** A list keys a
+  row by the item itself unless it is given a `key`, so a list of signals -- an
+  inspector -- has `Computed` keys, and `current: b` used to start on row `b`; it
+  is refused now, like any `Computed`, and `current: new State(b)` says the same
+  thing unambiguously. The same holds for an option whose value is a `Computed`,
+  and for a tree's and a treemap's `current`. The rare app keying by a signal pays
+  one wrapper so that every app passing a derivation hears about it, rather than
+  the other way round.
+- **A function is still taken as a value, deliberately.** `() => level.get()` is
+  the template's spelling of a reactive prop, and as a `value` it selects nothing
+  and is never called, which is this ticket's silent no-op in another shape. It is
+  not refused because a choice's value may well be a function -- an action to run
+  -- and a function cannot be told from one; `disabled` can take one only because
+  a function there is never a legitimate value. Following one live is the same
+  question as following a `Computed`, and has the same answer.
+- **The same defect in four more places, fixed the same way.** Swept every
+  `instanceof State ?` in `src/components/`: a list's `current` (in
+  `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
+  `current`, `Treemap`'s `current` and `DataTable`'s `sort` each wrapped a
+  `Computed` the same way: as a key, never read again. `sort` was
+  refused already, but as `Expected data table sort to name a column: undefined is
+  not one`, which names the wrong thing. `selected`, `expanded`, `follow` and
+  `tail` already refuse one, being neither an iterable nor a boolean; `keyHelp()`'s
+  `expanded` and every `disabled` only read, so a `Computed` there is right and is
+  followed. Published, beside `controlFlag()`, so a component an app writes can
+  follow the rule; the four list components import `control.ts` for it, which
+  costs them nothing they did not already load.
+- **The messages echo nothing**, so the escaping rule for a value in an error does
+  not arise: each names the prop and says why, `Expected a radio set value to be a
+  value or a State, not a Computed, since the set writes it`. Six keys in
+  `src/i18n/keys.ts`, regenerated.
+- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
+  needs a conditional type over `T`, which TypeScript cannot infer through and
+  which would change what every existing call infers. A test per component pins the
+  refusal, and each fails with the check in `controlState()` taken out.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

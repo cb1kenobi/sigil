@@ -1,6 +1,6 @@
 import { Button, describeButton } from '../../src/components/button.js';
 import { Checkbox, describeCheckbox } from '../../src/components/checkbox.js';
-import { controlCondition, controlFlag } from '../../src/components/control.js';
+import { controlCondition, controlFlag, controlState } from '../../src/components/control.js';
 import { describeRadioSet, RadioSet } from '../../src/components/radio-set.js';
 import { describeSwitch, Switch } from '../../src/components/switch.js';
 import { Computed, effect, flush, State } from '../../src/signals/index.js';
@@ -112,6 +112,25 @@ describe('controlFlag()', () => {
     expect(() => controlFlag('true', 'no strings')).toThrow(TypeError);
     expect(() => controlFlag('true', 'no strings')).toThrow('no strings');
     expect(() => controlFlag(1, 'no numbers')).toThrow('no numbers');
+  });
+});
+
+describe('controlState()', () => {
+  it('should hand back a State it was given, and make one of anything else', () => {
+    const mine = new State<string | undefined>('info');
+    expect(controlState(mine, 'x')).toBe(mine);
+    expect(controlState('info', 'x').get()).toBe('info');
+    expect(controlState(undefined, 'x').get()).toBeUndefined();
+    // the app's own value may have a get of its own, and it is still a value
+    const node = { get: () => 'mine' };
+    expect(controlState<typeof node>(node, 'x').get()).toBe(node);
+  });
+
+  it('should refuse a Computed with the message it was given, since it cannot be written', () => {
+    const level = new State('info');
+    const derived = new Computed(() => level.get());
+    expect(() => controlState(derived, 'no computed')).toThrow(TypeError);
+    expect(() => controlState(derived, 'no computed')).toThrow('no computed');
   });
 });
 

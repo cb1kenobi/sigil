@@ -1,7 +1,8 @@
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, vi } from 'vitest';
 
@@ -127,11 +128,10 @@ exit 1`;
 
   mkdirSync(dir, { recursive: true });
   // every `--revision` is counted: the bundler's version is read once for a run
-  writeFileSync(
+  writeExecutable(
     file,
     `#!/bin/sh\n[ "$1" = "--revision" ] && echo asked >> '${join(dir, REVISIONS)}'\n[ "$1" = "--no-install" ] && { cp "$7" "$5"; exit 0; }\n${fallback}\n`
   );
-  chmodSync(file, 0o755);
 
   return dir;
 }

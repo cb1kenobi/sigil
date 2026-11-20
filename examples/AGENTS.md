@@ -641,6 +641,20 @@ commit message in a text area. What it settled:
   are passed with `-c` on every call, so a user's config cannot hand the parser a
   patch `git apply` will not take back.
 
+- **The mouse is off, and `--mouse` turns it on (SIG-472).** The client never
+  passed `mouse` to `runApp()`, so the click on a hunk that `DiffView` learned in
+  SIG-472 was unreachable here, and so were the lists' clicks all along. It is the
+  log browser's and the editor's trade rather than the dashboard's: a terminal
+  that reports the mouse stops selecting text, and a diff is text somebody copies
+  a line out of. lazygit has the mouse on by default, which was weighed and is not
+  the deciding fact -- the examples that are mostly text to read keep the
+  terminal's selection. With `--mouse` nothing in the model changes: the press
+  focuses the pane through click-to-focus, the click writes the view's `current`,
+  which is the model's `cursor`, so Space stages what was clicked. `should stage
+  the hunk a click in the diff pane made current` is the test, run with the mouse
+  on, and it fails with the view's click handler taken out -- the first hunk is
+  staged instead.
+
 - **Sabotage: seventeen, one survived and has a test now.** A patch reader that
   drops `\ No newline` (since SIG-370 the library's, and its own tests fail as
   well), a hunk written back without its file header, unstaging
@@ -1060,9 +1074,17 @@ dark -- built from sigil's own components, with its own data, names and colours.
   presses Down and waits for `Analytics`, which at 60 columns is only in the
   header, since the sidebar starts collapsed there.
 
+- **The chart is shaded under both lines and follows the pointer (SIG-464).**
+  shadcn's chart is an area chart with a hover tooltip, and `LineChart` gained
+  both for it: `fill: true`, and a `crosshair` whose `text` reads the day under the
+  rule out of the shown range, so the readout is the date and both figures. The
+  crosshair needs motion, so `src/index.ts` asks for `mouse: { motion: true }` and
+  the smoke test's `mount()` does what it does; `buildTraffic()` takes the router
+  for it. `should follow the pointer with a rule and that day's figures` aims at the
+  last day by the axis it draws, not by a fixed cell.
+
 - **Not done:** the pages other than the overview, which say they are not drawn;
-  re-collapsing the sidebar on a resize; a hover crosshair or an area fill on the
-  chart, which shadcn's has and `LineChart` does not; and a `ui`-tag twin.
+  re-collapsing the sidebar on a resize; and a `ui`-tag twin.
 
 ### A text editor with a Markdown preview (SIG-296)
 

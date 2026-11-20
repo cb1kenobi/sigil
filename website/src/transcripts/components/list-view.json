@@ -16,7 +16,7 @@
         "type": "boolean"
       },
       {
-        "description": "The current row, as its key, or the state that holds it: see `ListSelectionOptions.current`.",
+        "description": "The current row, as its key, or the state that holds it, never a `Computed`: see `ListSelectionOptions.current`.",
         "name": "current",
         "optional": true,
         "type": "K | State<K | undefined>"

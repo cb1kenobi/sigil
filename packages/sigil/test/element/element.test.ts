@@ -515,6 +515,178 @@ describe('focus-within', () => {
   });
 });
 
+describe('a mark callback that mutates the tree', () => {
+  /** Every element reachable from `root`, with repeats, so a child held twice shows. */
+  function walk(root: Element): Element[] {
+    return [root, ...root.children.flatMap(walk)];
+  }
+
+  /** How many times `child` sits in some parent's children across the whole tree. */
+  function held(root: Element, child: Element): number {
+    return walk(root).filter((at) => at === child).length;
+  }
+
+  it('should leave a child in the tree once when a callback re-inserts it mid-move', () => {
+    // SIG-450: the move took the child out, the removal's own callback put it
+    // back into the same parent, and the insert then spliced it in a second time
+    const kid = box();
+    const sibling = box();
+    const from = box({}, kid);
+    const to = box({}, sibling);
+    const root = box({}, from, to);
+    let armed = true;
+    createTree(root, () => {
+      if (armed) {
+        armed = false;
+        to.insertBefore(kid, sibling);
+      }
+    });
+
+    to.insertBefore(kid, undefined);
+
+    expect(held(root, kid)).toBe(1);
+    expect(to.children.filter((child) => child === kid)).toHaveLength(1);
+    expect(from.children).toEqual([]);
+    expect(kid.parent).toBe(to);
+  });
+
+  it('should leave a child in the tree once when a callback moves it elsewhere', () => {
+    // the other half of the same defect: two parents each holding the child,
+    // with `parent` naming only one of them
+    const kid = box();
+    const from = box({}, kid);
+    const first = box();
+    const second = box();
+    const root = box({}, from, first, second);
+    let armed = true;
+    createTree(root, () => {
+      if (armed) {
+        armed = false;
+        second.insertBefore(kid, undefined);
+      }
+    });
+
+    first.insertBefore(kid, undefined);
+
+    expect(held(root, kid)).toBe(1);
+    expect(kid.parent).toBe(second);
+    expect(first.children).toEqual([]);
+  });
+
+  it('should see a tree that agrees with itself from every callback a move makes', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const root = box({}, from, to);
+    const seen: number[] = [];
+    createTree(root, () => seen.push(held(root, kid)));
+
+    to.insertBefore(kid, undefined);
+
+    expect(seen).toHaveLength(1);
+    expect(seen.every((count) => count === 1)).toBe(true);
+  });
+
+  it('should take out the child asked for when a callback removes it first', () => {
+    // the removal read an index, ran the callback, and spliced the index: a
+    // callback that removed the same child left that index on its next sibling
+    const first = box();
+    const second = box();
+    const third = box();
+    const root = box({}, first, second, third);
+    let armed = true;
+    createTree(root, () => {
+      if (armed) {
+        armed = false;
+        root.removeChild(second);
+      }
+    });
+
+    root.removeChild(second);
+
+    expect(root.children).toEqual([first, third]);
+  });
+
+  it('should call both trees back when a child moves from one to the other', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const heard: string[] = [];
+    createTree(from, () => heard.push('from'));
+    createTree(to, () => heard.push('to'));
+
+    to.insertBefore(kid, undefined);
+
+    expect(heard.sort()).toEqual(['from', 'to']);
+    expect(from.children).toEqual([]);
+    expect(to.children).toEqual([kid]);
+  });
+
+  it('should keep the focus-within counts right when a callback re-inserts the focused child', () => {
+    const field = box();
+    const left = box({}, field);
+    const right = box();
+    const other = box();
+    const root = box({}, left, right, other);
+    field.setState('focus');
+    const within = (element: Element): boolean => element.states.includes('focus-within');
+    let armed = true;
+    createTree(root, () => {
+      if (armed) {
+        armed = false;
+        other.insertBefore(field, undefined);
+      }
+    });
+
+    right.insertBefore(field, undefined);
+
+    expect(field.parent).toBe(other);
+    expect(held(root, field)).toBe(1);
+    expect([within(left), within(right), within(other), within(root)]).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ]);
+  });
+
+  it('should call the losing tree back even when the gaining tree callback throws', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const heard: string[] = [];
+    createTree(from, () => heard.push('from'));
+    createTree(to, () => {
+      throw new Error('to');
+    });
+
+    expect(() => to.insertBefore(kid, undefined)).toThrow('to');
+
+    expect(heard).toEqual(['from']);
+    expect(to.children).toEqual([kid]);
+  });
+
+  it('should call a tree back once when a callback takes the parent out of it', () => {
+    const kid = box();
+    const from = box({}, kid);
+    const to = box();
+    const root = box({}, from, to);
+    let calls = 0;
+    createTree(root, () => {
+      calls++;
+      if (calls === 1) {
+        root.removeChild(to);
+      }
+    });
+
+    to.insertBefore(kid, undefined);
+
+    // the insert's own, and the nested removal's -- and not a third for the
+    // tree the insert started in
+    expect(calls).toBe(2);
+  });
+});
+
 describe('arrange and paint', () => {
   it('should write every box back onto the element that earned it', () => {
     const first = text('aa');

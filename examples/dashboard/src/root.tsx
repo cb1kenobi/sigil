@@ -152,7 +152,7 @@ export function App(): Element {
   const toggleSidebar = (): void => d.collapsed.set(!d.collapsed.get());
 
   const sidebar = buildSidebar(d, input);
-  const traffic = buildTraffic(d);
+  const traffic = buildTraffic(d, input);
   const projects = buildProjects(d, input);
   const focusTable = (): void => {
     d.section.set('overview');

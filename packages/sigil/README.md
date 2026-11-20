@@ -2671,15 +2671,15 @@ printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
 text(printable(entry.name)); // a name, as it is on disk
 ```
 
-A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
-is not a reason to paint again. `trackedRaw(options, props)`, from
-`@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
-whenever a signal its last paint read changes, with nothing to list twice and no
+A `raw` paints its own cells, and neither its paint nor its measure is
+**tracked**: a signal either reads is not a reason to paint or measure again.
+`trackedRaw(options, props)`, from `@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the
+element whenever a signal its last paint read changes, and lays it out again
+whenever a signal its measure read changes, with nothing to list twice and no
 effect beside it. Build it in a component: the listening is let go with the owner
 it was built under, which is what a `Show` closing or a `For` row leaving
-disposes. A tracked paint may not write a signal -- it is a derivation of what it
-read -- and its measure is not tracked, so a raw whose size follows state still
-calls `invalidateMeasure()` from an effect.
+disposes. A tracked paint or measure may not write a signal -- it is a derivation
+of what it read.
 
 ```js
 import { trackedRaw } from '@ttylabs/sigil/renderer';
@@ -4725,8 +4725,9 @@ its width is the layout's, it scrolls, and it has a cursor that stops on each hu
 Every row sits behind a one-cell mark, blank except for the current hunk's rows,
 which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
 plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
-view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
-and Down, Home and End scroll. A line too long for the view is wrapped at words,
+view, with the file's `---` and `+++` above it where they fit; a click on any row of
+a hunk, its `@@` row included, makes it current where it is, without scrolling; the
+arrows, Page Up and Down, Home and End scroll. A line too long for the view is wrapped at words,
 with the spaces a fold lands in dropped, so a padded table row does not become
 rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
 and the left and right arrows then scroll every line sideways together, eight
@@ -5142,7 +5143,7 @@ not a view built again every tick.
   them. Bars grow from zero, or from the lowest value where some are negative; a
   value above the bottom is always at least an eighth of a cell, so a small number
   is not drawn as none.
-- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step })`**
+- **`lineChart(values, { width, height, min, max, axis, format, xLabels, legend, step, fill })`**
   is braille, two dots across and four down a cell, from the same `Dots` grid the
   canvas draws with. `values` is a list of numbers, or several series as
   `[{ data, label, role }]`: they share the plot, each in its own role, a cell
@@ -5153,7 +5154,12 @@ not a view built again every tick.
   '10:10']` sets the first and last points under it. Every sample is spread
   across the width unless `step` says how many dot columns apart they are, with
   the latest at the right edge. A value that is not a finite number **breaks** the
-  line rather than being bridged.
+  line rather than being bridged. `fill: true` shades the plot under every line
+  down to the bottom of the scale -- an area chart -- and `fill` on a series says
+  so for that one alone. The shade is a quarter of a cell's dots, in the line's
+  role, so the line stays the densest thing in the plot where there is no colour
+  to tell the two apart; a line is never drawn under a shade, whichever series
+  either belongs to. In ASCII the shade is `:` under the `*` line.
 - **`gauge(value, { label, detail, width, style, thresholds, min, max })`** is a
   reading against its range. `value` is a ratio unless `max` says otherwise, so
   `gauge(0.63)` and `gauge(63, { max: 100 })` are the same line. `style: 'line'`
@@ -5168,7 +5174,9 @@ foreground) and `ascii`. Unless `ascii` is given it follows `unicodeSupported()`
 and the ASCII forms are `_.:-=+*#` for a sparkline, `#` bars, a `*` line and `#`
 and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are the
 theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
-`.sigil-chart-series-1` and up, and its legend `.sigil-chart-legend`. A bar takes
+`.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
+`.sigil-chart-area` beside its series' classes, and a crosshair
+`.sigil-chart-crosshair`. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts
@@ -5220,12 +5228,24 @@ picture.
   it. Taller than a row, it stacks the eighths into an area, so three rows is
   twenty-four heights. Where the layout leaves its width to it, it asks for a
   column a sample of the series' capacity.
-- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend })`**
+- **`LineChart({ data | series, step, min, max, axis, format, xLabels, legend, fill, crosshair })`**
   scrolls: the latest sample is at the right edge and each one before it a dot
   column further left, two to a cell, so a 40-column plot holds the last 80.
   `step: 3` spaces them three dots apart, and `step: 'fit'` spreads a whole
   series across the width as `lineChart()` does. The rows the axis, the x labels
-  and the legend leave are the plot's.
+  and the legend leave are the plot's. `fill` shades under the lines as
+  `lineChart()`'s does.
+- **`crosshair: { input, text }`** follows the pointer: a rule down the plot at
+  the sample nearest it, a tick on the axis under that sample, and a tooltip
+  beside the rule saying each series' value there -- `attachTooltip()` pointed at
+  the rule, so it takes the tooltip's options, shows at once unless `delay` says
+  otherwise, and goes on the right unless `side` does. `text(index, values)` writes
+  the readout: `index` counts along the longest series and `values` holds each
+  series' value there, `undefined` where it has none, so an app can put the day a
+  sample stands for above the figures; an empty string draws the rule alone. It
+  needs `mouse: { motion: true }`, since without motion nothing knows where the
+  pointer is. There is no horizontal line, because the value is not where the
+  pointer is: what the readout names is each line's value at that sample.
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
   and take the rows the values and the labels leave.
@@ -6344,13 +6364,18 @@ Button({ disabled: unchanged, label: 'Save', onPress: save });
 
 A control never writes `disabled`, which is why it can be a `Computed`; `checked`
 and `value` are written by the keys and the mouse, so they stay a value to start
-from or a `State`.
+from or a `State`, and a `Computed` there is refused with a `TypeError`. That holds
+where the value is the app's own type as well -- a radio set's and a dropdown's
+`value`, a list's, a tree's and a treemap's `current`, a data table's `sort` --
+which used to take a `Computed` as the value itself, select nothing, and never read
+it again.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
 and return a function that takes them off. `controlFlag()` (a value the control
-writes), `controlCondition()` (a `ControlCondition` it only reads, such as
+writes), `controlState()` (the same, for a value of any type, refusing only a
+`Computed`), `controlCondition()` (a `ControlCondition` it only reads, such as
 `disabled`), `controlDisabled()` and `describeControls()` (from
 `@ttylabs/sigil/components/control`) are what the controls share, for a control of
 your own. The theme hooks are `.sigil-button`
@@ -6611,7 +6636,8 @@ Escape closes the menu and the next one the dialog.
   list under it with the value highlighted; a letter picks the next choice
   starting with it without opening anything; a press opens it. `options` are
   `select()`'s, strings and `Choice`s and separators, and `value` may be a
-  `State` the field writes and follows. It is as wide as its widest choice unless
+  `State` the field writes and follows, but not a `Computed`, which it could not
+  write. It is as wide as its widest choice unless
   given a `width`, and the list is never narrower than the field.
 
 The highlighted item, the open title and a focused dropdown carry `.sigil-focus`,
@@ -8223,7 +8249,10 @@ trash of the volume it is on and a second `a.txt` is named the way Finder names
 it. On Windows it is the Recycle Bin, through the shell's `IFileOperation` from
 PowerShell, and an item the bin would not keep -- too large for it, or on a
 network drive -- is refused, where Windows itself would delete it without
-asking. Everywhere else it is the freedesktop.org trash, which
+asking. The few lines of C# that reach the shell are compiled on the first call
+and kept in the cache directory, sealed for the current user, so that a file another
+user puts there is rebuilt rather than run. (A process running as you can still
+seal one; that is not something a cache file can guard against.) Everywhere else it is the freedesktop.org trash, which
 file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
 device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where

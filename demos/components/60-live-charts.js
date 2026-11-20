@@ -9,7 +9,10 @@
  * and a `Sparkline` beside its name; `flex: 1` gives it whatever the row leaves, and
  * it shows as many of the latest samples as it has columns. Under them a
  * `LineChart` draws two series in braille, two samples to a cell, scrolling left as
- * they are pushed to, with a legend; it takes the rows its panel has. Beside it a
+ * they are pushed to, shaded under each line, with a legend; it takes the rows its
+ * panel has. Point at it and a rule stands at the sample under the pointer, with a
+ * tooltip saying both values there -- the crosshair, which is why the mouse is on
+ * with motion. Beside it a
  * `BarChart` of the busiest processes reads a `State`, and a `Gauge` turns yellow
  * and then red at the thresholds it was given.
  *
@@ -18,9 +21,11 @@
  * window and every one of them fills the extra columns.
  *
  * Piped, there is no clock and no screen, so the same tree is ticked by hand and
- * printed at two widths: the charts are the size of the room, not of the data.
+ * printed at two widths: the charts are the size of the room, not of the data. Then
+ * it is run on a test terminal and a pointer report is typed at the line chart, so
+ * the crosshair is printed too.
  */
-import { createInlineCanvas } from '@ttylabs/sigil/canvas';
+import { runApp, useApp } from '@ttylabs/sigil/app';
 import {
   BarChart,
   Gauge,
@@ -31,9 +36,9 @@ import {
   Sparkline,
 } from '@ttylabs/sigil/components';
 import { box, renderToString, text } from '@ttylabs/sigil/element';
-import { createInput, isAbort } from '@ttylabs/sigil/input';
-import { createEffect, render } from '@ttylabs/sigil/renderer';
+import { createEffect, onCleanup } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
+import { createTestTerminal, frame } from '@ttylabs/sigil/testing';
 import { themedCascade } from '@ttylabs/sigil/theme';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
@@ -91,8 +96,11 @@ const sheet = `
   .half { flex: 1; min-width: 0 }
 `;
 
-/** The tree, built once; everything in it reads the source. */
-function scene(data) {
+/**
+ * The tree, built once; everything in it reads the source. With a router, the line
+ * chart follows the pointer through it.
+ */
+function scene(data, input) {
   const coreRow = (core, i) => {
     const figure = text('', { class: 'figure' });
     // the figure is the one thing here that is not a chart, so it is an effect
@@ -115,6 +123,9 @@ function scene(data) {
   const history = Panel(
     { props: { class: 'half' }, title: 'load' },
     LineChart({
+      // a rule at the sample under the pointer, and a tooltip saying both values
+      ...(input === undefined ? {} : { crosshair: { input } }),
+      fill: true,
       format: (value) => `${Math.round(value)}%`,
       max: 100,
       min: 0,
@@ -143,35 +154,41 @@ function scene(data) {
   );
 }
 
+/**
+ * The monitor as an app: the scene, ticking, over the key help. `q` and Ctrl-C are
+ * the runner's own.
+ *
+ * @param data - The source.
+ * @param tick - Whether to tick on a clock.
+ */
+function monitor(data, tick) {
+  return () => {
+    const { input } = useApp();
+    if (tick) {
+      const timer = setInterval(data.tick, 100);
+      onCleanup(() => clearInterval(timer));
+    }
+    return box(
+      { 'flex-direction': 'column' },
+      scene(data, input),
+      box({ 'margin-top': 1 }, keyHelp(input))
+    );
+  };
+}
+
 if (live) {
   const data = source();
   for (let i = 0; i < 30; i++) {
     data.tick();
   }
-  const canvas = createInlineCanvas({ height: HEIGHT + 2 });
-  const footer = box({ 'margin-top': 1 });
-  const view = render(() => box({ 'flex-direction': 'column' }, scene(data), footer), {
-    backend: canvas,
-    cascade: themedCascade({ sheets: [sheet] }),
-    height: HEIGHT + 2,
-    width: 'auto',
+  // inline, under the prompt, and with motion: the crosshair follows a pointer
+  // with no button held, which is a report for every cell it crosses
+  const app = runApp(monitor(data, true), {
+    fullscreen: false,
+    mouse: { motion: true },
+    sheets: [sheet],
   });
-  const input = createInput({ root: view.root });
-  const timer = setInterval(data.tick, 100);
-
-  const quit = () => {
-    clearInterval(timer);
-    view.dispose();
-    input.stop();
-  };
-  input.bind('q', quit, { description: 'quit' });
-  input.bind((event) => {
-    if (isAbort(event.key)) {
-      event.stop();
-      quit();
-    }
-  });
-  footer.append(keyHelp(input));
+  process.exitCode = await app.exited;
 } else {
   const data = source();
   const root = scene(data);
@@ -198,4 +215,27 @@ if (live) {
   await show('sixty more: the line has scrolled, and the sparklines are full', 72);
 
   await show('the same tree at 52 columns: every chart is the size of its box', 52);
+
+  // the pointer needs a screen, so the same monitor runs on a test terminal and a
+  // pointer report is typed at it: an SGR report counts from one, and 35 is a move
+  // with nothing held
+  const term = createTestTerminal({ colorLevel: 0, columns: 72, rows: HEIGHT + 2 });
+  const app = runApp(monitor(data, false), {
+    console: false,
+    detect: false,
+    mouse: { motion: true },
+    sheets: [sheet],
+    terminal: term.terminal,
+  });
+  await frame(app);
+  const ESC = String.fromCharCode(0x1b);
+  await term.press(`${ESC}[<35;20;12M`);
+  await frame(app);
+  await frame(app);
+  const screen = term.viewport.map((line) => line.trimEnd()).join('\n');
+  console.log(
+    `-- the pointer on the load chart: a rule at that sample, and its values\n${screen}\n`
+  );
+  app.exit(0);
+  await app.exited;
 }
