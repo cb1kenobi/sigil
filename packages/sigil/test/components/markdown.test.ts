@@ -11,6 +11,7 @@ import {
 } from '../../src/components/index.js';
 import { type Element, renderToString } from '../../src/element/index.js';
 import { stringWidth } from '../../src/width/index.js';
+import { wrap } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -775,6 +776,28 @@ describe('markdown()', () => {
   });
 
   describe('wrapping', () => {
+    // the blanks that say they do not break: no-break, figure, narrow no-break and
+    // ideographic. `wrap()` breaks at U+0020 and a tab, so a paragraph that is
+    // drawn anywhere else is a surprise -- and the width is held at ten or more,
+    // since a word wider than a row is cut by each in its own way
+    it.each([
+      ['no-break space', '\u00a0'],
+      ['figure space', '\u2007'],
+      ['narrow no-break space', '\u202f'],
+      ['ideographic space', '\u3000'],
+    ])('should break only where wrap() does, at the %s', (_name, blank) => {
+      const text = `Wait 10${blank}sec then press Ctrl${blank}C now`;
+      for (const width of [10, 12, 14, 20, 40]) {
+        expect(draw(text, { width }), `at ${width}`).to.equal(wrap(text, { width }));
+      }
+    });
+
+    it('should keep the two words of an &nbsp; together', () => {
+      expect(draw('Wait 10&nbsp;seconds then press Ctrl&nbsp;C now', { width: 10 })).to.equal(
+        'Wait\n10\u00a0seconds\nthen press\nCtrl\u00a0C now'
+      );
+    });
+
     it('should hang a wrapped list item under its text, not its marker', () => {
       expect(draw('- one two three four five six', { width: 14 }).split('\n')).to.deep.equal([
         '• one two',

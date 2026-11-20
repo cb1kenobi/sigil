@@ -2895,9 +2895,23 @@ it is a component rather than the frame effect SIG-103 is.
   one set is how they come apart. It does not split at a space that carries a
   combining mark or a joiner -- that is one cluster, and `wrap()` reads it as part
   of the word -- and `paragraph()` splits its lines at `\r?\n` as `wrap()` does,
-  since a CRLF blank line arrived as a `\r` word and drew an empty row. Markdown
-  still splits on `\s` in `components/markdown.ts` and so breaks at a no-break
-  space: SIG-441, not done here.
+  since a CRLF blank line arrived as a `\r` word and drew an empty row.
+
+  **Markdown breaks where `wrap()` does too (SIG-441).** It split a run of text on
+  `\s`, so `10&nbsp;seconds` came apart at the no-break space an author writes to
+  prevent exactly that, and the space was lost at the break. It is a registry
+  component and so cannot reach `words()`, which is private; it asks the public
+  `isBreakSpace()` of each blank instead, plus a line break, and any other blank
+  stays in the word beside it. Per blank rather than per run, because a run can
+  mix the two kinds (`' \u00a0 '`), which is one gap and one word and a split on
+  `\s+` could not tell apart -- and a published separator-keeping split was
+  refused for the same reason `words()` is private: what `@ttylabs/sigil/wrap`
+  exports freezes at 1.0, and one function already answers the question. A
+  combining mark after a space is not handled (markdown's runs hand it a space and
+  the mark in one text, and no document writes it), which `wrap()` reads as one
+  cluster. `should break only where wrap() does` compares markdown's rows with
+  `wrap()` byte for byte at widths of ten and up -- markdown draws no narrower, and
+  a word wider than a row is cut by each in its own way.
 
   **Only `isBreakSpace()` is public, and it has to be.** Decrypt is a registry
   component: `sigil add` copies it into an app, and `rewrite()` in

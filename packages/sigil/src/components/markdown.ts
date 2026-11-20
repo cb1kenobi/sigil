@@ -27,7 +27,7 @@ import {
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
-import { terminalWidth } from '../wrap/index.js';
+import { isBreakSpace, terminalWidth } from '../wrap/index.js';
 import { colorLevelOf } from './color-level.js';
 import {
   type MarkdownAlign,
@@ -895,11 +895,14 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
   };
 
   const emit = (content: string, classes: string, href: string): void => {
-    for (const part of content.split(/(\s+)/)) {
+    // a gap is a blank `wrap()` breaks at -- U+0020 and a tab, through the one
+    // definition of them -- or a line break; every other blank, a no-break space
+    // among them, is part of the word beside it, which is what it is written for
+    for (const part of content.split(/(\s)/)) {
       if (part === '') {
         continue;
       }
-      if (/^\s+$/.test(part)) {
+      if (isBreakSpace(part) || part === '\n' || part === '\r') {
         end();
         continue;
       }
