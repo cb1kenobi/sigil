@@ -53,7 +53,10 @@ export function writeExecutable(path: string, contents: string | Uint8Array, mod
   }
 
   if (wrote.status !== 0) {
-    throw new Error(`Could not write ${path}: ${wrote.stderr.trim()}`);
+    // a signal leaves `status` null and usually nothing on stderr, so it is
+    // named or the message would end in a colon
+    const why = wrote.stderr.trim() || `sh was killed by ${wrote.signal ?? 'nothing it said'}`;
+    throw new Error(`Could not write ${path}: ${why}`);
   }
 
   chmodSync(path, mode);

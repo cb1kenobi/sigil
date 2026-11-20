@@ -6385,10 +6385,18 @@ test in this package writes for something to run -- a fake `bun`, a fake
   stubs, a size that holds the write open long enough to be hit, and spawned
   each at once while three other threads forked as fast as they could. Written
   in place, 9 of 216 failed with `ETXTBSY`; written to a temporary name and
-  renamed in, 7 of 225; written with `writeExecutable()`, 0 of 147. The hits
-  were uneven -- 14 of the 16 came from one job -- which is the reason it is
-  not a test. Stubs of 4 MB or less, which covers every size the tests
-  write, never failed in 778 tries written either way. The probe also held a descriptor open across a rename and
-  spawned the new name, which was `ETXTBSY` on all three jobs and ran once the
-  descriptor was closed. `executable.test.ts` pins what can be pinned: the
-  bytes, the mode, a replaced file, and the error.
+  renamed in, 7 of 222; written with `writeExecutable()`, 0 of 147. The hits
+  were uneven -- 14 of the 16 came from one job -- which is the reason it is not
+  a test. Stubs of 4 MB or less, which covers every size the tests write, never
+  failed in 778 tries written either way. The probe also held a descriptor open
+  across a rename and spawned the new name, which was `ETXTBSY` on all three
+  jobs and ran once the descriptor was closed. `executable.test.ts` pins what
+  can be pinned: the bytes, the mode, a replaced file, and the error.
+- **What stops the next stub being written in place is a scan, as
+  `copy-fixture.test.ts` scans for `cpSync`.** `writing an executable` in
+  `executable.test.ts` reads every test file in every package, the examples and
+  the website's tests, and fails on an octal `mode:` or `chmod` with an execute
+  bit anywhere but through the helper. The exceptions -- directories, a mocked
+  `mkdirSync`, and `which.test.ts` and `editor.test.ts`'s files that nothing
+  runs -- are named with a count, so a stub added beside one is still a decision
+  somebody makes. A mode held in a variable is out of its reach.

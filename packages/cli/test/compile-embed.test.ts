@@ -305,7 +305,9 @@ describe('compiling for a platform that is not this one', () => {
       // the host's own bun with a marker written into it, so that what ends up
       // in the binary is known to be this file and not another copy of Bun: a
       // valid executable of the right format is the one runtime this machine
-      // can supply for the host target
+      // can supply for the host target. Written in this process, which is safe
+      // only because `bun` reads it and nothing executes it: the binary that
+      // runs is `out`, which `bun` writes (see `test/executable.ts`)
       copyFileSync(bun, embed);
       const bytes = readFileSync(embed);
       marker.copy(bytes, Math.min(40_000_000, bytes.length - marker.length - 1));
