@@ -1,3 +1,4 @@
+import { localDate } from '../../src/components/calendar.js';
 import { date } from '../../src/components/date.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { transformValue } from '../../src/util/transform.js';
@@ -224,6 +225,44 @@ describe('date()', () => {
 
       await type(ui.stdin, ENTER);
       await answer;
+    });
+
+    // SIG-449: an explicit `initial` is taken as it is, so its year can be one
+    // the segment cannot hold, and wrapping from there went to the far end --
+    // year -1 stepped down was 9998. Both keys land on the nearer end first.
+    it('should pull a year before 0000 into the range before wrapping it', async () => {
+      const initial = localDate(-1, 6, 15);
+
+      for (const key of [UP, DOWN]) {
+        const { answer, ui } = ask({ initial });
+
+        expect(ui.frame).to.equal('? When? -001-06-15');
+        await type(ui.stdin, key);
+        expect(ui.frame).to.equal('? When? 0000-06-15');
+        // in the range now, so the next step wraps as any other does
+        await type(ui.stdin, DOWN);
+        expect(ui.frame).to.equal('? When? 9999-06-15');
+
+        await type(ui.stdin, ENTER);
+        expect(await answer).toEqual(new Date(9999, 5, 15));
+      }
+    });
+
+    it('should pull a year past 9999 into the range before wrapping it', async () => {
+      const initial = localDate(10000, 6, 15);
+
+      for (const key of [UP, DOWN]) {
+        const { answer, ui } = ask({ initial });
+
+        expect(ui.frame).to.equal('? When? 10000-06-15');
+        await type(ui.stdin, key);
+        expect(ui.frame).to.equal('? When? 9999-06-15');
+        await type(ui.stdin, UP);
+        expect(ui.frame).to.equal('? When? 0000-06-15');
+
+        await type(ui.stdin, ENTER);
+        expect(await answer).toEqual(localDate(0, 6, 15));
+      }
     });
 
     it('should wrap the day at the length of its own month', async () => {

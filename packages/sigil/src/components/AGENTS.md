@@ -5706,6 +5706,18 @@ from year, month and day segments, with the hour, minute and second added by
   last day of a shorter month and is not given back, so 31 January stepped to
   February and on to March is the 28th. Remembering the wanted day would be state
   the field does not show.
+- **A year the segment cannot hold is pulled to the nearer end before it wraps**
+  (SIG-449). An explicit `initial` is taken as it is, and a `Date` reaches years
+  far past 0-9999, so the year can start outside the segment -- and the wrap ran
+  from wherever it started, so year -1 stepped down was 9998, the far end of the
+  range from where the person was. Up or Down on a year outside the range now
+  steps it and lets `put()` clamp it, so -1 either way is 0000 and 10000 either
+  way is 9999, and the next step wraps as any other does. Nearer end rather than
+  "clamp, then step and wrap", which would make -1 down 9999: still the far end,
+  and the opposite of what `pickDate()`'s first arrow does from the same start.
+  The year is the only field this reaches -- a `Date`'s month, day and clock are
+  always inside their segments -- but the check is on the segment's limits, not
+  on the name. Typing and Page Up/Down already clamped.
 - **Digits fill a segment; Backspace clears what was typed into it.** The digits
   are pending until the segment is full or is left (arrow, Tab, Enter, a step),
   and pending digits are shown as typed with `_` for the rest. A full segment
@@ -5814,7 +5826,8 @@ field.
   the day -- so it is the years that win over a `min` or `max` set outside them,
   not the option. Home and End never leave the month and were never affected;
   `date()` was not either, since its year segment wraps inside `[0, 9999]` and
-  its page keys are `addMonths()`. That `[0, 9999]` is `date.ts`'s own, and
+  its page keys are `addMonths()` -- though a year that _started_ outside was
+  wrapped from there until SIG-449 (see "A date prompt"). That `[0, 9999]` is `date.ts`'s own, and
   stays so: an ejected `date` imports every value it takes from `calendar.ts`
   through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
   two new names on that subpath for good. What was left alone: an
