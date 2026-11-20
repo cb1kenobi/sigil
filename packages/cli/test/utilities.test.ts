@@ -280,7 +280,7 @@ describe('variants', () => {
     expect(cascade.resolve({ classes, states: ['hover'], type: 'box' }).borderColor).toBe(2);
   });
 
-  it('should light an element on hover and put it out when the pointer leaves', () => {
+  it('should light an element in the hover state and put it out when the state clears', () => {
     // the state as the element tree reports it: the pointer entering sets `hover`
     // and leaving clears it, and nothing in between is the component's
     const classes = ['border-white', 'hover:border-green'];
@@ -411,6 +411,9 @@ describe('variants', () => {
     // the input layer sets `hover` as the pointer moves, so this one is a terminal's
     // too (SIG-527); the line that said it waited for mouse tracking is gone
     expect(VARIANT_NAMES).toContain('hover');
+    // and a terminal has no visited links or print stylesheet
+    expect(VARIANT_NAMES).not.toContain('visited');
+    expect(VARIANT_NAMES).not.toContain('print');
   });
 
   it('should put a scheme variant in the query the cascade reads', () => {

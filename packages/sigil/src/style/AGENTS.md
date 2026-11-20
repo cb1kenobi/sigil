@@ -1134,7 +1134,8 @@ toolchain's one reader.
   matches nothing is an answer, and one that throws is a missing feature somebody
   works around with a class they then cannot remove. Mouse tracking exists now:
   `createInput()` sets `hover` on the whole chain under the pointer and clears it
-  as the pointer leaves, so the engine needed no change -- which is the thing
+  as the pointer leaves -- when it was given `mouse: { motion: true }`, which is
+  off by default -- so the engine needed no change -- which is the thing
   that decision was for.
 - **`:focus-within` is a state to the engine, and the element tree decides who is
   in it (SIG-372).** Matching it as "this node or a descendant has `:focus`" here
@@ -1438,7 +1439,11 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   beats `focus-within:` on the ancestor that is both -- one class and one
   pseudo-class each, so the later block wins. What a pointer does is not tested
   here: `test/input/mouse-router.test.ts` proves `:hover` is set and cleared by a
-  real report, and this proves the sheet turns the state into a rule. A variant
+  real report, and this proves the sheet turns the state into a rule. Like
+  `:hover` itself it matches only where the app asked the input layer for motion
+  (`mouse: { motion: true }`, off by default for the wire cost `MouseOptions`
+  records), so `hover:border-green` in an app that did not ask ships the rule and never matches it.
+  A variant
   still does not stack, so `hover:` has no `md:` form.
 - **The state variants are in Tailwind's order, because no app could load one
   yet and so no class string had come to depend on the other (SIG-528).** One

@@ -354,7 +354,8 @@ const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
  *
  * `hover:` is here now: `StyleState` has `hover` and the input layer sets it as the
  * pointer moves, so the sentence that said it waited for mouse tracking stopped
- * being true when that landed (SIG-527).
+ * being true when that landed (SIG-527). It matches only where the app turned on
+ * `mouse: { motion: true }`, which is off by default.
  */
 interface Variant {
   readonly name: string;
