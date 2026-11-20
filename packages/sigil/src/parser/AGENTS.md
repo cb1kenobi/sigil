@@ -1894,8 +1894,15 @@ and a built app that answers `deploy` in `build-command.test.ts`.
   the way `--help` now does, and the answer is no, because there is no trailing
   form to extend: `help` is looked up in the _innermost_ context, so `mycli
   build help` and `mycli serve status help` are `Unexpected argument "help"` with
-  or without a default, and making `status help` describe `status` would be the
+  or without a default -- for a command that takes no argument and declares no
+  `help` of its own, since a `[dir]` takes the word and a `help` child is run --
+  and making `status help` describe `status` would be the
   one spelling in the program where a word before `help` names what it is about.
+  The cost is that `status help` is not always a stray word: where `status` has
+  a `help` child of its own or a positional, `mycli serve status help` runs that
+  command or binds `'help'`, and `mycli status help` prints the root screen
+  instead, because the root's `help` matched first and the default was not yet
+  dispatched. That is the pass ordering again, and is recorded rather than fixed.
   The questions that do get an answer are `mycli status --help` (SIG-340, above),
   and `mycli help serve status`, which names the default in the path and
   describes `status` with `serve` above it. The other fix on offer was the pass

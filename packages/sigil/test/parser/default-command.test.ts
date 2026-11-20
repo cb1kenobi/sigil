@@ -408,7 +408,7 @@ describe('default command', () => {
       expect(await helpedByCommand(['nope', 'help'])).toStrictEqual(['global']);
     });
 
-    it('should refuse a trailing `help` after a command that was matched, default or not', async () => {
+    it('should refuse a trailing `help` after a command that takes no argument and has no `help`', async () => {
       // the trailing form is not a form: `help` is looked up in the innermost
       // context, which has no such command, so `status help` printing the root
       // screen is the one spelling here that is *not* refused, and that is
@@ -422,6 +422,37 @@ describe('default command', () => {
       await expect(
         parse({ argv: ['build', 'help'], schema: { commands: { build: { run() {} } } } })
       ).rejects.toThrow('Unexpected argument "help"');
+    });
+
+    it('should let the root help shadow a `help` of the subcommand own, which is the pass ordering', async () => {
+      const own: Schema = {
+        commands: {
+          serve: {
+            commands: { status: { commands: { help: { run() {} } }, run() {} } },
+            default: true,
+          },
+        },
+      };
+      // spelled out, `help` is the app's command; with `serve` implied, the
+      // root's `help` matches first and the app's is unreachable
+      expect((await parse({ argv: ['serve', 'status', 'help'], schema: own })).cmd?.name).toBe(
+        'help'
+      );
+      expect(
+        (await parse({ argv: ['serve', 'status', 'help'], schema: own })).help
+      ).toBeUndefined();
+      const state = await parse({ argv: ['status', 'help'], schema: own });
+      expect(state.help?.via).toBe('command');
+      expect(state.help?.contexts.map((c) => c.name)).toStrictEqual(['global']);
+    });
+
+    it('should bind `help` to a positional of the command it follows, when the default is spelled out', async () => {
+      const taking: Schema = {
+        commands: { serve: { args: ['[dir]'], default: true, run() {} } },
+      };
+      const state = await parse({ argv: ['serve', 'help'], schema: taking });
+      expect(state.help).toBeUndefined();
+      expect(state.argv).toStrictEqual({ dir: 'help' });
     });
 
     it('should describe the subcommand through the default when it is spelled the way `help` reads it', async () => {
