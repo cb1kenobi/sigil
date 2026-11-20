@@ -12507,11 +12507,11 @@ each question was settled, the probes and the sabotage pass are in
   tree needed nothing new from it. `treeListControl(tree).list` is typed
   `ListControl<unknown>` because its rows include them.
 - **A row is kept while it draws the same thing.** The walk runs again on every
-  change and builds new row records; one whose node, depth, guide, open state and
-  read state match the last walk's is replaced by the last walk's object, so the
-  list -- which rebuilds a row whose item is a different object -- keeps the element.
-  Opening one branch rebuilds that branch's row and builds its children, and
-  nothing else.
+  change and builds new row records; one whose node, depth, open state and read
+  state match the last walk's is replaced by the last walk's object, so the list --
+  which rebuilds a row whose item is a different object -- keeps the element. Its
+  guide is not in that list since SIG-471, below: a kept row is handed it. Opening
+  one branch rebuilds that branch's row and builds its children, and nothing else.
 - **`describeTreeListView(router, ...trees)`** describes the list's keys through
   `describeListView()` and adds Right `expand`, Left `collapse`, `h`/`l` with
   `vim`, and Space `toggle` in a single tree, scoped to each. Every tree is checked
@@ -12597,12 +12597,51 @@ makes a new tree under the same paths, and routed around it with getters.
   value cannot loop.
 - **Each returns whether anything was marked,** as `reload()` did: a read already
   out of date and not yet read again is nothing more to forget.
-- **SIG-471 is untouched.** A row is still kept while it draws the same thing; a read
+- **Keeping rows is untouched.** A row is still kept while it draws the same thing; a read
   again rebuilds the branch's own row twice (`loading`, then `loaded`) and a child
   row only where the function handed back a different object for it. An app that
   memoizes its nodes, as the disk usage example does, keeps every child row.
 - **Not done:** dropping reads under values no longer in the tree, which
   `reloadAll()` marks but keeps -- as `seen` keeps every value it met.
+
+### A tree's row is the object it was when only its guide moved (SIG-471)
+
+SIG-386 made the list key only the rows a change added, where its items are the
+ones it last keyed with some dropped off the front and some added at the end -- the
+same objects, compared by identity. The tree kept a row's object only while it drew
+the same thing, guide included, and appending a node moves the guide of the node
+that was last (`└──` to `├──`) and of every row under it. So the check failed at
+that row every time, and the list asked `key` for every row again.
+
+- **The guide is a `State` on the row, and the drawn row follows it.** A row the
+  walk finds drawing what it drew but for its guide is the same object, handed the
+  new guide, and an effect in the row sets the guide's text -- the list builds a
+  row under an owner of its own, so it may hold one. The app's `row` is not called
+  again, which its documentation already said: again when the node, its depth, or
+  whether it is open changes, and the guide was never in that list. `bare`, whether
+  there is a guide at all, which only a root lacks, still decides whether a row is
+  the same, since a bare row has no guide to set.
+- **What the list still cannot take, and why.** A replaced node is a row the list
+  has not seen, which is the list's own rule, so in a tree updated immutably --
+  every ancestor of a changed node a new object -- the list keys everything from
+  the first replaced row; and opening a branch puts rows in the middle, which is
+  not the shape SIG-386 takes. `setRows()` compares keys rather than items, so it
+  already slid for a tree's append before this; what went was a `key` call per
+  row, which for a tree is a property read.
+- **What it is worth.** Little on the clock, and that is worth knowing: at 200,000
+  open rows the list's part was about 5% of a profile of one append, and the rest
+  was the tree's own walk -- `treeChoiceOf()`, a map entry and a guide string per
+  open row -- and its map of the rows by key. Before and after are within the noise
+  of a machine shared with other work, about 55 to 75 ms of CPU per append in the
+  built package. The walk is the tree's "Not done" above, which now has that figure.
+- **Pinned by counting.** `tree-list-view-rekey.test.ts` wraps the `key` the tree
+  hands its list, by a module mock, and counts the calls: 4 for three nodes
+  appended to 10,000, 2 for one node after an open branch of 5,000 whose rows all
+  move their guides, and 1,001 where a node was replaced -- the limit, pinned so
+  that it is a decision. `should keep a row whose guide alone moved, and draw its
+  new guide (SIG-471)` checks the picture and that `row` built the new node alone.
+- **Sabotage: three, three caught.** The guide compared again in `sameRow()`, the
+  new guide not handed to the kept row, and the row's effect not setting it.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 

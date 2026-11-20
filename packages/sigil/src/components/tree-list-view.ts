@@ -195,8 +195,8 @@ export interface TreeListControl<T> {
   toggle(value?: T): boolean;
 }
 
-/** A node's row. */
-interface NodeRow<T> {
+/** A node's line, as a walk finds it. */
+interface NodeLine<T> {
   depth: number;
   guide: string;
   /** The item as it was handed over, which is what says the node was replaced. */
@@ -210,7 +210,7 @@ interface NodeRow<T> {
 }
 
 /** The line under an open branch whose read is in flight, or failed. */
-interface NoteRow {
+interface NoteLine {
   guide: string;
   /** A key no value can be: an object made for this branch and kind. */
   key: object;
@@ -218,7 +218,23 @@ interface NoteRow {
   text: string;
 }
 
-type Row<T> = NodeRow<T> | NoteRow;
+type Line<T> = NodeLine<T> | NoteLine;
+
+/**
+ * A line as the list holds it. Its guide is a state the drawn row follows, so a
+ * row whose guide alone moved -- the last sibling gaining one after it, and every
+ * row under it -- is the same object, and the list neither rebuilds it nor keys
+ * every row again (SIG-471). `bare` is whether it has a guide at all.
+ */
+type Held<L extends { guide: string }> = Omit<L, 'guide'> & {
+  readonly bare: boolean;
+  readonly guide: State<string>;
+};
+
+/** A node's row. */
+type NodeRow<T> = Held<NodeLine<T>>;
+
+type Row<T> = NodeRow<T> | Held<NoteLine>;
 
 /**
  * A read, as the tree keeps it. A `stale` one is out of date and is read again
@@ -255,9 +271,12 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
-/** Whether two rows draw the same thing, so the one already built can be kept. */
-function sameRow<T>(a: Row<T>, b: Row<T>): boolean {
-  if (a.kind !== b.kind || a.guide !== b.guide) {
+/**
+ * Whether a line draws what a row already built draws, but for its guide, so the
+ * row can be kept and handed the guide.
+ */
+function sameRow<T>(a: Row<T>, b: Line<T>): boolean {
+  if (a.kind !== b.kind || a.bare !== (b.guide === '')) {
     return false;
   }
   if (a.kind === 'node' && b.kind === 'node') {
@@ -269,7 +288,7 @@ function sameRow<T>(a: Row<T>, b: Row<T>): boolean {
       a.message === b.message
     );
   }
-  return (a as NoteRow).text === (b as NoteRow).text;
+  return (a as Held<NoteLine>).text === (b as NoteLine).text;
 }
 
 /**
@@ -500,8 +519,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     top: TreeListItems<T>,
     open: ReadonlySet<T>,
     seed: T[]
-  ): { parents: Map<T, T | undefined>; rows: Row<T>[]; shown: Set<T> } => {
-    const out: Row<T>[] = [];
+  ): { parents: Map<T, T | undefined>; rows: Line<T>[]; shown: Set<T> } => {
+    const out: Line<T>[] = [];
     const up = new Map<T, T | undefined>();
     const opened = new Set<T>();
 
@@ -658,10 +677,15 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       }
       lift(found);
       // a row that draws what it drew last time is the same object, so the list
-      // keeps the element it built for it
-      const next = found.rows.map((row) => {
-        const was = byKey.get(row.key);
-        return was !== undefined && sameRow(was, row) ? was : row;
+      // keeps the element it built for it and finds the rows it already keyed; one
+      // whose guide alone moved is handed the guide
+      const next = found.rows.map((line): Row<T> => {
+        const was = byKey.get(line.key);
+        if (was !== undefined && sameRow(was, line)) {
+          was.guide.set(line.guide);
+          return was;
+        }
+        return { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
       });
       const unchanged = next.length === rows.length && next.every((row, i) => row === rows[i]);
       rows = next;
@@ -721,9 +745,21 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   const reloadAll = (): boolean => reread([...loads.keys()]);
 
   const drawRow = (row: Row<T>): Element => {
-    const guide = row.guide
-      ? [textNode(row.guide, { ...TREE_FIXED, class: 'sigil-tree-guide sigil-muted' })]
-      : [];
+    const guide: Element[] = [];
+    if (!row.bare) {
+      const line = textNode(
+        untrack(() => row.guide.get()),
+        {
+          ...TREE_FIXED,
+          class: 'sigil-tree-guide sigil-muted',
+        }
+      );
+      // a kept row's guide moves when a sibling arrives after it or one under it goes
+      createEffect(() => {
+        line.setText(row.guide.get());
+      });
+      guide.push(line);
+    }
     if (row.kind !== 'node') {
       return box(
         { class: 'sigil-tree-node', 'flex-direction': 'row' },

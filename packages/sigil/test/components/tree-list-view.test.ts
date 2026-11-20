@@ -304,6 +304,45 @@ describe('TreeListView()', () => {
       expect(built.sort()).toEqual(['docs', 'guide.md']);
     });
 
+    it('should keep a row whose guide alone moved, and draw its new guide (SIG-471)', () => {
+      const built: string[] = [];
+      const items = new State<TreeChoiceItem[]>(SAMPLE);
+      const host = tree({
+        expanded: ['src'],
+        items,
+        row: (node) => {
+          built.push(node.text);
+          return node.text;
+        },
+      });
+      built.length = 0;
+
+      // `README.md` stops being the last node, and so does `src` when it goes from
+      // the end of the list: their guides move, and so do the guides under `src`
+      items.set([...SAMPLE, 'LICENSE']);
+      flush();
+      expect(picture(host)).toEqual([
+        '❯ ├── ▾ src',
+        '  │   ├──   a.ts',
+        '  │   ├── ▸ lib',
+        '  │   └──   b.ts',
+        '  ├── ▸ docs',
+        '  ├──   README.md',
+        '  └──   LICENSE',
+      ]);
+      items.set([items.get()[2] as string, 'LICENSE', SAMPLE[0] as TreeChoiceItem]);
+      flush();
+      expect(picture(host)).toEqual([
+        '  ├──   README.md',
+        '  ├──   LICENSE',
+        '❯ └── ▾ src',
+        '      ├──   a.ts',
+        '      ├── ▸ lib',
+        '      └──   b.ts',
+      ]);
+      expect(built).toEqual(['LICENSE']);
+    });
+
     it('should show the empty state for an empty tree', () => {
       expect(picture(tree({ empty: 'No files', items: [] }))).toEqual(['No files']);
     });
