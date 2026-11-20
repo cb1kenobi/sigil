@@ -395,7 +395,12 @@ at a glance. It reads your own nodes through `size`, `children` and `key`, so
 nothing is copied. A click on a rectangle, or an arrow key while the map has
 the focus, sets its `current` and calls `onPick`. The current rectangle is
 outlined in bright white, and in green while the map has the focus, so you can
-see where the arrows go. A list or a tree beside it can write the same
+see where the arrows go. Enter, or a double click on a rectangle, calls
+`onActivate(key)`: the disk usage example uses it to show that directory on its
+own. `onHover` names the rectangle under the pointer without moving `current`,
+so a status line can say what a rectangle too small for a label is. It needs
+mouse motion, which an app turns on with `mouse: { motion: true }` in
+`runApp()`'s options. A list or a tree beside the map can write the same
 `current`: the disk usage example pairs it with a `TreeListView` this way, so
 the two always show one selection.
 
