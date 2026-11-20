@@ -4564,6 +4564,24 @@ result side of `--quiet`, like `table()` and `note()`. **In a table, use
 you override one: the level is what picks brackets or padding, and a badge built
 for one level and drawn at another is still legible but not the same shape.
 
+**`Badge` is the live form**, for a badge that changes -- a trend, a build status:
+
+```js
+import { Badge } from '@ttylabs/sigil/components/badge';
+
+Badge({
+  label: () => `${change.get() > 0 ? '+' : ''}${change.get()}%`,
+  variant: () => (change.get() >= 0 ? 'success' : 'error'),
+});
+```
+
+`label` and `variant` each take a value, a `State` or a `Computed`, or a function
+of signals, as a chart's data does. It is one `text` element written to in place
+when what it reads changes -- its text and its variant classes, nothing rebuilt --
+and what it draws is `badgeView()`'s, padding and level 0 brackets included. Plain
+values start no effect. `colorLevel` is fixed for its life, and `class` and `props`
+are its own.
+
 #### Rule
 
 ```js
@@ -6597,6 +6615,27 @@ Escape closes the menu and the next one the dialog.
   one and hands back `result`, which settles with the item chosen or `undefined`
   for a dismissal -- Escape, a click outside, Tab, `close()`, a resize, or the
   renderer going.
+- **`initial`** is which entry is highlighted when a menu opens: a position, or a
+  function asked for one each time it opens. `openMenu()` takes it, a menubar's
+  menu takes it, and so does an item with `items`, for its submenu -- which is how
+  a submenu that offers a choice opens on the one in use:
+
+  ```js
+  const themes = ['System', 'Light', 'Dark'];
+  const item = {
+    label: '&Theme',
+    items: themes.map((name, i) => ({ label: name, value: () => theme.set(i) })),
+    initial: () => theme.get(),
+  };
+  ```
+
+  A function is for a menu built once and opened many times, a menubar's above
+  all, and is asked untracked; an answer that is not a position -- `undefined`,
+  `-1` -- is the same as no `initial`. Without one, `openMenu()` highlights its
+  first entry on offer, and a submenu or a menubar's menu does too when the keys
+  opened it and highlights nothing when the pointer did; with one, that entry is
+  highlighted however the menu was opened, as a dropdown's value is.
+
 - `attachContextMenu(element, { input, items, onSelect })` opens one on a **right
   click** inside the element, at the pointer, and on **Shift-F10** or the
   **Menu** key with the focus inside it, under the focused element. `items` may be
@@ -6833,11 +6872,15 @@ there for a component you write yourself too:
   overlays holding the keys, of which only the top one answers. The modal, the
   toast, the tooltip and the menus all use them, and an overlay of your own that
   holds the input through `holdInput()` is one a modal stands aside for.
-- `openMenuSession()`, `parseMnemonic()`, `labelParts()`, `checkMenuEntries()` and
-  `menuClasses()`, from `@ttylabs/sigil/components/menu`, are the session the
-  menubar and the dropdown open their menus in, the `&` read out of a label, a
-  label drawn with its mnemonic set apart, the check that a list of items is one a
-  menu can draw, all the way down, and the check that a `menuClass` option is one.
+- `openMenuSession()`, `parseMnemonic()`, `labelParts()`, `checkMenuEntries()`,
+  `menuClasses()`, `checkMenuInitial()` and `menuInitial()`, from
+  `@ttylabs/sigil/components/menu`, are the session the menubar and the dropdown
+  open their menus in, the `&` read out of a label, a label drawn with its mnemonic
+  set apart, the check that a list of items is one a menu can draw, all the way
+  down, the check that a `menuClass` option is one, the check that an `initial` is
+  a position or a function, and the position an `initial` names at the moment a
+  menu opens -- which is what a session's `root()` takes, since it wants a
+  position rather than the option.
 - `promptSeek(rows, from, direction, loop)`, from
   `@ttylabs/sigil/components/prompt`, is where Up or Down moves a list cursor: the
   nearest row whose `offered` is true, wrapping when `loop` is, and `from` itself

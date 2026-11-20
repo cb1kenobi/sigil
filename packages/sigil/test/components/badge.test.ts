@@ -1,6 +1,10 @@
 import { strip } from '../../src/ansi/index.js';
-import { badge, badgeView } from '../../src/components/badge.js';
+import { Badge, badge, badgeView } from '../../src/components/badge.js';
 import { table } from '../../src/components/table.js';
+import { box, type Element, renderToLines } from '../../src/element/index.js';
+import { createRoot } from '../../src/renderer/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
+import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -152,5 +156,144 @@ describe('badge()', () => {
     it('should read an object that is not a view as a value to print', () => {
       expect(table([[{ width: 3 }]], { colorLevel: 0 })).to.equal('[object Object]');
     });
+  });
+});
+
+/** The tree as it is drawn at a colour level, one string per row. */
+function drawn(root: Element, colorLevel: 0 | 1, width = 20): string[] {
+  return renderToLines(root, { cascade: themedCascade(), colorLevel, width });
+}
+
+describe('Badge()', () => {
+  it('should draw what badgeView() draws for the same label and variant', () => {
+    for (const colorLevel of [0, 1] as const) {
+      const live = drawn(
+        box({}, Badge({ colorLevel, label: 'PASS', variant: 'success' })),
+        colorLevel
+      );
+      const fixed = drawn(
+        box({}, badgeView('PASS', { colorLevel, variant: 'success' }).element),
+        colorLevel
+      );
+
+      expect(live).to.deep.equal(fixed);
+    }
+  });
+
+  it('should be one text element, with no effect, when given plain values', () => {
+    let effects = 0;
+    const el = createRoot(
+      () => Badge({ colorLevel: 1, label: 'beta', variant: 'info' }),
+      (fn) => {
+        effects++;
+        return fn() ?? (() => {});
+      }
+    );
+
+    expect(effects).to.equal(0);
+    expect(el.type).to.equal('text');
+    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+  });
+
+  it('should follow a State for its label and its variant', async () => {
+    const label = new State('PASS');
+    const variant = new State<'success' | 'error'>('success');
+    const root = box({}, Badge({ colorLevel: 1, label, variant }));
+
+    expect(strip(drawn(root, 1)[0] as string).trimEnd()).to.equal(' PASS');
+    expect(drawn(root, 1)[0]).to.contain(`${ESC}[7;32m`);
+
+    label.set('FAIL');
+    variant.set('error');
+    await flush();
+
+    expect(strip(drawn(root, 1)[0] as string).trimEnd()).to.equal(' FAIL');
+    expect(drawn(root, 1)[0]).to.contain(`${ESC}[7;31m`);
+    expect(drawn(root, 1)[0]).not.to.contain(`${ESC}[7;32m`);
+  });
+
+  it('should follow a Computed and a function, which it only reads', async () => {
+    const change = new State(4);
+    const el = Badge({
+      colorLevel: 0,
+      label: new Computed(() => `${change.get() > 0 ? '+' : ''}${change.get()}%`),
+      variant: () => (change.get() >= 0 ? 'success' : 'error'),
+    });
+    const root = box({}, el);
+
+    expect(drawn(root, 0)[0]?.trimEnd()).to.equal('[+4%]');
+    expect(el.classes).to.include('sigil-success');
+
+    change.set(-2);
+    await flush();
+
+    expect(drawn(root, 0)[0]?.trimEnd()).to.equal('[-2%]');
+    expect(el.classes).to.include('sigil-error');
+    expect(el.classes).not.to.include('sigil-success');
+    expect(el.classes).not.to.include('sigil-badge-success');
+  });
+
+  it('should leave the variant a function does not change as it was', async () => {
+    const label = new State('a');
+    const el = Badge({ colorLevel: 1, label, variant: 'info' });
+    label.set('b');
+    await flush();
+
+    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+  });
+
+  it('should draw nothing for a label that becomes empty, and a badge again after', async () => {
+    const label = new State('x');
+    const root = box({}, Badge({ colorLevel: 0, label }));
+    label.set('');
+    await flush();
+    expect(drawn(root, 0)[0]?.trimEnd()).to.equal('');
+
+    label.set('y');
+    await flush();
+    expect(drawn(root, 0)[0]?.trimEnd()).to.equal('[y]');
+  });
+
+  it('should keep the classes and props an app gave it through a change', async () => {
+    const variant = new State<'success' | 'error'>('success');
+    const el = Badge({
+      class: 'trend wide',
+      colorLevel: 1,
+      label: 'x',
+      props: { 'flex-shrink': 1 },
+      variant,
+    });
+    variant.set('error');
+    await flush();
+
+    expect(el.classes).to.include.members(['trend', 'wide', 'sigil-error']);
+    expect(el.props['flex-shrink']).to.equal(1);
+  });
+
+  it('should read an undefined variant from a signal as neutral, like an omitted one', () => {
+    const el = Badge({ colorLevel: 1, label: 'x', variant: () => undefined as never });
+
+    expect(el.classes).to.include('sigil-badge-neutral');
+  });
+
+  it('should refuse a variant it does not know', () => {
+    expect(() => Badge({ label: 'x', variant: 'loud' as never })).to.throw(TypeError, /variant/);
+    expect(() => Badge({ label: 'x', variant: 'toString' as never })).to.throw(
+      TypeError,
+      /variant/
+    );
+  });
+
+  it('should stop following its signals when the owner that made it is disposed', async () => {
+    const label = new State('a');
+    let el: Element | undefined;
+    createRoot((dispose) => {
+      el = Badge({ colorLevel: 0, label });
+      dispose();
+    });
+    label.set('b');
+    await flush();
+
+    expect(drawn(box({}, el as Element), 0)[0]?.trimEnd()).to.equal('[a]');
   });
 });

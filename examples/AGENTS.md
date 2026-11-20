@@ -1022,6 +1022,10 @@ dark -- built from sigil's own components, with its own data, names and colours.
   otherwise and would punch a black hole in a white screen. Truecolor, since an
   app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
+  The account menu's Theme submenu opens on the theme in use, through the item's
+  `initial` (SIG-463): a position rather than a function, because the header
+  builds the menu's entries afresh each time it opens, so the position is read
+  then anyway.
 
 - **The row menu opens under the row's right end, found by its classes.** Enter or
   a double click is the table's `onActivate`, and the menu is `openMenu()` beside
@@ -1040,8 +1044,10 @@ dark -- built from sigil's own components, with its own data, names and colours.
   effects. Both clicks have to arrive in one read for the gap to show, which is
   how the test sends them.
 
-- **A card's badge is rebuilt when its figure moves.** `badgeView()` draws a
-  fixed label, so `LiveBadge()` replaces it in an effect. The table's status cell
+- **A card's badge follows its figure, and is written to in place.** `Badge` takes
+  its label and variant as functions over one `Computed` (SIG-460); it used to be a
+  `LiveBadge()` that rebuilt `badgeView()` in an effect, which `badgeView()` had no
+  other answer to. The table's status cell
   is not a badge: ten solid green blocks down one column outshouted everything on
   the screen, so it is a mark and a word in the status's role, as a
   `{ element, width }` cell.
