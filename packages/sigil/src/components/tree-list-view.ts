@@ -33,6 +33,7 @@ import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { errorMessage } from '../util/error-message.js';
+import { controlState } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
   describeListView,
@@ -82,7 +83,8 @@ export interface TreeListViewProps<T = string> {
   ascii?: boolean;
   /**
    * The current node, as its value, or the state that holds it -- the shape
-   * `ListView`'s `current` has. Left out, the cursor starts on the first row.
+   * `ListView`'s `current` has, a `Computed` refused. Left out, the cursor starts
+   * on the first row.
    */
   current?: T | State<T | undefined>;
   /**
@@ -378,8 +380,10 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     props.expanded instanceof State
       ? props.expanded
       : new State<ReadonlySet<T>>(new Set(props.expanded ?? []));
-  const current =
-    props.current instanceof State ? props.current : new State<T | undefined>(props.current);
+  const current = controlState<T | undefined>(
+    props.current,
+    __`Expected tree current to be a value or a State, not a Computed, since the tree writes it`
+  );
 
   /** The reads of branches whose `items` is a function, by value. */
   const loads = new Map<T, Load<T>>();

@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 445 keys, which is what a catalog has to carry to translate sigil's own
+ * 451 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -86,6 +86,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a dropdown input to be a router',
   'Expected a dropdown option to be a string or a choice with a label',
   'Expected a dropdown placeholder to be a string',
+  'Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it',
   'Expected a dropdown width of more than four cells',
   'Expected a list of values',
   'Expected a menu host to be an element or a renderer',
@@ -108,6 +109,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a path to move to the trash',
   'Expected a radio set direction to be column or row',
   'Expected a radio set onChange to be a function',
+  'Expected a radio set value to be a value or a State, not a Computed, since the set writes it',
   'Expected a retry delay in milliseconds',
   'Expected a slider format to be a function',
   'Expected a slider min and max to be finite numbers, min below max',
@@ -167,6 +169,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected data table column {0} to be a function',
   'Expected data table columns to be an array, a State or a Computed',
   'Expected data table rows to be an array, a State or a Computed',
+  'Expected data table sort to be a sort or a State, not a Computed, since the table writes it',
   'Expected data table sort to name a column: {0} is not one',
   'Expected data table {0} to be a function',
   'Expected diff view current to be a whole number or a State',
@@ -184,6 +187,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected every tab to have a label that is a string',
   'Expected every tree node to have a value of its own: {0} is used twice',
   'Expected items to be an array',
+  'Expected list current to be a key or a State, not a Computed, since the list writes it',
   'Expected list empty to be a string or a function that builds an element',
   'Expected list follow to be a boolean or a State',
   'Expected list items to be an array, a State or a Computed',
@@ -219,9 +223,11 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected text field disabled to be a boolean, a State, a Computed or a function',
   'Expected toast max to be a whole number of at least 1',
   'Expected tooltip text to be a string',
+  'Expected tree current to be a value or a State, not a Computed, since the tree writes it',
   'Expected tree expanded to be an iterable of values or a State',
   'Expected tree items to be an array, a root node, a State or a Computed',
   'Expected tree {0} to be a function',
+  'Expected treemap current to be a key or a State, not a Computed, since the treemap writes it',
   'Expected treemap size to be a function',
   'Expected treemap tooltip text to be a function',
   'Expected weekStart to be an integer from 0 to 6',

@@ -898,6 +898,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'controlCondition',
     'controlDisabled',
     'controlFlag',
+    'controlState',
     'describeControls',
   ],
   'What a prompt answers with or rejects with': [

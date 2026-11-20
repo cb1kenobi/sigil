@@ -27,7 +27,7 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { tempDir } from '../temp.js';
@@ -1655,6 +1655,16 @@ describe('TreeListView()', () => {
     ).toThrow('Expected items to be an array');
     expect(() => TreeListView({ items: [], props: { onKey: () => {} } as never })).toThrow(
       'TreeListView'
+    );
+  });
+
+  // a Computed is not a State, so it was taken as the value the cursor starts on,
+  // and a change to what it derives from was never read
+  it('should refuse a Computed current, which the moves could not write', () => {
+    const at = new State('a');
+    const current = new Computed(() => at.get());
+    expect(() => TreeListView({ current: current as never, items: [{ text: 'a' }] })).toThrow(
+      'Expected tree current to be a value or a State, not a Computed, since the tree writes it'
     );
   });
 
