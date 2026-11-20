@@ -2137,6 +2137,28 @@ may be copied, `src/terminal/clipboard.ts` is OSC 52, and
 - **Measured: the `input` entry grew by 861 B (13,272 to 14,133 B for its chunk)
   as of this change.** The ceiling in `test/dist.test.ts` is 100 KiB over the whole
   graph and is untouched.
+- **While an overlay holds every key, `bindings()` is a different list, and the
+  overlay says which** (SIG-374). A dialog or an open menu takes every key with a
+  function binding that stops it, so the app's `c`, `r` and `q` are not a guess
+  about whether a field will take them -- the footer's accepted case above -- but
+  keys known to be dead, and the git client's commit dialog listed `c commit · r
+  refresh · q quit` over a message that was swallowing each. `hold(element)` is the
+  declaration: it lists nothing and dispatches nothing, and its `describe()` is
+  what the overlay answers itself. While one is open, `bindings()` is the **top**
+  hold's own entries, then the scoped entries whose element is inside it and that
+  the focus is inside too -- a key an element in a dialog handles is still live,
+  since the overlay hands it on -- and **not** the app-wide entries or the
+  fallbacks. One rule in `bindings()` rather than one per component: the router is
+  the only thing that reads every source, and `holdInput()` in
+  `src/components/overlay.ts` is the one place a modal and a menu already say they
+  hold the input, so it makes the call. The last hold is the one listed, so a menu
+  over a dialog shows the menu's keys and the dialog's again when it goes. The
+  alternative -- leaving the app's entries out and listing nothing -- was refused:
+  Chris's call (2026-11-17) was that the overlay describes its own keys, which is
+  also what tells a reader how to get out. Reactive through the same revision
+  counter, and `release()` bumps it, so a footer follows an overlay opening and
+  closing with no second mechanism. `test/input/bindings.test.ts` has the router's
+  half.
 - **`describe()`, the disposer it returns, `focus.focus()`, `next()` and
   `previous()` run untracked, whole.** `describedRev.set(describedRev.get() + 1)`
   made an effect that described keys depend on the list it had just written and

@@ -913,6 +913,56 @@ describe('dispose()', () => {
   });
 });
 
+describe('a modal and the key-help footer', () => {
+  const described = (s: ReturnType<typeof scene>): string[] =>
+    s.input.bindings().map((b) => `${b.keys} ${b.description}`);
+
+  it("should list the keys it answers, and none of the app's that it swallows", async () => {
+    const s = scene();
+    s.input.bind('c', () => {}, { description: 'commit' });
+    s.input.fallback('q', () => {}, { description: 'quit' });
+    modalOn(s, { title: 'Sure?' });
+    await settle();
+
+    expect(described(s)).toEqual([
+      'tab next',
+      'shift+tab previous',
+      'enter select',
+      'escape close',
+    ]);
+  });
+
+  it("should list the app's keys again once it is closed", async () => {
+    const s = scene();
+    s.input.bind('c', () => {}, { description: 'commit' });
+    const handle = modalOn(s);
+    handle.close();
+    expect(described(s)).toEqual(['c commit']);
+  });
+
+  it('should leave Escape out when it cannot be dismissed, and Enter out over a field', async () => {
+    const s = scene();
+    const field = TextField({ value: new State('') });
+    modalOn(s, { body: field, dismissible: false });
+    await settle();
+
+    expect(described(s)).toEqual(['tab next', 'shift+tab previous']);
+  });
+
+  it('should list a key an element inside it declares, and not one outside', async () => {
+    const s = scene();
+    const field = text('field', { focusable: true });
+    s.input.describe('x', { description: 'outside', scope: s.one });
+    modalOn(s, { body: field });
+    s.input.describe('ctrl+s', { description: 'commit', scope: field });
+    s.input.focus.focus(field);
+    await settle();
+
+    expect(described(s)).toContain('ctrl+s commit');
+    expect(described(s)).not.toContain('x outside');
+  });
+});
+
 describe('confirmModal()', () => {
   it('should answer true for Yes and false for No', async () => {
     const s = scene();

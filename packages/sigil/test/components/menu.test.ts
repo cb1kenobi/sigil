@@ -214,6 +214,36 @@ describe('openMenu()', () => {
     expect(quits).toEqual(['quit']);
   });
 
+  it("should list its own keys in the footer in place of the app's, and the app's again after", async () => {
+    const s = scene();
+    s.input.bind('c', () => {}, { description: 'commit' });
+    s.input.fallback('q', () => {}, { description: 'quit' });
+    const menu = menuOn(s);
+    const listed = (): string[] => s.input.bindings().map((b) => `${b.keys} ${b.description}`);
+
+    expect(listed()).toEqual([
+      'up move',
+      'down move',
+      'enter select',
+      'space select',
+      'escape close',
+    ]);
+    menu.close();
+    expect(listed()).toEqual(['c commit', 'q quit']);
+  });
+
+  it("should list the menu's keys over a dialog's while it is open, and the dialog's after", async () => {
+    const s = scene();
+    const dialog = openModal(s.root, { input: s.input });
+    handles.push(dialog);
+    const menu = menuOn(s);
+    const listed = (): string[] => s.input.bindings().map((b) => b.description);
+
+    expect(listed()).toEqual(['move', 'move', 'select', 'select', 'close']);
+    menu.close();
+    expect(listed()).toEqual(['next', 'previous', 'select', 'close']);
+  });
+
   it('should close on Tab and let the Tab move the focus on', async () => {
     const s = scene();
     const menu = menuOn(s);

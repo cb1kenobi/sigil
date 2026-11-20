@@ -188,6 +188,24 @@ describe('Menubar()', () => {
     expect(t.input.bindings()).toEqual([]);
   });
 
+  it("should list the keys of an open menu, the bar's arrows among them, and not F10", async () => {
+    const s = scene();
+    const listed = (): string[] => s.input.bindings().map((it) => `${it.keys} ${it.description}`);
+    await s.term.press(`${ESC}[21~`);
+
+    expect(listed()).toEqual([
+      'up move',
+      'down move',
+      'enter select',
+      'space select',
+      'escape close',
+      'left menu',
+      'right menu',
+    ]);
+    await escape(s.term);
+    expect(listed()).toContain('f10 menu');
+  });
+
   it('should take its keys off the router when the component goes', async () => {
     const s = scene();
     disposers.splice(0).forEach((dispose) => dispose());

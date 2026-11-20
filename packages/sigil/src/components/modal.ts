@@ -278,6 +278,12 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   const layer = holdInput(input, { element: panel, trap: true });
   const isTop = layer.isTop;
 
+  // what the footer lists while this is up: the keys it answers itself, in place of
+  // the app's, which its binding below takes before they are reached. Enter and
+  // Escape are listed further down, Enter once the tree can say what else is focusable
+  layer.describe('tab', { description: __`next`, priority: 1 });
+  layer.describe('shift+tab', { description: __`previous`, priority: 0 });
+
   // -- the settling ---------------------------------------------------------
 
   let settle!: (value: T | undefined) => void;
@@ -482,6 +488,17 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
 
   root.append(backdrop);
   claimFocus();
+
+  // Enter presses the focused button and nothing the modal does, so it is the
+  // footer's to list only where it can only mean that: a field in the body takes
+  // Enter for itself -- a newline, a submit -- and a footer saying "select" over
+  // it would be the lie this listing exists to remove. Asked once, as it opens
+  if (buttons.length > 0 && inside(panel).every((element) => buttons.includes(element))) {
+    layer.describe('enter', { description: __`select`, priority: 2 });
+  }
+  if (dismissible) {
+    layer.describe('escape', { description: __`close`, priority: 3 });
+  }
 
   // closed with no answer when the renderer goes. The binding above stops every
   // key it is given, so a dialog left open on a router the app goes on owning

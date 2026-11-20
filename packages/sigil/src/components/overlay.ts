@@ -18,7 +18,7 @@
 
 import { DEFAULT_COLOR, type Style } from '../canvas/index.js';
 import { cellStyle, type Element, raw } from '../element/index.js';
-import type { InputRouter } from '../input/index.js';
+import type { BindingHelp, InputRouter, KeyHold } from '../input/index.js';
 
 /**
  * The outermost ancestor: the box a `fixed` element resolves against, and the one
@@ -109,6 +109,18 @@ export interface InputLayer {
 
 /** What {@link holdInput} hands back. */
 export interface InputHold {
+  /**
+   * Lists a key this layer answers itself, in the key-help footer, while it holds the keys.
+   *
+   * What `InputRouter.bindings()` reads instead of the app's own entries for as
+   * long as a layer is held, since the layer's binding takes every key before they
+   * are reached.
+   *
+   * @param keys - The key, as a spec.
+   * @param help - What to list it as.
+   * @returns Removes the listing.
+   */
+  describe(keys: string, help: BindingHelp): () => void;
   /** Whether this is the layer on top, which is the only one that answers a key. */
   isTop(): boolean;
   /** The nearest trap still held on the router, once this one is released. */
@@ -139,7 +151,11 @@ export function holdInput(input: InputRouter, layer: InputLayer): InputHold {
   }
   const mine = list;
   mine.push(layer);
+  // told to the router too, which is what a footer reads: this list says who
+  // answers a key, and the router is the one that says which keys are live
+  const hold: KeyHold = input.hold(layer.element);
   return {
+    describe: (keys, help) => hold.describe(keys, help),
     isTop: () => mine.at(-1) === layer,
     nearestTrap: () => mine.findLast((it) => it.trap && it !== layer),
     release(): void {
@@ -147,6 +163,7 @@ export function holdInput(input: InputRouter, layer: InputLayer): InputHold {
       if (index !== -1) {
         mine.splice(index, 1);
       }
+      hold.release();
     },
   };
 }
