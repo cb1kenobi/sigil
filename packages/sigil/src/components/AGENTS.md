@@ -6197,11 +6197,15 @@ borrows `runPrompt()` and the field helpers rather than reading a key itself.
   that arrives after the prompt ended (`closed`, set by an `onCleanup`, which is
   also what aborts the call in flight when the prompt is cancelled -- `settle()`
   never runs for a Ctrl-C).
-- **Enter waits for a lookup in flight.** The list on screen belongs to an
+- **Enter and Tab wait for a lookup in flight.** The list on screen belongs to an
   earlier term while one is out; it is left drawn because blanking it per
   keystroke flickers on a fast source, but answering from it would hand back a row
-  for a question no longer being asked. The cost is a source that never settles
-  blocks Enter, and Ctrl-C is how out of that.
+  for a question no longer being asked. Tab is the same question put to the field
+  rather than to the answer (SIG-529): it did not ask, so `z` and Tab over a slow
+  source wrote the earlier term's row into the field, which then looked up a label
+  nobody typed. Both do nothing while `pending` and are not queued, so the key is
+  lost rather than replayed against a list it was not pressed over. The cost is a
+  source that never settles blocks both, and Ctrl-C is how out of that.
 - **A failed lookup empties the list and says why on the line under it; the next
   keystroke asks again.** That is `validate`'s own channel (one reserved line,
   `sigil-prompt-error`), shared with the status and empty messages because the
@@ -12755,11 +12759,12 @@ reason.
   `autocomplete()`, with a static or an async source, `autocompleteMultiselect()`
   and `path()` are prompts: each filters and draws inside `key()`, and an async
   source already refuses Enter and Space while a lookup is out, which is this rule
-  one step along. **Tab is the exception, and it is left as it was**: it completes
-  the field from the active row without asking whether a lookup is out, so `z` and
-  Tab in one read over an async source complete to a row of the earlier term's
-  list. Review round 2 reproduced it. It predates this change and shares no code
-  with it, so it is a ticket of its own rather than a fix here. `select()`, `multiselect()`,
+  one step along. **Tab was the exception, and it was fixed in SIG-529**: it
+  completed the field from the active row without asking whether a lookup is out,
+  so `z` and Tab in one read over an async source completed to a row of the earlier
+  term's list. Review round 2 of SIG-469 reproduced it. It predates that change and
+  shares no code with it, so it was a ticket of its own; Tab now does nothing while
+  a lookup is out, which is what Enter does. `select()`, `multiselect()`,
   `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
   were read too and take no typed filter. `Dropdown` and `Menu` have no filter
   either, and their effects only draw. `DataTable` is built on the list and gets the
