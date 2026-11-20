@@ -33,12 +33,15 @@ import type { InputRouter, MouseEvent } from '../input/index.js';
 import { onCleanup } from '../renderer/index.js';
 import {
   checkMenuEntries,
+  checkMenuInitial,
   labelParts,
   type MenuBar,
   type MenuEntry,
+  type MenuInitial,
   type MenuItem,
   type MenuSession,
   menuClasses,
+  menuInitial,
   openMenuSession,
   parseMnemonic,
 } from './menu.js';
@@ -48,6 +51,14 @@ import { rootOf } from './overlay.js';
 export interface MenubarMenu<T = unknown> {
   /** Whether it can be opened. A disabled title is drawn muted and is skipped. */
   disabled?: boolean;
+  /**
+   * Which entry is highlighted when the menu opens, by position, or a function
+   * asked for one each time it opens -- `openMenu()`'s option, read as
+   * {@link MenuInitial} says. A bar's menus are built once, so a function is how
+   * one opens on what is current now. Without one, a menu opened from the keys
+   * highlights its first entry on offer and one opened by the pointer nothing.
+   */
+  initial?: MenuInitial;
   /** What its menu offers. */
   items: readonly MenuEntry<T>[];
   /** What the title says. An `&` marks the letter Alt opens it with. */
@@ -88,7 +99,8 @@ export interface MenubarControl {
   /** Takes the bar's keys off the router and closes its menu. Called for you on unmount. */
   dispose(): void;
   /**
-   * Opens a title's menu, with its first item highlighted, the way F10 does.
+   * Opens a title's menu, with its `initial` or else its first item highlighted,
+   * the way F10 does.
    *
    * @param index - Which title. Defaults to the first one on offer.
    */
@@ -138,6 +150,7 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
       throw new TypeError(__`Expected a menubar menu to have a label`);
     }
     checkMenuEntries(menu.items);
+    checkMenuInitial(menu.initial, menu.items.length);
   }
   menuClasses(props.menuClass);
   const menus = props.menus;
@@ -214,7 +227,8 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
    *
    * @param index - The title.
    * @param how - From the keys, which highlights the first item, or the pointer,
-   *   which highlights nothing until the pointer is over one.
+   *   which highlights nothing until the pointer is over one -- unless the menu
+   *   names an `initial`, which is highlighted either way.
    */
   function show(index: number, how: 'keys' | 'pointer'): void {
     const menu = menus[index];
@@ -227,6 +241,14 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
     if (root === host) {
       return;
     }
+    // asked before a session takes the input, so a function that throws takes nothing
+    const initial =
+      menuInitial(menu.initial, menu.items.length) ??
+      (how === 'keys'
+        ? menu.items.findIndex(
+            (entry) => !('separator' in entry) && (entry.disabled ?? false) === false
+          )
+        : -1);
     if (session === undefined || !session.open) {
       session = openMenuSession<T>({
         ascii: props.ascii,
@@ -246,12 +268,6 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
     }
     current = index;
     mark(index);
-    const initial =
-      how === 'keys'
-        ? menu.items.findIndex(
-            (entry) => !('separator' in entry) && (entry.disabled ?? false) === false
-          )
-        : -1;
     session.root(menu.items, title.element, { initial, side: 'bottom' });
   }
 

@@ -1,5 +1,6 @@
 import { type MenuItem } from '../../src/components/menu.js';
 import { Menubar, menubarControl, type MenubarMenu } from '../../src/components/menubar.js';
+import { topLayer } from '../../src/components/overlay.js';
 import { TextField } from '../../src/components/text-field.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createInput, type InputRouter } from '../../src/input/index.js';
@@ -58,7 +59,12 @@ afterEach(() => {
 
 /** An app with a menubar across the top and a field under it, which has the focus. */
 function scene(
-  opts: { body?: (input: InputRouter) => Element; keys?: boolean; menuClass?: string } = {}
+  opts: {
+    body?: (input: InputRouter) => Element;
+    keys?: boolean;
+    menuClass?: string;
+    menus?: MenubarMenu<string>[];
+  } = {}
 ) {
   const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
   const chosen: string[] = [];
@@ -77,7 +83,7 @@ function scene(
       input,
       keys: opts.keys,
       menuClass: opts.menuClass,
-      menus: MENUS,
+      menus: opts.menus ?? MENUS,
       onSelect: (item: MenuItem<string>) => chosen.push(item.value as string),
     });
   });
@@ -287,5 +293,64 @@ describe('menubarControl()', () => {
     expect(() =>
       Menubar({ input, menus: [{ items: [{ items: [{ label: '' }], label: 'B' }], label: 'A' }] })
     ).toThrow(/label/);
+  });
+});
+
+describe('a menubar menu with an initial (SIG-463)', () => {
+  /** `MENUS` with View's menu, a choice of three, opening on whatever `current()` says. */
+  const withView = (initial: MenubarMenu['initial']): MenubarMenu<string>[] => [
+    ...MENUS.slice(0, 2),
+    {
+      initial,
+      items: [
+        { label: '&Small', value: 'small' },
+        { label: '&Medium', value: 'medium' },
+        { label: '&Large', value: 'large' },
+      ],
+      label: '&View',
+    },
+  ];
+
+  it('should open on its initial from the keys, asking a function each time it opens', async () => {
+    let current = 2;
+    const s = scene({ menus: withView(() => current) });
+    await s.term.press(`${ESC}[21~`, KEYS.left);
+    expect(s.control.openIndex).to.equal(2);
+    expect(picture(s.root).join('\n')).toContain('❯ Large');
+    await escape(s.term);
+    current = 1;
+    s.control.open(2);
+    expect(picture(s.root).join('\n')).toContain('❯ Medium');
+  });
+
+  it('should open on its initial when the pointer opens it, and on nothing without one', async () => {
+    const s = scene({ menus: withView(1) });
+    await s.term.press(...click(15, 0));
+    expect(s.control.openIndex).to.equal(2);
+    expect(picture(s.root).filter((line) => line.includes('❯'))).toEqual([
+      expect.stringContaining('❯ Medium'),
+    ]);
+    // the pointer onto a title with none: nothing, as before
+    await s.term.press(move(8, 0));
+    expect(s.control.openIndex).to.equal(1);
+    expect(picture(s.root).join('\n')).not.toContain('❯');
+  });
+
+  it('should take nothing from the app when its initial throws', () => {
+    const s = scene({
+      menus: withView(() => {
+        throw new Error('nope');
+      }),
+    });
+    expect(() => s.control.open(2)).toThrow(/nope/);
+    expect(s.control.openIndex).to.equal(undefined);
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+
+  it('should refuse an initial that is not the position of one of its entries', () => {
+    const input = createInput({ terminal: createTestTerminal().terminal });
+    routers.push(input);
+    expect(() => Menubar({ input, menus: withView(3) })).toThrow(/initial/);
+    expect(() => Menubar({ input, menus: withView('1' as never) })).toThrow(/initial/);
   });
 });

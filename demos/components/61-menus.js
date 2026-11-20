@@ -21,7 +21,9 @@
  * by: name A to Z, size largest first, modified newest first. Tab to the dropdown
  * and Enter, Space or Down opens it under itself with the current choice
  * highlighted; a letter picks the next choice starting with it without opening
- * anything.
+ * anything. View > Sort by is the same choice as a submenu, and it opens on the
+ * sort in use too: its `initial` is a function, asked each time it opens, because
+ * the bar's menus are built once and the sort changes under them.
  *
  * Right click a file, or press Shift-F10 or the Menu key with the focus on one, for
  * a context menu about that file -- at the pointer, or under the row. The focus
@@ -72,6 +74,9 @@ const SORTS = {
   name: { arrow: '▲', compare: (a, b) => a.name.localeCompare(b.name) },
   size: { arrow: '▼', compare: (a, b) => b.bytes - a.bytes },
 };
+
+/** The sorts, in the order the View menu offers them. */
+const SORT_ORDER = ['name', 'size', 'modified'];
 
 /** A size the way a file manager writes one. */
 const size = (bytes) => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
@@ -129,6 +134,18 @@ function scene(input, status) {
         items: [
           { label: '&Hidden files', value: () => say('View > Hidden files') },
           { label: '&Refresh', value: () => say('View > Refresh') },
+          {
+            // opens on the sort in use, whichever of the two last changed it
+            initial: () => SORT_ORDER.indexOf(sort.get()),
+            items: SORT_ORDER.map((by) => ({
+              label: by,
+              value: () => {
+                sort.set(by);
+                say(`Sorted by ${by}`);
+              },
+            })),
+            label: '&Sort by',
+          },
         ],
         label: '&View',
       },
@@ -404,6 +421,12 @@ if (live) {
 
   await key('m');
   show('m, closed: the next choice starting with m -- sorted by modified, newest first');
+
+  await key(`${ESC}v`, 's');
+  show('Alt-V, then s: View > Sort by opens on modified, the sort in use');
+
+  await escape();
+  await escape();
 
   input.focus.focus(rowFor('src/index.ts'));
   await key(`${ESC}[21;2~`);

@@ -12047,6 +12047,29 @@ exception per widget. This is the one answer, and every widget below follows it.
   The quiet axis is not consulted: a menu is something the user asked for, on the
   modal's side of `output.ts`'s line.
 
+- **`initial` is one option on every kind of menu, and a function form is read as
+  the menu opens (SIG-463).** The root menu had a position and a submenu had
+  nothing, so a submenu offering a choice -- the dashboard's Theme -- opened on its
+  first entry with the current one marked further down. The same name now goes on
+  an item with `items`, for its submenu, and on a menubar's menu; a second spelling
+  (`current`, `selected`) for the same idea was the alternative refused. It takes a
+  position or a function, `MenuInitial`, because a menubar's menus and the
+  submenus in them are built once and opened many times, so a position fixed at
+  build is stale by the second opening -- the dropdown reads its value as it opens
+  for the same reason. Not a `State`: a function covers one (`() => s.get()`), and
+  it is asked **untracked**, so an effect that opens a menu does not come to
+  depend on what the menu read. Three rules come with it. A position is checked
+  where the menu is built, with the entries, by `checkMenuInitial()`; a function's
+  answer cannot be, and a key handler is no place to throw, so an answer that is
+  not a position -- `undefined`, `-1` -- is no `initial` rather than an error,
+  which also gives "nothing is current" a spelling. An `initial` on an item with
+  no submenu is refused rather than ignored, the dead-property rule. And an
+  explicit `initial` is highlighted **however** the menu opened, where the default
+  stays keys-first, pointer-nothing: it says which entry is current, which is what
+  a dropdown shows when a press opens it, and the pointer opening a submenu on its
+  current choice is that. The function is asked before the session takes the
+  input or the open submenu is closed, so one that throws takes nothing with it.
+
 - **Tests, and the sabotage pass.** `menu.test.ts`, `menubar.test.ts` and
   `dropdown.test.ts`, through a real router over a test terminal with mouse reports
   as bytes, plus the decoder's function keys in `keys.test.ts` and `Dropdown` in
