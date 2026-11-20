@@ -1111,6 +1111,105 @@ describe('the same node used twice', () => {
   });
 });
 
+describe('the measure cache is keyed on everything that changes an answer', () => {
+  // `measure()` returns a stored answer when `available`, `containing`, `definite`
+  // and `crossWidth` all match, and each of the four was a field the suite passed
+  // without (SIG-453): deleting any of them from the comparison left every test
+  // green, and for the last three 3,000 generated trees laid out identically. Each test below is the
+  // smallest tree found in which two asks differ in that field alone, and each
+  // was checked by removing the field from the comparison and watching it fail.
+
+  it('should not hand a column child the answer it gave the same node in a row', () => {
+    // `crossWidth` says whether the width is the container's cross axis, which
+    // does not flex -- so a `max-width: 6` text in a column is six wide and wraps
+    // at six, and in a row it reports the width its content takes at the room it
+    // was offered. One node reached from both is the one place the two asks meet,
+    // and the row's answer (27 wide) must not become the column's (5 wide). Both
+    // parents have no width of their own, so the text is measured in each at the
+    // same room, against the same unsettled block, and only the axis differs
+    const shared = text('one two three four five six', { 'max-width': '6' });
+    const tree = box(
+      { 'align-items': 'flex-start', 'flex-direction': 'row', width: '40' },
+      box({ 'flex-direction': 'row' }, shared),
+      box({ 'flex-direction': 'column' }, shared)
+    );
+
+    const result = layout(tree, { height: 10, width: 40 });
+    expect(result.children[0].box).toMatchObject({ height: 6, width: 6 });
+    expect(result.children[1].box).toMatchObject({ height: 6, width: 5 });
+  });
+
+  it('should measure a subtree again once its width is the one it will be placed at', () => {
+    // `definite` is what turns the containing block from a guess into a base a
+    // percentage resolves against. A `flex-grow` row child is offered the whole
+    // row and given the whole row, so the two asks have the same room and the same
+    // containing block and differ only in whether the room is final -- and the
+    // `50%` is `auto` in the first and ten cells in the second. Answered from the
+    // first, the box was sized around a text that wrapped at twenty and drawn two
+    // rows tall around a text placed three rows tall
+    const tree = box(
+      { 'align-items': 'flex-start', 'flex-direction': 'row', width: '20' },
+      box(
+        { 'flex-direction': 'column', 'flex-grow': '1' },
+        text('one two three four five six', { 'max-width': '50%' })
+      )
+    );
+
+    const result = layout(tree, { height: 10, width: 20 });
+    expect(result.children[0].box).toMatchObject({ height: 3, width: 20 });
+    expect(result.children[0].children[0].box).toMatchObject({ height: 3, width: 10 });
+    checkInvariants(result);
+  });
+
+  it('should measure the children of a row child against the containing block they end up with', () => {
+    // `containing` is what a percentage resolves against, and `undefined` is a
+    // different answer from a number even where `definite` and the room agree.
+    // A row's child is always asked `definite: false`, so while the inner row is
+    // measured its own content box is not settled and the text's `width: 50%` is
+    // `auto`; `remeasureLine()` then asks again with the room final, and it is
+    // forty. The text's automatic minimum is `min(longest
+    // word, declaration)`, so the `50%` is what keeps it at twenty rather than
+    // thirty -- and answered from the first measure it was thirty wide, pushing
+    // the fixed sibling to ten
+    const tree = box(
+      { 'align-items': 'flex-start', 'flex-direction': 'row', width: '40' },
+      box(
+        { 'flex-direction': 'row', 'flex-grow': '1' },
+        text('x'.repeat(30), { width: '50%' }),
+        box({ height: '1', width: '30' })
+      )
+    );
+
+    const result = layout(tree, { height: 10, width: 40 });
+    const [wide, fixed] = result.children[0].children;
+    expect(wide.box).toMatchObject({ height: 2, width: 20, x: 0 });
+    expect(fixed.box).toMatchObject({ height: 1, width: 20, x: 20 });
+  });
+
+  it('should measure a node at the width it was given, not the one it was last given', () => {
+    // `available` differs in the two asks of one shared text, and nothing else
+    // does: the first row's fixed sibling leaves the text ten cells, the second
+    // row's leaves it all twenty, and both rows are settled and ask through
+    // `remeasureLine()`. Answered from the first row's ask the second wrapped at
+    // ten and was two rows tall
+    const shared = text('one two three four');
+    const tree = box(
+      { 'align-items': 'flex-start', 'flex-direction': 'column', width: '20' },
+      box(
+        { 'flex-direction': 'row', width: '20' },
+        shared,
+        box({ 'flex-shrink': '0', height: '1', width: '10' })
+      ),
+      box({ 'flex-direction': 'row', width: '20' }, shared)
+    );
+
+    const result = layout(tree, { height: 10, width: 20 });
+    expect(result.children[0].children[0].box).toMatchObject({ height: 2, width: 10 });
+    expect(result.children[1].children[0].box).toMatchObject({ height: 1, width: 18 });
+    expect(result.children[1].box.height).toBe(1);
+  });
+});
+
 describe('percentage sizes round per box', () => {
   it('should round each box on its own, so two 50% siblings ask for more than there is', () => {
     // `resolve()` rounds a percentage rather than truncating it, and it rounds

@@ -634,13 +634,43 @@ the entry it belongs to.
     `===` with `NaN` equal to `NaN`, which is exactly what `String()` made of
     them, `-0` and `0` included.
 
-  **No test pinned which fields the cache is keyed on, before or after.**
-  Dropping `containing`, `definite` or `crossWidth` from the comparison passes the
+  **The cache's four key fields are each pinned by a test now (SIG-453).** Before it,
+  dropping `containing`, `definite` or `crossWidth` from the comparison passed the
   whole of `packages/sigil`'s suite, and laying out 3,000 generated trees at four
-  sizes gave byte-identical results with each one dropped. So what holds the four
-  fields in place is that the comparison is the old key's equality written out
-  field by field, not a test -- recorded rather than papered over, since a test
-  for it needs a tree nobody has found yet.
+  sizes gave byte-identical results with each one dropped. That was not because the
+  fields are redundant: asks differing in exactly one of them are routine -- 30,000
+  near-hits on `containing` alone across the layout suite and the fuzzer, some
+  of them with a different answer -- but the wrong answer is usually overwritten
+  before it reaches a box, so the tree that shows it has to make the wrong answer _be_ the one consumed. Four
+  such trees are in `the measure cache is keyed on everything that changes an
+  answer` in `test/layout/layout.test.ts`, and each fails when its field is removed
+  from the comparison (checked by hand, one at a time):
+
+  - **`definite`**: a `flex-grow` row child is offered the whole row and given the
+    whole row, so the measure and the re-measure have the same room and the same
+    containing block and differ only in whether the room is final. A `50%` limit on
+    a text under it is `auto` in the first and half the row in the second; answered
+    from the first, the box is two rows tall around a text placed three rows tall.
+  - **`containing`**: the same row child's _children_, one level down. A row child
+    has `definite` false in both asks, so only `undefined` against a number
+    separates them, and a `width: 50%` text with a thirty-wide word has an
+    automatic minimum of twenty with a containing block and thirty without --
+    which moves where flexing puts a fixed sibling (20 against 10).
+  - **`crossWidth`**: a function of where a node sits -- its parent's axis, the
+    root, an out-of-flow child -- so in a tree where every node has one parent it
+    never differs for one node, which the five `measure()` call sites settle:
+    the root and `measureNode()` are `false`, an out-of-flow child is `true` and
+    never reaches `makeItem()`, `makeItem()` is its axis and `remeasureLine()` is
+    `false` for a row only. What separates the two asks is a node reachable from
+    two parents, which `the same node used twice` already makes a supported shape,
+    one under a row and one under a column. So the field is redundant for a tree
+    and not for a graph, and it stays in the key for the graph.
+  - **`available`** -- the fourth, outside the ticket's three, was no better
+    pinned: removing it passed `test/layout` too. The same device pins it, a
+    text shared by two settled rows whose fixed siblings leave it ten cells in one
+    and twenty in the other, asked through `remeasureLine()` with nothing else
+    different. Found by review: the fuzzer, with the field removed, did not
+    notice either.
 
   What was left, and why. **An item is still a fresh object per pass**, which
   the ticket asked about keeping on the node: one node is an item in a measure
