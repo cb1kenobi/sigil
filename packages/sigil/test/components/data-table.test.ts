@@ -27,6 +27,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
+import { createRoot } from '../../src/renderer/index.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -995,6 +996,37 @@ describe('DataTable()', () => {
       sort: { column: '1' },
     });
     expect(picture(host).slice(0, 3)).toEqual(['  A    B ▲', '❯ y    1', '  x    2']);
+  });
+
+  it('should let go of its rows and its columns when it is disposed', () => {
+    // the table's two Computeds read the rows and the columns, and a source holds
+    // every sink that read it until the sink lets go: a table that did not would
+    // stay reachable from a long-lived State for as long as the State lived
+    const rows = new State<readonly Proc[]>(PROCS);
+    const columns = new State<readonly DataTableColumn<Proc>[]>(COLUMNS);
+    const sinks = (source: object): number =>
+      (source as unknown as { sinks: Set<unknown> }).sinks.size;
+    for (let i = 0; i < 5; i++) {
+      let host: Element | undefined;
+      const dispose = createRoot((done) => {
+        host = procs({ columns, rows, sort: new State<DataTableSort | undefined>(undefined) });
+        return done;
+      });
+      flush();
+      dispose();
+      // what reaches a table after it is gone -- a key, a digit, a call on the
+      // control -- asks for the columns and the order again, which would read each
+      // Computed and link it to its source again
+      press(host as Element, 'down');
+      press(host as Element, '3');
+      control(host as Element).sortBy('cpu');
+      control(host as Element).shown();
+      control(host as Element).refresh();
+      control(host as Element).selection.index();
+      flush();
+    }
+    expect(sinks(rows)).toBe(0);
+    expect(sinks(columns)).toBe(0);
   });
 
   it('should hand nothing to dataTableControl() for an element no table built', () => {
