@@ -2134,6 +2134,27 @@ makes it testable with a fixture directory and no bundler at all.
   reaches -- a helper the commands import -- which `check` does not read; see "A
   template that cannot be compiled is a diagnostic" under "Compiling an app's
   templates" for why it stops at the modules it already reads.
+- **`sigil check` reads `sigil.json` through `readSigilConfig()`, in full, and
+  reports what it says as a diagnostic (SIG-535).** It never read the file, so
+  `{ "build": { "out": 5 } }` and a `sigil.json` beside a `sigil.jsonc` were
+  "no problems found" and then a `build` error -- the one thing the fast loop
+  exists to prevent. `checkConfig()` in `_inspect.ts` is a call to the one reader
+  every command reads the file through, so there is one verdict and the sentence
+  is `build`'s own; it is not folded into `inspect()`, because `build` and
+  `package` read the file after their report and raise it as the plain error
+  they always did. `check` asks the whole file rather than the sections `build`
+  reads, because `check` is about the app: `readSigilConfig()` already validates
+  every section, and the two things it leaves to `sigil package` -- whether
+  `package.runtime` and `package.target` are a runtime and a platform -- are
+  asked here with `parseSpec()` and `parseTarget()`, the functions `package`
+  asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
+  `package` both call. What stays with the command is what depends on how it
+  was run: `assertCleanable()` over `build.out` (it needs `--out`, `--bin` and
+  `--no-clean`) and `package`'s refusal of `build.external`. The echoed values in
+  those three messages are escaped where they are thrown. A section's rule goes
+  in its reader, never in `check`; `sigil reference`
+  and `sigil add` read the file themselves and were never affected. Pinned in
+  `test/check.test.ts`.
 - **The CLI declares its own `check` the way `sigil build` generates an app's
   commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
   and it pays immediately -- the module behind it imports `oxc-parser`, which is
