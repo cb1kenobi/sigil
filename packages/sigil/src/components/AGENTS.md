@@ -14144,8 +14144,11 @@ was never read. No error, and a derivation that did nothing at all.
   value, since an option's value may well be a function -- an action to run -- and
   a function that an option holds selects it, as it always did. A function nothing
   holds can only select nothing, which is a valid answer for any other value (the
-  set "selects none for a value no option holds") and the mistake for this one, so
-  the rule costs no working app anything. The alternative, following one live, is
+  set "selects none for a value no option holds") and the mistake for this one. It
+  is still a behaviour change for one previously valid call, said plainly: options
+  that hold actions and are filtered, with a `value` that is an action no longer
+  offered, selected none before and throw now. The way through is a `State`, which
+  is not looked at. The alternative, following one live, is
   the same question as following a `Computed` and has the same answer: the control
   writes the value, and a read-only function has nowhere to be written. A `State`
   that holds a function is not looked at; it is the app's own statement. Compared
@@ -14160,7 +14163,10 @@ was never read. No error, and a derivation that did nothing at all.
   each pins it in `test/components/control-types.test.ts`. `DataTable`'s `sort` is
   an object with a `column`, which a function lacks, so it fails as naming a column
   `undefined`. A list's, a tree's and a treemap's `current` are the one place left
-  that takes a function as a key and says nothing: a key is the item itself by
+  that takes a function as a key and says nothing (`DiffView`'s `current` and
+  `wrap`, `Pane`'s `collapsed` and a list's `tail`, `selected` and `expanded` were
+  read as well and all refuse one with a `TypeError`; `keyHelp()`'s `expanded` only
+  reads and takes a function as `false`, which is its own question): a key is the item itself by
   default, an item may be a function, and the keys are not known when the control
   is built -- a list's items arrive late and a tree's branches load on demand --
   so there is nothing to compare a function against at construction, and refusing
@@ -14200,6 +14206,16 @@ was never read. No error, and a derivation that did nothing at all.
   demos are plain JavaScript and are not type-checked. The `any` is not laziness:
   `Computed<string>` does not extend `Computed<unknown>`, since the class is
   invariant in `T` through its `equals`, so the first spelling excluded nothing.
+  **The cost, which is real and was found by review:** a conditional type over an
+  unresolved type parameter is deferred, so `T` is not assignable to `Written<T>`,
+  and a generic wrapper that forwards a plain `T` -- `function Picker<T>(items: T[],
+  current?: T) { return ListView({ items, current }) }` -- stopped compiling, where
+  forwarding `ListViewProps<T>` whole, a `State<T | undefined>` or a concrete key
+  type still does. No caller in this repository is shaped that way, which is why
+  `pnpm check` did not show it. The fix at the call is `current as Written<T>`, or
+  a `State`; it is the price of finding a `Computed` at compile time, taken because
+  the mistake is silent at run time in every app that makes it while a wrapper is
+  written once. Reversing it is replacing `Written<K>` with `K` in six props.
   `DataTable`'s `sort` is not wrapped, because `DataTableSort` is an object with a
   `column` and a `Computed` is not assignable to it already. What the types cannot
   do is the case the runtime check exists for: a `Computed` that reaches a prop

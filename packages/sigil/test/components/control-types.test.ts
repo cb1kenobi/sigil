@@ -1,7 +1,9 @@
 import { Checkbox } from '../../src/components/checkbox.js';
+import { Collapsible } from '../../src/components/collapsible.js';
 import { DataTable } from '../../src/components/data-table.js';
 import { Dropdown } from '../../src/components/dropdown.js';
 import { ListView } from '../../src/components/list-view.js';
+import { Pane } from '../../src/components/pane.js';
 import { RadioSet } from '../../src/components/radio-set.js';
 import { Slider } from '../../src/components/slider.js';
 import { Switch } from '../../src/components/switch.js';
@@ -162,6 +164,8 @@ describe('a Computed where a control writes its value', () => {
     ['TextArea', () => TextArea({ value: (() => 'x') as never })],
     ['Slider', () => Slider({ max: 10, min: 0, value: (() => 1) as never })],
     ['Checkbox', () => Checkbox({ checked: (() => true) as never, label: 'a' })],
+    ['Collapsible', () => Collapsible({ open: (() => true) as never, title: 'a' })],
+    ['Pane', () => Pane({ size: (() => 1) as never })],
     ['Switch', () => Switch({ value: (() => true) as never })],
     ['Tabs', () => Tabs({ active: (() => 0) as never, tabs: [{ label: 'a' }] })],
   ])('should refuse a function value on %s rather than take it as the value', (_name, make) => {

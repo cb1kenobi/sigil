@@ -316,6 +316,17 @@ describe('Dropdown()', () => {
     );
   });
 
+  it('should leave a State that holds a function to the app', () => {
+    const s = scene();
+    const run = (): void => {};
+    const held = new State<(() => void) | undefined>(() => 'unheld');
+    expect(() =>
+      createRoot(() =>
+        Dropdown({ input: s.input, options: [{ label: 'run', value: run }], value: held })
+      )
+    ).not.toThrow();
+  });
+
   it('should show the choice that holds a function, since a choice value may be one', () => {
     const s = scene();
     const run = (): void => {};
