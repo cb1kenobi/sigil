@@ -12523,8 +12523,8 @@ reason.
   for: the tree hands the list an object whose `get()` walks first, untracked, and
   then reads the `State`, so the list follows what it always followed and every
   early path takes the walk with it. It is guarded by what the rows are walked
-  from -- the items, the open set and the count of landed reads, which are exactly
-  what the effect tracks -- so asking costs nothing where nothing moved, and
+  from -- a reading of the items, the open set and the count of landed reads, which
+  are exactly what the effect tracks -- so asking costs nothing where nothing moved, and
   `should walk the rows once per change` counts the walks to keep it so. A walk
   that throws is reported by the tree's effect and caught in `get()`; let through,
   it would be reported again by each of the list's effects that asked, each time
@@ -12536,28 +12536,37 @@ reason.
   again on the next ask; and whether the rows changed is asked of what the list was
   handed rather than of what the last walk found, which differ where handing over
   threw.
-- **Merged with SIG-487, which needs the effect to walk when nothing it reads
-  moved.** That change keys a tree's search for values that left it on the walk
-  itself: a walk with a new tree, or with neither the open set nor the landed count
-  changed -- a source that changed its tree **in place** and woke the effect -- may
-  have lost values, and searches. A guard that skipped every walk whose inputs had
-  not moved would skip exactly that one. So the guard is the **list's**, not the
-  walk's: `walkFor('list')` walks only where the tree, the open set or a landed read
-  has moved since the last walk, or a read's answer has left, and `walkFor('effect')`
-  walks whatever it finds -- except a change a list's ask already walked before the
-  frame, which a flag `early` says, so one change is one walk however many askers
-  it has. Two consequences, both written down rather than fixed: a key in the same
-  read as a change made **in place** acts on the rows as they were, since nothing
-  the list can see moved and the effect has not run; and an in-place change woken in
-  the same step as a change a key already walked is taken for that one, and waits
-  for the next change. The walk itself is SIG-487's and SIG-471's unchanged --
-  `pruning`, `dropGone()`, rows kept with their guide handed over -- moved into
-  `walkFrom()`, with `walked` written last as round 2 asked. `should not walk a
-  change again at the frame when a key already walked it` pins the flag, and SIG-487's
-  in-place test fails if the effect skips a walk the list did not ask for.
+- **Merged with SIG-487, which needs a walk when nothing the walk reads moved.**
+  That change searches a tree for values that left it when the tree changed --
+  including a source that changed its tree **in place** and woke the effect, which
+  it told apart as an effect run with neither the open set nor the landed count
+  changed. A guard on the tree's identity would skip exactly that walk, and the
+  first resolution of the merge kept the guard for the list's asks alone and let the
+  effect walk, with a flag for a change a key had walked already. The merge's review
+  found what that cost: a key in the same read as an in-place change acted on the
+  rows as they were, an in-place change coalesced with a key-walked one was not drawn
+  until the next change, and a source whose `get()` builds a new array each time --
+  a `filter()` -- made every key a full walk with the search on, where `main` walked
+  it only from the effect.
+
+  So the walk is guarded by a **reading** rather than by the tree: a `Computed`
+  whose value is a new object `{ top }` each time it reads the source again. A
+  `Computed` reads again exactly when something the source read changed and never
+  otherwise, so an in-place change is a new reading of the same tree -- the search
+  runs, for both askers, at once -- and a `filter()` source is the same reading
+  until what it filters changes. That is the identity SIG-487 wanted and could not
+  ask the tree for, and it took the flag and both limits with it. SIG-487's own
+  in-place rule, a walk with nothing changed, became `now !== walked.reading`, and
+  the rest of its walk and SIG-471's kept rows are unchanged in `walkFrom()`. What
+  it costs is that the source is read inside a `Computed`, which may not write --
+  a source's `get()` has no reason to. Each half is pinned and was sabotaged: a
+  reading that is the tree itself fails SIG-487's in-place test and the in-place
+  test here; reading the source outside the `Computed` fails five, among them
+  `should not walk again for a source that builds a new tree each time it is read`.
+
 - **Pinned in four places.** `a key in the same step as a change of the items` in
   `list-view.test.ts`, with nothing flushed between the change and the key; one
-  filtered `DataTable` test; seven in `tree-list-view.test.ts`; and the editor's
+  filtered `DataTable` test; nine in `tree-list-view.test.ts`; and the editor's
   palette tests, which type and press
   Enter -- and Down -- in one read. Sabotaged one at a time: the key handler's
   sync, `activate()`'s, the wrapper's, the click's and `'first'` each fail a test

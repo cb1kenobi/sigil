@@ -31,7 +31,7 @@ import { box, type Element, type ElementPropsWithout, text as textNode } from '.
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
-import { State, untrack } from '../signals/index.js';
+import { Computed, State, untrack } from '../signals/index.js';
 import { errorMessage } from '../util/error-message.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
@@ -777,17 +777,24 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   };
 
   /**
-   * What the last walk read: the tree, the open set and the count of reads landed.
-   * A walk with a new tree, or with neither of the other two changed -- a source
-   * that changed its tree in place and woke the walk -- may have lost values.
+   * One reading of the tree: a new object each time the source is read again, which
+   * is each time something it reads changed -- and never otherwise, since a
+   * `Computed` keeps its value until then.
+   *
+   * So it answers the question the walk could not ask of the tree itself. A source
+   * that changed its tree in place and woke the walk hands over the same tree in a
+   * new reading, which the walk takes for a tree that may have lost values. And a
+   * source that builds a new array each time it is read -- a `filter()` in a
+   * `get()` -- hands over the same reading until what it filters changes, so the
+   * list asking for the rows on every key costs nothing (SIG-469).
    */
-  let walked: { landed: number; open: ReadonlySet<T>; top: TreeListItems<T> } | undefined;
+  const reading = new Computed(() => ({ top: read() }));
+
   /**
-   * Whether the list asked for a walk -- a key or a call on its control, before the
-   * frame -- that the effect has not run since. The effect then finds the change it
-   * was woken for already walked, and does not walk it a second time.
+   * What the last walk read: the reading, the open set and the count of reads
+   * landed. A walk with a new reading may have lost values.
    */
-  let early = false;
+  let walked: { landed: number; open: ReadonlySet<T>; reading: { top: unknown } } | undefined;
   /**
    * Whether a walk is running. A lazy branch's read, a `row` or an effect run by one
    * of the walk's own writes can ask for the rows again from inside it -- through the
@@ -818,63 +825,47 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
   };
 
-  /** Whether the last walk read what a walk now would, and no read's answer has left since. */
-  const walkedFrom = (top: TreeListItems<T>, open: ReadonlySet<T>, count: number): boolean =>
-    !left &&
-    walked !== undefined &&
-    walked.top === top &&
-    walked.open === open &&
-    walked.landed === count;
-
   /**
-   * Walks the rows the list is handed: the effect below, whenever what it reads
-   * moves, and the list, whenever it takes its items -- which a key and a call on
-   * its control do before the frame that runs the effect, so that a Right and a
-   * Down in one read move over the rows the Right opened (SIG-469).
-   *
-   * The list's ask walks only where the tree, the open set or a landed read has
-   * moved since the last walk, since it cannot tell a source that changed its tree
-   * in place from one that did not: that change waits for the effect, which was
-   * woken by it and walks whatever it finds.
+   * Walks the rows the list is handed, where what they are walked from moved since
+   * the last walk: a new reading of the tree, the open set, a landed read, or a read
+   * whose answer left. The effect below asks whenever one of those moves, and the
+   * list asks whenever it takes its items -- which a key and a call on its control
+   * do before the frame that runs the effect, so that a Right and a Down in one read
+   * move over the rows the Right opened (SIG-469). Whichever asks first walks, and
+   * the other finds nothing left to do.
    */
-  const walkFor = (asker: 'effect' | 'list'): void => {
+  const walkNow = (): void => {
     if (walking) {
       return;
     }
-    const top = read();
+    const now = reading.get();
     const open = expanded.get();
     const count = landed.get();
-    const same = walkedFrom(top, open, count);
-    if (asker === 'list') {
-      if (same) {
-        return;
-      }
-      early = true;
-    } else {
-      const done = early && same;
-      early = false;
-      if (done) {
-        return;
-      }
+    if (
+      !left &&
+      walked !== undefined &&
+      walked.reading === now &&
+      walked.open === open &&
+      walked.landed === count
+    ) {
+      return;
     }
     walking = true;
     try {
-      walkFrom(top, open, count);
+      walkFrom(now, open, count);
     } finally {
       walking = false;
     }
   };
 
-  /** The walk itself, and what it writes: see {@link walkFor}. */
-  const walkFrom = (top: TreeListItems<T>, first: ReadonlySet<T>, count: number): void => {
+  /** The walk itself, and what it writes: see {@link walkNow}. */
+  const walkFrom = (now: { top: TreeListItems<T> }, first: ReadonlySet<T>, count: number): void => {
+    const { top } = now;
     let open = first;
-    // only a tree that changed, or a read's answer replaced, can take a value out
-    // of it, so only then is it looked for -- opening and closing leave it as it was
-    let pruning =
-      left ||
-      walked === undefined ||
-      top !== walked.top ||
-      (open === walked.open && count === walked.landed);
+    // only a tree that changed -- a new reading of it, which a change in place is
+    // too -- or a read's answer replaced, can take a value out of it, so only then is
+    // it looked for: opening and closing leave it as it was
+    let pruning = left || walked === undefined || now !== walked.reading;
     left = false;
     // a node seen for the first time with `expanded: true` opens, and what is
     // under it is walked at once rather than a frame later; a read the walk
@@ -925,14 +916,14 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     // walked again on the next ask. What it records is the open set it was handed,
     // which the `expanded.set()` above runs the effect again over: that run finds a
     // new open set, and walks it as the walk this replaces did
-    walked = { landed: count, open: first, top };
+    walked = { landed: count, open: first, reading: now };
   };
 
   createEffect(() => {
-    read();
+    reading.get();
     expanded.get();
     landed.get();
-    untrack(() => walkFor('effect'));
+    untrack(walkNow);
   });
 
   const nodeAt = (value: T | undefined): NodeRow<T> | undefined => {
@@ -1072,7 +1063,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     items: {
       get: () => {
         try {
-          untrack(() => walkFor('list'));
+          untrack(walkNow);
         } catch {
           // reported by the tree's effect
         }

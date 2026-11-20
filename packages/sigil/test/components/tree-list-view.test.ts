@@ -435,6 +435,60 @@ describe('TreeListView()', () => {
       expect(walks - before).toBe(one);
     });
 
+    it('should not walk again for a source that builds a new tree each time it is read', () => {
+      // a `filter()` in a `get()` hands over a new array on every read, so a walk
+      // guarded by the array would walk on every key: it is guarded by the reading,
+      // which is new only when what the source reads changes
+      let walks = 0;
+      const counted = {
+        get text() {
+          walks++;
+          return 'counted';
+        },
+      };
+      const all = new State<TreeChoiceItem[]>([counted, 'other']);
+      const host = tree({ items: { get: () => all.get().filter(() => true) } });
+      const before = walks;
+
+      press(host, 'down');
+      press(host, 'up');
+      listControl(host)?.selection.index();
+
+      expect(walks).toBe(before);
+    });
+
+    it('should draw a change made in place in the same read as a key, and after a key walked one', () => {
+      // a source that changes its tree in place and wakes the walk hands over the
+      // same tree: the list sees a new reading of it as soon as it asks, and so does
+      // the effect after a key walked the change before it
+      const tick = new State(0);
+      const nodes: TreeChoiceItem[] = [{ items: ['a.ts'], text: 'src' }, 'b'];
+      const host = tree({
+        items: {
+          get: () => {
+            tick.get();
+            return nodes;
+          },
+        },
+      });
+
+      host.onKey?.(keyEvent('right'));
+      host.onKey?.(keyEvent('down'));
+      flush();
+      expect(control(host).current.get()).toBe('a.ts');
+
+      nodes.push('more');
+      tick.set(1);
+      host.onKey?.(keyEvent('end'));
+      expect(control(host).current.get()).toBe('more');
+      flush();
+
+      nodes.push('last');
+      tick.set(2);
+      flush();
+      expect(picture(host).join('\n')).toContain('last');
+    });
+
     it('should read a lazy branch once when its read asks the list for its rows', () => {
       // the read runs inside a walk, and asking the list's control for its rows asks
       // the tree for a walk: the second ask gets the rows as they were rather than a
