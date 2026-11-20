@@ -2,11 +2,13 @@ import { deletionDate, encodePath, trashFreedesktop, trashName } from '../src/tr
 import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
+import { execFileSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -512,6 +514,54 @@ describe('trash()', () => {
           expect(await once(file, keyOf('another source'))).toBe('saved');
           // and what was rebuilt is good for its own key
           expect(await once(file, keyOf('another source'))).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should not run a planted assembly that was never sealed',
+        async () => {
+          const file = join(made('sigil-trash-planted-'), 'trash.bin');
+          // a real assembly with the helper's own name and method, which answers
+          // without moving anything: if it is ever loaded, the item stays put and
+          // `once()` says so, rather than the test passing on bytes that
+          // `Assembly.Load()` would have refused anyway
+          execFileSync(
+            `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+            [
+              '-NoProfile',
+              '-NonInteractive',
+              '-Command',
+              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $env:PLANTED_FILE -OutputType Library',
+            ],
+            {
+              env: {
+                ...process.env,
+                PLANTED_FILE: file,
+                PLANTED_SOURCE:
+                  'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":\\"planted\\"}"; } } }',
+              },
+            }
+          );
+          expect(readFileSync(file).subarray(0, 2).toString()).toBe('MZ');
+
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should have two calls racing on an empty cache both recycle, and leave one file',
+        async () => {
+          const file = join(made('sigil-trash-race-'), 'trash.bin');
+
+          const states = await Promise.all([once(file), once(file)]);
+
+          expect(states.every((state) => state === 'saved' || state === 'built')).toBe(true);
+          expect(states).toContain('saved');
+          expect(readdirSync(dirname(file))).toEqual([basename(file)]);
+          expect(await once(file)).toBe('hit');
         },
         SLOW
       );

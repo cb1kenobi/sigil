@@ -117,8 +117,22 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   a plain DLL, a truncated seal, and a real seal made for another version's C#
   all fail to unseal, and each of those is a rebuild over it, never an error.
   What a seal cannot stop is a process running as the same user, which can seal
-  anything it likes; that process can already rewrite the sigil install the C#
-  comes from, so no file it can write would be a boundary against it.
+  anything it likes: the entropy is the source's hash and not a secret. For an
+  install the user can write -- a global npm install under `%APPDATA%`, a
+  project's `node_modules` -- that process can already rewrite the sigil the C#
+  comes from, so no file it can write is a boundary against it. Where it does
+  matter is an app installed where the user cannot write, run **elevated** by the
+  same user: a medium-integrity process can plant a sealed file that the next
+  elevated `trash()` loads at high integrity. Before this change it could only
+  race the compile in the user's temp directory; now the plant persists. Not
+  closed, because UAC is not a security boundary in Microsoft's own terms and
+  because skipping the cache when elevated would skip it on CI's runners, which
+  run elevated, and leave none of the code above tested anywhere.
+- **The build directory is trusted the way `Add-Type` trusted it,** and what it
+  produced is then sealed. `%TEMP%` is the user's own by default; a `TMP` pointed
+  at a directory others can write into lets them swap the DLL between the compile
+  and the read, which `Add-Type` was open to as well -- the difference is that the
+  swap is now kept.
 - **One read, and the load is from that buffer.** The file is read once into
   memory, that buffer is what is unsealed, and the unsealed bytes are what
   `Assembly.Load(byte[])` is handed -- never `LoadFrom()` on the path -- so
@@ -146,9 +160,17 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   or `none` when the call failed first -- because that is the whole difference
   between one call and the next, and the Windows tests in `test/trash.test.ts`
   pin each case with a cache they name: compiled once and loaded after; garbage,
-  a truncated seal and another source's seal each rebuilt; an unwritable cache
+  a truncated seal and another source's seal each rebuilt; a real, unsealed
+  assembly with the helper's own name, which would answer without moving the
+  item, rebuilt rather than run -- the one forgery `Assembly.Load()` would not
+  refuse by itself, and the case that fails if a miss ever fell back to loading
+  the raw bytes; two calls racing on an empty cache; an unwritable cache
   compiling every call and still recycling. `test/trash-windows.test.ts` pins
   the key, the file name and what PowerShell is handed, on every platform.
+- `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also
+  what a reflective loader looks like, and .NET 4.8 shows such a load to AMSI.
+  Defender on the runner lets it through; an endpoint product that blocks it
+  fails the call rather than falling back, which is not handled.
 - The real-trash tests on a Windows runner go through `trash()` and so leave one
   such file in the runner's own cache, which is what a cache is for.
 

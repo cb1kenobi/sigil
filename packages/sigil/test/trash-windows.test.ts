@@ -66,6 +66,8 @@ describe('what PowerShell is handed', () => {
     expect(env.SIGIL_TRASH_CACHE).toBe(join('c', 'trash.bin'));
     expect(env.SIGIL_TRASH_KEY).toBe('k'.repeat(64));
     expect(env.SIGIL_TRASH_SOURCE).toContain('namespace SigilTrash');
+    // and one environment variable is held to 32,767 characters too
+    expect(env.SIGIL_TRASH_SOURCE.length).toBeLessThan(32_767);
     // the script is all the command carries: the C# goes in the environment,
     // which is what keeps the command under Windows' 32,767 characters
     const script = Buffer.from(args.at(-1)!, 'base64').toString('utf16le');
