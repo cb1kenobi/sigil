@@ -785,7 +785,9 @@ because the map is `vim`. Enter and a double click call `onActivate`, and what t
 does is the demo's: it maps the directory, or the one a file is in, by writing a new
 root -- a file whose directory is already mapped is "opened" -- and Backspace maps
 the one above. Point at a tile and the line under the map says what a click would
-pick, without picking it -- `onHover`, which needs `mouse: { motion: true }`. The
+pick, without picking it -- `onHover` -- and a moment later a `tooltip` beside the
+tile gives its name and size, then follows the pointer from tile to tile; both need
+`mouse: { motion: true }`. The
 colors are asked for at the level the frame is drawn at: an RGB the map degrades,
 and at 16 colors a palette index of the demo's, so four kinds stay four hues; with
 no color the map is shapes. On a terminal, a level as the argument -- `1`, `2` or

@@ -24,8 +24,9 @@
  *   already mapped is "opened" -- and Backspace, the app's own binding, maps the
  *   one above.
  * - **The pointer is reported, and selects nothing**: `onHover` says what a click
- *   would pick, which is how a tile too small for its name gets one. It needs
- *   `mouse: { motion: true }` in `runApp()`'s options.
+ *   would pick, which is how a tile too small for its name gets one, and `tooltip`
+ *   puts a bubble beside the tile under the pointer, which follows it from tile to
+ *   tile once shown. Both need `mouse: { motion: true }` in `runApp()`'s options.
  *
  * The colors are the app's, asked for at the level the frame is drawn at: an RGB
  * the map degrades itself, and at 16 colors a palette index of the app's choosing,
@@ -48,6 +49,9 @@ import { quantizeColor } from '@ttylabs/sigil/style';
 import { createTestTerminal, frame, KEYS } from '@ttylabs/sigil/testing';
 
 const live = process.stdin.isTTY && process.stdout.isTTY;
+
+/** The tooltip's wait before it shows: the default on a terminal, and short when scripted. */
+const TIP_DELAY = live ? undefined : 40;
 
 /**
  * Each kind's color: an RGB for 256 colors and up, and one of the sixteen at
@@ -170,6 +174,11 @@ function TreemapDemo() {
   const say = (node) => `${node.path}${node.children ? '/' : ''} · ${kb(node.kb)} · ${share(node)}`;
   const sayGathered = (items) =>
     `${items.length} in ${parentOf(items[0].path)}/ · ${kb(items.reduce((n, it) => n + it.kb, 0))}`;
+  /** What the bubble says: the tile's name and size, which a small tile has no room for. */
+  const tip = (node, gathered) =>
+    gathered
+      ? `${gathered.length} files · ${kb(gathered.reduce((n, it) => n + it.kb, 0))}`
+      : `${node.name}${node.children ? '/' : ''} · ${kb(node.kb)} · ${share(node)}`;
   const mapped = (node) => {
     root.set(node);
     const where = node === tree ? 'bundle/' : `bundle/${node.path}/`;
@@ -214,6 +223,12 @@ function TreemapDemo() {
     props: { 'flex-grow': 1, 'min-height': 0 },
     root,
     size: (node) => node.kb,
+    // a bubble beside the tile under the pointer, once it has rested there
+    tooltip: {
+      ...(TIP_DELAY === undefined ? {} : { delay: TIP_DELAY }),
+      input,
+      text: (_path, node, gathered) => tip(node, gathered),
+    },
     vim: true,
   });
 
@@ -297,6 +312,9 @@ if (live) {
 
   await term.press(move(find('32 more')));
   await show('the pointer on "32 more": onHover says what a click there would pick');
+
+  await new Promise((resolve) => setTimeout(resolve, TIP_DELAY * 2));
+  await show('after a moment: the tooltip, beside the tile under the pointer');
 
   await term.press(...click(find('32 more')));
   await show('a click there: the largest of the 32, and onPick is handed all of them');
