@@ -2,7 +2,7 @@
 import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
-import { renameSync, writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { expect, it } from 'vitest';
@@ -27,7 +27,7 @@ const writers: Record<string, Writer> = {
 
 async function measure(name: string, pad: number, ms: number): Promise<string> {
   const dir = tempDir(`sigil-etxtbsy-${name}-`);
-  const body = `#!/bin/sh\n#${'x'.repeat(pad)}\nexit 0\n`;
+  const body = `#!/bin/sh\nexit 0\n#${'x'.repeat(pad)}\n`;
   const stop = new SharedArrayBuffer(4);
   const workers = Array.from(
     { length: 3 },
@@ -44,6 +44,7 @@ async function measure(name: string, pad: number, ms: number): Promise<string> {
       const ran = spawnSync(path);
       if ((ran.error as NodeJS.ErrnoException | undefined)?.code === 'ETXTBSY') busy++;
       else if (ran.status !== 0) other++;
+      rmSync(path, { force: true });
       runs++;
     }
   } finally {
@@ -57,9 +58,9 @@ it.runIf(process.platform !== 'win32')(
   'ETXTBSY probe',
   async () => {
     const lines: string[] = [];
-    for (const pad of [0, 262_144]) {
+    for (const pad of [4 << 20, 32 << 20]) {
       for (const name of ['direct', 'rename', 'child']) {
-        lines.push(await measure(name, pad, 2500));
+        lines.push(await measure(name, pad, 3000));
       }
     }
     console.log(`SIG-482 PROBE ${process.platform} ${process.version}\n${lines.join('\n')}`);
