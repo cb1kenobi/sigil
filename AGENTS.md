@@ -707,10 +707,16 @@ These look like bugs and are not. Each is intentional and covered by tests.
   by rule: fifteen files held one, and every JavaScript or TypeScript file now
   writes it as an escape between the pictographs it joins, the same string with
   the joiner visible -- which is what `width/` already did. What stays literal
-  is a file with no escape for it, and it is a named entry with its reason in
-  `FORMAT_ALLOWED`: today one, `packages/sigil/README.md`, whose examples _are_
-  a joined emoji and where a code span would show an escape as typed. An entry
-  holding none fails, so the list cannot outlive its reason.
+  is a file with no escape for it, and it is a named entry in `FORMAT_ALLOWED`
+  with the characters it may hold and the reason: today one,
+  `packages/sigil/README.md`, U+200D only, whose examples _are_ a joined emoji
+  and where a code span would show an escape as typed. Per character, because a
+  reason for a joiner is no reason for an override in the page npm renders; and
+  an entry naming a character the file no longer holds fails, so the list
+  cannot outlive its reason. U+2028 and U+2029 are refused with them though
+  they are not `Cf`: either ends a `//` comment, and that is the one place
+  `oxlint`'s `no-irregular-whitespace` was measured not to look. The no-break
+  space is left out on purpose, as the docblock on `FORMAT` says.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken

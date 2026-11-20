@@ -1,6 +1,6 @@
 import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -117,11 +117,31 @@ function codePoint(code: number): string {
  * definition of a set Unicode already defines. Naming it also takes in the word
  * joiner, the invisible operators and the tag characters, which are as invisible
  * as the rest and which no file here holds.
+ *
+ * The line and paragraph separators, U+2028 and U+2029 (`\p{Zl}` and `\p{Zp}`),
+ * go with them although they are not `Cf`. Each is a line terminator to
+ * JavaScript and nothing an editor draws, so one ends a `//` comment and the
+ * code after it runs while it reads as the comment -- and that is the one place
+ * `oxlint`'s `no-irregular-whitespace` does not look, measured: it flags one in
+ * code and in a block comment and is silent on one ending a line comment. The
+ * three in the tree were escapes a tool write had turned into the characters,
+ * in a YAML test and in a history file, and are escapes again.
+ *
+ * What is left out is left out on purpose. A no-break space is `\p{Zs}`, about
+ * ten files hold one, and lint refuses it in JavaScript; a variation selector or
+ * a Hangul filler is a mark or a letter with literal uses of its own. Each would
+ * be a decision about its own sweep, not a widening of this one.
  */
-const FORMAT = /\p{Cf}/gu;
+const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/** A file allowed to hold format characters: which ones, and why it has to. */
+interface Allowance {
+  readonly codes: readonly number[];
+  readonly reason: string;
+}
 
 /**
- * What may hold one literally anyway, each with the reason it has to.
+ * What may hold one literally anyway: per file, and per character.
  *
  * JavaScript and TypeScript have an escape for every one of these characters,
  * so code never needs the literal: the joiners inside the family emoji the tests
@@ -131,21 +151,49 @@ const FORMAT = /\p{Cf}/gu;
  * reference exactly as typed -- so a document whose example *is* the character
  * has to hold it. Listed by file rather than inferred from where a joiner sits,
  * so that the next one is a decision somebody makes.
+ *
+ * An entry names the characters as well as the file, because a reason for a
+ * joiner is no reason for a right-to-left override: allowing the whole file
+ * would let one into the README, which is the page npm renders.
  */
-const FORMAT_ALLOWED = new Map([
+const FORMAT_ALLOWED = new Map<string, Allowance>([
   [
     'packages/sigil/README.md',
-    'the `stringWidth()` example and `charLimit` each show a family emoji, which is one ' +
-      'grapheme cluster because of its joiners, and npm renders the README for people',
+    {
+      codes: [0x200d],
+      reason:
+        'the `stringWidth()` example and `charLimit` each show a family emoji, which is ' +
+        'one grapheme cluster because of its joiners, and npm renders the README for people',
+    },
   ],
 ]);
 
+/** Each line that holds a format character, with the characters it holds. */
+function scan(raw: Buffer): { line: number; codes: number[] }[] {
+  const found: { line: number; codes: number[] }[] = [];
+
+  // `Buffer#toString()` keeps a leading byte order mark where a `TextDecoder`
+  // would strip it, so a mark is found at the start of a file as well as part
+  // way down, which is where the four in `@ttylabs/config-xml`'s comments were
+  const lines = raw.toString('utf8').split('\n');
+  for (const [index, line] of lines.entries()) {
+    const codes = new Set([...line.matchAll(FORMAT)].map((match) => match[0].codePointAt(0) ?? 0));
+    if (codes.size > 0) {
+      found.push({ codes: [...codes].sort((a, b) => a - b), line: index + 1 });
+    }
+  }
+
+  return found;
+}
+
 /**
- * Each line of each file that holds a format character, as `name:line: U+202E`.
+ * Each line of each file that holds a format character its `FORMAT_ALLOWED`
+ * entry does not name, as `name:line: U+202E`.
  *
- * A file git would call binary is skipped: it has no diff for an invisible
- * character to mislead, and `should be text to git` keeps every file that is not
- * on `ALLOWED` text, so a binary file here is one somebody already listed.
+ * A file git would call binary is skipped only if it is on `ALLOWED`: it has no
+ * diff for an invisible character to mislead, and it is somebody's decision
+ * already. A NUL anywhere else does not buy a way past this check -- that file
+ * is read like any other, and `should be text to git` fails it besides.
  */
 function formatCharacters(dir: string, names: readonly string[]): string[] {
   const offenders: string[] = [];
@@ -157,21 +205,15 @@ function formatCharacters(dir: string, names: readonly string[]): string[] {
     } catch {
       continue;
     }
-    if (raw.subarray(0, 8000).includes(0)) {
+    if (allowed(name) && raw.subarray(0, 8000).includes(0)) {
       continue;
     }
 
-    // `Buffer#toString()` keeps a leading byte order mark where a `TextDecoder`
-    // would strip it, so a mark is found at the start of a file as well as part
-    // way down, which is where the four in `@ttylabs/config-xml`'s comments were
-    const lines = raw.toString('utf8').split('\n');
-    for (const [index, line] of lines.entries()) {
-      const codes = new Set(
-        [...line.matchAll(FORMAT)].map((match) => match[0].codePointAt(0) ?? 0)
-      );
-      if (codes.size > 0) {
-        const labels = [...codes].sort((a, b) => a - b).map(codePoint);
-        offenders.push(`${name}:${index + 1}: ${labels.join(', ')}`);
+    const exempt = new Set(FORMAT_ALLOWED.get(name)?.codes);
+    for (const { codes, line } of scan(raw)) {
+      const refused = codes.filter((code) => !exempt.has(code));
+      if (refused.length > 0) {
+        offenders.push(`${name}:${line}: ${refused.map(codePoint).join(', ')}`);
       }
     }
   }
@@ -243,21 +285,29 @@ describe('committed sources', () => {
     // stand here was a first step towards: it was the mark alone, because the
     // two U+200D in the tree then would have needed a list and the mark needed
     // none (SIG-483 took the list, and found fifteen files rather than two)
-    const offenders = formatCharacters(
-      root,
-      tracked().filter((name) => !FORMAT_ALLOWED.has(name))
-    );
+    const offenders = formatCharacters(root, tracked());
 
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  it('should list only files that hold one, so that the list cannot outlive its reason', () => {
+  it('should list only what a file holds, so that the list cannot outlive its reason', () => {
     const all = new Set(tracked());
 
-    for (const name of FORMAT_ALLOWED.keys()) {
+    for (const [name, { codes }] of FORMAT_ALLOWED) {
       expect(all.has(name), name).toBe(true);
-      expect(formatCharacters(root, [name]), name).not.toEqual([]);
+      const held = new Set(scan(readFileSync(join(root, name))).flatMap((found) => found.codes));
+      expect(
+        codes.filter((code) => !held.has(code)).map(codePoint),
+        `${name} is allowed what it does not hold`
+      ).toEqual([]);
     }
+  });
+
+  it('should name no tracked file with a character a reader cannot see', () => {
+    // a path is in a diff as much as a line is, and a right-to-left override in
+    // a name is the oldest form of this: a name ending in `exe` drawn as one that does not
+    const names = tracked().filter((name) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name));
+    expect(names.map((name) => JSON.stringify(name))).toEqual([]);
   });
 
   describe('a planted format character', () => {
@@ -266,13 +316,17 @@ describe('committed sources', () => {
     // check came to be asked for
     const planted = [
       0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
-      0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
+      0x2028, 0x2029, 0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
     ];
+    const zwj = String.fromCodePoint(0x200d);
+    const rlo = String.fromCodePoint(0x202e);
 
-    function plant(content: string | Buffer): string[] {
+    /** Writes `content` at `name` under a fresh directory, and checks it. */
+    function plant(content: string | Buffer, name = 'planted.ts'): string[] {
       const dir = tempDir('sigil-sources-');
-      writeFileSync(join(dir, 'planted.ts'), content);
-      return formatCharacters(dir, ['planted.ts']);
+      mkdirSync(dirname(join(dir, name)), { recursive: true });
+      writeFileSync(join(dir, name), content);
+      return formatCharacters(dir, [name]);
     }
 
     it.each(planted.map((code) => [codePoint(code), code]))('should refuse %s', (name, code) => {
@@ -289,7 +343,6 @@ describe('committed sources', () => {
     });
 
     it('should name each character once per line, and every line it is on', () => {
-      const rlo = String.fromCodePoint(0x202e);
       const pdf = String.fromCodePoint(0x202c);
       expect(plant(`a${rlo}b${pdf}${rlo}\nok\nc${rlo}\n`)).toEqual([
         'planted.ts:1: U+202C, U+202E',
@@ -302,8 +355,17 @@ describe('committed sources', () => {
       expect(plant(`const label = 'a${backslash}u202Eb';\n`)).toEqual([]);
     });
 
-    it('should skip a file git would call binary, which has no diff to mislead', () => {
-      expect(plant(Buffer.from(`\0${String.fromCodePoint(0x202e)}`, 'utf8'))).toEqual([]);
+    it('should let a listed file hold what it is listed for, and nothing else', () => {
+      const name = 'packages/sigil/README.md';
+      expect(FORMAT_ALLOWED.get(name)?.codes).toEqual([0x200d]);
+      expect(plant(`a family: x${zwj}y\n`, name)).toEqual([]);
+      expect(plant(`a family: x${zwj}y\nand ${rlo}more\n`, name)).toEqual([`${name}:2: U+202E`]);
+    });
+
+    it('should skip a binary file only when somebody listed it', () => {
+      const binary = Buffer.from(`\0${rlo}`, 'utf8');
+      expect(plant(binary, 'website/src/app/favicon.ico')).toEqual([]);
+      expect(plant(binary)).toEqual(['planted.ts:1: U+202E']);
     });
   });
 
