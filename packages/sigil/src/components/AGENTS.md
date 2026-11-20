@@ -13405,9 +13405,12 @@ the probes and the sabotage pass are in
   and with either guard taken out, each on its own -- measured.
   `Tabs` over a live list had the same leak in the one `Computed` it builds, read only
   by effects that go with the owner, so it needed the dispose and no guard
-  (`should let go of a live list of tabs when it is disposed`). Swept and found
-  nothing else: the only other `new Computed` outside `signals/` is `raw()`'s, which
-  releases its own.
+  (`should let go of a live list of tabs when it is disposed`). Swept: outside `signals/`, `raw()`'s computeds release their own and
+  `TreeListView`'s is disposed above. `sortBy()` refuses once the table is disposed,
+  so a stale heading click or control call writes nothing to a sort the app still
+  holds. Listed rather than changed, because they are apps and not components:
+  `examples/dashboard`'s `Card` badge and `buildTraffic()` build `Computed`s over the
+  dashboard model that are never disposed, and live as long as the app does.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a

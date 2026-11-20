@@ -597,6 +597,10 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   });
 
   function sortBy(id: string): boolean {
+    // a table that is gone writes nothing to a sort the app still holds
+    if (disposed) {
+      return false;
+    }
     const spec = untrack(() => readSpecs()).find((s) => s.id === id);
     if (spec === undefined || !spec.sortable) {
       return false;

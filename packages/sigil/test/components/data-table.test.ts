@@ -1006,10 +1006,11 @@ describe('DataTable()', () => {
     const columns = new State<readonly DataTableColumn<Proc>[]>(COLUMNS);
     const sinks = (source: object): number =>
       (source as unknown as { sinks: Set<unknown> }).sinks.size;
+    const sort = new State<DataTableSort | undefined>(undefined);
     for (let i = 0; i < 5; i++) {
       let host: Element | undefined;
       const dispose = createRoot((done) => {
-        host = procs({ columns, rows, sort: new State<DataTableSort | undefined>(undefined) });
+        host = procs({ columns, rows, sort });
         return done;
       });
       flush();
@@ -1027,6 +1028,9 @@ describe('DataTable()', () => {
     }
     expect(sinks(rows)).toBe(0);
     expect(sinks(columns)).toBe(0);
+    expect(sinks(sort)).toBe(0);
+    // and a table that is gone does not sort for the app that still holds the state
+    expect(sort.get()).toBeUndefined();
   });
 
   it('should hand nothing to dataTableControl() for an element no table built', () => {
