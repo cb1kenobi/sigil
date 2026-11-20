@@ -125,9 +125,10 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   same user: a medium-integrity process can plant a sealed file that the next
   elevated `trash()` loads at high integrity. Before this change it could only
   race the compile in the user's temp directory; now the plant persists. Not
-  closed, because UAC is not a security boundary in Microsoft's own terms and
-  because skipping the cache when elevated would skip it on CI's runners, which
-  run elevated, and leave none of the code above tested anywhere.
+  closed, because UAC is not a security boundary in Microsoft's own terms, and
+  skipping the cache whenever the process is elevated would make every elevated
+  app pay the compile on every call to guard against a process that, for the
+  usual per-user install, could already rewrite the app.
 - **The build directory is trusted the way `Add-Type` trusted it,** and what it
   produced is then sealed. `%TEMP%` is the user's own by default; a `TMP` pointed
   at a directory others can write into lets them swap the DLL between the compile

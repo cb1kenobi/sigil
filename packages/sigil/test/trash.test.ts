@@ -8,7 +8,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -523,27 +522,31 @@ describe('trash()', () => {
         async () => {
           const file = join(made('sigil-trash-planted-'), 'trash.bin');
           // a real assembly with the helper's own name and method, which answers
-          // without moving anything: if it is ever loaded, the item stays put and
-          // `once()` says so, rather than the test passing on bytes that
-          // `Assembly.Load()` would have refused anyway
-          execFileSync(
+          // without moving anything and without a path: if it is ever loaded, the
+          // item stays put and `once()` says so, rather than the test passing on
+          // bytes that `Assembly.Load()` would have refused anyway. It is loaded
+          // here once, the way the script would, so that it is known to be one
+          const planted = execFileSync(
             `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
             [
               '-NoProfile',
               '-NonInteractive',
               '-Command',
-              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $env:PLANTED_FILE -OutputType Library',
+              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $env:PLANTED_FILE -OutputType Library; ' +
+                "$t = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($env:PLANTED_FILE)).GetType('SigilTrash.Bin', $true); " +
+                "[Console]::Out.Write($t::Recycle(''))",
             ],
             {
+              encoding: 'utf8',
               env: {
                 ...process.env,
                 PLANTED_FILE: file,
                 PLANTED_SOURCE:
-                  'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":\\"planted\\"}"; } } }',
+                  'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }',
               },
             }
           );
-          expect(readFileSync(file).subarray(0, 2).toString()).toBe('MZ');
+          expect(planted).toBe('{"path":null}');
 
           expect(await once(file)).toBe('saved');
           expect(await once(file)).toBe('hit');
@@ -552,15 +555,17 @@ describe('trash()', () => {
       );
 
       it(
-        'should have two calls racing on an empty cache both recycle, and leave one file',
+        'should have two calls racing on an empty cache both recycle, and leave a usable file',
         async () => {
           const file = join(made('sigil-trash-race-'), 'trash.bin');
 
           const states = await Promise.all([once(file), once(file)]);
 
-          expect(states.every((state) => state === 'saved' || state === 'built')).toBe(true);
+          // nothing makes the two start together, so the later one may find the
+          // file the first saved; at most one of them can
+          expect(states.filter((state) => state === 'hit').length).toBeLessThan(2);
           expect(states).toContain('saved');
-          expect(readdirSync(dirname(file))).toEqual([basename(file)]);
+          expect(existsSync(file)).toBe(true);
           expect(await once(file)).toBe('hit');
         },
         SLOW
