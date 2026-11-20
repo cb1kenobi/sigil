@@ -891,9 +891,11 @@ describe('provideContext() where nothing would ever dispose its scope (SIG-425)'
     let cleanups = 0;
     let seen = '';
     const returned: number[] = [];
+    let deadOwner: ReturnType<typeof getOwner>;
 
     createRoot(() => {
       const branch = createBranch();
+      deadOwner = branch.owner;
       branch.dispose();
       for (let i = 0; i < 5; i++) {
         returned.push(
@@ -915,6 +917,8 @@ describe('provideContext() where nothing would ever dispose its scope (SIG-425)'
 
     expect(runs).toBe(0);
     expect(sinkCount(tick)).toBe(0);
+    // and the dead owner holds nothing it would never walk again
+    expect((deadOwner as unknown as { children: Set<unknown> }).children.size).toBe(0);
     // run at once, as an `onCleanup()` is under a disposed owner: nothing else will
     expect(cleanups).toBe(5);
     // `fn` still runs and still reads the value, which is what a branch handed
@@ -977,6 +981,47 @@ describe('provideContext() where nothing would ever dispose its scope (SIG-425)'
     stop();
     expect(sinkCount(tick)).toBe(0);
     expect(cleanups).toBe(6);
+  });
+
+  it('should dispose the scope a bare effect opened from inside an owned effect', () => {
+    // `runCleanups` is still the outer owned run's list while a bare `effect()`
+    // created in its body runs for the first time, so that run's scope went into
+    // the outer list and lived until the outer effect did: after five re-runs of
+    // the inner one, one write to `tick` ran the inner effect twice
+    const theme = createContext('plain');
+    const mode = new State(0);
+    const tick = new State(0);
+    let runs = 0;
+    let cleanups = 0;
+    let stopInner = (): void => {};
+
+    createRoot(() => {
+      createEffect(() => {
+        stopInner = effect(() => {
+          provideContext(theme, String(mode.get()), () => {
+            createEffect(() => {
+              tick.get();
+              runs++;
+            });
+            onCleanup(() => cleanups++);
+          });
+        });
+      });
+    }, effects.effect);
+    for (let i = 1; i <= 5; i++) {
+      mode.set(i);
+      flush();
+    }
+    runs = 0;
+    tick.set(1);
+    flush();
+
+    expect(runs).toBe(1);
+    expect(sinkCount(tick)).toBe(1);
+    expect(cleanups).toBe(5);
+
+    stopInner();
+    expect(sinkCount(tick)).toBe(0);
   });
 
   it('should report what a cleanup in a bare effect scope threw, as the effect reports its own', () => {

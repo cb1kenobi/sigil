@@ -718,7 +718,20 @@ the entry it belongs to.
   tree's, and it is a no-op where nothing is running or inside `unowned()` --
   which is every `createRoot()`, `createBranch()` and `runWithOwner()` -- so a
   root opened in a bare effect keeps what it builds, as one must. The renderer's
-  own effects are unchanged: their run list is tried first.
+  own effects are unchanged: their run list is tried first, but only where it is
+  the innermost run's -- a bare `effect()` created in one of their bodies never
+  clears `runCleanups`, so its first run put the scope into the outer run's list
+  and it lived as long as that effect did (found by review). `runOf` records
+  which signals-level run the list belongs to and `currentRun()` names the
+  innermost, and where they differ the scope is adopted instead.
+
+  One limit is the signals layer's and is left as it is: when a bare effect is
+  stopped, its children are disposed by a loop that stops at the first throw, so
+  a scope whose cleanup throws leaves the effect's later scopes, and its own
+  cleanup, undisposed -- exactly what a plain nested `effect()` whose cleanup
+  throws already does there. A re-run reports instead and carries on. Changing it
+  is a change to how every effect is stopped, which is not this ticket's.
+
 - **An owned effect stopped by hand is taken off its owner (SIG-344).** The
   disposer went onto `owner.cleanups` and stayed there after the caller had
   called it -- a closure over the computed, the body and its cleanups -- so an
