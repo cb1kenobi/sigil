@@ -334,6 +334,23 @@ describe('sigil check', () => {
       expect(process.exitCode).toBe(1);
     });
 
+    it('should not let a github repo in the file forge a diagnostic line', async () => {
+      // three parts, because two is a valid repo and is accepted
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: { repo: 'o/n/a\nsrc/forged.ts:1:1: error: forged', type: 'github' },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('o/n/a\\x0Asrc/forged.ts');
+      expect(err.split('\n').some((line) => line.startsWith('src/forged.ts'))).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
     it('should fail on a file that is not JSON, as a diagnostic and not a stack', async () => {
       const dir = app();
       writeFileSync(join(dir, 'sigil.json'), '{ "build": ');
@@ -348,6 +365,7 @@ describe('sigil check', () => {
 
     it.each([
       ['a runtime', { runtime: 'a\nsrc/forged.ts:1:1: error: forged' }],
+      ['a runtime version', { runtime: 'node@a\nsrc/forged.ts:1:1: error: forged' }],
       ['a target', { target: ['a\nsrc/forged.ts:1:1: error: forged'] }],
     ])('should not let %s in the file forge a diagnostic line', async (_name, packaging) => {
       // the value is echoed in the message, and a newline in an echoed value is
