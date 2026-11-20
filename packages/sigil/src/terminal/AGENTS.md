@@ -420,9 +420,16 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   believed; `COLUMNS` is the answer for one that reports none, and for every
   stream that is not a TTY. `isTTY` is the terminal's own -- the `isTTY` option
   over the stream's -- so one decision is made in one place. Nothing was
-  removed: the testing helpers set `COLUMNS` and the stream's `columns` to the
-  same number (`runOnTerminal()`), or pass no `env` at all (`createTestTerminal()`),
-  so neither can disagree with itself (a spawned run has no `resize()` to make
-  them). `terminalWidth()` itself is unchanged by default: it gained the
+  removed, and what moved is narrow: the testing helpers set `COLUMNS` and the
+  stream's `columns` to the same number (`runOnTerminal()`), so they agree, but an
+  explicit `env.COLUMNS` handed to a faked TTY -- `createTestTerminal({ columns:
+  40, env: { COLUMNS: '60' } })`, or `runOnTerminal()`'s `env` over its own -- no
+  longer moves that terminal's `width`, which is the stream's `columns` like a
+  real one's. `terminalWidth()` in the same process still reads it. No test did
+  either. The cost is that a live TTY reporting a wrong positive width (a serial
+  console, a `docker exec -t` stuck at 80x24) can no longer be corrected through
+  `COLUMNS` for the canvas and prompts, while help, `rule`, `note` and the other
+  prose readers still honour it: one process, two widths, on purpose, since the
+  screen is the stream's to say and the prose is the user's. `terminalWidth()` itself is unchanged by default: it gained the
   `streamFirst` option and nothing else. Covered by `size` in
   `test/terminal/terminal.test.ts`, which pins both streams.

@@ -247,6 +247,32 @@ describe('createTerminal()', () => {
       expect(term.width).to.equal(120);
     });
 
+    it('should follow an isTTY option of false over a stream that says it is a TTY', () => {
+      const stdout = createStream({ columns: 120, isTTY: true });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        isTTY: false,
+        stdout: stdout as unknown as OutputStream,
+      });
+      expect(term.width).to.equal(80);
+    });
+
+    // the ticket's symptom: the resize event handed on the stale width
+    it('should hand a resize listener the stream width, not an exported COLUMNS', () => {
+      const stdout = createStream({ columns: 120, isTTY: true });
+      const term = createTerminal({
+        env: { COLUMNS: '80' },
+        stdout: stdout as unknown as OutputStream,
+      });
+      const seen: number[] = [];
+
+      term.onResize((size) => seen.push(size.width));
+      stdout.columns = 100;
+      stdout.emit('resize');
+
+      expect(seen).to.deep.equal([100]);
+    });
+
     it('should tell subscribers the new size on a resize', () => {
       const { stdout, term } = setup({ columns: 80, rows: 24 });
       const seen: { height: number; width: number }[] = [];

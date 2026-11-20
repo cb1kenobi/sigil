@@ -255,9 +255,9 @@ export interface Terminal {
   readonly stdin: InputStream | undefined;
   readonly stdout: OutputStream;
   /**
-   * Columns, then 80. A terminal that is a TTY and reports a width answers for
-   * itself, and `COLUMNS` is what is left when it reports none. Any other stream
-   * reads `COLUMNS` first, then its own `columns`.
+   * Columns. A terminal that is a TTY and reports a width answers for itself,
+   * then `COLUMNS`, then 80. Any other stream reads `COLUMNS` first, then its own
+   * `columns`, then 80.
    *
    * Uncapped, unlike `terminalWidth()`, which stops at `MAX_WIDTH` because a
    * line of prose is hard to read much past it. That cap is about generated
