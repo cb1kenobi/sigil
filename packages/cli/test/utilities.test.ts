@@ -12,6 +12,8 @@ import {
   PROPERTY_NAMES,
   type PropertyName,
   readDeclarations,
+  type StyleNode,
+  type StyleState,
 } from '@ttylabs/sigil/style';
 import { describe, expect, it } from 'vitest';
 
@@ -308,6 +310,91 @@ describe('variants', () => {
       expect(within.borderColor).toBe(2);
     }
     expect(VARIANT_NAMES.indexOf('focus-within')).toBeLessThan(VARIANT_NAMES.indexOf('focus'));
+  });
+
+  describe("the state variants' order, which is Tailwind's (SIG-528)", () => {
+    // Every one of these is one class and one pseudo-class, so on an element that
+    // matches two of them the block printed later wins, and the order they are
+    // printed in is therefore a statement about which class beats which. Read from
+    // tailwindcss 4.3.5's compiled output, and v3.4's pseudo-class list agrees:
+    // structure, form state, then the interactive ones, then `disabled`
+    const TAILWIND = ['first', 'last', 'checked', 'focus-within', 'hover', 'focus', 'disabled'];
+    const COLOR: Record<string, string> = {
+      checked: 'yellow',
+      disabled: 'white',
+      first: 'red',
+      focus: 'cyan',
+      'focus-within': 'blue',
+      hover: 'magenta',
+      last: 'green',
+    };
+    // `first:` and `last:` are structure rather than state, so the element is the
+    // only child of its parent and both always match
+    const STATES: Record<string, StyleState | undefined> = {
+      checked: 'checked',
+      disabled: 'disabled',
+      focus: 'focus',
+      'focus-within': 'focus-within',
+      hover: 'hover',
+    };
+
+    /** The color a lone child ends up with when it is in `on` and carries `classes`. */
+    function colorOf(classes: string[], on: string[]): number | undefined {
+      const children: StyleNode[] = [];
+      const parent: StyleNode = { children, type: 'box' };
+      const states = on.flatMap((name) => STATES[name] ?? []);
+      const child: StyleNode = { classes, parent, states, type: 'box' };
+      children.push(child);
+      return new Cascade([sheet]).resolve(child).color as number | undefined;
+    }
+
+    it('should print the state variants in the order Tailwind does', () => {
+      const printed = VARIANT_NAMES.filter((name) => TAILWIND.includes(name));
+      expect(printed).toEqual(TAILWIND);
+    });
+
+    const pairs = TAILWIND.flatMap((earlier, i) =>
+      TAILWIND.slice(i + 1).map((later) => [earlier, later] as const)
+    );
+
+    it.each(pairs)('should let %s: lose to %s: where both match', (earlier, later) => {
+      const alone = (name: string) => colorOf([`text-${COLOR[name]}`], [name, later, earlier]);
+      // both classes in both orders, since the order a class string is written in
+      // decides nothing -- it is the sheet's order that is pinned
+      for (const names of [
+        [earlier, later],
+        [later, earlier],
+      ]) {
+        const classes = names.map((name) => `${name}:text-${COLOR[name]}`);
+        const winner = colorOf(classes, [earlier, later]);
+        expect(winner).toBe(alone(later));
+        expect(winner).not.toBe(alone(earlier));
+      }
+    });
+
+    it('should let a state variant beat a media variant wherever the media one is printed', () => {
+      // why the media variants were not moved with the rest: a pseudo-class is
+      // more specific than a bare class, so the print order never reaches the pair
+      const cascade = new Cascade([sheet]);
+      cascade.media = { ...cascade.media, width: 100 };
+      for (const classes of [
+        ['md:text-red', 'hover:text-blue'],
+        ['hover:text-blue', 'md:text-red'],
+      ]) {
+        const hovered = cascade.resolve({ classes, states: ['hover'], type: 'box' });
+        expect(hovered.color).toBe(colorOf(['text-blue'], []));
+        expect(cascade.resolve({ classes, type: 'box' }).color).toBe(colorOf(['text-red'], []));
+      }
+    });
+
+    it('should let focus-within: beat first: on a first child that holds the focus', () => {
+      // SIG-528's own example, `first:border-red focus-within:border-green`: green
+      // in Tailwind and red here until the rows moved. Without the focus, `first:`
+      // is all that matches
+      const classes = ['first:text-red', 'focus-within:text-blue'];
+      expect(colorOf(classes, [])).toBe(colorOf(['text-red'], []));
+      expect(colorOf(classes, ['focus-within'])).toBe(colorOf(['text-blue'], []));
+    });
   });
 
   it('should have the ones a terminal can have and not the ones it cannot', () => {

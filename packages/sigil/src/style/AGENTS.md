@@ -1414,16 +1414,9 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   one pseudo-class each, so the block printed later wins on that element. Tailwind
   puts `focus-within` before `focus` in v3 and v4 alike, so `focus:` beats
   `focus-within:` on the element that has the focus and only `focus-within:`
-  applies to its ancestors, and that pair resolves here as it does there. The pair
-  is all that does: the other state variants are not in Tailwind's order --
-  `first:`, `last:` and `checked:` come before `focus-within:` there, and
-  `disabled:` after `focus:` -- so on a first child that holds the focus,
-  `first:border-red focus-within:border-green` is green in Tailwind and red here,
-  because `first:` is printed later. They were left where they are: matching it
-  means moving `first:`, `last:` and `checked:` above `focus:` as well, which
-  changes which of two _existing_ classes wins on an element that is both, and
-  that is a change to class strings people have already written rather than part
-  of adding one. A variant still does not stack -- there is no
+  applies to its ancestors, and that pair resolves here as it does there. It was
+  the only pair that did when it landed, and SIG-528 moved the rest -- see the
+  entry below. A variant still does not stack -- there is no
   `dark:focus-within:` -- so the media variants meet it only through specificity,
   where a pseudo-class variant's two beats a media variant's one whatever the
   order, exactly as `focus:` already did. And it ships the way every variant
@@ -1447,6 +1440,44 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   here: `test/input/mouse-router.test.ts` proves `:hover` is set and cleared by a
   real report, and this proves the sheet turns the state into a rule. A variant
   still does not stack, so `hover:` has no `md:` form.
+- **The state variants are in Tailwind's order, because no app could load one
+  yet and so no class string had come to depend on the other (SIG-528).** One
+  class and one pseudo-class each, so on an element matching two of them the
+  block printed later wins, and `VARIANTS` is the print order. Tailwind prints
+  `first`, `last`, `checked`, `focus-within`, `hover`, `focus`, `disabled`;
+  this printed `focus-within`, `focus`, `disabled`, `checked`, `first`, `last`,
+  so `first:border-red focus-within:border-green` on a first child that held the
+  focus was green in Tailwind and red here. SIG-451 recorded that and did not
+  move the rows, because moving them changes which of two _existing_ classes wins
+  on an element that is both -- true of any app that can load a variant, and of
+  none that could until SIG-526 shipped them, in the same release. So the
+  window was the whole argument for doing it then rather than after: it is a
+  silent change to class strings people have written once it is closed.
+
+  **What was checked, so it is not recalled twice.** tailwindcss 4.3.5, installed
+  in the workspace, compiled `first:`, `last:`, `checked:`, `focus-within:`,
+  `hover:`, `focus:` and `disabled:` and printed them in that order; the v4
+  source registers them in that sequence (`focus-within`, `hover`, `focus`,
+  `focus-visible`, `active`, `enabled`, `disabled`, with `first` and `checked`
+  far above), and v3.4.17's `pseudoClassVariants` list is the same one. Eleven
+  pairs changed which wins -- each of `first`, `last` and `checked` against
+  `focus-within`, `focus` and `disabled`, and `checked` against `first` and
+  `last` -- and `should let %s: lose to %s: where both match` is one case per
+  pair of the seven, so the pairs that did not change and `hover`'s are pinned
+  with them. A shaken sheet prints variants in this order too, so a built app
+  inherits it with no change of its own.
+
+  **The media variants were not moved, and moving them would change nothing.**
+  Tailwind prints breakpoints after the state variants, so it looks like the
+  same defect. It is not one: `.md\:p-2` is one class and `.focus\:p-2:focus` a
+  class and a pseudo-class, so the state variant wins on specificity whatever the
+  print order, in Tailwind as here, and `md:` against `focus:` never reached the
+  order at all. A media variant meets another media variant by the order it is
+  printed in -- `sm` through `xl`, then `c0` to `c256`, then `dark` and `light` --
+  which is unchanged. The ordering stays unfinished in one place: `focus-visible`,
+  `active`, `enabled` and the rest are not variants here, and the day one is, its
+  place is Tailwind's too.
+
 - **A variant reaches an app through the build, which generates the ones the
   source names; an unbuilt app gets the base set and no variants (SIG-526).**
   `focus:border-green`, `md:flex-row` and `dark:text-red` were generated, tested

@@ -374,17 +374,21 @@ const VARIANTS: readonly Variant[] = [
   { media: '(color-level: 2)', name: 'c256' },
   { media: '(prefers-color-scheme: dark)', name: 'dark' },
   { media: '(prefers-color-scheme: light)', name: 'light' },
-  // `focus-within` and `hover` before `focus`, which is Tailwind's order in v3
-  // and v4 alike: the focused element matches `:focus-within` and usually
-  // `:hover` too, all of them one class and one pseudo-class, so the later block
-  // is what `focus:` beating the other two on that element comes down to
+  // The state variants are in Tailwind's order, which is not the order they read
+  // in: structure, then form state, then the interactive ones, then `disabled`.
+  // That order is what decides a clash, because each of these is one class and
+  // one pseudo-class, so on an element that matches two the block printed later
+  // wins -- `focus:` over `hover:` over `focus-within:`, and `disabled:` over all
+  // three (SIG-451, SIG-527, SIG-528). Read from tailwindcss 4.3.5's own compiled
+  // output rather than recalled -- first, last, checked, focus-within, hover,
+  // focus, disabled -- and v3.4's pseudo-class list is the same sequence.
+  { name: 'first', pseudo: ':first-child' },
+  { name: 'last', pseudo: ':last-child' },
+  { name: 'checked', pseudo: ':checked' },
   { name: 'focus-within', pseudo: ':focus-within' },
   { name: 'hover', pseudo: ':hover' },
   { name: 'focus', pseudo: ':focus' },
   { name: 'disabled', pseudo: ':disabled' },
-  { name: 'checked', pseudo: ':checked' },
-  { name: 'first', pseudo: ':first-child' },
-  { name: 'last', pseudo: ':last-child' },
 ];
 
 /** Every variant, for documentation and for tests that walk them. */
