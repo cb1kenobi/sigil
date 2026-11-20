@@ -141,44 +141,32 @@ function codePoint(code: number): string {
  * and a diff draws as `'a b.mjs'`. So:
  *
  * - `\p{Zs}` but for U+0020: the no-break space, the en and em spaces, the
- *   narrow no-break and the ideographic space. Each draws as a gap and none is
- *   the space a shell or a path means. Markdown has `&nbsp;` for the one a document needs.
- * - The variation selectors, U+FE00 to U+FE0F, U+180B to U+180D and U+180F,
- *   and U+E0100 to U+E01EF. A selector after an emoji chooses between two
- *   glyphs, which is a real literal use and also the reason one is no use as
- *   text: it has no glyph of its own, and the supplementary ones are
- *   the characters a payload has been hidden in, after a visible one. JavaScript has an escape for each, so a test that measures
- *   what a selector does writes the escape between the characters it joins, as
- *   the joiners already are.
- * - The blank letters: the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0,
- *   the Khmer inherent vowels U+17B4 and U+17B5, the combining grapheme joiner
- *   U+034F, and the blank braille pattern U+2800. Each is a letter or a mark
- *   that renders as nothing. The rest of the braille block is visible and is
- *   not refused.
+ *   narrow no-break and the ideographic space. None is the space a shell or a
+ *   path means, and most draw as a gap. Markdown has `&nbsp;` for the one a
+ *   document needs.
+ * - `\p{Default_Ignorable_Code_Point}`: what Unicode says a renderer draws as
+ *   nothing. It is named for the reason `\p{Cf}` is, and it takes in the
+ *   variation selectors, the Hangul fillers, the Khmer inherent vowels, the
+ *   combining grapheme joiner and the unassigned points inside those blocks,
+ *   which `\p{Cf}` does not reach (U+E0080 is as invisible as U+E0041). A
+ *   selector after an emoji chooses between two glyphs, which is a real
+ *   literal use and the reason one is no use as text: it has no glyph of its
+ *   own, and the supplementary ones are what a payload has been hidden in, after
+ *   a visible character. JavaScript has an escape for each, so a test that
+ *   measures what a selector does writes the escape between the characters it
+ *   joins, as the joiners already are.
+ * - U+2800, the blank braille pattern, which renders as nothing and is not
+ *   default-ignorable. The rest of the braille block is visible and is not
+ *   refused.
  *
  * The sweep that settled it: ten lines held a no-break space, two of them
  * another space as well, seven held a variation selector and three a blank
  * braille pattern -- all in TypeScript, all escapes now -- and nothing held a
  * Hangul filler, a Khmer vowel, a combining grapheme joiner or a supplementary
- * selector. So nothing new joins `FORMAT_ALLOWED`, which is
- * where a document that has to show one would be listed.
+ * selector. So nothing new joins `FORMAT_ALLOWED`, which is where a document
+ * that has to show one would be listed.
  */
-const FORMAT = new RegExp(
-  [
-    '[\\p{Cf}\\p{Zl}\\p{Zp}\\u115F\\u1160\\u2800\\u3164\\uFFA0]',
-    '(?!\\u0020)\\p{Zs}',
-    // marks, each alone in its own class: `no-misleading-character-class` is right that a
-    // combining character beside others in one is read as a sequence, and these are not
-    '\\u034F',
-    '\\u17B4',
-    '\\u17B5',
-    '[\\u180B-\\u180D]',
-    '\\u180F',
-    '[\\uFE00-\\uFE0F]',
-    '[\\u{E0100}-\\u{E01EF}]',
-  ].join('|'),
-  'gu'
-);
+const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u2800]|(?!\u0020)\p{Zs}/gu;
 
 /**
  * The tracked names that hold a character a reader cannot see: `FORMAT`, and a
@@ -372,8 +360,10 @@ describe('committed sources', () => {
       0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
       0x2028, 0x2029, 0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
       // SIG-511: spaces that are not U+0020, the selectors, and the blank letters
-      0x00a0, 0x1680, 0x2003, 0x202f, 0x205f, 0x3000, 0xfe00, 0xfe0e, 0xfe0f, 0x180b, 0xe0100,
-      0xe01ef, 0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x2800, 0x3164, 0xffa0,
+      0x00a0, 0x1680, 0x2003, 0x202f, 0x205f, 0x3000, 0xfe00, 0xfe0e, 0xfe0f, 0x180b, 0x180d,
+      0x180f, 0xe0100, 0xe01ef, 0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x2800, 0x3164, 0xffa0,
+      // default-ignorable but unassigned, which is not `Cf`
+      0x2065, 0xfff0, 0xe0080, 0xe0fff,
     ];
     const zwj = String.fromCodePoint(0x200d);
     const rlo = String.fromCodePoint(0x202e);
@@ -410,9 +400,9 @@ describe('committed sources', () => {
     it('should pass a plain space and what sits beside the refused characters', () => {
       // each is next to a refused code point and is not one: the space, the
       // visible braille cells either side of the blank one, and the
-      // characters just outside each selector block
+      // characters just outside the default-ignorable blocks
       const beside = [
-        0x20, 0x2801, 0x28ff, 0xfe10, 0x34e, 0xe00ff, 0xe01f0, 0x3165, 0xff9f, 0xffa1,
+        0x20, 0x2801, 0x28ff, 0xfe10, 0x34e, 0x180a, 0x1810, 0xe1000, 0x3165, 0xff9f, 0xffa1,
       ];
       const text = beside.map((code) => String.fromCodePoint(code)).join('');
       expect(plant(`const label = 'a b ${text}';\n`)).toEqual([]);
@@ -437,7 +427,14 @@ describe('committed sources', () => {
     });
 
     it('should refuse one in a file name, and a control character there too', () => {
-      const names = ['src/ok.ts', `src/gnp${rlo}.exe`, 'src/a\tb.ts', `src/c${zwj}d.ts`];
+      const nbsp = String.fromCodePoint(0xa0);
+      const names = [
+        'src/ok.ts',
+        `src/gnp${rlo}.exe`,
+        'src/a\tb.ts',
+        `src/c${zwj}d.ts`,
+        `src/e${nbsp}f.ts`,
+      ];
       expect(hiddenInNames(names)).toEqual(names.slice(1).map((name) => JSON.stringify(name)));
     });
   });
