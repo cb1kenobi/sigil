@@ -5637,6 +5637,27 @@ cursor: an update that does not move the current row does not scroll back to it.
 New items and a `current` key that only they hold can be written in one step, in
 either order: the list keys the rows before it reads the cursor.
 
+A key, a click and the calls on `listControl(list)` that read or move over the rows
+-- `activate()`, `reveal()`, and the selection's moves and reads -- take the items
+as they are **now**, not as the last frame drew them. So a filter typed and Enter
+pressed in one read, which is a paste or fast fingers, opens a row of the filtered
+list. `follow: 'first'` puts the cursor on the first row at every change of the
+items, which is a list ranked as the user types, where the best match is what Enter
+should open. The first items that hold anything are not a change, so a `current`
+the app gave is where the cursor starts:
+
+```js
+const query = new State('');
+const ranked = new Computed(() => rankBy(query.get(), commands, (c) => c.title));
+const list = ListView({ follow: 'first', items: ranked, key: (r) => r.item.id, onActivate });
+```
+
+A list whose items also change for another reason -- data re-sorted under it every
+second -- would have its cursor put back on the top row by each of those, so it
+moves the cursor where the query changes instead, in the field's `onChange`:
+`listControl(list).selection.first()`. Not in an effect over the query, which runs
+with the next frame: an Enter in the same read as the typing arrives before it.
+
 `tail` follows the last row as rows are added, the way `tail -f` and lnav do:
 
 ```js

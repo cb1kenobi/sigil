@@ -782,6 +782,22 @@ describe('DataTable()', () => {
     expect(opened).toEqual([7]);
   });
 
+  it('should activate a row of the filtered rows when Enter comes before the next frame', () => {
+    // the filter and the Enter in one read: the list takes the rows as they are
+    // now before it reads the cursor, rather than the rows its last frame keyed,
+    // where `launchd` -- which the filter drops -- is still first (SIG-469)
+    const filter = new State('');
+    const rows = new Computed(() => PROCS.filter((p) => p.name.includes(filter.get())));
+    const opened: number[] = [];
+    const host = procs({ onActivate: (pid) => opened.push(pid), rows });
+    picture(host, 48);
+
+    filter.set('o');
+    press(host, 'enter');
+
+    expect(opened).toEqual([42]);
+  });
+
   it('should tick the rows it is handed as selected, and keep the ticks in a State it is handed', () => {
     // the prop was declared, documented and dropped on the way to the list, so a
     // table started with nothing ticked and an app's State never heard a Space

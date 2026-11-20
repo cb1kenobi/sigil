@@ -362,6 +362,205 @@ describe('TreeListView()', () => {
       expect(current.get()).toBe('a.ts');
     });
 
+    it('should move over the rows a Right opened when the next key is in the same read', () => {
+      // no frame between the two keys: the tree's walk runs in an effect, so the
+      // list has to ask for it before it moves, or Down goes from `src` to `docs`
+      // over the rows the last frame walked (SIG-469)
+      const host = tree({ items: SAMPLE });
+      const { current } = control(host);
+
+      host.onKey?.(keyEvent('right'));
+      host.onKey?.(keyEvent('down'));
+
+      expect(current.get()).toBe('a.ts');
+    });
+
+    it('should activate a node of the items as they are now when Enter is in the same read', () => {
+      const items = new State<TreeChoiceItem[]>(['apple', 'banana']);
+      const seen: string[] = [];
+      const host = tree({ items, onActivate: (value) => seen.push(value) });
+
+      items.set(['banana']);
+      host.onKey?.(keyEvent('enter'));
+
+      expect(seen).toEqual(['banana']);
+    });
+
+    it('should walk the rows once per change, however often the list asks for them', () => {
+      // every key and every call on the list's control asks the tree for its rows,
+      // so a walk that ran each time would cost a walk per key over a tree that did
+      // not change. A getter on a node's text counts the walks
+      let walks = 0;
+      const items: TreeChoiceItem[] = [
+        {
+          get text() {
+            walks++;
+            return 'counted';
+          },
+        },
+        'other',
+      ];
+      const host = tree({ items });
+      const before = walks;
+
+      press(host, 'down');
+      press(host, 'up');
+      listControl(host)?.selection.index();
+
+      expect(walks).toBe(before);
+    });
+
+    it('should not walk a change again at the frame when a key already walked it', () => {
+      // the key asks for the walk before the frame, and the effect the change woke
+      // then finds it walked: one walk for the change, not one for each asker
+      let walks = 0;
+      const counted = {
+        get text() {
+          walks++;
+          return 'counted';
+        },
+      };
+      const items = new State<TreeChoiceItem[]>([counted, 'other']);
+      const host = tree({ items });
+      let before = walks;
+      items.set([counted, 'other', 'more']);
+      flush();
+      const one = walks - before;
+
+      before = walks;
+      items.set([counted, 'other', 'more', 'again']);
+      host.onKey?.(keyEvent('down'));
+      flush();
+
+      expect(walks - before).toBe(one);
+    });
+
+    it('should not walk again for a source that builds a new tree each time it is read', () => {
+      // a `filter()` in a `get()` hands over a new array on every read, so a walk
+      // guarded by the array would walk on every key: it is guarded by the reading,
+      // which is new only when what the source reads changes
+      let walks = 0;
+      const counted = {
+        get text() {
+          walks++;
+          return 'counted';
+        },
+      };
+      const all = new State<TreeChoiceItem[]>([counted, 'other']);
+      const host = tree({ items: { get: () => all.get().filter(() => true) } });
+      const before = walks;
+
+      press(host, 'down');
+      press(host, 'up');
+      listControl(host)?.selection.index();
+
+      expect(walks).toBe(before);
+    });
+
+    it('should draw a change made in place in the same read as a key, and after a key walked one', () => {
+      // a source that changes its tree in place and wakes the walk hands over the
+      // same tree: the list sees a new reading of it as soon as it asks, and so does
+      // the effect after a key walked the change before it
+      const tick = new State(0);
+      const nodes: TreeChoiceItem[] = [{ items: ['a.ts'], text: 'src' }, 'b'];
+      const host = tree({
+        items: {
+          get: () => {
+            tick.get();
+            return nodes;
+          },
+        },
+      });
+
+      host.onKey?.(keyEvent('right'));
+      host.onKey?.(keyEvent('down'));
+      flush();
+      expect(control(host).current.get()).toBe('a.ts');
+
+      nodes.push('more');
+      tick.set(1);
+      host.onKey?.(keyEvent('end'));
+      expect(control(host).current.get()).toBe('more');
+      flush();
+
+      nodes.push('last');
+      tick.set(2);
+      flush();
+      expect(picture(host).join('\n')).toContain('last');
+    });
+
+    it('should let go of its source when it is disposed', () => {
+      // the reading of the source is a Computed, and a source holds every sink that
+      // read it until the sink lets go: a tree that did not would stay reachable from
+      // a long-lived State of items for as long as the State lived
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const sinks = (): number => (items as unknown as { sinks: Set<unknown> }).sinks.size;
+      for (let i = 0; i < 5; i++) {
+        let host: Element | undefined;
+        const dispose = createRoot((done) => {
+          host = tree({ items });
+          return done;
+        });
+        flush();
+        dispose();
+        // a key that reaches a tree after it is gone asks for no walk, which would
+        // read the source again and take it back
+        host?.onKey?.(keyEvent('down'));
+        flush();
+      }
+      expect(sinks()).toBe(0);
+    });
+
+    it('should read a lazy branch once when its read asks the list for its rows', () => {
+      // the read runs inside a walk, and asking the list's control for its rows asks
+      // the tree for a walk: the second ask gets the rows as they were rather than a
+      // walk inside the walk, which would call the read again until the stack ran out
+      let host: Element | undefined;
+      let reads = 0;
+      host = tree({
+        items: [
+          {
+            items: () => {
+              reads++;
+              listControl(host as Element)?.selection.index();
+              return ['a.ts'];
+            },
+            text: 'src',
+          },
+        ],
+      });
+
+      control(host).expand('src');
+      press(host, 'down');
+
+      expect(reads).toBe(1);
+      expect(control(host).current.get()).toBe('a.ts');
+    });
+
+    it('should draw the new rows after a walk whose handing over threw', () => {
+      // a Computed may not write, so a walk it asks for -- through the list's
+      // control -- cannot hand the list its rows. The next walk has to, rather than
+      // taking the one that threw for one that finished and leaving the old rows up.
+      // Values none of the old rows had, so no row is kept and handed a new guide --
+      // which would throw first, before the walk had recorded anything
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const host = tree({ items });
+      const count = new Computed(() => {
+        items.get();
+        return listControl(host)?.selection.rowCount;
+      });
+
+      items.set(['x', 'y', 'z']);
+      try {
+        count.get();
+      } catch {
+        // what the Computed itself makes of it is not the question
+      }
+      flush();
+
+      expect(picture(host).slice(0, 3)).toEqual(['❯ ├──   x', '  ├──   y', '  └──   z']);
+    });
+
     it('should leave Right alone on a leaf and on an open branch with nothing in it', () => {
       const host = tree({ expanded: ['empty'], items: [{ items: [], text: 'empty' }, 'leaf'] });
 
@@ -1637,6 +1836,56 @@ describe('TreeListView()', () => {
   it('should refuse two nodes with one value', () => {
     expect(() => TreeListView({ items: ['same', { text: 'other', value: 'same' }] })).toThrow(
       'Expected every tree node to have a value of its own: same is used twice'
+    );
+  });
+
+  it('should draw the rows again once items with two nodes of one value are fixed', () => {
+    // the walk throws, and the tree's effect reports it -- once, though the list
+    // asks for a walk again whenever it takes its items, and the fixed items are
+    // drawn when they arrive
+    const written: string[] = [];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      written.push(String(chunk));
+      return true;
+    });
+    try {
+      const items = new State<TreeChoiceItem[]>(['a', 'b']);
+      const host = tree({ items });
+
+      items.set(['a', 'a']);
+      flush();
+      // and once: the cursor moving asks the list for its rows again, which asks
+      // for the walk again, which throws again
+      press(host, 'down');
+      control(host).current.set('b');
+      flush();
+      expect(written.join('').split('a is used twice')).toHaveLength(2);
+
+      items.set(['a', 'c']);
+      flush();
+      expect(picture(host).slice(0, 2)).toEqual(['  ├──   a', '❯ └──   c']);
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
+  it('should refuse a source that writes a signal while it is read, and say what to do', () => {
+    // the source is read inside a Computed, which is what tells a change of the tree
+    // from a read of it, and a Computed may not write -- so a lazy source that sets
+    // its own `loading` on the first read is refused with the rule rather than with
+    // the signal graph's own words
+    const loading = new State(false);
+    expect(() =>
+      TreeListView({
+        items: {
+          get: () => {
+            loading.set(true);
+            return ['a'];
+          },
+        },
+      })
+    ).toThrow(
+      'A TreeListView reads items.get() inside a Computed, so a source may not write a signal while it is read: write it before, or from an effect'
     );
   });
 

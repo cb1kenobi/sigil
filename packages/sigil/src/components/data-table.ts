@@ -151,10 +151,11 @@ export interface DataTableProps<T, K = T> {
    * `false`: the cursor stays where it is on screen and takes whichever row is
    * there now, which is htop's default -- a table sorted by a live column re-sorts
    * every tick, and a highlight that moved with its row would jump each second.
-   * `true` keeps it on the row's key wherever that row goes, `ListView`'s default.
+   * `true` keeps it on the row's key wherever that row goes, `ListView`'s default,
+   * and `'first'` puts it on the first row, for rows ranked as the user types.
    * A `State` can be toggled while the table is up, as htop's `F` does.
    */
-  follow?: boolean | State<boolean>;
+  follow?: boolean | 'first' | State<boolean> | State<boolean | 'first'>;
   /** The columns between one column and the next. Defaults to 2, as for `table()`. */
   gap?: number;
   /** Whether to draw the heading. Defaults to `true` when any column has one. */

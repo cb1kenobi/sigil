@@ -71,22 +71,14 @@ export async function openPalette(
     const ranked = new Computed<Ranked<Command>[]>(() =>
       rankBy(query.get(), commands, (command) => command.title)
     );
-    const current = new State<string | undefined>(commands[0]?.id);
-    // the best match is the one Enter runs, so an edit puts the cursor on it
-    // rather than leaving it on whichever row it was on, which a list does. In
-    // the field's `onChange` rather than an effect over `ranked`: an effect runs
-    // with the next frame, and an Enter that arrives in the same read as the
-    // typing -- a paste, or fast fingers -- would run the row the cursor was on
-    // before the query changed. `ranked` is a `Computed`, so reading it here
-    // works it out now
-    const field = TextField({
-      onChange: () => current.set(ranked.get()[0]?.item.id),
-      placeholder: 'Type a command',
-      value: query,
-    });
+    const field = TextField({ placeholder: 'Type a command', value: query });
+    // `follow: 'first'` is what puts the cursor on the best match: every new ranking
+    // is a new list, and the list puts its cursor on the top row as it takes one --
+    // including when a key reaches it before the frame that would have drawn the
+    // ranking, so an Enter in the same read as the typing runs what was typed
     const list = ListView<Ranked<Command>, string>({
-      current,
       empty: 'No command matches',
+      follow: 'first',
       items: ranked,
       key: (entry) => entry.item.id,
       onActivate: (id) => close(id),
@@ -113,23 +105,20 @@ export async function openPalette(
     // body around it hears them -- the dialog hands a key to the focused element
     // and its ancestors up to its panel
     body.onKey = (event) => {
+      const control = listControl<string>(list);
       const name = event.key.name;
-      if (name === 'up' || name === 'down') {
-        // moved over `ranked` rather than through the list's own selection, whose
-        // rows are the ones its last frame drew -- the same reason as above
-        const rows = ranked.get();
-        const at = rows.findIndex((row) => row.item.id === current.get());
-        const next = rows[Math.min(Math.max(at + (name === 'up' ? -1 : 1), 0), rows.length - 1)];
-        if (next !== undefined) {
-          current.set(next.item.id);
-          listControl<string>(list)?.reveal(next.item.id);
-        }
-      } else if (name === 'enter') {
-        const id = current.get();
-        // nothing matches, or the cursor is on a row the query has since dropped
-        close(ranked.get().some((row) => row.item.id === id) ? id : undefined);
-      } else {
+      if (control === undefined || (name !== 'up' && name !== 'down' && name !== 'enter')) {
         return;
+      }
+      if (name === 'enter') {
+        // the list runs the row under its cursor; with none -- nothing matches -- the
+        // palette closes having run nothing
+        if (!control.activate()) {
+          close(undefined);
+        }
+      } else {
+        control.selection.move(name === 'up' ? -1 : 1);
+        control.reveal();
       }
       event.stop();
     };

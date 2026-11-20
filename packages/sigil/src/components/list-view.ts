@@ -48,6 +48,9 @@ export { type DescribeListViewOptions, describedHosts } from './key-help.js';
 
 // -- the selection, with no elements in it ------------------------------------
 
+/** What the cursor stays with when the rows change: see {@link ListSelectionOptions.follow}. */
+type ListFollow = boolean | 'first';
+
 export interface ListSelectionOptions<K> {
   /**
    * The current row, as its key.
@@ -67,8 +70,16 @@ export interface ListSelectionOptions<K> {
    * second needs to be readable. A `State` is read at each change, so an app can
    * bind a key to it, as htop binds `F`. Either way a disabled row is stepped over
    * and a list that got shorter brings the cursor back inside it.
+   *
+   * `'first'` keeps neither: every change of the rows puts the cursor on the first
+   * row that is not disabled. That is a list ranked as the user types, where a new
+   * query is a new list and the best match is the row Enter should pick -- which the
+   * list does as it takes the rows, so an app has no cursor to move after the query
+   * changes, and none to move late (SIG-469). The first rows that hold anything are
+   * not a change, so the cursor starts on `current` where one was given; and a list
+   * following its tail goes to the last row whatever this says.
    */
-  follow?: boolean | State<boolean>;
+  follow?: boolean | 'first' | State<boolean> | State<boolean | 'first'>;
   /**
    * Whether more than one row can be selected. Defaults to `false`, where the
    * current row is the selection and `selected` stays empty.
@@ -197,11 +208,20 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
     }
   }
   const follow = opts.follow ?? true;
-  if (typeof follow !== 'boolean' && !(follow instanceof State)) {
-    throw new TypeError(__`Expected list follow to be a boolean or a State`);
+  if (typeof follow !== 'boolean' && follow !== 'first' && !(follow instanceof State)) {
+    throw new TypeError(__`Expected list follow to be a boolean, 'first' or a State`);
   }
-  const following = (): boolean =>
-    follow instanceof State ? untrack(() => follow.get()) === true : follow;
+  /** What the cursor stays with now: a `State`'s value is read at each change. */
+  const following = (): ListFollow => {
+    const now = follow instanceof State ? untrack(() => follow.get()) : follow;
+    return now === 'first' ? now : now === true;
+  };
+  /**
+   * Whether rows have been handed over before, which makes the next set a change.
+   * Only rows that hold something count, so a list whose items arrive late -- empty,
+   * then loaded -- starts on the `current` the app gave rather than on the first row.
+   */
+  let seeded = false;
   const multiple = opts.multiple === true;
   const current = controlState<K | undefined>(
     opts.current,
@@ -392,7 +412,19 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
       }
       keys = next;
       off = disabled ?? (() => false);
-      if (was >= 0 && !following()) {
+      const mode = following();
+      const change = seeded;
+      seeded ||= next.length > 0;
+      if (change && mode === 'first') {
+        // the first row, which is the best match of a ranked list; with none that
+        // can be the cursor, the key is kept, as `settle()` keeps it
+        const top = nearest(0, 1);
+        if (top >= 0) {
+          go(top);
+          return;
+        }
+      }
+      if (was >= 0 && mode === false) {
         // the position, not the row: whichever row is there now, or the nearest one
         // that can be the cursor where that one is disabled or the list got shorter
         go(around(was));
@@ -481,10 +513,11 @@ export interface ListViewProps<T, K = T> {
   find?: boolean;
   /**
    * What the cursor stays with when the items change: its row (`true`, the
-   * default) or its position (`false`). `createListSelection()`'s option, which says
-   * more; a `State` can be toggled while the list is up.
+   * default), its position (`false`), or the first row (`'first'`), which is a list
+   * ranked as the user types. `createListSelection()`'s option, which says more; a
+   * `State` can be toggled while the list is up.
    */
-  follow?: boolean | State<boolean>;
+  follow?: boolean | 'first' | State<boolean> | State<boolean | 'first'>;
   /**
    * The items, in the order they are shown.
    *
@@ -579,6 +612,12 @@ export interface ListViewProps<T, K = T> {
 /**
  * What a component built **on** a list holds it by: the selection, the scroll
  * box, and the three things only the list can do.
+ *
+ * `activate()`, `reveal()`, `refresh()` and every method of the selection that reads
+ * or moves over the rows take the items as they are now, not as the last frame keyed
+ * them: a filter typed and a key forwarded in one read act on the filtered rows. So
+ * such a call may move the cursor where the items changed under it, which writes
+ * `current` -- and is why none is for a `Computed`, which may not write.
  */
 export interface ListControl<K> {
   /**
@@ -817,6 +856,8 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
         return;
       }
       event.stop();
+      // a row the items have dropped since it was drawn is not one to pick
+      catchUp();
       const at = selection.indexOf(key);
       if (at < 0 || selection.isDisabled(at)) {
         return;
@@ -972,6 +1013,7 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
   };
 
   function activate(): boolean {
+    catchUp();
     const at = selection.index();
     if (props.onActivate === undefined || at < 0 || selection.isDisabled(at)) {
       return false;
@@ -1075,6 +1117,9 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     follow();
   };
 
+  /** Whether `sync()` is re-keying, which a second ask from inside it waits out. */
+  let syncing = false;
+
   /**
    * Re-keys first where the items moved and the items effect has not run yet.
    *
@@ -1085,9 +1130,43 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
    * then finds nothing left to do.
    */
   const sync = (): void => {
+    // a `key`, `disabled` or `row` that reads the selection an app is handed asks
+    // for this again from inside it: what it gets is the rows as they are so far
+    if (syncing) {
+      return;
+    }
     const next = read();
     if (next !== items) {
-      rekey(next);
+      syncing = true;
+      try {
+        rekey(next);
+      } finally {
+        syncing = false;
+      }
+    }
+  };
+
+  /**
+   * `sync()` for a key, a click or a call on the control, which take the items as
+   * they are now rather than as the last frame keyed them (SIG-469).
+   *
+   * Items it cannot take -- two rows with one key -- throw before the list moves to
+   * them, so the rows are as they were and the items effect meets the same throw and
+   * reports it with the next frame, as it did before anything read the items early.
+   * That one is dropped here; rethrown, it would be thrown out of every key the list
+   * is handed until the items were fixed. A throw after the list moved to them -- a
+   * `row` that throws as the window is rebuilt -- is one the effect will never see,
+   * since the items it reads are the ones it then holds, so that one goes on to the
+   * caller rather than nowhere.
+   */
+  const catchUp = (): void => {
+    const was = items;
+    try {
+      untrack(sync);
+    } catch (error) {
+      if (items !== was) {
+        throw error;
+      }
     }
   };
 
@@ -1194,6 +1273,10 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     if (event.paste) {
       return;
     }
+    // the items as they are now, not as the last frame keyed them: a key read in
+    // the same burst as the typing that changed them -- a filter and then Enter --
+    // acts on the rows that typing produced (SIG-469)
+    catchUp();
     if (k.ctrl && !k.meta && k.name === 'a') {
       if (selection.multiple && keys.length > 0) {
         selection.toggleAll();
@@ -1284,16 +1367,54 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
     event.stop();
   };
 
+  /**
+   * The selection an app is handed, which takes the items as they are now before
+   * every call: the moves and the reads answer for the rows the last change of the
+   * items made, rather than for the rows the last frame keyed (SIG-469).
+   */
+  const synced = <A extends unknown[], R>(call: (...args: A) => R) => {
+    return (...args: A): R => {
+      catchUp();
+      return call(...args);
+    };
+  };
+  const published: ListSelection<K> = {
+    current,
+    first: synced(() => selection.first()),
+    index: synced(() => selection.index()),
+    indexOf: synced((key: K) => selection.indexOf(key)),
+    isDisabled: synced((index: number) => selection.isDisabled(index)),
+    isSelected: (key) => selection.isSelected(key),
+    keyAt: synced((index: number) => selection.keyAt(index)),
+    last: synced(() => selection.last()),
+    move: synced((by: number) => selection.move(by)),
+    moveTo: synced((index: number, direction?: 1 | -1) => selection.moveTo(index, direction)),
+    multiple: selection.multiple,
+    get rowCount() {
+      catchUp();
+      return selection.rowCount;
+    },
+    selected,
+    setRows: (next, disabled) => selection.setRows(next, disabled),
+    settle: synced(() => selection.settle()),
+    toggle: synced((key?: K) => selection.toggle(key)),
+    toggleAll: synced(() => selection.toggleAll()),
+  };
+
   MODELS.set(host, {
     control: {
       activate,
       refresh(): void {
+        catchUp();
         tokens = new Map();
         control.resync();
       },
-      reveal: (key) => reveal(key as K | undefined),
+      reveal: (key) => {
+        catchUp();
+        return reveal(key as K | undefined);
+      },
       scroll: control,
-      selection: selection as ListSelection<unknown>,
+      selection: published as ListSelection<unknown>,
     },
     keys: {
       activate: props.onActivate !== undefined,

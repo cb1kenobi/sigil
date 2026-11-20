@@ -124,20 +124,23 @@ function scene() {
       ),
   });
 
+  const { selection } = listControl(list);
+  // where the cursor goes when the filter changes is the app's call too: left
+  // alone it stays on its package, or on the row that took its place, and a
+  // filter wants the best match -- so a new query puts it on the first row. In
+  // the field's `onChange` rather than an effect over the query, which runs with
+  // the next frame: an Enter in the same read as the typing would open the row the
+  // cursor was on before. The list's selection takes the new ranking as it is
+  // asked, so `first()` here is the first row of the query just typed (SIG-469).
+  // Not `follow: 'first'`, because the downloads re-sort these rows every second
+  // and that would put the cursor back on the top row each time
   const field = TextField({
+    onChange: () => selection.first(),
     placeholder: 'filter, or / from anywhere',
     value: query,
     width: WIDTH - 2,
   });
   const tally = text('', { class: 'sigil-muted' });
-  const { selection } = listControl(list);
-  // where the cursor goes when the filter changes is the app's call too: left
-  // alone it stays on its package, or on the row that took its place, and a
-  // filter wants the best match -- so a new query puts it on the first row
-  createEffect(() => {
-    query.get();
-    selection.first();
-  });
   createEffect(() => {
     const ticked = selection.selected.get().size;
     tally.setText(`${items.get().length} shown · ${ticked} ticked`);

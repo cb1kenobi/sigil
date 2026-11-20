@@ -212,6 +212,58 @@ describe('createListSelection()', () => {
     expect(selection.current.get()).toBe('q');
   });
 
+  it("should put the cursor on the first row at every change of the rows, with follow: 'first'", () => {
+    // a list ranked as the user types: `b` still matches, as the second row, and
+    // the cursor goes to the best match rather than staying with it (SIG-469)
+    const sel = createListSelection<string>({ current: 'b', follow: 'first' });
+    // the first rows are not a change: the cursor starts where it was asked to
+    sel.setRows(['a', 'b', 'c']);
+    expect(sel.current.get()).toBe('b');
+
+    sel.setRows(['c', 'b']);
+    expect(sel.current.get()).toBe('c');
+    // a disabled first row is passed over
+    sel.moveTo(1);
+    sel.setRows(['x', 'b', 'y'], (i) => i === 0);
+    expect(sel.current.get()).toBe('b');
+    // and with no row to be on, the key is kept, as for a list that follows its row
+    sel.setRows([]);
+    expect(sel.current.get()).toBe('b');
+    sel.setRows(['z', 'b']);
+    expect(sel.current.get()).toBe('z');
+  });
+
+  it("should read follow: 'first' from a State at each change", () => {
+    const follow = new State<boolean | 'first'>(true);
+    const sel = createListSelection<string>({ follow });
+    sel.setRows(['a', 'b', 'c']);
+    sel.moveTo(1);
+    sel.setRows(['c', 'b', 'a']);
+    expect(sel.current.get()).toBe('b');
+
+    follow.set('first');
+    sel.setRows(['a', 'b', 'c']);
+    expect(sel.current.get()).toBe('a');
+  });
+
+  it("should start on the current it was given where the first rows were empty, with follow: 'first'", () => {
+    // items that load late: no rows, then the rows -- which are the first ones that
+    // hold anything, and so not a change
+    const sel = createListSelection<string>({ current: 'c', follow: 'first' });
+    sel.setRows([]);
+    sel.setRows(['a', 'b', 'c']);
+    expect(sel.current.get()).toBe('c');
+
+    sel.setRows(['b', 'c']);
+    expect(sel.current.get()).toBe('b');
+  });
+
+  it('should refuse a follow it does not know', () => {
+    expect(() => createListSelection({ follow: 'last' as never })).toThrow(
+      "Expected list follow to be a boolean, 'first' or a State"
+    );
+  });
+
   it('should keep the cursor on its key when the rows are re-sorted under it', () => {
     const sel = createListSelection<string>({ current: 'c' });
     sel.setRows(['a', 'b', 'c', 'd']);
@@ -1018,6 +1070,158 @@ describe('ListView()', () => {
       picture(host);
       expect(alive).toBe(5);
       expect(rowsOf(host)).toHaveLength(5);
+    });
+  });
+
+  describe('a key in the same step as a change of the items (SIG-469)', () => {
+    // the items effect runs with the next frame, and every key of one read is
+    // routed before it: a filter typed and Enter pressed in one burst. Nothing here
+    // flushes between the change and the key, which is the whole of the case
+
+    it('should activate the row the new items put the cursor on, not one they dropped', () => {
+      const items = new State(['apple', 'banana', 'cherry']);
+      const seen: string[] = [];
+      const host = list({ items, onActivate: (key) => seen.push(key) });
+
+      items.set(['banana', 'cherry']);
+      host.onKey?.(keyEvent('enter'));
+
+      expect(seen).toEqual(['banana']);
+    });
+
+    it("should activate the new rows' cursor from the control, as an app forwarding Enter does", () => {
+      // a filter field that keeps the focus hands Enter on through the control
+      const items = new State(['apple', 'banana', 'cherry']);
+      const seen: string[] = [];
+      const host = list({ items, onActivate: (key) => seen.push(key) });
+
+      items.set(['banana', 'cherry']);
+      expect(control(host).activate()).toBe(true);
+
+      expect(seen).toEqual(['banana']);
+    });
+
+    it('should move over the new rows, not the ones the last frame keyed', () => {
+      const items = new State(['apple', 'banana', 'cherry']);
+      const host = list({ items });
+      const { selection } = control(host);
+
+      // the cursor's row is now the last, so Down has nowhere to go
+      items.set(['cherry', 'banana', 'apple']);
+      press(host, 'down');
+
+      expect(selection.current.get()).toBe('apple');
+    });
+
+    it('should hand an app a selection that answers for the new rows', () => {
+      const items = new State(['apple', 'banana']);
+      const host = list({ items });
+      const { selection } = control(host);
+
+      items.set(['kiwi', 'apple']);
+
+      expect(selection.index()).toBe(1);
+      expect(selection.keyAt(0)).toBe('kiwi');
+      expect(selection.rowCount).toBe(2);
+      expect(selection.move(-1)).toBe(true);
+      expect(selection.current.get()).toBe('kiwi');
+    });
+
+    it('should answer a callback that reads the selection while the rows are being taken', () => {
+      // `disabled` asks the selection an app is handed for its rows, which asks the
+      // list to take the items, which is what called `disabled`: the second ask waits
+      // the first out rather than recursing -- which would run out of stack and be
+      // dropped as items that cannot be taken, so the asks are counted
+      let host: Element | undefined;
+      let asked = 0;
+      const items = new State(['a', 'b']);
+      host = list({
+        disabled: () => {
+          asked++;
+          return host === undefined ? false : control(host).selection.rowCount < 0;
+        },
+        items,
+      });
+
+      asked = 0;
+      items.set(['b', 'c', 'd']);
+      press(host, 'down');
+      expect(control(host).selection.current.get()).toBe('c');
+      expect(asked).toBeLessThan(20);
+    });
+
+    it('should leave the rows as they were, and the key working, where the new items cannot be taken', () => {
+      // two rows with one key: the items effect reports it, as it did before a key
+      // took the items early, rather than every key throwing it again
+      const written: string[] = [];
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        written.push(String(chunk));
+        return true;
+      });
+      try {
+        const items = new State(['a', 'b']);
+        const host = list({ items });
+
+        items.set(['x', 'x']);
+        expect(() => press(host, 'down')).not.toThrow();
+        expect(control(host).selection.current.get()).toBe('b');
+        expect(written.join('')).toContain('x is used twice');
+      } finally {
+        stderr.mockRestore();
+      }
+    });
+
+    it('should not drop an error thrown while the new rows are drawn', () => {
+      // a `row` that throws as the window is rebuilt throws after the list moved to
+      // the new items, so the items effect -- which finds them already taken -- will
+      // never report it: the key that took them early is where it goes
+      const items = new State(['a', 'b']);
+      const host = list({
+        items,
+        row: (item) => {
+          if (item === 'boom') {
+            throw new Error('row blew up');
+          }
+          return item;
+        },
+      });
+
+      items.set(['a', 'boom']);
+      expect(() => host.onKey?.(keyEvent('down'))).toThrow('row blew up');
+    });
+
+    it('should not take a click on a row the new items dropped', () => {
+      const items = new State(['apple', 'banana']);
+      const host = list({ items, multiple: true });
+      const { selection } = control(host);
+      const apple = rowWith(host, 'apple');
+
+      items.set(['banana']);
+      apple.onMouse?.(click());
+      flush();
+
+      expect([...selection.selected.get()]).toEqual([]);
+    });
+
+    it("should activate the best match of a ranking typed in the same step, with follow: 'first'", () => {
+      // ranked by where the query is found, earliest first
+      const query = new State('');
+      const all = ['xa', 'ax'];
+      const ranked = new Computed(() => {
+        const q = query.get();
+        return all
+          .filter((item) => item.includes(q))
+          .toSorted((a, b) => a.indexOf(q) - b.indexOf(q));
+      });
+      const seen: string[] = [];
+      const host = list({ follow: 'first', items: ranked, onActivate: (key) => seen.push(key) });
+      expect(control(host).selection.current.get()).toBe('xa');
+
+      // `xa` still matches `a`, as the second row: the best match is `ax`
+      query.set('a');
+      host.onKey?.(keyEvent('enter'));
+
+      expect(seen).toEqual(['ax']);
     });
   });
 

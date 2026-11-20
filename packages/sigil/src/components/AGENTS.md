@@ -12633,6 +12633,186 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   `undefined` as no key and `NaN !== NaN`. The answer is right, and it is only
   slower for keys no app chooses, so it is left alone.
 
+### A key read before the frame acts on the items as they are now (SIG-469)
+
+Found by the editor example. Its palette is a `TextField` over a `ListView` of
+commands ranked by `rankBy()`, and it moved the cursor to the best match in an
+effect over the ranking. An effect runs with the next frame, and the router hands
+over every key of one read before any frame, so `reload` and Enter in one read --
+a paste, or fast fingers -- ran the row the cursor was on before the query
+changed. The example moved the cursor in the field's `onChange` instead, and moved
+Up and Down over the ranking by hand rather than through the list, for the same
+reason.
+
+- **The list's half of it was a defect, and it is the half every app shared.** The
+  list re-keys its rows in an effect too, so a key read between a change of the
+  items and the next frame acted on the rows the last frame keyed. Measured before
+  the fix: a list of `apple`, `banana` and `cherry` with the cursor on `apple`,
+  handed `banana` and `cherry`, ran `onActivate('apple')` on Enter -- a row no
+  longer in the list. Down over a re-sort moved by the old order. Neither needs an
+  app to set the cursor in an effect: a filtered `DataTable` and Enter in one read
+  is enough.
+- **Every way in takes the items first, through the `sync()` the cursor effect
+  already used.** The key handler, a row's click, and the calls on `listControl()`
+  that read or move over the rows: `activate()`, `reveal()`, `refresh()` and the
+  selection's methods but `isSelected()` and `setRows()`, which do not depend on
+  them. The selection an app is handed is a wrapper over the one the list holds,
+  each call bringing the rows up to date before it moves or answers, because an app
+  that keeps the focus in a field forwards Up, Down and Enter through the control
+  -- which is how the editor's palette does it now. `sync()` is a comparison of one
+  array when nothing changed, and the items effect then finds nothing to do.
+- **Items that cannot be taken are left to the effect to report.** Two rows with
+  one key throw out of `setRows()` before anything is written, and the items effect
+  reports that with the next frame -- which was all that happened before. A key that
+  rethrew it would throw out of every key the list is handed until the items were
+  fixed, so the early paths catch it and act on the rows as they were. Only that
+  one, though: a throw after the list moved to the new items -- a `row` that throws
+  as the window is rebuilt -- is one the effect never sees, since the items it reads
+  are the ones the list then holds, so it goes on to the caller rather than nowhere
+  (review round 2, which found the first version of the catch dropping it). And
+  `sync()` waits out a second ask from inside itself: a `key` or `disabled` that
+  reads the selection an app is handed asks for the items while they are being
+  taken, which on `main` answered from the rows as they were, and here recursed
+  until the stack ran out. Found by review round 1, as was the duplicate key.
+- **The `current` state is not part of it.** It is a `State` the app may hold, and
+  a read of it between the change and the frame still says where the cursor was.
+  `index()` and `keyAt()` answer for the rows as they are now. A call on the
+  selection can therefore **write** `current`, where taking the new rows moves the
+  cursor -- which is the point, and is why one is not for a `Computed`, which may
+  not write. Nothing has a reason to call one there: every method is untracked, so
+  a `Computed` would not hear the answer change.
+- **`follow: 'first'` is the palette's half, and it is an option rather than a rule
+  for the app to follow.** The ticket asked for the cursor to move in the same step
+  as the query, and the only step a list can see is its rows changing -- so
+  `'first'` puts the cursor on the first row that is not disabled at every
+  `setRows()`. The first rows that hold anything are not a change, so a `current`
+  the app gave is where the cursor starts -- and they are the first that hold
+  anything rather than the first handed over, or a list whose items load late would
+  lose it to the empty list before them (review round 1). With no row it can be on,
+  the key is kept, as it is for the other two. A list following its `tail` goes to
+  the last row whatever `'first'` says, since following is applied after. It is the third value of `follow` rather than a prop of its
+  own because it answers the same question -- what the cursor keeps when the rows
+  change -- and a list cannot do two of them. A `DataTable` passes it through,
+  since a table filtered as the user types is the same case.
+- **What it cannot express is a list whose rows change for two reasons.** Demo 58
+  ranks two thousand packages by a filter and re-sorts them by downloads every
+  second: with `'first'` each tick would put the cursor back on top. So that demo
+  moves it in the field's `onChange`, with `selection.first()` -- and that call
+  takes the new ranking first, so it lands on the first row of the query just
+  typed. It used an effect over the query until this change, which is the race
+  this entry is about; its piped output is the same either way.
+- **`commandPalette()` never had it.** `runList()` is a prompt: `key()` ranks and
+  draws before it returns, and `insert()` puts the highlight back on the top row,
+  so Enter reads the ranking the key before it made. Pinned rather than changed:
+  `should answer with the best match when the query and the enter are one read`,
+  and a second whose starting row still matches as the second row, which a
+  highlight that stayed with its row would answer with.
+- **The other components that filter as the user types were checked.**
+  `autocomplete()`, with a static or an async source, `autocompleteMultiselect()`
+  and `path()` are prompts: each filters and draws inside `key()`, and an async
+  source already refuses Enter and Space while a lookup is out, which is this rule
+  one step along. **Tab is the exception, and it is left as it was**: it completes
+  the field from the active row without asking whether a lookup is out, so `z` and
+  Tab in one read over an async source complete to a row of the earlier term's
+  list. Review round 2 reproduced it. It predates this change and shares no code
+  with it, so it is a ticket of its own rather than a fix here. `select()`, `multiselect()`,
+  `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
+  were read too and take no typed filter. `Dropdown` and `Menu` have no filter
+  either, and their effects only draw. `DataTable` is built on the list and gets the
+  fix with it. The log browser's `n` reads `selection.index()`, and now gets the
+  rows as they are.
+- **`TreeListView` needed a step of its own, which this entry first said it did
+  not.** The tree walks its open rows in an effect and hands the list the result in
+  a `State`, so a list that took its items early took the rows of the last walk:
+  Right and Down in one read went from `src` to `docs` rather than into `src`, and
+  Enter after the items changed activated a node they had dropped. Review round 1
+  reproduced both. The walk is now a function the effect runs and the list asks
+  for: the tree hands the list an object whose `get()` walks first, untracked, and
+  then reads the `State`, so the list follows what it always followed and every
+  early path takes the walk with it. It is guarded by what the rows are walked
+  from -- a reading of the items, the open set and the count of landed reads, which
+  are exactly what the effect tracks -- so asking costs nothing where nothing moved, and
+  `should walk the rows once per change` counts the walks to keep it so. A walk
+  that throws is reported by the tree's effect and caught in `get()`; let through,
+  it would be reported again by each of the list's effects that asked, each time
+  one did. Review round 2 found three more, and each has a test: a walk asked for
+  from inside a walk -- a lazy branch's read that asks the list's control for its
+  rows -- now gets the rows the last walk left rather than recursing, through a
+  `walking` flag; the guard's record of what was walked is written **last**, so a
+  walk whose writes threw (asked from a `Computed`, which may not write) is walked
+  again on the next ask; and whether the rows changed is asked of what the list was
+  handed rather than of what the last walk found, which differ where handing over
+  threw.
+- **Merged with SIG-487, which needs a walk when nothing the walk reads moved.**
+  That change searches a tree for values that left it when the tree changed --
+  including a source that changed its tree **in place** and woke the effect, which
+  it told apart as an effect run with neither the open set nor the landed count
+  changed. A guard on the tree's identity would skip exactly that walk, and the
+  first resolution of the merge kept the guard for the list's asks alone and let the
+  effect walk, with a flag for a change a key had walked already. The merge's review
+  found what that cost: a key in the same read as an in-place change acted on the
+  rows as they were, an in-place change coalesced with a key-walked one was not drawn
+  until the next change, and a source whose `get()` builds a new array each time --
+  a `filter()` -- made every key a full walk with the search on, where `main` walked
+  it only from the effect.
+
+  So the walk is guarded by a **reading** rather than by the tree: a `Computed`
+  whose value is a new object `{ top }` each time it reads the source again. A
+  `Computed` reads again exactly when something the source read changed and never
+  otherwise, so an in-place change is a new reading of the same tree -- the search
+  runs, for both askers, at once -- and a `filter()` source is the same reading
+  until what it filters changes. That is the identity SIG-487 wanted and could not
+  ask the tree for, and it took the flag and both limits with it. SIG-487's own
+  in-place rule, a walk with nothing changed, became `now !== walked.reading`, and
+  the rest of its walk and SIG-471's kept rows are unchanged in `walkFrom()`. What
+  it costs is that the source is read inside a `Computed`, which may not write --
+  a source's `get()` has no reason to. Each half is pinned and was sabotaged: a
+  reading that is the tree itself fails SIG-487's in-place test and the in-place
+  test here; reading the source outside the `Computed` fails five, among them
+  `should not walk again for a source that builds a new tree each time it is read`.
+
+  A review of that change found four more things, each checked before anything was
+  done about it:
+
+  - **The `Computed` is disposed with the tree.** A source holds every sink that
+    read it until the sink lets go, so five trees made and disposed over one
+    long-lived `State` of items left it with five sinks, and each tree reachable
+    from it; at 2ac0dabe, with no `Computed`, it was none. `reading.dispose()` is in
+    the tree's cleanup, and since a dispose is a release that a later read undoes, a
+    walk asked for after it -- a key reaching a tree already gone -- is refused.
+    `should let go of its source when it is disposed` counts the sinks, and fails
+    with either half taken out. `DataTable`'s two `Computed`s, `specs` and `sorted`,
+    leak the same way -- five sinks on both `rows` and `columns` after five tables --
+    and are on `main` rather than from this change, so they are left for a ticket.
+  - **A source that writes a signal while it is read is refused, in words that say
+    so.** The graph's own refusal names a `Computed` the app never wrote, so the
+    reading catches that one and throws a `TypeError` naming `TreeListView` and
+    `items.get()`, with what to do instead: write before the read, or from an
+    effect. The `items` documentation says it too. A lazy source that marks itself
+    loading on its first read is the case; at 2ac0dabe it drew. Narrowing the
+    contract was preferred to a mechanism that keeps the guard without it.
+  - **A source that throws before it reads any signal leaves the tree on the rows
+    it had for good**, since the reading caches the throw with nothing to wake it.
+    `main` does the same: its effect read the source first, and an effect whose run
+    threw before reading anything has nothing to wake it either -- measured, both
+    keep the rows they had through the fix and a key after it. 2ac0dabe recovered on
+    the next key, because the list's ask read the source directly. Recorded rather
+    than fixed: it is a source that cannot tell anything it was asked again.
+  - **A `get()` that reads no signal is not read again on a key or a `refresh()`**,
+    which is what `main` did, since nothing tells the reading it may have moved.
+    `ListView`'s `sync()` is the other way round: it calls `get()` on every ask and
+    compares the array it hands back, so a `ListView` over such a source sees a new
+    array on the next key, and a tree over one sees it on the next signal it reads.
+
+- **Pinned in four places.** `a key in the same step as a change of the items` in
+  `list-view.test.ts`, with nothing flushed between the change and the key; one
+  filtered `DataTable` test; nine in `tree-list-view.test.ts`; and the editor's
+  palette tests, which type and press
+  Enter -- and Down -- in one read. Sabotaged one at a time: the key handler's
+  sync, `activate()`'s, the wrapper's, the click's and `'first'` each fail a test
+  of their own. The key handler's alone fails only the Down test, since
+  `activate()` syncs for Enter too.
+
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 
 `src/components/tree-list-view.ts`. An interactive tree in a full-screen app -- an
