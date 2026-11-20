@@ -6833,7 +6833,8 @@ there for a component you write yourself too:
   set apart, the check that a list of items is one a menu can draw, all the way
   down, the check that a `menuClass` option is one, the check that an `initial` is
   a position or a function, and the position an `initial` names at the moment a
-  menu opens.
+  menu opens -- which is what a session's `root()` takes, since it wants a
+  position rather than the option.
 - `promptSeek(rows, from, direction, loop)`, from
   `@ttylabs/sigil/components/prompt`, is where Up or Down moves a list cursor: the
   nearest row whose `offered` is true, wrapping when `loop` is, and `from` itself

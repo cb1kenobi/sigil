@@ -12067,8 +12067,15 @@ exception per widget. This is the one answer, and every widget below follows it.
   explicit `initial` is highlighted **however** the menu opened, where the default
   stays keys-first, pointer-nothing: it says which entry is current, which is what
   a dropdown shows when a press opens it, and the pointer opening a submenu on its
-  current choice is that. The function is asked before the session takes the
-  input or the open submenu is closed, so one that throws takes nothing with it.
+  current choice is that. It follows that Enter after the pointer opened a submenu
+  with an `initial` chooses that entry -- the keys are the deepest menu's -- where
+  with none Enter finds nothing highlighted and does nothing. `openMenu()` and a
+  menubar ask the function before a session takes the input, so one that throws
+  takes nothing with it. A submenu asks it from the key or the pointer that is
+  opening it, after a hover has already moved the highlight, and the throw goes out
+  through that dispatch as any app callback's would, with the session still open
+  and Escape still closing it; catching it would be the menu deciding what an app
+  bug means.
 
 - **Tests, and the sabotage pass.** `menu.test.ts`, `menubar.test.ts` and
   `dropdown.test.ts`, through a real router over a test terminal with mouse reports

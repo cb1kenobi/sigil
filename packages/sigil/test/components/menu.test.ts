@@ -743,6 +743,15 @@ describe('initial (SIG-463)', () => {
     expect(runs).to.equal(1);
   });
 
+  it("should choose a pointer-opened submenu's initial on Enter, since the keys are the deepest menu's", async () => {
+    const s = scene();
+    const menu = menuOn(s, { items: withExport(1) });
+    await s.term.press(move(6, rowOf(picture(s.root), 'Export')));
+    await s.term.press(KEYS.enter);
+    expect(menu.open, 'Enter chose something').to.equal(false);
+    expect((await menu.result)?.value).to.equal('html');
+  });
+
   it('should take nothing from the app when a root initial throws', () => {
     const s = scene();
     expect(() =>

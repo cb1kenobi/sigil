@@ -64,7 +64,8 @@ export interface MenuItem<T = unknown> {
    * Without one, a submenu opened from the keys highlights its first entry on offer
    * and one the pointer opened highlights nothing until the pointer is over a row.
    * With one, it highlights that entry however it was opened, as a dropdown shows
-   * its value.
+   * its value -- so Enter after the pointer opened it chooses that entry, since the
+   * keys are the deepest open menu's.
    */
   initial?: MenuInitial;
   /**
@@ -748,7 +749,9 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
       }
       return true;
     }
-    // asked before anything closes, so a function that throws leaves the menus as they were
+    // a function that throws goes out through the key or the pointer that got
+    // here, as any app callback would; the session is still open, so Escape still
+    // closes it
     const given = menuInitial(row.item?.initial, sub.length);
     truncate(depth);
     rowAnchors.add(row.element);

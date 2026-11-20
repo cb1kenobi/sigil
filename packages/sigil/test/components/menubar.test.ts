@@ -336,6 +336,16 @@ describe('a menubar menu with an initial (SIG-463)', () => {
     expect(picture(s.root).join('\n')).not.toContain('❯');
   });
 
+  it('should open on its initial when the pointer moves onto its title from another', async () => {
+    const s = scene({ menus: withView(2) });
+    await s.term.press(...click(8, 0));
+    expect(s.control.openIndex).to.equal(1);
+    picture(s.root);
+    await s.term.press(move(15, 0));
+    expect(s.control.openIndex).to.equal(2);
+    expect(picture(s.root).join('\n')).toContain('❯ Large');
+  });
+
   it('should take nothing from the app when its initial throws', () => {
     const s = scene({
       menus: withView(() => {
