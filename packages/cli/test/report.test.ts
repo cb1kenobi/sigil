@@ -452,6 +452,22 @@ describe('the toolchain report', () => {
 
       expect(piped.text).toBe('\nmyapp 1 command, no problems found\n');
     });
+
+    it('should escape what a summary names, on a terminal as well as off one', () => {
+      // SIG-457: the runs are the app's name and paths, and both forms are handed
+      // them escaped, so a terminal shows the name rather than dropping the
+      // control character from it and the two forms still say one thing
+      const name = `n${ESC}]0;PWN\u0007d`;
+      for (const isTTY of [false, true]) {
+        const stream = sink(isTTY);
+        writeSummary([{ class: 'cli-app', text: name }, 'into', `dist/${name}.mjs`], stream);
+
+        expect(strip(stream.text)).toContain('n\\x1B]0;PWN\\x07d into dist/n\\x1B]0;PWN\\x07d.mjs');
+        expect(
+          [...strip(stream.text).matchAll(/\p{Cc}/gu)].map((m) => m[0]).filter((c) => c !== '\n')
+        ).toEqual([]);
+      }
+    });
   });
 
   describe('the destination', () => {

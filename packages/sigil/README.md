@@ -2671,15 +2671,15 @@ printable('one\ntwo\tthree', '\n'); // 'one\ntwo�three'
 text(printable(entry.name)); // a name, as it is on disk
 ```
 
-A `raw` paints its own cells, and its paint is **not** tracked: a signal it reads
-is not a reason to paint again. `trackedRaw(options, props)`, from
-`@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the element
-whenever a signal its last paint read changes, with nothing to list twice and no
+A `raw` paints its own cells, and neither its paint nor its measure is
+**tracked**: a signal either reads is not a reason to paint or measure again.
+`trackedRaw(options, props)`, from `@ttylabs/sigil/renderer`, takes what `raw()` takes and repaints the
+element whenever a signal its last paint read changes, and lays it out again
+whenever a signal its measure read changes, with nothing to list twice and no
 effect beside it. Build it in a component: the listening is let go with the owner
 it was built under, which is what a `Show` closing or a `For` row leaving
-disposes. A tracked paint may not write a signal -- it is a derivation of what it
-read -- and its measure is not tracked, so a raw whose size follows state still
-calls `invalidateMeasure()` from an effect.
+disposes. A tracked paint or measure may not write a signal -- it is a derivation
+of what it read.
 
 ```js
 import { trackedRaw } from '@ttylabs/sigil/renderer';
@@ -3151,7 +3151,9 @@ into it so far.
 Stepping wraps inside the segment and **never carries**: December up is January
 of the same year, and 23:59 up is 23:00 on the same day. The day is pulled back
 to the last day of a shorter month when the month or the year changes, so January
-31st stepped to February is the 28th, or the 29th in a leap year.
+31st stepped to February is the 28th, or the 29th in a leap year. A year outside
+0000-9999, which an `initial` or a `value` can start on, is pulled to the
+nearer end by the first step, and wraps from there.
 
 The value is built as a **local** date-time and handed to the same reader the
 parser's `date` data type uses, so the prompt and `--when` cannot disagree about
@@ -8219,7 +8221,10 @@ trash of the volume it is on and a second `a.txt` is named the way Finder names
 it. On Windows it is the Recycle Bin, through the shell's `IFileOperation` from
 PowerShell, and an item the bin would not keep -- too large for it, or on a
 network drive -- is refused, where Windows itself would delete it without
-asking. Everywhere else it is the freedesktop.org trash, which
+asking. The few lines of C# that reach the shell are compiled on the first call
+and kept in the cache directory, sealed for the current user, so that a file another
+user puts there is rebuilt rather than run. (A process running as you can still
+seal one; that is not something a cache file can guard against.) Everywhere else it is the freedesktop.org trash, which
 file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
 device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where

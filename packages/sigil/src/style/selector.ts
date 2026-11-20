@@ -459,7 +459,12 @@ function keyOf(compound: Compound): string {
 export const UNIVERSAL_KEY = '*';
 
 /**
- * Every bucket an element could be filed under, most selective first.
+ * Every bucket an element could be filed under: the universal one, its type,
+ * its id, then each of its classes.
+ *
+ * The rule the cascade's index follows, in this order, though it looks each
+ * bucket up by the name rather than building these strings on every match
+ * (SIG-455); `cascade-precedence.test.ts` holds `match()` to this.
  *
  * @param node - The element.
  * @returns The keys whose rules this element has to test.
@@ -623,12 +628,29 @@ function matchesSimple(simple: Simple, node: StyleNode): boolean {
       return index > 0 && matchesNth(index, simple.a, simple.b);
     }
     case 'not':
-      return !simple.selectors.some((compound) => matchesCompound(compound, node));
+      for (const compound of simple.selectors) {
+        if (matchesCompound(compound, node)) {
+          return false;
+        }
+      }
+      return true;
   }
 }
 
+/**
+ * Whether an element matches every simple selector in a compound.
+ *
+ * A loop rather than `every()` with an arrow, because this runs for every
+ * candidate rule of every element restyled and the arrow closes over `node`: it
+ * was a closure allocated per test (SIG-455).
+ */
 function matchesCompound(compound: Compound, node: StyleNode): boolean {
-  return compound.simples.every((simple) => matchesSimple(simple, node));
+  for (const simple of compound.simples) {
+    if (!matchesSimple(simple, node)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /**

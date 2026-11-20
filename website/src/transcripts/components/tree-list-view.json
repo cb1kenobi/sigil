@@ -92,6 +92,12 @@
         "type": "Iterable<T> | State<ReadonlySet<T>>"
       },
       {
+        "description": "Follow the last row as rows are added, as `tail -f` does: `ListView`'s `tail`, passed to the list the tree is drawn in. The last row is the last one shown, which is the deepest last child of the last open branch -- never a loading or an error line, which the cursor is never on.",
+        "name": "tail",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
         "description": "`ListView`'s `j`/`k`/`g`/`G`, and `h` and `l` for Left and Right. Off by default.",
         "name": "vim",
         "optional": true,

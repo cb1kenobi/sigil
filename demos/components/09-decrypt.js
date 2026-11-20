@@ -34,7 +34,7 @@ await decrypt('No more secrets, Marty.', { ...pace, alphabet: ASCII });
 // a mask glyph is as wide as what it hides, so a line of two-column characters
 // does not reflow while it decrypts and land back where it started. The wide half
 // of the default alphabet is the fullwidth Latin forms
-await decrypt('機密 — \u{1F1EC}\u{1F1E7} secrets \u{1F468}‍\u{1F469}‍\u{1F467}', pace);
+await decrypt('機密 — \u{1F1EC}\u{1F1E7} secrets \u{1F468}\u200D\u{1F469}\u200D\u{1F467}', pace);
 
 // several lines are one text: the breaks are whitespace, so they stay where they
 // are and the block keeps its shape throughout

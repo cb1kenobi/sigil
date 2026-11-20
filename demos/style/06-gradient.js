@@ -29,7 +29,7 @@ console.log(gradientBox('Deployed to production\nin 4.2 seconds', stops, { borde
 
 for (const level of [3, 2, 1, 0]) {
   console.log(`\n-- level ${level}`);
-  const line = gradient('Gradient 日本語 👨‍👩‍👧 ramp', stops, { level });
+  const line = gradient('Gradient 日本語 👨\u200D👩\u200D👧 ramp', stops, { level });
   console.log(line);
   console.log(visible(gradient('abc', stops, { level })));
 }

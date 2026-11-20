@@ -72,7 +72,7 @@ describe('note()', () => {
     });
 
     it('should align the border around an emoji and a combining mark', () => {
-      const rows = lines('👨‍👩‍👧 family\né acute');
+      const rows = lines('👨\u200D👩\u200D👧 family\né acute');
 
       expect(widths(rows)).to.have.length(1);
     });
