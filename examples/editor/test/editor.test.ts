@@ -484,7 +484,7 @@ describe('the editor', () => {
       // decodes the whole read and routes every key in it before any frame
       const it = await mount(workspace({ 'a.txt': 'a\n' }));
       await it.press(ctrl('p'), `reload${KEYS.enter}`);
-      expect(it.screen()).toContain('Read the file tree again');
+      expect(it.screen()).toContain('Read every folder in the file tree again');
     });
 
     it('should put the cursor on the best match where the row it was on still matches', async () => {
