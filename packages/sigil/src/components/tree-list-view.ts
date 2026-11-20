@@ -139,6 +139,13 @@ export interface TreeListViewProps<T = string> {
   scrollbar?: boolean;
   /** The ticked nodes, for a `multiple` tree, as `ListView`'s `selected`. */
   selected?: Iterable<T> | State<ReadonlySet<T>>;
+  /**
+   * Follow the last row as rows are added, as `tail -f` does: `ListView`'s `tail`,
+   * passed to the list the tree is drawn in. The last row is the last one shown,
+   * which is the deepest last child of the last open branch -- never a loading or
+   * an error line, which the cursor is never on.
+   */
+  tail?: boolean | State<boolean>;
   /** `ListView`'s `j`/`k`/`g`/`G`, and `h` and `l` for Left and Right. Off by default. */
   vim?: boolean;
 }
@@ -975,6 +982,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     row: drawRow,
     scrollbar: props.scrollbar,
     selected: props.selected as Iterable<unknown> | State<ReadonlySet<unknown>> | undefined,
+    tail: props.tail,
     vim: props.vim,
   });
   host.addClass('sigil-tree-list-view');

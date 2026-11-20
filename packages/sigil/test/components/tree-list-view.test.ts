@@ -580,6 +580,29 @@ describe('TreeListView()', () => {
       expect(picture(host)).toEqual(['  ├──   a', '  ├──   b', '❯ └──   c']);
     });
 
+    it('should follow its last row as nodes are added, through the tail it was handed (SIG-470)', async () => {
+      const items = new State<TreeChoiceItem[]>(['a', { items: ['x'], text: 'b' }]);
+      const tail = new State(true);
+      const host = tree({ expanded: ['b'], items, tail }, 3);
+      expect(control(host).current.get()).toBe('x');
+
+      items.set([...items.get(), 'c']);
+      flush();
+      expect(control(host).current.get()).toBe('c');
+      expect(picture(host).at(-1)).toBe('❯ └──   c');
+
+      // a branch read at the end: its loading line is not a row the cursor is on, so
+      // the branch is the last one until its children land, and then the last child
+      const read = deferred<string[]>();
+      items.set([...items.get(), { expanded: true, items: () => read.promise, text: 'slow' }]);
+      flush();
+      expect(control(host).current.get()).toBe('slow');
+      read.resolve(['s1', 's2']);
+      await landed();
+      expect(control(host).current.get()).toBe('s2');
+      expect(tail.get()).toBe(true);
+    });
+
     it('should toggle the current node from the control, and report what changed', () => {
       const host = tree({ items: SAMPLE });
       const { collapse, expand, toggle } = control(host);

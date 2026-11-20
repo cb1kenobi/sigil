@@ -12321,9 +12321,23 @@ and they are the prop now.
   to the last row on a change of items; the tail effect's reveal, and its move;
   "in view" read as the whole row; and the last row counted without passing over
   disabled ones.
-- **Not done:** `tail` on `DataTable` and `TreeListView`, which build on
-  `ListView` and pass through what they are asked for -- a table of events wants
-  it, and nothing has asked yet; and an `onScroll` on the list for an app.
+- **Not done:** an `onScroll` on the list for an app. `tail` on `DataTable` and
+  `TreeListView` was the other half of this entry, and is SIG-470's, below.
+
+### `tail` through a table and a tree (SIG-470)
+
+`DataTable` and `TreeListView` take `tail` and hand it to their `ListView`, as they
+already did `selected` and `vim`, so a live table of events follows its newest row.
+
+- **The last row is the list's.** For a table that is the last in the sorted
+  order, so a table sorted by time follows the newest. For a tree it is the last
+  row shown, and a branch being read at the end draws a loading line under it --
+  but that line is a disabled row, and the list's last row passes over disabled
+  ones, so the cursor follows the branch and then its last child when the read
+  lands. Nothing in either needed to know about following.
+- **No control hands the state back**, for the reason SIG-385 gives for
+  `ListControl`: an app that shows it hands one over.
+- **A test each,** which removing the pass-through fails.
 
 ### Rows that grow at the end and drop off the front cost what changed (SIG-386)
 

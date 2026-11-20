@@ -194,6 +194,12 @@ export interface DataTableProps<T, K = T> {
    * write and an app may write. Left out, the rows are in the order they came.
    */
   sort?: DataTableSort | State<DataTableSort | undefined>;
+  /**
+   * Follow the last row as rows are added, as `tail -f` does: `ListView`'s `tail`,
+   * passed to the list the rows are drawn in. The last row is the last in the
+   * sorted order, so a table of events sorted by time follows the newest.
+   */
+  tail?: boolean | State<boolean>;
   /** `j`, `k`, `g` and `G`, as in a list. */
   vim?: boolean;
 }
@@ -672,6 +678,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
     rowClass: props.rowClass,
     scrollbar: props.scrollbar,
     selected: props.selected,
+    tail: props.tail,
     vim: props.vim,
   });
   const control = listControl<K>(list_) as ListControl<K>;
