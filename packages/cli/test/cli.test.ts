@@ -866,6 +866,29 @@ describe('@ttylabs/cli', () => {
       }
     );
 
+    /**
+     * What an agent is pointed at inside an installed package: the skills, and
+     * the instructions `sigil new` reads out of the runtime to write a new app's
+     * `AGENTS.md`. `skills.test.ts` reads the manifests' `files` for every file a
+     * skill links to; this asks the publisher about the ones whose absence breaks
+     * something, because a `files` entry is not the only way a file stays out.
+     */
+    const POINTED_AT: Readonly<Record<string, readonly string[]>> = {
+      '@ttylabs/cli': ['skills/sigil-cli/SKILL.md'],
+      '@ttylabs/sigil': ['docs/agents.md', 'skills/sigil/SKILL.md'],
+    };
+
+    it.each(
+      published
+        .filter(({ name }) => Object.hasOwn(POINTED_AT, name))
+        .map(({ dir, name }) => [name, dir] as const)
+    )('should ship the files an agent is pointed at: %s', (name, dir) => {
+      const list = packList(dir);
+      for (const file of POINTED_AT[name]!) {
+        expect(list, file).toContain(file);
+      }
+    });
+
     it.each(published.map(({ dir, name }) => [name, dir] as const))(
       'should ship no raw control character: %s',
       (_name, dir) => {

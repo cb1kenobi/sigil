@@ -1,4 +1,5 @@
 import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
+import { agentInstructionsSource, SITE_URL } from '../src/scaffold/agents.ts';
 import {
   nameProblem,
   PNPM_MAJOR,
@@ -217,6 +218,26 @@ describe('the scaffold', () => {
     // too, for an app that prefers to say so in the file name
     expect(json('sigil.json')).toStrictEqual({ components: 'src/components' });
     expect([...files().keys()]).not.toContain('sigil.jsonc');
+  });
+
+  it('should write the agent instructions the website tells everyone else to paste', () => {
+    // one block for both readers, so an app `new` made and an app somebody
+    // pasted the block into are told the same thing -- including where the
+    // skills are, which is the line that makes them findable at all
+    const agents = files().get('AGENTS.md') as string;
+    const block = agentInstructionsSource().replace('{{version}}', OPTIONS.version);
+
+    expect(agents.startsWith('# demo\n\n## sigil\n')).toBe(true);
+    expect(agents).toContain(`sigil v${OPTIONS.version} (`);
+    expect(agents).toContain('node_modules/@ttylabs/sigil/skills/sigil/SKILL.md');
+    expect(agents).toContain('node_modules/@ttylabs/cli/skills/sigil-cli/SKILL.md');
+    expect(agents).not.toMatch(/\{\{|\}\}/);
+    expect(agents.endsWith(block.replace('{{site}}', SITE_URL))).toBe(true);
+  });
+
+  it("should point Claude Code's instructions at the agent instructions", () => {
+    // Claude Code reads `CLAUDE.md`, not `AGENTS.md`; one import keeps them one file
+    expect(files().get('CLAUDE.md')).toBe('@AGENTS.md\n');
   });
 
   it('should write a test that runs the app through the real main()', () => {

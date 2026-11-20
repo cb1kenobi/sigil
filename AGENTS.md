@@ -1723,6 +1723,26 @@ why rather than what: it is the record of what each round found.
   SGR tables, the two build configs' escape pass, `addedBy()` beside
   `generatedBy()` -- and an audit leaves those alone.
 
+- **The runtime and the toolchain each ship an agent skill, and a rule's guide
+  lives with the package that defines the rule (SIG-533).** `skills/sigil/` in
+  `packages/sigil` and `skills/sigil-cli/` in `packages/cli` are in their
+  packages' `files`, and an agent working in an app reads them out of
+  `node_modules`. It is pointed there by `packages/sigil/docs/agents.md`, the block
+  Getting started tells a reader to paste in, which `sigil new` also writes as
+  the app's `AGENTS.md`, with a `CLAUDE.md` that is `@AGENTS.md`. It is those two
+  packages because both are installed in every app and they cover two different
+  moments of working on one. `config-xml`, `config-yaml` and `screenshot` get one
+  when they raise a coded diagnostic of their own (SIG-534). A guide goes in the
+  skill of the package that **defines** the rule, not the one that printed the
+  error: a route name `sigil check` refuses is `routes.ts`'s rule, so its guide
+  is the runtime's. A skill links only to files its own tarball holds, which is
+  why `@ttylabs/sigil` ships `docs/`. The skill points at the guides for the
+  installed version rather than restating them, and does not link the website,
+  which describes whichever version it is on. `skills.test.ts` and
+  `agents.test.ts` in `packages/cli` check the links, the anchors and the names
+  written as an export, a module, a command or an installed path, against the
+  built package and the manifests' `files`.
+
 - **A new decision goes beside the code it is about, and the record of how it
   was reached goes under `docs/history/`.** This file was one file for a long
   time and reached **1,997,217 bytes** — about 470k tokens, half of a 1M

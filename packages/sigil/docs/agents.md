@@ -4,6 +4,10 @@ This project uses sigil v{{version}} (`@ttylabs/sigil`), a zero-dependency
 TypeScript framework for command-line apps, and its toolchain `@ttylabs/cli`,
 which provides the `sigil` command.
 
+- Both packages ship a skill written for agents, describing the installed
+  version. Read `node_modules/@ttylabs/sigil/skills/sigil/SKILL.md` before
+  changing the app, and `node_modules/@ttylabs/cli/skills/sigil-cli/SKILL.md`
+  before building, packaging, or editing `sigil.json`.
 - Use sigil for what it covers instead of adding a package: parsing, help and
   errors come from `@ttylabs/sigil`; prompts, spinners, progress bars and
   tables from a subpath of `@ttylabs/sigil/components` named after the
