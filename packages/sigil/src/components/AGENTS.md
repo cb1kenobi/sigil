@@ -7476,11 +7476,19 @@ under its lines and shows the values under the pointer.
   alone is the last filled series', with `.sigil-chart-area` beside its series'
   classes -- a hook, and no framework rule, for the reason the series classes have
   none. `should never draw a shade over a line, whichever series it belongs to` is
-  the pin, and it fails for a cell that takes every series' shade.
+  the pin for a line against a shade, and fails for a cell that takes every
+  series' shade; `should draw a line over the rule, and the rule over a shade` is
+  the pin for the crosshair's two, in ASCII, where each cell's glyph says which of
+  the three it is.
 - **The crosshair is a vertical rule snapped to a sample, and nothing horizontal.**
   The rule stands at the sample nearest the middle of the pointer's cell, counted
   along the longest series -- seven days across a wide plot are seven places it can
-  be -- and the axis gets a `┴` under it. A horizontal line at the pointer's height
+  be -- and the axis gets a `┴` under it. Two samples equally near, which is the
+  two in one cell at a step of one, go to the **newer**: review round 1 found the
+  first version rounding half towards the older, which left the latest sample of
+  a scrolling chart -- the one it is read for -- under no column at all. Something
+  in such a cell is always unreadable, since a cell is the pointer's resolution,
+  and the older sample is the one to lose. A horizontal line at the pointer's height
   would name a value nothing has: what the readout says is each line's value at
   that sample, and a reader's eye finds those on the lines. A column left of a
   scrolling chart's history, or over the gutter, has no sample and draws nothing.
@@ -7490,7 +7498,12 @@ under its lines and shows the values under the pointer.
   rule and each series' value there. So a range switched under a still pointer, or
   a `Series` pushed to, re-snaps and re-reads in the same drawing with nothing
   remembered to go stale. That is the half the earlier "Not done" said was missing:
-  a drawing that keeps where its samples are.
+  a drawing that keeps where its samples are. What it does remember is the column
+  relative to the chart at the last report, so a layout that moves the chart under
+  a still pointer -- the dashboard's sidebar collapsing -- moves the rule with the
+  chart until the next report. That is a limit and not fixed: the router's own
+  `hover` is just as stale until then, since nothing reports a pointer that did not
+  move, and the next motion puts both right.
 - **The readout is `attachTooltip()` pointed at the rule, and it shows at once.**
   `crosshair` takes the tooltip's options, so it needs the router -- which is also
   how the chart hears the pointer, through `input.onMouse()` read against the

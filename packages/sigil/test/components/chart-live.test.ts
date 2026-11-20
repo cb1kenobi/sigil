@@ -633,15 +633,101 @@ describe('LineChart, with a crosshair (SIG-464)', () => {
     expect(m.screen().join('\n')).toContain('API 6');
   });
 
-  it('should find nothing left of a scrolling chart’s history', async () => {
+  it('should find nothing left of a scrolling chart’s history, and the newest sample under the last column', async () => {
     // a step of one puts the four samples in the last two cells, two to a cell
     const m = await mount(() => ({ step: 1 }));
     await m.move(10, 1);
     expect(tick(m.screen())).toBe(-1);
+    // two samples one cell, the pointer as near one as the other: the newer, so
+    // the latest -- what a scrolling chart is read for -- is under the last column
     await m.move(28, 1);
     expect(tick(m.screen())).toBe(28);
-    // the first two samples share the cell, and the pointer is between them
-    expect(m.screen().join('\n')).toContain('│ API 1 │');
+    expect(m.screen().join('\n')).toContain('│ API 5 │');
+    await m.move(29, 1);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).toContain('│ API 8 │');
+  });
+
+  it('should snap a column left of the first sample drawn to the nearest one that is', async () => {
+    // a plot two cells wide at a step of four: rounded from the left cell, the
+    // nearest sample is one before the left edge, and the next one is drawn
+    const m = await mount(() => ({
+      axis: false,
+      legend: false,
+      props: { height: 2, width: 2 },
+      series: [{ data: [1, 2, 3], label: 'API' }],
+      step: 4,
+    }));
+    await m.move(0, 0);
+    expect(m.screen().join('\n')).toContain('│ API 3 │');
+  });
+
+  it('should draw a line over the rule, and the rule over a shade', async () => {
+    // ASCII, where a line is `*`, a shade `:` and the rule `|`, so each cell says
+    // which of the three it is
+    const m = await mount(() => ({ ascii: true, fill: true }));
+    const before = m
+      .screen()
+      .slice(0, 4)
+      .map((line) => line[12]);
+    expect(before).toContain('*');
+    expect(before).toContain(':');
+
+    await m.move(14, 1);
+    const after = m
+      .screen()
+      .slice(0, 4)
+      .map((line) => line[12]);
+    expect(after).toEqual(before.map((cell) => (cell === '*' ? '*' : '|')));
+  });
+
+  it('should point the readout at the rule inside a border and padding', async () => {
+    const m = await mount(() => ({
+      props: { 'border-style': 'round', height: 8, 'padding-left': 2, width: 30 },
+    }));
+    await m.move(14, 2);
+    const screen = m.screen();
+    const at = screen.findIndex((line) => line.includes('┴'));
+    const column = (screen[at] ?? '').indexOf('┴');
+    // the bubble's corner is beside the rule's top, which is the plot's first row
+    expect(screen[1]?.[column + 1]).toBe('╭');
+    expect(screen[2]).toContain('API');
+  });
+
+  it('should stop hearing the pointer when it goes', async () => {
+    let subscribed = 0;
+    let unsubscribed = 0;
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+    const app = runApp(
+      () => {
+        const input = useApp().input as InputRouter;
+        // the router, with its mouse subscriptions counted
+        const counted = new Proxy(input, {
+          get(target, key) {
+            if (key === 'onMouse') {
+              return (handler: Parameters<InputRouter['onMouse']>[0]) => {
+                subscribed += 1;
+                const off = target.onMouse(handler);
+                return () => {
+                  unsubscribed += 1;
+                  off();
+                };
+              };
+            }
+            const value: unknown = Reflect.get(target, key, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+        return LineChart({ ascii: false, crosshair: { input: counted }, data: [1, 2, 3] });
+      },
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    await frame(app);
+    // the chart's own, and its tooltip's
+    expect(subscribed).toBe(2);
+    app.exit(0);
+    await app.exited;
+    expect(unsubscribed).toBe(subscribed);
   });
 
   it('should draw the rule as | and its tick as + in ASCII', async () => {

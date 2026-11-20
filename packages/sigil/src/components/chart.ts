@@ -1000,8 +1000,10 @@ function shadeUnder(line: Dots, area: Dots): void {
  *
  * Nearest the middle of the cell, so the crosshair snaps to a sample rather than
  * standing between two: seven days across a wide plot are seven places it can be.
- * A column before the first sample a scrolling chart has drawn is none, as is one
- * outside the plot.
+ * Two samples the same distance away -- the two in one cell, at a step of one --
+ * go to the **newer**, so the latest sample, which is the one a scrolling chart is
+ * read for, is always under the last column. A column before the first sample a
+ * scrolling chart has drawn is none, as is one outside the plot.
  *
  * @param column - The cell column, from the plot's left edge.
  * @param plotWidth - The plot's width in cells.
@@ -1027,7 +1029,8 @@ function sampleUnder(
       ? 0
       : Math.min(longest - 1, Math.max(0, Math.round((dot * (longest - 1)) / last)));
   }
-  let k = longest - 1 - Math.round((last - dot) / step);
+  // samples back from the latest, rounded half towards the latest
+  let k = longest - 1 - Math.ceil((last - dot) / step - 0.5);
   // rounded onto a sample past the left edge, the nearest one drawn is the next
   if (k >= 0 && across(k) < 0) {
     k += 1;
