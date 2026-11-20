@@ -30,6 +30,7 @@
  */
 
 import { createConfigSync, json, type ConfigLayer, type ConfigSchema } from '@ttylabs/sigil/config';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
@@ -308,7 +309,9 @@ function configLayer(root: string): ConfigLayer {
   const found = CONFIG_FILES.filter((name) => existsSync(join(root, name)));
 
   if (found.length > 1) {
-    throw new Error(`${root} has both ${found.join(' and ')}; keep one.`);
+    // the root is whatever the file system calls it, and `main()` prints this as
+    // it stands (SIG-456)
+    throw new Error(`${escapeControls(root)} has both ${found.join(' and ')}; keep one.`);
   }
 
   // the `.json` one when there is neither, because that is the one `sigil new`

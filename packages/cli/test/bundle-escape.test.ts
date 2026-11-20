@@ -363,7 +363,20 @@ describe.skipIf(process.platform === 'win32')('an app the toolchain refuses', ()
     expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
 
-  it('should not print one from an external package refuses to bundle', async () => {
+  it('should not print one from a root that holds both config files', async () => {
+    const app = appNamed('buildable');
+    writeFileSync(join(app, 'sigil.json'), '{}');
+    writeFileSync(join(app, 'sigil.jsonc'), '{}');
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('has both sigil.json and sigil.jsonc');
+    expect(stderr).toContain(escapeControls(TITLE));
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from an external package names', async () => {
     const app = appNamed('buildable');
 
     const { code, stderr } = await run(

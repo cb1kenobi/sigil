@@ -1312,9 +1312,15 @@ makes it testable with a fixture directory and no bundler at all.
   a file's; `reference --check`'s `out of date in <name>`; `discover.ts`'s four
   refusals of a root it cannot read (no manifest, no runtime dependency, no
   entry, an `--entry` that is not there); `package`'s refusal of an `external`,
-  which is `sigil.json`'s or the flag's; and `tree.ts`'s three, which name a
+  which is `sigil.json`'s or the flag's; `config.ts`'s refusal of a root holding both
+  `sigil.json` and `sigil.jsonc`; and `tree.ts`'s three, which name a
   command directory and are escaped by reading -- the one a review tried to
-  reach arrived as a diagnostic first.
+  reach arrived as a diagnostic first. Review round 2 found the same shape in `package`'s
+  own refusals, and they are left for a ticket of their own rather than taken
+  here: `parseTarget()`'s and `parseSpec()`'s echo of a `--target` or
+  `--runtime` from `sigil.json` or the flag, `codesign failed for <file>` and the
+  other `compile.ts` sentences quoting the output path, and `@ttylabs/sigil`'s
+  update-check refusal of a `repo` that is not `owner/name`.
 
   `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
   throws quoted the app's root and the `tsc` under it raw, and `main()` prints
