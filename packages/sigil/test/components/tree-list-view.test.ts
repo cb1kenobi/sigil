@@ -1476,6 +1476,85 @@ describe('TreeListView()', () => {
       expect(held(host)?.seen).toBe(2);
     });
 
+    it('should count a value once that is shown before it is met under a closed branch', () => {
+      const items = new State<TreeChoiceItem[]>([{ items: ['dup', 'gone'], text: 'a' }]);
+      const host = tree({ expanded: ['a'], items });
+      control(host).collapse('a');
+      flush();
+
+      // the other order from the test above: shown at the margin first, then met
+      // under `a`
+      items.set(['dup', { items: ['dup'], text: 'a' }]);
+      flush();
+      expect(held(host)?.seen).toBe(2);
+    });
+
+    it('should look for values that left a tree its source changed in place', () => {
+      const tick = new State(0);
+      const calls: Record<string, number> = {};
+      const a = counting(calls, 'a', () => ['x']);
+      const nodes: TreeChoiceItem[] = [a, 'b'];
+      const host = tree({
+        expanded: ['a'],
+        items: {
+          get: () => {
+            tick.get();
+            return nodes;
+          },
+        },
+      });
+      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 3 });
+
+      nodes.shift();
+      tick.set(1);
+      flush();
+      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      nodes.unshift(a);
+      tick.set(2);
+      flush();
+      expect(calls).toEqual({ a: 2 });
+    });
+
+    it('should keep what was under a branch while a read again of it has failed, so a retry finds it as it was', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let fails = false;
+      const a = {
+        items: () => {
+          calls.a = (calls.a ?? 0) + 1;
+          return fails ? Promise.reject(new Error('offline')) : Promise.resolve(['a1', deep]);
+        },
+        text: 'a',
+      };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      fails = true;
+      control(host).reload('a');
+      flush();
+      await landed();
+      expect(picture(host, 40)).toEqual(['❯ └── ▾ a', '      └──   Could not load: offline']);
+      // a new tree while the error shows is no reason to forget what it hides
+      items.set([a]);
+      flush();
+      expect(held(host)?.seen).toBe(4);
+
+      fails = false;
+      control(host).reload('a');
+      flush();
+      await landed();
+      // `deep` stays closed, as the reader left it, and is read when it opens
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls).toEqual({ a: 3, deep: 1 });
+      expect(picture(host)).toEqual(['❯ └── ▾ a', '      ├──   a1', '      └── ▸ deep']);
+    });
+
     it('should read a node that comes back with expanded: true as new, and open it again', () => {
       const node = { expanded: true, items: ['x'], text: 'a' };
       const items = new State<TreeChoiceItem[]>([node, 'b']);

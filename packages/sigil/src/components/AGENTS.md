@@ -12686,7 +12686,21 @@ value it had ever shown.
   Opening and closing changes nothing in the data, so it never searches. A read the
   walk itself started that replaced an answer -- a stale branch opening, over a
   function that returns a list -- walks again with the search on, so what it took
-  is gone before anything can bring it back.
+  is gone before anything can bring it back. A tree is new when `items` hands over
+  a different value, and also when the walk ran with neither the open set nor a
+  landed read to account for it: that is a source that changed its tree in place
+  and woke the walk, which `{ get() }` allows, and it would otherwise never be
+  searched (review round 1).
+- **A failure is not the tree losing what was under the branch.** A read again
+  that fails keeps the answer it replaced as `last`, which is never shown -- the
+  error line is, by SIG-479's rule -- but which the search goes through, so a
+  transient error and a retry that lands find a branch under it as the reader left
+  it, closed and with its read. Dropping it there, which the first version did,
+  made it new: its `expanded: true` was read again and a branch the reader had
+  closed opened (review round 1). Forgetting a failed read -- a retry, or its
+  branch closed -- drops `last` without a search, and the next search drops
+  whatever under it the tree no longer has. SIG-479's marking of those reads as out
+  of date stands: they are read again when they open.
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
   what was reached come to as many as `seen` holds, nothing went and nothing is
@@ -12709,7 +12723,11 @@ value it had ever shown.
   walk; a replaced answer not noticed; a walk the walk caused not searching; every
   closed branch searched, and every seen one under it; no branch marked as gone
   under; a value shown and reached counted twice; and the comparison of sizes
-  removed.
+  removed. Review round 1 added five: `last` not kept, nothing reached through it,
+  a tree changed in place not searched, and a value shown and then met under a
+  closed branch counted twice (the other order from the first) -- each caught; and
+  a failure counted as an answer replaced, which survives because `last` keeps
+  the same values reachable, so it costs a search and drops nothing.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 

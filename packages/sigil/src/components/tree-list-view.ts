@@ -261,7 +261,20 @@ type Load<T> =
       readonly stale?: boolean;
       readonly state: 'loaded';
     }
-  | { readonly message: string; readonly state: 'failed' };
+  | {
+      /**
+       * The answer a read again that failed replaced: never shown, but what is
+       * under it is still the tree's, so a retry that lands finds it as it was.
+       */
+      readonly last?: readonly TreeChoiceItem<T>[];
+      readonly message: string;
+      readonly state: 'failed';
+    };
+
+/** What a read holds of the tree: what it found, or what a failure replaced. */
+function answerOf<T>(load: Load<T> | undefined): readonly TreeChoiceItem<T>[] | undefined {
+  return load === undefined ? undefined : load.state === 'failed' ? load.last : load.items;
+}
 
 interface Model {
   control: TreeListControl<unknown>;
@@ -375,12 +388,14 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * for values gone from the tree: the nodes it held may have gone with it.
    */
   let left = false;
-  /** Keeps a read, noting when the answer it replaces is a different one. */
+  /**
+   * Keeps a read, noting when the answer it replaces is a different one. A failure
+   * keeps the answer it replaced as `last`, so it is not one: a transient error is
+   * not the tree losing the branches under it.
+   */
   const put = (value: T, load: Load<T>): void => {
-    const was = loads.get(value);
-    if (was !== undefined && was.state !== 'failed' && was.items !== undefined) {
-      left ||= load.state === 'failed' || load.items !== was.items;
-    }
+    const had = answerOf(loads.get(value));
+    left ||= had !== undefined && answerOf(load) !== had;
     loads.set(value, load);
   };
   /** Bumped when a read lands, which is what makes the rows be walked again. */
@@ -483,7 +498,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * and with the items gone a subtree reload could no longer find them.
    */
   const fail = (value: T, message: string, before?: readonly TreeChoiceItem<T>[]): void => {
-    put(value, { message, state: 'failed' });
+    put(value, { last: before, message, state: 'failed' });
     if (before === undefined) {
       return;
     }
@@ -581,8 +596,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       if (Array.isArray(what)) {
         return what;
       }
-      const held = loads.get(parts.value);
-      return held === undefined || held.state === 'failed' ? undefined : held.items;
+      return answerOf(loads.get(parts.value));
     };
 
     /**
@@ -648,6 +662,8 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
         const isOpen = parts.branch && open.has(key);
         let status: TreeLoadStatus = 'idle';
         let children: readonly TreeChoiceItem<T>[] | undefined;
+        /** The answer a failure replaced, under an open branch that shows the error. */
+        let hidden: readonly TreeChoiceItem<T>[] | undefined;
         let message = '';
 
         if (parts.branch) {
@@ -674,7 +690,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
             if (held !== undefined) {
               status = held.state;
               if (held.state === 'failed') {
-                ({ message } = held);
+                ({ last: hidden, message } = held);
               } else {
                 children = held.items;
               }
@@ -702,6 +718,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
             beneath(children);
           }
           continue;
+        }
+        if (prune && under === true && hidden !== undefined) {
+          beneath(hidden);
         }
         if (children !== undefined) {
           if (under !== true) {
@@ -757,8 +776,12 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     }
   };
 
-  /** The tree the last walk read, so a new one is known to have changed it. */
-  let walked: TreeListItems<T> | undefined;
+  /**
+   * What the last walk read: the tree, the open set and the count of reads landed.
+   * A walk with a new tree, or with neither of the other two changed -- a source
+   * that changed its tree in place and woke the walk -- may have lost values.
+   */
+  let walked: { landed: number; open: ReadonlySet<T>; top: TreeListItems<T> } | undefined;
 
   /**
    * Forgets what is held for values the tree no longer has: neither shown nor
@@ -785,14 +808,18 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   createEffect(() => {
     const top = read();
     let open = expanded.get();
-    landed.get();
+    const count = landed.get();
     untrack(() => {
       const first = open;
-      // only a new tree, or a read's answer replaced, can take a value out of it, so
-      // only then is it looked for -- opening and closing leave the tree as it was
-      let pruning = left || top !== walked;
+      // only a tree that changed, or a read's answer replaced, can take a value out
+      // of it, so only then is it looked for -- opening and closing leave it as it was
+      let pruning =
+        left ||
+        walked === undefined ||
+        top !== walked.top ||
+        (open === walked.open && count === walked.landed);
       left = false;
-      walked = top;
+      walked = { landed: count, open, top };
       // a node seen for the first time with `expanded: true` opens, and what is
       // under it is walked at once rather than a frame later; a read the walk
       // started that replaced an answer walks again, looking for what it took
