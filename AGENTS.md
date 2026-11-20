@@ -1739,8 +1739,9 @@ why rather than what: it is the record of what each round found.
   why `@ttylabs/sigil` ships `docs/`. The skill points at the guides for the
   installed version rather than restating them, and does not link the website,
   which describes whichever version it is on. `skills.test.ts` and
-  `agents.test.ts` in `packages/cli` check every name, link and anchor, against
-  the built package and the manifests' `files`.
+  `agents.test.ts` in `packages/cli` check the links, the anchors and the names
+  written as an export, a module, a command or an installed path, against the
+  built package and the manifests' `files`.
 
 - **A new decision goes beside the code it is about, and the record of how it
   was reached goes under `docs/history/`.** This file was one file for a long

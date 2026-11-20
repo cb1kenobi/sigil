@@ -95,7 +95,10 @@ describe('the agent skills', () => {
   it('should ship exactly the skills it declares', () => {
     const found = [...packages].flatMap(([pkg, { dir }]) =>
       existsSync(join(dir, 'skills'))
-        ? readdirSync(join(dir, 'skills')).map((name) => `${pkg}:${name}`)
+        ? readdirSync(join(dir, 'skills'))
+            // a `.DS_Store` is the file system's, not a skill
+            .filter((name) => !name.startsWith('.'))
+            .map((name) => `${pkg}:${name}`)
         : []
     );
 

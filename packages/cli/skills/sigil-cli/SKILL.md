@@ -286,7 +286,9 @@ sigil reference --json --check                      # and the snapshot, a second
 
 Scaffolds an app: the schema in `src/index.ts`, commands in `src/commands/`
 (or one root command with `--layout single`), a `dev` runner that starts it
-from source, tests, `sigil.json`, `AGENTS.md`, and the release workflow.
+from source, tests, `sigil.json`, `AGENTS.md` and `CLAUDE.md`, and the release
+workflow. A full-screen app in JSX has no `dev` runner: Node cannot run JSX, so
+its `dev` script is `sigil build --quiet` and then the bundle.
 `--lang js` scaffolds JavaScript with no tsconfig, which means no type check.
 `--no-install` and `--no-git` skip the install and `git init`. See
 [Running without a terminal](#running-without-a-terminal) for the flags that

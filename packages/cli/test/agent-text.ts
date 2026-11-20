@@ -1,5 +1,5 @@
 import { root } from './guides.ts';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,17 +28,31 @@ export function codeSpans(markdown: string): string[] {
   return [...markdown.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]!);
 }
 
-/** The published packages: their directories and manifests, by name. */
+/**
+ * The published packages: their directories and manifests, by name.
+ *
+ * Read off `packages/` rather than listed, as `what every package publishes` in
+ * `cli.test.ts` reads it, so a new package is known here without anybody
+ * remembering to add it.
+ */
 export function workspacePackages(): Map<string, { dir: string; files: readonly string[] }> {
+  const packages = join(root, 'packages');
   return new Map(
-    ['sigil', 'cli', 'config-xml', 'config-yaml', 'screenshot'].map((name) => {
-      const dir = join(root, 'packages', name);
-      const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8')) as {
-        files: string[];
-        name: string;
-      };
-      return [manifest.name, { dir, files: manifest.files }];
-    })
+    readdirSync(packages, { withFileTypes: true })
+      .filter(
+        (entry) => entry.isDirectory() && existsSync(join(packages, entry.name, 'package.json'))
+      )
+      .flatMap((entry) => {
+        const dir = join(packages, entry.name);
+        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8')) as {
+          files?: string[];
+          name: string;
+          private?: boolean;
+        };
+        return manifest.private === true
+          ? []
+          : [[manifest.name, { dir, files: manifest.files ?? [] }] as const];
+      })
   );
 }
 
@@ -62,10 +76,21 @@ export function specifiersIn(spans: readonly string[]): string[] {
   return [...new Set(spans.filter((span) => span.startsWith('@ttylabs/')))];
 }
 
-/** Every "`name` from `module`" the markdown says, as `[name, module]`. */
+/**
+ * Every "`name` from `module`" the markdown says, as `[name, module]`.
+ *
+ * The prose around it is free: a claim wraps across lines, closes a bold run
+ * just before its "from", names a call with its arguments, and names several
+ * at once ("`ansi` and `strip()` from"), each of which is tied to the module.
+ */
 export function exportClaims(markdown: string): [string, string][] {
-  return [...markdown.matchAll(/`(\w+)(?:\(\))?` from `(@ttylabs\/[\w/-]+)`/g)].map(
-    ([, name, specifier]) => [name!, specifier!]
+  const name = String.raw`\`\w+(?:\([^\`]*\))?\``;
+  const claim = new RegExp(
+    String.raw`((?:${name}(?:,\s*|\s+and\s+|,\s+and\s+))*${name})\**\s+from\s+\`(@ttylabs\/[\w/-]+)\``,
+    'g'
+  );
+  return [...markdown.matchAll(claim)].flatMap(([, names, specifier]) =>
+    [...names!.matchAll(/`(\w+)/g)].map(([, each]) => [each!, specifier!] as [string, string])
   );
 }
 
@@ -150,11 +175,22 @@ export function anchorsOf(markdown: string): Set<string> {
   const anchors = new Set<string>();
   const seen = new Map<string, number>();
 
-  for (const [, heading] of text.matchAll(/^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/gm)) {
+  for (const [, heading] of text.matchAll(/^#{1,6}[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/gm)) {
+    // what GitHub slugs is the rendered text: a code span's content is kept
+    // whole, while around it a tag, a link's target and the markers of
+    // emphasis are not text at all
     const plain = heading!
-      .replace(/<[^>]*>/g, '')
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-      .replace(/`/g, '');
+      .split(/(`[^`]*`)/)
+      .map((part, i) =>
+        i % 2 === 1
+          ? part.slice(1, -1)
+          : part
+              .replace(/<[^>]*>/g, '')
+              .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+              .replace(/\*+/g, '')
+              .replace(/(^|[^\p{L}\p{N}])_+|_+(?=[^\p{L}\p{N}]|$)/gu, '$1')
+      )
+      .join('');
     const slug = plain
       .toLowerCase()
       .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '')

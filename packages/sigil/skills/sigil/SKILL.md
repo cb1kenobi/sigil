@@ -26,6 +26,11 @@ ship beside it, and every section below links to them:
 - [docs/agents.md](../../docs/agents.md): the short block an app's `AGENTS.md`
   carries. This skill agrees with it and goes further.
 
+Those docs are written for the repository, so their links into `src/`,
+`examples/`, `demos/` and the other packages lead nowhere inside
+`node_modules`. Read the exported types in `dist/` instead of `src/`, and the
+examples on GitHub (`cb1kenobi/sigil`).
+
 ## Task map
 
 | To do this                       | Import from                                           | Read                                                                                                                      |
@@ -248,7 +253,10 @@ not "fix" them. The full list is
   ask, so work that only a prompt needs can be skipped.
 
 - **Every prompt takes `value`**, an answer to start from, and a `signal` to
-  abort it (`AbortSignal.timeout(10_000)` for a default after a delay).
+  abort it. Aborting rejects with the signal's own `reason`, not a
+  `PromptError`, so a default after a delay is `AbortSignal.timeout(10_000)`
+  and a `.catch()` that returns the default when `err.name` is
+  `'TimeoutError'` and rethrows anything else.
 - **Ask several questions with `group()`** from
   `@ttylabs/sigil/components/group`. Escape goes back a step, and `isCancel()`
   tells a cancel from a missing terminal.
@@ -349,8 +357,8 @@ habits that break here come from React and Ink:
   throws, because tracking stops at the first `await`.
 - **There is no async signal primitive.** Load asynchronously by hand: read the
   signals you depend on before the first `await`, write the result into a
-  `State` when it lands, and drop answers that a newer request overtook. The
-  file manager example's `openDir` does this with a counter:
+  `State` when it lands, and drop answers that a newer request overtook, with a
+  counter:
 
   ```ts
   const rows = new State<Row[]>([]);
@@ -375,15 +383,30 @@ habits that break here come from React and Ink:
   ```
 
   A load that can finish after the component is gone should also check a flag
-  that an `onCleanup()` sets.
+  that an `onCleanup()` sets. The file manager in the repository's `examples/`
+  is a complete app written this way.
 
 ## Config files
 
 `createConfig()` from `@ttylabs/sigil/config` is one merged view over a stack
-of layers, bottom first, so later layers win. `json(path)` reads JSON with
-comments and trailing commas, and `object(value)` is a layer the app already
-holds. Put the user's file under `configHome('myapp', 'config.json')` from
-`@ttylabs/sigil/paths`. See [Config files](../../README.md#config-files).
+of named layers, bottom first, so later layers win. It is async; use
+`createConfigSync()` where an `await` cannot go. Each layer has a `store`:
+`json(path)` reads JSON with comments and trailing commas, and `object(value)`
+holds values the app already has. See [Config files](../../README.md#config-files).
+
+```ts
+import { createConfig, json, object } from '@ttylabs/sigil/config';
+import { configHome } from '@ttylabs/sigil/paths';
+
+const config = await createConfig({
+  schema: { 'server.port': { type: 'int', default: 8080, env: 'PORT' } },
+  layers: [
+    { name: 'user', store: json(configHome('myapp', 'config.json')) },
+    { name: 'runtime', store: object() },
+  ],
+});
+config.get('server.port');
+```
 
 - **Core does not load config.** `main()` never reads a config file and there
   is no automatic `--config` option. Mix the two yourself, as
@@ -411,7 +434,9 @@ Read [docs/testing.md](../../docs/testing.md). The helpers come from
   [A full-screen app](../../docs/testing.md#a-full-screen-app).
 - **Test streams are pipes**, so color and terminal width are never seen.
   `runOnTerminal()` runs a program in a child process that has a terminal.
-- **A full-screen app** is mounted on `createTestTerminal()` with
-  `detect: false`, driven with `term.press()` and `KEYS`, and read after
-  `frame(app)`, because frames are drawn on a clock and not once per key. See
-  [Testing it](../../docs/full-screen-apps.md#testing-it).
+- **A full-screen app** runs on a fake terminal:
+  `const term = createTestTerminal({ columns: 60, rows: 16 })`, then
+  `runApp(App, { detect: false, sheets: [stylesheet], terminal: term.terminal })`.
+  Drive it with `term.press()` and `KEYS`, and read `term.viewport` after
+  `await frame(app)`, because frames are drawn on a clock and not once per key.
+  See [Testing it](../../docs/full-screen-apps.md#testing-it).
