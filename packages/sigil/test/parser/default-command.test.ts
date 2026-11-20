@@ -387,6 +387,60 @@ describe('default command', () => {
     });
   });
 
+  // SIG-419: `help` is a command of the root only, so what stands before it
+  // is not a command path -- see "`--help` is trimmed from the innermost
+  // command argv named" in `src/parser/AGENTS.md`
+  describe('help as a command, after a subcommand of a default', () => {
+    const schema: Schema = {
+      commands: { serve: { commands: { status: { run() {} } }, default: true } },
+    };
+    const helpedByCommand = async (argv: string[]) => {
+      const state = await parse({ argv, schema });
+      expect(state.help?.via).toBe('command');
+      return state.help?.contexts.map((c) => c.name);
+    };
+
+    it('should treat `status help` as it treats any word before `help` the root does not know', async () => {
+      // `status` is not a command of the root on the pass that matches `help`,
+      // and nothing resolves it afterwards: the command form reads the path
+      // *after* itself, so the word before it is ignored, as `nope` is
+      expect(await helpedByCommand(['status', 'help'])).toStrictEqual(['global']);
+      expect(await helpedByCommand(['nope', 'help'])).toStrictEqual(['global']);
+    });
+
+    it('should refuse a trailing `help` after a command that was matched, default or not', async () => {
+      // the trailing form is not a form: `help` is looked up in the innermost
+      // context, which has no such command, so `status help` printing the root
+      // screen is the one spelling here that is *not* refused, and that is
+      // the stray-word rule above and not a feature
+      await expect(parse({ argv: ['serve', 'help'], schema })).rejects.toThrow(
+        'Unexpected argument "help"'
+      );
+      await expect(parse({ argv: ['serve', 'status', 'help'], schema })).rejects.toThrow(
+        'Unexpected argument "help"'
+      );
+      await expect(
+        parse({ argv: ['build', 'help'], schema: { commands: { build: { run() {} } } } })
+      ).rejects.toThrow('Unexpected argument "help"');
+    });
+
+    it('should describe the subcommand through the default when it is spelled the way `help` reads it', async () => {
+      // the form that does answer the question: the path after `help`, from
+      // the root, with the default named
+      expect(await helpedByCommand(['help', 'serve', 'status'])).toStrictEqual([
+        'status',
+        'serve',
+        'global',
+      ]);
+    });
+
+    it('should still refuse `help status`, which resolves from the root only', async () => {
+      await expect(parse({ argv: ['help', 'status'], schema })).rejects.toThrow(
+        'Unknown command "status"'
+      );
+    });
+  });
+
   describe('declaration errors', () => {
     it('should error if two sibling commands are both default', async () => {
       await expect(
