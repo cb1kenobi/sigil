@@ -12395,6 +12395,81 @@ held on every batch: at 200,000 lines, about 11 ms of an 18 ms batch.
   `undefined` as no key and `NaN !== NaN`. The answer is right, and it is only
   slower for keys no app chooses, so it is left alone.
 
+### A key read before the frame acts on the items as they are now (SIG-469)
+
+Found by the editor example. Its palette is a `TextField` over a `ListView` of
+commands ranked by `rankBy()`, and it moved the cursor to the best match in an
+effect over the ranking. An effect runs with the next frame, and the router hands
+over every key of one read before any frame, so `reload` and Enter in one read --
+a paste, or fast fingers -- ran the row the cursor was on before the query
+changed. The example moved the cursor in the field's `onChange` instead, and moved
+Up and Down over the ranking by hand rather than through the list, for the same
+reason.
+
+- **The list's half of it was a defect, and it is the half every app shared.** The
+  list re-keys its rows in an effect too, so a key read between a change of the
+  items and the next frame acted on the rows the last frame keyed. Measured before
+  the fix: a list of `apple`, `banana` and `cherry` with the cursor on `apple`,
+  handed `banana` and `cherry`, ran `onActivate('apple')` on Enter -- a row no
+  longer in the list. Down over a re-sort moved by the old order. Neither needs an
+  app to set the cursor in an effect: a filtered `DataTable` and Enter in one read
+  is enough.
+- **Every way in takes the items first, through the `sync()` the cursor effect
+  already used.** The key handler, a row's click, and every call on
+  `listControl()`: `activate()`, `reveal()`, `refresh()` and the selection. The
+  selection an app is handed is a wrapper over the one the list holds, each call
+  bringing the rows up to date before it moves or answers, because an app that
+  keeps the focus in a field forwards Up, Down and Enter through the control --
+  which is how the editor's palette does it now. `sync()` is a comparison of one
+  array when nothing changed, and the items effect then finds nothing to do.
+- **The `current` state is not part of it.** It is a `State` the app may hold, and
+  a read of it between the change and the frame still says where the cursor was.
+  `index()` and `keyAt()` answer for the rows as they are now. A call on the
+  selection can therefore **write** `current`, where taking the new rows moves the
+  cursor -- which is the point, and is why one is not for a `Computed`, which may
+  not write. Nothing has a reason to call one there: every method is untracked, so
+  a `Computed` would not hear the answer change.
+- **`follow: 'first'` is the palette's half, and it is an option rather than a rule
+  for the app to follow.** The ticket asked for the cursor to move in the same step
+  as the query, and the only step a list can see is its rows changing -- so
+  `'first'` puts the cursor on the first row that is not disabled at every
+  `setRows()` after the first. The first is not a change, so a `current` the app
+  gave is where the cursor starts. With no row it can be on, the key is kept, as it
+  is for the other two. It is the third value of `follow` rather than a prop of its
+  own because it answers the same question -- what the cursor keeps when the rows
+  change -- and a list cannot do two of them. A `DataTable` passes it through,
+  since a table filtered as the user types is the same case.
+- **What it cannot express is a list whose rows change for two reasons.** Demo 58
+  ranks two thousand packages by a filter and re-sorts them by downloads every
+  second: with `'first'` each tick would put the cursor back on top. So that demo
+  moves it in the field's `onChange`, with `selection.first()` -- and that call
+  takes the new ranking first, so it lands on the first row of the query just
+  typed. It used an effect over the query until this change, which is the race
+  this entry is about; its piped output is the same either way.
+- **`commandPalette()` never had it.** `runList()` is a prompt: `key()` ranks and
+  draws before it returns, and `insert()` puts the highlight back on the top row,
+  so Enter reads the ranking the key before it made. Pinned rather than changed:
+  `should answer with the best match when the query and the enter are one read`,
+  and a second whose starting row still matches as the second row, which a
+  highlight that stayed with its row would answer with.
+- **The other components that filter as the user types were checked, and none
+  races.** `autocomplete()`, with a static or an async source,
+  `autocompleteMultiselect()` and `path()` are prompts: each filters and draws
+  inside `key()`, and an async source already refuses Enter while a lookup is out,
+  which is this rule one step along. `select()`, `multiselect()`,
+  `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
+  were read too and take no typed filter. `Dropdown` and `Menu` have no filter
+  either, and their effects only draw. `TreeListView` and `DataTable` are built on
+  the list and get the fix with it. The log browser's `n` reads
+  `selection.index()`, and now gets the rows as they are.
+- **Pinned in three places.** `a key in the same step as a change of the items` in
+  `list-view.test.ts`, with nothing flushed between the change and the key; one
+  filtered `DataTable` test; and the editor's palette tests, which type and press
+  Enter -- and Down -- in one read. Sabotaged one at a time: the key handler's
+  sync, `activate()`'s, the wrapper's, the click's and `'first'` each fail a test
+  of their own. The key handler's alone fails only the Down test, since
+  `activate()` syncs for Enter too.
+
 ### A tree list view: a `ListView` of the open rows, with Right, Left and lazy branches (SIG-282)
 
 `src/components/tree-list-view.ts`. An interactive tree in a full-screen app -- an

@@ -432,6 +432,39 @@ describe('the editor', () => {
       expect(it.screen()).toContain('Read the file tree again');
     });
 
+    it('should run the best match when the typing and the Enter are one read', async () => {
+      // a paste, or keys faster than the terminal hands them over: the router
+      // decodes the whole read and routes every key in it before any frame
+      const it = await mount(workspace({ 'a.txt': 'a\n' }));
+      await it.press(ctrl('p'), `reload${KEYS.enter}`);
+      expect(it.screen()).toContain('Read the file tree again');
+    });
+
+    it('should put the cursor on the best match where the row it was on still matches', async () => {
+      // `Save` is where the cursor starts and `e` still matches it, as the second
+      // row: a list that kept its cursor on its row would leave it there, and Enter
+      // would save rather than run `Focus editor`, the best match
+      const it = await mount(workspace({ 'a.txt': 'a\n' }));
+      await open(it, 'a.txt');
+      await it.press(ctrl('p'), 'e');
+      expect(paletteRow(it)).toContain('Focus editor');
+      await it.press(KEYS.enter);
+      expect(it.screen()).not.toContain('Command palette');
+      expect(it.screen()).not.toContain('No changes to save');
+    });
+
+    it('should move over the ranking the typing made when an arrow is in the same read', async () => {
+      // `go` ranks `Go to first.txt` first and `Go to second.txt` next, so Down and
+      // Enter switch to `second.txt` -- where a Down over the rows the palette
+      // opened with goes from `Save` to `Save all`, which leaves `first.txt` active
+      const it = await mount(workspace({ 'first.txt': 'f\n', 'second.txt': 's\n' }));
+      await open(it, 'second.txt');
+      await open(it, 'first.txt');
+      await it.press(ctrl('p'), `go${KEYS.down}${KEYS.enter}`, '!');
+      expect(it.screen()).toContain('second.txt ●');
+      expect(it.screen()).not.toContain('first.txt ●');
+    });
+
     it('should switch to an open tab by name', async () => {
       const it = await mount(workspace({ 'first.txt': 'f\n', 'second.txt': 's\n' }));
       await open(it, 'first.txt');

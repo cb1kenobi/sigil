@@ -27,7 +27,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
@@ -760,6 +760,22 @@ describe('DataTable()', () => {
     press(host, 'down');
     press(host, 'enter');
     expect(opened).toEqual([7]);
+  });
+
+  it('should activate a row of the filtered rows when Enter comes before the next frame', () => {
+    // the filter and the Enter in one read: the list takes the rows as they are
+    // now before it reads the cursor, rather than the rows its last frame keyed,
+    // where `launchd` -- which the filter drops -- is still first (SIG-469)
+    const filter = new State('');
+    const rows = new Computed(() => PROCS.filter((p) => p.name.includes(filter.get())));
+    const opened: number[] = [];
+    const host = procs({ onActivate: (pid) => opened.push(pid), rows });
+    picture(host, 48);
+
+    filter.set('o');
+    press(host, 'enter');
+
+    expect(opened).toEqual([42]);
   });
 
   it('should tick the rows it is handed as selected, and keep the ticks in a State it is handed', () => {

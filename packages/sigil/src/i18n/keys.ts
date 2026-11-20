@@ -185,7 +185,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected every tree node to have a value of its own: {0} is used twice',
   'Expected items to be an array',
   'Expected list empty to be a string or a function that builds an element',
-  'Expected list follow to be a boolean or a State',
+  "Expected list follow to be a boolean, 'first' or a State",
   'Expected list items to be an array, a State or a Computed',
   'Expected list selected to be an iterable of keys or a State',
   'Expected list tail to be a boolean or a State',

@@ -190,6 +190,40 @@ describe('commandPalette()', () => {
     expect((await answer).value?.argv).toEqual(['db', 'migrate']);
   });
 
+  it('should answer with the best match when the query and the enter are one read', async () => {
+    // a paste, or fast fingers: every key of the read is handled before anything
+    // draws, so the highlight has to be on the best match by the time Enter is
+    // read rather than by the next frame (SIG-469). `build` is where it starts and
+    // `deploy` is the only match for `dep`, so a stale highlight answers `build`
+    const ui = screenSetup({ rows: 12 });
+    const answer = settle(
+      open(
+        ui,
+        await appState({ commands: { build: { run(): void {} }, deploy: { run(): void {} } } })
+      )
+    );
+
+    await type(ui.stdin, `dep${ENTER}`);
+
+    expect((await answer).value?.argv).toEqual(['deploy']);
+  });
+
+  it('should answer with the best match when the row it was on still matches, in one read', async () => {
+    // `ade` starts highlighted and still matches `de`, as the second row: the
+    // highlight goes to `deploy`, the best match, rather than staying on its row
+    const ui = screenSetup({ rows: 12 });
+    const answer = settle(
+      open(
+        ui,
+        await appState({ commands: { ade: { run(): void {} }, deploy: { run(): void {} } } })
+      )
+    );
+
+    await type(ui.stdin, `de${ENTER}`);
+
+    expect((await answer).value?.argv).toEqual(['deploy']);
+  });
+
   it('should answer with nothing when it is dismissed', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
