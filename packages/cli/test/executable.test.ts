@@ -48,6 +48,16 @@ describe('writeExecutable()', () => {
     );
   });
 
+  it('should say which file it could not write when the stub outlasts the shell', () => {
+    const dir = tempDir('sigil-executable-');
+    // more than any pipe holds, so `sh` has always exited, without reading a
+    // byte, before the write is done: the EPIPE the stub above meets only when
+    // it loses a race (SIG-531)
+    const big = `#!/bin/sh\n${'#'.repeat(4 * 1024 * 1024)}\n`;
+
+    expect(() => writeExecutable(join(dir, 'no-such-dir', 'stub'), big)).toThrow(/no-such-dir/);
+  });
+
   it.skipIf(!POSIX)('should end with the mode it was asked for, and run', () => {
     const dir = tempDir('sigil-executable-');
 

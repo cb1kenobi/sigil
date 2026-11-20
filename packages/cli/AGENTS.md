@@ -6457,3 +6457,17 @@ test in this package writes for something to run -- a fake `bun`, a fake
   mode in a variable, or set some other way such as a shell `chmod +x`, is out
   of its reach, and so is a second call to a helper whose one mode is already
   counted -- `which.test.ts`'s `exe()` and `editor.test.ts`'s `bin()`.
+- **A write `sh` refused is reported as the path it refused, even when the
+  write also hit `EPIPE` (SIG-531).** A `sh` that cannot open the file exits
+  without reading its stdin, so a stub still being written fails to go in with
+  `EPIPE`, and `spawnSync()` reports that as `error` beside the `status` and
+  `stderr` that say why. The helper threw `error` first, so whether a test heard
+  `Could not write <path>` or `spawnSync /bin/sh EPIPE` depended on how far the
+  write got before `sh` exited -- a race CI's Linux jobs lost often enough to
+  fail `main`'s own run in two jobs and one PR's job twice in a row, while macOS
+  and Windows never did. An `EPIPE` beside a non-zero exit is now passed over in
+  favor of the exit; any other `error` is still thrown. Measured before fixing:
+  `status` is 1 and `stderr` names the file whether or not `EPIPE` is set, and a
+  4 MiB stub meets `EPIPE` on every run on macOS where 10 B and 64 KiB never
+  did. So the second test writes 4 MiB, which pins the race rather than leaving
+  it to timing.
