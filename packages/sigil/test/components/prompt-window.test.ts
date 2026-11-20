@@ -85,16 +85,16 @@ const PIECES = [
   '가', // a syllable spelled in jamo
   '😀',
   '👍🏽', // a skin tone
-  '👨‍👩‍👧', // a ZWJ family
-  '🧑‍💻',
+  '👨\u200D👩\u200D👧', // a ZWJ family
+  '🧑\u200D💻',
   '🇯🇵',
   '🇦', // a lone regional indicator, which pairs with whatever follows
   '1️⃣', // a keycap
   '©️',
   '́', // a combining acute, joining whatever is before it
   '̈',
-  '​', // zero width space
-  '‍', // a joiner on its own
+  '\u200B', // zero width space
+  '\u200D', // a joiner on its own
   '️',
   'का', // a spacing mark
   'é',
@@ -150,7 +150,7 @@ describe('promptWindow()', () => {
   it('should agree with the old loop at every cursor and room of a fixed value', () => {
     // each case beside every other: a wide cluster at both edges, a zero-width
     // run, a flag and a joined family, so each straddles the edge at some room
-    const value = 'ab漢​​ć👨‍👩‍👧d🇯🇵🇦e字';
+    const value = 'ab漢\u200B\u200Bć👨\u200D👩\u200D👧d🇯🇵🇦e字';
     for (let cursor = 0; cursor <= value.length + 1; cursor++) {
       for (let room = -1; room <= 14; room++) {
         expect(promptWindow(value, cursor, room), `${cursor} in ${room}`).toEqual(

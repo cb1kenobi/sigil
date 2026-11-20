@@ -157,7 +157,7 @@ export function resolveCommandTree(dir: string, options: ResolveOptions = {}): R
   // divergence everything here exists to prevent
   if (readPackage(dir)) {
     throw new Error(
-      `Cannot resolve "${dir}" at build time: its package.json makes it a package rather ` +
+      `Cannot resolve "${escapeControls(dir)}" at build time: its package.json makes it a package rather ` +
         'than a directory of commands, and the runtime names such a package from the module ' +
         'it imports -- which the build cannot read without running it. Declare it under a ' +
         'key to make it one named command, or remove the manifest to have its routes ' +
@@ -182,7 +182,7 @@ export function resolveCommandTree(dir: string, options: ResolveOptions = {}): R
 function level(dir: string, diagnostics: Diagnostic[], facts: boolean): ResolvedCommand[] {
   const found = readRoutes(dir);
   if (!found) {
-    throw new Error(`Command directory not found: ${dir}`);
+    throw new Error(`Command directory not found: ${escapeControls(dir)}`);
   }
 
   warnManifest(found, diagnostics);
@@ -321,7 +321,7 @@ function resolve(
     // once, in the comment that says both halves come from one `readdir`
     const inside = readRoutes(route.path);
     if (!inside) {
-      throw new Error(`Command directory not found: ${route.path}`);
+      throw new Error(`Command directory not found: ${escapeControls(route.path)}`);
     }
 
     warnManifest(inside, diagnostics);

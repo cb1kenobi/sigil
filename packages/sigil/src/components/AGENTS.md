@@ -2317,7 +2317,10 @@ a font, `renderFiglet()` turns a string into a rectangle of characters, and
   U+200D characters, in `packages/sigil/README.md` and in
   `test/components/typewriter.test.ts`, where they are the joiners inside emoji
   sequences -- so the check needs an allow-list, which is a decision about that test
-  rather than about this feature.
+  rather than about this feature. SIG-483 took it: the sweep found fifteen files
+  rather than two, the code ones write the joiner as an escape now, and the rule
+  is under "The source carries no format character either" in the root
+  `AGENTS.md`.
 
 #### A typewriter: text that arrives a chunk at a time
 
@@ -3042,12 +3045,24 @@ it is a component rather than the frame effect SIG-103 is.
   below has an entry about.
 
 - **Per-tick invalidation is not a regression, and it was checked rather than
-  assumed.** The effect calls `invalidateMeasure()` on the cipher and
-  `invalidatePaint()` on the plain layer; the one-element view called `setText()`,
+  assumed.** Both layers are `trackedRaw()` (SIG-486), so a new frame marks the
+  cipher for layout, because its measure read the frame, and the plain layer for
+  paint, because only its paint did -- an effect beside the two used to call
+  `invalidateMeasure()` and `invalidatePaint()` for the same marks. The guard lays
+  the block out and paints it once before it writes, since a tracked raw listens
+  from its first measure and paint, which on screen is the first frame. One thing
+  moved with it: the frame used to be copied into a plain field so that a caller
+  tracking its own reads -- `renderToString()` of the block inside an effect or a
+  `Computed` -- never subscribed to `state.frame`, and now it does, because
+  `trackedRaw()` hands such a caller what the measure and the paint read. That is
+  the right answer for the caller, since what it rendered really did change, and
+  it means such a caller runs again on every tick while the text resolves. Nothing
+  in the library is one: `mountLive()` goes through `render()`, and the pane's
+  `measureNode()` is called from its handlers. The one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a
-  jumble does not produce. Each call says what changed about **its own** element
+  jumble does not produce. Each mark says what changed about **its own** element
   rather than what the frame will do about it: a frame coalesces them today, since
   a layout mark repaints everything, which is why the guard reads the marks rather
   than the picture and why it is written against the day paint is narrowed.
@@ -3783,10 +3798,11 @@ again. The new tests are `test/components/multiline-extras.test.ts`.
   `should leave the gutter out of what a selection copies` asks about the tree the
   prompt really builds.
 - **`charLimit` counts grapheme clusters, a line break included.** It is the unit
-  the caret steps over and the one the count on screen has to agree with, so
-  `👨‍👩‍👧` is one. A store that needs code points or bytes checks that in
-  `validate`, which already exists for exactly that. A typed key at the limit
-  inserts nothing and a paste is cut to what fits rather than refused whole.
+  the caret steps over and the one the count on screen has to agree with, so a
+  family emoji, `U+1F468 U+200D U+1F469 U+200D U+1F467`, is one. A store that
+  needs code points or bytes checks that in `validate`, which already exists for
+  exactly that. A typed key at the limit inserts nothing and a paste is cut to
+  what fits rather than refused whole.
 - **An `initial` over the limit is refused, a `value` over it is dropped.** That
   is the rule SIG-204 records for every prompt, applied here rather than made up:
   an `initial` is something somebody wrote, and a `value` is usually an earlier
@@ -5706,6 +5722,18 @@ from year, month and day segments, with the hour, minute and second added by
   last day of a shorter month and is not given back, so 31 January stepped to
   February and on to March is the 28th. Remembering the wanted day would be state
   the field does not show.
+- **A year the segment cannot hold is pulled to the nearer end before it wraps**
+  (SIG-449). An explicit `initial` or `value` is taken as it is, and a `Date` reaches years
+  far past 0-9999, so the year can start outside the segment -- and the wrap ran
+  from wherever it started, so year -1 stepped down was 9998, the far end of the
+  range from where the person was. Up or Down on a year outside the range now
+  steps it and lets `put()` clamp it, so -1 either way is 0000 and 10000 either
+  way is 9999, and the next step wraps as any other does. Nearer end rather than
+  "clamp, then step and wrap", which would make -1 down 9999: still the far end,
+  and the opposite of what `pickDate()`'s first arrow does from the same start.
+  The year is the only field this reaches -- a `Date`'s month, day and clock are
+  always inside their segments -- but the check is on the segment's limits, not
+  on the name. Typing and Page Up/Down already clamped.
 - **Digits fill a segment; Backspace clears what was typed into it.** The digits
   are pending until the segment is full or is left (arrow, Tab, Enter, a step),
   and pending digits are shown as typed with `_` for the rest. A full segment
@@ -5814,7 +5842,8 @@ field.
   the day -- so it is the years that win over a `min` or `max` set outside them,
   not the option. Home and End never leave the month and were never affected;
   `date()` was not either, since its year segment wraps inside `[0, 9999]` and
-  its page keys are `addMonths()`. That `[0, 9999]` is `date.ts`'s own, and
+  its page keys are `addMonths()` -- though a year that _started_ outside was
+  wrapped from there until SIG-449 (see "A date prompt"). That `[0, 9999]` is `date.ts`'s own, and
   stays so: an ejected `date` imports every value it takes from `calendar.ts`
   through `@ttylabs/sigil/components/calendar`, so sharing the pair would put
   two new names on that subpath for good. What was left alone: an
@@ -7444,7 +7473,94 @@ questions were settled as below. The sabotage runs are in
   time axis that labels more than its two ends; `selectable: false` on a live
   chart's body, which the printed tree does not set either; and a mouse readout of
   the value under the pointer, which is a tooltip's job and wants the samples'
-  positions, which a drawing does not keep.
+  positions, which a drawing does not keep. SIG-464 did the last, below, by having
+  the drawing say where its crosshair stands.
+
+### A line chart's area and crosshair (SIG-464)
+
+`fill` on `lineChart()`, `LineChart` and a series, and `crosshair` on `LineChart`.
+Found writing the dashboard, whose model -- shadcn's interactive area chart -- shades
+under its lines and shows the values under the pointer.
+
+- **The shade is a quarter of the dots, not all of them.** Every other dot across
+  and down, from just under the line's highest dot in each dot column to the bottom
+  of the scale: a braille cell's `⠅`. A solid shade was the obvious build and fails
+  without colour -- a block whose top edge is the line, and a second series drawn
+  across it is lost in the first one's block. Half the dots in a checkerboard was
+  tried next and was still too dense at `NO_COLOR` for a lower line to read through
+  an upper shade. A quarter is a tint in colour and a texture without it, and the
+  line stays the densest thing in the plot. The screen is laid on the plot's dot
+  grid rather than per series, so two shades meeting in a cell agree about which
+  dots are a shade's. A dot column the line does not reach -- a gap, or the plot
+  before a scrolling chart's history -- is not shaded, which is the gap rule: a
+  missing sample is drawn as nothing, shade included. In ASCII a cell of shade is
+  `:` under the `*` line.
+- **A line beats the crosshair and the crosshair beats a shade, whichever series
+  each belongs to.** A cell with a line in it is every line's dots and the owning
+  series' shade, in the owner's colour -- the paint-order rule of the live charts
+  entry above, unchanged -- so an upper series' shade never puts dots into a lower
+  series' line or takes its colour. A cell the crosshair runs through with no line
+  in it is the crosshair's, `.sigil-chart-crosshair` and `.sigil-muted`; the rule is
+  broken where it meets a line, which marks the point it stands on. A cell of shade
+  alone is the last filled series', with `.sigil-chart-area` beside its series'
+  classes -- a hook, and no framework rule, for the reason the series classes have
+  none. `should never draw a shade over a line, whichever series it belongs to` is
+  the pin for a line against a shade, and fails for a cell that takes every
+  series' shade; `should draw a line over the rule, and the rule over a shade` is
+  the pin for the crosshair's two, in ASCII, where each cell's glyph says which of
+  the three it is.
+- **The crosshair is a vertical rule snapped to a sample, and nothing horizontal.**
+  The rule stands at the sample nearest the middle of the pointer's cell, counted
+  along the longest series -- seven days across a wide plot are seven places it can
+  be -- and the axis gets a `┴` under it. Where the pointer's cell holds several
+  samples -- two at a step of one, many where `fit` spreads more samples than the
+  plot has dot columns -- it is the **newest** of them, and two equally near go to
+  the newer. Review round 1 found the first version rounding half towards the
+  older, which left the latest sample of a scrolling chart -- the one it is read
+  for -- under no column at all; round 2 found the same in `fit` over a long range,
+  the dashboard's 90 days on a narrow plot. Something in such a cell is always
+  unreadable, since a cell is the pointer's resolution, and the older samples are
+  the ones to lose. A horizontal line at the pointer's height
+  would name a value nothing has: what the readout says is each line's value at
+  that sample, and a reader's eye finds those on the lines. A column left of a
+  scrolling chart's history, or over the gutter, has no sample and draws nothing.
+- **The pointer column is the state, and the drawing snaps it.** The chart keeps
+  the cell column the pointer is over, not the sample, and `lineDrawing()` works out
+  the sample with the geometry it has just computed and hands back where it put the
+  rule and each series' value there. So a range switched under a still pointer, or
+  a `Series` pushed to, re-snaps and re-reads in the same drawing with nothing
+  remembered to go stale. That is the half the earlier "Not done" said was missing:
+  a drawing that keeps where its samples are. What it does remember is the column
+  relative to the chart at the last report, so a layout that moves the chart under
+  a still pointer -- the dashboard's sidebar collapsing -- moves the rule with the
+  chart until the next report. That is a limit and not fixed: the router's own
+  `hover` is just as stale until then, since nothing reports a pointer that did not
+  move, and the next motion puts both right.
+- **The readout is `attachTooltip()` pointed at the rule, and it shows at once.**
+  `crosshair` takes the tooltip's options, so it needs the router -- which is also
+  how the chart hears the pointer, through `input.onMouse()` read against the
+  router's `hover` state as the tooltip reads it, and the host's own `onMouse`
+  stays the app's. `delay` defaults to `0` and `side` to `right`: a readout that
+  lags the rule is a readout of where the pointer was. `text(index, values)` is the
+  app's way to put the day above the figures; the default is a line per series with
+  a value, its label and `format`'s number.
+- **A pointer that moves on onto the bubble is still the chart's.** The bubble is
+  flush against the rule, so a pointer carrying on to the right is over the bubble
+  by the hit test -- and the chart's `hover` state goes false. Read literally that
+  took the rule away and left the bubble where it was, since the tooltip keeps a
+  bubble the pointer is on: the pointer could never get past it. So the chart also
+  counts a pointer that is on its bubble and inside the chart's own box. `should
+  keep following a pointer that has moved on onto the readout` fails without it.
+- **An empty readout draws the rule alone, and that needed the tooltip to hide an
+  empty bubble.** The tooltip keeps a bubble the pointer is on even when its `area`
+  says nowhere, so a readout that went empty under the pointer stayed up saying the
+  old figures. A tooltip with nothing to say is now hidden like one pointing at
+  nothing -- recorded under the tooltip's own entry -- and the chart sets the empty
+  string like any other.
+- **It needs `mouse.motion`, and says so rather than turning it on.** The tooltip's
+  and `:hover`'s reason: `1003` is a report per cell crossed, and the app decides.
+  The dashboard asks for it, and `60-live-charts.js` now runs through `runApp()`
+  inline so that it has a router to hand the chart.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -9795,7 +9911,36 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
   only the window's rows is the lever, and is not taken here.
 
-What is not done: a click to move the cursor to a hunk; scrolling sideways with
+- **A click on a row of a stop makes it current, where it is (SIG-472).** The
+  lists' rule: each row a stop drew -- the `@@` row, a line, a row a long line
+  folded onto, a side by side row either half -- has an `onMouse` that takes the
+  left `click` and not the press, so the press keeps its default action and
+  focuses the view, and a press dragged to another row picks nothing (the click
+  lands on the box holding both). No coordinates are read, so a scrolled view
+  needs nothing of its own: the hit test already found the row. The stop is the
+  one the drawing put the row in, captured when the row is built rather than
+  looked up through a row index, which a later drawing at another width would
+  have renumbered. A row no stop owns -- a section's heading, a file's `---` and
+  `+++`, prose that is not a stop -- has no handler and its click goes on to the
+  pane around; the lead a reveal shows with a stop is not part of it, since
+  clicking `+++ b/a.txt` says nothing about which of that file's hunks was meant.
+  The click is claimed when it lands on the current stop as well, as a list row's
+  is. **It does not scroll**, which is where it parts from `]` and `[`: the
+  reader pointed at the stop on screen, and a reveal of a hunk taller than the
+  view goes to its first row, which would move the line just clicked out from
+  under the pointer. So the click leaves `pointed` for the effect over the cursor,
+  which lights the stop and skips the reveal for that one write; an app writing
+  `current` still brings the stop into view. A drawing in the same flush -- an app
+  whose content is computed from the cursor -- asks the same flag, since it runs
+  before the cursor's effect and reveals too (review round 1). A drawing after
+  that, for a `w`, a new width or refreshed content, reveals the current stop as
+  it always has, clicked or not: that is the drawing's rule, and a reader who
+  scrolled with the arrows meets it the same way. A double click is two clicks, since
+  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
+  row handler and read the line under it, which this leaves room for: the
+  handler is per row already.
+
+What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
 designed by guessing; staging part of a hunk; and folding a hunk away.
@@ -10899,6 +11044,13 @@ because a dropdown or anything else that sits beside a box wants the same answer
   taken: a test that a treemap with no `tooltip` builds no `State`, since nothing
   a user or an app can see differs, and spying on a constructor pins how rather
   than what.
+- **A bubble with nothing to say is hidden, not drawn empty (SIG-464).** `text: ''`
+  and `setText('')` hide the bubble the way an `area` of nothing does -- it stays in
+  the tree, `shown` stays true, and the next words bring it back where it belongs.
+  An empty box beside an anchor says only that something is missing, and a line
+  chart's crosshair needed the hiding to hold while the pointer is on the bubble,
+  where an `area` of nothing keeps it. `should hide a bubble with nothing to say,
+  and bring it back with words` is the pin.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which
@@ -12351,9 +12503,23 @@ and they are the prop now.
   to the last row on a change of items; the tail effect's reveal, and its move;
   "in view" read as the whole row; and the last row counted without passing over
   disabled ones.
-- **Not done:** `tail` on `DataTable` and `TreeListView`, which build on
-  `ListView` and pass through what they are asked for -- a table of events wants
-  it, and nothing has asked yet; and an `onScroll` on the list for an app.
+- **Not done:** an `onScroll` on the list for an app. `tail` on `DataTable` and
+  `TreeListView` was the other half of this entry, and is SIG-470's, below.
+
+### `tail` through a table and a tree (SIG-470)
+
+`DataTable` and `TreeListView` take `tail` and hand it to their `ListView`, as they
+already did `selected` and `vim`, so a live table of events follows its newest row.
+
+- **The last row is the list's.** For a table that is the last in the sorted
+  order, so a table sorted by time follows the newest. For a tree it is the last
+  row shown, and a branch being read at the end draws a loading line under it --
+  but that line is a disabled row, and the list's last row passes over disabled
+  ones, so the cursor follows the branch and then its last child when the read
+  lands. Nothing in either needed to know about following.
+- **No control hands the state back**, for the reason SIG-385 gives for
+  `ListControl`: an app that shows it hands one over.
+- **A test each,** which removing the pass-through fails.
 
 ### Rows that grow at the end and drop off the front cost what changed (SIG-386)
 
@@ -12537,11 +12703,11 @@ each question was settled, the probes and the sabotage pass are in
   tree needed nothing new from it. `treeListControl(tree).list` is typed
   `ListControl<unknown>` because its rows include them.
 - **A row is kept while it draws the same thing.** The walk runs again on every
-  change and builds new row records; one whose node, depth, guide, open state and
-  read state match the last walk's is replaced by the last walk's object, so the
-  list -- which rebuilds a row whose item is a different object -- keeps the element.
-  Opening one branch rebuilds that branch's row and builds its children, and
-  nothing else.
+  change and builds new row records; one whose node, depth, open state and read
+  state match the last walk's is replaced by the last walk's object, so the list --
+  which rebuilds a row whose item is a different object -- keeps the element. Its
+  guide is not in that list since SIG-471, below: a kept row is handed it. Opening
+  one branch rebuilds that branch's row and builds its children, and nothing else.
 - **`describeTreeListView(router, ...trees)`** describes the list's keys through
   `describeListView()` and adds Right `expand`, Left `collapse`, `h`/`l` with
   `vim`, and Space `toggle` in a single tree, scoped to each. Every tree is checked
@@ -12627,12 +12793,139 @@ makes a new tree under the same paths, and routed around it with getters.
   value cannot loop.
 - **Each returns whether anything was marked,** as `reload()` did: a read already
   out of date and not yet read again is nothing more to forget.
-- **SIG-471 is untouched.** A row is still kept while it draws the same thing; a read
+- **Keeping rows is untouched.** A row is still kept while it draws the same thing; a read
   again rebuilds the branch's own row twice (`loading`, then `loaded`) and a child
   row only where the function handed back a different object for it. An app that
   memoizes its nodes, as the disk usage example does, keeps every child row.
 - **Not done:** dropping reads under values no longer in the tree, which
-  `reloadAll()` marks but keeps -- as `seen` keeps every value it met.
+  `reloadAll()` marks but keeps -- as `seen` keeps every value it met. Done by
+  SIG-487, below.
+
+### A tree's row is the object it was when only its guide moved (SIG-471)
+
+SIG-386 made the list key only the rows a change added, where its items are the
+ones it last keyed with some dropped off the front and some added at the end -- the
+same objects, compared by identity. The tree kept a row's object only while it drew
+the same thing, guide included, and appending a node moves the guide of the node
+that was last (`└──` to `├──`) and of every row under it. So the check failed at
+that row every time, and the list asked `key` for every row again.
+
+- **The guide is a `State` on the row, and the drawn row follows it.** A row the
+  walk finds drawing what it drew but for its guide is the same object, handed the
+  new guide, and an effect in the row sets the guide's text -- the list builds a
+  row under an owner of its own, so it may hold one. The app's `row` is not called
+  again, which its documentation already said: again when the node, its depth, or
+  whether it is open changes, and the guide was never in that list. `bare`, whether
+  there is a guide at all, which only a root lacks, still decides whether a row is
+  the same, since a bare row has no guide to set.
+- **What the list still cannot take, and why.** A replaced node is a row the list
+  has not seen, which is the list's own rule, so in a tree updated immutably --
+  every ancestor of a changed node a new object -- the list keys everything from
+  the first replaced row; and opening a branch puts rows in the middle, which is
+  not the shape SIG-386 takes. `setRows()` compares keys rather than items, so it
+  already slid for a tree's append before this; what went was a `key` call per
+  row, which for a tree is a property read.
+- **What it is worth.** Little on the clock, and that is worth knowing: at 200,000
+  open rows the list's part was about 5% of a profile of one append, and the rest
+  was the tree's own walk -- `treeChoiceOf()`, a map entry and a guide string per
+  open row -- and its map of the rows by key. Before and after are within the noise
+  of a machine shared with other work, about 55 to 75 ms of CPU per append in the
+  built package. The walk is the tree's "Not done" above, which now has that figure.
+- **Pinned by counting.** `tree-list-view-rekey.test.ts` wraps the `key` the tree
+  hands its list, by a module mock, and counts the calls: 4 for three nodes
+  appended to 10,000, 2 for one node after an open branch of 5,000 whose rows all
+  move their guides, and 1,001 where a node was replaced -- the limit, pinned so
+  that it is a decision. `should keep a row whose guide alone moved, and draw its
+  new guide (SIG-471)` checks the picture and that `row` built the new node alone.
+- **Sabotage: three, three caught.** The guide compared again in `sameRow()`, the
+  new guide not handed to the kept row, and the row's effect not setting it.
+
+### A tree forgets what it held for values that left it (SIG-487)
+
+`loads` kept every branch's read, `seen` every value met and `notes` the keys of
+every loading line, for the life of the view, and `reloadAll()` marks reads but
+keeps them. A long-running tree whose data changes -- the disk usage example after
+a delete or a rescan, the editor as files come and go -- held something for every
+value it had ever shown.
+
+- **What is kept is what the tree still has: shown, or under a closed branch.**
+  The walk knows what is shown. What is under a closed branch is not walked, but
+  its reads are what make opening it again instant, so they have to count: the walk
+  also goes under a closed branch, through the places `readsIn()` goes -- its list,
+  or what its read found -- and every value it meets there is _reached_. Anything
+  else is dropped from all three.
+- **Only through values seen before, and only under branches a walk went under.**
+  Nothing is held for a value never seen, and nothing can be held under a branch no
+  walk entered, so `seen` is a map whose value says whether a walk has gone under
+  that node. That bounds the search by what the reader explored rather than by the
+  data: a closed array of a million nodes that was never opened costs one lookup.
+  The price is a node that moved under a branch no walk entered, which is dropped
+  and read again when it is reached -- a read, not a wrong answer. A node under a
+  closed branch is read with `treeChoiceOf()` in a `try`, since what is under a
+  closed branch is checked when it opens and not before.
+- **Looked for only when the tree may have lost something:** a new tree from
+  `items`, or a read whose answer replaced a different one (`put()` says which).
+  Opening and closing changes nothing in the data, so it never searches -- for a
+  source that hands over the same tree; one that builds a new array on every read,
+  a `filter()` in a `get()`, is a new tree on every walk and searches each time,
+  which costs a search and drops nothing still there. A read the
+  walk itself started that replaced an answer -- a stale branch opening, over a
+  function that returns a list -- walks again with the search on, so what it took
+  is gone before anything can bring it back. A tree is new when `items` hands over
+  a different value, and also when the walk ran with neither the open set nor a
+  landed read to account for it: that is a source that changed its tree in place
+  and woke the walk, which `{ get() }` allows, and it would otherwise never be
+  searched (review round 1). A change in place in the same step as an open or a
+  read landing is accounted for by those and not searched, so what it took is
+  dropped at the next walk that is searched rather than at once (review round 2):
+  a delay, not a wrong picture, unless the value comes back before then.
+- **A failure is not the tree losing what was under the branch.** A read again
+  that fails keeps the answer it replaced as `last`, which is never shown -- the
+  error line is, by SIG-479's rule -- but which the search goes through, so a
+  transient error and a retry that lands find a branch under it as the reader left
+  it, closed and with its read. Dropping it there, which the first version did,
+  made it new: its `expanded: true` was read again and a branch the reader had
+  closed opened (review round 1). Forgetting a failed read -- a retry, or its
+  branch closed -- drops `last` without a search, and the next search drops
+  whatever under it the tree no longer has. SIG-479's marking of those reads as out
+  of date stands: they are read again when they open.
+
+  **The limit, left as one (review round 2):** `last` lives as long as the failure
+  does, not until a retry lands. A search while a retry is in flight, or after the
+  failed branch was closed and before it opens again, reaches nothing under it and
+  drops it, so when the retry lands a branch there that the reader closed and that
+  says `expanded: true` opens, and every read under it is made again. Carrying
+  `last` on the retry's read and on a closed failed branch would close it, at the
+  cost of a third place an answer that is not shown lives; it needs a failure, a
+  search and a retry in one window, so it is written down rather than built.
+
+- **And not even then where nothing left.** Everything held is for a value in
+  `seen`, and every value the walk meets is put there: so where what was shown and
+  what was reached come to as many as `seen` holds, nothing went and nothing is
+  looked through. A tree that only grows -- SIG-471's case -- pays a comparison of
+  sizes. A value both shown and under a closed branch is counted once for that to
+  hold, which a test pins: counted twice, it hid a value that had gone.
+- **A value that comes back is new.** Its branch reads again rather than showing
+  what it found before, which is what the ticket asked, and its own `expanded:
+  true` is read again, so a branch the reader closed that left and came back is
+  open. The open set is the app's and is not touched, so a branch that was open
+  when it left is open when it returns. The case to know about is a tree an app
+  filters: a node the filter hides has left the tree, so clearing the filter reads
+  its function branches again.
+- **SIG-471 holds.** Nothing here changes which row objects a walk keeps, and the
+  counting tests run with the search on, since a new tree is what turns it on.
+- **`treeListHeld(host)`** counts the three, for the test that says they shrink.
+  Exported from the module and not on the subpath, as the treemap's internals are.
+- **Sabotage: ten, ten caught,** two of them only after a test was added for
+  them: nothing dropped; nothing reached under a closed branch; searching on every
+  walk; a replaced answer not noticed; a walk the walk caused not searching; every
+  closed branch searched, and every seen one under it; no branch marked as gone
+  under; a value shown and reached counted twice; and the comparison of sizes
+  removed. Review round 1 added five: `last` not kept, nothing reached through it,
+  a tree changed in place not searched, and a value shown and then met under a
+  closed branch counted twice (the other order from the first) -- each caught; and
+  a failure counted as an answer replaced, which survives because `last` keeps
+  the same values reachable, so it costs a search and drops nothing.
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 
@@ -13460,10 +13753,9 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
   still refused; that is why this is a second function beside `controlFlag()`
   rather than `controlFlag()` widened, which would have let a `Computed` reach a
-  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
-  and `Dropdown` still read anything that is not a `State` as a value to start
-  from, so a `Computed` there becomes the value rather than being refused -- left
-  as it was, since it is a `value` question and not a `disabled` one.
+  `set()` it does not have. The other controls' `value` was left alone here, as
+  a `value` question rather than a `disabled` one, and SIG-448 answered it: a
+  `Computed` there is refused too (below).
 - **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
   open. `() => boolean` is the template's convention for a reactive prop
   (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
@@ -13503,6 +13795,70 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   `control.test.ts` pins the four readable shapes, the tracking, the truth reading
   and the refusals; `button.test.ts` drives a function through the `ui` tag; and
   `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
+
+### A value a component writes refuses a `Computed`, whatever its type (SIG-448)
+
+`controlState()` in `control.ts`. `RadioSet` and `Dropdown` read `value` as
+`value instanceof State ? value : new State(value)`, and a `Computed` is not a
+`State` -- so it was wrapped as a value to start from: the set selected nothing,
+the field showed its placeholder, and a change to what the `Computed` derived from
+was never read. No error, and a derivation that did nothing at all.
+
+- **Refused, not followed.** The ticket left it open. Following one would make the
+  component's own writes -- a key, a click, a pick -- go somewhere, and a
+  `Computed` has no `set()`: either the control would stop answering its keys, or
+  it would keep a private value the derivation overwrites on its next change, which
+  is two owners of one value. Every sibling whose value has a fixed type already
+  refuses one, by refusing anything that is neither that type nor a `State`:
+  `checked` and a switch's `value` through `controlFlag()`, and the hand-written
+  checks in `TextField`, `TextArea`, `Slider`, `Tabs`, `Collapsible`, `Pane` and
+  `DiffView`. Following would have made these two the odd ones out; refusing makes
+  them the same. An app that wants a control to track a derived value writes the
+  value into the `State` it hands over, from an effect -- which is also what keeps
+  the keys working.
+- **`controlState()` is the generic `controlFlag()`.** Where the value is the
+  app's own type nothing can be refused by its shape, except a `Computed`, which is
+  a signal and never a value -- so that is all it refuses. Told apart by
+  `instanceof`, the treemap's `root` rule (SIG-480), because a value may be the
+  app's own object with a `get` of its own, and duck typing would refuse it; a test
+  pins an option value with a `get()` being selected. The cost of `instanceof` is
+  that a `Computed` from a second copy of the package is not recognised and is
+  taken as a value, as before.
+- **A key that really is a `Computed` is named through a `State`.** A list keys a
+  row by the item itself unless it is given a `key`, so a list of signals -- an
+  inspector -- has `Computed` keys, and `current: b` used to start on row `b`; it
+  is refused now, like any `Computed`, and `current: new State(b)` says the same
+  thing unambiguously. The same holds for an option whose value is a `Computed`,
+  and for a tree's and a treemap's `current`. The rare app keying by a signal pays
+  one wrapper so that every app passing a derivation hears about it, rather than
+  the other way round.
+- **A function is still taken as a value, deliberately.** `() => level.get()` is
+  the template's spelling of a reactive prop, and as a `value` it selects nothing
+  and is never called, which is this ticket's silent no-op in another shape. It is
+  not refused because a choice's value may well be a function -- an action to run
+  -- and a function cannot be told from one; `disabled` can take one only because
+  a function there is never a legitimate value. Following one live is the same
+  question as following a `Computed`, and has the same answer.
+- **The same defect in four more places, fixed the same way.** Swept every
+  `instanceof State ?` in `src/components/`: a list's `current` (in
+  `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
+  `current`, `Treemap`'s `current` and `DataTable`'s `sort` each wrapped a
+  `Computed` the same way: as a key, never read again. `sort` was
+  refused already, but as `Expected data table sort to name a column: undefined is
+  not one`, which names the wrong thing. `selected`, `expanded`, `follow` and
+  `tail` already refuse one, being neither an iterable nor a boolean; `keyHelp()`'s
+  `expanded` and every `disabled` only read, so a `Computed` there is right and is
+  followed. Published, beside `controlFlag()`, so a component an app writes can
+  follow the rule; the four list components import `control.ts` for it, which
+  costs them nothing they did not already load.
+- **The messages echo nothing**, so the escaping rule for a value in an error does
+  not arise: each names the prop and says why, `Expected a radio set value to be a
+  value or a State, not a Computed, since the set writes it`. Six keys in
+  `src/i18n/keys.ts`, regenerated.
+- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
+  needs a conditional type over `T`, which TypeScript cannot infer through and
+  which would change what every existing call infers. A test per component pins the
+  refusal, and each fails with the check in `controlState()` taken out.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

@@ -6,6 +6,7 @@ import {
   parseTarget,
   type Target,
 } from '../src/build/compile.ts';
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.ts';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -50,11 +51,10 @@ function recorder(name: string, size: number): { exec: string; ran: string } {
   const exec = join(box, name);
   const ran = join(box, `${name}.ran`);
 
-  writeFileSync(
+  writeExecutable(
     exec,
     // $4 is the entry and $5 the outfile: `--no-install -e <script> <entry> <outfile> <target> <runtime>`
-    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\nenv > '${ran}.env'\n{ [ -d "$BUN_INSTALL_CACHE_DIR" ] && echo exists; [ -z "$(ls -A "$BUN_INSTALL_CACHE_DIR")" ] && echo empty; } > '${ran}.cache'\n[ "$1" = "--no-install" ] && [ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`,
-    { mode: 0o755 }
+    `#!/bin/sh\n{ pwd; for a in "$@"; do echo "$a"; done; } > '${ran}'\nenv > '${ran}.env'\n{ [ -d "$BUN_INSTALL_CACHE_DIR" ] && echo exists; [ -z "$(ls -A "$BUN_INSTALL_CACHE_DIR")" ] && echo empty; } > '${ran}.cache'\n[ "$1" = "--no-install" ] && [ ${size} -gt 0 ] && head -c ${size} /dev/zero > "$5"\nexit 0\n`
   );
 
   return { exec, ran };
@@ -250,10 +250,9 @@ describe('compiling for a platform that is not this one', () => {
 
     it('should say what went wrong when bun tried to download anyway', () => {
       const exec = join(box, 'bun-tries-to-download');
-      writeFileSync(
+      writeExecutable(
         exec,
-        '#!/bin/sh\necho "Failed to download \'bun-darwin-x64-v1.4.4\': ConnectionRefused" >&2\nexit 1\n',
-        { mode: 0o755 }
+        '#!/bin/sh\necho "Failed to download \'bun-darwin-x64-v1.4.4\': ConnectionRefused" >&2\nexit 1\n'
       );
 
       expect(() =>
@@ -266,7 +265,7 @@ describe('compiling for a platform that is not this one', () => {
     // a spawned program's stderr is text from outside, and an escape sequence
     // in it would rename the window or worse once it reached the error handler
     const exec = join(box, 'bun-prints-escapes');
-    writeFileSync(exec, "#!/bin/sh\nprintf '\\033]0;PWNED\\007\\n' >&2\nexit 1\n", { mode: 0o755 });
+    writeExecutable(exec, "#!/bin/sh\nprintf '\\033]0;PWNED\\007\\n' >&2\nexit 1\n");
     const embed = join(box, 'runtime-5');
     writeFileSync(embed, 'x'.repeat(500));
 
@@ -306,7 +305,9 @@ describe('compiling for a platform that is not this one', () => {
       // the host's own bun with a marker written into it, so that what ends up
       // in the binary is known to be this file and not another copy of Bun: a
       // valid executable of the right format is the one runtime this machine
-      // can supply for the host target
+      // can supply for the host target. Written in this process, which is safe
+      // only because `bun` reads it and nothing executes it: the binary that
+      // runs is `out`, which `bun` writes (see `test/executable.ts`)
       copyFileSync(bun, embed);
       const bytes = readFileSync(embed);
       marker.copy(bytes, Math.min(40_000_000, bytes.length - marker.length - 1));

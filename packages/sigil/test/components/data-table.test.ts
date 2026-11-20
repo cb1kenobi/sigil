@@ -27,7 +27,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
@@ -600,6 +600,26 @@ describe('DataTable()', () => {
       return { rows, tick };
     }
 
+    it('should follow its last row as rows are appended, through the tail it was handed (SIG-470)', () => {
+      const rows = new State<readonly Proc[]>(PROCS);
+      const tail = new State(true);
+      const host = procs({ rows, tail }, 3);
+      picture(host);
+      expect(control(host).selection.current.get()).toBe(7);
+
+      rows.set([...rows.get(), { cpu: 1, name: 'zsh', pid: 99, user: 'chris' }]);
+      flush();
+      expect(control(host).selection.current.get()).toBe(99);
+      expect(picture(host).at(-1)).toMatch(/^❯ +99 .* zsh$/);
+
+      // a move off the last row stops it, in the state the app holds
+      press(host, 'up');
+      expect(tail.get()).toBe(false);
+      rows.set([...rows.get(), { cpu: 2, name: 'vim', pid: 100, user: 'chris' }]);
+      flush();
+      expect(control(host).selection.current.get()).toBe(7);
+    });
+
     it('should keep the selection on its process and the view where it was while every row changes, htop-style', () => {
       const { rows, tick } = machine(200, 3);
       const host = procs({ follow: true, multiple: true, rows }, 11);
@@ -924,6 +944,25 @@ describe('DataTable()', () => {
     );
     expect(() => DataTable({ columns: [], props: { onKey: () => {} } as never, rows: [] })).toThrow(
       'onKey'
+    );
+  });
+
+  // a Computed is not a State, so it was wrapped as a sort to start from, and
+  // refused as one naming the column `undefined`, which says the wrong thing
+  it('should refuse a Computed sort, which a click on a heading could not write', () => {
+    const by = new State({ column: 'a' });
+    const sort = new Computed(() => by.get());
+    expect(() => DataTable({ columns: ['a'], rows: [], sort: sort as never })).toThrow(
+      'Expected data table sort to be a sort or a State, not a Computed, since the table writes it'
+    );
+  });
+
+  // the cursor was taken as a key no row has, and never read again
+  it('should refuse a Computed current, which the moves could not write', () => {
+    const key = new State(0);
+    const current = new Computed(() => key.get());
+    expect(() => DataTable({ columns: ['a'], current: current as never, rows: [] })).toThrow(
+      'Expected list current to be a key or a State, not a Computed, since the list writes it'
     );
   });
 

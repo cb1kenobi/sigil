@@ -123,9 +123,13 @@ const ROWS = 32;
  * Mounts a root over a test terminal, with git pointed at the repository and
  * counted, so that `settle()` waits for what the client asked of it rather than
  * for a guess at how long git takes -- which on a Windows runner is a lot longer
- * than here.
+ * than here. `mouse` is `--mouse`.
  */
-async function mount(App: () => Element, repo: Repo): Promise<Mounted> {
+async function mount(
+  App: () => Element,
+  repo: Repo,
+  opts: { mouse?: boolean } = {}
+): Promise<Mounted> {
   const real = createGit({ cwd: repo.dir, env: repo.env });
   let running = 0;
   const counted = <T>(work: Promise<T>): Promise<T> => {
@@ -142,6 +146,7 @@ async function mount(App: () => Element, repo: Repo): Promise<Mounted> {
   const term = createTestTerminal({ colorLevel: 0, columns: COLUMNS, rows: ROWS });
   const app = runApp(() => provideContext(GitContext, git, App), {
     detect: false,
+    mouse: opts.mouse ?? false,
     sheets: [stylesheet],
     terminal: term.terminal,
   });
@@ -313,6 +318,31 @@ for (const [syntax, App] of [
         await escape(client);
         expect(client.screen()).toMatch(/[▸>] \[1\] Files/);
         expect(client.screen()).toMatch(/space stage ·/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should stage the hunk a click in the diff pane made current',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', TWO_HUNKS);
+        const client = await mount(App, repo, { mouse: true });
+
+        // a line inside the second hunk, clicked while the focus is on the files:
+        // the press focuses the diff pane and the click makes the hunk current,
+        // so Space is the pane's and stages that hunk
+        const y = client.term.viewport.findIndex((row) => row.includes('+twenty-five'));
+        expect(y).toBeGreaterThan(0);
+        const x = (client.term.viewport[y] ?? '').indexOf('+twenty-five') + 1;
+        await client.press(`\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`, ' ');
+        const staged = repo.git('diff', '--cached');
+        expect(staged).toMatch(/\+twenty-five/);
+        expect(staged).not.toMatch(/\+three/);
+        expect(client.screen()).toMatch(/Staged a hunk of a\.txt/);
 
         await client.press('q');
         expect(await client.app.exited).toBe(0);

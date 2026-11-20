@@ -1,6 +1,6 @@
 import { describeRadioSet, RadioSet } from '../../src/components/radio-set.js';
 import { type Element, text } from '../../src/element/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { KEYS } from '../../src/testing/index.js';
 import {
   clickOn,
@@ -132,6 +132,22 @@ describe('RadioSet', () => {
     expect(() => RadioSet({ disabled: 'no' as never, options: ['a'] })).toThrow(
       'Expected radio set disabled to be a boolean, a State, a Computed or a function'
     );
+  });
+
+  // a Computed is not a State, so it was wrapped as a value to start from: it
+  // selected nothing, and a change to what it derives from was never read
+  it('should refuse a Computed value rather than select nothing and never read it again', () => {
+    const level = new State('info');
+    const value = new Computed(() => level.get());
+    expect(() => RadioSet({ options: ['debug', 'info'], value: value as never })).toThrow(
+      'Expected a radio set value to be a value or a State, not a Computed, since the set writes it'
+    );
+  });
+
+  it('should take an option value with a get of its own as a value', () => {
+    const own = { get: () => 'b' };
+    const set = RadioSet({ options: [{ label: 'own', value: own }], value: own });
+    expect(picture(set)).toEqual(['  ◉ own']);
   });
 });
 

@@ -81,9 +81,9 @@ describe('what YAML can hold', () => {
         '\u0001',
         '\u007f',
         '\u0085',
-        ' ',
-        ' ',
-        '￾',
+        '\u2028',
+        '\u2029',
+        '\uFFFE',
         '\uD800',
         '\uDC00',
         '\uFEFF',

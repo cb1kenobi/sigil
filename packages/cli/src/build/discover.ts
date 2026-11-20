@@ -175,7 +175,7 @@ export function discoverApp(cwd: string, options: DiscoverOptions = {}): Discove
   // of the same message
   if (!manifest.dependencies.includes(RUNTIME)) {
     throw new Error(
-      `${manifest.path} does not depend on ${RUNTIME}, so there is no sigil app here to check`
+      `${escapeControls(displayPath(manifest.path))} does not depend on ${RUNTIME}, so there is no sigil app here to check`
     );
   }
 
@@ -185,7 +185,7 @@ export function discoverApp(cwd: string, options: DiscoverOptions = {}): Discove
 
   if (!entry) {
     throw new Error(
-      `No entry module found in ${root}. Looked for ${ENTRY_NAMES.map((name) => `${name}.*`).join(', ')} and what the manifest names; pass --entry to name one`
+      `No entry module found in ${escapeControls(displayPath(root))}. Looked for ${ENTRY_NAMES.map((name) => `${name}.*`).join(', ')} and what the manifest names; pass --entry to name one`
     );
   }
 
@@ -206,7 +206,9 @@ export function readManifest(root: string): AppManifest {
   try {
     raw = readFileSync(path, 'utf-8');
   } catch {
-    throw new Error(`No package.json in ${root}; sigil runs from an app's root`);
+    throw new Error(
+      `No package.json in ${escapeControls(displayPath(root))}; sigil runs from an app's root`
+    );
   }
 
   let json;
@@ -307,7 +309,7 @@ function resolveEntry(root: string, entry: string): string {
   const path = isAbsolute(entry) ? entry : resolve(root, entry);
 
   if (!isFile(path)) {
-    throw new Error(`Entry module not found: ${displayPath(path)}`);
+    throw new Error(`Entry module not found: ${escapeControls(displayPath(path))}`);
   }
 
   return path;

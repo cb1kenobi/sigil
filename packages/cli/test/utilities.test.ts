@@ -4,6 +4,7 @@ import {
   utilities,
   VARIANT_NAMES,
 } from '../src/utilities/index.js';
+import { box } from '@ttylabs/sigil/element';
 import {
   Cascade,
   parseStylesheet,
@@ -237,8 +238,56 @@ describe('variants', () => {
     expect(cascade.resolve({ classes, states: ['focus'], type: 'box' }).color).toBe(4);
   });
 
+  it('should put focus-within behind its own pseudo-class', () => {
+    // SIG-451: SIG-372 gave the engine the state and the selector, and this is
+    // the variant over them that Tailwind already has
+    expect(generateUtilities({ only: ['border-green'] })).toContain(
+      '.focus-within\\:border-green:focus-within { border-color: green }'
+    );
+    const cascade = new Cascade([sheet]);
+    const classes = ['border-white', 'focus-within:border-green'];
+    expect(cascade.resolve({ classes, type: 'box' }).borderColor).toBe(7);
+    expect(cascade.resolve({ classes, states: ['focus-within'], type: 'box' }).borderColor).toBe(2);
+  });
+
+  it('should light an ancestor of the focused element through focus-within:', () => {
+    // the state as the element tree reports it, rather than as a test spells it:
+    // the panel is in `focus-within` because a field two levels down has the focus
+    const classes = ['border-white', 'focus-within:border-green'];
+    const field = box({});
+    const panel = box({ class: classes.join(' ') }, box({}, field));
+    const style = () =>
+      new Cascade([sheet]).resolve({ classes, states: panel.states, type: 'box' });
+    expect(style().borderColor).toBe(7);
+    field.setState('focus');
+    expect(panel.states).toContain('focus-within');
+    expect(style().borderColor).toBe(2);
+    field.setState('focus', false);
+    expect(style().borderColor).toBe(7);
+  });
+
+  it('should let focus: beat focus-within: on the focused element, as Tailwind does', () => {
+    // the focused element matches `:focus-within` too, and the two rules are one
+    // class and one pseudo-class each, so source order decides: `focus` comes
+    // after `focus-within` in Tailwind's variant order, v3 and v4 alike
+    const cascade = new Cascade([sheet]);
+    // both class orders, because the order a class string is written in decides
+    // nothing -- it is the sheet's order, which is what this pins
+    for (const classes of [
+      ['focus-within:border-green', 'focus:border-red'],
+      ['focus:border-red', 'focus-within:border-green'],
+    ]) {
+      const focused = cascade.resolve({ classes, states: ['focus', 'focus-within'], type: 'box' });
+      expect(focused.borderColor).toBe(1);
+      const within = cascade.resolve({ classes, states: ['focus-within'], type: 'box' });
+      expect(within.borderColor).toBe(2);
+    }
+    expect(VARIANT_NAMES.indexOf('focus-within')).toBeLessThan(VARIANT_NAMES.indexOf('focus'));
+  });
+
   it('should have the ones a terminal can have and not the ones it cannot', () => {
     expect(VARIANT_NAMES).toContain('focus');
+    expect(VARIANT_NAMES).toContain('focus-within');
     expect(VARIANT_NAMES).toContain('md');
     expect(VARIANT_NAMES).toContain('c16');
     // a terminal has a background, the cascade reads it as `prefers-color-scheme`,

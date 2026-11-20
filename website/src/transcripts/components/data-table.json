@@ -21,7 +21,7 @@
         "type": "boolean"
       },
       {
-        "description": "The current row, as its key, or the state that holds it: `ListView`'s `current`.",
+        "description": "The current row, as its key, or the state that holds it, never a `Computed`: `ListView`'s `current`.",
         "name": "current",
         "optional": true,
         "type": "K | State<K | undefined>"
@@ -105,10 +105,16 @@
         "type": "Iterable<K> | State<ReadonlySet<K>>"
       },
       {
-        "description": "What the rows are sorted by, or the state that holds it: a value is where it starts, a `State` is the state itself, which a click on a heading and a digit write and an app may write. Left out, the rows are in the order they came.",
+        "description": "What the rows are sorted by, or the state that holds it: a value is where it starts, a `State` is the state itself, which a click on a heading and a digit write and an app may write. A `Computed` is refused, since a click could not write it. Left out, the rows are in the order they came.",
         "name": "sort",
         "optional": true,
         "type": "DataTableSort | State<DataTableSort | undefined>"
+      },
+      {
+        "description": "Follow the last row as rows are added, as `tail -f` does: `ListView`'s `tail`, passed to the list the rows are drawn in. The last row is the last in the sorted order, so a table of events sorted by time follows the newest.",
+        "name": "tail",
+        "optional": true,
+        "type": "boolean | State<boolean>"
       },
       {
         "description": "`j`, `k`, `g` and `G`, as in a list.",

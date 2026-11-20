@@ -414,9 +414,10 @@ asked and says which two.
 
 `27-charts.js` prints every chart as a string, so a pipe and a terminal differ only in
 colour: the sparklines take the `accent` role, the gauge changes role at its
-thresholds, and `NO_COLOR=1` leaves the shapes, which carry the data. The last
-section is the same charts with `ascii: true`, which is what a Linux console or
-`TERM=dumb` gets.
+thresholds, and `NO_COLOR=1` leaves the shapes, which carry the data. Two series
+with `fill` are an area chart, the shade a quarter of the dots so each line still
+reads over it. The last section is the same charts with `ascii: true`, which is
+what a Linux console or `TERM=dumb` gets.
 
 `26-multi-progress.js` runs four simulated downloads through one
 `createMultiProgress()`, adding the bars a quarter second apart and finishing each
@@ -693,12 +694,15 @@ pipe drops -- and times a page of the long buffer against a page of the short on
 
 `60-live-charts.js` is a small monitor, and nothing in it builds a chart twice. Four
 cores are a `Series` each and a `Sparkline` beside their names; under them a
-`LineChart` draws two series in braille with a legend, scrolling left as samples are
-pushed, and a `BarChart` and a `Gauge` read a `State`. On a terminal it ticks ten
-times a second and every chart takes the size its panel has, so widening the window
-widens all of them. Piped, it ticks by hand and prints the tree twice at 72 columns
--- the history filling in from the right, then full and scrolled -- and once at 52,
-where every chart is narrower and nothing else changed.
+`LineChart` draws two shaded series in braille with a legend, scrolling left as
+samples are pushed, and a `BarChart` and a `Gauge` read a `State`. On a terminal it
+ticks ten times a second and every chart takes the size its panel has, so widening
+the window widens all of them; pointing at the line chart stands a rule at the
+sample under the pointer with a tooltip of both values, which is why the mouse is on
+with motion. Piped, it ticks by hand and prints the tree twice at 72 columns -- the
+history filling in from the right, then full and scrolled -- and once at 52, where
+every chart is narrower and nothing else changed; then it runs on a test terminal,
+types a pointer report at the line chart, and prints the crosshair.
 
 `61-menus.js` is a small file browser with a menubar across the top, a dropdown that
 sorts the list, and a context menu on the files. F10 opens File and Alt with a title's

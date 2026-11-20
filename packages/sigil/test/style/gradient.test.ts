@@ -68,12 +68,12 @@ describe('the ramp across a string', () => {
   });
 
   it('should leave the visible text exactly as it was', () => {
-    const words = 'Hello, wörld 日本 👨‍👩‍👧 é';
+    const words = 'Hello, wörld 日本 👨\u200D👩\u200D👧 é';
     expect(stripVTControlCharacters(gradient(words, [RED, BLUE], { level: 3 }))).toBe(words);
   });
 
   it('should not split a grapheme cluster between two colours', () => {
-    const family = '👨‍👩‍👧';
+    const family = '👨\u200D👩\u200D👧';
     const out = gradient(`a${family}b`, [RED, BLUE], { level: 3 });
     expect(out).toContain(family);
     // one open for each of the three clusters

@@ -154,7 +154,7 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
   // naming: left to the spawn it comes back as a non-zero exit with "Cannot
   // find module" on stderr, which reads as the app failing to type-check
   if (options.tsc !== undefined && !existsSync(options.tsc)) {
-    throw new Error(`Failed to run the type checker at ${options.tsc}: no such file`);
+    throw new Error(`Failed to run the type checker at ${shownPath(options.tsc)}: no such file`);
   }
 
   const tsc = options.tsc ?? findTsc(cwd);
@@ -186,12 +186,15 @@ export function typeCheck(options: TypeCheckOptions): TypeCheckResult {
   // arguments to the shell it is pasted into
   if ((run.error as NodeJS.ErrnoException | undefined)?.code === 'ENOBUFS') {
     throw new Error(
-      `The type checker at ${tsc} printed more than ${formatBytes(limit)} on one stream, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${rerun(cwd, project)}\` in ${displayPath(cwd)} to see what it found`
+      `The type checker at ${shownPath(tsc)} printed more than ${formatBytes(limit)} on one stream, which is more than the build reads, and was stopped; run \`tsc --noEmit -p ${rerun(cwd, project)}\` in ${shownPath(cwd)} to see what it found`
     );
   }
 
+  // Node's own sentence, which names the file it failed to start as it stands
   if (run.error) {
-    throw new Error(`Failed to run the type checker at ${tsc}: ${run.error.message}`);
+    throw new Error(
+      `Failed to run the type checker at ${shownPath(tsc)}: ${escapeControls(run.error.message)}`
+    );
   }
 
   // one line ending from here on. A compiler that writes CRLF left a `\r` on
@@ -345,5 +348,26 @@ function formatBytes(bytes: number): string {
  * @returns The argument.
  */
 function rerun(cwd: string, project: string): string {
-  return word(displayPath(relative(cwd, project)));
+  // escaped after quoting, for `shownPath()`'s reason: a config whose name holds
+  // a control character is one this command cannot spell for a shell anyway, and
+  // printing it as it stands is the retitle (SIG-456)
+  return escapeControls(word(displayPath(relative(cwd, project))));
+}
+
+/**
+ * A path a thrown error quotes: the app's root, or a compiler under it.
+ *
+ * Escaped where the sentence is built, because `main()` prints an error as it
+ * stands, and both paths are whatever the file system holds -- an app under
+ * `h<ESC>]0;PWN<BEL>d` printed a retitle from a piped `sigil build` through
+ * either throw below (SIG-456). The `no tsconfig.json in <root>` note was
+ * escaped the same way by SIG-447; these were the two sentences it left.
+ * `escapeControls()` rather than `escapeMessage()`, since a newline in a path is
+ * a line it would forge rather than one of the message's own.
+ *
+ * @param path - The path.
+ * @returns It, forward-slashed and with no control character.
+ */
+function shownPath(path: string): string {
+  return escapeControls(displayPath(path));
 }

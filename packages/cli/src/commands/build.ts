@@ -71,6 +71,7 @@ import {
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { table } from '@ttylabs/sigil/components/table';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { relative, resolve } from 'node:path';
 
 /** See `check.ts` for why this is annotated, and why `AnyCommand`. */
@@ -259,8 +260,9 @@ function assertBuildable(found: Inspection, bin: string | undefined): void {
   // is the router, which cannot survive bundling
   const walked = found.commands.find((cmd) => cmd.kind !== 'inline');
   if (walked) {
+    // a walked name is a file's name, and `main()` prints this as it stands
     throw new Error(
-      `Cannot combine --bin with a filesystem command directory: "${walked.name}" was found by walking, and a built executable has no directories to walk. Write the commands out in the schema, or drop --bin and let the build generate the executable.`
+      `Cannot combine --bin with a filesystem command directory: "${escapeControls(walked.name)}" was found by walking, and a built executable has no directories to walk. Write the commands out in the schema, or drop --bin and let the build generate the executable.`
     );
   }
 }
@@ -280,9 +282,17 @@ function assertBuildable(found: Inspection, bin: string | undefined): void {
  * @param chunks - What was written, largest first.
  */
 function printSizes(chunks: readonly BuiltChunk[]): void {
+  // a chunk's name is the app's: the entry is named after the manifest, so the
+  // name is escaped the way the summary under it escapes the same name -- the
+  // table would drop the control character, and the two would then disagree
+  // about what the file is called (SIG-457)
   const rows = chunks
     .filter((chunk) => !chunk.name.endsWith('.map'))
-    .map((chunk) => [chunk.name, `${(chunk.size / 1024).toFixed(1)} kB`, chunk.loads]);
+    .map((chunk) => [
+      escapeControls(chunk.name),
+      `${(chunk.size / 1024).toFixed(1)} kB`,
+      chunk.loads,
+    ]);
 
   if (rows.length) {
     process.stdout.write(
@@ -320,7 +330,9 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
 
   process.stdout.write(
     `${table(
-      inlined.map((pkg) => [pkg.name, `${(pkg.bytes / 1024).toFixed(1)} kB`]),
+      // a package name is whatever the package's manifest says, for
+      // `printSizes()`'s reason
+      inlined.map((pkg) => [escapeControls(pkg.name), `${(pkg.bytes / 1024).toFixed(1)} kB`]),
       {
         colorLevel: reportLevel(process.stdout),
         columns: ['Inlined', { align: 'right', header: 'Code' }],

@@ -1,3 +1,4 @@
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -57,10 +58,9 @@ function stub(version: string, revision: string): string {
       .digest('hex')}`
   );
 
-  writeFileSync(
+  writeExecutable(
     path,
-    `#!/bin/sh\ncase "$1" in --version) echo '${version}';; --revision) echo '${revision}';; esac\n`,
-    { mode: 0o755 }
+    `#!/bin/sh\ncase "$1" in --version) echo '${version}';; --revision) echo '${revision}';; esac\n`
   );
 
   return path;

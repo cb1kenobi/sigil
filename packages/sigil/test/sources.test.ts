@@ -1,5 +1,6 @@
+import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -93,6 +94,145 @@ function tracked(): string[] {
     .filter(Boolean);
 }
 
+/** A code point as a reader looks it up: `U+202E`. */
+function codePoint(code: number): string {
+  return `U+${code.toString(16).toUpperCase().padStart(4, '0')}`;
+}
+
+/**
+ * A character that is not there to the eye: `\p{Cf}`, the format characters.
+ *
+ * The control character check is C0, `DEL` and C1, and none of these is one,
+ * so they went through it. The bidi controls -- U+202A to U+202E, U+2066 to
+ * U+2069, and the marks U+200E, U+200F and U+061C -- reorder what an editor and
+ * a diff draw without changing what a compiler reads, which is the "Trojan
+ * Source" attack and the reason GitHub flags them. The zero-width ones --
+ * U+200B to U+200D, and U+FEFF -- are simply invisible, and a byte order mark
+ * also changes how a file parses. SIG-483 was a tool write that turned the
+ * escape for U+202E in a test into the character itself: the check passed it,
+ * and only `od` showed it.
+ *
+ * Every one of them is `\p{Cf}`, so the class is named rather than enumerated,
+ * for the reason the build's escape pass says `\p{Cc}`: a list is a second
+ * definition of a set Unicode already defines. Naming it also takes in the word
+ * joiner, the invisible operators and the tag characters, which are as invisible
+ * as the rest and which no file here holds.
+ *
+ * The line and paragraph separators, U+2028 and U+2029 (`\p{Zl}` and `\p{Zp}`),
+ * go with them although they are not `Cf`. Each is a line terminator to
+ * JavaScript and nothing an editor draws, so one ends a `//` comment and the
+ * code after it runs while it reads as the comment -- and that is a place
+ * `oxlint`'s `no-irregular-whitespace` does not look, measured: it flags one in
+ * code and in a block comment, and is silent on one ending a line comment as it
+ * is in a string. The four in the tree, on three lines of a YAML test and a
+ * history file, were escapes a tool write had turned into the characters, and
+ * are escapes again.
+ *
+ * What is left out is left out on purpose. A no-break space is `\p{Zs}`, about
+ * ten files hold one, and lint refuses it in JavaScript; a variation selector or
+ * a Hangul filler is a mark or a letter with literal uses of its own. Each would
+ * be a decision about its own sweep, not a widening of this one.
+ */
+const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * The tracked names that hold a character a reader cannot see: `FORMAT`, and a
+ * control character as well. A path is in a diff as much as a line is, and a
+ * right-to-left override in a file name is the oldest form of this -- a name
+ * ending in `exe` drawn as one that does not.
+ */
+function hiddenInNames(names: readonly string[]): string[] {
+  const hidden = new RegExp(`${FORMAT.source}|\\p{Cc}`, 'u');
+  return names.filter((name) => hidden.test(name)).map((name) => JSON.stringify(name));
+}
+
+/** A file allowed to hold format characters: which ones, and why it has to. */
+interface Allowance {
+  readonly codes: readonly number[];
+  readonly reason: string;
+}
+
+/**
+ * What may hold one literally anyway: per file, and per character.
+ *
+ * JavaScript and TypeScript have an escape for every one of these characters,
+ * so code never needs the literal: the joiners inside the family emoji the tests
+ * measure are written as escapes between the pictographs they join, which is
+ * the same string and shows the reader what is there. Markdown is where there is
+ * no escape, because a code span shows a backslash sequence and a character
+ * reference exactly as typed -- so a document whose example *is* the character
+ * has to hold it. Listed by file rather than inferred from where a joiner sits,
+ * so that the next one is a decision somebody makes.
+ *
+ * An entry names the characters as well as the file, because a reason for a
+ * joiner is no reason for a right-to-left override: allowing the whole file
+ * would let one into the README, which is the page npm renders.
+ */
+const FORMAT_ALLOWED = new Map<string, Allowance>([
+  [
+    'packages/sigil/README.md',
+    {
+      codes: [0x200d],
+      reason:
+        'the `stringWidth()` example and `charLimit` each show a family emoji, which is ' +
+        'one grapheme cluster because of its joiners, and npm renders the README for people',
+    },
+  ],
+]);
+
+/** Each line that holds a format character, with the characters it holds. */
+function scan(raw: Buffer): { line: number; codes: number[] }[] {
+  const found: { line: number; codes: number[] }[] = [];
+
+  // `Buffer#toString()` keeps a leading byte order mark where a `TextDecoder`
+  // would strip it, so a mark is found at the start of a file as well as part
+  // way down, which is where the four in `@ttylabs/config-xml`'s comments were
+  const lines = raw.toString('utf8').split('\n');
+  for (const [index, line] of lines.entries()) {
+    const codes = new Set([...line.matchAll(FORMAT)].map((match) => match[0].codePointAt(0) ?? 0));
+    if (codes.size > 0) {
+      found.push({ codes: [...codes].sort((a, b) => a - b), line: index + 1 });
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Each line of each file that holds a format character its `FORMAT_ALLOWED`
+ * entry does not name, as `name:line: U+202E`.
+ *
+ * A file git would call binary is skipped only if it is on `ALLOWED`: it has no
+ * diff for an invisible character to mislead, and it is somebody's decision
+ * already. A NUL anywhere else does not buy a way past this check -- that file
+ * is read like any other, and `should be text to git` fails it besides.
+ */
+function formatCharacters(dir: string, names: readonly string[]): string[] {
+  const offenders: string[] = [];
+
+  for (const name of names) {
+    let raw: Buffer;
+    try {
+      raw = readFileSync(join(dir, name));
+    } catch {
+      continue;
+    }
+    if (allowed(name) && raw.subarray(0, 8000).includes(0)) {
+      continue;
+    }
+
+    const exempt = new Set(FORMAT_ALLOWED.get(name)?.codes);
+    for (const { codes, line } of scan(raw)) {
+      const refused = codes.filter((code) => !exempt.has(code));
+      if (refused.length > 0) {
+        offenders.push(`${name}:${line}: ${refused.map(codePoint).join(', ')}`);
+      }
+    }
+  }
+
+  return offenders;
+}
+
 describe('committed sources', () => {
   const files = tracked().filter((name) => !allowed(name));
 
@@ -142,9 +282,7 @@ describe('committed sources', () => {
       }
 
       if (found.size > 0) {
-        const names = [...found]
-          .sort((a, b) => a - b)
-          .map((code) => `U+${code.toString(16).toUpperCase().padStart(4, '0')}`);
+        const names = [...found].sort((a, b) => a - b).map(codePoint);
         offenders.push(`${name}: ${names.join(', ')}`);
       }
     }
@@ -152,38 +290,97 @@ describe('committed sources', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  it('should carry no byte order mark, which is the one format character that bites', () => {
-    // the gap the FIGlet pass recorded and the XML store then walked into
-    // again: the check above is C0, `DEL` and C1, and a byte order mark is a
-    // **format** character rather than a control one -- so four literal ones
-    // sat in this repository's comments and `oxlint`'s
-    // `no-irregular-whitespace` was what said so rather than anything here.
-    //
-    // Closed for the mark **alone** rather than by widening to `\p{Cf}`, which
-    // is the obvious generalization and needs an allow-list: there are two
-    // legitimate U+200D in the tree, in `packages/sigil/README.md` and in
-    // `test/components/typewriter.test.ts`, where they are the joiners inside
-    // emoji sequences. A mark needs none, because no file here has a reason to
-    // hold one -- and it is the one that is not merely invisible: it changes
-    // how a file **parses**, which is what the XML store spends a module on.
-    const marked: string[] = [];
+  it('should carry no format character, which is invisible and can reorder a line', () => {
+    // read over every tracked file rather than over `files`, because a file on
+    // `ALLOWED` holds a terminal's own bytes for a reason and has none to hold a
+    // bidi control. This closes what the byte order mark check that used to
+    // stand here was a first step towards: it was the mark alone, because the
+    // two U+200D in the tree then would have needed a list and the mark needed
+    // none (SIG-483 took the list, and found fifteen files rather than two)
+    const offenders = formatCharacters(root, tracked());
 
-    for (const name of files) {
-      let raw: Buffer;
-      try {
-        raw = readFileSync(join(root, name));
-      } catch {
-        continue;
-      }
-      // read off the bytes rather than the decoded text, so that a mark
-      // anywhere in the file is found rather than only a leading one -- the
-      // four this found were in comments part way down
-      if (raw.includes(Buffer.from('\uFEFF', 'utf8'))) {
-        marked.push(name);
-      }
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  it('should list only what a file holds, so that the list cannot outlive its reason', () => {
+    const all = new Set(tracked());
+
+    for (const [name, { codes }] of FORMAT_ALLOWED) {
+      expect(all.has(name), name).toBe(true);
+      const held = new Set(scan(readFileSync(join(root, name))).flatMap((found) => found.codes));
+      expect(
+        codes.filter((code) => !held.has(code)).map(codePoint),
+        `${name} is allowed what it does not hold`
+      ).toEqual([]);
+    }
+  });
+
+  it('should name no tracked file with a character a reader cannot see', () => {
+    expect(hiddenInNames(tracked())).toEqual([]);
+  });
+
+  describe('a planted format character', () => {
+    // built from code points rather than written as escapes, because an escape
+    // written through a tool can land as the character itself, which is how this
+    // check came to be asked for
+    const planted = [
+      0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
+      0x2028, 0x2029, 0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
+    ];
+    const zwj = String.fromCodePoint(0x200d);
+    const rlo = String.fromCodePoint(0x202e);
+
+    /** Writes `content` at `name` under a fresh directory, and checks it. */
+    function plant(content: string | Buffer, name = 'planted.ts'): string[] {
+      const dir = tempDir('sigil-sources-');
+      mkdirSync(dirname(join(dir, name)), { recursive: true });
+      writeFileSync(join(dir, name), content);
+      return formatCharacters(dir, [name]);
     }
 
-    expect(marked, marked.join('\n')).toEqual([]);
+    it.each(planted.map((code) => [codePoint(code), code]))('should refuse %s', (name, code) => {
+      const char = String.fromCodePoint(code as number);
+      expect(plant(`const ok = 1;\nconst label = 'a${char}b';\n`)).toEqual([
+        `planted.ts:2: ${name}`,
+      ]);
+    });
+
+    it('should refuse a byte order mark at the very start, which a decoder would strip', () => {
+      expect(plant(`${String.fromCodePoint(0xfeff)}const ok = 1;\n`)).toEqual([
+        'planted.ts:1: U+FEFF',
+      ]);
+    });
+
+    it('should name each character once per line, and every line it is on', () => {
+      const pdf = String.fromCodePoint(0x202c);
+      expect(plant(`a${rlo}b${pdf}${rlo}\nok\nc${rlo}\n`)).toEqual([
+        'planted.ts:1: U+202C, U+202E',
+        'planted.ts:3: U+202E',
+      ]);
+    });
+
+    it('should pass the same character written as an escape, which is the fix', () => {
+      const backslash = String.fromCodePoint(0x5c);
+      expect(plant(`const label = 'a${backslash}u202Eb';\n`)).toEqual([]);
+    });
+
+    it('should let a listed file hold what it is listed for, and nothing else', () => {
+      const name = 'packages/sigil/README.md';
+      expect(FORMAT_ALLOWED.get(name)?.codes).toEqual([0x200d]);
+      expect(plant(`a family: x${zwj}y\n`, name)).toEqual([]);
+      expect(plant(`a family: x${zwj}y\nand ${rlo}more\n`, name)).toEqual([`${name}:2: U+202E`]);
+    });
+
+    it('should skip a binary file only when somebody listed it', () => {
+      const binary = Buffer.from(`\0${rlo}`, 'utf8');
+      expect(plant(binary, 'website/src/app/favicon.ico')).toEqual([]);
+      expect(plant(binary)).toEqual(['planted.ts:1: U+202E']);
+    });
+
+    it('should refuse one in a file name, and a control character there too', () => {
+      const names = ['src/ok.ts', `src/gnp${rlo}.exe`, 'src/a\tb.ts', `src/c${zwj}d.ts`];
+      expect(hiddenInNames(names)).toEqual(names.slice(1).map((name) => JSON.stringify(name)));
+    });
   });
 
   it('should be text to git, which is what makes a diff readable', () => {

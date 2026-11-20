@@ -1281,7 +1281,61 @@ makes it testable with a fixture directory and no bundler at all.
   and an app under a link was told about `../../../private/var/...`.
   `test/bundle-escape.test.ts` is the guard, spawned and piped, with rolldown's
   colour both off and on. The success path's tables and summary -- chunk names
-  among them -- are not this entry's.
+  among them -- are not this entry's; they are the next one's.
+
+- **A build that succeeds escapes what it names, and so do the type checker's
+  two throws (SIG-456, SIG-457).** The two entries above escaped what a
+  _failing_ build prints. A successful one still printed the app's name, its
+  entry and its output path as they stood, in the plain form a pipe gets: a
+  manifest named `n<ESC>]0;PWN<BEL>d` retitled the reader's window from every
+  piped `sigil build`, `check`, `package` and `reference`, and one named
+  `a<LF>FORGED` printed a line of its own. `writeSummary()` is the sink now, the
+  way `diagnosticLocation()` and `diagnosticMessage()` are for a diagnostic: it
+  runs `escapeControls()` over every run, for **both** forms, so a terminal
+  shows `\x1B` where the canvas used to drop the character and the two still
+  say one thing. `escapeControls()` rather than `escapeMessage()`, because a
+  run is a word of one line with no line break of its own to keep. So
+  `appRuns()` stays as it is and every other run a summary carries is covered
+  with it; a run a producer already escaped, such as the `Not type-checked`
+  note, passes through unchanged.
+
+  The tables are the producers' to escape, cell by cell -- `printSizes()` and
+  `printInlined()` in `build.ts`, `printBinaries()` in `package.ts` and
+  `printTree()` in `_inspect.ts`. `table()` never let a raw sequence through,
+  since the canvas drops it, but it dropped only the control character and kept
+  the rest, so the size table called the entry `nh]0;PWNd.mjs` beside a summary
+  that now calls it `nh\x1B]0;PWN\x07d.mjs`. A description in `--tree` goes
+  through `escapeMessage()` instead, since its own line break is the table's to
+  lay out. The failure sentences the SIG-447 audit missed go with them, each
+  printed by `main()` as it stands and each found by review of this change rather
+  than by a finished audit: `--bin`'s refusal of a walked command, whose name is
+  a file's; `reference --check`'s `out of date in <name>`; `discover.ts`'s four
+  refusals of a root it cannot read (no manifest, no runtime dependency, no
+  entry, an `--entry` that is not there); `package`'s refusal of an `external`,
+  which is `sigil.json`'s or the flag's; `config.ts`'s refusal of a root holding both
+  `sigil.json` and `sigil.jsonc`; and `tree.ts`'s three, which name a
+  command directory and are escaped by reading -- the one a review tried to
+  reach arrived as a diagnostic first. Review round 2 found the same shape in `package`'s
+  own refusals, and they are left for a ticket of their own rather than taken
+  here: `parseTarget()`'s and `parseSpec()`'s echo of a `--target` or
+  `--runtime` from `sigil.json` or the flag, `codesign failed for <file>` and the
+  other `compile.ts` sentences quoting the output path, and `@ttylabs/sigil`'s
+  update-check refusal of a `repo` that is not `owner/name`.
+
+  `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
+  throws quoted the app's root and the `tsc` under it raw, and `main()` prints
+  a thrown error as it stands. Each path goes through `escapeControls()` after
+  `displayPath()`, and the suggested `-p` after `word()` -- a config whose name
+  holds a control character is one that command cannot spell for a shell
+  anyway, and printing it raw is the retitle. Node's own `run.error.message`
+  is escaped the way `compile.ts` already escapes its spawn failures -- and no
+  test pins that one, because Node's sentence names the executable it spawned,
+  which is `process.execPath` and not the app's. The guards are the `an app
+  whose root holds a control character` block of `test/build/typecheck.test.ts`,
+  the `a build that succeeds` and `an app the toolchain refuses` blocks of
+  `test/bundle-escape.test.ts`, spawned and piped, and `should escape what a
+  summary names, on a terminal as well as off one` in `test/report.test.ts`.
+  The spawned ones are skipped on Windows, which cannot make the names.
 
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.
@@ -6340,3 +6394,66 @@ measurements are in
   `./app/built`, and a relative path that happens to exist from where you stand
   builds somewhere you were not looking. The tests use absolute paths, which is
   why nothing noticed.
+
+### A stub a test runs is written by a child process
+
+SIG-482. `test/executable.ts` has `writeExecutable()`, and every executable a
+test in this package writes for something to run -- a fake `bun`, a fake
+`node`, a package manager on a stub `PATH` -- is written with it. Seen once as
+`spawnSync /tmp/sigil-target-.../bun-1fe089fb... ETXTBSY` from
+`runtimes-target.test.ts`, on one of nine CI jobs.
+
+- **The cause is a fork in another thread, not the test that wrote the stub.**
+  This package runs its tests in vitest's `threads` pool, so every test file
+  is a thread of one process, and `fork()` copies every descriptor the process
+  holds -- including the one another thread has open inside `writeFileSync()`.
+  The copy is close-on-exec, so it goes away when that child calls `execve()`.
+  Until then the stub has a writer, and Linux refuses to execute a file that
+  has one. A stub written and spawned at once can land in that window. macOS
+  and Windows do not refuse, which is why only the Linux jobs ever saw it.
+- **Renaming a temporary file into place does not help, though it is the usual
+  advice.** The inherited descriptor holds the inode, and a rename keeps the
+  inode. Nor can the forks be coordinated: they are in code under test and in
+  other test files. Retrying on `ETXTBSY` would have to go where the exec is,
+  which is `bunVersion()` and `compileWithBun()` -- shipped code, retrying for
+  the sake of a test runner. So the bytes go through `/bin/sh -c 'cat > "$1"'`
+  and the mode is set with `chmod`, which opens nothing. This process never
+  holds a writer, and the child that did has exited before the call returns.
+  Every POSIX platform takes that path, so a local run on a Mac exercises what
+  CI's Linux jobs run. Windows writes in place.
+- **The shipped code does not have the race.** A runtime download is unpacked
+  by `tar`, a child, then renamed and `chmod`-ed; `bun build --compile` and
+  `node --build-sea` write the binary in their own processes. `sigil build`
+  writes the bin in-process, through rolldown and `escapeControls()`, but
+  nothing in the toolchain executes it, and the tests run it through `node`,
+  which reads it rather than executing it. The toolchain is one thread, too,
+  and libuv's spawn returns only once its child has exec'd, so no fork of its
+  own is ever in flight while it executes something.
+- **Only a file something runs needs it.** `which.test.ts` and
+  `editor.test.ts` in `@ttylabs/sigil` write executables that are only
+  looked up and never run, and the fake editor runs through `node`. That is why
+  the helper is this package's and not a published one: nothing outside it
+  needs it.
+- **There is no regression test of the race itself, because it cannot be
+  provoked on demand.** A temporary probe on CI's three Linux jobs wrote 32 MB
+  stubs, a size that holds the write open long enough to be hit, and spawned
+  each at once while three other threads forked as fast as they could. Written
+  in place, 9 of 216 failed with `ETXTBSY`; written to a temporary name and
+  renamed in, 7 of 222; written with `writeExecutable()`, 0 of 147. The hits
+  were uneven -- 14 of the 16 came from one job -- which is the reason it is not
+  a test. Stubs of 4 MB or less, which covers every size the tests write, never
+  failed in 778 tries written either way. The probe also held a descriptor open
+  across a rename and spawned the new name, which was `ETXTBSY` on all three
+  jobs and ran once the descriptor was closed. `executable.test.ts` pins what
+  can be pinned: the bytes, the mode, a replaced file, and the error.
+- **What stops the next stub being written in place is a scan, as
+  `copy-fixture.test.ts` scans for `cpSync`.** `writing an executable` in
+  `executable.test.ts` reads every test file in every package, the examples and
+  the website's tests, and fails on an octal `mode:` or `chmod` with an execute
+  bit anywhere but through the helper. The exceptions -- directories, a mocked
+  `mkdirSync`, and files that are looked up or access-checked and never run --
+  are named with a count, so a new mode in one of those files is a decision
+  somebody makes. Two limits are written down beside it rather than closed: a
+  mode in a variable, or set some other way such as a shell `chmod +x`, is out
+  of its reach, and so is a second call to a helper whose one mode is already
+  counted -- `which.test.ts`'s `exe()` and `editor.test.ts`'s `bin()`.

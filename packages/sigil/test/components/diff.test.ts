@@ -692,7 +692,10 @@ describe('diff()', () => {
 
     it('should never draw a row wider than the width, whatever the characters', () => {
       const wide = '日本語のテキスト'.repeat(4);
-      const out = lines({ new: `${wide}\n👨‍👩‍👧‍👦 family ${wide}`, old: 'x' }, { width: 17 });
+      const out = lines(
+        { new: `${wide}\n👨\u200D👩\u200D👧\u200D👦 family ${wide}`, old: 'x' },
+        { width: 17 }
+      );
 
       expect(Math.max(...out.map((row) => stringWidth(row)))).to.be.at.most(17);
       // and nothing was lost in the folding

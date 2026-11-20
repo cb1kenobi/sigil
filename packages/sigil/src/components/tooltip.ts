@@ -94,7 +94,11 @@ export interface TooltipOptions {
   quiet?: boolean;
   /** The side it goes on when there is room. Defaults to `bottom`. */
   side?: TooltipSide;
-  /** What it says. Wraps at `maxWidth`. */
+  /**
+   * What it says. Wraps at `maxWidth`. An empty string says nothing, and a bubble
+   * with nothing to say is hidden rather than drawn as an empty box, until
+   * `setText()` gives it words again.
+   */
   text: string;
 }
 
@@ -345,6 +349,8 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
 
   /** What the bubble says. One element for the tooltip's life, moved into each bubble. */
   const label = textNode(opts.text, { class: 'sigil-tooltip-text' });
+  /** Whether it has anything to say, which an empty bubble does not. */
+  let saying = opts.text !== '';
 
   /** A fresh bubble, at the screen's corner until the layout has measured it. */
   function build(): Element {
@@ -410,7 +416,9 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
         return false;
       }
       // an anchor a window rebuild took out of the tree is not anywhere to point
-      const at = rootOf(anchor) === root ? target(it) : undefined;
+      // and one with nothing to say is hidden the way one pointing at nothing is:
+      // an empty box beside the anchor says only that something is missing
+      const at = rootOf(anchor) === root && saying ? target(it) : undefined;
       const now: Placed = { at, height: size.height, screen, width: size.width };
       if (against !== undefined && samePlaced(against, now)) {
         return false;
@@ -604,6 +612,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
         throw new TypeError(__`Expected tooltip text to be a string`);
       }
       label.setText(value);
+      saying = value !== '';
     },
     get shown() {
       return bubble !== undefined;

@@ -4,8 +4,11 @@ import {
   compareSpecificity,
   inheritFrom,
   initialStyle,
+  keysFor,
   LAYERS,
   type Matched,
+  matches,
+  matchesMedia,
   ORIGINS,
   type Origin,
   parseStylesheet,
@@ -26,6 +29,11 @@ import { describe, expect, it } from 'vitest';
  * precedence object for every declaration and a fresh map of winners per call,
  * which is the algorithm written out below -- so this file is the evidence that
  * the rewrite moved no answer, and the place an answer that moves is caught.
+ *
+ * `match()` is held the same way (SIG-455). It used to build every bucket key as
+ * a string, a map of the rules found and an object per matched rule, on every
+ * call; it now looks buckets up by name, deduplicates in a reused table and hands
+ * back objects built with the index. `matchedTheOldWay()` is the old one.
  */
 
 const node = (spec: Partial<StyleNode> & { type: string }): StyleNode => spec;
@@ -59,6 +67,55 @@ function compare(a: Matched, aImportant: boolean, b: Matched, bImportant: boolea
     compareSpecificity(a.specificity, b.specificity) ||
     aOrder - bOrder
   );
+}
+
+/**
+ * What `match()` reported before SIG-455: every bucket `keysFor()` names, a map
+ * keyed by source order so a rule with several selectors is reported once, at
+ * the most specific of them, and a fresh object per rule.
+ *
+ * The bucket index is rebuilt here from the sheets, in the order the cascade
+ * numbers rules: sheets as added, rules as written.
+ */
+function matchedTheOldWay(cascade: Cascade, target: StyleNode): Matched[] {
+  const buckets = new Map<
+    string,
+    { order: number; origin: Origin; rule: Rule; selector: Rule['selectors'][number] }[]
+  >();
+  let order = 0;
+  for (const sheet of cascade.sheets) {
+    for (const rule of sheet.rules) {
+      const at = order++;
+      for (const selector of rule.selectors) {
+        const bucket = buckets.get(selector.key) ?? [];
+        bucket.push({ order: at, origin: sheet.origin, rule, selector });
+        buckets.set(selector.key, bucket);
+      }
+    }
+  }
+
+  const best = new Map<number, Matched>();
+  for (const key of keysFor(target)) {
+    for (const candidate of buckets.get(key) ?? []) {
+      const found = best.get(candidate.order);
+      if (found && compareSpecificity(found.specificity, candidate.selector.specificity) >= 0) {
+        continue;
+      }
+      if (!matchesMedia(candidate.rule.media, cascade.media)) {
+        continue;
+      }
+      if (!matches(candidate.selector, target)) {
+        continue;
+      }
+      best.set(candidate.order, {
+        order: candidate.order,
+        origin: candidate.origin,
+        rule: candidate.rule,
+        specificity: candidate.selector.specificity,
+      });
+    }
+  }
+  return [...best.values()];
 }
 
 /** The cascade's answer worked out the long way, from what `match()` reports. */
@@ -114,6 +171,13 @@ const SELECTORS = [
   '#x',
   '#x.a',
   '#x, .b',
+  // a list whose selectors land in two of one element's buckets, and one whose
+  // selectors share a bucket, so that a rule found twice is reported once
+  '.a, .b',
+  'box, #x.b',
+  'box, root > box',
+  ':not(.a)',
+  'box:not(#x, .b)',
   'root box',
   'root > .a',
   'box:first-child',
@@ -146,7 +210,15 @@ function randomSheet(next: () => number, origin: Origin): Stylesheet {
     for (let j = 0; j < declarations; j++) {
       body.push(`${pick(next, DECLARATIONS)}${next() < 0.25 ? ' !important' : ''}`);
     }
-    const rule = `${pick(next, SELECTORS)} { ${body.join('; ')} }`;
+    const selected = `${pick(next, SELECTORS)} { ${body.join('; ')} }`;
+    // a media query on some, one that holds and one that does not
+    const media = next();
+    const rule =
+      media < 0.1
+        ? `@media (min-width: 1) { ${selected} }`
+        : media < 0.2
+          ? `@media (max-width: 1) { ${selected} }`
+          : selected;
     const layer = next();
     rules.push(
       layer < 0.2 ? `@layer base { ${rule} }` : layer < 0.4 ? `@layer utilities { ${rule} }` : rule
@@ -162,7 +234,8 @@ function randomTree(next: () => number): StyleNode[] {
   const children: StyleNode[] = [];
   const root = node({ children, type: 'root' });
   for (let i = 0; i < 4; i++) {
-    const classes = ['a', 'b'].filter(() => next() < 0.5);
+    // a class may be listed twice, which reads its bucket twice
+    const classes = ['a', 'b', 'a'].filter(() => next() < 0.5);
     const child = node({
       classes,
       id: next() < 0.3 ? 'x' : undefined,
@@ -188,6 +261,7 @@ describe('precedence, against the algorithm written out', () => {
       // one cascade resolving several elements in a row, which is what reusing
       // the winners across calls has to survive
       for (const target of [root, ...children]) {
+        expect(cascade.match(target), `seed ${seed}`).toEqual(matchedTheOldWay(cascade, target));
         const asParent = target === root ? undefined : parent;
         const expected = reference(cascade, target, asParent);
         const actual = cascade.resolveSheets(target, asParent);
@@ -328,5 +402,79 @@ describe('a resolve started inside another one', () => {
     expect(result.style.color).toEqual(palette(1));
     expect([...result.locked]).toEqual(['color']);
     expect(cascade.resolveSheets(inner).style.color).toEqual(palette(2));
+  });
+});
+
+describe('a match started inside another one', () => {
+  // matching calls into the `StyleNode`, which an app may implement with
+  // getters -- so a getter can start a match, or a whole resolve, on the same
+  // cascade while one is half done. Testing `root > box` reads `parent`, which is
+  // where the getter starts the other one: after `box` has been found, and before
+  // `.b` finds the rule `root > box` belongs to a second time -- so the
+  // interrupted match needs both what it wrote and its record of what it found
+  const sheet = (): Stylesheet =>
+    parseStylesheet(
+      'box { padding: 1 } .b, root > box { color: red } text { width: 4 } .c { color: blue }'
+    );
+  const root = node({ type: 'root' });
+  const plain = node({ classes: ['b'], parent: root, type: 'box' });
+  const other = node({ classes: ['c'], type: 'text' });
+
+  /** A box under `root` whose first read of `parent` runs `interrupt`. */
+  function interrupting(interrupt: () => void): StyleNode {
+    let interrupted = false;
+    return {
+      classes: ['b'],
+      get parent() {
+        if (!interrupted) {
+          interrupted = true;
+          interrupt();
+        }
+        return root;
+      },
+      type: 'box',
+    };
+  }
+
+  it('should report each rule once, and the answer an uninterrupted match gives', () => {
+    const cascade = new Cascade([sheet()]);
+    // a match first, so that the table the interrupted one borrows is a kept one
+    const expected = cascade.match(plain);
+    let inner: Matched[] = [];
+    const target = interrupting(() => {
+      inner = cascade.match(other);
+    });
+
+    expect(cascade.match(target)).toEqual(expected);
+    expect(expected.map((matched) => matched.rule.order)).toEqual([0, 1]);
+    expect(inner.map((matched) => matched.rule.order)).toEqual([2, 3]);
+  });
+
+  it('should give an interrupted resolve the rules it matched, not the ones the other did', () => {
+    const cascade = new Cascade([sheet()]);
+    const expected = cascade.resolveSheets(plain).style;
+    let inner: Style | undefined;
+    const target = interrupting(() => {
+      inner = cascade.resolveSheets(other).style;
+    });
+
+    const result = cascade.resolveSheets(target);
+    expect(result.style).toEqual(expected);
+    expect(result.style.color).toEqual(palette(1));
+    expect(result.style.paddingTop).toEqual(1);
+    expect(inner).toEqual(cascade.resolveSheets(other).style);
+  });
+
+  it('should answer for the sheets it started with when one is added under it', () => {
+    const cascade = new Cascade([sheet()]);
+    const expected = cascade.match(plain);
+    // filed under `.b`, which the interrupted match reads after the interruption
+    const added = parseStylesheet('.b { width: 9 }');
+    const target = interrupting(() => {
+      cascade.add(added);
+    });
+
+    expect(cascade.match(target)).toEqual(expected);
+    expect(cascade.match(plain).map((matched) => matched.rule)).toContain(added.rules[0]);
   });
 });
