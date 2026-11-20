@@ -792,6 +792,21 @@ describe('markdown()', () => {
       }
     });
 
+    it('should keep a no-break space with the word beside it across a style change and a mixed run', () => {
+      expect(draw('Wait **10**\u00a0seconds then go', { width: 10 })).to.equal(
+        'Wait\n10\u00a0seconds\nthen go'
+      );
+      // a run of both kinds is a gap on each side of a word made of the no-break
+      // space, which a split on the whole run could not tell from one gap
+      expect(draw('aaa \u00a0 bbb', { width: 40 })).to.equal('aaa \u00a0 bbb');
+    });
+
+    it('should still read a form feed, a vertical tab and a byte order mark as a gap', () => {
+      for (const blank of ['\f', '\v', '\uFEFF', '\r', '\u2028']) {
+        expect(draw(`aaa${blank}bbb`, { width: 40 }), JSON.stringify(blank)).to.equal('aaa bbb');
+      }
+    });
+
     it('should keep the two words of an &nbsp; together', () => {
       expect(draw('Wait 10&nbsp;seconds then press Ctrl&nbsp;C now', { width: 10 })).to.equal(
         'Wait\n10\u00a0seconds\nthen press\nCtrl\u00a0C now'

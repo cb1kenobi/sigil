@@ -896,13 +896,15 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
 
   const emit = (content: string, classes: string, href: string): void => {
     // a gap is a blank `wrap()` breaks at -- U+0020 and a tab, through the one
-    // definition of them -- or a line break; every other blank, a no-break space
-    // among them, is part of the word beside it, which is what it is written for
+    // definition of them -- and anything else that is white space but not a space
+    // character: a line break, a form feed, the line and paragraph separators. A
+    // space character that is not one of those two, a no-break space among them,
+    // is part of the word beside it, which is what it is written for
     for (const part of content.split(/(\s)/)) {
       if (part === '') {
         continue;
       }
-      if (isBreakSpace(part) || part === '\n' || part === '\r') {
+      if (/^\s$/.test(part) && (isBreakSpace(part) || !/^\p{Zs}$/u.test(part))) {
         end();
         continue;
       }

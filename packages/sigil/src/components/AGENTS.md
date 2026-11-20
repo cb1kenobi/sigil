@@ -2901,15 +2901,19 @@ it is a component rather than the frame effect SIG-103 is.
   `\s`, so `10&nbsp;seconds` came apart at the no-break space an author writes to
   prevent exactly that, and the space was lost at the break. It is a registry
   component and so cannot reach `words()`, which is private; it asks the public
-  `isBreakSpace()` of each blank instead, plus a line break, and any other blank
-  stays in the word beside it. Per blank rather than per run, because a run can
-  mix the two kinds (`' \u00a0 '`), which is one gap and one word and a split on
-  `\s+` could not tell apart -- and a published separator-keeping split was
+  `isBreakSpace()` of each blank instead. A blank that is not a space
+  character -- a line break, a form feed, a vertical tab, the line and paragraph
+  separators, a byte order mark -- is still a gap, as `\s` made it, so the
+  drawing never sees a control character glued into a word (`wrap()` keeps those
+  raw; markdown does not, and a lone `\r` is a gap here for the same reason);
+  every space character that `wrap()` does not break at stays in the word beside
+  it. Per blank rather than per run, because a run can
+  mix the two kinds (`' \u00a0 '` is a gap, a word made of the no-break space, and
+  a gap), which a split on `\s+` could not tell apart -- and a published separator-keeping split was
   refused for the same reason `words()` is private: what `@ttylabs/sigil/wrap`
   exports freezes at 1.0, and one function already answers the question. A
-  combining mark after a space is not handled (markdown's runs hand it a space and
-  the mark in one text, and no document writes it), which `wrap()` reads as one
-  cluster. `should break only where wrap() does` compares markdown's rows with
+  combining mark after a space is not handled: it is a gap and the mark is drawn
+  as it always was, where `wrap()` reads the two as one cluster. `should break only where wrap() does` compares markdown's rows with
   `wrap()` byte for byte at widths of ten and up -- markdown draws no narrower, and
   a word wider than a row is cut by each in its own way.
 
@@ -11787,7 +11791,7 @@ there is the bars, which are drawn on every line.
   (SIG-437).** Each failed once in a loaded full-suite run, passing alone, which
   is a wall clock reading its neighbours. What they guard is how often the layout
   measures an element, which is a count: `measuringRatio()` wraps every element's
-  `measure` and divides the calls for the large document by the calls for the
+  `measure` -- a leaf's, since a box has none -- and divides the calls for the large document by the calls for the
   small one, the same on any machine. Depth 12 to 96 is 6.3 times the calls now
   and 49.5 on the pre-SIG-423 `markdown.ts`, against a limit of 12; the lazy lines
   are 1.01 times unquoted and were 53.5, against a limit of 2. Counting calls to
