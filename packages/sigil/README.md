@@ -3151,7 +3151,9 @@ into it so far.
 Stepping wraps inside the segment and **never carries**: December up is January
 of the same year, and 23:59 up is 23:00 on the same day. The day is pulled back
 to the last day of a shorter month when the month or the year changes, so January
-31st stepped to February is the 28th, or the 29th in a leap year.
+31st stepped to February is the 28th, or the 29th in a leap year. A year outside
+0000-9999, which an `initial` or a `value` can start on, is pulled to the
+nearer end by the first step, and wraps from there.
 
 The value is built as a **local** date-time and handed to the same reader the
 parser's `date` data type uses, so the prompt and `--when` cannot disagree about

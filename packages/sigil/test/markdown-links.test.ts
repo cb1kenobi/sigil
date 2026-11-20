@@ -367,8 +367,8 @@ describe('what links in markdown are read as', () => {
       ['## Deliberate decisions — do not "fix" these', 'deliberate-decisions--do-not-fix-these'],
       ['# Café déjà vu 🚀 rocket', 'café-déjà-vu--rocket'],
       ['## İstanbul ß ÅNGSTRÖM Ελληνικά 日本語', 'i̇stanbul-ß-ångström-ελληνικά-日本語'],
-      ['# Nums ½ ² Ⓐ Ⅻ ٣ x‌y', 'nums---ⓐ-ⅻ-٣-x‌y'],
-      ['## Emoji :tada: 👍🏽 👨‍👩‍👧 ✔︎ done', 'emoji-tada--‍‍-︎-done'],
+      ['# Nums ½ ² Ⓐ Ⅻ ٣ x\u200Cy', 'nums---ⓐ-ⅻ-٣-x\u200Cy'],
+      ['## Emoji :tada: 👍🏽 👨\u200D👩\u200D👧 ✔︎ done', 'emoji-tada--\u200D\u200D-︎-done'],
       [
         '## a_b *em* _em2_ __strong__ [link](x) ![img](y.png) & <b>bold</b> -- dash',
         'a_b-em-em2-strong-link---bold----dash',

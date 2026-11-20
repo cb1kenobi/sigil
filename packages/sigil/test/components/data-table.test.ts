@@ -600,6 +600,26 @@ describe('DataTable()', () => {
       return { rows, tick };
     }
 
+    it('should follow its last row as rows are appended, through the tail it was handed (SIG-470)', () => {
+      const rows = new State<readonly Proc[]>(PROCS);
+      const tail = new State(true);
+      const host = procs({ rows, tail }, 3);
+      picture(host);
+      expect(control(host).selection.current.get()).toBe(7);
+
+      rows.set([...rows.get(), { cpu: 1, name: 'zsh', pid: 99, user: 'chris' }]);
+      flush();
+      expect(control(host).selection.current.get()).toBe(99);
+      expect(picture(host).at(-1)).toMatch(/^❯ +99 .* zsh$/);
+
+      // a move off the last row stops it, in the state the app holds
+      press(host, 'up');
+      expect(tail.get()).toBe(false);
+      rows.set([...rows.get(), { cpu: 2, name: 'vim', pid: 100, user: 'chris' }]);
+      flush();
+      expect(control(host).selection.current.get()).toBe(7);
+    });
+
     it('should keep the selection on its process and the view where it was while every row changes, htop-style', () => {
       const { rows, tick } = machine(200, 3);
       const host = procs({ follow: true, multiple: true, rows }, 11);

@@ -152,7 +152,7 @@ is the half worth having written down.
   a key dropped with **no error at all**, which is the worst way for a scan to be
   wrong. It ends at any of the four line terminators JavaScript has now.
 
-  ` ` and ` ` are the interesting half: neither is JSON whitespace, so
+  `\u2028` and `\u2029` are the interesting half: neither is JSON whitespace, so
   a document holding one outside a string was never valid JSON -- and ending the
   comment there turns a silent truncation into a **refusal**, which is the better
   of the two answers available. Pinned as that rather than as a parse, because

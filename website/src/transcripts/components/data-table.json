@@ -111,6 +111,12 @@
         "type": "DataTableSort | State<DataTableSort | undefined>"
       },
       {
+        "description": "Follow the last row as rows are added, as `tail -f` does: `ListView`'s `tail`, passed to the list the rows are drawn in. The last row is the last in the sorted order, so a table of events sorted by time follows the newest.",
+        "name": "tail",
+        "optional": true,
+        "type": "boolean | State<boolean>"
+      },
+      {
         "description": "`j`, `k`, `g` and `G`, as in a list.",
         "name": "vim",
         "optional": true,

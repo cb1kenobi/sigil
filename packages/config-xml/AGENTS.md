@@ -717,7 +717,8 @@ makes were each measured against the running demo before the prose was written.
 - **Closed for the mark alone**, which needs no allow-list because no file here has
   a reason to hold one -- and it is the one format character that is not merely
   invisible: it changes how a file **parses**, which is what `shape.ts` spends a
-  module on.
+  module on. SIG-483 later widened it to every format character, `\p{Cf}`, which
+  took the mark in with the rest.
 
 - **It found two more that predate it, and one of them is the entry recording the
   hazard.** `AGENTS.md`'s own sentence -- "Both are `\uFEFF` escapes now" -- held a
