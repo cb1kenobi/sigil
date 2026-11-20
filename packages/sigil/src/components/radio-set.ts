@@ -34,6 +34,7 @@ import {
   type ControlCondition,
   type ControlDescriber,
   controlDisabled,
+  controlState,
   describeControls,
 } from './control.js';
 import { labelLine } from './note.js';
@@ -79,8 +80,9 @@ export interface RadioSetProps<T = unknown> {
    *
    * A value is where it starts. A `State` is the value itself: the keys and the
    * mouse write it, and an app that writes it selects the option holding that
-   * value -- or none, for a value no option holds. Compared the way a `Map`
-   * compares keys. Defaults to none selected.
+   * value -- or none, for a value no option holds. A `Computed` is refused,
+   * since the set writes the value and a `Computed` cannot be written. Compared
+   * the way a `Map` compares keys. Defaults to none selected.
    */
   value?: State<T | undefined> | State<T> | T;
 }
@@ -119,9 +121,10 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
     throw new TypeError(__`Expected every radio option to have a different value`);
   }
   const offered = options.map((option) => !option.disabled);
-  const value = (
-    props.value instanceof State ? props.value : new State<T | undefined>(props.value)
-  ) as State<T | undefined>;
+  const value = controlState<T | undefined>(
+    props.value as State<T | undefined> | T | undefined,
+    __`Expected a radio set value to be a value or a State, not a Computed, since the set writes it`
+  );
   const disabled = controlCondition(
     props.disabled,
     __`Expected radio set disabled to be a boolean, a State, a Computed or a function`

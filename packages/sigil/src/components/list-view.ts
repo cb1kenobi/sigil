@@ -36,6 +36,7 @@ import {
 } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
+import { controlState } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -53,8 +54,9 @@ export interface ListSelectionOptions<K> {
    *
    * A key is where the cursor starts. A `State` is the state itself: the moves
    * write it, and an app that writes it moves the cursor -- the shape `Tabs`'
-   * `active` and `Collapsible`'s `open` have. Left out, or `undefined`, the cursor
-   * starts on the first row that is not disabled.
+   * `active` and `Collapsible`'s `open` have. A `Computed` is refused, since the
+   * moves write it. Left out, or `undefined`, the cursor starts on the first row
+   * that is not disabled.
    */
   current?: K | State<K | undefined>;
   /**
@@ -201,8 +203,10 @@ export function createListSelection<K>(opts: ListSelectionOptions<K> = {}): List
   const following = (): boolean =>
     follow instanceof State ? untrack(() => follow.get()) === true : follow;
   const multiple = opts.multiple === true;
-  const current =
-    opts.current instanceof State ? opts.current : new State<K | undefined>(opts.current);
+  const current = controlState<K | undefined>(
+    opts.current,
+    __`Expected list current to be a key or a State, not a Computed, since the list writes it`
+  );
   const selected =
     opts.selected instanceof State
       ? opts.selected

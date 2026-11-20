@@ -54,6 +54,7 @@ import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+import { controlState } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
@@ -104,7 +105,7 @@ export interface TreemapProps<T, K = T> {
   color?: (item: T, level: ColorLevel) => Color;
   /**
    * The item marked with an outline, as its key, or the state that holds it -- the
-   * shape `ListView`'s `current` has. A click writes it. An item with no tile of
+   * shape `ListView`'s `current` has. A click writes it, so a `Computed` is refused. An item with no tile of
    * its own outlines what it was drawn in: the tile it was gathered into, or the
    * tile of an ancestor drawn in one piece -- which takes `parent` to find. The
    * root is the whole map and is not outlined. The outline is the map's
@@ -1179,10 +1180,10 @@ export function Treemap<T, K = T>(props: TreemapProps<T, K>): Element {
     props.label ??
     ((item: T): string =>
       typeof item === 'string' || typeof item === 'number' ? String(item) : '');
-  const current =
-    props.current instanceof State
-      ? props.current
-      : new State<K | undefined>(props.current as K | undefined);
+  const current = controlState<K | undefined>(
+    props.current,
+    __`Expected treemap current to be a key or a State, not a Computed, since the treemap writes it`
+  );
   const source = props.root;
   // a signal by what it is rather than by having a `get`, because the root is
   // the app's own node and a node may well have a `get` of its own

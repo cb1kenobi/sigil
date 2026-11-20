@@ -13430,10 +13430,9 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
   still refused; that is why this is a second function beside `controlFlag()`
   rather than `controlFlag()` widened, which would have let a `Computed` reach a
-  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
-  and `Dropdown` still read anything that is not a `State` as a value to start
-  from, so a `Computed` there becomes the value rather than being refused -- left
-  as it was, since it is a `value` question and not a `disabled` one.
+  `set()` it does not have. The other controls' `value` was left alone here, as
+  a `value` question rather than a `disabled` one, and SIG-448 answered it: a
+  `Computed` there is refused too (below).
 - **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
   open. `() => boolean` is the template's convention for a reactive prop
   (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
@@ -13473,6 +13472,56 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   `control.test.ts` pins the four readable shapes, the tracking, the truth reading
   and the refusals; `button.test.ts` drives a function through the `ui` tag; and
   `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
+
+### A value a component writes refuses a `Computed`, whatever its type (SIG-448)
+
+`controlState()` in `control.ts`. `RadioSet` and `Dropdown` read `value` as
+`value instanceof State ? value : new State(value)`, and a `Computed` is not a
+`State` -- so it was wrapped as a value to start from: the set selected nothing,
+the field showed its placeholder, and a change to what the `Computed` derived from
+was never read. No error, and a derivation that did nothing at all.
+
+- **Refused, not followed.** The ticket left it open. Following one would make the
+  component's own writes -- a key, a click, a pick -- go somewhere, and a
+  `Computed` has no `set()`: either the control would stop answering its keys, or
+  it would keep a private value the derivation overwrites on its next change, which
+  is two owners of one value. Every sibling whose value has a fixed type already
+  refuses one, by refusing anything that is neither that type nor a `State`:
+  `checked` and a switch's `value` through `controlFlag()`, and the hand-written
+  checks in `TextField`, `TextArea`, `Slider`, `Tabs`, `Collapsible`, `Pane` and
+  `DiffView`. Following would have made these two the odd ones out; refusing makes
+  them the same. An app that wants a control to track a derived value writes the
+  value into the `State` it hands over, from an effect -- which is also what keeps
+  the keys working.
+- **`controlState()` is the generic `controlFlag()`.** Where the value is the
+  app's own type nothing can be refused by its shape, except a `Computed`, which is
+  a signal and never a value -- so that is all it refuses. Told apart by
+  `instanceof`, the treemap's `root` rule (SIG-480), because a value may be the
+  app's own object with a `get` of its own, and duck typing would refuse it; a test
+  pins an option value with a `get()` being selected. The cost of `instanceof` is
+  that a `Computed` from a second copy of the package is not recognised and is
+  taken as a value, as before. An option whose value really _is_ a `Computed` can
+  no longer be named by `value`; nobody keys a choice by a signal.
+- **The same defect in four more places, fixed the same way.** Swept every
+  `instanceof State ?` in `src/components/`: a list's `current` (in
+  `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
+  `current`, `Treemap`'s `current` and `DataTable`'s `sort` each wrapped a
+  `Computed` the same way: as a key, never read again. `sort` was
+  refused already, but as `Expected data table sort to name a column: undefined is
+  not one`, which names the wrong thing. `selected`, `expanded`, `follow` and
+  `tail` already refuse one, being neither an iterable nor a boolean; `keyHelp()`'s
+  `expanded` and every `disabled` only read, so a `Computed` there is right and is
+  followed. Published, beside `controlFlag()`, so a component an app writes can
+  follow the rule; the four list components import `control.ts` for it, which
+  costs them nothing they did not already load.
+- **The messages echo nothing**, so the escaping rule for a value in an error does
+  not arise: each names the prop and says why, `Expected a radio set value to be a
+  value or a State, not a Computed, since the set writes it`. Six keys in
+  `src/i18n/keys.ts`, regenerated.
+- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
+  needs a conditional type over `T`, which TypeScript cannot infer through and
+  which would change what every existing call infers. A test per component pins the
+  refusal, and each fails with the check in `controlState()` taken out.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

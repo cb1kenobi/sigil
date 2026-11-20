@@ -36,6 +36,7 @@ import { createEffect } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
+import { controlState } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
   describeListView,
@@ -191,7 +192,8 @@ export interface DataTableProps<T, K = T> {
   /**
    * What the rows are sorted by, or the state that holds it: a value is where it
    * starts, a `State` is the state itself, which a click on a heading and a digit
-   * write and an app may write. Left out, the rows are in the order they came.
+   * write and an app may write. A `Computed` is refused, since a click could not
+   * write it. Left out, the rows are in the order they came.
    */
   sort?: DataTableSort | State<DataTableSort | undefined>;
   /** `j`, `k`, `g` and `G`, as in a list. */
@@ -419,8 +421,10 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   const headOf = (list: readonly Spec<T>[]): boolean =>
     props.head ?? list.some((spec) => spec.column.header !== undefined);
 
-  const sort =
-    props.sort instanceof State ? props.sort : new State<DataTableSort | undefined>(props.sort);
+  const sort = controlState<DataTableSort | undefined>(
+    props.sort,
+    __`Expected data table sort to be a sort or a State, not a Computed, since the table writes it`
+  );
   const initial = untrack(() => sort.get());
   if (
     initial !== undefined &&

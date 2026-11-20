@@ -426,6 +426,19 @@ describe('createListSelection()', () => {
       'Expected list selected to be an iterable of keys or a State'
     );
   });
+
+  // a Computed is not a State, so it was taken as the key the cursor starts on:
+  // a key no row has, and a change to what it derives from was never read
+  it('should refuse a Computed current, which the moves could not write', () => {
+    const key = new State('b');
+    const current = new Computed(() => key.get());
+    expect(() => createListSelection({ current: current as never })).toThrow(
+      'Expected list current to be a key or a State, not a Computed, since the list writes it'
+    );
+    expect(() => ListView({ current: current as never, items: ['a', 'b'] })).toThrow(
+      'Expected list current to be a key or a State, not a Computed, since the list writes it'
+    );
+  });
 });
 
 describe('ListView()', () => {

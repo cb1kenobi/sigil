@@ -27,7 +27,7 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
@@ -924,6 +924,22 @@ describe('DataTable()', () => {
     );
     expect(() => DataTable({ columns: [], props: { onKey: () => {} } as never, rows: [] })).toThrow(
       'onKey'
+    );
+  });
+
+  // a Computed is not a State, so each was wrapped as a value to start from: the
+  // sort was read as one naming the column `undefined`, the cursor as a key no
+  // row has, and neither was read again
+  it('should refuse a Computed sort or current, which the headers and the moves could not write', () => {
+    const by = new State({ column: 'a' });
+    const sort = new Computed(() => by.get());
+    expect(() => DataTable({ columns: ['a'], rows: [], sort: sort as never })).toThrow(
+      'Expected data table sort to be a sort or a State, not a Computed, since the table writes it'
+    );
+    const key = new State(0);
+    const current = new Computed(() => key.get());
+    expect(() => DataTable({ columns: ['a'], current: current as never, rows: [] })).toThrow(
+      'Expected list current to be a key or a State, not a Computed, since the list writes it'
     );
   });
 
