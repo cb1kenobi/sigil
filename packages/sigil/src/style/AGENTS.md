@@ -922,10 +922,10 @@ toolchain's one reader.
   **Whether anything can re-enter a resolve was checked rather than assumed,
   because reuse is only safe if nothing does.** Nothing in the library does:
   `match()` is the one call that reaches outside this file -- through the
-  `StyleNode`, which an app may implement -- and it has returned before the table
-  is taken (no longer true since SIG-455, below, which writes the matched rules
-  into the table and so takes it first), while everything the declaration loop calls is a pure function of the
-  declaration, the parent style and the colour level. What is not closed is a
+  `StyleNode`, which an app may implement -- and it had returned before the table
+  was taken. SIG-455, below, writes the matched rules into the table and so takes
+  it first, which makes that a second way in. Everything the declaration loop
+  calls is a pure function of the declaration, the parent style and the colour level. What is not closed is a
   `Stylesheet`, which is a plain object an app can build by hand, so a getter on a
   declaration is a way in. So the table is **borrowed** rather than shared: a
   resolve takes it and hands it back, and one that starts while it is out makes
@@ -972,19 +972,25 @@ toolchain's one reader.
     so `Candidate.matched` is made once per change to the sheet set and handed
     out every time that selector is the best of its rule's that matched. The
     objects `match()` returns are therefore the cascade's, the same ones from
-    call to call, and its doc says not to write them.
+    call to call, so they are frozen: a caller writing to a fresh one moved
+    only its own answer, and writing to a shared one would move every later
+    match and resolve. `resolveSheets()` no longer calls `match()` at all, so a
+    subclass overriding it changes what `match()` says and not what an element
+    resolves to -- nothing subclasses `Cascade`, and the doc says so.
   - **A rule found twice is deduplicated in a reused table**, two typed arrays
     indexed by source order with a generation stamp, the way the winners table
     already was -- and **borrowed** from the index the way that one is, because
     matching calls into the `StyleNode` and a getter on one can start another
     match. The index is taken once per call, so a sheet added from such a getter
-    cannot leave the call reading orders from two indexes.
+    cannot leave the call reading orders from two indexes, and `media` is read
+    once per call for the same reason, where it used to be read per candidate.
   - **A resolve writes the matched rules into its own scratch**, so its array is
     reused too. That moves the borrow of the scratch from after matching to
     before it, which makes a `StyleNode` getter the second way into a resolve
     beside the declaration getter SIG-381 recorded; the array is emptied once
     the resolve is done with it, so a kept scratch holds no rule a removed sheet
-    had.
+    had. Nothing pins that last part: the suite cannot see what the collector
+    keeps, and dropping the `fill()` fails no test.
   - **Buckets are looked up by name.** `keysFor()` built an array and a `.name`
     string per class on every call. The index files candidates in four tables --
     universal, type, id, class -- keyed by the name the selector's key spells

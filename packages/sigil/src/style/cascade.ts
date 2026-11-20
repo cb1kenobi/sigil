@@ -516,7 +516,11 @@ export class Cascade {
    * that actually matched.
    *
    * The array is the caller's; the objects in it are the cascade's, the same
-   * ones on every call until the sheet set changes, and are not to be written.
+   * ones on every call until the sheet set changes, and frozen.
+   *
+   * `resolveSheets()` does not call this -- it matches into an array it reuses --
+   * so a subclass that overrides it changes what `match()` answers and not what
+   * an element resolves to.
    *
    * @param node - The element.
    * @returns The matched rules, in no particular order.
@@ -684,12 +688,15 @@ export class Cascade {
         const at = order++;
         for (const selector of rule.selectors) {
           const candidate: Candidate = {
-            matched: {
+            // frozen, since every match until the sheet set changes hands out
+            // this one object: a caller that wrote to it would move every later
+            // answer, where a fresh one per call could only move its own
+            matched: Object.freeze({
               order: at,
               origin: sheet.origin,
               rule,
               specificity: selector.specificity,
-            },
+            }),
             selector,
           };
           const key = selector.key;
