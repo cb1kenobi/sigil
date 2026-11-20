@@ -749,6 +749,25 @@ export interface InputOptions {
    */
   mouse?: MouseOptions;
   /**
+   * Where a throw from an app's handler goes.
+   *
+   * Every handler the router calls -- a binding, an `onKey` or `onMouse` on an
+   * element, a router `onMouse()`, `onPaste()` or `onResize()`, a fallback, a
+   * sequence -- is called from inside the stream's `data` listener or one of the
+   * router's own timers, so a throw that nothing catches there is an uncaught
+   * exception: on the alternate screen, with the cursor hidden and the mouse being
+   * reported, where the message is written to a screen the process is about to
+   * leave. With this the throw is handed here instead, once per event, and the
+   * router carries on with whatever else was in the read.
+   *
+   * What happens next is the caller's: `runApp()` ends the app with the terminal
+   * given back and the error reported, which is what a frame that throws does.
+   * Without it a throw is left to escape, as it always was -- a router with no
+   * caller to report to has no better answer, and a prompt is not one that needs
+   * it. A handler that throws here is not caught again.
+   */
+  onError?: (error: unknown) => void;
+  /**
    * Whether a paste arrives whole.
    *
    * On by default. Off means a pasted block arrives as though it had been
@@ -980,6 +999,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let writingTo: { element: Element | undefined } | undefined;
   let moves = 0;
 
+  /**
+   * Hands a throw from a handler to `onError`, or lets it go on as it was.
+   *
+   * Called from the four places the router is entered from outside -- a key or
+   * a mouse report, a paste, a sequence's deadline, and a resize -- and from no
+   * handler site inside them, which is what "at the router rather than per
+   * component" comes to: one catch per entry, however many handlers the event
+   * reaches. A key a handler `feed()`s is an entry of its own, so what its handlers
+   * throw is reported there and is not rethrown through the `feed()` call.
+   *
+   * @param error - What the handler threw.
+   */
+  const failed = (error: unknown): void => {
+    if (opts.onError === undefined) {
+      throw error;
+    }
+    opts.onError(error);
+  };
+
   // -- described bindings ---------------------------------------------------
 
   const described = new Set<BindingInfo>();
@@ -1198,7 +1236,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
           return;
         }
         clearSequence();
-        fire(next, keys);
+        try {
+          fire(next, keys);
+        } catch (error) {
+          failed(error);
+        }
       }, waitFor);
     }
   }
@@ -2046,6 +2088,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
+    try {
+      deliverPaste(text);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  /** `flushPaste()` without the catch: the focus, then the router's handlers, then the keys. */
+  function deliverPaste(text: string): void {
     // a paste is aimed at the focus, so the focus is asked first: one that was
     // hidden or unmounted since the last key is not where it goes
     reconcileFocus();
@@ -2512,6 +2563,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * the failure this order exists to prevent.
    */
   function route(key: Key): void {
+    try {
+      routeKey(key);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  /** `route()` without the catch: what a key, or a mouse report, is offered to. */
+  function routeKey(key: Key): void {
     // before anything else, because everything else is a place a reply must not
     // reach: a binding, a focused text prompt, or the Tab default
     if (takeReply(key.sequence)) {
@@ -2647,7 +2707,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       if (!resizers.has(handler)) {
         continue;
       }
-      handler(size);
+      try {
+        handler(size);
+      } catch (error) {
+        failed(error);
+      }
     }
   });
 

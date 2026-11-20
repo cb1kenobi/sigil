@@ -401,6 +401,148 @@ describe('runApp()', () => {
     expect(reports.map(String)).toEqual(['Error: stdin broke']);
   });
 
+  describe('a handler of the app that throws (SIG-524)', () => {
+    // each of these used to be an uncaught exception out of the stdin `data`
+    // listener, with the terminal on the alternate screen, the cursor hidden and
+    // the mouse reporting. Now it is a failure like a frame that throws: the
+    // terminal goes back, the error is said once, and `exited` is 1
+
+    /** An app with the mouse on, so that what it turned on is what has to come off. */
+    const run = (component: () => Element, opts: Parameters<typeof runApp>[1] = {}) =>
+      start(component, { mouse: { motion: true }, ...opts });
+
+    /** What has to be true of a terminal once an app is over. */
+    function expectGivenBack(term: ReturnType<typeof start>['term']) {
+      expect(term.screen.alternate).toBe(false);
+      expect(term.screen.cursorHidden).toBe(false);
+      expect(term.stdin.rawMode).toBe(false);
+      for (const event of ['data', 'end', 'error']) {
+        expect(term.stdin.listenerCount(event)).toBe(0);
+      }
+      // the mouse tracking a shell would otherwise go on receiving, and the paste
+      // mode that wraps what is typed after it in markers
+      expect(term.output).toContain('\u001b[?1003l');
+      expect(term.output).toContain('\u001b[?1006l');
+      expect(term.output).toContain('\u001b[?2004l');
+    }
+
+    it('should end with 1 and the terminal back when a key handler throws', async () => {
+      const reports: Array<{ alternate: boolean; error: unknown; raw: boolean }> = [];
+      const field = text('field', { focusable: true });
+      field.onKey = (event) => {
+        if (event.key.name === 'x') {
+          throw new Error('key handler broke');
+        }
+      };
+      const { app, term } = run(() => box({}, field), {
+        onError: (error) =>
+          reports.push({ alternate: term.screen.alternate, error, raw: term.stdin.rawMode }),
+      });
+      app.view.frame();
+      app.input?.focus.focus(field);
+      expect(term.screen.alternate).toBe(true);
+      expect(term.stdin.rawMode).toBe(true);
+
+      await term.press('x');
+      expect(await app.exited).toBe(1);
+
+      // said once, and after the screen was back rather than over the frame
+      expect(reports).toHaveLength(1);
+      expect(String(reports[0]?.error)).toContain('key handler broke');
+      expect(reports[0]).toMatchObject({ alternate: false, raw: false });
+      expect(app.running).toBe(false);
+      expectGivenBack(term);
+    });
+
+    it('should end with 1 and the terminal back when a mouse handler throws', async () => {
+      const reports: unknown[] = [];
+      const button = text('press', { focusable: true });
+      button.onMouse = (event) => {
+        if (event.kind === 'click') {
+          throw new Error('mouse handler broke');
+        }
+      };
+      const { app, term } = run(() => box({}, button), {
+        onError: (error) => reports.push(error),
+      });
+      app.view.frame();
+      expect(term.screen.alternate).toBe(true);
+
+      await term.press('\u001b[<0;2;1M', '\u001b[<0;2;1m');
+      expect(await app.exited).toBe(1);
+
+      expect(reports.map(String)).toEqual(['Error: mouse handler broke']);
+      expectGivenBack(term);
+    });
+
+    it('should say the error once on the main screen when there is no onError', async () => {
+      const { app, term } = run(() => text('x'));
+      app.input?.fallback('x', () => {
+        throw new Error('fallback broke');
+      });
+      app.view.frame();
+
+      await term.press('x');
+      expect(await app.exited).toBe(1);
+
+      expectGivenBack(term);
+      expect(term.lines.join('\n')).toContain('fallback broke');
+      expect(term.output.split('fallback broke')).toHaveLength(2);
+    });
+
+    it('should settle 1 over an exit(0) that was already latched', async () => {
+      const { app, term } = run(() => text('x'));
+      app.input?.fallback('x', () => {
+        app.exit(0);
+        throw new Error('after exit broke');
+      });
+
+      await term.press('x');
+      expect(await app.exited).toBe(1);
+      expectGivenBack(term);
+    });
+
+    it('should run no more of the app once one handler has failed, and report only the first', async () => {
+      const reports: unknown[] = [];
+      const ran: string[] = [];
+      const { app, term } = run(() => text('x'), { onError: (error) => reports.push(error) });
+      app.input?.fallback('x', () => {
+        ran.push('x');
+        throw new Error('first broke');
+      });
+      app.input?.fallback('y', () => {
+        ran.push('y');
+        throw new Error('second broke');
+      });
+
+      // one read, three keys
+      await term.press('xyy');
+      expect(await app.exited).toBe(1);
+
+      expect(ran).toEqual(['x']);
+      expect(reports.map(String)).toEqual(['Error: first broke']);
+      expectGivenBack(term);
+    });
+
+    it('should end with 1 when a paste or a resize handler throws', async () => {
+      const paste = run(() => text('x'));
+      paste.app.input?.onPaste(() => {
+        throw new Error('paste broke');
+      });
+      await paste.term.paste('hello');
+      expect(await paste.app.exited).toBe(1);
+      expectGivenBack(paste.term);
+
+      const resize = run(() => text('x'));
+      resize.app.input?.onResize(() => {
+        throw new Error('resize broke');
+      });
+      resize.term.resize(20, 5);
+      expect(await resize.app.exited).toBe(1);
+      expectGivenBack(resize.term);
+    });
+  });
+
   it('should end when a frame fails, with the terminal back before the error is reported', async () => {
     const boom = new State(false);
     const reports: Array<{ alternate: boolean; error: unknown; raw: boolean }> = [];

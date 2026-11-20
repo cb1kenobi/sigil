@@ -595,10 +595,18 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
   let rendering = false;
   /**
-   * Whether stdin failed under the app -- the one failure the renderer does not
-   * know about, so it is kept here beside `view.failed`, which is the other.
+   * Whether the input failed under the app -- stdin erroring, or a handler a key,
+   * a mouse report, a paste or a resize reached throwing -- the failures the
+   * renderer does not know about, so it is kept here beside `view.failed`, which
+   * is the other.
    */
-  let stdinFailed = false;
+  let inputFailed = false;
+  /**
+   * What the first handler of the app's that threw, threw -- held until the screen
+   * is back, which is where `finish()` reports it. Boxed, because a handler may
+   * throw `undefined`.
+   */
+  let handlerFailure: { error: unknown } | undefined;
   let code = 0;
   /** The runner's ring, once it is installed. `undefined` where nothing is captured. */
   let logs: LogRing | undefined;
@@ -889,7 +897,12 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
         thrown.push(...(error instanceof AggregateError ? error.errors : [error]));
       }
     }
-    const final = stdinFailed || view?.failed === true ? EXIT_FAILED : code;
+    // the handler's own failure goes first, as the one that ended the app, and
+    // after the steps above so that it is written to a screen that is back
+    if (handlerFailure !== undefined) {
+      thrown.unshift(handlerFailure.error);
+    }
+    const final = inputFailed || view?.failed === true ? EXIT_FAILED : code;
     // the console goes back after the teardown rather than before it, so that a
     // cleanup which logs is captured like everything else rather than drawn over
     // a screen that is on its way out
@@ -1021,6 +1034,23 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     mouse: mouse
       ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
       : undefined,
+    // a handler of the app's that throws is a failure like a frame that throws:
+    // the terminal is given back and then it is reported, and the app ends with 1.
+    // Held for `finish()` rather than reported here, because a handler runs on the
+    // alternate screen and a custom `onError` that writes would draw there. The
+    // router is let go of at once rather than at the teardown a microtask away, so
+    // that the rest of the read does not run more of an app that has failed -- the
+    // renderer's own rule, that the first failure ends the loop. Only the first is
+    // reported: what follows it is the same app, past the point of being asked
+    onError: (error) => {
+      if (inputFailed) {
+        return;
+      }
+      inputFailed = true;
+      handlerFailure = { error };
+      app.exit(EXIT_FAILED);
+      router.stop();
+    },
     paste: opts.paste,
     root: host,
     stdin,
@@ -1056,7 +1086,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       app.exit(EXIT_HUNG_UP);
       return;
     }
-    stdinFailed = true;
+    inputFailed = true;
     report(error);
     app.exit(EXIT_FAILED);
   });
