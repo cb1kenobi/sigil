@@ -1325,7 +1325,15 @@ makes it testable with a fixture directory and no bundler at all.
   `bun` or `node` executable, the output path, the version a `node` printed, what
   a failing `tar` said, the cache root -- goes through `escapeControls()`, and
   what is left raw is a value already validated by `isVersion()` or built from
-  a constant. `test/package-escape.test.ts` drives each one through a stub
+  a constant. A **file system** error is the other source: Node's `ENOTDIR` and
+  `ENOENT` quote the path they failed on, so `package` catches the ones from
+  `mkdirSync(out)`, the runtime fetches and the compile stage and escapes them
+  with `escapeControls()` -- the whole line, since it is one line and a newline
+  in the path is the path's -- where `escaped()` keeps line breaks for a message
+  with structure of its own and would let a forged line start. What `tar` said is
+  written a line at a time and indented, as `said()` writes a compiler's. Not
+  done: the runtime picker's labels, built from a `PATH` runtime's `--version`
+  and cache directory names, which the canvas garbles but does not act on. `test/package-escape.test.ts` drives each one through a stub
   compiler or signer, skipped on Windows, which cannot make the names; the `tar`
   one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
   `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.

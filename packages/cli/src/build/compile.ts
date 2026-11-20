@@ -1091,7 +1091,7 @@ function locate(name: string, why: string): string {
 }
 
 /** Whatever a failed spawn said, indented, with the empty stream left out. */
-function said(run: { readonly stderr?: string; readonly stdout?: string }): string {
+export function said(run: { readonly stderr?: string; readonly stdout?: string }): string {
   return (
     [run.stderr, run.stdout]
       .filter((stream): stream is string => Boolean(stream?.trim()))

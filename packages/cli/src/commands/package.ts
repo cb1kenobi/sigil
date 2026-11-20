@@ -76,6 +76,7 @@ import {
   clean,
   commandsFound,
   buildOutDir,
+  escaped,
   failure,
   inspect,
   reportDiagnostics,
@@ -232,13 +233,21 @@ const pkg: AnyCommand = command({
     // it. After the pre-flight, because downloading 100 MB for a package that
     // was going to be refused is the one order that wastes the user's time, and
     // before `clean()`, so a failed download leaves the output directory alone
-    const exec = await resolveExec(spec, targets[0] as Target);
+    //
+    // Both fetches write under the runtime cache, whose root is `XDG_CACHE_HOME`'s,
+    // and a file system error names the path it failed on: escaped on the way
+    // out, as the bundle's are (SIG-510)
+    const exec = await resolveExec(spec, targets[0] as Target).catch((error: unknown) => {
+      throw quoting(error);
+    });
 
     // the runtime inside each Bun binary for a platform other than this one,
     // fetched and checked here for the reason `exec` is: after the pre-flight
     // and before `clean()`. Bun would otherwise download it itself while
     // compiling and embed whatever it got -- see `bunTargetRuntime()`
-    const embeds = await resolveEmbeds(runtime, exec, targets);
+    const embeds = await resolveEmbeds(runtime, exec, targets).catch((error: unknown) => {
+      throw quoting(error);
+    });
 
     // the bundle is an intermediate, so it does not land beside the binaries.
     // Under `node_modules/.sigil/`, which is where `writeEntry()` already puts
@@ -329,7 +338,12 @@ const pkg: AnyCommand = command({
       // because the bundle was written into it; now the bundle is elsewhere and
       // the first thing to touch it is a compiler writing an `--outfile`, which
       // does not make parents.
-      mkdirSync(out, { recursive: true });
+      try {
+        mkdirSync(out, { recursive: true });
+      } catch (error) {
+        // `--out` is the caller's, and `ENOTDIR` quotes it
+        throw quoting(error);
+      }
 
       const compiled = compileAll(runtime, {
         embeds,
@@ -815,12 +829,44 @@ function compileAll(
       }
 
       throw new Error(
-        `Could not package ${label(target)}${compiled.length ? `, and the ${compiled.length} binar${compiled.length === 1 ? 'y' : 'ies'} built before it have been removed` : ''}.\n${(e as Error).message}`
+        `Could not package ${label(target)}${compiled.length ? `, and the ${compiled.length} binar${compiled.length === 1 ? 'y' : 'ies'} built before it have been removed` : ''}.\n${messageOf(e)}`
       );
     }
   }
 
   return compiled;
+}
+
+/**
+ * An error as `main()` may print it, when what it names may be a caller's path.
+ *
+ * A file system error is one line that quotes the path it failed on -- `ENOTDIR:
+ * not a directory, mkdir '<out>/o'` -- so the whole line is the value's and a
+ * newline in it is the value's too: `escapeControls()`, which writes it as
+ * `\x0A`, where `escaped()` keeps line breaks for a message with structure of
+ * its own and so lets `forged: error: ...` start a line. Anything else is a
+ * message this tool built, whose values were escaped where it built it.
+ *
+ * @param error - What was thrown.
+ * @returns The error to throw instead, with the same class and `code`.
+ */
+function quoting(error: unknown): unknown {
+  if (error instanceof Error && typeof (error as { code?: unknown }).code === 'string') {
+    error.message = escapeControls(error.message);
+    return error;
+  }
+
+  return escaped(error);
+}
+
+/**
+ * What a failure says, for a message that wraps it.
+ *
+ * @param error - What was thrown.
+ * @returns Its message, with the path a system error names escaped.
+ */
+function messageOf(error: unknown): string {
+  return (quoting(error) as Error).message;
 }
 
 /**
@@ -840,7 +886,7 @@ function describeSigning(identity: string | undefined): string {
     return '';
   }
 
-  return identity === '-' ? 'ad-hoc' : identity;
+  return identity === '-' ? 'ad-hoc' : escapeControls(identity);
 }
 
 /**

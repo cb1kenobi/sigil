@@ -545,7 +545,7 @@ export function bundleFailure(
  * @param error - What bundling threw.
  * @returns The same error, or one built from a value that was not an error.
  */
-function escaped(error: unknown): unknown {
+export function escaped(error: unknown): unknown {
   if (!(error instanceof Error)) {
     return new Error(escapeMessage(String(error)));
   }

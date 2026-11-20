@@ -54,6 +54,7 @@ import {
   BUN_COMPILES_FROM,
   NODE_BUILD_SEA,
   RUNTIMES,
+  said,
   type Runtime,
   type Target,
 } from './compile.ts';
@@ -878,7 +879,7 @@ async function download(runtime: Runtime, version: string, target?: Target): Pro
 
     if (tar.status !== 0) {
       throw new Error(
-        `Could not extract ${runtime} ${version}: ${escapeControls(tar.stderr || tar.error?.message || '')}`
+        `Could not extract ${runtime} ${version}:\n${said({ stderr: tar.stderr || tar.error?.message })}`
       );
     }
 

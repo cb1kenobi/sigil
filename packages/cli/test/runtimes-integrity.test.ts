@@ -237,7 +237,8 @@ describe('verifying a runtime against its own origin', () => {
         expect(message).toContain('Could not extract node 9.9.9');
         expect(message).toContain('\\x1B]0;PWNED\\x07');
         expect(message).not.toContain(String.fromCharCode(0x1b));
-        expect(message).toContain('\\x0Asrc/forged.ts');
+        // each line of it on a line of its own, indented, so none can read as ours
+        expect(message).toContain('\n  src/forged.ts:1:1');
         expect(message.split('\n').some((line) => line.startsWith('src/forged.ts'))).toBe(false);
       }
     );
