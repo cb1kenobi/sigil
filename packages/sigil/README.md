@@ -3639,7 +3639,7 @@ that can be cancelled stops costing anything the moment its answer could not be
 used. A call that was aborted **never draws**, whether or not it honoured the
 signal. A source that rejects shows its message under the field and the prompt
 carries on: the next keystroke asks again. While a lookup is out the list on
-screen belongs to an earlier term, so Enter waits for the answer.
+screen belongs to an earlier term, so Enter and Tab do nothing until it answers.
 
 **There is no debounce, because that is a trade for the caller to make.** The
 signal is what makes the recipe short — wait a moment, and give up the wait if

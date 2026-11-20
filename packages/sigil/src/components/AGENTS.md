@@ -6197,7 +6197,7 @@ borrows `runPrompt()` and the field helpers rather than reading a key itself.
   that arrives after the prompt ended (`closed`, set by an `onCleanup`, which is
   also what aborts the call in flight when the prompt is cancelled -- `settle()`
   never runs for a Ctrl-C).
-- **Enter and Tab wait for a lookup in flight.** The list on screen belongs to an
+- **Enter and Tab do nothing while a lookup is in flight.** The list on screen belongs to an
   earlier term while one is out; it is left drawn because blanking it per
   keystroke flickers on a fast source, but answering from it would hand back a row
   for a question no longer being asked. Tab is the same question put to the field
