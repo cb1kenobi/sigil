@@ -13136,6 +13136,37 @@ was reached, the measurements and the sabotage pass are in
   selection never copies the numbers; and the focus is `.sigil-focus` on the caret,
   which is what "Focus on a control" settled for this widget, with no caret at
   colour level 0.
+- **The caret is `caret`, a place or a `State` of one, and the state is the one
+  truth (SIG-466).** The shape `Tabs`' `active`, `DiffView`'s `current` and the
+  area's own `value` already have, which is why it is a prop and not methods: a
+  `State` is something an app can both read and write, it is already the
+  subscription a status line needs, and methods would have meant a handle looked
+  up from the host and an `onCaret` beside them to say when to read it. A place
+  is a line and an offset into it, in UTF-16 code units -- what the area keeps,
+  what `slice()` takes, and the one column that is not ambiguous where a wide
+  character or a tab draws wider than it is long. Every move and every edit
+  writes it, from the one place every change already passes through, `redraw()`,
+  and only when the place moved. An app that writes it moves the caret, collapses
+  any selection -- even onto the place it was, since the write is the app saying
+  where the caret is -- and scrolls it into view. A place out of range is the
+  nearest one and an offset inside a cluster the end of that cluster (`snap()`,
+  the edits' own rule), and the state is written back with where the caret went,
+  so it never says what the screen does not; nothing there throws, since a run
+  time write has nowhere for a refusal to land, while a plain place handed in
+  that is not two numbers is refused at construction. A plain place is where the
+  caret **starts**, rather than the end -- the half the editor needed, which
+  opened a 50,000-line file on its last line and typed Ctrl-Home to get out of
+  it. A write the app makes to `value` still puts the caret at the end; a caret
+  written in the same turn, either side of it, is applied after it and wins, so
+  "load this file at line 40" is two writes in any order.
+- **A write the app makes is taken in before a key, not only when the effect
+  runs.** The effect runs with the frame, and a key in the same read as the
+  write -- a burst, a fast typist, a "go to line" bound to a key that then types
+  -- reached the handler first: it edited where the caret had been, and the
+  area's own write of the caret then replaced the app's. So every handler first
+  takes in whatever the app wrote since the area last looked, the value and the
+  caret both, with the same function the effect runs. The value was exposed to
+  the same race before the caret was added, and is fixed by the same call.
 - **Sabotage: forty-two on the area, thirty-four caught.** Every key rule, the
   window, the follow, the selection layer's level-0 and `drawsText` answers, the
   caret in a selection, the splice that overflowed the stack on a 500,000-line
@@ -13148,8 +13179,8 @@ was reached, the measurements and the sabotage pass are in
   dropped, a line break dropped, nothing dropped -- each fail the prompt's tests.
 - **Not done:** undo; soft wrap; `charLimit`; select-all, a double-click word and
   a scroll bar; indenting a selection with Tab; an incremental highlight; a handle
-  for an app to move the caret or read the selection; and `multiline()` onto the
-  element.
+  for an app to read or set the selection (the caret is `caret`, above); and
+  `multiline()` onto the element.
 
 ### Syntax highlighting: a lexer per language, and one seam for four components (SIG-289)
 

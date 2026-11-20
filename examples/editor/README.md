@@ -45,7 +45,9 @@ it; Alt-Backspace still deletes a word.
   `highlightCode()` for the languages the lexer reads (TypeScript, JavaScript,
   JSON, shell, YAML, Markdown, a diff), which marks nothing in a file whose
   extension it does not read. The areas of the tabs not showing are hidden
-  rather than built again, so each keeps its caret, selection and scroll.
+  rather than built again, so each keeps its caret, selection and scroll. Each
+  is handed the document's `caret` state, which opens the file at its first line
+  and is what the footer reads as `Ln 12, Col 5`.
 - **Dirty, as a comparison.** A document is dirty while its text differs from
   what was last read or saved, so typing a change back out makes it clean again.
   The mark is `●` on the tab and in the panel title (`*` in ASCII). A file is
@@ -112,9 +114,6 @@ every save back off the disk.
 
 Each is a small local answer where sigil has no answer yet.
 
-- **A text area opens at its end.** It puts the caret at the end of what it is
-  given, and has no handle to move it, so opening a 50,000-line file would show
-  its last line. The editor feeds the area a Ctrl-Home through the router.
 - **Tabs are read once.** `tabRowView()` takes its labels when it is built, so the
   row is built again whenever a file is opened or closed or a mark comes or goes,
   over the one `active` state.

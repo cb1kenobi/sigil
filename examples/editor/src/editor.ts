@@ -74,6 +74,8 @@ export interface Editor {
   readonly previewSubject: Computed<string | undefined>;
   /** The source panel's title: the file's path, and a mark while it is unsaved. */
   readonly title: () => string;
+  /** Where the caret is in the file showing, `Ln 12, Col 5`, or nothing with none open. */
+  readonly position: () => string;
   /** The last thing the editor said: saved, copied, refused. */
   readonly status: State<string>;
   /** The width of the file tree, which its edge drags. */
@@ -81,9 +83,6 @@ export interface Editor {
   /** The width of the preview, which its edge drags. */
   readonly previewWidth: State<number>;
 }
-
-/** What a terminal sends for Ctrl-Home: the text area's move to the start of its value. */
-const CTRL_HOME = '\u001b[1;5H';
 
 /** What closing an unsaved file asks, and its three answers. */
 type CloseAnswer = 'cancel' | 'discard' | 'save';
@@ -184,6 +183,9 @@ export function createEditor(): Editor {
   const buildArea = (doc: Doc): void => {
     const built = owned(() =>
       TextArea({
+        // starts at the top, where a file is read from, rather than at the end of
+        // the value, where a typist is in a field -- and is what the status reads
+        caret: doc.caret,
         // the extension is the language: `highlightCode()` maps every name a
         // language goes by, and marks nothing in one it does not read
         highlight: highlightCode,
@@ -229,13 +231,6 @@ export function createEditor(): Editor {
     active.set(all.length);
     status.set(`Opened ${shownPath(path, workspace.root)}`);
     show();
-    // a text area starts with the caret at the end of its value, which is where a
-    // typist is in a field and the last place to open a file at: a 50,000-line
-    // file would open scrolled to its last line. The area has no handle to move
-    // its caret, so the app sends it the key that does, Ctrl-Home, through the
-    // router as though it had been typed -- the area has the focus, and `show()`
-    // painted the frame that makes the router see it
-    input.feed(CTRL_HOME);
   };
 
   /**
@@ -560,6 +555,17 @@ export function createEditor(): Editor {
     return doc.dirty.get() ? `${shown} ${mark}` : shown;
   };
 
+  // one-based, as every editor counts them; the column is the area's offset into
+  // the line, so a character of two code units counts two
+  const position = (): string => {
+    const doc = current();
+    if (doc === undefined) {
+      return '';
+    }
+    const { col, line } = doc.caret.get();
+    return `Ln ${line + 1}, Col ${col + 1}`;
+  };
+
   return {
     activate,
     active,
@@ -567,6 +573,7 @@ export function createEditor(): Editor {
     docs,
     files,
     input,
+    position,
     previewSource,
     previewSubject,
     previewWidth,

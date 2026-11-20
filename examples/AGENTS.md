@@ -1092,11 +1092,16 @@ below with the measurements.
   closes. Showing one paints a frame before the next key, the log browser's
   `redraw()` for SIG-384.
 
-- **A file opens at its first line because the editor types Ctrl-Home.** A text
-  area puts the caret at the end of what it is given -- `TextField`'s rule, right
-  for a field -- and has no handle to move it ("Not done" in the area's entry), so
-  a 50,000-line file opened on its last line. The editor feeds `ESC [1;5H`
-  through the router after the area has the focus. Sabotaged, sixteen tests fail.
+- **A file opens at its first line, and the status line says where the caret
+  is, through the area's `caret` (SIG-466).** A text area puts the caret at the
+  end of what it is given -- `TextField`'s rule, right for a field -- so a
+  50,000-line file opened on its last line, and the first version typed Ctrl-Home
+  into the area through the router to get out of it. Each document now holds a
+  `caret` state that starts at the top, the area is handed it, and the footer
+  reads it as `Ln 12, Col 5`, one-based, for the tab showing -- each tab keeps
+  its own, since each document has its own area. The column is the area's offset
+  into the line, so a character of two code units counts two. Without the
+  `caret` prop nineteen tests fail.
 
 - **The tab row is built again whenever a label changes.** `tabRowView()` reads
   its labels once ("Tabs", under "Not done"), and a dirty mark changes a label.
@@ -1201,7 +1206,7 @@ below with the measurements.
 
 - **Not done:** undo, which the area does not have; a new file, a rename and a
   delete from the tree; a search; reading a file changed on disk again; and
-  showing the caret's line and column, which the area has no handle to read.
+  a "go to line", which `caret` now makes a few lines of the palette's.
 
 ### A disk space visualizer, a size-sorted tree beside a treemap (SIG-474)
 

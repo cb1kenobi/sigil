@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 445 keys, which is what a catalog has to carry to translate sigil's own
+ * 446 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -120,6 +120,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a switch onChange to be a function',
   'Expected a switch state name to be a non-empty string',
   "Expected a switch's two states to have different names",
+  'Expected a text area caret to be a line and a column, or a State',
   'Expected a text area gutter to be a string with no control character',
   'Expected a text area highlight to be a function',
   'Expected a text area lang to be a string',

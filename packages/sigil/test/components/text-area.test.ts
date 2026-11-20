@@ -1,6 +1,10 @@
 import { strip } from '../../src/ansi/index.js';
 import type { HighlightSpan } from '../../src/components/prompt.js';
-import { TextArea, type TextAreaProps } from '../../src/components/text-area.js';
+import {
+  TextArea,
+  type TextAreaCaret,
+  type TextAreaProps,
+} from '../../src/components/text-area.js';
 import {
   arrange,
   box,
@@ -164,6 +168,10 @@ describe('TextArea()', () => {
     expect(() => TextArea({ rows: 0 })).toThrow(/rows to be a positive whole number/);
     expect(() => TextArea({ width: 2.5 })).toThrow(/width to be a positive whole number/);
     expect(() => TextArea({ highlight: 'js' as never })).toThrow(/highlight to be a function/);
+    expect(() => TextArea({ caret: 'top' as never })).toThrow(/caret to be a line and a column/);
+    expect(() => TextArea({ caret: { col: 0, line: '1' } as never })).toThrow(
+      /caret to be a line and a column/
+    );
   });
 
   it('should grow into its rows and no further, and take more from a flex-grow', () => {
@@ -335,6 +343,120 @@ describe('TextArea()', () => {
       await s.term.press(KEYS.enter, 'cd');
       await settle();
       expect(picture(s.root).slice(0, 2)).toEqual(['ab', 'cd']);
+    });
+  });
+
+  describe('the caret', () => {
+    const many = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join('\n');
+    const at = (line: number, col: number): TextAreaCaret => ({ col, line });
+
+    it('should start where `caret` says rather than at the end, in view', async () => {
+      const s = scene({ caret: at(0, 0), value: many }, 4);
+      expect(picture(s.root, WIDTH, 4)).toEqual(['line 1', 'line 2', 'line 3', 'line 4']);
+      const value = new State('abc');
+      const t = scene({ caret: at(0, 1), value });
+      await t.term.press('!');
+      expect(value.get()).toBe('a!bc');
+    });
+
+    it('should write the state on every move and every edit, and start it at the end', async () => {
+      const caret = new State(at(0, 0));
+      const s = scene({ caret, value: 'ab\ncd' });
+      expect(caret.get()).toEqual(at(0, 0));
+      await s.term.press(KEYS.right);
+      expect(caret.get()).toEqual(at(0, 1));
+      await s.term.press(KEYS.down, 'x');
+      expect(caret.get()).toEqual(at(1, 2));
+      await s.term.press(KEYS.enter);
+      expect(caret.get()).toEqual(at(2, 0));
+      await s.term.press(CTRL_HOME);
+      expect(caret.get()).toEqual(at(0, 0));
+      s.area.onMouse?.(mouse('mousedown', 1, 1));
+      expect(caret.get()).toEqual(at(1, 1));
+
+      // with none handed in, there is still one to start from: the end
+      const bare = new State(at(9, 9));
+      scene({ caret: bare, value: 'one\ntwo' });
+      expect(bare.get()).toEqual(at(1, 3));
+    });
+
+    it('should move when the app writes it, with nothing selected, and scroll it into view', async () => {
+      const caret = new State(at(0, 0));
+      const value = new State(many);
+      const s = scene({ caret, value }, 4);
+      await s.term.press(SHIFT_RIGHT, SHIFT_RIGHT);
+      await settle();
+      expect(reversed(s.root, WIDTH, 4).join('')).toBe('li');
+      caret.set(at(30, 2));
+      await settle();
+      expect(picture(s.root, WIDTH, 4)).toContain('line 31');
+      // the caret's own cell, and no selection: the caret is not drawn inside one
+      expect(reversed(s.root, WIDTH, 4).join('')).toBe('n');
+      await s.term.press('!');
+      expect(value.get().split('\n')[30]).toBe('li!ne 31');
+      expect(value.get().split('\n')[0]).toBe('line 1');
+    });
+
+    it('should read a place out of range as the nearest one, and say where it went', async () => {
+      const caret = new State(at(0, 0));
+      scene({ caret, value: '👨‍👩‍👧x\nab' });
+      caret.set(at(99, 99));
+      await settle();
+      expect(caret.get()).toEqual(at(1, 2));
+      // inside the family is the end of it, never a lone surrogate or a joiner
+      caret.set(at(0, 3));
+      await settle();
+      expect(caret.get()).toEqual(at(0, '👨‍👩‍👧'.length));
+      caret.set({ col: -4, line: Number.NaN });
+      await settle();
+      expect(caret.get()).toEqual(at(0, 0));
+      caret.set(null as never);
+      await settle();
+      expect(caret.get()).toEqual(at(0, 0));
+    });
+
+    it('should keep a write that already says where the caret went, rather than write it again', async () => {
+      const caret = new State(at(0, 0));
+      scene({ caret, value: 'ab\ncd' });
+      const written = at(1, 1);
+      caret.set(written);
+      await settle();
+      expect(caret.get()).toBe(written);
+    });
+
+    it('should go to the end of a value the app wrote, or where a caret written with it says', async () => {
+      const caret = new State(at(0, 0));
+      const value = new State('a');
+      const s = scene({ caret, value });
+      value.set('one\ntwo');
+      await settle();
+      expect(caret.get()).toEqual(at(1, 3));
+
+      // in one turn, in either order, the caret wins over the end
+      value.set('three\nfour');
+      caret.set(at(0, 1));
+      await settle();
+      expect(caret.get()).toEqual(at(0, 1));
+      caret.set(at(1, 2));
+      value.set('five\nsix');
+      await settle();
+      expect(caret.get()).toEqual(at(1, 2));
+      await s.term.press('!');
+      expect(value.get()).toBe('five\nsi!x');
+    });
+
+    it('should take in a write the app made in the same read as a key, before the key', async () => {
+      const caret = new State(at(0, 0));
+      const value = new State('abc\ndef');
+      const s = scene({ caret, value });
+      // no frame between the write and the key, so the effect has not run
+      caret.set(at(1, 1));
+      await s.term.press('!');
+      expect(value.get()).toBe('abc\nd!ef');
+      expect(caret.get()).toEqual(at(1, 2));
+      value.set('xyz');
+      await s.term.press('?');
+      expect(value.get()).toBe('xyz?');
     });
   });
 

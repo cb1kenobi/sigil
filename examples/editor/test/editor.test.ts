@@ -224,6 +224,22 @@ describe('the editor', () => {
     expect(it.screen()).not.toContain('─ Preview');
   });
 
+  it("should show the caret's line and column, for the tab showing", async () => {
+    const it = await mount(workspace({ 'a.txt': 'one\ntwo\nthree\n', 'b.txt': 'b\n' }));
+    expect(it.screen()).not.toMatch(/Ln \d/u);
+    await open(it, 'a.txt');
+    expect(it.screen()).toContain('Ln 1, Col 1');
+    await it.press(KEYS.down, KEYS.down, KEYS.right, KEYS.right);
+    expect(it.screen()).toContain('Ln 3, Col 3');
+    await it.press(KEYS.enter);
+    expect(it.screen()).toContain('Ln 4, Col 1');
+    // each tab keeps its own
+    await open(it, 'b.txt');
+    expect(it.screen()).toContain('Ln 1, Col 1');
+    await it.press(CTRL_PAGE_UP);
+    expect(it.screen()).toContain('Ln 4, Col 1');
+  });
+
   it('should preview Markdown beside the source, and follow the typing', async () => {
     const it = await mount(workspace({ 'README.md': '# Title\n\nSome *words*.\n' }));
     await open(it, 'README.md');
@@ -559,7 +575,9 @@ describe('the editor', () => {
     });
 
     it('should highlight a language the lexer reads, and leave plain text plain', async () => {
-      const source = 'const answer = 42;\n';
+      // the keyword on the second line, because a file opens with the caret on the
+      // first cell, which draws that cell apart from the rest of its token
+      const source = '\nconst answer = 42;\n';
       const it = await mount(workspace({ 'a.ts': source, 'b.txt': source }), { colorLevel: 1 });
       // a keyword draws in the accent, which is cyan at level 1, and nothing else
       // on these screens is the word `const`
