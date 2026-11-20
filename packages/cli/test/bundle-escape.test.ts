@@ -2,9 +2,10 @@ import { bundleError } from '../src/build/bundle.ts';
 import { DiagnosticError, displayPath } from '../src/build/diagnostic.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
+import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -194,6 +195,16 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
 });
 
 /**
+ * Text as a regular expression that matches it literally.
+ *
+ * @param text - The text.
+ * @returns The pattern's source.
+ */
+function escapeRe(text: string): string {
+  return text.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * The buildable fixture under a root holding a retitle, named one in its
  * manifest, with its hidden command at a file called one.
  *
@@ -206,9 +217,17 @@ function appNamed(name: string): string {
     join(app, 'package.json'),
     JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
   );
-  renameSync(
-    join(app, 'src', 'commands', 'quiet.js'),
-    join(app, 'src', 'commands', `a${TITLE}.js`)
+  rmSync(join(app, 'src', 'commands', 'quiet.js'));
+  // a package the bundle inlines, which the inlined table names, and a
+  // description `--tree` prints, with a line break of its own to keep
+  const pkg = join(app, 'node_modules', `p${TITLE}`);
+  mkdirSync(pkg);
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ main: 'index.js', name: `p${TITLE}` }));
+  writeFileSync(join(pkg, 'index.js'), "exports.x = 'inlined';\n");
+  writeFileSync(
+    join(app, 'src', 'commands', `a${TITLE}.js`),
+    `import { x } from ${JSON.stringify(`p${TITLE}`)};\n` +
+      `export default { desc: ${JSON.stringify(`d${TITLE}\nmore`)}, hidden: true, run: () => process.stdout.write(\`\${x}\\n\`) };\n`
   );
   return app;
 }
@@ -236,6 +255,8 @@ describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
       .split('\n')
       .find((line) => line.startsWith(`${escapeControls(name)}.mjs `));
     expect(entry, stdout).toMatch(/ kB +entry$/);
+    // and the inlined table names the package the app imports the same way
+    expect(stdout).toMatch(new RegExp(`^p${escapeRe(escapeControls(TITLE))} +[\\d.]+ kB$`, 'm'));
   }, 60_000);
 
   it('should not let a newline in the app name forge a line', async () => {
@@ -264,6 +285,9 @@ describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
     expect(controls(stdout), stdout).toEqual([]);
     expect(stdout).toContain(`a${escapeControls(TITLE)} (hidden)`);
     expect(stdout).toContain(escapeControls(displayPath(join('src', 'commands', `a${TITLE}.js`))));
+    // the description keeps its line break for the table to lay out, and is
+    // escaped otherwise
+    expect(stdout).toContain(`d${escapeControls(TITLE)} more`);
     expect(stderr).toContain(`\n${escapeControls(name)} (src/index.ts): `);
   }, 60_000);
 
@@ -298,6 +322,60 @@ describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
     expect(written.code, written.stderr).toBe(0);
     expect(written.stderr).toContain(`\n${escapeControls(name)} (src/index.ts): 1 file into`);
     expect(controls(written.stderr), written.stderr).toEqual([]);
+  }, 60_000);
+});
+
+// SIG-456's other half: an error `main()` prints as it stands, quoting the app's
+// root or a value from its config, found by review of SIG-456 and SIG-457
+describe.skipIf(process.platform === 'win32')('an app the toolchain refuses', () => {
+  it('should not print one from the root of an app it cannot read', async () => {
+    const root = tempDir(`sigil-${TITLE}-`);
+    const cases: [string, string[]][] = [
+      // no manifest at all
+      ['No package.json in', []],
+      // a manifest that does not depend on the runtime
+      ['does not depend on', ['package.json', '{"name":"x"}']],
+      // a manifest that does, and no entry
+      [
+        'No entry module found in',
+        ['package.json', '{"name":"x","dependencies":{"@ttylabs/sigil":"*"}}'],
+      ],
+    ];
+
+    for (const [said, file] of cases) {
+      if (file.length) {
+        writeFileSync(join(root, file[0]!), file[1]!);
+      }
+      const { code, stderr } = await run(cli, root, ['build', root], { FORCE_COLOR: '0' });
+
+      expect(code, stderr).toBe(1);
+      expect(stderr).toContain(said);
+      expect(stderr).toContain(escapeControls(TITLE));
+      expect(controls(stderr), stderr).toEqual([]);
+    }
+
+    const { code, stderr } = await run(cli, root, ['build', root, '--entry', `e${TITLE}.ts`], {
+      FORCE_COLOR: '0',
+    });
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`Entry module not found: `);
+    expect(stderr).toContain(`e${escapeControls(TITLE)}.ts`);
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from an external package refuses to bundle', async () => {
+    const app = appNamed('buildable');
+
+    const { code, stderr } = await run(
+      cli,
+      app,
+      ['package', app, '--runtime', 'node', '--external', `ev${TITLE}il`],
+      { FORCE_COLOR: '0' }
+    );
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`external packages: "ev${escapeControls(TITLE)}il"`);
+    expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
 });
 

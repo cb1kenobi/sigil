@@ -1306,9 +1306,15 @@ makes it testable with a fixture directory and no bundler at all.
   the rest, so the size table called the entry `nh]0;PWNd.mjs` beside a summary
   that now calls it `nh\x1B]0;PWN\x07d.mjs`. A description in `--tree` goes
   through `escapeMessage()` instead, since its own line break is the table's to
-  lay out. Two failure sentences the SIG-447 audit missed go with them, both
-  printed by `main()` as they stand: `--bin`'s refusal of a walked command, whose
-  name is a file's, and `reference --check`'s `out of date in <name>`.
+  lay out. The failure sentences the SIG-447 audit missed go with them, each
+  printed by `main()` as it stands and each found by review of this change rather
+  than by a finished audit: `--bin`'s refusal of a walked command, whose name is
+  a file's; `reference --check`'s `out of date in <name>`; `discover.ts`'s four
+  refusals of a root it cannot read (no manifest, no runtime dependency, no
+  entry, an `--entry` that is not there); `package`'s refusal of an `external`,
+  which is `sigil.json`'s or the flag's; and `tree.ts`'s three, which name a
+  command directory and are escaped by reading -- the one a review tried to
+  reach arrived as a diagnostic first.
 
   `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
   throws quoted the app's root and the `tsc` under it raw, and `main()` prints
@@ -1316,11 +1322,14 @@ makes it testable with a fixture directory and no bundler at all.
   `displayPath()`, and the suggested `-p` after `word()` -- a config whose name
   holds a control character is one that command cannot spell for a shell
   anyway, and printing it raw is the retitle. Node's own `run.error.message`
-  is escaped the way `compile.ts` already escapes its spawn failures. The guards
-  are the `an app whose root holds a control character` block of
-  `test/build/typecheck.test.ts` and the `a build that succeeds` block of
-  `test/bundle-escape.test.ts`, spawned and piped; both are skipped on Windows,
-  which cannot make the names.
+  is escaped the way `compile.ts` already escapes its spawn failures -- and no
+  test pins that one, because Node's sentence names the executable it spawned,
+  which is `process.execPath` and not the app's. The guards are the `an app
+  whose root holds a control character` block of `test/build/typecheck.test.ts`,
+  the `a build that succeeds` and `an app the toolchain refuses` blocks of
+  `test/bundle-escape.test.ts`, spawned and piped, and `should escape what a
+  summary names, on a terminal as well as off one` in `test/report.test.ts`.
+  The spawned ones are skipped on Windows, which cannot make the names.
 
 - **The compiler's output is read with one line ending, and with no 1 MiB
   ceiling.** SIG-355, both found with a stand-in `tsc` printing one error line.

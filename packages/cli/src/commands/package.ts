@@ -410,7 +410,9 @@ function assertSelfContained(external: readonly string[]): void {
     return;
   }
 
-  const named = external.map((pkg) => `"${pkg}"`).join(', ');
+  // a package name from `sigil.json` or `--external`, which `main()` prints as
+  // it stands
+  const named = external.map((pkg) => `"${escapeControls(pkg)}"`).join(', ');
 
   throw new Error(
     `Cannot package an app with external packages: ${named}.\n  An external is the app saying that package must be installed where it runs, and a single binary is the app saying nothing has to be installed -- so the binary could not work. On the node runtime it would be built and reported successfully and then fail on first use, because a single executable cannot resolve anything outside itself.\n  A package carrying a native binding cannot be inlined at all, so an app with one is a "sigil build" plus its node_modules rather than a binary.`
