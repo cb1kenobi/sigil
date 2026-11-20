@@ -400,6 +400,9 @@ export function TextArea(props: TextAreaProps = {}): Element {
     anchor = undefined;
     goal = undefined;
     follow = true;
+    // a drag in progress ends: the app has said where the caret is, and the next
+    // motion would otherwise put it back under the pointer
+    dragging = false;
     // kept when it already says where the caret went, so an app's write costs it
     // no second one; otherwise the next redraw writes the place it was read as
     said = at?.line === caret.line && at.col === caret.col ? at : undefined;
@@ -411,10 +414,9 @@ export function TextArea(props: TextAreaProps = {}): Element {
    * an `onChange` can have made in the middle of the edit this redraw is for.
    */
   function publish(): void {
-    const pending = untrack(() => caretState.get());
-    if (pending !== said) {
-      place(pending);
-    }
+    // the value too, which an `onChange` may have written with the caret: the
+    // caret is placed in the new value, not in the lines the edit left
+    untrack(() => adopt(value.get(), caretState.get()));
     if (said?.line !== caret.line || said.col !== caret.col) {
       said = { col: caret.col, line: caret.line };
       caretState.set(said);

@@ -714,6 +714,21 @@ describe('tabs that change while they are up', () => {
     expect(laid).toBeGreaterThan(before);
   });
 
+  it('should borrow again on the next change when an app put its own onLayout over the borrow', () => {
+    const labels = new State<readonly string[]>(['a']);
+    const row = tabRowView({ active: 0, ascii: false, labels });
+    picture(row, 10);
+    labels.set(['aaaa', 'bbbb', 'cccc', 'dddd']);
+    flush();
+    const mine = (): boolean => false;
+    row.onLayout = mine;
+    picture(row, 10);
+    labels.set(['aaaa', 'bbbb', 'cccc', 'eeee']);
+    flush();
+    expect(picture(row, 10)[0]).toBe('  aaaa   ›');
+    expect(row.onLayout).toBe(mine);
+  });
+
   it('should read a function or a Computed as a live list, and its labels through it', () => {
     const name = new State('one');
     const row = tabRowView({ ascii: false, labels: () => [name.get(), 'two'] });

@@ -9467,7 +9467,10 @@ nothing and stays in the tree.
     row's `onLayout` for the one layout after it, then puts back whatever was
     there when it borrowed -- an app's own `onLayout`, from `props` or set on the
     row since, which the borrowed hook calls too (review round 1: it put back what
-    was there at construction, which dropped one set later).
+    was there at construction, which dropped one set later). An app that puts its
+    own `onLayout` over the borrow before that layout leaves the row drawn whole
+    until its labels change again, when it borrows afresh, or its size moves
+    (review round 2).
 - **Labels are one line and measured by display width.** `oneLine()` takes escape
   sequences and line breaks out, `stringWidth()` measures, and each label is a
   fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
@@ -13199,11 +13202,13 @@ was reached, the measurements and the sabotage pass are in
   opened a 50,000-line file on its last line and typed Ctrl-Home to get out of
   it. A write the app makes to `value` still puts the caret at the end; a caret
   written in the same turn, either side of it, is applied after it and wins, so
-  "load this file at line 40" is two writes in any order. A write the app makes
-  from `onChange`, in the middle of an edit, is taken in before the area writes
-  where the edit left the caret, rather than written over (review round 1). A
-  caret `State` is one area's: two areas handed one clamp it to their own lines
-  and write it back over each other.
+  "load this file at line 40" is two writes in any order. That holds from inside
+  `onChange` too, in the middle of an edit: before the area writes where the edit
+  left the caret it takes in what the app wrote since, value and caret, the way
+  an input handler does (review rounds 1 and 2). A write that lands during a drag
+  ends the drag, so the next motion does not put the caret back under the
+  pointer. A caret `State` is one area's: two areas handed one clamp it to their
+  own lines and write it back over each other.
 - **A write the app makes is taken in before a key, not only when the effect
   runs.** The effect runs with the frame, and a key in the same read as the
   write -- a burst, a fast typist, a "go to line" bound to a key that then types

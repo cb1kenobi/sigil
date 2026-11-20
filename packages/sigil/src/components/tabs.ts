@@ -255,7 +255,7 @@ export function tabRowView(props: TabRowProps): Element {
   host.addClass('sigil-tabs-row');
   host.append(labelRow, ruleLine);
   /** Whether a change of labels has borrowed `onLayout` for the next layout. */
-  let borrowing = false;
+  let borrowed: ((element: Element) => boolean) | undefined;
   ROWS.set(host, host);
   ACTIVE.set(host, active);
 
@@ -305,7 +305,10 @@ export function tabRowView(props: TabRowProps): Element {
       host.setProp('focusable', labels.length > 0);
     }
     count = labels.length;
-    if (room !== undefined) {
+    // drawn into a room before, or still waiting on a borrow an app's own
+    // assignment has since put out of reach, which would otherwise leave the row
+    // drawn whole until its size moved
+    if (room !== undefined || borrowed !== undefined) {
       // the room the layout last gave may be only what the old labels came to: a
       // row sized to its content is as wide as it drew, so windowing new labels
       // into it would keep it that width for good. So they are drawn whole, as
@@ -313,16 +316,17 @@ export function tabRowView(props: TabRowProps): Element {
       // through `onLayout`, once, because a row whose size does not move is never
       // told it again through `onResize`. An `onLayout` of the app's own is kept
       room = undefined;
-      if (!borrowing) {
+      if (host.onLayout !== borrowed || borrowed === undefined) {
         // whatever is there now, which an app may have set after the row was built
         const own = host.onLayout;
-        borrowing = true;
-        host.onLayout = (element): boolean => {
+        const hook = (element: Element): boolean => {
           host.onLayout = own;
-          borrowing = false;
+          borrowed = undefined;
           const theirs = own?.(element) === true;
           return measure(element) || theirs;
         };
+        borrowed = hook;
+        host.onLayout = hook;
       }
     }
   };

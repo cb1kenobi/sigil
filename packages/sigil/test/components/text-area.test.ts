@@ -476,6 +476,32 @@ describe('TextArea()', () => {
       expect(caret.get()).toEqual(at(1, 0));
       await s.term.press('?');
       expect(value.get()).toBe('!abc\n?def');
+
+      // and with a value written beside it, the caret lands in the new value
+      const other = new State(at(0, 0));
+      const text = new State('abcdef');
+      const t = scene({
+        caret: other,
+        onChange: (now) => {
+          text.set(`${now.toUpperCase()}\nmore`);
+          other.set(at(1, 2));
+        },
+        value: text,
+      });
+      await t.term.press('!');
+      expect(text.get()).toBe('!ABCDEF\nmore');
+      expect(other.get()).toEqual(at(1, 2));
+    });
+
+    it('should end a drag when the app writes the caret in the middle of it', async () => {
+      const caret = new State(at(0, 0));
+      const s = scene({ caret, value: 'abcdef\nghijkl\nmnopqr' });
+      s.area.onMouse?.(mouse('mousedown', 1, 0));
+      s.area.onMouse?.(mouse('mousemove', 3, 1));
+      caret.set(at(2, 2));
+      await settle();
+      s.area.onMouse?.(mouse('mousemove', 4, 1));
+      expect(caret.get()).toEqual(at(2, 2));
     });
   });
 
