@@ -225,10 +225,10 @@ export function date(opts: DateOptions): Promise<Date> {
     /**
      * Steps the focused segment, wrapping inside it.
      *
-     * A value outside the segment's range -- a year from an explicit `initial`,
-     * the one field a `Date` can hold past its segment -- is stepped and pulled
-     * to the nearer end by `put()` instead: wrapping from where it was sent
-     * year -1 down to 9998. Once inside, it wraps as any other does.
+     * A value outside the segment's range -- a year from an explicit `initial`
+     * or `value`, the one field a `Date` can hold past its segment -- is stepped
+     * and pulled to the nearer end by `put()` instead: wrapping from where it
+     * was sent year -1 down to 9998. Once inside, it wraps as any other does.
      */
     function step(delta: number): void {
       commit();

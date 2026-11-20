@@ -5707,7 +5707,7 @@ from year, month and day segments, with the hour, minute and second added by
   February and on to March is the 28th. Remembering the wanted day would be state
   the field does not show.
 - **A year the segment cannot hold is pulled to the nearer end before it wraps**
-  (SIG-449). An explicit `initial` is taken as it is, and a `Date` reaches years
+  (SIG-449). An explicit `initial` or `value` is taken as it is, and a `Date` reaches years
   far past 0-9999, so the year can start outside the segment -- and the wrap ran
   from wherever it started, so year -1 stepped down was 9998, the far end of the
   range from where the person was. Up or Down on a year outside the range now
