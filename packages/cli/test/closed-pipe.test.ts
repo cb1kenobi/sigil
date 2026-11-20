@@ -1,3 +1,4 @@
+import { guardOutput } from '../src/index.ts';
 import { STACK } from './spawned.ts';
 import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
@@ -78,7 +79,8 @@ describe('a toolchain command whose reader has gone away', () => {
   describe.each(Object.entries(bins))('%s', (_name, bin) => {
     it('should list the registry into a closed stdout without a stack', async () => {
       // 73 lines written in several pieces, which is what made `add` the one
-      // that died: the first write reaches the pipe, and a later one does not
+      // that died: it writes in several pieces, and with `head` the first reaches the
+      // pipe and a later one does not. Here none of them can
       const ran = await runClosed(bin, ['add'], 'stdout');
 
       expect(ran.seen).not.toMatch(/EPIPE|Unhandled 'error' event/);
@@ -94,6 +96,14 @@ describe('a toolchain command whose reader has gone away', () => {
       expect(ran.seen).not.toMatch(/EPIPE|Unhandled 'error' event/);
       expect(ran.seen).not.toMatch(STACK);
       expect(ran.seen).toContain('13 commands');
+      expect(ran.code).toBe(0);
+    });
+
+    it('should answer --version into a closed stdout without a stack', async () => {
+      const ran = await runClosed(bin, ['--version'], 'stdout');
+
+      expect(ran.seen).not.toMatch(/EPIPE|Unhandled 'error' event/);
+      expect(ran.seen).not.toMatch(STACK);
       expect(ran.code).toBe(0);
     });
 
@@ -115,5 +125,34 @@ describe('a toolchain command whose reader has gone away', () => {
 
       expect(ran.code).toBe(1);
     });
+  });
+});
+
+describe('guardOutput()', () => {
+  // the review found `guardGone()` swallows every error, which would have made
+  // `sigil reference > file` on a full disk exit 0 over a cut-off file
+  it('should leave only the reader leaving quiet', () => {
+    guardOutput();
+
+    for (const code of ['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED']) {
+      expect(() =>
+        process.stdout.emit('error', Object.assign(new Error(code), { code }))
+      ).not.toThrow();
+    }
+
+    expect(() =>
+      process.stdout.emit('error', Object.assign(new Error('no space'), { code: 'ENOSPC' }))
+    ).toThrow('no space');
+    expect(() =>
+      process.stderr.emit('error', Object.assign(new Error('too big'), { code: 'EFBIG' }))
+    ).toThrow('too big');
+  });
+
+  it('should add its listeners once however many parses there are', () => {
+    guardOutput();
+    const before = process.stdout.listenerCount('error');
+    guardOutput();
+
+    expect(process.stdout.listenerCount('error')).toBe(before);
   });
 });

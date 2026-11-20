@@ -3872,8 +3872,8 @@ people's software and will move.
   command whose output grows had it. The commands write to `process.stdout` and
   `process.stderr` directly, at about three dozen references, so the guard is one
   `beforeParse` hook on `schema()` in `src/index.ts` that puts `guardGone()` on
-  both streams -- the first thing `main()` fires, so before the help screen,
-  an error or any command writes a byte, and a hook rather than a call in
+  both streams -- the first thing `main()` fires once the schema is built, so before the help
+  screen or any command writes a byte, and a hook rather than a call in
   `run()` because the built executable never reaches `run()` (the same reason
   `settings` lives on the schema). A command added next year is covered without
   anybody remembering to. The listener is `@ttylabs/sigil/terminal`'s
@@ -3891,6 +3891,14 @@ people's software and will move.
   outlives a command and a bin does not, and the `EPIPE` for the last write
   arrives after `main()` has resolved. It also covers `--version`, which `run()`
   answers before the schema exists.
+
+  **Only the reader leaving is quiet.** `guardGone()` swallows every `error`
+  event, so the toolchain adds a second listener that rethrows whatever
+  `isStreamGone()` does not call the reader leaving. Found by review:
+  `ulimit -f 1; sigil add > out` and `sigil reference > docs/cli.md` on a full
+  disk are `EFBIG` and `ENOSPC`, which exited 1 before the guard and exited **0
+  over truncated output** with it. A thrown error from a listener is the
+  uncaught exception it was before, which is the right answer to a real fault.
 
   `test/closed-pipe.test.ts` spawns both `src/sigil.ts` and the built
   `dist/sigil.mjs` and **closes the read end itself** the moment the child

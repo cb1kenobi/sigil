@@ -2841,9 +2841,12 @@ const detach = guardGone(process.stdout, () => {
 isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
 ```
 
-Only a stream whose reader has gone is swallowed, and the exit code is left
-alone, as it is for `terminal.write()`. It attaches one listener per call, so
-guard a stream once. `isStreamGone()` is the one definition of which errors
+The exit code is left alone, as it is for `terminal.write()`. The listener
+swallows **every** `error` on the stream, and `onGone` hears only the reader
+leaving: for output that must not be cut short silently (`mycli > file` on a full
+disk is `ENOSPC`, not `EPIPE`), add a listener of your own that rethrows when
+`isStreamGone(err)` is false. It attaches one listener per call, so guard a
+stream once. `isStreamGone()` is the one definition of which errors
 mean that, for a `write()` that throws instead of emitting.
 
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at

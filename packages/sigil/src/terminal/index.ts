@@ -93,10 +93,13 @@ export function isStreamGone(err: unknown): boolean {
  * writes to. It is exported for a program that writes to `process.stdout`
  * directly and has no terminal to do it through: the toolchain's own commands.
  *
- * Only a stream that is gone is swallowed. Any other `error` is a real fault
- * and, with this the only listener, is not delivered to anyone -- so a stream
- * that can fail some other way should have a listener of its own beside this
- * one, which is what an `error` event with two listeners is for.
+ * **Every** `error` is swallowed by having a listener at all; `onGone` hears
+ * only the reader leaving. Any other error -- `ENOSPC`, `EFBIG` -- is a real
+ * fault and, with this the only listener, is delivered to nobody, so a program
+ * whose output matters (a file redirect that must not be cut short) should
+ * attach a listener of its own that rethrows what `isStreamGone()` says is not
+ * the reader leaving. The terminal does not: it has always treated its streams
+ * as best-effort.
  *
  * @param stream - The stream being written to.
  * @param onGone - Called each time the stream reports that its reader has gone.

@@ -1,5 +1,5 @@
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
-import { guardGone } from '@ttylabs/sigil/terminal';
+import { guardGone, isStreamGone } from '@ttylabs/sigil/terminal';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -39,11 +39,21 @@ const guarded = new WeakSet<NodeJS.WriteStream>();
  * process is the lifetime of the guard, and the `EPIPE` for the last write is
  * the one that arrives after `main()` has resolved.
  */
-function guardOutput(): void {
+export function guardOutput(): void {
   for (const stream of [process.stdout, process.stderr]) {
     if (!guarded.has(stream)) {
       guarded.add(stream);
       guardGone(stream);
+      // `guardGone()` leaves every error silent, and only the reader leaving is
+      // meant to be: `sigil reference > docs/cli.md` on a full disk is `ENOSPC`
+      // on a `SyncWriteStream`, and swallowing it exited 0 over a cut-off file.
+      // Throwing from the listener is the uncaught exception it was before the
+      // guard existed, which is the right answer for a real fault
+      stream.on('error', (err) => {
+        if (!isStreamGone(err)) {
+          throw err;
+        }
+      });
     }
   }
 }
@@ -88,8 +98,8 @@ export function schema(): Schema {
 
     // a hook on the schema rather than a call in `run()`, for the reason
     // `settings` is: the built executable never reaches `run()`. `beforeParse`
-    // is the first thing `main()` fires, so it is on before the help screen, an
-    // error or any command writes a byte
+    // is the first thing `main()` fires once the schema is built, so it is on
+    // before the help screen or any command writes a byte
     hooks: { beforeParse: guardOutput },
   };
 }
