@@ -661,6 +661,7 @@ export class Element implements LayoutNode {
    * @param child - The element to add.
    * @param before - The sibling to add it in front of, or `undefined` for the end.
    * @returns This element.
+   * @throws If the child is the root of a tree: a root is not moved into another element.
    */
   insertBefore(child: Element, before: Element | undefined): this {
     if (child === this || child.contains(this)) {

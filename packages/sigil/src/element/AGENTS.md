@@ -128,14 +128,26 @@ the entry it belongs to.
   element`. Refusing was chosen over telling the old tree because a tree with a
   root that is somewhere else has no definition to tell it: it would need a new
   root, or an empty state, or a callback for being rootless, each of them a
-  contract nothing asks for. The only caller of `createTree()` is the renderer,
-  which builds its root and never moves it, and no example does either, so
-  nothing depended on the move. The root of a tree is therefore the one
-  element `insertBefore()` and `append()` never take; take its _children_
-  anywhere. Left alone: `createTree()` over an element that already has a
-  parent, whose `remove()` would leave the same stale `root` -- it is a root
-  that was never detached to begin with, which is a question about
-  `createTree()` and not about a move. See `test/element/element.test.ts`.
+  contract nothing asks for. The only caller of `createTree()` in `src/` is the
+  renderer, which builds its root and never moves it; the demos and a benchmark
+  call it too, and none appends a root. Nothing in the repository depended on
+  the move. The root of a tree is therefore the one element `insertBefore()` and
+  `append()` never take; take its _children_ anywhere.
+
+  What that costs, stated rather than discovered: **a root stays a root for the
+  life of the element.** Nothing releases one -- `TreeImpl` has no dispose, and a
+  renderer's teardown leaves `root.tree` set -- so a prebuilt page shown with
+  `render()`, disposed, and then appended into a shell is refused where it used
+  to be re-homed. Chosen over a release mechanism because the facades build
+  fresh elements per mount and nothing here shows a page that way; an app that
+  does builds the page again, or wraps it. `createTree()` over an element that
+  already has a parent is **left alone and is not fixed by this**: a reorder of
+  that root within its own parent is refused too, `remove()` on it leaves the
+  same stale `root`, and a second `createTree()` over one root, or moving an
+  ancestor of a nested root, leaves the first tree's `root` stale as well. All
+  three are questions about `createTree()` taking an element it does not own,
+  not about a move. See `test/element/element.test.ts`.
+
 - **`focus-within` is carried, not searched for, and it is reported rather than
   set (SIG-372).** An element is in it while it or a descendant holds `focus`,
   which is CSS's rule -- the focused element matches `:focus-within` too. Each
