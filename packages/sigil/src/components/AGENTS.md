@@ -9814,7 +9814,12 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   view goes to its first row, which would move the line just clicked out from
   under the pointer. So the click leaves `pointed` for the effect over the cursor,
   which lights the stop and skips the reveal for that one write; an app writing
-  `current` still brings the stop into view. A double click is two clicks, since
+  `current` still brings the stop into view. A drawing in the same flush -- an app
+  whose content is computed from the cursor -- asks the same flag, since it runs
+  before the cursor's effect and reveals too (review round 1). A drawing after
+  that, for a `w`, a new width or refreshed content, reveals the current stop as
+  it always has, clicked or not: that is the drawing's rule, and a reader who
+  scrolled with the arrows meets it the same way. A double click is two clicks, since
   there is no `onActivate` to call. A line cursor (SIG-473) would take the same
   row handler and read the line under it, which this leaves room for: the
   handler is per row already.

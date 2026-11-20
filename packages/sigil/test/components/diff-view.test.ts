@@ -325,6 +325,22 @@ describe('DiffView', () => {
       expect(lit(picture(root, 30, 7))).toHaveLength(5);
     });
 
+    it('should not scroll on a click where the content is drawn again in the same flush', () => {
+      const content = new State<DiffViewContent>({ patch: PATCH });
+      const current = new State(0);
+      const { host, root } = mount({ content, current }, 7);
+      picture(root, 30, 7);
+      press(host, 'down');
+      const before = picture(root, 30, 7);
+
+      // the click, and an app's content that changes with the cursor, before a flush
+      rowWith(root, '@@ -20,3 +20,3 @@').onMouse?.(mouse());
+      content.set({ patch: PATCH });
+      flush();
+      expect(current.get()).toBe(1);
+      expect(picture(root, 30, 7)[0]).toBe(before[0]);
+    });
+
     it('should make a hunk current from a click on either half, side by side', () => {
       const current = new State(0);
       const { root } = mount({ content: { patch: PATCH }, current, layout: 'side-by-side' }, 14);

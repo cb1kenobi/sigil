@@ -388,10 +388,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       seenWidth = 0;
     }
     for (const [at, stop] of stops.entries()) {
+      // the stop is the one this drawing put the row in, so a click is never read
+      // through a row count that a later drawing changed
+      const onMouse = (event: MouseEvent): void => clicked(event, at);
       for (let row = stop.first; row <= stop.last; row++) {
-        // the stop is the one this drawing put the row in, so a click is never
-        // read through a row count that a later drawing changed
-        (rows[row] as Element).onMouse = (event: MouseEvent): void => clicked(event, at);
+        (rows[row] as Element).onMouse = onMouse;
       }
     }
     drawn = stops.map((stop, at) => ({
@@ -413,7 +414,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         // nothing to keep in view, so what is drawn is shown from its start
         viewport.scrollTo(0, 0);
       }
-      reveal();
+      // a drawing in the same flush as a click leaves the clicked stop where it is,
+      // as the effect over the cursor does after it
+      if (pointed !== untrack(() => current.get())) {
+        reveal();
+      }
       if (look() < offset) {
         // scrolled further than any line now in view goes -- narrower content, a
         // wider view, wrapped -- so drawn again from as far as one does
