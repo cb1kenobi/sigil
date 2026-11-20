@@ -48,7 +48,14 @@ export function writeExecutable(path: string, contents: string | Uint8Array, mod
     input: contents,
   });
 
-  if (wrote.error) {
+  // `sh` that cannot open the file exits without reading its stdin, and a
+  // stub still being written then fails to go in with `EPIPE` -- which of the
+  // two a caller heard used to depend on how far the write got first (SIG-531).
+  // `status` and `stderr` are filled in either way, and they say what went wrong
+  const refused =
+    (wrote.error as NodeJS.ErrnoException | undefined)?.code === 'EPIPE' && wrote.status !== 0;
+
+  if (wrote.error && !refused) {
     throw wrote.error;
   }
 
