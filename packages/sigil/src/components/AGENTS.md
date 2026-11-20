@@ -2317,7 +2317,10 @@ a font, `renderFiglet()` turns a string into a rectangle of characters, and
   U+200D characters, in `packages/sigil/README.md` and in
   `test/components/typewriter.test.ts`, where they are the joiners inside emoji
   sequences -- so the check needs an allow-list, which is a decision about that test
-  rather than about this feature.
+  rather than about this feature. SIG-483 took it: the sweep found fifteen files
+  rather than two, the code ones write the joiner as an escape now, and the rule
+  is under "The source carries no format character either" in the root
+  `AGENTS.md`.
 
 #### A typewriter: text that arrives a chunk at a time
 
@@ -3783,10 +3786,11 @@ again. The new tests are `test/components/multiline-extras.test.ts`.
   `should leave the gutter out of what a selection copies` asks about the tree the
   prompt really builds.
 - **`charLimit` counts grapheme clusters, a line break included.** It is the unit
-  the caret steps over and the one the count on screen has to agree with, so
-  `👨‍👩‍👧` is one. A store that needs code points or bytes checks that in
-  `validate`, which already exists for exactly that. A typed key at the limit
-  inserts nothing and a paste is cut to what fits rather than refused whole.
+  the caret steps over and the one the count on screen has to agree with, so a
+  family emoji, `U+1F468 U+200D U+1F469 U+200D U+1F467`, is one. A store that
+  needs code points or bytes checks that in `validate`, which already exists for
+  exactly that. A typed key at the limit inserts nothing and a paste is cut to
+  what fits rather than refused whole.
 - **An `initial` over the limit is refused, a `value` over it is dropped.** That
   is the rule SIG-204 records for every prompt, applied here rather than made up:
   an `initial` is something somebody wrote, and a `value` is usually an earlier

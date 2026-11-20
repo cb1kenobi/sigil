@@ -93,7 +93,7 @@ describe('rule()', () => {
     });
 
     it('should measure an emoji and a combining mark in columns', () => {
-      expect(stringWidth(line({ label: '👨‍👩‍👧 é', width: 24 }))).to.equal(24);
+      expect(stringWidth(line({ label: '👨\u200D👩\u200D👧 é', width: 24 }))).to.equal(24);
     });
 
     it('should cut a label that is too long, and still span the width', () => {

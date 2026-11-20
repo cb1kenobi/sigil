@@ -300,10 +300,10 @@ describe('TextArea()', () => {
     });
 
     it('should never split a cluster, at a line break or inside one', async () => {
-      const value = new State('👨‍👩‍👧\ne\u0301');
+      const value = new State('👨\u200D👩\u200D👧\ne\u0301');
       const s = scene({ value });
       await s.term.press(KEYS.backspace);
-      expect(value.get()).toBe('👨‍👩‍👧\n');
+      expect(value.get()).toBe('👨\u200D👩\u200D👧\n');
       await s.term.press(KEYS.left, KEYS.backspace);
       expect(value.get()).toBe('\n');
     });
