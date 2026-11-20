@@ -34,6 +34,8 @@ import {
   isFatal,
   isInside,
   landsAt,
+  parseSpec,
+  parseTarget,
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
@@ -48,7 +50,7 @@ import {
   type ShakenStyles,
   type TypeCheckResult,
 } from '../build/index.ts';
-import { CONFIG_FILES, type SigilConfig } from '../config.ts';
+import { CONFIG_FILE, CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
@@ -231,6 +233,52 @@ function checkTranslations(
     framework: SIGIL_KEYS,
     keys: appKeys(app.root),
   });
+}
+
+/**
+ * What `sigil.json` says wrong with itself, as diagnostics.
+ *
+ * `check` answers for the app and the app's configuration is part of it: a
+ * `sigil.json` that `build` refuses must not be one `check` calls clean, which
+ * is what the fast loop is for. It is `inspect()`'s sibling rather than part of
+ * it, because `build` and `package` read the file themselves, after the report
+ * and for their own section, and raise what it says as the plain error they
+ * always did -- folding it in there would change what every build prints.
+ *
+ * There is no second validator here. `readSigilConfig()` is the one reader every
+ * command reads the file through, and it already validates **every** section --
+ * `build`, `package`, `reference`, `updateCheck`, `components` and `locale` --
+ * and refuses `sigil.json` and `sigil.jsonc` side by side, so calling it is the
+ * whole of the verdict for the file's shape. What it leaves to the command that
+ * uses the value is whether `package.runtime` and `package.target` are a runtime
+ * and a platform, which `sigil package` asks `parseSpec()` and `parseTarget()`;
+ * those are asked here, by the same functions, so a file `package` would refuse
+ * for them is one `check` refuses.
+ *
+ * @param root - The app's root.
+ * @returns One error diagnostic, or none.
+ */
+export function checkConfig(root: string): Diagnostic[] {
+  try {
+    const { package: packaging } = readSigilConfig(root);
+
+    // a falsy runtime is the one `package` asks about rather than parses
+    if (packaging?.runtime) {
+      parseSpec(packaging.runtime);
+    }
+
+    for (const target of packaging?.target ?? []) {
+      parseTarget(target);
+    }
+
+    return [];
+  } catch (e: unknown) {
+    // the file that was read, which is whichever of the two names is there; with
+    // both there it is the first, and the message says which two
+    const file = CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILE;
+
+    return [{ file: join(root, file), message: (e as Error).message, severity: 'error' }];
+  }
 }
 
 /**
