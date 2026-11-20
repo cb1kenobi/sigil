@@ -111,13 +111,41 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
 - **The file is the assembly sealed with DPAPI for the current user, with the
   source's hash as the entropy; it is not a DLL with a hash beside it.** A hash
   kept next to the file is written by whoever writes the file, so it proves the
-  file is intact and nothing about who put it there. A seal can only be made by
-  the user it is sealed for, and unsealing checks its own MAC: a file another
-  user wrote -- a cache base `XDG_CACHE_HOME` pointed somewhere shared, say --
-  a plain DLL, a truncated seal, and a real seal made for another version's C#
-  all fail to unseal, and each of those is a rebuild over it, never an error.
-  What a seal cannot stop is a process running as the same user, which can seal
-  anything it likes: the entropy is the source's hash and not a secret. For an
+  file is intact and nothing about who put it there. A seal made **for the
+  user** can only be made by that user, and unsealing it checks its own MAC: a
+  file another user wrote -- a cache base `XDG_CACHE_HOME` pointed somewhere
+  shared, say -- a plain DLL, a truncated seal, and a real seal made for another
+  version's C# all fail to unseal, and each of those is a rebuild over it, never
+  an error.
+- **A seal made for the machine is refused before it is unsealed, because
+  `Unprotect()`'s `'CurrentUser'` limits nothing.** DPAPI applies the scope only
+  when sealing: a blob sealed with `CRYPTPROTECT_LOCAL_MACHINE` unseals for every
+  user on the machine, whatever scope the caller names, and the entropy is
+  `'sigil-trash ' + sha256(CSHARP)`, which is public. So another local user who
+  can write to the cache path could seal the assembly of their choosing with
+  `ProtectedData.Protect($bytes, $entropy, 'LocalMachine')`, put it at
+  `trash-<hash>.bin`, and have the victim's next `trash()` unseal it without error
+  and run it as the victim. The script reads the blob's flags field first and
+  treats a blob that is under 44 bytes, or has the `0x4` bit set, as a miss. The
+  field is the `dwFlags` of the blob header -- a version (4 bytes), the provider
+  GUID (16), the master key version (4), the master key GUID (16), then the flags
+  at byte 40 -- and `0x4` is `CRYPTPROTECT_LOCAL_MACHINE`. The layout is
+  Microsoft's `CRYPTPROTECT_*` flag values plus the community's reverse
+  engineering of the blob (mimikatz, dpapick); it is not a documented format, so
+  the tests read it back off a real blob on the runner (`'0'` for a user seal,
+  `'4'` for a machine one) rather than trusting it.
+
+  What this does **not** claim is that the flags field is covered by the blob's
+  MAC, because nothing here establishes that. The guard does not need it to be: an
+  attacker who clears the bit in a machine blob still has a blob whose master key
+  is the machine's, and `Unprotect()` without the flag is expected to look for
+  that key among the user's own and fail -- which is a rebuild too. That is an
+  expectation and not a source, so `should not run a machine seal with the machine
+  bit cleared` plants exactly that blob and demands a rebuild: if some Windows
+  unseals it, that test fails on that runner and the guard is open.
+
+- **A seal cannot stop a process running as the same user, which can seal
+  anything it likes:** the entropy is the source's hash and not a secret. For an
   install the user can write -- a global npm install under `%APPDATA%`, a
   project's `node_modules` -- that process can already rewrite the sigil the C#
   comes from, so no file it can write is a boundary against it. Where it does
@@ -165,7 +193,9 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   assembly with the helper's own name, which would answer without moving the
   item, rebuilt rather than run -- the one forgery `Assembly.Load()` would not
   refuse by itself, and the case that fails if a miss ever fell back to loading
-  the raw bytes; two calls racing on an empty cache; an unwritable cache
+  the raw bytes; the same stub sealed for the machine, which unseals without
+  error and is rebuilt rather than run, and again with the machine bit cleared;
+  two calls racing on an empty cache; an unwritable cache
   compiling every call and still recycling. `test/trash-windows.test.ts` pins
   the key, the file name and what PowerShell is handed, on every platform.
 - `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also

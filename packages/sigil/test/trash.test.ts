@@ -554,6 +554,78 @@ describe('trash()', () => {
         SLOW
       );
 
+      /**
+       * What another local user can do with nothing but the public entropy: build
+       * the stub assembly the test above plants, seal it under `scope` and put it
+       * at `file`. Returns the flags field of the blob as written, read at the
+       * offset the guard reads, so the layout is measured on the runner and not
+       * only assumed; with `clear`, the machine bit is then cleared in the file.
+       */
+      function plantSealed(file: string, scope: 'CurrentUser' | 'LocalMachine', clear = false) {
+        return execFileSync(
+          `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            'Add-Type -AssemblyName System.Security; ' +
+              "$dll = $env:PLANTED_FILE + '.dll'; " +
+              'Add-Type -TypeDefinition $env:PLANTED_SOURCE -OutputAssembly $dll -OutputType Library; ' +
+              "$entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:PLANTED_KEY); " +
+              '$sealed = [Security.Cryptography.ProtectedData]::Protect([IO.File]::ReadAllBytes($dll), $entropy, $env:PLANTED_SCOPE); ' +
+              '[Console]::Out.Write([BitConverter]::ToUInt32($sealed, 40)); ' +
+              'if ($env:PLANTED_CLEAR) { $sealed[40] = $sealed[40] -band 0xFB }; ' +
+              '[IO.File]::WriteAllBytes($env:PLANTED_FILE, $sealed); ' +
+              'Remove-Item -LiteralPath $dll -Force',
+          ],
+          {
+            encoding: 'utf8',
+            env: {
+              ...process.env,
+              PLANTED_CLEAR: clear ? '1' : '',
+              PLANTED_FILE: file,
+              PLANTED_KEY: keyOf('sigil-trash-test'),
+              PLANTED_SCOPE: scope,
+              PLANTED_SOURCE:
+                'namespace SigilTrash { public static class Bin { public static string Recycle(string path) { return "{\\"path\\":null}"; } } }',
+            },
+          }
+        );
+      }
+
+      it(
+        'should not run an assembly sealed for the machine, which any user can seal and unseal',
+        async () => {
+          const file = join(made('sigil-trash-machine-'), 'trash.bin');
+
+          // a seal for the user has no machine bit, which is what makes the bit
+          // the thing to read; the file is overwritten below, never run
+          expect(plantSealed(file, 'CurrentUser')).toBe('0');
+
+          // sealed under 'LocalMachine' with the public entropy, the blob unseals
+          // for anybody, so unsealing it is no proof of who wrote it: the guard
+          // reads the machine bit from the blob and treats it as a miss
+          expect(plantSealed(file, 'LocalMachine')).toBe('4');
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should not run a machine seal with the machine bit cleared',
+        async () => {
+          const file = join(made('sigil-trash-machine-cleared-'), 'trash.bin');
+
+          // the other half of the guard: a flag an attacker can edit is no guard,
+          // unless the blob stops unsealing -- which is what this measures. Either
+          // outcome of the edit lands on a rebuild, and a hit here would be a hole
+          expect(plantSealed(file, 'LocalMachine', true)).toBe('4');
+          expect(await once(file)).toBe('saved');
+        },
+        SLOW
+      );
+
       it(
         'should have two calls racing on an empty cache both recycle, and leave a usable file',
         async () => {

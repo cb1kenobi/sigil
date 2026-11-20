@@ -193,6 +193,9 @@ namespace SigilTrash {
  *   file another user wrote, one sealed for another source, a truncated one or a
  *   plain DLL all fail to unseal -- and a failure is a rebuild, never an error.
  *   A hash kept beside the file would be written by whoever wrote the file.
+ *   A seal made for the **machine** is refused before it is unsealed, from the
+ *   flags field of the blob: DPAPI applies the scope only when sealing, so any
+ *   user can seal for the machine and every user can unseal it.
  * - It is read once, into memory, and that buffer is what is unsealed and what
  *   `Assembly.Load()` is handed, so nothing can swap the file between the check
  *   and the load: the file is never opened a second time.
@@ -224,7 +227,7 @@ try {
       if ($file.Exists -and $file.Length -lt 1048576) {
         $sealed = [IO.File]::ReadAllBytes($cache)
       }
-      if ($null -ne $sealed) {
+      if ($null -ne $sealed -and $sealed.Length -ge 44 -and ([BitConverter]::ToUInt32($sealed, 40) -band 4) -eq 0) {
         $bytes = [Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')
         $assembly = [Reflection.Assembly]::Load($bytes)
         $state = 'hit'
