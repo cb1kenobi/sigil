@@ -12683,14 +12683,20 @@ value it had ever shown.
   closed branch is checked when it opens and not before.
 - **Looked for only when the tree may have lost something:** a new tree from
   `items`, or a read whose answer replaced a different one (`put()` says which).
-  Opening and closing changes nothing in the data, so it never searches. A read the
+  Opening and closing changes nothing in the data, so it never searches -- for a
+  source that hands over the same tree; one that builds a new array on every read,
+  a `filter()` in a `get()`, is a new tree on every walk and searches each time,
+  which costs a search and drops nothing still there. A read the
   walk itself started that replaced an answer -- a stale branch opening, over a
   function that returns a list -- walks again with the search on, so what it took
   is gone before anything can bring it back. A tree is new when `items` hands over
   a different value, and also when the walk ran with neither the open set nor a
   landed read to account for it: that is a source that changed its tree in place
   and woke the walk, which `{ get() }` allows, and it would otherwise never be
-  searched (review round 1).
+  searched (review round 1). A change in place in the same step as an open or a
+  read landing is accounted for by those and not searched, so what it took is
+  dropped at the next walk that is searched rather than at once (review round 2):
+  a delay, not a wrong picture, unless the value comes back before then.
 - **A failure is not the tree losing what was under the branch.** A read again
   that fails keeps the answer it replaced as `last`, which is never shown -- the
   error line is, by SIG-479's rule -- but which the search goes through, so a
@@ -12701,6 +12707,16 @@ value it had ever shown.
   branch closed -- drops `last` without a search, and the next search drops
   whatever under it the tree no longer has. SIG-479's marking of those reads as out
   of date stands: they are read again when they open.
+
+  **The limit, left as one (review round 2):** `last` lives as long as the failure
+  does, not until a retry lands. A search while a retry is in flight, or after the
+  failed branch was closed and before it opens again, reaches nothing under it and
+  drops it, so when the retry lands a branch there that the reader closed and that
+  says `expanded: true` opens, and every read under it is made again. Carrying
+  `last` on the retry's read and on a closed failed branch would close it, at the
+  cost of a third place an answer that is not shown lives; it needs a failure, a
+  search and a retry in one window, so it is written down rather than built.
+
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
   what was reached come to as many as `seen` holds, nothing went and nothing is
