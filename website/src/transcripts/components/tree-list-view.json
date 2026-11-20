@@ -19,7 +19,7 @@
         "description": "The current node, as its value, or the state that holds it -- the shape `ListView`'s `current` has, a `Computed` refused. Left out, the cursor starts on the first row.",
         "name": "current",
         "optional": true,
-        "type": "T | State<T | undefined>"
+        "type": "Written<T> | State<T | undefined>"
       },
       {
         "description": "Whether a node is disabled: drawn muted, passed over by the cursor, not activated and never ticked. A disabled branch's twisty still opens and closes it, because disabled says the node cannot be picked, not that what is under it cannot be seen.",

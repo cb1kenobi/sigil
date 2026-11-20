@@ -299,4 +299,40 @@ describe('Dropdown()', () => {
       'Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it'
     );
   });
+
+  // `value={() => level.get()}` is the template's spelling of a live prop, and it
+  // was taken as the value itself: nothing chosen, the function never called
+  it('should refuse a function value that no choice holds rather than never call it', () => {
+    const s = scene();
+    const level = new State('a');
+    expect(() =>
+      Dropdown({
+        input: s.input,
+        options: ['a', 'b'],
+        value: (() => level.get()) as never,
+      })
+    ).toThrow(
+      'Expected a dropdown value to be a value or a State, not a function no choice holds, since a function is taken as the value and never called'
+    );
+  });
+
+  it('should show the choice that holds a function, since a choice value may be one', () => {
+    const s = scene();
+    const run = (): void => {};
+    const stop = (): void => {};
+    const field = createRoot((dispose) => {
+      disposers.push(dispose);
+      return Dropdown({
+        ascii: false,
+        input: s.input,
+        options: [
+          { label: 'run', value: run },
+          { label: 'stop', value: stop },
+        ],
+        value: stop,
+      });
+    });
+    s.root.append(field);
+    expect(picture(s.root).join('\n')).toMatch(/stop\s+▾/);
+  });
 });

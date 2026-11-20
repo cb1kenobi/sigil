@@ -36,7 +36,7 @@ import { createEffect } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { controlState } from './control.js';
+import { controlState, type Written } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
   describeListView,
@@ -141,7 +141,7 @@ export interface DataTableProps<T, K = T> {
    * The current row, as its key, or the state that holds it, never a `Computed`:
    * `ListView`'s `current`.
    */
-  current?: K | State<K | undefined>;
+  current?: Written<K> | State<K | undefined>;
   /** Whether a row is disabled: drawn muted and passed over, as in a list. */
   disabled?: (row: T) => boolean;
   /** What to show under the heading when there are no rows. Defaults to "Nothing to show". */

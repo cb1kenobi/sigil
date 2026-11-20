@@ -54,7 +54,7 @@ import { Computed, State, untrack } from '../signals/index.js';
 import { colorRgb, quantizeColor } from '../style/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { controlState } from './control.js';
+import { controlState, type Written } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { attachTooltip, type TooltipHandle, type TooltipOptions } from './tooltip.js';
@@ -113,7 +113,7 @@ export interface TreemapProps<T, K = T> {
    * has the focus, which is how a reader tells where the arrows go. Only the
    * colour changes, so at colour level 0 the two look the same.
    */
-  current?: K | State<K | undefined>;
+  current?: Written<K> | State<K | undefined>;
   /**
    * What to say where there is no map: no root, or a root of no size. A function
    * is called as the map paints, so a signal it reads -- a scan's progress -- is

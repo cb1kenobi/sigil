@@ -33,7 +33,7 @@ import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { errorMessage } from '../util/error-message.js';
-import { controlState } from './control.js';
+import { controlState, type Written } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import {
   describeListView,
@@ -86,7 +86,7 @@ export interface TreeListViewProps<T = string> {
    * `ListView`'s `current` has, a `Computed` refused. Left out, the cursor starts
    * on the first row.
    */
-  current?: T | State<T | undefined>;
+  current?: Written<T> | State<T | undefined>;
   /**
    * Whether a node is disabled: drawn muted, passed over by the cursor, not
    * activated and never ticked. A disabled branch's twisty still opens and closes
