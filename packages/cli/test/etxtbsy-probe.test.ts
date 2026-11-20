@@ -2,7 +2,7 @@
 import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, renameSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { expect, it } from 'vitest';
@@ -58,13 +58,24 @@ it.runIf(process.platform !== 'win32')(
   'ETXTBSY probe',
   async () => {
     const lines: string[] = [];
-    for (const pad of [4 << 20, 32 << 20]) {
+    // deterministic: a writer held open across a rename still blocks the exec
+    const dir = tempDir('sigil-etxtbsy-inode-');
+    const fd = openSync(join(dir, 'tmp'), 'w', 0o755);
+    writeSync(fd, '#!/bin/sh\nexit 0\n');
+    renameSync(join(dir, 'tmp'), join(dir, 'stub'));
+    const held = spawnSync(join(dir, 'stub'));
+    closeSync(fd);
+    const closed = spawnSync(join(dir, 'stub'));
+    lines.push(
+      `inode: held=${(held.error as NodeJS.ErrnoException | undefined)?.code ?? held.status} closed=${(closed.error as NodeJS.ErrnoException | undefined)?.code ?? closed.status}`
+    );
+    for (const pad of [32 << 20]) {
       for (const name of ['direct', 'rename', 'child']) {
-        lines.push(await measure(name, pad, 3000));
+        lines.push(await measure(name, pad, 6000));
       }
     }
     console.log(`SIG-482 PROBE ${process.platform} ${process.version}\n${lines.join('\n')}`);
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(4);
   },
   60_000
 );
