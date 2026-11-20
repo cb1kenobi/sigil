@@ -1112,6 +1112,17 @@ below with the measurements.
   keep one row of tabs, through opening, a mark and closing` holds the one
   element, and the focus on it while a mark goes.
 
+- **"Reload the whole file tree" is `reloadAll()` (SIG-488).** It called
+  `reload()` on the root, which reads the root again and leaves every folder
+  opened below it on the listing it had, so a file added in an open subfolder
+  did not appear until that folder was closed and opened. `reloadAll()` marks
+  every folder that has been read out of date -- an open one is read at once, a
+  closed one when it next opens -- and keeps what is on screen until each read
+  lands, so nothing closes. The title says the whole tree, rather than the
+  folder under the cursor, which `reload(value, { subtree: true })` would have
+  been: a command in a palette has no cursor in view to be about. `should reload
+  the whole tree, so a file added in an open subfolder appears` adds a file to an
+  open folder and to one open inside it, and sees both.
 - **Dirty is a comparison, not a flag, and a clean file is not written.** A
   document holds the text as read or last saved and compares, so typing a change
   back out is clean, the settings form's rule. The area keeps `\n` and nothing

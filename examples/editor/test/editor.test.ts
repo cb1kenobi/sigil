@@ -446,7 +446,37 @@ describe('the editor', () => {
       // the time the next frame has run the effects
       const it = await mount(workspace({ 'a.txt': 'a\n' }));
       await it.press(ctrl('p'), ...'reload', KEYS.enter);
-      expect(it.screen()).toContain('Read the file tree again');
+      expect(it.screen()).toContain('Read every folder in the file tree again');
+    });
+
+    it('should reload the whole tree, so a file added in an open subfolder appears', async () => {
+      // short names, which the narrow tree draws whole three levels down
+      const dir = workspace({ 'src/lib/x.ts': 'd\n', 'src/main.ts': 'm\n', 'top.txt': 't\n' });
+      const it = await mount(dir);
+      // open src, and src/lib under it, in the tree, each read before the next
+      for (const [name, then] of [
+        ['src', `lib${sep}`],
+        ['lib', 'x.ts'],
+      ]) {
+        for (let i = 0; i < 20 && !cursorRow(it).includes(` ${name}${sep}`); i++) {
+          await it.press(KEYS.down);
+        }
+        await it.press(KEYS.enter);
+        await it.until(then);
+      }
+      writeFileSync(join(dir, 'src', 'z.ts'), 'a\n');
+      writeFileSync(join(dir, 'src', 'lib', 'y.ts'), 'n\n');
+      await it.press(KEYS.up);
+      expect(it.screen()).not.toContain('z.ts');
+
+      await it.press(ctrl('p'), ...'reload');
+      expect(it.screen()).toContain('Reload the whole file tree');
+      await it.press(KEYS.enter);
+      await it.until('y.ts');
+      expect(it.screen()).toContain('z.ts');
+      // still open, both of them: nothing was closed and opened again to show it
+      expect(it.screen()).toContain(`▾ src${sep}`);
+      expect(it.screen()).toContain(`▾ lib${sep}`);
     });
 
     it('should switch to an open tab by name', async () => {

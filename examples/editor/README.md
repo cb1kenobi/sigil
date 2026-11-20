@@ -59,7 +59,8 @@ it; Alt-Backspace still deletes a word.
   Quit or Cancel, starting on Cancel, because that is the answer that loses
   nothing.
 - **A command palette.** Ctrl-P opens a field over the commands -- save, save
-  all, close, the next and previous tab, the preview, focus, reload the tree,
+  all, close, the next and previous tab, the preview, focus, reload every folder
+  of the tree that has been read,
   quit, and a "Go to" for each open tab -- ranked by `rankBy()` as it is typed,
   with what matched drawn in the accent by `highlightRuns()`. The cursor follows
   the best match; Up and Down move it without leaving the field.

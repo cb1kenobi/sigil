@@ -409,11 +409,14 @@ export function createEditor(): Editor {
       { id: 'source', run: focusSource, title: 'Focus editor' },
       {
         id: 'reload',
+        // every folder that has been read, at any depth and open or not, rather
+        // than the root alone: a file added in an open subfolder is what this is
+        // for. What is on screen stays until each new read lands
         run: () => {
-          treeListControl<string>(parts?.tree as Element)?.reload(files.value ?? workspace.root);
-          status.set('Read the file tree again');
+          treeListControl<string>(parts?.tree as Element)?.reloadAll();
+          status.set('Read every folder in the file tree again');
         },
-        title: 'Reload file tree',
+        title: 'Reload the whole file tree',
       },
       { id: 'quit', keys: 'q', run: () => void quit(), title: 'Quit' },
     ];
