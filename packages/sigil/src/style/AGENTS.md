@@ -1325,6 +1325,25 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   `prefers-color-scheme` shipped, and the reason that line and the generator's
   table had to move together is under "Light and dark". Not `hover:` until mouse
   tracking exists.
+- **`focus-within:` sits immediately before `focus:`, which is Tailwind's order
+  (SIG-451).** It is a pseudo-class variant like `focus:`, over the state and the
+  selector SIG-372 added, so `focus-within:border-green` is
+  `.focus-within\:border-green:focus-within { border-color: green }` and nothing
+  else. Where it goes in `VARIANTS` is the only decision in it, because the
+  focused element matches `:focus-within` too -- see "`focus-within` is carried"
+  in `src/element` -- and the two rules have the same specificity, one class and
+  one pseudo-class each, so the block printed later wins on that element. Tailwind
+  puts `focus-within` before `focus` in v3 and v4 alike, so `focus:` beats
+  `focus-within:` on the element that has the focus and only `focus-within:`
+  applies to its ancestors; the same order here means a class string copied from
+  a Tailwind project means what it meant there. The other state variants are not
+  in Tailwind's order (`first:`, `last:` and `checked:` come before `focus-within:`
+  there, and `disabled:` after `focus:`) and were left where they are: moving them
+  changes which of two classes wins on an element that is both, which is a change
+  to existing class strings rather than part of adding one. A variant still does
+  not stack -- there is no `dark:focus-within:` -- so the media variants meet it
+  only through specificity, where a pseudo-class variant's two beats a media
+  variant's one whatever the order, exactly as `focus:` already did.
 - **`@apply` is one statement, and an `@apply` in a comment is not one.** The
   name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
   so `@apply foo { bar: 1; }` swallowed the block after it and a missing
