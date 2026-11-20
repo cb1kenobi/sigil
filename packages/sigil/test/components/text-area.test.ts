@@ -399,14 +399,14 @@ describe('TextArea()', () => {
 
     it('should read a place out of range as the nearest one, and say where it went', async () => {
       const caret = new State(at(0, 0));
-      scene({ caret, value: '👨‍👩‍👧x\nab' });
+      scene({ caret, value: '👨\u200D👩\u200D👧x\nab' });
       caret.set(at(99, 99));
       await settle();
       expect(caret.get()).toEqual(at(1, 2));
       // inside the family is the end of it, never a lone surrogate or a joiner
       caret.set(at(0, 3));
       await settle();
-      expect(caret.get()).toEqual(at(0, '👨‍👩‍👧'.length));
+      expect(caret.get()).toEqual(at(0, '👨\u200D👩\u200D👧'.length));
       caret.set({ col: -4, line: Number.NaN });
       await settle();
       expect(caret.get()).toEqual(at(0, 0));
