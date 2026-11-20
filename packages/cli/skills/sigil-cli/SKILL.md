@@ -165,11 +165,15 @@ does not run at build time. What follows from that:
   is listed without a description until its module loads, unless a
   `commands.json` describes it. A missing description in `dev` output is not a
   bug.
-- **`--version` comes from the build.** The build bakes the `version` in
-  `package.json` into the schema, which is what gives the built app its
-  `--version`; it overrides a `version` the schema declares. Running from
-  source has no `--version` unless the schema declares one. Do not add the
-  option by hand.
+- **`--version` comes from the build, unless the schema states one.** The
+  build bakes the `version` in `package.json` into the schema, which is what
+  gives the built app its `--version`. A `version` string the schema declares
+  wins over it, so source and built answer the same. A `version` _function_ is
+  still replaced by the manifest's (when it has one), because it reads a path a
+  bundle moves. Compute a version in a function, not an eager string: a string
+  read from a file path or `npm_package_version` is kept as it is.
+  Running from source has no `--version` unless the schema declares one. Do
+  not add the option by hand.
 - **A path from `import.meta.url` moves.** Once bundled, a module lives in
   `dist/`, so reading a file relative to its own URL reads from there.
 
