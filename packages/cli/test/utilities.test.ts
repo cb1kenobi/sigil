@@ -271,6 +271,8 @@ describe('variants', () => {
     // class and one pseudo-class each, so source order decides: `focus` comes
     // after `focus-within` in Tailwind's variant order, v3 and v4 alike
     const cascade = new Cascade([sheet]);
+    // both class orders, because the order a class string is written in decides
+    // nothing -- it is the sheet's order, which is what this pins
     for (const classes of [
       ['focus-within:border-green', 'focus:border-red'],
       ['focus:border-red', 'focus-within:border-green'],
