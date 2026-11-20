@@ -222,14 +222,25 @@ export function date(opts: DateOptions): Promise<Date> {
       }
     }
 
-    /** Steps the focused segment, wrapping inside it. */
+    /**
+     * Steps the focused segment, wrapping inside it.
+     *
+     * A value outside the segment's range -- a year from an explicit `initial`
+     * or `value`, the one field a `Date` can hold past its segment -- is stepped
+     * and pulled to the nearer end by `put()` instead: wrapping from where it
+     * was sent year -1 down to 9998. Once inside, it wraps as any other does.
+     */
     function step(delta: number): void {
       commit();
       const f = fields[focus];
       const [lo, hi] = limits(f, parts);
+      const at = parts[f];
+      if (at < lo || at > hi) {
+        put(f, at + delta);
+        return;
+      }
       const span = hi - lo + 1;
-      const wrapped = lo + ((((parts[f] - lo + delta) % span) + span) % span);
-      put(f, wrapped);
+      put(f, lo + ((((at - lo + delta) % span) + span) % span));
     }
 
     /** Moves the month, keeping the day where the month is long enough. */

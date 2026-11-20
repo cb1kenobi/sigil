@@ -1,3 +1,4 @@
+import { localDate } from '../../src/components/calendar.js';
 import { date } from '../../src/components/date.js';
 import { PromptError } from '../../src/components/prompt.js';
 import { transformValue } from '../../src/util/transform.js';
@@ -224,6 +225,62 @@ describe('date()', () => {
 
       await type(ui.stdin, ENTER);
       await answer;
+    });
+
+    // SIG-449: an explicit `initial` is taken as it is, so its year can be one
+    // the segment cannot hold, and wrapping from there went to the far end --
+    // year -1 stepped down was 9998. Both keys land on the nearer end first.
+    it('should pull a year before 0000 into the range before wrapping it', async () => {
+      const initial = localDate(-1, 6, 15);
+
+      for (const key of [UP, DOWN]) {
+        const { answer, ui } = ask({ initial });
+
+        expect(ui.frame).to.equal('? When? -001-06-15');
+        await type(ui.stdin, key);
+        expect(ui.frame).to.equal('? When? 0000-06-15');
+        // in the range now, so the next step wraps as any other does
+        await type(ui.stdin, DOWN);
+        expect(ui.frame).to.equal('? When? 9999-06-15');
+
+        await type(ui.stdin, ENTER);
+        expect(await answer).toEqual(new Date(9999, 5, 15));
+      }
+    });
+
+    it('should pull a year past 9999 into the range before wrapping it', async () => {
+      const initial = localDate(10000, 6, 15);
+
+      for (const key of [UP, DOWN]) {
+        const { answer, ui } = ask({ initial });
+
+        expect(ui.frame).to.equal('? When? 10000-06-15');
+        await type(ui.stdin, key);
+        expect(ui.frame).to.equal('? When? 9999-06-15');
+        await type(ui.stdin, UP);
+        expect(ui.frame).to.equal('? When? 0000-06-15');
+
+        await type(ui.stdin, ENTER);
+        expect(await answer).toEqual(localDate(0, 6, 15));
+      }
+    });
+
+    // the pull goes through the same write every other step does, so the day is
+    // repaired and `min` and `max` still hold
+    it('should repair the day and keep the range when it pulls a year in', async () => {
+      // 10000 is a leap year and 9999 is not
+      const leap = ask({ initial: localDate(10000, 2, 29) });
+      await type(leap.ui.stdin, DOWN);
+      expect(leap.ui.frame).to.equal('? When? 9999-02-28');
+      await type(leap.ui.stdin, ENTER);
+      expect(await leap.answer).toEqual(new Date(9999, 1, 28));
+
+      // a year far out lands on the end too, and then on a `min` past it
+      const far = ask({ initial: localDate(-500, 6, 15), min: new Date(2000, 0, 1) });
+      await type(far.ui.stdin, UP);
+      expect(far.ui.frame).to.equal('? When? 2000-01-01');
+      await type(far.ui.stdin, ENTER);
+      expect(await far.answer).toEqual(new Date(2000, 0, 1));
     });
 
     it('should wrap the day at the length of its own month', async () => {
