@@ -3281,6 +3281,32 @@ describe('refining what the terminal is', () => {
     expect(colors).toEqual({ true: 8, false: 6 });
   });
 
+  it('should refine a level that was never named, whatever pinColorLevel says', async () => {
+    const h = harness(20, 4);
+    // the level a terminal was built with, which is where an unnamed one comes from
+    Object.assign(h.terminal, { colorLevel: 1 });
+    let root: Element | undefined;
+    const view = render(
+      () => {
+        root = box({}, text('x'));
+        return root;
+      },
+      {
+        backend: h.backend,
+        cascade: new Cascade([parseStylesheet(SHEET)]),
+        effects,
+        frameMs: 0,
+        pinColorLevel: true,
+        terminal: h.terminal,
+      }
+    );
+    const { router } = answering([`\u001bP>|Ghostty 1.0.1\u001b\\`, `\u001b[?62;c`]);
+    await view.detect(router);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(root?.style.color).toBe(6);
+    view.dispose();
+  });
+
   it('should write no query from a renderer that has gone', async () => {
     const h = harness(20, 4);
     const view = render(() => box({}, text('x')), {
