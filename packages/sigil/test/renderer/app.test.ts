@@ -1137,6 +1137,50 @@ describe('runApp()', () => {
     expect(app.running).toBe(false);
   });
 
+  describe('a colorLevel the app named, and a reply that says the terminal can do more', () => {
+    const SHEET = `
+      text { color: gray }
+      @media (color-level: 3) { text { color: cyan } }
+      @media (prefers-color-scheme: light) { text { background-color: blue } }
+    `;
+    // the three replies of a Ghostty on a light background: its name, which is
+    // truecolour, and its background
+    const REPLY = [
+      '\u001b]11;rgb:ffff/ffff/ffff\u0007',
+      '\u001bP>|Ghostty 1.0.1\u001b\\',
+      '\u001b[?62;c',
+    ] as const;
+
+    async function probed(opts: Parameters<typeof runApp>[1], terminalLevel: 0 | 1 | 2 | 3) {
+      const term = createTestTerminal({ colorLevel: terminalLevel, columns: 30, rows: 6 });
+      let label: Element | undefined;
+      const app = runApp(
+        () => {
+          label = text('x');
+          return label;
+        },
+        { detect: { background: true }, sheets: [SHEET], terminal: term.terminal, ...opts }
+      );
+      apps.push(app);
+      await tick();
+      await term.press(...REPLY);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return label as Element;
+    }
+
+    it('should stay at that level after detect() replies, and still learn the background', async () => {
+      const label = await probed({ colorLevel: 1 }, 1);
+      expect(label.style.color, 'a reply raised the level the app named').toBe(8);
+      expect(label.style.backgroundColor, 'the background was not learned').toBe(4);
+    });
+
+    it('should refine a level the app did not name, exactly as before', async () => {
+      const label = await probed({}, 1);
+      expect(label.style.color).toBe(6);
+      expect(label.style.backgroundColor).toBe(4);
+    });
+  });
+
   it('should refuse to answer view while the component is being built', () => {
     let thrown: unknown;
     start(() => {

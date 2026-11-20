@@ -220,6 +220,18 @@ export interface RenderOptions {
    */
   colorLevel?: ColorLevel;
   /**
+   * Whether `colorLevel` is the caller's decision, so a `detect()` reply may not
+   * raise it. Off by default.
+   *
+   * Off is right for a level somebody filled in on the caller's behalf, which is
+   * what `mountLive()` does with the environment's own guess: that is a guess a
+   * reply has to be able to beat. On is for a level the caller itself chose --
+   * `runApp()` sets it exactly when the app named one, the way a named
+   * `colorScheme` is never overruled. Raise-only still protects a level of zero
+   * either way. Has no effect without a `colorLevel`.
+   */
+  pinColorLevel?: boolean;
+  /**
    * Whether the destination has a light background or a dark one.
    *
    * The top of four sources, and the order is "more specific knowledge about the
@@ -595,6 +607,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    * protecting is a level of *zero*, which is what `NO_COLOR` and a pipe produce,
    * and `refineColorLevel()` protects it by refusing to raise off that floor
    * rather than by anything here.
+   *
+   * **Which callers' levels are final** is therefore the caller's to say, with
+   * `opts.pinColorLevel`: `runApp()` pins one the app named, because nothing fills
+   * that in on an app's behalf, and `mountLive()` does not, because it does. The
+   * pinned level is still not read here -- `detect()` just never records a
+   * refinement over it, so `refined.colorLevel` stays unset and the chain in
+   * `readMedia()` falls through to `opts.colorLevel`.
    */
   let refined: { colorLevel?: ColorLevel; colorScheme?: ColorScheme } = {};
 
@@ -1490,7 +1509,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // the rule, and `!==` would let a reply lower a level a resize had raised
     const level = cascade.media.colorLevel;
     let moved = false;
-    if (found.colorLevel !== undefined && level > 0 && found.colorLevel > level) {
+    if (
+      !(opts.pinColorLevel && opts.colorLevel !== undefined) &&
+      found.colorLevel !== undefined &&
+      level > 0 &&
+      found.colorLevel > level
+    ) {
       refined = { ...refined, colorLevel: found.colorLevel };
       moved = true;
     }

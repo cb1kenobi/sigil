@@ -1610,6 +1610,32 @@ it.
   way out, and a different `'error'` spent the guard -- was eight, every one caught,
   under "A router stopped over a failed stream" in `src/input`; the attach tick
   survived the first run of it and is pinned by a test of its own.
+- **A `colorLevel` the app names is final, and a `detect()` reply never raises it
+  (SIG-508).** `runApp({ colorLevel: 1 })` drew the first frame at 16 colors and
+  then at truecolor once the terminal answered the probe, so an app that asked for
+  16 got more -- and the treemap demo's `1` argument only held because it also
+  passed `detect: false`, which turns off the background query along with the
+  level. The renderer's own comment on `refined` had argued the other way for a
+  reason that is true of `mountLive()` and not of this: every built-in passes
+  `opts.colorLevel ?? ansi.level`, the environment's own guess in the caller's
+  clothes, so a named level there has to stay refinable. Nothing fills in
+  `runApp()`'s on anyone's behalf -- only the app sets it, which is the reason
+  `colorScheme` is already not overruled by a reply. So the bit is the caller's to
+  say: `RenderOptions.pinColorLevel`, which `runApp()` sets exactly when
+  `opts.colorLevel` is named and `mountLive()` never sets. **Which callers' levels
+  are final: `runApp()`'s, when named; nobody else's.** A pinned level still asks
+  the probe for everything else, so the background is learned and the version
+  reply is read; only the raise is withheld, and `refined.colorLevel` is simply
+  never recorded, which is what leaves the chain in `readMedia()` on
+  `opts.colorLevel`. An app that names no level is refined exactly as before, and
+  raise-only protecting a level of zero is untouched. Chosen over
+  `detect: { level: false }` because that makes every app that wants both a level
+  and a background say so twice, and over making a named level final everywhere
+  because that would stop `mountLive()` from ever being refined. Pinned by
+  `a colorLevel the app named` in `test/renderer/app.test.ts` and, for the
+  renderer's half, `should not raise a level the caller pinned` in
+  `test/renderer/renderer.test.ts`; reverting the one line in `runApp()` fails the
+  first.
 - **Not done:** an `App` handle to a router the caller built, since the host is
   what makes the router exist at build time. Capturing `console.log()` while the
   app owns the screen was on this list until SIG-310 -- see the entry above.
