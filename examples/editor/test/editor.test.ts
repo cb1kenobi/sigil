@@ -3,6 +3,7 @@ import { LIVE_LIMIT, MAX_PREVIEW } from '../src/preview.ts';
 import { App, stylesheet } from '../src/root.tsx';
 import { createWorkspace, type Workspace, WorkspaceContext } from '../src/workspace.ts';
 import { type App as RunningApp, runApp } from '@ttylabs/sigil/app';
+import type { Element } from '@ttylabs/sigil/element';
 import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
 import { provideContext } from '@ttylabs/sigil/renderer';
 import { createTestTerminal, ctrl, frame, KEYS, type TestTerminal } from '@ttylabs/sigil/testing';
@@ -479,6 +480,42 @@ describe('the editor', () => {
       await it.press(ctrl('p'), ...'preview', KEYS.enter);
       expect(it.screen()).toContain('─ Preview');
     });
+  });
+
+  it('should keep one row of tabs, through opening, a mark and closing', async () => {
+    const it = await mount(workspace({ 'a.txt': 'a\n', 'b.txt': 'b\n' }));
+    /** Every tab row in the tree, which is one element for the life of the editor. */
+    const rows = (): Element[] => {
+      const found: Element[] = [];
+      const walk = (element: Element): void => {
+        if (element.classes.includes('sigil-tabs-row')) {
+          found.push(element);
+        }
+        element.children.forEach(walk);
+      };
+      walk(it.app.view.root);
+      return found;
+    };
+    const [row] = rows();
+    expect(rows()).toHaveLength(1);
+    // with nothing open it is there and draws nothing, and Tab passes it by
+    expect(row?.focusable).toBe(false);
+    await open(it, 'a.txt');
+    await open(it, 'b.txt');
+    await it.press('!');
+    expect(sourceText(it)).toMatch(/ a\.txt +b\.txt ● /u);
+    await it.press(ctrl('s'), ctrl('w'));
+    expect(sourceText(it)).not.toContain('b.txt');
+    expect(rows()).toStrictEqual([row]);
+    expect(row?.focusable).toBe(true);
+    // focused while a mark goes, it keeps the focus: there is no new row to lose it to
+    await it.press('?', KEYS.escape, KEYS.tab);
+    expect(sourceText(it)).toMatch(/ a\.txt ● /u);
+    expect(it.app.input?.focus.current.get()).toBe(row);
+    await it.press(ctrl('s'));
+    expect(sourceText(it)).not.toContain('●');
+    expect(it.app.input?.focus.current.get()).toBe(row);
+    expect(rows()).toStrictEqual([row]);
   });
 
   it('should step through the tabs with Ctrl-PageDown and Ctrl-PageUp, wrapping', async () => {

@@ -114,9 +114,6 @@ every save back off the disk.
 
 Each is a small local answer where sigil has no answer yet.
 
-- **Tabs are read once.** `tabRowView()` takes its labels when it is built, so the
-  row is built again whenever a file is opened or closed or a mark comes or goes,
-  over the one `active` state.
 - **A dialog borrows an owner.** The palette and the text areas are built from a
   key, which has no owner, so each is built under a branch of the component's and
   disposed with it (SIG-335).

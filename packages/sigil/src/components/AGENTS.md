@@ -9427,15 +9427,55 @@ nothing and stays in the tree.
   is why the role goes on the label and not the row. The count moved everywhere it
   was written: the test name and list in `test/theme.test.ts`,
   `src/theme/AGENTS.md`, and the sheet's comment.
+- **The tabs and their labels can be live, and the row is never built again for
+  them (SIG-467).** `labels` is an array or a `State`, a `Computed` or a function
+  of one; `Tabs()`'s `tabs` the same of `Tab` objects, and a `Tab`'s `label` a
+  string or a live one -- the "anything with a `get()`, or a function" duck that
+  `ListView`'s `items` and `DiffView`'s `content` read, rather than `State`
+  alone, so an app hands over the `Computed` it already has. The editor example
+  built a whole new row whenever a dirty mark came or went or a file opened, and
+  had to put the focus back on it by hand. What each half keeps:
+  - **A label is kept by position.** It is a string, so it has no other identity;
+    the row keeps one text per position and adds or drops them at the end, so a
+    label that changes is the same element and a click on it still picks its
+    position.
+  - **A panel is kept by its `Tab` object**, which is `For`'s keying: a tab that
+    appears has its panel built, under a branch of its own; one that goes has it
+    removed and disposed with whatever it built; one kept keeps its panel and
+    what is in it wherever it moved. `Tabs()` is `For` over the list now even for
+    a fixed array, which builds the same panels once in the same order.
+  - **`active` stays a position**, and the row does not move it when a tab is
+    taken out before it -- `DiffView`'s reason for its `current`: a position is
+    what the keys, the digits and the app all write, and keeping "the same tab"
+    would need an identity the row of strings does not have. An index past the
+    end reads as the nearest, as it always did, and the app writes `active` with
+    the list, as the editor does when a tab closes.
+  - **A live list may be empty, a fixed one may not.** An empty array handed in
+    is still refused, since a row of nothing that can never change is a mistake.
+    An empty live list draws nothing -- no rule under no labels -- so it takes no
+    room, and the row leaves the focus ring until it has a tab, since its keys
+    would do nothing there; a key on it is not claimed. A list or a label read
+    live is checked every time it is read, and a bad one is the effect's throw.
+  - **New labels are drawn whole, and the next layout is asked for the room
+    through `onLayout`, once.** The room the layout last gave may be only what the
+    old labels came to -- a row sized to its content is as wide as it drew -- and
+    windowing new labels into it kept that row that width for good: the editor's
+    row came up one tab wide and stayed so. So a change of labels forgets the room
+    and draws everything, which is the first layout's rule; a content-sized row
+    then grows. A row whose size does not move is never told it again through
+    `onResize`, which asks whether the size moved, so the change borrows the
+    row's `onLayout` for the one layout after it, then puts back whatever was
+    there, an app's own `onLayout` from `props` included, which the borrowed hook
+    calls too.
 - **Labels are one line and measured by display width.** `oneLine()` takes escape
   sequences and line breaks out, `stringWidth()` measures, and each label is a
   fixed-width `white-space: pre` text with `flex-shrink: 0`, the shape `ruleView()`
   uses, so a wide character takes its two cells in the row and in the rule beneath.
 - **Not done:** wrapping the row onto a second line (Textual scrolls, so does
-  this); a `disabled` tab; closing or adding a tab at run time (the tabs are read
-  once, the way a table's columns are); a vertical or bottom-edge row; lazy
-  panels; switching from inside a panel (Ctrl-PageDown); and moving the focus to
-  the row when a panel the focus was in is hidden by an app writing the state --
+  this); a `disabled` tab; a close button on a tab (an app closes one by writing
+  the list); a vertical or bottom-edge row; lazy panels; switching from inside a
+  panel (Ctrl-PageDown); and moving the focus to the row when a panel the focus
+  was in is hidden by an app writing the state, or off a row an app emptied --
   the same gap as the collapsible's, since an element cannot move the focus.
 
 ### A diff view: `diff()`, a Myers diff written here, and a highlight seam it shares

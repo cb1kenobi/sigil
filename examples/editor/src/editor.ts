@@ -44,7 +44,7 @@ export interface Parts {
   readonly root: Element;
   /** The file tree. */
   readonly tree: Element;
-  /** Where the row of tabs goes: one is built whenever the labels change. */
+  /** Where the row of tabs goes. */
   readonly tabs: Element;
   /** Where each document's text area goes. */
   readonly areas: Element;
@@ -457,28 +457,12 @@ export function createEditor(): Editor {
     parts = given;
     const { root, panels } = given;
 
-    // the row of tabs is built again whenever a label changes -- a file opened or
-    // closed, or a mark coming or going -- because `tabRowView()` reads its labels
-    // once (the components' "Tabs", under "Not done"). The active tab is one state
-    // across every row, so a row built again shows the same tab
-    let row: { dispose: () => void; value: Element } | undefined;
-    const labels = new Computed(() => tabLabels(docs.get(), workspace.root, mark).join('\u0000'));
-    createEffect(() => {
-      const joined = labels.get();
-      const had = row !== undefined && untrack(() => input.focus.current.get()) === row.value;
-      row?.value.remove();
-      row?.dispose();
-      row = undefined;
-      if (joined === '') {
-        return;
-      }
-      row = owned(() => tabRowView({ active, labels: joined.split('\u0000') }));
-      given.tabs.append(row.value);
-      if (had) {
-        input.focus.focus(row.value);
-      }
-    });
-    onCleanup(() => row?.dispose());
+    // one row for the life of the editor, over the labels as they are now: a file
+    // opened or closed, or a mark coming or going, changes them under it. With
+    // nothing open the row draws nothing and is not a stop for Tab
+    given.tabs.append(
+      tabRowView({ active, labels: () => tabLabels(docs.get(), workspace.root, mark) })
+    );
 
     // the tab row writes `active` with its own keys and clicks, which is the one
     // way it changes that `show()` was not called for

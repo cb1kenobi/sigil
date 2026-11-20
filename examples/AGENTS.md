@@ -1103,11 +1103,14 @@ below with the measurements.
   into the line, so a character of two code units counts two. Without the
   `caret` prop nineteen tests fail.
 
-- **The tab row is built again whenever a label changes.** `tabRowView()` reads
-  its labels once ("Tabs", under "Not done"), and a dirty mark changes a label.
-  An effect over the labels joined into one string builds a new row, under a
-  branch it disposes with the old one, over the one `active` state -- so the
-  showing tab survives the rebuild, and a focused row is focused again.
+- **One tab row for the life of the editor, over the labels as a function
+  (SIG-467).** The first version built a new row whenever a label changed -- a
+  file opened or closed, a dirty mark coming or going -- because `tabRowView()`
+  read its labels once, and it put the focus back on the new row by hand. The row
+  now takes `() => tabLabels(...)` and follows it. With nothing open it draws
+  nothing and is out of the focus ring, which is what having no row did. `should
+  keep one row of tabs, through opening, a mark and closing` holds the one
+  element, and the focus on it while a mark goes.
 
 - **Dirty is a comparison, not a flag, and a clean file is not written.** A
   document holds the text as read or last saved and compares, so typing a change
