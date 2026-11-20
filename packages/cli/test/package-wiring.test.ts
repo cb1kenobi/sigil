@@ -18,6 +18,7 @@
  */
 
 import { linkedFixture } from './copy-fixture.ts';
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { candidates } from '@ttylabs/sigil/which';
 import { writeFileSync } from 'node:fs';
@@ -76,10 +77,9 @@ describe.skipIf(process.platform === 'win32')('what sigil package bundles with',
     const fakebin = tempDir('sigil-wiring-node-');
     const name = [...candidates('node', { path: fakebin })].find((one) => one.startsWith(fakebin));
     expect(name, 'candidates() offered nothing inside the stub directory').toBeDefined();
-    writeFileSync(
+    writeExecutable(
       name as string,
-      '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  *) exit 1 ;;\nesac\n',
-      { mode: 0o755 }
+      '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  *) exit 1 ;;\nesac\n'
     );
     process.env.PATH = `${fakebin}${delimiter}${path ?? ''}`;
   });

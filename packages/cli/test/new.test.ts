@@ -6,17 +6,10 @@ import {
   sorted,
   type ScaffoldOptions,
 } from '../src/scaffold/index.js';
+import { writeExecutable } from './executable.ts';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -340,8 +333,7 @@ describe('the command, end to end', () => {
       // a `.cmd` on Windows, where an extensionless file is not a program
       // and `which` is right to say so
       const file = join(bin, `${name}${process.platform === 'win32' ? '.cmd' : ''}`);
-      writeFileSync(file, '#!/bin/sh\nexit 0\n');
-      chmodSync(file, 0o755);
+      writeExecutable(file, '#!/bin/sh\nexit 0\n');
     }
     return bin;
   }

@@ -13,6 +13,7 @@ import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
 import { copyFixture, linkedFixture } from './copy-fixture.ts';
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.ts';
 import { candidates, whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
@@ -334,10 +335,9 @@ describe('sigil package', () => {
       );
 
       expect(name, 'candidates() offered nothing inside the fixture directory').toBeDefined();
-      writeFileSync(
+      writeExecutable(
         name as string,
-        '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  --build-sea=*) echo STUB-NODE-RAN >&2; exit 1 ;;\n  *) exit 1 ;;\nesac\n',
-        { mode: 0o755 }
+        '#!/bin/sh\ncase "$1" in\n  --version) echo v99.0.0 ;;\n  --build-sea=*) echo STUB-NODE-RAN >&2; exit 1 ;;\n  *) exit 1 ;;\nesac\n'
       );
       process.env.PATH = `${fakebin}${delimiter}${path ?? ''}`;
     });
