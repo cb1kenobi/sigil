@@ -158,6 +158,32 @@ the entry it belongs to.
   recoloured `.sigil-success` would have to be told again; this way it is one
   rule and the roles stay the only place a state has a colour.
 
+- **`MONO` draws no role as `inverse`, because `inverse` is already four other
+  things (SIG-452).** The terminal's two colours swapped is `.sigil-focus`,
+  `.sigil-badge`, `.sigil-pager-match` and `.sigil-caret`, and `MONO` drew
+  `.sigil-error` the same way -- so a crashing row in a table and the focused row
+  were the same cells, a focused error row was the focused row, and an error badge
+  was the neutral one (`inverse` over `inverse`). No rule order can undo that, since
+  both are one attribute, which is why SIG-388 recorded it as a limit. The fix is in
+  the theme and not in the focus: the focus is the terminal's own two colours under
+  every palette and is the one declaration a caret, a tab label and a title all
+  share, so a `MONO`-only focus would have moved eight controls to fix one role.
+  The error is `font-weight: bold; italic: true` instead. Chosen against the whole
+  table rather than for itself: `bold` is accent and success, `underline` is warn
+  and half of heading, `italic` is info and `dim` is muted, so bold italic is the
+  one combination nothing else in `MONO` says, and as a badge (`inverse` over it)
+  it stays apart from all four other variants and the neutral one. Surveyed over
+  every role: error was the only one that resolved to `inverse`. What is left is
+  not new -- accent and success are both bold, which a role table of seven
+  attributes cannot avoid, and a terminal with no italic draws the error as bold.
+  `should draw no role as inverse`, `should draw an error differently from every
+  other role and from the focus` and `should keep an error badge apart` in
+  `test/themes.test.ts` hold the table, and `should tell a hot row, the focused row
+  and a focused hot row apart under MONO` in `test/components/data-table.test.ts`
+  holds the painted cells. It adds no exception to the framework sheet, so the
+  thirteen are unchanged: a theme is a value for the roles and `MONO` still sets
+  all seven.
+
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
   origin `app`, on the argument that the toolchain is an app and has no business

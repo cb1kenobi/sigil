@@ -74,13 +74,21 @@
  * the one theme here that is unchanged by a terminal's own colours -- so it has no
  * richer half, because there is no richer version of "not coloured". At colour
  * level 0 it collapses to plain text like everything else.
+ *
+ * Nothing here is `inverse`, and that is a rule rather than a coincidence: the
+ * terminal's two colours swapped is `.sigil-focus`, the badge, a search match and a
+ * caret, so a role drawn that way is indistinguishable from each of them -- a
+ * crashing row from the focused one, an error badge from a neutral one. The error
+ * is bold italic instead, a pair no other role here says, so it is told apart from
+ * all six and still reads under a focus, which adds `inverse` to whatever the row
+ * already was.
  */
 export const MONO = `
 .sigil-accent { color: initial; font-weight: bold }
 .sigil-muted { color: initial; dim: true }
 .sigil-heading { color: initial; font-weight: bold; text-decoration: underline }
 .sigil-success { color: initial; font-weight: bold }
-.sigil-error { color: initial; inverse: true }
+.sigil-error { color: initial; font-weight: bold; italic: true }
 .sigil-warn { color: initial; text-decoration: underline }
 .sigil-info { color: initial; italic: true }
 
