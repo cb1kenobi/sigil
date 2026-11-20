@@ -1885,7 +1885,8 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
-- **The control-character pass refuses a raw control byte in a tagged template,
+- **The control-character pass refuses a raw control byte in a tagged template
+  or a regular expression,
   and moves the sourcemap with what it widens.** SIG-394. The pass that escapes
   every `\p{Cc}` in what a build wrote lives in `src/build/escape-chunks.ts`, and
   `\xNN` is "the same string to JavaScript" only for the _cooked_ value: a tagged
@@ -1908,8 +1909,15 @@ makes it testable with a fixture directory and no bundler at all.
   an untagged template and prints it escaped there, and does not fold into a
   quasi a tag reads. A dependency that ships a raw byte in a tagged template
   would refuse an app that cannot edit it, which is accepted over a pass that
-  quietly changes what a tag reads; none of this repository's own packages ships
-  one, which `should ship no raw control character` asserts.
+  quietly changes what a tag reads; none of this repository's own packages can,
+  because `sources.test.ts` holds their source free of a raw control character.
+  A regular expression literal is refused the same way -- found by review round
+  1, and the same shape: matching is unchanged but `re.source` and `String(re)`
+  came back longer (`4:6` from source, `10:12` built), and the minifier leaves a
+  raw byte in a literal raw. A raw `U+2028` or `U+2029` in a quasi is the third
+  thing the review found: they are not control characters and are left alone, but
+  a sourcemap starts a new line at either, so the pass counts them as line starts
+  when it records where it widened.
 
   The other half was real and is fixed. The pass rewrote the chunk **after** its
   sourcemap was written, and a minified chunk is one line, so each escape moved

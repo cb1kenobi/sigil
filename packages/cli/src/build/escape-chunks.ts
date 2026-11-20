@@ -19,15 +19,18 @@
  * escapes were folded straight back. What is written is the only thing the
  * minifier is finished with. Escaping a raw byte inside a string to `\xNN` is
  * the same string to JavaScript and inert to a terminal, so doing it last is
- * safe as well as sufficient -- **except in two places, which are the reason this
- * is a module of its own** (SIG-394):
+ * safe as well as sufficient -- **except in three places, which are the reason
+ * this is a module of its own** (SIG-394):
  *
  * - **A tagged template's raw strings.** `\xNN` is the same *cooked* string, and
  *   `strings.raw` -- which `String.raw` and any tag that reads it use -- is the
  *   text as written, so a tag was handed seven characters where its source said
  *   four. Nothing can be written that keeps the invariant and the `.raw`, so a
  *   chunk with such a byte is refused rather than rewritten; see
- *   `rawControlInTag()`.
+ *   `unescapableControl()`.
+ * - **A regular expression literal's source.** The same shape, found by review:
+ *   matching is unchanged, but `re.source` and `String(re)` are text as written,
+ *   and the minifier leaves a raw byte in a literal raw. Refused alongside.
  * - **The sourcemap.** A one-line minified chunk has every token on line one,
  *   and widening it by three columns per escape moved each later token off the
  *   column the map recorded for it. See `shiftMappings()`.
@@ -60,6 +63,18 @@ import { join } from 'node:path';
  */
 const CONTROL = /\p{Cc}/gu;
 
+/**
+ * What the pass has to look at: a control character, and the two separators that
+ * are not one.
+ *
+ * `U+2028` and `U+2029` are `\p{Zl}` and `\p{Zp}` and are left as they are, but
+ * a sourcemap starts a new generated line at either -- measured, a raw one in a
+ * tagged template's quasi gave a map of three lines over a chunk of one `\n`
+ * line -- so a column recorded after one is counted from it. Named by property
+ * for the reason `CONTROL` is.
+ */
+const LINES = /\p{Cc}|\p{Zl}|\p{Zp}/gu;
+
 /** The three a file is allowed to keep, because they are its own formatting. */
 const FORMATTING = new Set(['\t', '\n', '\r']);
 
@@ -67,7 +82,9 @@ const FORMATTING = new Set(['\t', '\n', '\r']);
 const WIDENS_BY = 3;
 
 /** A raw control character found where it cannot be escaped. */
-export interface RawControlInTag {
+export interface UnescapableControl {
+  /** What holds it, for the sentence that names it. */
+  readonly in: 'a regular expression literal' | 'a tagged template';
   /** The chunk, as rolldown named it. */
   readonly chunk: string;
   /** One-based, in the chunk. */
@@ -102,11 +119,11 @@ export function escapeCode(code: string): { code: string; moved: Map<number, num
   let out = '';
   let from = 0;
 
-  for (const match of code.matchAll(CONTROL)) {
+  for (const match of code.matchAll(LINES)) {
     const c = match[0];
     const at = match.index;
 
-    if (c === '\n') {
+    if (c === '\n' || c === '\u2028' || c === '\u2029') {
       line++;
       lineStart = at + 1;
       continue;
@@ -127,20 +144,23 @@ export function escapeCode(code: string): { code: string; moved: Map<number, num
 }
 
 /**
- * The first raw control character sitting inside a tagged template's quasi.
+ * The first raw control character sitting where an escape would change what the
+ * program can read.
  *
- * A template's `.raw` is the text as it was written, which is the one string an
- * escape cannot keep: `` String.raw`<ESC>x` `` is two characters and
+ * A tagged template's `.raw` is the text as it was written, which is the one
+ * string an escape cannot keep: `` String.raw`<ESC>x` `` is two characters and
  * `` String.raw`\x1Bx` `` is five, and a tag that reads `strings.raw` -- a
  * styling tag handing a sequence through, say -- behaves differently once built.
- * An untagged template has no `.raw` anybody can read, and its cooked value is
- * the same string either way, so only a *tagged* one is looked for.
+ * A regular expression literal is the same shape: it matches the same text
+ * either way, but `re.source` and `String(re)` are what was written. An untagged
+ * template has no `.raw` anybody can read, and its cooked value is the same
+ * string either way, so only a *tagged* one is looked for.
  *
  * The only way one reaches a chunk is from source -- the minifier folds a
- * constant into a string or a template and never into a quasi a tag will read,
- * since that would change what the tag is given -- so the author can fix it by
- * writing the escape, which is exactly what the pass would have done and now
- * says so rather than doing it behind their back.
+ * constant into a string or an untagged template and never into a quasi a tag
+ * will read or a regular expression, since that would change what is read -- so
+ * the author can fix it by writing the escape, which is exactly what the pass
+ * would have done and now says so rather than doing it behind their back.
  *
  * A chunk that does not parse is not asked: it is a refusal of its own, made
  * before this runs, and there is no tree to read.
@@ -150,38 +170,51 @@ export function escapeCode(code: string): { code: string; moved: Map<number, num
  * @param code - The chunk.
  * @returns Where it is, or `undefined` if there is none.
  */
-export function rawControlInTag(file: string, code: string): RawControlInTag | undefined {
+export function unescapableControl(file: string, code: string): UnescapableControl | undefined {
   const program = parseTree(file, code);
   if (!program) {
     return undefined;
   }
 
-  let found: RawControlInTag | undefined;
+  let found: UnescapableControl | undefined;
 
-  walk(program, (node) => {
-    if (found || node.type !== 'TaggedTemplateExpression') {
-      return !found;
+  /** Records the first control character in `text`, searched for from `from`. */
+  const look = (text: string, from: number, holder: UnescapableControl['in']): void => {
+    const c = [...text.matchAll(CONTROL)].find((m) => !FORMATTING.has(m[0]))?.[0];
+    if (c === undefined) {
+      return;
     }
 
-    for (const quasi of node.quasi.quasis) {
-      const c = [...quasi.value.raw.matchAll(CONTROL)].find((m) => !FORMATTING.has(m[0]))?.[0];
-      if (c === undefined) {
-        continue;
-      }
+    // from the start of the part that holds it rather than of the template, so
+    // that an expression's string with the same character in it is not the one
+    // named. A raw `\r` is normalised to `\n` in `.raw`, so the character asked
+    // for is never one of those
+    const at = code.indexOf(c, from);
+    const before = code.slice(0, at);
+    found = {
+      chunk: file,
+      codePoint: c.codePointAt(0)!,
+      column: at - (before.lastIndexOf('\n') + 1) + 1,
+      in: holder,
+      line: before.split('\n').length,
+    };
+  };
 
-      // the element's own span is not relied on for where the byte is: it is
-      // looked for from the start of the template, which the walk guarantees
-      // holds it. A raw `\r` is normalised to `\n` in `.raw`, so the character
-      // asked for is never one of those
-      const at = code.indexOf(c, node.quasi.start);
-      const before = code.slice(0, at);
-      found = {
-        chunk: file,
-        codePoint: c.codePointAt(0)!,
-        column: at - (before.lastIndexOf('\n') + 1) + 1,
-        line: before.split('\n').length,
-      };
-      break;
+  walk(program, (node) => {
+    if (found) {
+      return false;
+    }
+
+    if (node.type === 'TaggedTemplateExpression') {
+      for (const quasi of node.quasi.quasis) {
+        look(quasi.value.raw, quasi.start, 'a tagged template');
+
+        if (found) {
+          break;
+        }
+      }
+    } else if (node.type === 'Literal' && 'regex' in node && node.regex) {
+      look(node.regex.pattern, node.start, 'a regular expression literal');
     }
 
     return !found;
@@ -207,7 +240,12 @@ function decodeVlq(segment: string): { length: number; value: number } {
   let length = 0;
 
   for (;;) {
-    const digit = BASE64.indexOf(segment[length++]!);
+    const char = segment[length++];
+    const digit = char === undefined ? -1 : BASE64.indexOf(char);
+    if (digit < 0) {
+      throw new Error(`Malformed sourcemap segment "${segment}"`);
+    }
+
     result += (digit & 31) * 2 ** shift;
     shift += 5;
 
@@ -306,7 +344,7 @@ export function shiftMappings(
  *
  * Two phases because a refusal has to leave the output as rolldown wrote it for
  * the caller to unwind: it is asked of every chunk first, and only if none
- * holds a raw control character in a tagged template is anything written. The
+ * holds a raw control character where an escape would change what is read is anything written. The
  * sourcemap beside a chunk that changed is moved with it.
  *
  * An asset is not a module and is left as it is, a sourcemap's own column
@@ -314,15 +352,15 @@ export function shiftMappings(
  *
  * @param out - The output directory.
  * @param output - What rolldown wrote.
- * @returns The first raw control character in a tagged template, or `undefined`
+ * @returns The first raw control character that cannot be escaped, or `undefined`
  *   once everything is escaped.
  */
 export function escapeChunks(
   out: string,
   output: readonly { fileName: string; type: string }[]
-): RawControlInTag | undefined {
+): UnescapableControl | undefined {
   const names = new Set(output.map((one) => one.fileName));
-  const changed: { code: string; file: string; map?: string; moved: Map<number, number[]> }[] = [];
+  const changed: { code: string; file: string; map?: { file: string; text: string } }[] = [];
 
   for (const chunk of output) {
     if (chunk.type !== 'chunk') {
@@ -337,28 +375,32 @@ export function escapeChunks(
       continue;
     }
 
-    const refused = rawControlInTag(chunk.fileName, code);
+    const refused = unescapableControl(chunk.fileName, code);
     if (refused) {
       return refused;
     }
 
-    changed.push({
-      code: escaped.code,
-      file,
-      map: names.has(`${chunk.fileName}.map`) ? `${file}.map` : undefined,
-      moved: escaped.moved,
-    });
+    // read and moved here, with the refusal, so a map that cannot be read as
+    // one stops the build before any file has been written
+    const mapFile = names.has(`${chunk.fileName}.map`) ? `${file}.map` : undefined;
+    let map: { file: string; text: string } | undefined;
+
+    if (mapFile) {
+      const parsed = JSON.parse(readFileSync(mapFile, 'utf-8')) as { mappings?: string };
+      if (typeof parsed.mappings === 'string') {
+        parsed.mappings = shiftMappings(parsed.mappings, escaped.moved);
+        map = { file: mapFile, text: JSON.stringify(parsed) };
+      }
+    }
+
+    changed.push({ code: escaped.code, file, map });
   }
 
-  for (const { code, file, map, moved } of changed) {
+  for (const { code, file, map } of changed) {
     writeFileSync(file, code);
 
     if (map) {
-      const parsed = JSON.parse(readFileSync(map, 'utf-8')) as { mappings?: string };
-      if (typeof parsed.mappings === 'string') {
-        parsed.mappings = shiftMappings(parsed.mappings, moved);
-        writeFileSync(map, JSON.stringify(parsed));
-      }
+      writeFileSync(map.file, map.text);
     }
   }
 

@@ -1,4 +1,4 @@
-import { escapeCode, rawControlInTag, shiftMappings } from '../src/build/escape-chunks.ts';
+import { escapeCode, unescapableControl, shiftMappings } from '../src/build/escape-chunks.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run } from './spawned.ts';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -39,6 +39,13 @@ describe('escapeCode', () => {
     expect(escapeCode(text).moved.size).toBe(0);
   });
 
+  it('should start a line at U+2028 and U+2029 as a sourcemap does', () => {
+    expect([...escapeCode(`ab\u2028c${ESC}\u2029${CSI}`).moved]).toEqual([
+      [1, [1]],
+      [2, [0]],
+    ]);
+  });
+
   it('should record the column each replaced character stood at, per line', () => {
     const { moved } = escapeCode(`ab${ESC}${CSI}\n${ESC}x\n\ny${ESC}`);
 
@@ -74,42 +81,67 @@ describe('shiftMappings', () => {
     expect(shiftMappings('AAAA,CAGC,CAAC', new Map([[0, [0]]]))).toBe('AAAA,IAGC,CAAC');
   });
 
+  it('should refuse a segment it cannot read rather than loop on it', () => {
+    expect(() => shiftMappings('AAAA,g', new Map([[0, [0]]]))).toThrow(
+      'Malformed sourcemap segment'
+    );
+  });
+
   it('should count every character before a column, not only the nearest', () => {
     // three replaced before column 6: 6 + 9
     expect(shiftMappings('MAAA', new Map([[0, [0, 2, 4]]]))).toBe('eAAA');
   });
 });
 
-describe('rawControlInTag', () => {
+describe('unescapableControl', () => {
   it('should find a raw control character in a tagged template, and say where', () => {
-    expect(rawControlInTag('app.mjs', `const a = 1;\nconst b = tag\`x${ESC}[1m\`;\n`)).toEqual({
+    expect(unescapableControl('app.mjs', `const a = 1;\nconst b = tag\`x${ESC}[1m\`;\n`)).toEqual({
       chunk: 'app.mjs',
       codePoint: 0x1b,
       column: 16,
+      in: 'a tagged template',
       line: 2,
     });
-    expect(rawControlInTag('app.mjs', `String.raw\`${CSI}\`\n`)?.codePoint).toBe(0x9b);
+    expect(unescapableControl('app.mjs', `String.raw\`${CSI}\`\n`)?.codePoint).toBe(0x9b);
   });
 
   it('should find one in a tag nested in a template that is not tagged', () => {
-    expect(rawControlInTag('app.mjs', `const a = \`\${tag\`${ESC}\`}\`;\n`)?.line).toBe(1);
-    expect(rawControlInTag('app.mjs', `tag\`\${tag\`a\`}${ESC}\`;\n`)?.line).toBe(1);
+    expect(unescapableControl('app.mjs', `const a = \`\${tag\`${ESC}\`}\`;\n`)?.line).toBe(1);
+    expect(unescapableControl('app.mjs', `tag\`\${tag\`a\`}${ESC}\`;\n`)?.line).toBe(1);
   });
 
   it('should say nothing of a template nobody can read the raw string of', () => {
-    expect(rawControlInTag('app.mjs', `const a = \`x${ESC}\`;\n`)).toBeUndefined();
-    expect(rawControlInTag('app.mjs', `const a = "${CSI}";\n`)).toBeUndefined();
+    expect(unescapableControl('app.mjs', `const a = \`x${ESC}\`;\n`)).toBeUndefined();
+    expect(unescapableControl('app.mjs', `const a = "${CSI}";\n`)).toBeUndefined();
     // an expression is not a quasi, whatever the tag is handed
-    expect(rawControlInTag('app.mjs', `tag\`a\${"${ESC}"}b\`;\n`)).toBeUndefined();
+    expect(unescapableControl('app.mjs', `tag\`a\${"${ESC}"}b\`;\n`)).toBeUndefined();
   });
 
   it("should say nothing of an escape the author wrote, nor of the file's own formatting", () => {
-    expect(rawControlInTag('app.mjs', 'tag`\\x1B[1m`;\n')).toBeUndefined();
-    expect(rawControlInTag('app.mjs', 'tag`a\tb\nc`;\n')).toBeUndefined();
+    expect(unescapableControl('app.mjs', 'tag`\\x1B[1m`;\n')).toBeUndefined();
+    expect(unescapableControl('app.mjs', 'tag`a\tb\nc`;\n')).toBeUndefined();
+  });
+
+  it('should name the character in the quasi and not the same one in an expression', () => {
+    const found = unescapableControl('app.mjs', `tag\`a\${"${ESC}"}bbbb\${1}c${ESC}\`;\n`);
+
+    expect(found?.column).toBe(21);
+  });
+
+  it('should find a raw control character in a regular expression literal', () => {
+    // matching is the same either way and `re.source` is not
+    expect(unescapableControl('app.mjs', `const re = /a${ESC}b/;\n`)).toEqual({
+      chunk: 'app.mjs',
+      codePoint: 0x1b,
+      column: 14,
+      in: 'a regular expression literal',
+      line: 1,
+    });
+    expect(unescapableControl('app.mjs', 'const re = /a\\x1Bb/;\n')).toBeUndefined();
   });
 
   it('should say nothing of a chunk that does not parse', () => {
-    expect(rawControlInTag('app.mjs', `const = tag\`${ESC}\``)).toBeUndefined();
+    expect(unescapableControl('app.mjs', `const = tag\`${ESC}\``)).toBeUndefined();
   });
 });
 
@@ -149,39 +181,64 @@ describe('a build with a control character in it', () => {
     expect(ran.stdout).toBe('7:4\n');
   }, 60_000);
 
-  it('should keep a sourcemap on the token it recorded after the characters it widened', async () => {
-    // C1 are not escaped by the minifier, so they are the characters that reach
-    // the pass raw -- which is what every app's runtime does with `U+009B`
+  // a raw `U+2028` or `U+2029` is left alone and is a line to a sourcemap, so a
+  // chunk can be one `\n` line and several map lines
+  it.each([
+    ['', 'a chunk of one line'],
+    ['globalThis.t = String.raw`a\u2028b\u2029c`;\n', 'a template that holds line separators'],
+  ])(
+    'should keep a sourcemap on the token it recorded after the characters it widened (%#)',
+    async (before) => {
+      // C1 are not escaped by the minifier, so they are the characters that reach
+      // the pass raw -- which is what every app's runtime does with `U+009B`
+      const app = appWith(
+        [
+          `${before}const c = String.fromCharCode(0x9b).repeat(1) + String.fromCharCode(0x9c) + String.fromCharCode(0x9d) + String.fromCharCode(0x9e);`,
+          "export default { desc: 'x', hidden: true, run: () => { console.log(c); console.warn('alpha'); console.error('beta'); console.info('gamma'); } };",
+          '',
+        ].join('\n')
+      );
+
+      const built = await run(cli, app, ['build', app]);
+      expect(built.code, built.stderr).toBe(0);
+
+      const chunks = join(app, 'dist', 'chunks');
+      const name = readdirSync(chunks).find((one) => /^quiet-.*\.mjs$/.test(one))!;
+      const chunk = readFileSync(join(chunks, name), 'utf-8');
+      const map = new SourceMap(JSON.parse(readFileSync(join(chunks, `${name}.map`), 'utf-8')));
+      const lines = /\n|\u2028|\u2029/;
+      const source = readFileSync(join(app, 'src', 'commands', 'quiet.js'), 'utf-8').split(lines);
+
+      // what was written has none, which is what makes the columns move at all
+      expect(chunk).toContain('\\x9B');
+      expect(chunk).not.toContain(CSI);
+
+      for (const token of ['console.log', 'console.warn', 'console.error', 'console.info']) {
+        const upTo = chunk.slice(0, chunk.indexOf(token)).split(lines);
+        const entry = map.findEntry(upTo.length - 1, upTo.at(-1)!.length) as {
+          originalColumn: number;
+          originalLine: number;
+        };
+
+        expect(
+          source[entry.originalLine]?.slice(
+            entry.originalColumn,
+            entry.originalColumn + token.length
+          )
+        ).toBe(token);
+      }
+    },
+    60_000
+  );
+
+  it('should refuse a raw control character in a regular expression, which has a source too', async () => {
     const app = appWith(
-      [
-        `const c = String.fromCharCode(0x9b).repeat(1) + String.fromCharCode(0x9c) + String.fromCharCode(0x9d) + String.fromCharCode(0x9e);`,
-        "export default { desc: 'x', hidden: true, run: () => { console.log(c); console.warn('alpha'); console.error('beta'); console.info('gamma'); } };",
-        '',
-      ].join('\n')
+      `export default { desc: 'x', hidden: true, run: () => process.stdout.write(\`\${(globalThis.re = /a${ESC}b/).source.length}\\n\`) };\n`
     );
 
-    const built = await run(cli, app, ['build', app]);
-    expect(built.code, built.stderr).toBe(0);
+    const { code, stderr } = await run(cli, app, ['build', app]);
 
-    const chunks = join(app, 'dist', 'chunks');
-    const name = readdirSync(chunks).find((one) => /^quiet-.*\.mjs$/.test(one))!;
-    const chunk = readFileSync(join(chunks, name), 'utf-8');
-    const map = new SourceMap(JSON.parse(readFileSync(join(chunks, `${name}.map`), 'utf-8')));
-    const source = readFileSync(join(app, 'src', 'commands', 'quiet.js'), 'utf-8').split('\n');
-
-    // what was written has none, which is what makes the columns move at all
-    expect(chunk).toContain('\\x9B');
-    expect(chunk).not.toContain(CSI);
-
-    for (const token of ['console.log', 'console.warn', 'console.error', 'console.info']) {
-      const entry = map.findEntry(0, chunk.indexOf(token)) as {
-        originalColumn: number;
-        originalLine: number;
-      };
-
-      expect(
-        source[entry.originalLine]?.slice(entry.originalColumn, entry.originalColumn + token.length)
-      ).toBe(token);
-    }
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('inside a regular expression literal');
   }, 60_000);
 });

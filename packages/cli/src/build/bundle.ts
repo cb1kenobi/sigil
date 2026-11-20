@@ -862,7 +862,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
     // last, once nothing else is going to refuse the bundle, because it
     // rewrites the files the gates above read. A raw control character in a
-    // tagged template is refused rather than escaped, since an escape changes
+    // tagged template or a regular expression is refused rather than escaped, since an escape changes
     // what the tag's `.raw` says -- SIG-394, and `escape-chunks.ts` for why
     const raw = escapeChunks(out, written.output);
     if (raw) {
@@ -870,7 +870,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       const where = `${escapeValue(raw.chunk)}:${raw.line}:${raw.column}`;
       const code = `U+${raw.codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
       throw new Error(
-        `Cannot build: ${where} holds a raw control character (${code}) inside a tagged template.\n  A build escapes every control character so a crash cannot write one to the reader's terminal, and an escape would change what the tag reads from \`strings.raw\`. Write it as an escape (\`\\x1B\`, \`\\u009B\`) in the module this chunk is named for, where the build leaves it as it is.`
+        `Cannot build: ${where} holds a raw control character (${code}) inside ${raw.in}.\n  A build escapes every control character so a crash cannot write one to the reader's terminal, and an escape would change what a tag reads from \`strings.raw\` or what \`RegExp.prototype.source\` returns. Write it as an escape (\`\\x1B\`, \`\\u009B\`) in the module this chunk is named for, where the build leaves it as it is.`
       );
     }
 
