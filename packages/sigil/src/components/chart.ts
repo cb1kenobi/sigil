@@ -1000,10 +1000,12 @@ function shadeUnder(line: Dots, area: Dots): void {
  *
  * Nearest the middle of the cell, so the crosshair snaps to a sample rather than
  * standing between two: seven days across a wide plot are seven places it can be.
- * Two samples the same distance away -- the two in one cell, at a step of one --
- * go to the **newer**, so the latest sample, which is the one a scrolling chart is
- * read for, is always under the last column. A column before the first sample a
- * scrolling chart has drawn is none, as is one outside the plot.
+ * Where several samples are drawn in the pointer's cell -- two at a step of one,
+ * or many where `fit` spreads more samples than the plot has dot columns -- it is
+ * the **newest** of them, and two equally near go to the newer, so the latest
+ * sample, which is the one a chart is read for, is always under the last column.
+ * A column before the first sample a scrolling chart has drawn is none, as is one
+ * outside the plot.
  *
  * @param column - The cell column, from the plot's left edge.
  * @param plotWidth - The plot's width in cells.
@@ -1024,18 +1026,29 @@ function sampleUnder(
   }
   const dot = column * 2 + 0.5;
   const last = plotWidth * 2 - 1;
+  let k: number;
   if (step === 'fit') {
-    return longest === 1
-      ? 0
-      : Math.min(longest - 1, Math.max(0, Math.round((dot * (longest - 1)) / last)));
+    k =
+      longest === 1
+        ? 0
+        : Math.min(longest - 1, Math.max(0, Math.round((dot * (longest - 1)) / last)));
+  } else {
+    // samples back from the latest, rounded half towards the latest
+    k = longest - 1 - Math.ceil((last - dot) / step - 0.5);
+    // rounded onto a sample past the left edge, the nearest one drawn is the next
+    if (k >= 0 && across(k) < 0) {
+      k += 1;
+    }
+    if (k < 0 || k >= longest || across(k) < 0) {
+      return undefined;
+    }
   }
-  // samples back from the latest, rounded half towards the latest
-  let k = longest - 1 - Math.ceil((last - dot) / step - 0.5);
-  // rounded onto a sample past the left edge, the nearest one drawn is the next
-  if (k >= 0 && across(k) < 0) {
+  // and on to the newest drawn in the same cell, which the nearest need not be
+  // where a cell holds several
+  while (k + 1 < longest && Math.floor(across(k + 1) / 2) === column) {
     k += 1;
   }
-  return k >= 0 && k < longest && across(k) >= 0 ? k : undefined;
+  return k;
 }
 
 /**

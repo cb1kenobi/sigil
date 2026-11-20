@@ -7483,12 +7483,15 @@ under its lines and shows the values under the pointer.
 - **The crosshair is a vertical rule snapped to a sample, and nothing horizontal.**
   The rule stands at the sample nearest the middle of the pointer's cell, counted
   along the longest series -- seven days across a wide plot are seven places it can
-  be -- and the axis gets a `┴` under it. Two samples equally near, which is the
-  two in one cell at a step of one, go to the **newer**: review round 1 found the
-  first version rounding half towards the older, which left the latest sample of
-  a scrolling chart -- the one it is read for -- under no column at all. Something
-  in such a cell is always unreadable, since a cell is the pointer's resolution,
-  and the older sample is the one to lose. A horizontal line at the pointer's height
+  be -- and the axis gets a `┴` under it. Where the pointer's cell holds several
+  samples -- two at a step of one, many where `fit` spreads more samples than the
+  plot has dot columns -- it is the **newest** of them, and two equally near go to
+  the newer. Review round 1 found the first version rounding half towards the
+  older, which left the latest sample of a scrolling chart -- the one it is read
+  for -- under no column at all; round 2 found the same in `fit` over a long range,
+  the dashboard's 90 days on a narrow plot. Something in such a cell is always
+  unreadable, since a cell is the pointer's resolution, and the older samples are
+  the ones to lose. A horizontal line at the pointer's height
   would name a value nothing has: what the readout says is each line's value at
   that sample, and a reader's eye finds those on the lines. A column left of a
   scrolling chart's history, or over the gutter, has no sample and draws nothing.

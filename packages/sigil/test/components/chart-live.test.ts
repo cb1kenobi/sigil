@@ -648,6 +648,28 @@ describe('LineChart, with a crosshair (SIG-464)', () => {
     expect(m.screen().join('\n')).toContain('│ API 8 │');
   });
 
+  it('should read the newest sample under the last column where fit puts several in a cell', async () => {
+    // ninety samples over a plot of 27 cells, 54 dot columns: several to a cell
+    const seen: number[] = [];
+    const m = await mount((input) => ({
+      crosshair: {
+        input,
+        text: (index) => {
+          seen.push(index);
+          return `day ${index}`;
+        },
+      },
+      series: [{ data: Array.from({ length: 90 }, (_, i) => i % 7), label: 'API' }],
+    }));
+    await m.move(29, 1);
+    expect(seen.at(-1)).toBe(89);
+    // and a cell before it the newest of its own, which is not the nearest: plot
+    // cell 17 is dots 34 and 35, and 59 is the last sample at or before dot 35,
+    // `round(59 * 53 / 89)`
+    await m.move(20, 1);
+    expect(seen.at(-1)).toBe(59);
+  });
+
   it('should snap a column left of the first sample drawn to the nearest one that is', async () => {
     // a plot two cells wide at a step of four: rounded from the left cell, the
     // nearest sample is one before the left edge, and the next one is drawn
