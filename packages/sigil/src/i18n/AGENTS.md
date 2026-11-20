@@ -176,8 +176,10 @@ and the check, and `src/i18n/keys.ts` is generated.
   says nothing is German built and English unbundled. That is `version`'s own
   shape -- the manifest's version is baked while the app's own function is the
   unbundled answer -- and the answer is the same: an app that wants its
-  unbundled runs to match writes `defaultLocale` in its schema too, in which
-  case the build writes the same value over the top. Not closed with a mechanism,
+  unbundled runs to match writes `defaultLocale` in its schema too, and a
+  `defaultLocale` the schema states wins over `sigil.json`'s in the built app as
+  well (SIG-536: the build fills in only what the schema left out). Not closed
+  with a mechanism,
   because the only one available is a file read at startup.
 
 - **The POSIX forms are normalized by hand, because `Intl` refuses all of

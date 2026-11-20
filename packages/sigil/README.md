@@ -1568,7 +1568,8 @@ The runtime cannot read that file — reading one at startup is what `locales`
 being a map rather than a directory convention exists to avoid — so the build is
 what carries it across, beside the version and the baked tree. An app that wants
 its **unbundled** runs to match writes `defaultLocale` in its schema as well,
-which is the same asymmetry `version` already has.
+which is the same asymmetry `version` already has -- and a value the schema
+states wins over `sigil.json`'s, built or not.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The

@@ -1425,7 +1425,9 @@ makes it testable with a fixture directory and no bundler at all.
   schema module and spreads it, then passes `commands` over the top -- so there
   is no source rewriting anywhere, and everything the app said about its name,
   options and hooks survives untouched. `commands` is the one property the build
-  knows better than the app does. A schema export may be a function, because a
+  knows better than the app does; `version` and `defaultLocale` fill in only
+  what the schema left out (see the entry on `version` below). A schema export
+  may be a function, because a
   schema that reads the environment has to be built rather than declared, and it
   is called exactly where the app would have called it -- and awaited, which is
   the entry below.
@@ -1509,6 +1511,51 @@ makes it testable with a fixture directory and no bundler at all.
   as a literal and gives up on a function of either kind, keeping the general
   message, which is its recorded rule. `sigil check` is `inspect()`, which is
   the static passes above.
+
+- **A built app's `version` is the schema's when the schema states one, and the
+  manifest's fills in the rest (SIG-536).** The entry wrote `version` over the
+  schema's own, so a schema saying `'9.9.9'` over a manifest saying `1.0.0` was
+  `9.9.9` from `main({ schema })` and `1.0.0` from `node dist/app.mjs
+  --version` -- the same app answering differently from source and built, and a
+  version the app stated silently replaced. The override had a reason, and it
+  was **measured before it was narrowed** rather than assumed: a bundle has no
+  `package.json` beside it, and a version read off `import.meta.url` reads
+  wherever the bundle was written.
+
+  Three shapes of that read, built and run. A schema **function** reading
+  `../package.json` from `src/index.ts` printed the right version by coincidence
+  -- `dist/app.mjs` and `src/index.ts` sit at the same depth -- while the same
+  function in `src/lib/version.ts` reading `../../package.json` threw `ENOENT`
+  out of `--version`, and with a `package.json` one directory above the app
+  printed **that** file's version instead. A version **computed at import**
+  from such a read threw at import in the deep case, which is before
+  `compose()` runs, so the override never saved it -- and printed the wrong
+  file's version in the wrong-file case, which it did save.
+
+  So the rule is **a string the schema declares wins; a function is still
+  replaced; nothing declared is filled in.** In the generated entry it is
+  `typeof schema.version === 'string' ? schema.version : '<manifest>'`, applied
+  to the _resolved_ schema, so a function or Promise export is covered too. A
+  function stays replaced because it is the spelling `Schema.version` documents
+  for exactly this read, and a plain `??` was tried first and broke it. The
+  limit, stated plainly: a version **string computed eagerly** from a read that
+  resolves to the wrong file is now what the app prints, where the bake used to
+  hide it, and a string cannot be told from the literal it was computed from at
+  run time. No warning and no comparison against the manifest is added for it --
+  the app that computes its version should declare a function, which is what
+  the type's own documentation says.
+
+  `defaultLocale` is the same precedence with none of the exception: nothing
+  computes a locale from a path, so a `defaultLocale` the schema declares simply
+  wins over `"locale"` in `sigil.json`, and the config fills in only a schema
+  that said none. The consumers of the baked version were checked for a reliance
+  on the manifest always winning, and there is none: `--version`, and the update
+  check, which reads the same composed schema (`updates/auto.ts`) and so now
+  checks against what `--version` prints. `sigil package` bundles through the
+  same `writeEntry()`. `a version and a default locale the schema states` in
+  `test/build/bundle.test.ts` builds each shape and runs it, and was swept: the
+  old override fails three of its five, and a plain `??` fails the function
+  case.
 
 - **One `quote()` for every string the toolchain prints as source, and it
   escapes the union of what the two copies did.** SIG-353. `generate.ts` and the

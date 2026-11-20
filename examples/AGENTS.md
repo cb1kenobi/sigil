@@ -94,8 +94,8 @@ the `ui` tag run by plain `node`.
 
 - **`--version` answers the same from both entries, and only the unbuilt one
   says it.** `sigil build` bakes the manifest's version into the bin and
-  replaces whatever the schema said (`generateBin()`), so `src/index.ts`
-  declares none; `src/ui.ts` has no build to do that, so it reads
+  fills it in where the schema declares no string (`generateBin()`), so
+  `src/index.ts` declares none; `src/ui.ts` has no build to do that, so it reads
   `../package.json` itself, as a function the way the toolchain's own
   `version()` does. Without it, `node src/ui.ts --version` was an undeclared
   option and opened the app while the bin printed `0.0.0`. `should print the

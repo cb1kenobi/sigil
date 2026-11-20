@@ -597,7 +597,7 @@ describe('the generated executable', () => {
       tree,
     });
 
-    expect(source).to.contain('defaultLocale: "de"');
+    expect(source).to.contain('defaultLocale: schema.defaultLocale ?? "de"');
   });
 
   it('should import the tag from the runtime it imports `main` from', () => {
@@ -689,9 +689,12 @@ describe('the generated executable', () => {
     expect(source).to.not.contain('defaultLocale');
   });
 
-  it('should bake it after `commands`, so the app`s own schema does not win', () => {
-    // `commands` is last because the baked tree is the one property the build
-    // knows better than the app; the locale and the version are the other two
+  it('should bake the version and the locale after `commands`, as fallbacks for the schema', () => {
+    // `commands` is the one property the build knows better than the app, so it
+    // is written unconditionally; the version and the locale only fill in what
+    // the spread did not carry, which is what makes a stated value the app's
+    // own (SIG-536). The version is replaced unless it is a string, because a
+    // function is the spelling that reads a path a bundle moves
     const source = generateBin({
       defaultLocale: 'de',
       from: '/app/out',
@@ -700,8 +703,13 @@ describe('the generated executable', () => {
       version: '1.2.3',
     });
 
-    expect(source).to.match(
-      /\.\.\.schema,\n\s+commands,\n\s+version: "1\.2\.3",\n\s+defaultLocale: "de",/
+    expect(source).to.contain(
+      [
+        '    ...schema,',
+        '    commands,',
+        `    version: typeof schema.version === 'string' ? schema.version : "1.2.3",`,
+        '    defaultLocale: schema.defaultLocale ?? "de",',
+      ].join('\n')
     );
   });
 });

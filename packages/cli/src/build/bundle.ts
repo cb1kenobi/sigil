@@ -118,8 +118,9 @@ export interface BundleOptions {
    * The locale the built app falls back on, from `"locale"` in `sigil.json`.
    *
    * Written into the generated schema as `defaultLocale`, beside the version,
-   * because the runtime has no way to read a config file at startup. Absent
-   * leaves whatever the app's own schema said.
+   * because the runtime has no way to read a config file at startup. A
+   * `defaultLocale` the app's own schema declares wins over it, and absent
+   * leaves whatever the schema said.
    */
   readonly defaultLocale?: string;
   /** An executable of the app's own, bundled instead of a generated one. */

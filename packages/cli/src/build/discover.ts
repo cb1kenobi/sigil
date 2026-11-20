@@ -120,7 +120,8 @@ export interface AppManifest {
   /** Where the manifest is. */
   readonly path: string;
   /**
-   * What it calls its version, baked into the generated entry.
+   * What it calls its version, baked into the generated entry as the fallback
+   * for a schema that declares no string `version` of its own.
    *
    * A bundle has no `package.json` beside it, so an app that reads its own at
    * run time is reading a path that points wherever the bundle was written.
