@@ -9955,7 +9955,36 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   frame. Noticeable on a patch that size and nothing on an ordinary one; drawing
   only the window's rows is the lever, and is not taken here.
 
-What is not done: a click to move the cursor to a hunk; scrolling sideways with
+- **A click on a row of a stop makes it current, where it is (SIG-472).** The
+  lists' rule: each row a stop drew -- the `@@` row, a line, a row a long line
+  folded onto, a side by side row either half -- has an `onMouse` that takes the
+  left `click` and not the press, so the press keeps its default action and
+  focuses the view, and a press dragged to another row picks nothing (the click
+  lands on the box holding both). No coordinates are read, so a scrolled view
+  needs nothing of its own: the hit test already found the row. The stop is the
+  one the drawing put the row in, captured when the row is built rather than
+  looked up through a row index, which a later drawing at another width would
+  have renumbered. A row no stop owns -- a section's heading, a file's `---` and
+  `+++`, prose that is not a stop -- has no handler and its click goes on to the
+  pane around; the lead a reveal shows with a stop is not part of it, since
+  clicking `+++ b/a.txt` says nothing about which of that file's hunks was meant.
+  The click is claimed when it lands on the current stop as well, as a list row's
+  is. **It does not scroll**, which is where it parts from `]` and `[`: the
+  reader pointed at the stop on screen, and a reveal of a hunk taller than the
+  view goes to its first row, which would move the line just clicked out from
+  under the pointer. So the click leaves `pointed` for the effect over the cursor,
+  which lights the stop and skips the reveal for that one write; an app writing
+  `current` still brings the stop into view. A drawing in the same flush -- an app
+  whose content is computed from the cursor -- asks the same flag, since it runs
+  before the cursor's effect and reveals too (review round 1). A drawing after
+  that, for a `w`, a new width or refreshed content, reveals the current stop as
+  it always has, clicked or not: that is the drawing's rule, and a reader who
+  scrolled with the arrows meets it the same way. A double click is two clicks, since
+  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
+  row handler and read the line under it, which this leaves room for: the
+  handler is per row already.
+
+What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
 designed by guessing; staging part of a hunk; and folding a hunk away.
@@ -13775,10 +13804,9 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   the keys and the mouse, so they stay `controlFlag()`'s and a `Computed` there is
   still refused; that is why this is a second function beside `controlFlag()`
   rather than `controlFlag()` widened, which would have let a `Computed` reach a
-  `set()` it does not have. The other controls' `value` is untouched: `RadioSet`
-  and `Dropdown` still read anything that is not a `State` as a value to start
-  from, so a `Computed` there becomes the value rather than being refused -- left
-  as it was, since it is a `value` question and not a `disabled` one.
+  `set()` it does not have. The other controls' `value` was left alone here, as
+  a `value` question rather than a `disabled` one, and SIG-448 answered it: a
+  `Computed` there is refused too (below).
 - **Settled, and Chris's to reverse: a function is taken too.** The ticket left it
   open. `() => boolean` is the template's convention for a reactive prop
   (`Reactive<T>` in `template/props.ts`), and a component is handed its props raw,
@@ -13818,6 +13846,70 @@ own: `examples/settings` had a `follow()` for it, used five times, and
   `control.test.ts` pins the four readable shapes, the tracking, the truth reading
   and the refusals; `button.test.ts` drives a function through the `ui` tag; and
   `jsx-types.tsx` asserts both shapes compile on `<Button>` and a string does not.
+
+### A value a component writes refuses a `Computed`, whatever its type (SIG-448)
+
+`controlState()` in `control.ts`. `RadioSet` and `Dropdown` read `value` as
+`value instanceof State ? value : new State(value)`, and a `Computed` is not a
+`State` -- so it was wrapped as a value to start from: the set selected nothing,
+the field showed its placeholder, and a change to what the `Computed` derived from
+was never read. No error, and a derivation that did nothing at all.
+
+- **Refused, not followed.** The ticket left it open. Following one would make the
+  component's own writes -- a key, a click, a pick -- go somewhere, and a
+  `Computed` has no `set()`: either the control would stop answering its keys, or
+  it would keep a private value the derivation overwrites on its next change, which
+  is two owners of one value. Every sibling whose value has a fixed type already
+  refuses one, by refusing anything that is neither that type nor a `State`:
+  `checked` and a switch's `value` through `controlFlag()`, and the hand-written
+  checks in `TextField`, `TextArea`, `Slider`, `Tabs`, `Collapsible`, `Pane` and
+  `DiffView`. Following would have made these two the odd ones out; refusing makes
+  them the same. An app that wants a control to track a derived value writes the
+  value into the `State` it hands over, from an effect -- which is also what keeps
+  the keys working.
+- **`controlState()` is the generic `controlFlag()`.** Where the value is the
+  app's own type nothing can be refused by its shape, except a `Computed`, which is
+  a signal and never a value -- so that is all it refuses. Told apart by
+  `instanceof`, the treemap's `root` rule (SIG-480), because a value may be the
+  app's own object with a `get` of its own, and duck typing would refuse it; a test
+  pins an option value with a `get()` being selected. The cost of `instanceof` is
+  that a `Computed` from a second copy of the package is not recognised and is
+  taken as a value, as before.
+- **A key that really is a `Computed` is named through a `State`.** A list keys a
+  row by the item itself unless it is given a `key`, so a list of signals -- an
+  inspector -- has `Computed` keys, and `current: b` used to start on row `b`; it
+  is refused now, like any `Computed`, and `current: new State(b)` says the same
+  thing unambiguously. The same holds for an option whose value is a `Computed`,
+  and for a tree's and a treemap's `current`. The rare app keying by a signal pays
+  one wrapper so that every app passing a derivation hears about it, rather than
+  the other way round.
+- **A function is still taken as a value, deliberately.** `() => level.get()` is
+  the template's spelling of a reactive prop, and as a `value` it selects nothing
+  and is never called, which is this ticket's silent no-op in another shape. It is
+  not refused because a choice's value may well be a function -- an action to run
+  -- and a function cannot be told from one; `disabled` can take one only because
+  a function there is never a legitimate value. Following one live is the same
+  question as following a `Computed`, and has the same answer.
+- **The same defect in four more places, fixed the same way.** Swept every
+  `instanceof State ?` in `src/components/`: a list's `current` (in
+  `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
+  `current`, `Treemap`'s `current` and `DataTable`'s `sort` each wrapped a
+  `Computed` the same way: as a key, never read again. `sort` was
+  refused already, but as `Expected data table sort to name a column: undefined is
+  not one`, which names the wrong thing. `selected`, `expanded`, `follow` and
+  `tail` already refuse one, being neither an iterable nor a boolean; `keyHelp()`'s
+  `expanded` and every `disabled` only read, so a `Computed` there is right and is
+  followed. Published, beside `controlFlag()`, so a component an app writes can
+  follow the rule; the four list components import `control.ts` for it, which
+  costs them nothing they did not already load.
+- **The messages echo nothing**, so the escaping rule for a value in an error does
+  not arise: each names the prop and says why, `Expected a radio set value to be a
+  value or a State, not a Computed, since the set writes it`. Six keys in
+  `src/i18n/keys.ts`, regenerated.
+- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
+  needs a conditional type over `T`, which TypeScript cannot infer through and
+  which would change what every existing call infers. A test per component pins the
+  refusal, and each fails with the check in `controlState()` taken out.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

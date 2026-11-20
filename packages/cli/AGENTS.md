@@ -6394,3 +6394,66 @@ measurements are in
   `./app/built`, and a relative path that happens to exist from where you stand
   builds somewhere you were not looking. The tests use absolute paths, which is
   why nothing noticed.
+
+### A stub a test runs is written by a child process
+
+SIG-482. `test/executable.ts` has `writeExecutable()`, and every executable a
+test in this package writes for something to run -- a fake `bun`, a fake
+`node`, a package manager on a stub `PATH` -- is written with it. Seen once as
+`spawnSync /tmp/sigil-target-.../bun-1fe089fb... ETXTBSY` from
+`runtimes-target.test.ts`, on one of nine CI jobs.
+
+- **The cause is a fork in another thread, not the test that wrote the stub.**
+  This package runs its tests in vitest's `threads` pool, so every test file
+  is a thread of one process, and `fork()` copies every descriptor the process
+  holds -- including the one another thread has open inside `writeFileSync()`.
+  The copy is close-on-exec, so it goes away when that child calls `execve()`.
+  Until then the stub has a writer, and Linux refuses to execute a file that
+  has one. A stub written and spawned at once can land in that window. macOS
+  and Windows do not refuse, which is why only the Linux jobs ever saw it.
+- **Renaming a temporary file into place does not help, though it is the usual
+  advice.** The inherited descriptor holds the inode, and a rename keeps the
+  inode. Nor can the forks be coordinated: they are in code under test and in
+  other test files. Retrying on `ETXTBSY` would have to go where the exec is,
+  which is `bunVersion()` and `compileWithBun()` -- shipped code, retrying for
+  the sake of a test runner. So the bytes go through `/bin/sh -c 'cat > "$1"'`
+  and the mode is set with `chmod`, which opens nothing. This process never
+  holds a writer, and the child that did has exited before the call returns.
+  Every POSIX platform takes that path, so a local run on a Mac exercises what
+  CI's Linux jobs run. Windows writes in place.
+- **The shipped code does not have the race.** A runtime download is unpacked
+  by `tar`, a child, then renamed and `chmod`-ed; `bun build --compile` and
+  `node --build-sea` write the binary in their own processes. `sigil build`
+  writes the bin in-process, through rolldown and `escapeControls()`, but
+  nothing in the toolchain executes it, and the tests run it through `node`,
+  which reads it rather than executing it. The toolchain is one thread, too,
+  and libuv's spawn returns only once its child has exec'd, so no fork of its
+  own is ever in flight while it executes something.
+- **Only a file something runs needs it.** `which.test.ts` and
+  `editor.test.ts` in `@ttylabs/sigil` write executables that are only
+  looked up and never run, and the fake editor runs through `node`. That is why
+  the helper is this package's and not a published one: nothing outside it
+  needs it.
+- **There is no regression test of the race itself, because it cannot be
+  provoked on demand.** A temporary probe on CI's three Linux jobs wrote 32 MB
+  stubs, a size that holds the write open long enough to be hit, and spawned
+  each at once while three other threads forked as fast as they could. Written
+  in place, 9 of 216 failed with `ETXTBSY`; written to a temporary name and
+  renamed in, 7 of 222; written with `writeExecutable()`, 0 of 147. The hits
+  were uneven -- 14 of the 16 came from one job -- which is the reason it is not
+  a test. Stubs of 4 MB or less, which covers every size the tests write, never
+  failed in 778 tries written either way. The probe also held a descriptor open
+  across a rename and spawned the new name, which was `ETXTBSY` on all three
+  jobs and ran once the descriptor was closed. `executable.test.ts` pins what
+  can be pinned: the bytes, the mode, a replaced file, and the error.
+- **What stops the next stub being written in place is a scan, as
+  `copy-fixture.test.ts` scans for `cpSync`.** `writing an executable` in
+  `executable.test.ts` reads every test file in every package, the examples and
+  the website's tests, and fails on an octal `mode:` or `chmod` with an execute
+  bit anywhere but through the helper. The exceptions -- directories, a mocked
+  `mkdirSync`, and files that are looked up or access-checked and never run --
+  are named with a count, so a new mode in one of those files is a decision
+  somebody makes. Two limits are written down beside it rather than closed: a
+  mode in a variable, or set some other way such as a shell `chmod +x`, is out
+  of its reach, and so is a second call to a helper whose one mode is already
+  counted -- `which.test.ts`'s `exe()` and `editor.test.ts`'s `bin()`.

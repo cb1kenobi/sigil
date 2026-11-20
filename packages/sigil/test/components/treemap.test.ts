@@ -1056,6 +1056,16 @@ describe('Treemap', () => {
       Treemap({ ...PAIR_PROPS, props: { onKey: () => {} } as never, root: PAIR })
     ).toThrow(/Treemap sets onKey itself/);
   });
+
+  // a Computed is not a State, so it was taken as the key of the tile the map
+  // starts on, and a change to what it derives from was never read
+  it('should refuse a Computed current, which the keys and clicks could not write', () => {
+    const at = new State('a');
+    const current = new Computed(() => at.get());
+    expect(() => Treemap({ ...PAIR_PROPS, current: current as never, root: PAIR })).toThrow(
+      'Expected treemap current to be a key or a State, not a Computed, since the treemap writes it'
+    );
+  });
 });
 
 describe('Treemap keys', () => {

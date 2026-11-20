@@ -23,7 +23,7 @@
 
 import { box, type Element, type ElementPropsWithout, text } from '../element/index.js';
 import { __ } from '../i18n/index.js';
-import type { DescribeOptions, KeyEvent } from '../input/index.js';
+import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { diffBlocks, type DiffLayout, type DiffViewContent, diffView } from './diff.js';
@@ -161,7 +161,9 @@ function read<T>(source: DiffViewProps<T>['content']): DiffViewContent<T> {
  * current hunk is told apart at colour level 0 as well. `]` and `[` move the
  * cursor and scroll it into view; the arrows, Page Up and Down, Home and End
  * scroll, as a scroll box's do. A long line is wrapped at words, and `w` keeps
- * each line on one row instead, which the left and right arrows then scroll.
+ * each line on one row instead, which the left and right arrows then scroll. A
+ * left click on any row of a stop -- a hunk's `@@` row, a line of it, either half
+ * side by side -- makes that stop current where it is, without scrolling.
  *
  * @param props - What to draw, the cursor, and the host's props.
  * @returns The host element, which is the one that takes the focus.
@@ -201,6 +203,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let lit = -1;
   /** A reveal asked for before there was a layout to measure it against. */
   let pending = false;
+  /**
+   * The stop a click made current, which the effect over the cursor lights where
+   * it is rather than scrolling to: the reader pointed at it on screen.
+   */
+  let pointed: number | undefined;
   /** How far every line is scrolled sideways while lines are not wrapped. */
   let offset = 0;
   /** How far the widest line runs past its room, which is as far as `offset` goes. */
@@ -380,6 +387,14 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       seen = 0;
       seenWidth = 0;
     }
+    for (const [at, stop] of stops.entries()) {
+      // the stop is the one this drawing put the row in, so a click is never read
+      // through a row count that a later drawing changed
+      const onMouse = (event: MouseEvent): void => clicked(event, at);
+      for (let row = stop.first; row <= stop.last; row++) {
+        (rows[row] as Element).onMouse = onMouse;
+      }
+    }
     drawn = stops.map((stop, at) => ({
       ...stop,
       lead: at === 0 ? 0 : (stops[at - 1] as { last: number }).last + 1,
@@ -399,7 +414,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         // nothing to keep in view, so what is drawn is shown from its start
         viewport.scrollTo(0, 0);
       }
-      reveal();
+      // a drawing in the same flush as a click leaves the clicked stop where it is,
+      // as the effect over the cursor does after it
+      if (pointed !== untrack(() => current.get())) {
+        reveal();
+      }
       if (look() < offset) {
         // scrolled further than any line now in view goes -- narrower content, a
         // wider view, wrapped -- so drawn again from as far as one does
@@ -409,6 +428,26 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       }
     }
     report();
+  };
+
+  /**
+   * A click on a row of a stop: the click rather than the press, so the press
+   * keeps its default action -- focusing the view -- and a press dragged off the
+   * row picks nothing. A row no stop owns has no handler, and its click goes on to
+   * the pane around.
+   *
+   * @param event - The report.
+   * @param at - The stop the row was drawn in.
+   */
+  const clicked = (event: MouseEvent, at: number): void => {
+    if (event.kind !== 'click' || event.button !== 'left') {
+      return;
+    }
+    event.stop();
+    if (untrack(() => current.get()) !== at) {
+      pointed = at;
+      current.set(at);
+    }
   };
 
   /**
@@ -599,7 +638,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         return;
       }
       light(at);
-      reveal();
+      // a stop a click made current is on screen already, and scrolling a hunk
+      // taller than the view to its first row would move the line clicked away
+      if (pointed !== at) {
+        reveal();
+      }
+      pointed = undefined;
     });
   });
 

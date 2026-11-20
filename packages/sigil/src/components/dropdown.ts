@@ -33,7 +33,7 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { controlCondition, type ControlCondition } from './control.js';
+import { controlCondition, type ControlCondition, controlState } from './control.js';
 import {
   type MenuEntry,
   type MenuItem,
@@ -76,7 +76,8 @@ export interface DropdownProps<T = unknown> {
    *
    * A value is where it starts; a `State` is the value itself, written by a pick
    * and read live, so an app that writes it changes what the field shows. A value
-   * no choice has shows the placeholder. Defaults to nothing chosen.
+   * no choice has shows the placeholder. A `Computed` is refused, since a pick
+   * writes the value and a `Computed` cannot be written. Defaults to nothing chosen.
    */
   value?: State<T | undefined> | T;
   /**
@@ -147,8 +148,10 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
     return { disabled, entry: item, label: choice.label, separator: false, value: choice.value };
   });
 
-  const value =
-    props.value instanceof State ? props.value : new State<T | undefined>(props.value as T);
+  const value = controlState<T | undefined>(
+    props.value,
+    __`Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it`
+  );
   const placeholder = props.placeholder ?? '';
   const glyph = (props.ascii ?? !unicodeSupported()) ? 'v' : '▾';
 

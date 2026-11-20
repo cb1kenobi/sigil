@@ -4725,8 +4725,9 @@ its width is the layout's, it scrolls, and it has a cursor that stops on each hu
 Every row sits behind a one-cell mark, blank except for the current hunk's rows,
 which are marked `▌` in the accent role -- `>` in ASCII -- so the current hunk is
 plain at colour level 0 too. `]` and `[` move the cursor and scroll its hunk into
-view, with the file's `---` and `+++` above it where they fit; the arrows, Page Up
-and Down, Home and End scroll. A line too long for the view is wrapped at words,
+view, with the file's `---` and `+++` above it where they fit; a click on any row of
+a hunk, its `@@` row included, makes it current where it is, without scrolling; the
+arrows, Page Up and Down, Home and End scroll. A line too long for the view is wrapped at words,
 with the spaces a fold lands in dropped, so a padded table row does not become
 rows of nothing; `w` keeps each line on one row instead, cut at the edge with `…`,
 and the left and right arrows then scroll every line sideways together, eight
@@ -6342,13 +6343,18 @@ Button({ disabled: unchanged, label: 'Save', onPress: save });
 
 A control never writes `disabled`, which is why it can be a `Computed`; `checked`
 and `value` are written by the keys and the mouse, so they stay a value to start
-from or a `State`.
+from or a `State`, and a `Computed` there is refused with a `TypeError`. That holds
+where the value is the app's own type as well -- a radio set's and a dropdown's
+`value`, a list's, a tree's and a treemap's `current`, a data table's `sort` --
+which used to take a `Computed` as the value itself, select nothing, and never read
+it again.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
 and return a function that takes them off. `controlFlag()` (a value the control
-writes), `controlCondition()` (a `ControlCondition` it only reads, such as
+writes), `controlState()` (the same, for a value of any type, refusing only a
+`Computed`), `controlCondition()` (a `ControlCondition` it only reads, such as
 `disabled`), `controlDisabled()` and `describeControls()` (from
 `@ttylabs/sigil/components/control`) are what the controls share, for a control of
 your own. The theme hooks are `.sigil-button`
@@ -6609,7 +6615,8 @@ Escape closes the menu and the next one the dialog.
   list under it with the value highlighted; a letter picks the next choice
   starting with it without opening anything; a press opens it. `options` are
   `select()`'s, strings and `Choice`s and separators, and `value` may be a
-  `State` the field writes and follows. It is as wide as its widest choice unless
+  `State` the field writes and follows, but not a `Computed`, which it could not
+  write. It is as wide as its widest choice unless
   given a `width`, and the list is never narrower than the field.
 
 The highlighted item, the open title and a focused dropdown carry `.sigil-focus`,

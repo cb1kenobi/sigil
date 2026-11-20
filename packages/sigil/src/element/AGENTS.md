@@ -92,6 +92,31 @@ the entry it belongs to.
   the wrong place. `append()` with several children is one `insertBefore()` per
   child, so a throw part-way leaves the earlier ones appended; that is per-call
   atomicity, not a batch. See `test/element/element.test.ts`.
+- **A mutator commits first and calls the tree back last, so a callback that
+  mutates the tree re-enters a tree that agrees with itself (SIG-450).**
+  `insertBefore()` moved a child by calling `removeChild()`, whose `removed`
+  mark ran the tree's callback with the child still in `#children` and whose
+  `children` mark ran it again with the child in no parent -- and the insert
+  then read its index and spliced afterwards. A callback that put the child
+  somewhere in that window got it spliced a second time: held twice by one
+  parent, or by two parents with `parent` naming one. `removeChild()` had the
+  same shape on its own: it read an index, ran the callback, then spliced that
+  index, so a callback removing the same child left it on the next sibling and
+  took _that_ out instead. `#detach()` is the whole of a removal -- place, tree,
+  focus counts -- recorded with `record()` and no callback; `removeChild()` calls
+  it and then marks, and `insertBefore()` calls it for the move and marks once at
+  the end, plus once on the old parent's tree when that is a different one, which
+  is the only way it still hears of the loss -- both are told even when the first callback throws, as `setState()` does, and that call's trees are read before either runs. So a callback runs at most once per
+  tree a call touched, always after the call has finished, and a re-entrant
+  insert of the same child is an ordinary move that ends it in the tree exactly
+  once. Chosen over refusing a re-entrant call, because every other mutator
+  already commits before it calls back (`setState()`, `setProp()`, the focus
+  carry above) and a callback is what an app wakes a frame from: refusing would
+  make a legal move throw depending on who was listening. What changed for an
+  app is that a move is one callback rather than three, and that a callback that
+  throws now throws over a removal that has happened rather than one that has
+  not. A `before` the callback moved away is not a case: nothing runs between the
+  check and the splice any more. See `test/element/element.test.ts`.
 - **`focus-within` is carried, not searched for, and it is reported rather than
   set (SIG-372).** An element is in it while it or a descendant holds `focus`,
   which is CSS's rule -- the focused element matches `:focus-within` too. Each

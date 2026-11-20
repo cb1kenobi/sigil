@@ -3,7 +3,7 @@ import { openModal } from '../../src/components/modal.js';
 import { box, text } from '../../src/element/index.js';
 import { createInput, type InputRouter } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { DERIVED } from './form-harness.js';
 import {
@@ -287,5 +287,16 @@ describe('Dropdown()', () => {
     expect(() => Dropdown({ ...base, menuClass: {} as never })).toThrow(/menuClass/);
     expect(() => Dropdown({ ...base, disabled: 'yes' as never })).toThrow(/disabled/);
     expect(() => Dropdown({ ...base, props: { onKey: () => {} } as never })).toThrow(/onKey/);
+  });
+
+  // a Computed is not a State, so it was wrapped as a value to start from: the
+  // field showed no choice, and a change to what it derives from was never read
+  it('should refuse a Computed value rather than show nothing and never read it again', () => {
+    const s = scene();
+    const level = new State('a');
+    const value = new Computed(() => level.get());
+    expect(() => Dropdown({ input: s.input, options: ['a', 'b'], value: value as never })).toThrow(
+      'Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it'
+    );
   });
 });
