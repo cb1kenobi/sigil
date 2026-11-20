@@ -4,7 +4,7 @@ import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -190,6 +190,114 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
     expect(code, stderr).toBe(1);
     expect(stderr).toContain(escapeControls(TITLE));
     expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+});
+
+/**
+ * The buildable fixture under a root holding a retitle, named one in its
+ * manifest, with its hidden command at a file called one.
+ *
+ * @param name - What the manifest calls the app.
+ * @returns The app's root.
+ */
+function appNamed(name: string): string {
+  const app = linkedFixture(buildable, `sigil-${TITLE}-`);
+  writeFileSync(
+    join(app, 'package.json'),
+    JSON.stringify({ dependencies: { '@ttylabs/sigil': '*' }, name, type: 'module' })
+  );
+  renameSync(
+    join(app, 'src', 'commands', 'quiet.js'),
+    join(app, 'src', 'commands', `a${TITLE}.js`)
+  );
+  return app;
+}
+
+// SIG-457: SIG-443 and SIG-447 escaped what a failing build prints, and a build
+// that succeeds still printed the app's name, its entry and its output path as
+// they stood -- each the plain form a pipe gets
+describe.skipIf(process.platform === 'win32')('a build that succeeds', () => {
+  it('should not print a control character from the names the app chose', async () => {
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+
+    const { code, stderr, stdout } = await build(app, '0');
+
+    expect(code, stderr).toBe(0);
+    expect(controls(stderr), stderr).toEqual([]);
+    expect(controls(stdout), stdout).toEqual([]);
+    // the summary, which leads with the app's name and ends in the file named
+    // after it, both shown rather than acted on
+    expect(stderr).toContain(`\n${escapeControls(name)} (src/index.ts): `);
+    expect(stderr).toContain(` into dist/${escapeControls(name)}.mjs\n`);
+    // and the size table names the same file the same way, rather than with the
+    // control characters dropped and the rest left
+    const entry = stdout
+      .split('\n')
+      .find((line) => line.startsWith(`${escapeControls(name)}.mjs `));
+    expect(entry, stdout).toMatch(/ kB +entry$/);
+  }, 60_000);
+
+  it('should not let a newline in the app name forge a line', async () => {
+    const { code, stderr, stdout } = await build(appNamed('a\nFORGED'), '0');
+
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain('a\\x0AFORGED (src/index.ts): ');
+    for (const out of [stderr, stdout]) {
+      expect(
+        out.split('\n').filter((line) => line.startsWith('FORGED')),
+        out
+      ).toEqual([]);
+    }
+  }, 60_000);
+
+  it('should not print one from the tree check prints, nor from its summary', async () => {
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+
+    const { code, stderr, stdout } = await run(cli, app, ['check', app, '--tree'], {
+      FORCE_COLOR: '0',
+    });
+
+    expect(code, stderr).toBe(0);
+    expect(controls(stderr), stderr).toEqual([]);
+    expect(controls(stdout), stdout).toEqual([]);
+    expect(stdout).toContain(`a${escapeControls(TITLE)} (hidden)`);
+    expect(stdout).toContain(escapeControls(displayPath(join('src', 'commands', `a${TITLE}.js`))));
+    expect(stderr).toContain(`\n${escapeControls(name)} (src/index.ts): `);
+  }, 60_000);
+
+  it('should not print one from the command --bin refuses to bundle', async () => {
+    // a walked command's name is its file's, and the refusal is an error
+    // `main()` prints as it stands
+    const app = appNamed('buildable');
+
+    const { code, stderr } = await build(app, '0', '--bin', 'src/index.ts');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(`"a${escapeControls(TITLE)}" was found by walking`);
+    expect(controls(stderr), stderr).toEqual([]);
+  }, 60_000);
+
+  it('should not print one from a reference, written or out of date', async () => {
+    // the summary a written reference ends in, and the error a stale one throws,
+    // which `main()` prints as it stands -- both name the app
+    const name = `n${TITLE}`;
+    const app = appNamed(name);
+    const reference = (...argv: string[]) =>
+      run(cli, app, ['reference', app, '--json', '--out', 'surface.json', ...argv], {
+        FORCE_COLOR: '0',
+      });
+
+    const stale = await reference('--check');
+    expect(stale.code, stale.stderr).toBe(1);
+    expect(stale.stderr).toContain(`out of date in ${escapeControls(name)}`);
+    expect(controls(stale.stderr), stale.stderr).toEqual([]);
+
+    const written = await reference();
+    expect(written.code, written.stderr).toBe(0);
+    expect(written.stderr).toContain(`\n${escapeControls(name)} (src/index.ts): 1 file into`);
+    expect(controls(written.stderr), written.stderr).toEqual([]);
   }, 60_000);
 });
 

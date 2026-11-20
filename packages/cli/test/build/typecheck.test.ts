@@ -1,6 +1,7 @@
 import { displayPath, formatDiagnostic, isFatal } from '../../src/build/diagnostic.js';
 import { typeCheck } from '../../src/build/typecheck.js';
 import { tempDir } from '../temp.js';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -251,6 +252,79 @@ describe('type-checking an app', () => {
       typeCheck({ cwd: join(fixtures, 'clean'), tsc: join(fixtures, 'no-such-file.js') })
     ).to.throw(/Failed to run the type checker/);
   });
+
+  // a directory name holding a control character cannot be made on Windows
+  describe.skipIf(process.platform === 'win32')(
+    'an app whose root holds a control character',
+    () => {
+      // SIG-456: `main()` prints a thrown error as it stands, and both of these
+      // quoted the app's root and the compiler under it raw -- so an app at
+      // `h<ESC>]0;PWN<BEL>d` retitled the reader's window from a piped build.
+      // Written with escapes, never raw bytes, for the reason `sources.test.ts` exists
+      const TITLE = 'h\u001b]0;PWN\u0007d';
+
+      /**
+       * What `typeCheck()` threw.
+       *
+       * @param options - What to check.
+       * @returns The message.
+       */
+      function thrown(options: Parameters<typeof typeCheck>[0]): string {
+        try {
+          typeCheck(options);
+        } catch (err) {
+          return (err as Error).message;
+        }
+        throw new Error('typeCheck() did not throw');
+      }
+
+      it('should not print one when the compiler prints more than the build reads', () => {
+        const cwd = tempDir(`sigil-${TITLE}-`);
+        writeFileSync(join(cwd, `p${TITLE}.json`), '{}', 'utf-8');
+        const tsc = join(cwd, 'tsc.mjs');
+        writeFileSync(tsc, `process.stdout.write('x'.repeat(4096), () => process.exit(2));`);
+
+        const message = thrown({ cwd, maxOutput: 1024, project: `p${TITLE}.json`, tsc });
+
+        expect(message).to.contain('printed more than 1024 bytes');
+        // the compiler's path, the config in the command it suggests, and the root
+        // the command is to be run in: three quotes of the one name
+        expect(message.split(escapeControls(TITLE))).to.have.lengthOf(4);
+        expect(message).not.to.match(/\p{Cc}/u);
+      });
+
+      it('should not print one when the compiler is not there', () => {
+        const cwd = tempDir(`sigil-${TITLE}-`);
+        writeFileSync(join(cwd, 'tsconfig.json'), '{}', 'utf-8');
+
+        const message = thrown({ cwd, tsc: join(cwd, 'tsc.mjs') });
+
+        expect(message).to.match(/^Failed to run the type checker at .*: no such file$/);
+        expect(message).to.contain(escapeControls(TITLE));
+        expect(message).not.to.match(/\p{Cc}/u);
+      });
+
+      it('should not print one when the compiler cannot be started', () => {
+        // a spawn into a working directory that is not there is Node's own error,
+        // which is the branch that quotes `run.error`; the config is named
+        // absolutely, so it exists while the root does not
+        const dir = tempDir(`sigil-${TITLE}-`);
+        writeFileSync(join(dir, 'tsconfig.json'), '{}', 'utf-8');
+        const tsc = join(dir, 'tsc.mjs');
+        writeFileSync(tsc, 'process.exit(0);');
+
+        const message = thrown({
+          cwd: join(dir, 'gone'),
+          project: join(dir, 'tsconfig.json'),
+          tsc,
+        });
+
+        expect(message).to.match(/^Failed to run the type checker at /);
+        expect(message).to.contain(escapeControls(TITLE));
+        expect(message).not.to.match(/\p{Cc}/u);
+      });
+    }
+  );
 });
 
 describe('a diagnostic', () => {

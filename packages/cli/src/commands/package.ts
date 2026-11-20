@@ -85,6 +85,7 @@ import {
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
 import { table } from '@ttylabs/sigil/components/table';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { canReadKeys } from '@ttylabs/sigil/input';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -850,8 +851,10 @@ function describeSigning(identity: string | undefined): string {
  * @param compiled - What was built, in the order it was named.
  */
 function printBinaries(compiled: readonly Built[]): void {
+  // the file is named after the app's manifest, for `printSizes()`'s reason in
+  // `build.ts`
   const rows = compiled.map((one) => [
-    one.file,
+    escapeControls(one.file),
     label(one.target),
     `${(one.size / 1048576).toFixed(1)} MB`,
     describeSigning(one.signed),
