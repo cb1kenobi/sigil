@@ -922,9 +922,10 @@ toolchain's one reader.
   **Whether anything can re-enter a resolve was checked rather than assumed,
   because reuse is only safe if nothing does.** Nothing in the library does:
   `match()` is the one call that reaches outside this file -- through the
-  `StyleNode`, which an app may implement -- and it has returned before the table
-  is taken, while everything the declaration loop calls is a pure function of the
-  declaration, the parent style and the colour level. What is not closed is a
+  `StyleNode`, which an app may implement -- and it had returned before the table
+  was taken. SIG-455, below, writes the matched rules into the table and so takes
+  it first, which makes that a second way in. Everything the declaration loop
+  calls is a pure function of the declaration, the parent style and the colour level. What is not closed is a
   `Stylesheet`, which is a plain object an app can build by hand, so a getter on a
   declaration is a way in. So the table is **borrowed** rather than shared: a
   resolve takes it and hands it back, and one that starts while it is out makes
@@ -958,6 +959,80 @@ toolchain's one reader.
   map, an array and an object per matched rule. Neither was in the ticket, and a
   cache of parsed prop values would share value objects between styles that
   today each have their own.
+
+- **Matching an element allocates nothing but the array `match()` hands back,
+  and a resolve does not allocate that (SIG-455).** `match()` built a `Map` of
+  the rules found, an object per matched rule and an array of the map's values,
+  on every call, and on SIG-290's stress workload it is called about 895 times a
+  frame. Following the bytes rather than the ticket's list turned up three more,
+  all on the same path, and those were most of it:
+
+  - **The matched rule is built with the index.** Order, origin, rule and
+    specificity are a candidate's own and depend on nothing about the element,
+    so `Candidate.matched` is made once per change to the sheet set and handed
+    out every time that selector is the best of its rule's that matched. The
+    objects `match()` returns are therefore the cascade's, the same ones from
+    call to call, so they are frozen: a caller writing to a fresh one moved
+    only its own answer, and writing to a shared one would move every later
+    match and resolve. `resolveSheets()` no longer calls `match()` at all, so a
+    subclass overriding it changes what `match()` says and not what an element
+    resolves to -- nothing subclasses `Cascade`, and the doc says so.
+  - **A rule found twice is deduplicated in a reused table**, two typed arrays
+    indexed by source order with a generation stamp, the way the winners table
+    already was -- and **borrowed** from the index the way that one is, because
+    matching calls into the `StyleNode` and a getter on one can start another
+    match. The index is taken once per call, so a sheet added from such a getter
+    cannot leave the call reading orders from two indexes, and `media` is read
+    once per call for the same reason, where it used to be read per candidate.
+  - **A resolve writes the matched rules into its own scratch**, so its array is
+    reused too. That moves the borrow of the scratch from after matching to
+    before it, which makes a `StyleNode` getter the second way into a resolve
+    beside the declaration getter SIG-381 recorded; the array is emptied once
+    the resolve is done with it, so a kept scratch holds no rule a removed sheet
+    had. Nothing pins that last part: the suite cannot see what the collector
+    keeps, and dropping the `fill()` fails no test.
+  - **Buckets are looked up by name.** `keysFor()` built an array and a `.name`
+    string per class on every call. The index files candidates in four tables --
+    universal, type, id, class -- keyed by the name the selector's key spells
+    after its `#` or `.`, and `#collect()` reads them in `keysFor()`'s order.
+    `keysFor()` stays exported as the rule, and the test below holds `match()` to
+    it.
+  - **`matchesCompound()`, `:not()` and `matchesMedia()` are loops.** Each was
+    `every()` or `some()` with an arrow closing over the node or the context, so
+    every candidate tested allocated a closure, and a rule with no media query
+    paid for `matchesMedia()`'s anyway. On a five-element sheet this was the
+    largest single part, about 700 bytes a call.
+  - **The declaration loop in `resolveSheets()` is indexed.** Its `for...of` was
+    measured allocating an iterator and its results that V8 did not optimize
+    away -- a `next` frame in the heap profile, about 120 bytes a resolve on a
+    one-rule sheet -- while the `for...of` loops in `collectFrom()` show none.
+    Measured rather than assumed, so it is not a reason to rewrite loops
+    elsewhere.
+
+  Per call, on a seven-rule sheet over five elements matching one to four rules
+  each, `match()` went from 1,480 bytes to 211 -- the array it returns -- and
+  `resolveSheets()` from 2,455 to 604, which is the style it hands back and the
+  result object around it and nothing else. On the stress workload the frame went
+  from **14.8 to 14.9 MiB to 13.9 to 14.0 MiB** (15.51 to 15.63 MB to 14.54 to
+  14.59 MB as `total_allocated_bytes` counts it, p50 over 300 frames), with the
+  collector's pauses from 199 to 201 a run to 187 to 189, in four interleaved
+  runs of `benchmark.js --only stress` each on node 26.10.0, Apple M5 Pro. The
+  frame's time is not claimed: other agents' builds were running beside it and
+  the p50 spread, 6.28 to 13.51 ms before and 6.44 to 9.48 after, is the
+  machine's and not this change's.
+
+  The answers did not move, and `test/style/cascade-precedence.test.ts` is the
+  evidence for both halves: it writes `match()`'s old algorithm out --
+  `keysFor()`, a map by source order, a fresh object per rule -- and holds every
+  `match()` to it, in order, over the same 400 seeded cases the resolve is held
+  over, now with selector lists that land in two of one element's buckets or
+  share one, `:not()`, media queries that hold and that do not, and a class
+  listed twice. `a match started inside another one` re-enters through a
+  `parent` getter, after the interrupted match has written a rule and before it
+  meets that rule again. Seven sabotages each failed something: the table not
+  borrowed, the scratch borrowed after matching, the buckets read in another
+  order, no deduplication, a less specific selector kept, media ignored, and the
+  index read again per bucket.
 
 - **The cascade hands back a plain resolved style per element; interning is the
   canvas's business.** That settles the question the ticket left open. A
