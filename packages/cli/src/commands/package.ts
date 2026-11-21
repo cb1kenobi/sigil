@@ -275,7 +275,13 @@ const pkg: AnyCommand = command({
     // rather than anything the user asked to keep, so a stale chunk from a
     // previous run has no business surviving into the next binary. `--no-clean`
     // is about the *output*, which is now a different directory entirely.
-    rmSync(staging, { force: true, recursive: true });
+    // its path is under the app's root, which is the app's to spell, and an
+    // `EACCES` from a stale directory quotes it (SIG-560)
+    try {
+      rmSync(staging, { force: true, recursive: true });
+    } catch (error) {
+      throw quoting(error);
+    }
 
     // Node embeds one CommonJS script and cannot `import()` at all, so its
     // bundle is a different shape rather than the same one compiled
@@ -388,7 +394,14 @@ const pkg: AnyCommand = command({
         process.stderr
       );
     } finally {
-      rmSync(staging, { force: true, recursive: true });
+      try {
+        rmSync(staging, { force: true, recursive: true });
+      } catch {
+        // swallowed for `entryLocation()`'s reason: a `finally` that throws
+        // replaces the error the build was reporting with one about a scratch
+        // directory, and what is left behind is removed by the next run's own
+        // `rmSync()` above, which does report (SIG-560)
+      }
     }
   },
 });

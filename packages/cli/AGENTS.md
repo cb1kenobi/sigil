@@ -1285,12 +1285,13 @@ makes it testable with a fixture directory and no bundler at all.
   is: rolldown's own error has no `code`, the logs inside it carry one
   (`PARSE_ERROR`, `UNRESOLVED_IMPORT`) and none carries a `syscall`, measured
   against a failed write, a parse error and an unresolvable entry. A `syscall`
-  with no `code` is not Node's either, and keeps line breaks. What is **not**
-  closed is a file system failure rolldown met itself -- a `write()` into an
+  with no `code` is not Node's either, and keeps line breaks. What was **not**
+  closed was a file system failure rolldown met itself -- a `write()` into an
   `--out` under a file -- which arrives as rolldown's `UNHANDLEABLE_ERROR` with
   the path inside its own multi-line text and is rebuilt by `bundleError()` as an
   `Error` with neither `code` nor `syscall`; nothing in it tells the path's
-  newline from rolldown's. The one that did lose its shape was `clean()`'s, which
+  newline from rolldown's. SIG-559 closed it the first of the two ways: see
+  "A write the file system will refuse is asked of Node first" below. The one that did lose its shape was `clean()`'s, which
   runs inside a rolldown hook: the hook kept `e.message` and `bundleApp()` threw
   `new Error(refused)`, so an `rmSync` failure reached `escaped()` with no
   `syscall` and printed the forged line (found by review). It keeps the error
@@ -4900,6 +4901,97 @@ about what a valid app is would be the worse half of the feature.
   directory that is not there cannot be destroyed, but an `--out` naming the app
   root is a mistake whether or not it exists yet, and reporting it only
   sometimes is worse than either.
+
+- **A write the file system will refuse is asked of Node first, because rolldown
+  rewrites its own failure into text that cannot be escaped (SIG-559).** A write
+  rolldown fails itself arrives as `UNHANDLEABLE_ERROR` -- `Could not create
+  directory for output chunks: <path>` or `Failed to write file in <dir>\n<file>`
+  -- with the path in the middle of its own multi-line text, and `bundleError()`
+  has to rebuild it as an `Error` with no `code` and no `syscall`. A newline in
+  `--out` then starts a line nothing can tell from rolldown's own: `--out` set to
+  `f/x<LF>forged.ts:1:1: error: y/out`, with `f` a file, printed a line starting
+  `forged.ts:1:1: error:` on stderr. Reproduced on SIG-552's branch for six
+  write failures, every one of which printed it: an `--out` under a file
+  (`ENOTDIR`), an `--out` that is a file under `--no-clean` (`EEXIST`), a file
+  the build writes that is a directory (`EISDIR`), a `chunks` that is a file
+  (`ENOTDIR`), a read-only `--out` (`EACCES`) and an `--out` whose parent cannot
+  be written (`EACCES`). Without `--no-clean` several of them cannot be reached,
+  because `clean()` removes what was there.
+
+  Two ways to close it were on the table and the first is taken. **Parsing
+  rolldown's sentence for the path and escaping it** is refused: it is a string
+  the next rolldown may reword, and a path can hold what the parse is looking
+  for. **Asking the file system the questions the write would, with Node, before
+  rolldown does** is `prepareOutput()` in `src/build/bundle.ts`, run from
+  `generateBundle` -- after `clean()` has emptied the directory and the
+  own-source check has passed, and before anything is written -- so what it finds
+  is what the write would. It makes `--out` and the directory of each file the
+  bundle is about to write, checks each can be written to, and checks no file is a
+  directory. Each of those is a Node call with a `code` and a `syscall`, so what
+  is thrown is the error `escaped()` already escapes whole; it travels out of the
+  hook as `refusedWith`, the way `clean()`'s does. The one sentence that is not
+  Node's is `Cannot write <file>, which is a directory.`, because no call raises
+  it, and its path is escaped where it is built.
+
+  What is **not** closed, and is rolldown's still: a failure only the write can
+  discover -- a full disk, an I/O error, a file removed or made between the check
+  and the write -- and a chain of links to nothing, of which only the first is
+  followed. A hashed chunk name that is a directory **is** caught, since
+  `outputBundle` already holds the final names. None is a newline problem by
+  itself: each needs a path with a newline in it **and** a failure no check can
+  see coming. A side effect is
+  that `--out` and `chunks/` are made a moment earlier than rolldown would have,
+  which leaves an empty directory behind a build that then fails, where rolldown's
+  own failure left whatever it had made. `test/bundle-escape.test.ts` drives each
+  of the six, spawned and skipped on Windows, which cannot make the names; the two
+  that rely on a mode are skipped as root. Removing the call fails all six.
+  `bundle-close.test.ts` and `build-command.test.ts` named rolldown's `Could not
+  create directory` as the proof the write rejected, and name Node's `EEXIST`
+  now.
+
+- **`assertCleanable()` cannot raise a file system error, and a test says so
+  (SIG-560).** It runs before the bundle, outside what `escaped()` covers, so an
+  `ENOTDIR` from it would reach `main()` with its path as it stands. Every file
+  system call reachable from it, and from its callers, was listed rather than
+  assumed:
+
+  | call                                       | where                                                             | can throw for an unusable path                                                                       |
+  | ------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+  | `existsSync`                               | `buildReads()`, `clean()`                                         | never; it answers `false` for `ENOTDIR`, `EACCES` and `ELOOP`                                        |
+  | `realpathSync.native`, through `landsAt()` | `assertCleanable()`, `heldFile()`, `bundleApp()`                  | yes, but `landsAt()` catches everything and answers `resolve(path)`                                  |
+  | `lstatSync`, through `statOf()`            | `heldFile()`                                                      | yes, but `statOf()` catches everything and answers `undefined`                                       |
+  | `statSync`, through `statOf()`             | `heldFile()`'s walk up from each file the build reads             | yes, caught the same way                                                                             |
+  | `lstatSync(target)`                        | `clean()`                                                         | only if `target` vanishes between the `existsSync` and it; see below                                 |
+  | `rmSync`                                   | `clean()`                                                         | yes, `EACCES` for a directory it cannot empty; see below                                             |
+  | `readSigilConfig()`'s reads                | `build`, `package` and `check`, before and beside the guard       | yes; not `assertCleanable()`'s; `check` catches it into a diagnostic                                 |
+  | `rmSync(staging)`, twice                   | `package`, between the guard and the bundle, and in its `finally` | yes, `EACCES` for a stale directory; the first wrapped with `quoting()`, the second swallowed, below |
+
+  The rest of what `assertCleanable()` does is arithmetic on spellings --
+  `resolve()`, `relative()`, `holdsApp()`, `isInside()` -- which asks the file
+  system nothing. So the function itself, and `buildReads()`, `resolveOut()`,
+  `binName()` and `bundleWrites()` that build what it is handed, raise none.
+  `check` asks it through `checkConfig()`, which is inside a `try` that turns a
+  throw into a diagnostic, and `package` asks it in the pre-flight, before
+  anything else touches `--out`. `clean-guard.test.ts` holds it for the three
+  paths that make a call fail -- under a file, through a link loop and inside a
+  directory that cannot be searched -- by asking the guard both ways, and
+  loosening `landsAt()`'s catch fails all three.
+
+  The two that can throw are `clean()`'s and are not in the pre-flight: they run
+  inside `beforeWrite`, whose error `bundleApp()` carries out as `refusedWith`
+  so `escaped()` still sees its `code` and `syscall` (SIG-552), and `package`
+  wraps its own call with `quoting()`, and now the first `rmSync(staging)` too --
+  the staging directory is under the app's root, and a stale one that cannot be
+  removed quoted it raw, found by review. The one in the `finally` swallows
+  instead, as `entryLocation()`'s does: a throw there replaces the error the
+  build was reporting, and the next run's first `rmSync` reports it. That has no test: it needs an
+  unremovable directory and a runtime, like `clean(out)`'s wrap. The `lstatSync` is a race between two
+  adjacent statements and was left. `prepareOutput()` (SIG-559) is the other file
+  system calls added before the write, and runs in the same hook for the same
+  reason. What this does not cover is `readSigilConfig()`, whose read and parse
+  failures quote the app root and which `build` calls with no `catch`; it is
+  recorded under the escaping audit above as not done, and is not this
+  function's.
 
 - **A version listing is cached for a day, and nothing is fetched on the
   ordinary path at all.** Measured before anything was added, which is what says
