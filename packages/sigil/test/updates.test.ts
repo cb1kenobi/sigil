@@ -503,6 +503,32 @@ describe('updates', () => {
       );
     });
 
+    // SIG-562: an answer that was exactly the prefix was stripped to `''`, which
+    // the cache read as a version (`'' !== undefined`) and so as a fresh answer
+    it('should answer undefined for an answer that is only the prefix', () => {
+      const github = githubChecker({ repo: 'a/b' });
+      const custom = customChecker({ path: ['v'], prefix: 'release-', url: 'https://h/x' });
+
+      for (const tag of ['v', ' v', 'v ', '\tv\n', 'v   ']) {
+        expect(versionFrom({ tag_name: tag }, github), JSON.stringify(tag)).to.equal(undefined);
+      }
+      expect(versionFrom({ v: 'release-' }, custom)).to.equal(undefined);
+      expect(versionFrom({ v: 'release- ' }, custom)).to.equal(undefined);
+
+      // what follows a prefix is still the version, and is still trimmed
+      expect(versionFrom({ tag_name: 'v 1.2.3' }, github)).to.equal('1.2.3');
+      expect(versionFrom({ tag_name: 'v1.2.3' }, github)).to.equal('1.2.3');
+    });
+
+    it('should strip a prefix only from the start of the answer', () => {
+      const github = githubChecker({ repo: 'a/b' });
+      expect(versionFrom({ tag_name: '1.0.0v' }, github)).to.equal('1.0.0v');
+      expect(versionFrom({ tag_name: '1.v0.0' }, github)).to.equal('1.v0.0');
+      expect(versionFrom({ tag_name: 'rcv1.0.0' }, github)).to.equal('rcv1.0.0');
+      // a prefix at the start is taken once, and not again
+      expect(versionFrom({ tag_name: 'vv1.0.0' }, github)).to.equal('v1.0.0');
+    });
+
     // SIG-546: a `custom` check's `url` was copied across as written, so
     // `ftp://h` and a URL with a newline in it were baked into a worker that
     // refuses them, where the check swallows the failure

@@ -564,8 +564,15 @@ export function versionFrom(body: unknown, checker: UpdateChecker): string | und
     return undefined;
   }
 
+  // an answer that is the prefix and nothing else carries no version either,
+  // and stripping it left `''` where this promises `undefined` (SIG-562). The
+  // remainder is trimmed because the prefix may be followed by whitespace, and
+  // only a prefix at the start is stripped: `1.0.0v` is not `v`'s to take
   const { prefix } = checker;
-  return prefix && version.startsWith(prefix) ? version.slice(prefix.length) : version;
+  if (!prefix || !version.startsWith(prefix)) {
+    return version;
+  }
+  return version.slice(prefix.length).trim() || undefined;
 }
 
 // The pre-release and the build metadata are dot-separated identifiers, none of
