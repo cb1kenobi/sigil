@@ -413,13 +413,14 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   same one, so the two cannot come to disagree. The listener itself stays the
   terminal's: it swallows **every** `error`, because a terminal's output is
   best-effort, and that is the wrong contract to publish. A first version
-  exported it as `guardGone()` and the toolchain reused it, which made `sigil add
-  > out`under`ulimit -f 1`exit 0 over a cut-off file; a public guard that
-  > rethrew a real fault would have fixed that and changed the terminal's own
-  > behaviour for every app, so the answer is the predicate and each caller writes
-  > the three-line listener its output deserves.`EOF`joined the set in the same
-  > change: on Windows libuv reports`ERROR_BROKEN_PIPE`, which a write to a pipe
-  > whose reader closed can come back as, as `EOF`. `isStreamGone()`is asked only
-  > of errors from writing to an output stream; input has its own listener and
-  > never asks. Unmeasured on a Windows machine --`terminal.test.ts`pins that the
-  > set holds it and`packages/cli`'s `closed-pipe.test.ts` is the end-to-end check.
+  exported it as `guardGone()` and the toolchain reused it, which made
+  `sigil add > out` under `ulimit -f 1` exit 0 over a cut-off file; a public
+  guard that rethrew a real fault would have fixed that and changed the
+  terminal's own behaviour for every app, so the answer is the predicate and
+  each caller writes the three-line listener its output deserves. `EOF` joined
+  the set in the same change: on Windows libuv reports `ERROR_BROKEN_PIPE`,
+  which a write to a pipe whose reader closed can come back as, as `EOF`.
+  `isStreamGone()` is asked only of errors from writing to an output stream;
+  input has its own listener and never asks. Unmeasured on a Windows machine --
+  `terminal.test.ts` pins that the set holds it and `packages/cli`'s
+  `closed-pipe.test.ts` is the end-to-end check.
