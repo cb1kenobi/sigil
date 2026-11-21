@@ -294,30 +294,42 @@ export function checkConfig(found: Inspection): Diagnostic[] {
     }
 
     // the guard `build` raises before it bundles, asked with the defaults it
-    // would use: `build.out` from the file, cleaning on, and no `--bin`
-    assertCleanable(buildOutDir(root, config), {
-      clean: true,
-      reads: buildReads(found),
-      root,
-      writes: bundleWrites(binName(found, config.build?.name)),
-    });
+    // would use: `build.out` from the file, cleaning on, and no `--bin`. No
+    // `writes`: those are asked only of a build that is not cleaning, which is
+    // the one thing this is not. It is the file's to answer for only when the
+    // file chose the directory; otherwise it is the default `dist`, which is a
+    // fact about the app and not about a file that never mentioned it
+    try {
+      assertCleanable(buildOutDir(root, config), {
+        clean: true,
+        reads: buildReads(found),
+        root,
+      });
+    } catch (e: unknown) {
+      return [
+        {
+          file: config.build?.out === undefined ? found.app.entry : configFile(root),
+          message: (e as Error).message,
+          severity: 'error',
+        },
+      ];
+    }
 
     return [];
   } catch (e: unknown) {
-    // the file that was read, which is whichever of the two names is there; with
-    // both there it is the first, and the message says which two. None is there
-    // only when the guard refused the default directory, and that is a fact
-    // about the app rather than about a file nobody wrote
-    const file = CONFIG_FILES.find((name) => existsSync(join(root, name)));
-
-    return [
-      {
-        file: file === undefined ? found.app.entry : join(root, file),
-        message: (e as Error).message,
-        severity: 'error',
-      },
-    ];
+    return [{ file: configFile(root), message: (e as Error).message, severity: 'error' }];
   }
+}
+
+/**
+ * The `sigil.json` that was read, which is whichever of the two names is there;
+ * with both there it is the first, and the message says which two.
+ *
+ * @param root - The app's root.
+ * @returns Its path.
+ */
+function configFile(root: string): string {
+  return join(root, CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILES[0]);
 }
 
 /**

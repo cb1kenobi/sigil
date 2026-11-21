@@ -2202,12 +2202,12 @@ makes it testable with a fixture directory and no bundler at all.
   asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
   `package` both call. The output directory is asked of `assertCleanable()` too
   (SIG-540), with what `build` does when given no flags: `build.out` from the
-  file, cleaning on, no `--bin`, and `binName()` for the writes -- over
+  file, cleaning on and no `--bin` -- over
   `buildReads()` of the very `Inspection` `check` already holds, which is what
   `build` hands it before it bundles, so the sentence is `build`'s and a
   `"out": "src"` or `"out": "."` is one `check` refuses. It is reported against
-  `sigil.json`, or against the entry when no file is there and the refusal is of
-  the default `dist`. What stays with the command is what depends on how it was
+  `sigil.json` when the file chose the directory, and against the entry when it
+  did not and the refusal is of the default `dist`. What stays with the command is what depends on how it was
   run or what only the bundle knows: `--out`, `--bin`, `--name` and `--no-clean`
   on the command line (so `check` can refuse a `"out": "."` that
   `build --no-clean` would take -- the one way it is stricter, deliberately: a

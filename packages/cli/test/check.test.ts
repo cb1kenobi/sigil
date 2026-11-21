@@ -2,7 +2,7 @@ import { displayPath } from '../src/build/index.ts';
 import { run, schema } from '../src/index.js';
 import { linkedFixture } from './copy-fixture.ts';
 import { readRoutes } from '@ttylabs/sigil/routes';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -457,6 +457,38 @@ describe('sigil check', () => {
 
       expect(err).toContain('no problems found');
       expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should report the default directory against the entry, when no file chose it', async () => {
+      // the source lives in `dist`, which is where a build with no `sigil.json`
+      // goes: the refusal is about the app, and there is no file to blame
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-entry-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      const flags = ['--entry', join('dist', 'index.ts')];
+
+      const checked = await sigil('check', dir, ...flags);
+      const checkedCode = process.exitCode;
+      process.exitCode = undefined;
+      const built = await sigil('build', dir, ...flags);
+
+      const message = `Refusing to empty ${displayPath(join(dir, 'dist'))}, which holds`;
+      expect(built.err).toContain(message);
+      expect(checked.err).toContain(message);
+      expect(checked.err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(checked.err).not.toContain('sigil.json');
+      expect(checkedCode).toBe(1);
+    });
+
+    it('should report a file that does not set build.out against the entry too', async () => {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-other-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { sourcemap: false } }));
+
+      const { err } = await sigil('check', dir, '--entry', join('dist', 'index.ts'));
+
+      expect(err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(err).not.toContain('sigil.json: error');
+      expect(process.exitCode).toBe(1);
     });
 
     it('should not ask the guard about a file it could not read', async () => {
