@@ -39,7 +39,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions } from '../input/index.js';
-import { createEffect, For } from '../renderer/index.js';
+import { createEffect, For, onCleanup } from '../renderer/index.js';
 import { Computed, State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
@@ -567,6 +567,12 @@ export function Tabs(props: TabsProps): Element {
   const fixed = live ? undefined : check(props.tabs);
   const list = fixed ?? new Computed(() => check(readLive(props.tabs)));
   const read = (): readonly Tab[] => fixed ?? (list as Computed<readonly Tab[]>).get();
+  // a source holds every sink that read it until the sink lets go, so a live list
+  // that did not would stay reachable from the State it follows (SIG-530). Only
+  // effects read it, and they go with the owner, so nothing asks after this
+  if (fixed === undefined) {
+    onCleanup(() => (list as Computed<readonly Tab[]>).dispose());
+  }
   const still = fixed !== undefined && fixed.every((tab) => typeof tab.label === 'string');
 
   const row = tabRowView({

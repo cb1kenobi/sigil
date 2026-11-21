@@ -12831,8 +12831,8 @@ reason.
     walk asked for after it -- a key reaching a tree already gone -- is refused.
     `should let go of its source when it is disposed` counts the sinks, and fails
     with either half taken out. `DataTable`'s two `Computed`s, `specs` and `sorted`,
-    leak the same way -- five sinks on both `rows` and `columns` after five tables --
-    and are on `main` rather than from this change, so they are left for a ticket.
+    leaked the same way -- five sinks on both `rows` and `columns` after five tables --
+    and are disposed too, as SIG-530 (see "A data table").
   - **A source that writes a signal while it is read is refused, in words that say
     so.** The graph's own refusal names a `Computed` the app never wrote, so the
     reading catches that one and throws a `TypeError` naming `TreeListView` and
@@ -13393,6 +13393,29 @@ the probes and the sabotage pass are in
   off again, because the cursor's and the selection's classes are put on after
   `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
   classes to the cursor, whatever rowClass says` pins that order.
+
+- **A table lets go of its rows and its columns when it is disposed, and what asks
+  after that is handed what the table last read (SIG-530).** `specs` and `sorted` are
+  `Computed`s over the app's `rows` and `columns`, and a source holds every sink that
+  read it until the sink lets go -- so five tables made and disposed over one
+  long-lived `State` left five sinks on it, and each table, with its element tree,
+  reachable from it. Both are disposed in the table's cleanup. A dispose is a release
+  that a later read undoes, and a key, a digit, `sortBy()`, `shown()`, `refresh()` or
+  a call on the selection reaches a table whose owner has gone, so each read goes
+  through a function that answers the last value once the table is disposed; the list
+  reads its items through an object that does the same, not through `sorted`. Which is
+  also why `DataTable` does not hand `sorted` to the list as it did. `should let go of
+  its rows and its columns when it is disposed` counts the sinks after five tables and
+  a key, a digit and the control's calls on each, and fails with the dispose taken out
+  and with either guard taken out, each on its own -- measured.
+  `Tabs` over a live list had the same leak in the one `Computed` it builds, read only
+  by effects that go with the owner, so it needed the dispose and no guard
+  (`should let go of a live list of tabs when it is disposed`). Swept: outside `signals/`, `raw()`'s computeds release their own and
+  `TreeListView`'s is disposed above. `sortBy()` refuses once the table is disposed,
+  so a stale heading click or control call writes nothing to a sort the app still
+  holds. Listed rather than changed, because they are apps and not components:
+  `examples/dashboard`'s `Card` badge and `buildTraffic()` build `Computed`s over the
+  dashboard model that are never disposed, and live as long as the app does.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a
