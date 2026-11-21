@@ -96,5 +96,9 @@ describe.skipIf(process.platform === 'win32')(
 
       expectInert(await said(() => store.write({ a: 2, b: 1 }, { paths: ['a'] })));
     });
+
+    it('should be escaped when a write would leave the document something other than an object', async () => {
+      expectInert(await said(() => yaml(dirty('a: 1\n')).write('x')));
+    });
   }
 );

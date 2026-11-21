@@ -83,12 +83,16 @@ describe.skipIf(!POSIX)('an app whose root has a control character in its name',
     ['does not hold an object', (root) => writeFileSync(join(root, 'sigil.json'), '42')],
   ];
 
-  describe.each(['build', 'reference', 'package'])('sigil %s', (command) => {
+  describe.each(['build', 'check', 'reference', 'package'])('sigil %s', (command) => {
     it.each(cases)('should print the root escaped when sigil.json %s', async (_, make) => {
       const root = app();
       make(root);
 
-      const { err, out } = await sigil(command, root, '--out', join(root, 'out'));
+      const { err, out } = await sigil(
+        command,
+        root,
+        ...(command === 'check' ? [] : ['--out', join(root, 'out')])
+      );
 
       expect(err).toContain(ESCAPED);
       expect(controls(err)).toStrictEqual([]);

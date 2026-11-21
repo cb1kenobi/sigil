@@ -1,4 +1,4 @@
-import { json, readText, readTextSync } from '../../src/config/index.js';
+import { createConfigSync, json, readText, readTextSync } from '../../src/config/index.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -58,7 +58,10 @@ function dirtyDirectory(): string {
 /** Asserts a message names the path escaped and holds nothing a terminal acts on. */
 function expectInert(message: string): void {
   expect(message).toContain(ESCAPED);
-  expect(message).not.toMatch(/\p{Cc}/u);
+  // every control character but the newline a message may be made of, and no line
+  // that is the hostile one's forged second line
+  expect(message.replaceAll('\n', '')).not.toMatch(/\p{Cc}/u);
+  expect(message.split('\n').some((line) => line.startsWith('forged: error'))).toBe(false);
 }
 
 /** The message of whatever `work` throws, or rejects with. */
@@ -128,6 +131,25 @@ describe.skipIf(!POSIX)(
       });
     });
 
+    describe('that is under something that is not a directory', () => {
+      it('should be escaped in what the system said, which quotes the path itself', async () => {
+        // `EISDIR` quotes no path, so a directory proves nothing about the second
+        // escape: `ENOTDIR` names the one it failed to open
+        const under = join(dirty('x'), 'inside.json');
+
+        for (const message of [
+          await said(() => json(under).read()),
+          await said(() => json(under).readSync()),
+          await said(() => readText(under)),
+          await said(() => readTextSync(under)),
+        ]) {
+          expect(message).toMatch(/^Failed to read /);
+          expect(message).toContain('ENOTDIR');
+          expectInert(message);
+        }
+      });
+    });
+
     describe('that holds something other than an object', () => {
       it('should be escaped', async () => {
         const store = json(dirty('42'));
@@ -158,6 +180,31 @@ describe.skipIf(!POSIX)(
         const store = json(dirty('{ "a": }'));
 
         expectInert(await said(() => store.write({ a: 1 })));
+      });
+      describe('in a read-only layer', () => {
+        it('should be escaped when a delete names the file it is set in and the one to set it in', () => {
+          const dir = join(box, `root-${HOSTILE}`);
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, 'system.json'), '{ "a": 1 }');
+          writeFileSync(join(dir, 'user.json'), '{}');
+          const config = createConfigSync({
+            layers: [
+              { name: 'system', readOnly: true, store: json(join(dir, 'system.json')) },
+              { name: 'user', store: json(join(dir, 'user.json')) },
+            ],
+          });
+
+          expectInert(
+            (() => {
+              try {
+                config.delete('a');
+              } catch (error) {
+                return (error as Error).message;
+              }
+              throw new Error('expected it to refuse');
+            })()
+          );
+        });
       });
     });
   }
