@@ -179,15 +179,20 @@ the entry it belongs to.
       name that is not a token and a value holding CR, LF, NUL or a character
       past U+00FF (`ERR_INVALID_CHAR`, `ERR_INVALID_HTTP_TOKEN`) -- the rule is
       **Node's**, so the C1 controls U+0080 to U+009F stay allowed here although
-      `customChecker()` refuses them, and so do a number, a boolean, `null` or a
-      list of those as a value, `null` headers and a class instance as the
-      headers, all of which Node sends and none of which the type allows; a
-      `path` that is not a list or has nothing in it, which reads the whole body
-      and answers `undefined` for ever; a header value Node refuses outright
-      (`undefined`, an object); and `headers` that is not an object. Two things
-      outside the type that did work are refused with those, deliberately and for
-      want of a reason to carry them: `headers` given in Node's array-of-pairs
-      form, and a `URL` object where `url` is a string (it coerced).
+      `customChecker()` refuses them, and so do a number, a boolean, `null`,
+      `undefined` (the worker's JSON drops it, so `{ authorization:
+      process.env.TOKEN }` with the variable unset sends no header) or a list of
+      those as a value, `null` headers and a class instance as the headers, all
+      of which work and none of which the type allows; a `path` that is not a list
+      or has nothing in it, which reads the whole body and answers `undefined` for
+      ever; and `headers` that is not an object. **Refused although it did work,
+      deliberately and for want of a reason to carry it:** `headers` in Node's
+      array-of-pairs form, an object, a bigint, a function or a nested list as a
+      value (an object is sent as `[object Object]`, which is junk, and a bigint
+      throws in the worker's JSON), and a `URL` object where `url` is a string.
+      What is _not_ guarded is a class whose `toJSON()` answers differently from
+      its own entries, `NaN` and a sparse list (the worker sends `null`), since
+      the check cannot see what the worker's `JSON.stringify` will make of them.
     - **Refused although it works: credentials in the URL.** `https://u:p@h/x`
       is requested, with a `Basic` header, and is refused anyway. It is the one
       rule here that turns a working checker into a throw, and it is a security

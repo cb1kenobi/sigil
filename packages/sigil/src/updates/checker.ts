@@ -500,15 +500,20 @@ function checkedHeaders(headers: unknown, strict = true): Record<string, string>
       );
     }
     // a string, which is what the type says. Node also sends a number, a boolean,
-    // `null` and a list of those, and each survives the trip to the worker as
-    // JSON, so a checker written by hand that has one keeps it; `undefined`, an
-    // object, a function and a symbol are what it refuses
+    // `null` and a list of those, and the worker's JSON hop drops `undefined`
+    // (`{ authorization: process.env.TOKEN }` with the variable unset sends no
+    // header), so a checker written by hand that has one keeps it. An object, a
+    // function, a symbol and a bigint are refused: they are junk or work on one
+    // transport only
     const sendable = (v: unknown): boolean =>
       typeof v === 'string' ||
-      (!strict && (typeof v === 'number' || typeof v === 'boolean' || v === null));
+      (!strict &&
+        (typeof v === 'number' || typeof v === 'boolean' || v === null || v === undefined));
     const values = !strict && Array.isArray(value) ? (value as unknown[]) : [value];
-    if (!values.every(sendable)) {
-      throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof value}`);
+    for (const v of values) {
+      if (!sendable(v)) {
+        throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof v}`);
+      }
     }
     if (!values.every((v) => valueRE.test(String(v)))) {
       throw new TypeError(

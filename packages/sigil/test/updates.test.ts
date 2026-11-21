@@ -1120,8 +1120,20 @@ describe('updates', () => {
       expect(refusal({ ...good, headers: { 'bad name': secret } })).to.contain('HTTP token');
       expect(refusal({ ...good, headers: { 'bad name': secret } })).to.not.contain(secret);
       // and what Node refuses whatever it is: no value, a nested object
-      expect(refusal({ ...good, headers: { a: undefined } })).to.contain('must be a string');
-      expect(refusal({ ...good, headers: { a: {} } })).to.contain('must be a string');
+      expect(refusal({ ...good, headers: { a: {} } })).to.contain('must be a string, got a object');
+      expect(refusal({ ...good, headers: { a: 10n } })).to.contain('got a bigint');
+      // a list is held element by element, and no element is ever turned into a string
+      // before it is known to be one
+      const trap = { toString: () => secret };
+      for (const list of [
+        ['ok', {}],
+        ['ok', trap],
+        ['ok', 10n],
+      ]) {
+        const message = refusal({ ...good, headers: { a: list } });
+        expect(message).to.contain('must be a string, got a ');
+        expect(message).to.not.contain(secret);
+      }
       expect(refusal({ ...good, headers: { a: [`${secret}\n`] } })).to.not.contain(secret);
       expect(refusal({ ...good, headers: { a: ['ok', `${secret}\n`] } })).to.contain(
         'must not contain a control character'
@@ -1178,6 +1190,8 @@ describe('updates', () => {
         { ...good, path: [''] },
         { ...good, headers: {} },
         { ...good, headers: null },
+        // an unset environment variable, which the worker's JSON drops
+        { ...good, headers: { authorization: undefined } },
         // Node sends each of these, and each survives the trip to the worker as JSON
         { ...good, headers: { 'x-n': 2, 'x-b': true, 'x-null': null, 'x-list': ['a', 'b'] } },
         {
