@@ -128,6 +128,14 @@ describe('a diagnostic that quotes a name with a control character in it', () =>
     expect(formatDiagnostic(diagnostic({ message })).split('\n')).toHaveLength(3);
   });
 
+  it('should escape an invisible filler or a variation selector in a message (SIG-548)', () => {
+    // a command named with U+3164 reads as the one named without it
+    const message = 'the "a\u3164b\ufe0f" command';
+
+    expect(diagnosticMessage(diagnostic({ message }))).toBe('the "a\\u{3164}b\\u{FE0F}" command');
+    expect(formatDiagnostic(diagnostic({ message }))).toContain('a\\u{3164}b\\u{FE0F}');
+  });
+
   it('should not escape twice what a producer already escaped', () => {
     // `escapeControls()` writes four printable characters and no control one, so
     // a second pass has nothing to find -- asserted rather than argued, because a

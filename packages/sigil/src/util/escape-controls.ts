@@ -5,10 +5,15 @@
  * the format characters and `\p{Zl}` and `\p{Zp}` are U+2028 and U+2029, which is
  * the class the source check refuses in this repository's own files (SIG-483)
  * for the same reason: each changes what a reader sees without changing what a
- * program reads. The no-break space and the rest of `\p{Zs}` are not here; they
- * are visible, and a value holding one reads as the value it is.
+ * program reads. `\p{Default_Ignorable_Code_Point}` is the rest of what Unicode
+ * says a renderer draws as nothing, and it is the same name the source check
+ * uses: it takes in the Hangul fillers (U+115F, U+3164), the combining grapheme
+ * joiner (U+034F) and the variation selectors, which are letters and marks
+ * rather than format characters and so are in none of the other classes. The
+ * no-break space and the rest of `\p{Zs}` are not here; they are visible, and a
+ * value holding one reads as the value it is.
  */
-const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
 
 /**
  * A value as a message may quote it, with nothing in it a terminal would act on
@@ -22,10 +27,11 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
  * U+0100, so two digits suffice for each: U+009B, the one-character CSI, is
  * `\x9B`, which is also what that escape means to JavaScript.
  *
- * **A format character, and U+2028 and U+2029, become `\u{NNNN}`** -- upper-case
- * hex, as above, at least four digits and as many more as the code point needs,
- * which is also what that escape means to JavaScript. Every one but the soft
- * hyphen is above U+00FF, so the two-digit spelling cannot hold them. They are not a terminal's
+ * **A format character, U+2028 and U+2029, and any other default-ignorable
+ * character become `\u{NNNN}`** -- upper-case hex, as above, at least four
+ * digits and as many more as the code point needs, which is also what that
+ * escape means to JavaScript. Every one but the soft hyphen is above U+00FF, so
+ * the two-digit spelling cannot hold them. They are not a terminal's
  * to act on, they are a reader's to be misled by: U+202E, the right-to-left
  * override, makes the terminal draw the rest of the line reversed, so a
  * message reads differently from what was written, and U+200B, U+200C and U+200D
@@ -35,6 +41,14 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
  * Arabic number signs are `\p{Cf}` too and go the same way. The soft hyphen,
  * U+00AD, is the one format character the two-digit spelling holds, so it is
  * `\xAD`.
+ *
+ * **The default-ignorable characters that are not format characters go the same
+ * way**: U+3164 HANGUL FILLER and U+115F HANGUL CHOSEONG FILLER are letters
+ * drawn blank, U+034F is a combining mark with no glyph, and the variation
+ * selectors (U+FE00 to U+FE0F and U+E0100 to U+E01EF) draw nothing of their own.
+ * Each one makes two values print alike that are not. **U+FE0F is escaped too**,
+ * so a heart (U+2764) followed by it echoes as the heart and then `\u{FE0F}`,
+ * for the reason the joiner below is.
  *
  * **The zero-width joiner is escaped like the rest**, so a joined emoji in an
  * echoed value prints with `\u{200D}` between its parts. That is the honest
@@ -61,8 +75,8 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
  * handed, which is the line SIG-412 drew.
  *
  * @param value - The value, of any type; it is turned into a string first.
- * @returns The string, with each control or format character as `\xNN` or
- * `\u{NNNN}`.
+ * @returns The string, with each control, format or default-ignorable character
+ * as `\xNN` or `\u{NNNN}`.
  */
 export function escapeControls(value: unknown): string {
   return String(value).replaceAll(UNSAFE, (c) => {

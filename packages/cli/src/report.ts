@@ -54,7 +54,7 @@
  * already follow, down to the promise that comes with it: **the piped output is
  * byte for byte what it was** before any of this was rendered -- bar one change
  * since (SIG-443), which is that a control character in a file name or a message
- * is written as `\xNN` rather than as itself, on a pipe and a terminal alike.
+ * is escaped by `escapeControls()` (`\x1B`, say) rather than written as itself, on a pipe and a terminal alike.
  *
  * The two cannot drift apart in the part that matters, because the location is
  * `diagnosticLocation()`'s and both forms print it. What differs is the wrapping
