@@ -161,6 +161,55 @@ describe('updates', () => {
       expect(versionFrom({ 'v1.x': '1.9.0' }, checker)).to.equal('1.9.0');
     });
 
+    // SIG-545: `encodeURIComponent()` takes anything, so a missing name was a
+    // request for the package called `undefined`
+    it('should refuse a package name or a dist tag that is not a non-empty string', () => {
+      for (const packageName of [undefined, null, 42, {}, '']) {
+        expect(() => npmChecker({ packageName } as never), String(packageName)).to.throw(
+          TypeError,
+          `Update check package name must be a non-empty string, got "${String(packageName)}"`
+        );
+      }
+      for (const distTag of [null, 42, {}, '']) {
+        expect(() => npmChecker({ distTag, packageName: 'a' } as never), String(distTag)).to.throw(
+          TypeError,
+          /Update check dist tag must be a non-empty string/
+        );
+      }
+      expect(() => npmChecker({ packageName: 'x\nforged' })).to.not.throw();
+      expect(() => npmChecker({ packageName: { toString: () => 'x\nforged' } } as never)).to.throw(
+        'got "x\\x0Aforged"'
+      );
+    });
+
+    // SIG-544: `registryURL` is reachable from `sigil.json` as `registry`, and
+    // was joined to the path exactly as written
+    it('should refuse a registry that is not an absolute https URL', () => {
+      for (const registryURL of [
+        'https://npm.example.com/\n x',
+        'not a url',
+        'ftp://npm.example.com',
+        'http://npm.example.com',
+        '',
+        'https://user:pass@npm.example.com',
+        'https://npm.example.com/?x=1',
+        'https://npm.example.com/#x',
+        null,
+        42,
+      ]) {
+        expect(
+          () => npmChecker({ packageName: 'a', registryURL } as never),
+          JSON.stringify(registryURL)
+        ).to.throw(TypeError, /Update check registryURL must be an absolute https:\/\/ URL/);
+      }
+      expect(
+        npmChecker({ packageName: 'a', registryURL: 'https://npm.example.com/registry//' }).url
+      ).to.equal('https://npm.example.com/registry/-/package/a/dist-tags');
+      expect(npmChecker({ packageName: 'a', registryURL: undefined }).url).to.equal(
+        'https://registry.npmjs.org/-/package/a/dist-tags'
+      );
+    });
+
     it('should ask GitHub for the latest release', () => {
       const checker = githubChecker({ repo: 'acme/mycli' });
       expect(checker.type).to.equal('github');
@@ -263,6 +312,172 @@ describe('updates', () => {
 
       expect(message).to.contain('got "o/n/a\\x1B]0;PWNED\\x07\\x0Aforged: error: forged"');
       expect(message).to.not.match(/\p{Cc}/u);
+    });
+
+    // SIG-545: a `repo` that is not a string reached `repo.split()`, so the
+    // documented message was Node's own `repo.split is not a function`
+    it('should refuse a repo that is not a string with the documented message', () => {
+      for (const repo of [undefined, null, 42, {}, ['o', 'n'], true]) {
+        expect(() => githubChecker({ repo } as never), String(repo)).to.throw(
+          TypeError,
+          `Update check repo must be "owner/name", got "${String(repo)}"`
+        );
+      }
+      // and an object does not get to print its own text through the message
+      expect(() => githubChecker({ repo: { toString: () => 'x\nforged' } } as never)).to.throw(
+        'got "x\\x0Aforged"'
+      );
+    });
+
+    // SIG-544: `apiURL` was joined into the request as given, so a newline, a
+    // missing scheme or another protocol was a request that failed in the
+    // worker, where the check swallows it
+    describe('apiURL', () => {
+      const refused = [
+        'https://h/api/v3/\n x',
+        'https://h/api/v3/\n',
+        'https://h/\tapi',
+        'not a url',
+        'github.example.com/api/v3',
+        '//github.example.com/api/v3',
+        'ftp://h',
+        'file:///etc/passwd',
+        'javascript:alert(1)',
+        'ssh://git@h/x',
+        // the worker refuses `http:`, so accepting it only moves the failure
+        'http://h',
+        'HTTP://h/api',
+        '',
+        ' ',
+        ' https://h',
+        'https://h ',
+        'https://h/a b',
+        'https:h',
+        'https:/h',
+        'https:///h',
+        'https://',
+        'https://h:99999',
+        'https://h:abc',
+        'https://h/api?x=1',
+        'https://h/api#frag',
+        'https://h/api?',
+        'https://h/api#',
+        'https://user@h/api',
+        'https://user:pass@h/api',
+        'https://:pass@h/api',
+        'https://h\u0000/api',
+        'https://h/\u001b[31m',
+        'https://h/\u007f',
+        'https://h/\u0085',
+      ];
+
+      it('should refuse a URL that is not an absolute https one with a plain path', () => {
+        for (const apiURL of refused) {
+          expect(() => githubChecker({ apiURL, repo: 'o/n' }), JSON.stringify(apiURL)).to.throw(
+            TypeError,
+            /Update check apiURL must be an absolute https:\/\/ URL/
+          );
+        }
+      });
+
+      it('should refuse a value that is not a string', () => {
+        for (const apiURL of [null, 42, {}, ['https://h'], true]) {
+          expect(() => githubChecker({ apiURL, repo: 'o/n' } as never), String(apiURL)).to.throw(
+            TypeError,
+            /Update check apiURL must be an absolute https:\/\/ URL/
+          );
+        }
+      });
+
+      it('should take the default and a normal enterprise root, keeping its path', () => {
+        expect(githubChecker({ repo: 'o/n' }).url).to.equal(
+          'https://api.github.com/repos/o/n/releases/latest'
+        );
+        expect(githubChecker({ apiURL: undefined, repo: 'o/n' }).url).to.equal(
+          'https://api.github.com/repos/o/n/releases/latest'
+        );
+        for (const [apiURL, root] of [
+          ['https://github.example.com/api/v3', 'https://github.example.com/api/v3'],
+          ['https://github.example.com/api/v3/', 'https://github.example.com/api/v3'],
+          ['https://github.example.com/api/v3///', 'https://github.example.com/api/v3'],
+          ['https://github.example.com', 'https://github.example.com'],
+          ['https://github.example.com/', 'https://github.example.com'],
+          ['HTTPS://GitHub.Example.com:8443/api/v3', 'https://github.example.com:8443/api/v3'],
+          ['https://127.0.0.1:8443/api/v3', 'https://127.0.0.1:8443/api/v3'],
+          ['https://[::1]/api/v3', 'https://[::1]/api/v3'],
+          ['https://h/a%20b/c', 'https://h/a%20b/c'],
+        ] as const) {
+          expect(githubChecker({ apiURL, repo: 'o/n' }).url, apiURL).to.equal(
+            `${root}/repos/o/n/releases/latest`
+          );
+        }
+      });
+
+      it('should build the request on what the parser wrote, so what was checked is what is used', () => {
+        // a backslash is a separator to the parser and a dot segment is
+        // resolved away; the URL used is the normalized one, not the raw string
+        expect(githubChecker({ apiURL: 'https://h\\api\\v3', repo: 'o/n' }).url).to.equal(
+          'https://h/api/v3/repos/o/n/releases/latest'
+        );
+        expect(githubChecker({ apiURL: 'https://h/x/../api', repo: 'o/n' }).url).to.equal(
+          'https://h/api/repos/o/n/releases/latest'
+        );
+      });
+
+      it('should not quote a control character, or a password, as it was written', () => {
+        const messageOf = (apiURL: unknown): string => {
+          try {
+            githubChecker({ apiURL, repo: 'o/n' } as never);
+          } catch (error) {
+            return (error as Error).message;
+          }
+          return '';
+        };
+
+        const newline = messageOf('https://h/a\u001b]0;PWNED\u0007\nforged: error: forged');
+        expect(newline).to.contain('got "https://h/a\\x1B]0;PWNED\\x07\\x0Aforged: error: forged"');
+        expect(newline).to.not.match(/\p{Cc}/u);
+
+        // refused for the credentials, and for a URL the parser refuses outright
+        for (const apiURL of [
+          'https://user:hunter2@h/api',
+          'https://:hunter2@h/api',
+          'https://user:hunter2@h:99999/api',
+          'https://user:hunter2@h/api?x=1',
+          'https:\\\\user:hunter2@h\\api',
+          'user:hunter2@h/api',
+          'ht\ttps://user:hunter2@h/api',
+          // a separator inside the password: the parser reads the userinfo as a host
+          'https://u:hun/ter2@h/',
+          'https://u:hunter2@h/\u0000',
+          'https://u:hun?ter2@h/',
+          'https://u:hun#ter2@h/',
+          // no colon before it, and no scheme
+          'hunter2@github.example.com/api/v3',
+          '//u:hunter2@h/',
+          '\\\\u:hunter2@h',
+          'https://u@x:hunter2@h/',
+          // a secret in the query or the fragment
+          'https://npm.example.com/?_authToken=hunter2',
+          'https://npm.example.com/#hunter2',
+          'https://npm.example.com/?a=1@b#hunter2',
+          // the secret wholly in front of the separator that would cut it
+          'https://u:hunter2#x@h/',
+          'https://u:hunter2?x@h/',
+          'https://u:hunter2@h?x@h2/',
+          // and behind a newline, which `.` would not cross
+          'x\nhttps://u:hunter2@h',
+          'x\nhttps://h/?token=hunter2',
+        ]) {
+          const message = messageOf(apiURL);
+          expect(message, JSON.stringify(apiURL)).to.contain('must be an absolute https:// URL');
+          expect(message, JSON.stringify(apiURL)).to.not.contain('hunter2');
+          expect(message, JSON.stringify(apiURL)).to.not.match(/\p{Cc}/u);
+        }
+        // and what is left of it is still enough to find the value by
+        expect(messageOf('https://user:hunter2@h/api')).to.contain('got "***@h/api"');
+        expect(messageOf('https://h/api?token=hunter2')).to.contain('got "https://h/api?***"');
+      });
     });
 
     it('should answer undefined rather than throw on an answer with no version', () => {

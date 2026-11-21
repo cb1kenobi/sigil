@@ -43,6 +43,82 @@ the entry it belongs to.
   documented for an enterprise host: a Gitea-style forge that allows a dot in an
   owner is refused by it, and that is deliberate rather than an oversight. See
   `test/updates.test.ts`.
+- **The root a URL is built on is an absolute `https://` URL with a plain path,
+  and an `apiURL` or a `registryURL` that is not is refused where the checker is
+  built (SIG-544).** Both were joined to the request path exactly as written, so
+  `apiURL: 'https://h/api/v3/\n x'`, `'not a url'` and `'ftp://h'` each built a
+  request that failed in the worker, which the check swallows. `registryURL` is
+  the one reachable from `sigil.json` (`registry`), and `apiURL` only from code.
+  One function, `rootURL()`, for both. The decisions:
+
+  - **`https:` only, and the ticket's `http:` is left out.** The worker refuses
+    anything else (`CHECK_URL must use https`) and the in-process fetch is
+    `node:https`, so an `http:` root is a request nothing can make -- accepting
+    it would move the silent failure from the parse to the worker. The raw string
+    must open `https://` and a host, which is also what makes a separate protocol
+    check redundant: a sabotage that removed one survived, so there is none.
+  - **`new URL()` is not the gate, because it is generous.** It strips tabs and
+    newlines from the input rather than rejecting them, and trims a leading and
+    trailing space, so `'https://h/api/v3/\n x'` is a different question to it
+    than to a reader. The raw string is therefore refused for any `\p{Cc}` or
+    whitespace first, and then parsed for what only the parser knows: a port out
+    of range, a malformed host. The request is built on what the parser wrote
+    (`url.href`), so what was validated is what is fetched -- a backslash
+    separator and a dot segment are resolved, the host is lower-cased.
+  - **A path is kept; a query or a fragment is refused.** An enterprise root is
+    `https://host/api/v3`, so the path stays and every trailing slash goes (it
+    was one, and `https://h//` is a root with a doubled slash in every request).
+    A query or a fragment would sit in the middle of `.../repos/o/n/releases/latest`.
+    Tested on the raw string, since `url.search` is empty for a bare `?`.
+  - **Credentials are refused, and never printed.** A password in the URL would
+    travel in the worker's environment and a process listing, and a token
+    belongs in a header. Refusal is the simple half; the other is that the
+    message echoes the value and a secret must not reach a terminal or a log.
+    `redact()` cuts by character on the raw string, not by grammar: everything
+    up to the last `@`, then everything after the first `?` or `#`, in that
+    order. Two review rounds shaped it. A grammar-shaped pattern (what precedes
+    an `@` after a `scheme:`) was beaten by a `/` or `?` inside the password --
+    the parser reads `https://u:pa/ss@h` as a host and a port, so it is refused
+    and the secret sat past where the pattern stopped -- and by a token with no
+    scheme. And cutting at the `?` or `#` first, which looked tidier, removed the
+    `@` the second cut needed, so a password holding either printed everything in
+    front of it; the order is pinned by a test whose secret is wholly before the
+    separator. A value that is refused is one the parser cannot be asked about.
+    The price is that a legitimate `@` in a path is hidden in a refusal, which is
+    a message losing detail rather than a log gaining a secret. **What it does not
+    cover is stated rather than implied:** a secret with no `@` after it -- a bare
+    token passed as the whole value, `https://user:secret` with the host
+    forgotten -- is indistinguishable by character from a mistyped host, and the
+    **path** is echoed whole, which is what lets the message say where the URL
+    went wrong; a token-in-path registry typed as `http://` prints its token.
+    Credentials, query and fragment are the promise. Everything echoed goes
+    through `escapeControls()` as `repo` does.
+  - **`check()` rejects on a bad `registryURL`, where it used to resolve.** It
+    builds an `npmChecker()`, which now throws, so `await check({ registryURL })`
+    with an `http://` or empty value rejects with the `TypeError` rather than
+    resolving `{ latest: undefined }` after a failed request. That is the same
+    treatment `check()` already gives a bad `packageName`, `packageVersion` or
+    `distTag`, and the request it used to make could not have succeeded -- the
+    worker refuses anything but `https`. The automatic path (`auto.ts`) catches
+    and logs it, and `sigil check`, `build` and `package` report it as a
+    diagnostic; only a hand-called `check()` with an environment-supplied
+    registry and no `catch` is newly exposed, and the refusal names `registryURL`
+    even where `sigil.json` spelled it `registry`.
+  - **Not a string is the same refusal** (`undefined` is the default only for
+    `apiURL`; `null`, a number and an object are refused).
+
+- **A `repo`, a package name and a dist tag that are not strings are refused with
+  the message a string gets (SIG-545).** `githubChecker({ repo: undefined })` and
+  `{ repo: 42 }` threw Node's own `repo.split is not a function`, not the
+  documented `must be "owner/name"`; the types guard `sigil.json` and a
+  plain-JavaScript caller has nothing. `npmChecker()` had the quieter version of
+  the same assumption: `encodeURIComponent(undefined)` is `'undefined'`, so a
+  missing `packageName` built a request for the package called `undefined`, and
+  `check()`, which does refuse it, is not the only way in. Each now throws a
+  `TypeError` naming the value through `escapeControls()`, which turns anything
+  into a string. A non-string `prefix` is left alone: it only strips a string
+  off a tag and cannot build a request path.
+
 - **The cache filename was a collision, not a broken write.** Worth saying plainly,
   because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
   a file in a directory nobody created, and that is not what happened: `check()`

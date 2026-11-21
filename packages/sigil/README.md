@@ -8585,6 +8585,13 @@ half has to be a name GitHub allows -- letters, digits and `-` and `_` in the
 owner, and those plus `.` in the name, never `.` or `..` alone -- so a repo with
 a space or a newline in it is refused rather than asked about.
 
+`registry`, and `apiURL` on `githubChecker()` -- the root of a GitHub Enterprise
+host, which `sigil.json` cannot set -- are each an absolute `https://` URL, with a
+path if the host has one (`https://github.example.com/api/v3`) and no
+credentials, query or fragment. Anything else, `http://` included, is refused
+when the checker is built: the worker only fetches over `https`, so a root it
+could not use would be a check that fails where nothing reports it.
+
 Or pass one in code, which beats whatever is baked in:
 
 ```js
