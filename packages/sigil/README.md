@@ -8595,7 +8595,8 @@ could not use would be a check that fails where nothing reports it.
 A `custom` check's `url` is held to the same rule where it is built, with one
 difference: it is the request itself rather than a root something is joined to,
 so it **may carry a query** -- `https://h/api/latest?channel=stable` -- and it
-is used as written, trailing slash included. It is still an absolute `https://`
+is used as the parser wrote it -- a host is lower-cased and a dot segment
+resolved -- with its trailing slash kept. It is still an absolute `https://`
 URL with a host, with no whitespace or control character, no credentials and no
 fragment (which no request carries), and `path` is a non-empty list of non-empty
 strings. A declaration that breaks any of that fails `sigil check`, `sigil build`

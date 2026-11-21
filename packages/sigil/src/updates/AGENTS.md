@@ -149,7 +149,9 @@ the entry it belongs to.
     check that answers `undefined` for ever. `sigil.json`'s reader already refuses
     an empty key and an empty list, and a non-array is refused by its schema, so
     this is for code, and the message echoes through `escapeControls()` without
-    asking JSON to serialize it (a `BigInt` would throw a different error). The
+    asking JSON to serialize it (a `BigInt` would throw a different error). It
+    is asked of `Array.from(path)`, since `.some()` skips the holes of a sparse
+    array. The
     builder copies the list, so a later edit of the caller's array cannot move a
     baked checker.
   - **A literal `{ type: 'custom', url, path }` is still not checked.** A checker

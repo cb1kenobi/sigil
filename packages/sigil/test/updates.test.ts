@@ -526,6 +526,20 @@ describe('updates', () => {
         );
       });
 
+      it('should use the URL as the parser wrote it, which is what the worker will test', () => {
+        // the worker's check is a case-sensitive `startsWith('https:')`, so the
+        // scheme has to leave here lower-cased: the raw value passes the gate
+        expect(customChecker({ path, url: 'HTTPS://H/x' }).url).to.equal('https://h/x');
+        expect(customChecker({ path, url: 'https://h\\x' }).url).to.equal('https://h/x');
+        expect(customChecker({ path, url: 'https://h' }).url).to.equal('https://h/');
+      });
+
+      it('should refuse a path with a hole in it', () => {
+        const holey: string[] = [];
+        holey.length = 2;
+        expect(() => customChecker({ path: holey, url })).to.throw(TypeError);
+      });
+
       it('should hold what it was given in a copy, so a later edit cannot move it', () => {
         const keys = ['a', 'b'];
         const checker = customChecker({ path: keys, url });

@@ -199,8 +199,9 @@ function redact(value: unknown): string {
  * path, so a query would land in the middle of it and is refused, the path is
  * kept (an enterprise root is `.../api/v3`), and a trailing slash goes. An
  * **endpoint** is the request itself: it may carry a query
- * (`https://h/api/latest?channel=stable`), and is returned as it was written,
- * so a trailing slash is part of the path.
+ * (`https://h/api/latest?channel=stable`), and is returned as the parser wrote it
+ * (scheme and host lower-cased, a dot segment resolved), so a trailing slash is
+ * part of the path and is kept.
  *
  * @param value - What the caller passed.
  * @param label - The option's name, for the message.
@@ -332,7 +333,7 @@ export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
   if (
     !Array.isArray(path) ||
     path.length === 0 ||
-    path.some((key) => typeof key !== 'string' || !key)
+    Array.from(path).some((key) => typeof key !== 'string' || !key)
   ) {
     throw new TypeError(
       `Update check path must be a non-empty list of non-empty strings, got "${escapeControls(path)}"`

@@ -114,7 +114,7 @@ function asDeclared<T>(build: () => T): T {
   try {
     return build();
   } catch (err) {
-    if (err instanceof TypeError) {
+    if (err instanceof Error) {
       for (const [noun, key] of DECLARED_KEYS) {
         const prefix = `Update check ${noun} `;
         if (err.message.startsWith(prefix)) {
