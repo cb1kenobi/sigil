@@ -223,6 +223,29 @@ export const PASTE_TIMEOUT: number = 1000;
 export const PASTE_LIMIT: number = 32 * 1024 * 1024;
 
 /**
+ * How much of an unfinished key sequence is held, in UTF-16 code units.
+ *
+ * A read that ends where a longer key could still continue is held and joined to
+ * the next one, and each read then measures the whole of `held + input` again --
+ * so a sequence that stays unfinished across many reads costs time quadratic in
+ * its length, with the event loop blocked for all of it: 100,000 `ESC` bytes in
+ * 1 KiB reads took 86ms and 1,000,000 took 8s, and a held `ESC [` followed by a
+ * million `1`s was 664ms. Only garbage on stdin reaches it, such as binary data
+ * written into a raw-mode terminal. Past this many, what was held is read as
+ * `ESCAPE_TIMEOUT` would have read it -- the keys it decodes to with nothing
+ * more coming, an Alt-Escape for a run of `ESC` and an `unknown` for a CSI --
+ * and what follows starts fresh. A held control string is not
+ * cut: a reply to a query can be as long as a clipboard. That is a bound on the *per-read* cost rather
+ * than on the total: no read measures more than this plus what it brought, so a
+ * stream of any length is linear in its size.
+ *
+ * Sixteen kibibytes, far above any key a terminal writes, while a read at the
+ * cap measures it in about a tenth of a millisecond. Not `PASTE_LIMIT`'s figure, because a paste is held in a list and
+ * never re-read, and this one is read again from its start by every read.
+ */
+export const HELD_LIMIT: number = 16 * 1024;
+
+/**
  * Two clicks on one thing this close together are a double-click, in milliseconds.
  *
  * The router reports a `click` and no count, and a count is not worth carrying on
@@ -2383,14 +2406,27 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // exists: two readers of one chunk that disagree about where the last key
     // starts is the bug it was written against, and `strings` is a second way
     // for them to disagree
-    const opts = final ? { ...decoding(), final: true } : decoding();
+    let opts = final ? { ...decoding(), final: true } : decoding();
     const joined = held + input;
     // and decided before anything is routed, because a handler among these keys
     // can `feed()`: a tail held while it ran was joined to what it fed, so the
     // bytes before a start marker, which the marker proves complete, made `ESC`
     // and a fed `A` into Alt-A, and `ESC [` and a fed `200~` into a paste nobody
     // bracketed (review round 3)
-    const length = final ? 0 : pendingLength(joined, opts);
+    let length = final ? 0 : pendingLength(joined, opts);
+    // and a tail longer than `HELD_LIMIT` is not held. Every read measures what
+    // is held again from its start, so one that never finishes costs the square
+    // of its length. It is read as final, which is the reading `expire()` gives
+    // a tail nothing followed: the whole of `joined` again, because only its
+    // last read differs, and the bytes after the cut start a key of their own.
+    // Not a control string, though: a reply to a query can be long -- an OSC 52
+    // clipboard read is the size of the clipboard -- and cutting one types its
+    // payload into the focused field, which is the route `armExpiry()` refuses
+    // to give a held reply. Those are left held, and re-read, as they were
+    if (length > HELD_LIMIT && !pendingIsString(joined, opts)) {
+      length = 0;
+      opts = { ...decoding(), final: true };
+    }
     const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
     const tail = length === 0 ? '' : joined.slice(joined.length - length);
     held = tail;
