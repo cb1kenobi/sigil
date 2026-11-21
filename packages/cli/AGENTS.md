@@ -2200,10 +2200,25 @@ makes it testable with a fixture directory and no bundler at all.
   `package.runtime` and `package.target` are a runtime and a platform -- are
   asked here with `parseSpec()` and `parseTarget()`, the functions `package`
   asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
-  `package` both call. What stays with the command is what depends on how it
-  was run: `assertCleanable()` over `build.out` (it needs `--out`, `--bin` and
-  `--no-clean`) and `package`'s refusal of `build.external`. The echoed values in
-  those three messages are escaped where they are thrown. A section's rule goes
+  `package` both call. The output directory is asked of `assertCleanable()` too
+  (SIG-540), with what `build` does when given no flags: `build.out` from the
+  file, cleaning on, no `--bin`, and `binName()` for the writes -- over
+  `buildReads()` of the very `Inspection` `check` already holds, which is what
+  `build` hands it before it bundles, so the sentence is `build`'s and a
+  `"out": "src"` or `"out": "."` is one `check` refuses. It is reported against
+  `sigil.json`, or against the entry when no file is there and the refusal is of
+  the default `dist`. What stays with the command is what depends on how it was
+  run or what only the bundle knows: `--out`, `--bin`, `--name` and `--no-clean`
+  on the command line (so `check` can refuse a `"out": "."` that
+  `build --no-clean` would take -- the one way it is stricter, deliberately: a
+  file that needs a flag on every build is one whose `check` should say so), a
+  module in the graph that `inspect()` never read, which `clean()` refuses
+  once the bundle exists, and `package`'s refusal of `build.external` and its
+  own `package.out`. `build.external` is **not** reported as a warning or an
+  error: `build` accepts it and only `package` refuses it, so either would fail
+  an app that never packages, and `check` has no tier between the two that
+  says "fine to build, not to package". The echoed values in those messages are
+  escaped where they are thrown. A section's rule goes
   in its reader, never in `check`; `sigil reference`
   and `sigil add` read the file themselves and were never affected. Pinned in
   `test/check.test.ts`.

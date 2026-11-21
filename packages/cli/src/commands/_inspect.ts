@@ -51,7 +51,7 @@ import {
   type ShakenStyles,
   type TypeCheckResult,
 } from '../build/index.ts';
-import { CONFIG_FILE, CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
+import { CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
@@ -257,18 +257,26 @@ function checkTranslations(
  * `bakedUpdateCheck()`; those are asked here, by the same functions, so a file
  * either would refuse for them is one `check` refuses.
  *
- * What stays with the command is what depends on how it was run: whether the
- * output directory is safe to empty (`--out`, `--bin` and `--no-clean` decide
- * it) and `package`'s refusal of `build.external`.
+ * And the output directory is asked of `assertCleanable()`, with what `build`
+ * does when it is given no flags: `build.out` from the file, cleaning on, no
+ * `--bin`, and the default name. Everything it reads is known before a bundle
+ * exists -- `build` asks it at the same point -- so it is the same function over
+ * the same `reads` and the answer is `build`'s own sentence. What it cannot know
+ * is what `--out`, `--bin`, `--name` and `--no-clean` will say on the command
+ * line, and what only the bundle knows: a module in the graph that `inspect()`
+ * never read, which `clean()` refuses later. `package`'s refusal of
+ * `build.external` and its own `package.out` stay with `package`.
  *
- * @param root - The app's root.
- * @param packageName - The app's own name, which an npm update check defaults to.
+ * @param found - What reading the app turned up.
  * @returns One error diagnostic, or none.
  */
-export function checkConfig(root: string, packageName: string | undefined): Diagnostic[] {
+export function checkConfig(found: Inspection): Diagnostic[] {
+  const { root } = found.app;
+
   try {
     const config = readSigilConfig(root);
     const { package: packaging } = config;
+    const packageName = found.app.manifest.name;
 
     // what `build` and `package` both make of `updateCheck` before they bundle:
     // a `repo` that is not `owner/name`, and an npm check with no name to ask
@@ -285,13 +293,30 @@ export function checkConfig(root: string, packageName: string | undefined): Diag
       parseTarget(target);
     }
 
+    // the guard `build` raises before it bundles, asked with the defaults it
+    // would use: `build.out` from the file, cleaning on, and no `--bin`
+    assertCleanable(buildOutDir(root, config), {
+      clean: true,
+      reads: buildReads(found),
+      root,
+      writes: bundleWrites(binName(found, config.build?.name)),
+    });
+
     return [];
   } catch (e: unknown) {
     // the file that was read, which is whichever of the two names is there; with
-    // both there it is the first, and the message says which two
-    const file = CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILE;
+    // both there it is the first, and the message says which two. None is there
+    // only when the guard refused the default directory, and that is a fact
+    // about the app rather than about a file nobody wrote
+    const file = CONFIG_FILES.find((name) => existsSync(join(root, name)));
 
-    return [{ file: join(root, file), message: (e as Error).message, severity: 'error' }];
+    return [
+      {
+        file: file === undefined ? found.app.entry : join(root, file),
+        message: (e as Error).message,
+        severity: 'error',
+      },
+    ];
   }
 }
 
