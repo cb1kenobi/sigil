@@ -343,7 +343,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // write that never touches it
     const ok = xmlCanHold(held, '', read.multiple);
     if (ok !== true) {
-      throw new Error(`Cannot write ${escapeControls(source)}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${escapeControls(ok)}`);
     }
 
     // and the document's root has to be something a layer can merge, which is

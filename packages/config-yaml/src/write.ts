@@ -1,5 +1,6 @@
 import type { ReadShape } from './read.js';
 import { isPlainObject } from '@ttylabs/sigil/config';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { __ } from '@ttylabs/sigil/i18n';
 import { isAlias, isMap, isScalar, isSeq, type Document, type Node } from 'yaml';
 
@@ -395,11 +396,11 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
     if (!fence) {
       continue;
     }
-    const where = prefix === '' ? __`the document` : `"${prefix}"`;
+    const where = prefix === '' ? __`the document` : `"${escapeControls(prefix)}"`;
     throw new Error(
       fence.why === 'alias'
-        ? __`Cannot write "${dotted(edit.at)}" in ${read.what}: ${where} is an alias, on line ${fence.line}`
-        : __`Cannot write "${dotted(edit.at)}" in ${read.what}: ${where} carries an anchor another node aliases, on line ${fence.line}`
+        ? __`Cannot write "${escapeControls(dotted(edit.at))}" in ${read.what}: ${where} is an alias, on line ${fence.line}`
+        : __`Cannot write "${escapeControls(dotted(edit.at))}" in ${read.what}: ${where} carries an anchor another node aliases, on line ${fence.line}`
     );
   }
 
@@ -433,7 +434,7 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
     const [at, fence] = buried;
 
     throw new Error(
-      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it holds "${at}", which carries an anchor another node aliases, on line ${fence.line}`
+      __`Cannot write "${escapeControls(dotted(edit.at))}" in ${read.what}: it holds "${escapeControls(at)}", which carries an anchor another node aliases, on line ${fence.line}`
     );
   }
 
@@ -467,8 +468,8 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
 
     throw new Error(
       edit.drop
-        ? __`Cannot remove "${dotted(edit.at)}" from ${read.what}: it comes from the merge key on line ${merge.line}`
-        : __`Cannot write "${dotted(edit.at)}" in ${read.what}: it comes from the merge key on line ${merge.line}`
+        ? __`Cannot remove "${escapeControls(dotted(edit.at))}" from ${read.what}: it comes from the merge key on line ${merge.line}`
+        : __`Cannot write "${escapeControls(dotted(edit.at))}" in ${read.what}: it comes from the merge key on line ${merge.line}`
     );
   }
 
@@ -477,7 +478,7 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
 
     if (key) {
       throw new Error(
-        __`Cannot remove "${dotted(edit.at)}" from ${read.what}: its key carries an anchor another node aliases, on line ${key.line}`
+        __`Cannot remove "${escapeControls(dotted(edit.at))}" from ${read.what}: its key carries an anchor another node aliases, on line ${key.line}`
       );
     }
   }
@@ -513,7 +514,7 @@ function assertEditable(edit: Edit, fences: Fences, read: ReadShape): void {
 
   if (tag && !isCollection(edit.value) && !tagTakes(tag.tag, edit.value)) {
     throw new Error(
-      __`Cannot write "${dotted(edit.at)}" in ${read.what}: it carries the tag ${tag.tag} on line ${tag.line}, which would not write ${String(edit.value)} back as itself`
+      __`Cannot write "${escapeControls(dotted(edit.at))}" in ${read.what}: it carries the tag ${escapeControls(tag.tag)} on line ${tag.line}, which would not write ${escapeControls(edit.value)} back as itself`
     );
   }
 }

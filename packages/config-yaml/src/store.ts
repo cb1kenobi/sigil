@@ -232,7 +232,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     // write that never touches it
     const ok = yamlCanHold(held, '');
     if (ok !== true) {
-      throw new Error(`Cannot write ${escapeControls(source)}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${escapeControls(ok)}`);
     }
 
     if (!isPlainObject(held)) {
