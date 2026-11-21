@@ -1089,7 +1089,7 @@ messages.
   carry SGR it chose, and escaping at the sink would turn its colors into
   `\x1B[31m` text. The cost is that an app quoting argv in a message of its own
   has to escape it itself, which is why the helper is published and documented.
-- **The set is `\p{Cc}`, which is C0, `DEL` and C1, and it includes `\t`, `\n`
+- **The set is `\p{Cc}` and, since SIG-543, more -- see the next entry. `\p{Cc}` is C0, `DEL` and C1, and it includes `\t`, `\n`
   and `\r`.** It is the set the build's escape pass names, written the way that
   pass writes it: `\xNN`, two upper-case hex digits, which is also how
   `util.inspect` prints them. Every `\p{Cc}` is below U+0100, so two digits
@@ -1098,6 +1098,31 @@ messages.
   formatting. Inside a quoted value they are the value's content, and a newline
   there is the most dangerous of the set: `--n $'1\nError: something else'`
   printed a second `Error:` line the program never wrote.
+- **The format characters are escaped too, as `\u{NNNN}`, and that includes the
+  zero-width joiner** (SIG-543). `\p{Cc}` alone left `\p{Cf}` raw: a value
+  holding U+202E, the right-to-left override, was echoed and the terminal drew
+  the rest of the line reversed, so a message read differently from what was
+  written, and a zero-width space or joiner was not drawn at all, so two values
+  that printed alike differed. The SIG-541 review found it through the update
+  check, where a `repo` of `o/n` and U+202E was refused and the refusal echoed
+  it raw. The set is `[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]`: the class the source check
+  refuses in this repository's own files (SIG-483), named rather than listed, with
+  U+2028 and U+2029 -- `Zl` and `Zp` exactly -- that check refuses beside it.
+  Those are all above U+00FF, so the two-digit spelling cannot hold them, and
+  `\u{NNNN}` is what the character means to JavaScript. It is upper-case hex like
+  `\xNN`, at least four digits and as many as the code point needs
+  (`\u{E0041}`); a format character below U+0100 -- only the soft hyphen,
+  U+00AD -- keeps `\xAD`, so every existing `\xNN` is unchanged. **The joiner is
+  not exempt**: a joined emoji in an echoed value prints with `\u{200D}` between
+  its parts. That is the honest rendering of what was typed, an echoed value is
+  not prose, and it is the one character of the class a person means -- but
+  the glyph never says whether it is there, which is why the rest of the class is
+  escaped. Decided with the ticket rather than found: the alternative of
+  exempting it means a value can hide one and print identically to one without.
+  **`\p{Zs}` is left alone**, the no-break space included, because it is drawn.
+  The build's escape pass in `tsdown.config.ts` and the toolchain's copy are about
+  raw bytes in shipped files and are a separate rule, deliberately unchanged.
+  Covered by `test/util/escape-controls.test.ts`.
 - **The backslash is not escaped.** So a value holding the literal text `\x1B`
   reads the same as one holding `ESC`. Doubling every backslash would make a
   mistyped Windows path harder to read, and what reaches the terminal is inert
