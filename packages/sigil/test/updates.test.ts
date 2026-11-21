@@ -461,6 +461,13 @@ describe('updates', () => {
           'https://npm.example.com/?_authToken=hunter2',
           'https://npm.example.com/#hunter2',
           'https://npm.example.com/?a=1@b#hunter2',
+          // the secret wholly in front of the separator that would cut it
+          'https://u:hunter2#x@h/',
+          'https://u:hunter2?x@h/',
+          'https://u:hunter2@h?x@h2/',
+          // and behind a newline, which `.` would not cross
+          'x\nhttps://u:hunter2@h',
+          'x\nhttps://h/?token=hunter2',
         ]) {
           const message = messageOf(apiURL);
           expect(message, JSON.stringify(apiURL)).to.contain('must be an absolute https:// URL');

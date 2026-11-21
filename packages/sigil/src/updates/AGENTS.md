@@ -75,14 +75,23 @@ the entry it belongs to.
     belongs in a header. Refusal is the simple half; the other is that the
     message echoes the value and a secret must not reach a terminal or a log.
     `redact()` cuts by character on the raw string, not by grammar: everything
-    after the first `?` or `#`, then everything up to the last `@`. The first
-    grammar-shaped attempt (what precedes an `@` after a `scheme:`) was beaten by
-    review with a `/` or `?` inside the password -- the parser reads
-    `https://u:pa/ss@h` as a host and a port, so it is refused and the secret
-    sat past where the pattern stopped -- and by a token with no scheme at all.
-    A value that is refused is one the parser cannot be asked about. The price is
-    that a legitimate `@` in a path is hidden in a refusal, which is a message
-    losing detail rather than a log gaining a secret. Everything echoed goes
+    up to the last `@`, then everything after the first `?` or `#`, in that
+    order. Two review rounds shaped it. A grammar-shaped pattern (what precedes
+    an `@` after a `scheme:`) was beaten by a `/` or `?` inside the password --
+    the parser reads `https://u:pa/ss@h` as a host and a port, so it is refused
+    and the secret sat past where the pattern stopped -- and by a token with no
+    scheme. And cutting at the `?` or `#` first, which looked tidier, removed the
+    `@` the second cut needed, so a password holding either printed everything in
+    front of it; the order is pinned by a test whose secret is wholly before the
+    separator. A value that is refused is one the parser cannot be asked about.
+    The price is that a legitimate `@` in a path is hidden in a refusal, which is
+    a message losing detail rather than a log gaining a secret. **What it does not
+    cover is stated rather than implied:** a secret with no `@` after it -- a bare
+    token passed as the whole value, `https://user:secret` with the host
+    forgotten -- is indistinguishable by character from a mistyped host, and the
+    **path** is echoed whole, which is what lets the message say where the URL
+    went wrong; a token-in-path registry typed as `http://` prints its token.
+    Credentials, query and fragment are the promise. Everything echoed goes
     through `escapeControls()` as `repo` does.
   - **`check()` rejects on a bad `registryURL`, where it used to resolve.** It
     builds an `npmChecker()`, which now throws, so `await check({ registryURL })`

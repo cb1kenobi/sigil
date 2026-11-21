@@ -134,21 +134,28 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
 }
 
 /**
- * A URL as a refusal may quote it: nothing after the first `?` or `#`, and
- * nothing up to the last `@`, so a refusal never prints a password or a token.
+ * A URL as a refusal may quote it: nothing up to the last `@`, then nothing
+ * after the first `?` or `#`, so a refusal never prints a password or a token
+ * written in the places one goes.
  *
  * Deliberately cruder than the grammar. The value is one the parser may have
  * refused, and a parser that refused it cannot say where the credentials were:
- * `https://u:pa/ss@h` reads as a host `u` and a port `pa`, and a token with no
- * scheme in front of it is no URL at all. So both cuts are by character, on the
- * raw string -- the query first, so that an `@` inside one cannot move the
- * second cut -- which also hides a legitimate `@` in a path. That is a refusal
- * message losing a little detail, and the other direction is a secret in a log.
+ * `https://u:pa/ss@h` reads as a host `u` and a port `pa`. So both cuts are by
+ * character, on the raw string. The `@` goes first, and the order matters: a
+ * password may hold a `?` or a `#`, and cutting at one first removes the `@`
+ * the other cut needs and leaves the userinfo in front of it. The price is a
+ * legitimate `@` in a path hidden in a refusal -- a message losing detail
+ * rather than a log gaining a secret.
+ *
+ * What it does not recognize is a secret with no `@` after it and none of
+ * those characters before it: a bare token passed as the whole value, or
+ * `https://user:secret` with the host forgotten. No cut by character can tell
+ * those from a mistyped host.
  */
 function redact(value: unknown): string {
   return String(value)
-    .replace(/([?#])[\s\S]*$/, '$1***')
-    .replace(/^[\s\S]*@/, '***@');
+    .replace(/^[\s\S]*@/, '***@')
+    .replace(/([?#])[\s\S]*$/, '$1***');
 }
 
 /**
