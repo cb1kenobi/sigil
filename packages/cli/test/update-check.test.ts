@@ -410,7 +410,10 @@ describe('what the build bakes in', () => {
         config: { updateCheck: { path: ['tag'], prefix, type: 'custom', url: 'https://h/x' } },
         packageName: 'mycli',
       })
-    ).toThrow('Update check "updateCheck.prefix" must be a non-empty string, got ""');
+    ).toThrow(
+      'Update check "updateCheck.prefix" must be a non-empty string with no leading whitespace or ' +
+        'control character, got ""'
+    );
   });
 
   it('should build a custom checker', () => {

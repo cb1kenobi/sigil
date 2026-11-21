@@ -192,9 +192,10 @@ const MAX_QUERY_PARAMS = 8;
  * value was (SIG-556).
  *
  * Split by hand on `&` and the first `=`, because the string is one a parser
- * may have refused. A parameter with no `=` is quoted as `***`, name and all:
- * it is a flag to a server and a bare token to a typo, and nothing here can say
- * which. An empty one (`&&`) says nothing and is dropped. Only `&` separates: a
+ * may have refused. A parameter with no `=`, or with nothing but `=` after its
+ * first one, is quoted as `***`, name and all: it is a flag to a server and a
+ * bare token to a typo (or a token's padding), and nothing here can say which.
+ * So `?a=` is `***` too, the one legitimate name this costs. An empty one (`&&`) says nothing and is dropped. Only `&` separates: a
  * `;` is part of a value as far as this knows, and a value is hidden whole.
  */
 function redactQuery(query: string): string {
@@ -203,9 +204,13 @@ function redactQuery(query: string): string {
     if (!param) {
       continue;
     }
+    // a `=` is what says where a name ends, so it has to be followed by
+    // something that is not another one: a base64 token's own padding
+    // (`c2VjcmV0==`) is `=` and nothing, and is a bare token and not a name
     const eq = param.indexOf('=');
-    const name = eq === -1 ? '' : param.slice(0, eq);
-    shown.push(eq === -1 ? '***' : `${queryNameRE.test(name) ? name : '***'}=***`);
+    const named = eq !== -1 && !/^=*$/.test(param.slice(eq + 1));
+    const name = param.slice(0, eq);
+    shown.push(!named ? '***' : `${queryNameRE.test(name) ? name : '***'}=***`);
   }
   return shown.length > MAX_QUERY_PARAMS
     ? `${shown.slice(0, MAX_QUERY_PARAMS).join('&')}&...`
@@ -501,9 +506,17 @@ export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
   // strips nothing, which is what leaving it out says, so it is refused rather
   // than accepted as a second spelling (a GitHub check's `''` means something
   // there only because its default is `v`)
-  if (prefix !== undefined && (typeof prefix !== 'string' || !prefix)) {
+  //
+  // `versionFrom()` trims the version before it looks for the prefix, so one that
+  // starts with whitespace never matches, and a control character in one is
+  // baked into a file and printed nowhere: both are the silent miss again
+  if (
+    prefix !== undefined &&
+    (typeof prefix !== 'string' || !prefix || /^\s|\p{Cc}/u.test(prefix))
+  ) {
     throw new TypeError(
-      `Update check prefix must be a non-empty string, got "${escapeControls(prefix)}"`
+      'Update check prefix must be a non-empty string with no leading whitespace or ' +
+        `control character, got "${escapeControls(prefix)}"`
     );
   }
 

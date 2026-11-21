@@ -647,7 +647,11 @@ describe('updates', () => {
 
         it('should say what a parameter with no value, an empty name and a double separator are', () => {
           // `a=` has a value that is empty and is still hidden
-          expect(quoted('ftp://h/x?a=&b=1')).to.equal('ftp://h/x?a=***&b=***');
+          expect(quoted('ftp://h/x?a=1&b=2')).to.equal('ftp://h/x?a=***&b=***');
+          // but a `=` with nothing after it is a name that cannot be told from a token's padding
+          expect(quoted('ftp://h/x?a=&b=1')).to.equal('ftp://h/x?***&b=***');
+          expect(quoted('ftp://h/x?c2VjcmV0LXRva2VuLTEyMw==')).to.equal('ftp://h/x?***');
+          expect(quoted('ftp://h/x?a=1&c2VjcmV0=')).to.equal('ftp://h/x?a=***&***');
           // a name is quoted only where a `=` follows it: a parameter with none is
           // a flag to a server and a bare token to a typo, and is not told apart
           expect(quoted('ftp://h/x?a=1&hunter2')).to.equal('ftp://h/x?a=***&***');
@@ -694,6 +698,17 @@ describe('updates', () => {
             'a b',
             'a\u00e9',
             '\u{1f600}',
+            'a+b',
+            'a~b',
+            '$filter',
+            'a!b',
+            'a*b',
+            'a,b',
+            'a;b',
+            "a'b",
+            'a(b)',
+            'a/b',
+            'a:b',
           ]) {
             const message = quoted(`ftp://h/x?${name}=1`);
             expect(message, name).to.equal('ftp://h/x?***=***');
@@ -761,6 +776,9 @@ describe('updates', () => {
             'ftp://h/x??hunter2',
             'ftp://h/x?{"token":"hunter2"}',
             'ftp://h/x?0123456789abcdef0123456789abcdef-hunter2',
+            'ftp://h/x?c2VjcmV0LXRva2VuLTEyMw==',
+            'ftp://h/x?3q2-7wABCDEF_ghijk012w==',
+            'ftp://h/x?token=1&aHVudGVyMg=',
           ]) {
             const message = messageOf(bad);
             expect(message, JSON.stringify(bad)).to.contain('must be an absolute https:// URL');
@@ -955,16 +973,28 @@ describe('updates', () => {
         });
 
         it('should refuse an empty prefix, and one that is not a string', () => {
-          for (const prefix of ['', null, 42, true, ['v'], {}]) {
+          for (const prefix of [
+            '',
+            ' v',
+            '\nv',
+            'v\u0000',
+            'v\n',
+            'v\u007f',
+            null,
+            42,
+            true,
+            ['v'],
+            {},
+          ]) {
             expect(refusal({ prefix }), String(prefix)).to.match(
-              /^Update check prefix must be a non-empty string, got "/
+              /^Update check prefix must be a non-empty string with no leading whitespace or control character, got "/
             );
           }
           expect(refusal({ prefix: '' })).to.equal(
-            'Update check prefix must be a non-empty string, got ""'
+            'Update check prefix must be a non-empty string with no leading whitespace or control character, got ""'
           );
           expect(refusal({ prefix: 42 })).to.equal(
-            'Update check prefix must be a non-empty string, got "42"'
+            'Update check prefix must be a non-empty string with no leading whitespace or control character, got "42"'
           );
         });
       });

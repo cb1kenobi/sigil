@@ -204,7 +204,10 @@ the entry it belongs to.
   - **`prefix` is a non-empty string, where `githubChecker()`'s may be empty.**
     There an empty prefix means "keep the tag" because the default is `v`;
     here the default is no prefix, so `''` says what leaving it out says and is
-    refused rather than accepted as a second spelling of it.
+    refused rather than accepted as a second spelling of it. It also may not
+    start with whitespace or hold a control character: `versionFrom()` trims the
+    version before it looks for the prefix, so a leading space is one that never
+    matches, which is the silent miss the builder exists to refuse.
   - **`sigil.json` takes `prefix` and not `headers`.** The prefix is a small
     change and names a version's spelling. A header is a credential in a file
     that is committed, so it is code only, and a `headers` key in the file is
@@ -226,6 +229,9 @@ the entry it belongs to.
     `?token%3Dhunter2`, `??hunter2` and `?{"token":"hunter2"}`, and the first
     version printed each. `[A-Za-z0-9_.\-[\]]{1,24}` is what `channel`,
     `api_key` and `filter[type]` look like and what a pasted token does not. An
+    parameter with nothing but `=` after its first one is bare too, because a
+    base64 token's padding is exactly that (`?c2VjcmV0LXRva2Vu==`, which round 2
+    found printed whole), at the cost of `?a=` printing `***`. An
     empty parameter (`&&`) is dropped, only `&` separates (a `;` and its tail are
     part of a value), and a list past 8 is cut. A 24-character identifier can
     still be a token, which is the price of showing names at all.
