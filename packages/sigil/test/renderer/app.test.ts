@@ -524,6 +524,66 @@ describe('runApp()', () => {
       expectGivenBack(term);
     });
 
+    // `stop()` runs the `onEnd()` handlers only for a stream failure still on its
+    // way -- stdin destroyed with an error whose emit is a tick off -- and raises
+    // what they throw. Let go of from inside the router's own `onError`, that used
+    // to leave the data listener as an uncaught exception, on the alternate screen
+    it('should report an onEnd handler that throws when a failed key handler stops the router', async () => {
+      const reports: Array<{ alternate: boolean; error: unknown }> = [];
+      const { app, term } = run(() => text('x'), {
+        onError: (error) => reports.push({ alternate: term.screen.alternate, error }),
+      });
+      app.input?.onEnd(() => {
+        throw new Error('onEnd broke');
+      });
+      app.input?.fallback('x', () => {
+        term.stdin.destroy(new Error('stdin broke'));
+        throw new Error('key handler broke');
+      });
+      app.view.frame();
+
+      await term.press('x');
+      expect(await app.exited).toBe(1);
+
+      // the handler that ended the app first, then the stream error the router was
+      // stopped over, then what its `onEnd()` handler threw -- each said once, and
+      // all of them on the main screen
+      expect(reports.map((one) => String(one.error))).toEqual([
+        'Error: key handler broke',
+        'Error: stdin broke',
+        'Error: onEnd broke',
+      ]);
+      expect(reports.every((one) => !one.alternate)).toBe(true);
+      expectGivenBack(term);
+    });
+
+    it('should report each of several onEnd handlers that throw when a failed handler stops the router', async () => {
+      const reports: unknown[] = [];
+      const { app, term } = run(() => text('x'), { onError: (error) => reports.push(error) });
+      app.input?.onEnd(() => {
+        throw new Error('first onEnd broke');
+      });
+      app.input?.onEnd(() => {
+        throw new Error('second onEnd broke');
+      });
+      app.input?.fallback('x', () => {
+        term.stdin.destroy(new Error('stdin broke'));
+        throw new Error('key handler broke');
+      });
+
+      await term.press('x');
+      expect(await app.exited).toBe(1);
+
+      // opened up rather than said as one aggregate line, as the teardown's are
+      expect(reports.map(String)).toEqual([
+        'Error: key handler broke',
+        'Error: stdin broke',
+        'Error: first onEnd broke',
+        'Error: second onEnd broke',
+      ]);
+      expectGivenBack(term);
+    });
+
     it('should end with 1 when a paste or a resize handler throws', async () => {
       const paste = run(() => text('x'));
       paste.app.input?.onPaste(() => {

@@ -1318,7 +1318,13 @@ it.
   reported: it is the renderer's rule that the first failure ends the loop. It
   shares `inputFailed` with stdin ending in an error, the other failure the
   renderer does not know of. The router's half is under "A handler that throws is
-  the router's to catch" in `src/input`.
+  the router's to catch" in `src/input`. Stopping the router there can itself
+  throw: for a stream failure still on its way, `stop()` tells the `onEnd()`
+  handlers and raises what they threw, and an `onError` that throws is not caught
+  again, so that throw would have left the `data` listener as the very exception
+  this is for. So it is caught and kept, with the stream error those handlers were
+  told of, and `finish()` reports both after the failure that ended the app --
+  opened up if several handlers threw, as the teardown's are.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
   half `restore()` cannot do -- raw mode comes back through either, but a `data`
   listener left on stdin holds the process open after the last frame -- and

@@ -607,6 +607,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * throw `undefined`.
    */
   let handlerFailure: { error: unknown } | undefined;
+  /**
+   * What the router's `stop()` threw when a failed handler let it go -- its
+   * `onEnd()` handlers, which it raises -- and the stream error it told them of.
+   * Kept for `finish()` beside `handlerFailure`, because by the teardown the router
+   * is already stopped and would say nothing again.
+   */
+  const stopFailures: unknown[] = [];
   let code = 0;
   /** The runner's ring, once it is installed. `undefined` where nothing is captured. */
   let logs: LogRing | undefined;
@@ -899,6 +906,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     }
     // the handler's own failure goes first, as the one that ended the app, and
     // after the steps above so that it is written to a screen that is back
+    thrown.unshift(...stopFailures);
     if (handlerFailure !== undefined) {
       thrown.unshift(handlerFailure.error);
     }
@@ -1049,7 +1057,15 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       inputFailed = true;
       handlerFailure = { error };
       app.exit(EXIT_FAILED);
-      router.stop();
+      // `stop()` runs the `onEnd()` handlers and raises what they threw, and an
+      // `onError` that throws is not caught again -- it would leave the data
+      // listener as an uncaught exception, on the alternate screen. Kept and
+      // reported once the screen is back, after the handler's own failure
+      try {
+        router.stop();
+      } catch (error) {
+        stopFailures.push(...(error instanceof AggregateError ? error.errors : [error]));
+      }
     },
     paste: opts.paste,
     root: host,
@@ -1087,6 +1103,14 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       return;
     }
     inputFailed = true;
+    // told from inside the `stop()` a failed handler's `onError` called, for a
+    // stream that failed in the same read: kept with what that `stop()` threw, so
+    // that it is said once the screen is back and after the failure that ended
+    // the app, rather than to a custom `onError` over the alternate screen
+    if (handlerFailure !== undefined) {
+      stopFailures.push(error);
+      return;
+    }
     report(error);
     app.exit(EXIT_FAILED);
   });
