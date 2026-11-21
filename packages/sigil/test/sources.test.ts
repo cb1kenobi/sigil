@@ -1,3 +1,4 @@
+import { INVISIBLE } from './invisible.js';
 import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -165,8 +166,12 @@ function codePoint(code: number): string {
  * Hangul filler, a Khmer vowel, a combining grapheme joiner or a supplementary
  * selector. So nothing new joins `FORMAT_ALLOWED`, which is where a document
  * that has to show one would be listed.
+ *
+ * The class itself is written in `invisible.ts`, once, where
+ * `escapeControls()`'s tests read it too and the spaces -- the one thing they
+ * differ by -- are said to differ in a single place (SIG-561).
  */
-const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u2800]|(?!\u0020)\p{Zs}/gu;
+const FORMAT = INVISIBLE;
 
 /**
  * The tracked names that hold a character a reader cannot see: `FORMAT`, and a

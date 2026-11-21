@@ -1180,6 +1180,15 @@ messages.
   `test/util/escape-controls.test.ts` pins the expected set with U+2800 in it.
   Nothing else changes spelling. Covered by that file and by
   `test/parser/echoed-control-characters.test.ts`.
+- **The class the tests hold `escapeControls()` to is written once, in
+  `test/invisible.ts`** (SIG-561). The source check's `FORMAT`, the code point walk
+  and the hostile-value test each spelled it out, so widening `FORMAT` left the
+  other two passing against the old class -- which is how U+2800 got through. They
+  read `INVISIBLE` and `ESCAPED` from that file now, and the spaces, the one
+  difference, are stated there and nowhere else. It is a helper in `test/` and not
+  `UNSAFE` read from `src/`, because a test that read the code's own class would
+  compare the code with itself. Sabotaged: adding U+00B7 to the shared class fails
+  the walk with `U+B7` and nothing else, with `escapeControls()` unchanged.
 - **The backslash is not escaped.** So a value holding the literal text `\x1B`
   reads the same as one holding `ESC`. Doubling every backslash would make a
   mistyped Windows path harder to read, and what reaches the terminal is inert
