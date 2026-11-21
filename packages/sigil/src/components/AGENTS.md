@@ -12216,6 +12216,27 @@ exception per widget. This is the one answer, and every widget below follows it.
   `@ttylabs/sigil/components/overlay` because an ejected modal and the built-in menu
   have to share the **same** stack for either to stand aside for the other.
 
+- **A dialog and a menu list their own keys in the footer, and the app's are gone
+  while they are up** (SIG-374). `holdInput()` also declares the layer to the
+  router (`InputRouter.hold()`, whose rule is under "Describing a binding" in
+  `src/input`), and a layer's `describe()` is what `bindings()` then lists in
+  place of the app's entries. A modal lists Tab and Shift-Tab when it has more than
+  one thing to focus, Escape when it can be dismissed, and **Enter only when every focusable thing inside it is one of
+  its buttons**: Enter is the focused element's, and with a text field in the body
+  it is a submit or a newline, so a footer saying `enter select` there would name a
+  key that does something else. It is asked once, as the dialog opens, which is the
+  cost: a body that grows a field later keeps the line. A menu lists `↑/↓ move`,
+  `enter/space select`, `esc close`, and `←/→ menu` for a menubar's, and leaves out
+  the submenu arrows and the mnemonics rather than add catalog messages for them --
+  the rule is that nothing listed is dead, not that everything live is listed. All
+  the descriptions are existing catalog messages, so no key was added. An app that
+  wants a key of its own in the footer for a dialog's body declares it with
+  `input.describe(keys, { scope: body })`, as the git client's `ctrl-s commit`
+  does. A **prompt** on a borrowed router (`router:`) swallows every key with a
+  function binding and does not hold, so an app's footer still lists keys the
+  prompt is eating; it draws its own footer from its own table, and wiring it to
+  `hold()` is a follow-up rather than part of this change.
+
 - **The menubar: F10 and Alt-letter as fallbacks, Left and Right between titles,
   submenus, and the titles out of the ring.** F10 opens the first title on offer
   and Alt with a title's mnemonic opens that one, each as `input.fallback()`, which

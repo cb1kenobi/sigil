@@ -7272,6 +7272,15 @@ focused a footer still shows `q  quit` and pressing `q` there types it.
 read; `scope` is the element whose focus -- or whose descendants' -- makes it
 apply. [`keyHelp()`](#a-key-help-footer) is the footer built on it.
 
+A dialog or an open menu takes every key, so while one is up the app's keys are
+dead and `bindings()` stops listing them: it returns what the overlay on top
+describes about itself, then the scoped entries for elements inside it. The
+built-in `openModal()` and the menus do this on their own. An overlay of your own
+that takes every key with `input.bind(fn)` says so with `input.hold(element)`, and
+describes the keys it answers with the hold's `describe(keys, { description })`;
+`release()` hands the footer back. A key of your own inside a dialog's body is
+declared the usual way, with `input.describe(keys, { description, scope: body })`.
+
 #### The mouse
 
 Opt in, per router. Nothing is reported until you ask for it.
