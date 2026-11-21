@@ -158,6 +158,40 @@ the entry it belongs to.
   recoloured `.sigil-success` would have to be told again; this way it is one
   rule and the roles stay the only place a state has a colour.
 
+- **`MONO` draws no role as `inverse`, because `inverse` is already four other
+  things (SIG-452).** The terminal's two colours swapped is `.sigil-focus`,
+  `.sigil-badge`, `.sigil-pager-match` and `.sigil-caret`, and `MONO` drew
+  `.sigil-error` the same way -- so a crashing row in a table and the focused row
+  were the same cells, a focused error row was the focused row, and an error badge
+  was the neutral one (`inverse` over `inverse`). No rule order can undo that, since
+  both are one attribute, which is why SIG-388 recorded it as a limit. The fix is in
+  the theme and not in the focus: the focus is the terminal's own two colours under
+  every palette and is the one declaration a caret, a tab label and a title all
+  share, so a `MONO`-only focus would have changed every control that shows one to fix one role.
+  The error is `bold: true; italic: true` instead. Chosen against the whole
+  table rather than for itself: `bold` is accent and success, `underline` is warn
+  and half of heading, `italic` is info and `dim` is muted, so bold italic is the
+  one combination nothing else in `MONO` says, and as a badge (`inverse` over it)
+  it stays apart from all four other variants and the neutral one -- as a
+  standalone badge. The limits are the attribute model's, and they are recorded
+  rather than mechanised. Every text attribute inherits, and bold italic is the
+  union of accent or success (bold) and info (italic), so **inside an error row**
+  an accent, success or info cell reads as the error, and a success, info or
+  neutral badge as an error badge; only warn and heading, which underline, differ.
+  `inverse` had been orthogonal to all of them, which is the price of moving off
+  it. A **disabled** error row keeps `dim`, because the error is the `bold` longhand
+  rather than `font-weight: bold`, which resets `dim`. And a terminal with no
+  italic draws the error as bold, which is success and accent: there an error
+  badge matches a success one, and nothing here detects italic support. Accent
+  and success are both bold, which is old and is not this entry's.
+  `should draw no role as inverse`, `should draw an error differently from every
+  other role and from the focus` and `should keep an error badge apart` and
+  `should keep a disabled error dim` in `test/themes.test.ts` hold the table, and `should tell a hot row, the focused row
+  and a focused hot row apart under MONO` in `test/components/data-table.test.ts`
+  holds the painted cells. It adds no exception to the framework sheet, so the
+  thirteen are unchanged: a theme is a value for the roles and `MONO` still sets
+  all seven.
+
 - **The toolchain has no sheet of its own, and deleting it fixed a bug rather than
   tidying one.** `TOOLCHAIN_CSS` was seven declarations under a `cli-` prefix at
   origin `app`, on the argument that the toolchain is an app and has no business

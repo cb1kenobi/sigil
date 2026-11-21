@@ -12068,9 +12068,9 @@ exception per widget. This is the one answer, and every widget below follows it.
 - **The shipped themes leave it alone.** A theme is a palette, and the focus is
   the terminal's own two colours swapped, which is the same under every palette:
   `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
-  eighth comes from the framework sheet under all of them. One overlap is known
-  and left: `MONO` draws `.sigil-error` as `inverse`, so under `MONO` a focused
-  part and an error look alike.
+  eighth comes from the framework sheet under all of them. `MONO` used to overlap
+  it -- it drew `.sigil-error` as `inverse` -- and does not since SIG-452: the
+  error is bold italic there, so a focused part and an error are told apart.
 - **At colour level 0 a focus is content, in a blank the control already reserves,
   drawn at every level.** Degradation drops `inverse` with every attribute, so a
   role says nothing there. The precedents are the modal's `[ Yes ]` against
@@ -13495,10 +13495,14 @@ the probes and the sabotage pass are in
   0 a row class draws nothing -- the picture is a table without one -- and the
   pointer says which row is current, as it always did there. Both are tests.
 
-  Two limits, written down rather than mechanised. **`MONO` spells `.sigil-error`
-  as `inverse`**, the focus's declaration, and inverse on inverse is still inverse,
-  so there a crashing row looks like the focused one and the pointer is what tells
-  them apart -- a theme's choice that no rule order can undo. And a **disabled row that is also given a
+  `MONO` used to spell `.sigil-error` as `inverse`, the focus's declaration, so a
+  crashing row looked like the focused one and the pointer was what told them
+  apart -- recorded here as a limit no rule order could undo, until SIG-452 settled
+  it in the theme. `MONO`'s error is bold italic, the one pair none of its other
+  roles says, so the hot row, the focused row and the focused hot row are three
+  looks in the painted cells (`should tell a hot row, the focused row and a
+  focused hot row apart under MONO`). One limit is left, written down rather than
+  mechanised: a **disabled row that is also given a
   role** carries two roles, which is the case the framework sheet's comment warns
   about: where a theme gives both `sigil-muted` and the role a colour, that
   sheet's source order decides. An app that wants a disabled row muted returns no
