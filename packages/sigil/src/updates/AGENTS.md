@@ -168,7 +168,8 @@ the entry it belongs to.
     `checkedPath()` that `customChecker()` calls, with `strict: false`. One
     definition of each rule and two strengths of it, rather than a second copy
     that can drift. A refusal is the message `customChecker()` gives for what the
-    two share, minus the word "fragment" where a fragment is allowed.
+    two share, with two words changed where the rule is looser: no "fragment"
+    in a URL's, and "keys" for "non-empty strings" in a path's.
 
     Which rules is the decision, and the measure is whether the request worked:
     every case was run against `https.get()` before it was refused.
@@ -178,10 +179,15 @@ the entry it belongs to.
       name that is not a token and a value holding CR, LF, NUL or a character
       past U+00FF (`ERR_INVALID_CHAR`, `ERR_INVALID_HTTP_TOKEN`) -- the rule is
       **Node's**, so the C1 controls U+0080 to U+009F stay allowed here although
-      `customChecker()` refuses them; a `path` that is not a list or has nothing
-      in it, which reads the whole body and answers `undefined` for ever; and a
-      header value that is not a string, or `headers` that is not an object, which
-      the type already forbids.
+      `customChecker()` refuses them, and so do a number, a boolean, `null` or a
+      list of those as a value, `null` headers and a class instance as the
+      headers, all of which Node sends and none of which the type allows; a
+      `path` that is not a list or has nothing in it, which reads the whole body
+      and answers `undefined` for ever; a header value Node refuses outright
+      (`undefined`, an object); and `headers` that is not an object. Two things
+      outside the type that did work are refused with those, deliberately and for
+      want of a reason to carry them: `headers` given in Node's array-of-pairs
+      form, and a `URL` object where `url` is a string (it coerced).
     - **Refused although it works: credentials in the URL.** `https://u:p@h/x`
       is requested, with a `Basic` header, and is refused anyway. It is the one
       rule here that turns a working checker into a throw, and it is a security
@@ -193,8 +199,9 @@ the entry it belongs to.
       is made), an upper-case scheme or a leading space (the in-process fetch takes
       both; the _spawned_ worker's `startsWith('https:')` does not, which is a
       failure that was already there and is left), an empty or whitespace key in
-      `path`, a `prefix` of `''` or one that starts with whitespace, and a C1
-      control in a header value. Each works today, so refusing it would be a
+      `path`, a `prefix` of `''` or one that starts with whitespace (which can
+      never match, and is harmless: `VERSION_RE` reads a leading `v` anyway), and a
+      C1 control in a header value. Each works today, so refusing it would be a
       throw for an app with a checker that was doing its job. `customChecker()` is
       still the way to have them refused, and `sigil.json`'s `custom` check
       still goes through it.

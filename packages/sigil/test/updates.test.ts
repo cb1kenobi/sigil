@@ -1119,8 +1119,14 @@ describe('updates', () => {
       }
       expect(refusal({ ...good, headers: { 'bad name': secret } })).to.contain('HTTP token');
       expect(refusal({ ...good, headers: { 'bad name': secret } })).to.not.contain(secret);
+      // and what Node refuses whatever it is: no value, a nested object
+      expect(refusal({ ...good, headers: { a: undefined } })).to.contain('must be a string');
+      expect(refusal({ ...good, headers: { a: {} } })).to.contain('must be a string');
+      expect(refusal({ ...good, headers: { a: [`${secret}\n`] } })).to.not.contain(secret);
+      expect(refusal({ ...good, headers: { a: ['ok', `${secret}\n`] } })).to.contain(
+        'must not contain a control character'
+      );
       expect(refusal({ ...good, headers: 'x' })).to.contain('must be an object');
-      expect(refusal({ ...good, headers: null })).to.contain('must be an object');
       expect(refusal({ ...good, headers: [secret] })).to.contain('must be an object');
     });
 
@@ -1171,6 +1177,15 @@ describe('updates', () => {
         { ...good, prefix: ' v' },
         { ...good, path: [''] },
         { ...good, headers: {} },
+        { ...good, headers: null },
+        // Node sends each of these, and each survives the trip to the worker as JSON
+        { ...good, headers: { 'x-n': 2, 'x-b': true, 'x-null': null, 'x-list': ['a', 'b'] } },
+        {
+          ...good,
+          headers: new (class Headers {
+            accept = 'application/json';
+          })(),
+        },
         { ...good, headers: { 'x-c1': 'a\u0085b', 'x-latin': 'caf\u00e9', 'x-tab': 'a\tb' } },
         { ...good, type: 'anything at all' },
       ]) {
@@ -1199,6 +1214,21 @@ describe('updates', () => {
         await expect(
           check({ cacheDir, checker, packageName: 'a', packageVersion: '1.0.0', wait: true })
         ).rejects.toThrow(TypeError);
+      }
+    });
+
+    it('should refuse a baked checker too, where it is handed to check()', async () => {
+      const cacheDir = await generateTmpDir();
+      vi.stubGlobal(
+        '__SIGIL_UPDATE_CHECK__',
+        JSON.stringify({ checker: { ...good, headers: { a: 'x\ny' } } })
+      );
+      try {
+        await expect(
+          check({ cacheDir, packageName: 'a', packageVersion: '1.0.0', wait: true })
+        ).rejects.toThrow('header "a" must not contain a control character');
+      } finally {
+        vi.unstubAllGlobals();
       }
     });
 

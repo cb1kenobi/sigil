@@ -478,8 +478,8 @@ const sentHeaderValueRE = /^[\t\u0020-\u007e\u0080-\u00ff]*$/;
  *
  * @param headers - What was given.
  * @param strict - `false` for a checker written by hand, which is refused only what
- * Node's `https.get()` refuses to send: a value may hold a C1 control, and the headers
- * may be an instance of a class.
+ * Node's `https.get()` refuses to send: a value may hold a C1 control, be a number, a
+ * boolean, `null` or a list of those, and the headers may be an instance of a class.
  */
 function checkedHeaders(headers: unknown, strict = true): Record<string, string> {
   const proto: unknown =
@@ -499,15 +499,23 @@ function checkedHeaders(headers: unknown, strict = true): Record<string, string>
         `Update check header name must be an HTTP token, got "${escapeControls(name)}"`
       );
     }
-    if (typeof value !== 'string') {
+    // a string, which is what the type says. Node also sends a number, a boolean,
+    // `null` and a list of those, and each survives the trip to the worker as
+    // JSON, so a checker written by hand that has one keeps it; `undefined`, an
+    // object, a function and a symbol are what it refuses
+    const sendable = (v: unknown): boolean =>
+      typeof v === 'string' ||
+      (!strict && (typeof v === 'number' || typeof v === 'boolean' || v === null));
+    const values = !strict && Array.isArray(value) ? (value as unknown[]) : [value];
+    if (!values.every(sendable)) {
       throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof value}`);
     }
-    if (!valueRE.test(value)) {
+    if (!values.every((v) => valueRE.test(String(v)))) {
       throw new TypeError(
         `Update check header "${name}" must not contain a control character or a character past U+00FF`
       );
     }
-    checked.push([name, value]);
+    checked.push([name, value as string]);
   }
   // `fromEntries()` defines each property, where assigning `checked['__proto__']`
   // sets the prototype and drops a header the name test accepted
@@ -619,7 +627,7 @@ export function checkedChecker(checker: unknown): UpdateChecker {
   const { headers, path, url } = checker as Record<string, unknown>;
   checkedURL(url, 'url', 'endpoint', false);
   checkedPath(path, false);
-  if (headers !== undefined) {
+  if (headers !== undefined && headers !== null) {
     checkedHeaders(headers, false);
   }
   return checker as UpdateChecker;
