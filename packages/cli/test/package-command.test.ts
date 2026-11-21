@@ -58,7 +58,7 @@ vi.mock('@ttylabs/sigil/paths', async (original) => {
 
 /**
  * The two places a test of an error path reaches into the mocks, both unset
- * unless a test sets them and put back by the test that did (SIG-554).
+ * unless a test sets them and put back by that block's `afterEach` (SIG-554).
  *
  * `cacheRoot` replaces the empty cache above with a path a test chose, which is
  * how a cache that cannot be created is provoked without touching the
@@ -481,6 +481,8 @@ describe('sigil package', () => {
       const file = join(out, `cache-${hostile}`);
       writeFileSync(file, 'not a directory');
       seams.cacheRoot = file;
+      // nothing here may reach a registry; `withBun()` puts it back
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
 
       const { err } = await withBun(stubBun(), () =>
         sigil(
@@ -505,6 +507,8 @@ describe('sigil package', () => {
       const file = join(out, `cache-${hostile}`);
       writeFileSync(file, 'not a directory');
       seams.cacheRoot = file;
+      // nothing here may reach a registry; `withBun()` puts it back
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
 
       const { err } = await withBun(stubBun(), () =>
         sigil(
