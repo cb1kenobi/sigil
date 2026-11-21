@@ -105,9 +105,12 @@ What `check` does **not** do, so only `build` or `package` finds it:
 
 - It does not bundle, so an import that cannot be resolved (a package that is
   not installed, say) is a `build` error and not a `check` one.
-- It does not know how the build will be run, so a `build.out` that would empty
-  the app's own source (`"out": "src"`) is refused by `build`, and `package`'s
-  refusal of a non-empty `build.external` is `package`'s.
+- It does not know how the build will be run. A `build.out` that would empty
+  the app's own source (`"out": "src"`, or `"."`) is an error from `check`,
+  judged as `build` would with no flags: so a `"out": "."` that you only ever
+  build with `--no-clean` is still reported, and an `--out` given on the command
+  line is not seen. A module only the bundle reads, inside `out`, is `build`'s
+  to refuse, and so is `package`'s refusal of a non-empty `build.external`.
 
 ### Rules the toolchain enforces
 
