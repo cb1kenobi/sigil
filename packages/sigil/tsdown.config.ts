@@ -22,6 +22,16 @@ import { defineConfig, type UserConfig } from 'tsdown';
  * terminal. Asserted by `should ship no raw control character` in
  * `packages/cli/test/cli.test.ts`, which reads every package's `dist/`, because
  * a build that quietly stops doing this looks exactly like one that does.
+ *
+ * `\xNN` is the same *cooked* string and not the same `.raw`, so a raw control
+ * character inside a tagged template would be rewritten into something a tag
+ * reading `strings.raw` sees differently -- and the toolchain's copy of this
+ * pass, in `packages/cli/src/build/escape-chunks.ts`, refuses a build rather
+ * than do that, and moves the sourcemap with the columns it widens (SIG-394).
+ * This copy needs neither: it writes no sourcemap, and `sources.test.ts` holds
+ * this package's sources free of a raw control character, which the minifier
+ * never folds into a quasi a tag reads. So there is nothing here for either to
+ * act on, and a mechanism with nothing to act on is not added.
  */
 /**
  * Every control character, as a property rather than as a range.
