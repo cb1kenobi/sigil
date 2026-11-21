@@ -138,11 +138,11 @@ the entry it belongs to.
     `/latest/` and `/latest` are different resources. A **fragment** is refused
     for both: no request carries one, so a URL that depends on it is a URL that
     does not mean what its author thinks.
-  - **`redact()` still cuts at the first `?`, so a refusal of an endpoint hides
-    its query.** A token in a query is a secret and the message is for a
-    terminal and a log, so the echo says `https://h/x?***`; the cost is that a
-    legitimate `?channel=stable` is hidden in a refusal, a message losing detail
-    rather than a log gaining a secret -- the trade `redact()` already records.
+  - **`redact()` hid the whole query of an endpoint, until SIG-556.** A token in
+    a query is a secret and the message is for a terminal and a log, so the echo
+    said `https://h/x?***`, at the cost of hiding a legitimate `?channel=stable`.
+    It quotes the names now and hides the values; see the entry below. A root still
+    hides everything from the `?`.
   - **`path` is checked too: a non-empty array of non-empty strings.** An empty
     path reads the whole body, which `versionFrom()` rejects as not a string, and
     a key that is not a string is looked up as whatever it coerces to; either is a
@@ -173,6 +173,80 @@ the entry it belongs to.
     builder and reads it back, so a reworded builder fails there rather than
     quietly going back to naming `registryURL`. Code that calls `npmChecker()`
     directly still sees `registryURL`.
+
+- **`customChecker()` takes `headers` and a `prefix`, and `sigil.json` takes
+  only the second (SIG-555).** An `UpdateChecker` has carried both from the
+  start, and a custom endpoint that needs an `Authorization` token or answers
+  `v1.2.3` had to be written as a literal `{ type: 'custom', ... }`, which is
+  never validated. The decisions:
+
+  - **A header name is an HTTP token and a value holds no control character,
+    and the message quotes the name and never the value.** A value is often a
+    credential and a message goes to a terminal and a log, so a refusal says
+    `header "Authorization" must not contain a control character` and nothing
+    of what was in it. A name that is not a token is quoted (escaped), since it
+    is the thing that is wrong and a name is not where a secret goes; the
+    object itself is never echoed, for the reason `path`'s message cannot
+    serialize its own value. The headers travel in the worker's environment
+    (`CHECK_HEADERS`), the transport the credentials entry above gives as the
+    reason a URL may not carry one: a header is where a token belongs, not a
+    place it is hidden from a process that can read the environment. Duplicate names that differ in case are **not**
+    refused: Node sends the last, which is a surprise and not a failure.
+  - **The rule is a regular expression and a test holds it to Node's.**
+    `http.validateHeaderName()` and `validateHeaderValue()` are what would fail
+    at send time, and they would make this module load `node:http` -- on a
+    path the compiled app takes at start-up -- for two regular expressions. So
+    the rules are written out (`headerNameRE`, `headerValueRE`) and `updates.test.ts`
+    compares them to Node over every code point below U+0300. One difference
+    is deliberate and pinned: U+0080 to U+009F, the C1 controls, which Node
+    lets through and this refuses, so the rule is the repository's `\p{Cc}`
+    (less the tab, which a header value may hold) and not a second one.
+  - **`prefix` is a non-empty string, where `githubChecker()`'s may be empty.**
+    There an empty prefix means "keep the tag" because the default is `v`;
+    here the default is no prefix, so `''` says what leaving it out says and is
+    refused rather than accepted as a second spelling of it. It also may not
+    start with whitespace or hold a control character: `versionFrom()` trims the
+    version before it looks for the prefix, so a leading space is one that never
+    matches, which is the silent miss the builder exists to refuse.
+  - **`sigil.json` takes `prefix` and not `headers`.** The prefix is a small
+    change and names a version's spelling. A header is a credential in a file
+    that is committed, so it is code only, and a `headers` key in the file is
+    ignored like any unknown one. The README says so.
+
+- **A refusal of an endpoint shows its query's names and never its values
+  (SIG-556), and an `@` in a query was a leak.** `redact()` hid everything from
+  the first `?` for every kind of URL, which is right for a root that may carry
+  no query and hid the one thing a reader needed for an endpoint: `?channel=stable`
+  read as `?***`. For an endpoint it now quotes each parameter name with `***`
+  for its value (`?channel=***&token=***`), after the credential cut, so the cut
+  order SIG-544 settled is untouched. It is split by hand on `&` and the first
+  `=`, because the value is one the parser refused. The decisions:
+
+  - **A name is quoted only if a `=` follows it and it is a short plain
+    identifier; anything else is `***`.** The first version quoted every name
+    up to 32 characters and a bare `?hunter2` as itself, and round 1 measured
+    what that put back: the old rule hid `?0123456789abcdef0123456789abcdef`,
+    `?token%3Dhunter2`, `??hunter2` and `?{"token":"hunter2"}`, and the first
+    version printed each. `[A-Za-z0-9_.\-[\]]{1,24}` is what `channel`,
+    `api_key` and `filter[type]` look like and what a pasted token does not. An
+    parameter with nothing but `=` after its first one is bare too, because a
+    base64 token's padding is exactly that (`?c2VjcmV0LXRva2Vu==`, which round 2
+    found printed whole), at the cost of `?a=` printing `***`. An
+    empty parameter (`&&`) is dropped, only `&` separates (a `;` and its tail are
+    part of a value), and a list past 8 is cut. A 24-character identifier can
+    still be a token, which is the price of showing names at all.
+  - **Nothing past an `@` is quoted as a query.** Cutting the `@` first
+    removed the `?` along with everything before it, and what was left of a query
+    behind an `@` was echoed whole: `ftp://h/x?email=a@b&token=hunter2` printed
+    `***@b&token=hunter2`, in both kinds, and had since the cut was written.
+    Where an `@` was cut, what remains is now cut at its first `?`, `#`, `&` or
+    `=` as well, so it prints `***@b&***`. A credential-free URL keeps its names.
+    What stays visible is the part of a value that follows an `@` and precedes
+    any `&` or `=` -- the domain of an email address, and the same fragment of a
+    password that held an `@` -- which is the existing price of cutting by
+    character.
+  - **A root is unchanged.** `kind` is what separates them, as it does in
+    `checkedURL()`.
 
 - **The cache filename was a collision, not a broken write.** Worth saying plainly,
   because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
