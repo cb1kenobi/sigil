@@ -336,7 +336,10 @@ checker built elsewhere and passed in by name is not seen.
 `type` is required and is one of `npm` (with `package`, `distTag`, `registry`),
 `github` (with `repo`, as `owner/name` in the characters GitHub allows, and an optional tag `prefix`, which defaults to `v` and is
 stripped), `custom` (with a `url` and the `path` of keys the version sits under
-in the JSON it returns), or `none`. `none` is a declaration rather than an
+in the JSON it returns), or `none`. A `custom` `url` is an absolute `https://`
+URL with a host and no credentials or fragment, and may carry a query; a
+`registry` is the same without the query. Each is refused by `check`, `build`
+and `package`, naming the key. `none` is a declaration rather than an
 absence: it is how an app says it checks nothing, and also how one that passes
 its own `checker` to `check()` says it has handled it, since a checker passed in
 code beats whatever is declared here.
