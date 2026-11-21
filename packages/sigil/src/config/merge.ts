@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { deletePath, isPlainObject, isUnsafeKey, readPath, segments, writePath } from './dotted.js';
 
 /**
@@ -126,7 +127,7 @@ function copyInto(value: unknown, where: string, seen: WeakSet<object>, nulls: b
 
   if (structure) {
     if (seen.has(value as object)) {
-      throw new Error(`A config value in ${where} refers back to itself`);
+      throw new Error(`A config value in ${escapeControls(where)} refers back to itself`);
     }
     seen.add(value as object);
   }
@@ -147,7 +148,7 @@ function copyInto(value: unknown, where: string, seen: WeakSet<object>, nulls: b
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(value)) {
       if (isUnsafeKey(key)) {
-        throw new Error(__`Unsafe config key "${key}" in ${where}`);
+        throw new Error(__`Unsafe config key "${escapeControls(key)}" in ${escapeControls(where)}`);
       }
       // `undefined` beside `null`, because neither is a value: left in, a key
       // whose value is `undefined` is one `Object.keys()` reports and `has()`
@@ -426,7 +427,9 @@ export function overlay(
   // stop. One test covers both spellings and is cross-realm, where
   // `instanceof String` is not
   if (Object.prototype.toString.call(paths) === '[object String]') {
-    throw new TypeError(`Config paths must be a list of paths, not the string "${String(paths)}"`);
+    throw new TypeError(
+      `Config paths must be a list of paths, not the string "${escapeControls(paths)}"`
+    );
   }
 
   for (const path of paths) {
@@ -471,7 +474,9 @@ export function overlay(
       // the answer either: it would drop a `null` the file holds for a key
       // nobody claimed, and `editJsonc` would then remove it
       if (at !== undefined && at !== null && !isPlainObject(at)) {
-        throw new Error(__`"${parts.slice(0, i + 1).join('.')}" in ${where} is not an object`);
+        throw new Error(
+          __`"${escapeControls(parts.slice(0, i + 1).join('.'))}" in ${escapeControls(where)} is not an object`
+        );
       }
     }
 

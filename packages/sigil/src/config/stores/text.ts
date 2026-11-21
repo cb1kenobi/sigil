@@ -215,9 +215,9 @@ export function claim(
     return value;
   }
 
-  // the file is named in what `overlay()` refuses, and the name is the app's
-  // root as it is on disk
-  overlay(theirs, value, paths, escapeControls(source));
+  // the file is named in what `overlay()` refuses, and `overlay()` escapes the
+  // name where it builds the message -- the app's root as it is on disk
+  overlay(theirs, value, paths, source);
   return theirs;
 }
 

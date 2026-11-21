@@ -5,7 +5,12 @@
  * a translated one is a bug report in a language the maintainer cannot read.
  * Everything a user's *file* can provoke is translated, which is `merge.ts`'s
  * unsafe-key refusal and every message in `jsonc.ts`.
+ *
+ * Escaped all the same, because the app's path is often the user's: a
+ * `config set <path> <value>` command hands argv straight to a mutator, and a
+ * message that echoes the path raw puts what was typed on the terminal (SIG-558).
  */
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * The three keys a dotted path may not name.
@@ -60,10 +65,12 @@ export function segments(path: string | undefined): string[] {
 
   for (const part of parts) {
     if (!part) {
-      throw new Error(`Invalid config path "${path}": it has an empty segment`);
+      throw new Error(`Invalid config path "${escapeControls(path)}": it has an empty segment`);
     }
     if (isUnsafeKey(part)) {
-      throw new Error(`Invalid config path "${path}": "${part}" is not a safe key`);
+      throw new Error(
+        `Invalid config path "${escapeControls(path)}": "${escapeControls(part)}" is not a safe key`
+      );
     }
   }
 

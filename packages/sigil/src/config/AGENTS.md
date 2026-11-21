@@ -1736,10 +1736,8 @@ failed to close.
 - **What is not done.** A write that fails inside `atomic.ts` rethrows Node's own
   error, whose message quotes the path it failed on, unescaped; the write half of
   an app's root is never the toolchain's to quote, and wrapping every `catch` is
-  a change to what every store throws. A message that names a **layer** is
-  the app's own string: `config.ts` and `schema.ts` print `layer.name` raw, and
-  the toolchain's is `sigil.json`, but an app that names a layer after its path
-  has chosen what it prints. The text a message quotes **from inside** a
+  a change to what every store throws. The layer name and the key path were
+  left here as the app's own strings, and are closed by the entry below. The text a message quotes **from inside** a
   file -- a YAML tag, an XML element name -- is the file's content rather than its
   path, and is escaped where that is already the case and left where it is not.
 
@@ -1756,6 +1754,49 @@ failed to close.
   reaches the message: the symlink-loop tripwire in `atomic.ts`, the XML store's
   `it has no root element` and its collected-errors `Failed to parse` (the parser
   throws first), and the first line of what the YAML `toJS()` threw.
+
+#### A config message escapes every value it echoes (SIG-558)
+
+- **The key path and the layer name are not the app's own, so they are escaped
+  like the file path was.** SIG-551 left `layer.name` raw on the reading that an
+  app names its layers, and left the key path alone because nobody had asked about
+  it. Both are argv in the shape an app actually has: `config set <path> <value>`
+  hands what was typed to `set()`, and a layer named after its file or taken from
+  the command line is a string somebody else chose. So `"${path}" in ${layer.name}
+  is not a list` printed whatever the user wrote, which is the SIG-412 class
+  exactly. **The rule is one sentence: a config error message escapes every value
+  it echoes** -- a key path, a prefix of one, a layer name, a setting path, a
+  setting's declared type, the kind and detail of a loss, what a store's
+  `canRepresent()` answered -- with `escapeControls()` inside the placeholder where
+  the message is built, so a `__` key is the same string it was.
+
+- **Every site, in four files.** `config.ts` (the mutators' refusals, the layer
+  lookup and the names it lists, `save()`'s, `apply()`'s, the layer declaration
+  checks, the unrepresentable value, the read-only `delete()` and the losses), `dotted.ts`
+  (an invalid path, which is what the mutators call first), `merge.ts`
+  (`overlay()` and `copyValue()` escape the `where` they are handed, so a caller
+  hands over a raw name and the escape is one place rather than each caller's), and
+  `schema.ts` (six `Setting "${path}"` refusals, the type, and `settingLabel()`,
+  which is the one spelling of `setting "${path}"` that six sites used to write). `atPath()` in
+  `represent.ts` escapes the dotted path it appends, which is built from a value's
+  own keys and is what every store's `canRepresent()` returns. Escaping is
+  idempotent -- the output holds no character it escapes -- so a message that
+  passes through two of these is not doubled, and `claim()` no longer escapes
+  `source` itself because `overlay()` does.
+
+- **What stays unescaped is not a value.** `Cannot ${what} without a path` is the
+  mutator's own name, and the message text that comes back from `checkValue()` in
+  `Invalid value for ...` is the parser's and escapes what it echoes where it is
+  thrown.
+
+- **Tested by `test/config/message-escape.test.ts`**, in memory with no file
+  system name in it, so it runs on every platform: a key path through `set()`,
+  `push()`, `unshift()`, `pop()`, `shift()`, `overlay()` and `atPath()`; a layer
+  name through a duplicate, an unknown layer and the names listed beside it,
+  `apply()`, `save()`, a read-only write and `delete()`, an unrepresentable value
+  and a loss; a setting path through every `readSchema()` refusal and the two
+  value refusals. Sabotaged by reverting the source and leaving the tests: all 35
+  fail.
 
 #### What the write half costs
 
