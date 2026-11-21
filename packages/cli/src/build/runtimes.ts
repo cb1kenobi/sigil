@@ -1462,7 +1462,8 @@ export interface Choice {
  * because the row's value is `<runtime>@<version>` and `parseSpec()` refuses
  * anything else -- and its label is drawn, so a control character in it is
  * garbled by the canvas. A runtime on `PATH` whose version is not a release (a
- * canary, `1.3.0-canary.5+abc`) is therefore not a versioned row: it is one
+ * Node `v27.0.0-rc.1`, or a wrapper printing something else) is therefore not a
+ * versioned row: it is one
  * bare-name row, `bun`, which is what `--runtime bun` already resolves to --
  * the one on `PATH` -- with the version shown escaped in its label. For Node it
  * is offered only when `canBuildSea()` says it can package itself, which is the
@@ -1505,7 +1506,7 @@ export function choices(
       const lts = releases[runtime].find((one) => one.version === version)?.lts;
       const how = here.get(version)?.how;
       const notes = [
-        lts ? `LTS ${lts}` : undefined,
+        lts ? `LTS ${escapeControls(String(lts))}` : undefined,
         how === 'path' ? 'installed' : how === 'cache' ? 'cached' : undefined,
       ].filter((one): one is string => one !== undefined);
 

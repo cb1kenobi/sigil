@@ -4973,8 +4973,12 @@ about what a valid app is would be the worse half of the feature.
   test every source of a version goes through, and three sources went around it:
   what the runtime on `PATH` printed for `--version`, the directory names in
   sigil's own cache, and the ones in Bun's. A row is `<runtime>@<version>`, which
-  `parseSpec()` refuses for a canary like `1.3.0-canary.5+abc`, and its label is
-  drawn, so a control character in it is garbled by the canvas. The cache names
+  `parseSpec()` refuses for anything else, such as a Node `v27.0.0-rc.1` or a
+  wrapper printing its own banner, and its label is drawn, so a control
+  character in it is garbled by the canvas. (A Bun canary prints its release
+  number for `--version` and only `--revision` says `-canary`, so it reaches the
+  picker as an ordinary row.) The registry's LTS codename is escaped in its label
+  for the same reason. The cache names
   are left out of `local()`: nothing legitimate is named otherwise, and a
   directory name is a string somebody else chose. `choices()` asks again of
   every version it is handed, since it is a pure function of lists and a row's

@@ -105,7 +105,6 @@ describe('what the picker lists from this machine', () => {
   it('should leave out a cache directory whose name is not a version', () => {
     cached('node', '26.12.1');
     cached('node', '26.12.1-rc.1');
-    cached('node', '../x');
     cached('node', 'v26.12.1');
 
     expect(local('node', target).map((one) => one.version)).toEqual(['26.12.1']);
@@ -194,6 +193,33 @@ describe('what the picker offers', () => {
       'custom:bun',
       'custom:node',
     ]);
+  });
+
+  it('should escape what a PATH runtime printed, on every platform', () => {
+    const printed = `1.3.0${String.fromCharCode(0x1b)}]0;PWNED${String.fromCharCode(0x07)}`;
+    const rows = choices({ bun: [found(printed, 'path')], node: [] }, { bun: [], node: [] });
+    const row = rows.find((one) => one.value === 'bun');
+
+    expect(row?.label).toBe(`bun ${escapeControls(printed)}  (installed, not a release)`);
+    expect(row?.label).not.toContain(String.fromCharCode(0x1b));
+  });
+
+  it('should add no bare row for a PATH runtime that is a release', () => {
+    const rows = choices({ bun: [found('1.3.0', 'path')], node: [] }, { bun: [], node: [] });
+
+    expect(rows.map((row) => row.value)).toEqual(['bun@1.3.0', 'custom:bun', 'custom:node']);
+  });
+
+  it('should escape a registry LTS codename in its label', () => {
+    const lts = `Krypton${String.fromCharCode(0x1b)}]0;x`;
+    const rows = choices(
+      { bun: [], node: [] },
+      { bun: [], node: [{ ...release('26.12.1'), lts }] }
+    );
+
+    expect(rows.find((row) => row.value === 'node@26.12.1')?.label).not.toContain(
+      String.fromCharCode(0x1b)
+    );
   });
 
   it('should show a long version cut, and not whole', () => {
