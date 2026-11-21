@@ -36,7 +36,7 @@ import {
 } from '../input/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
-import { controlState } from './control.js';
+import { controlState, type Written } from './control.js';
 import { type DescribeListViewOptions, describedHosts } from './key-help.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -61,7 +61,7 @@ export interface ListSelectionOptions<K> {
    * moves write it. Left out, or `undefined`, the cursor starts on the first row
    * that is not disabled.
    */
-  current?: K | State<K | undefined>;
+  current?: Written<K> | State<K | undefined>;
   /**
    * What the cursor stays with when the rows change under it. `true`, the default,
    * keeps it on its row's key wherever that row moves -- a re-sort carries the
@@ -493,7 +493,7 @@ export interface ListViewProps<T, K = T> {
    * The current row, as its key, or the state that holds it, never a `Computed`:
    * see {@link ListSelectionOptions.current}.
    */
-  current?: K | State<K | undefined>;
+  current?: Written<K> | State<K | undefined>;
   /**
    * Whether an item's row is disabled: drawn muted, passed over by the cursor, not
    * clicked, and never selected by a key or a click.

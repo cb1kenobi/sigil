@@ -122,7 +122,7 @@ describe('hasIntroducer()', () => {
     for (let code = 0x80; code <= 0x9f; code++) {
       expect(hasIntroducer(`a${String.fromCharCode(code)}b`), code.toString(16)).toBe(true);
     }
-    expect(hasIntroducer(' ')).toBe(false);
+    expect(hasIntroducer('\u00A0')).toBe(false);
   });
 
   // what it is for: a whole string can hold no sequence while a slice of it

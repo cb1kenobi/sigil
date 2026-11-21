@@ -458,6 +458,28 @@ export interface BindingInfo {
   readonly scope: Element | undefined;
 }
 
+/**
+ * An overlay that has taken every key, as {@link InputRouter.hold} hands it back.
+ *
+ * What a dialog or an open menu is to the router: something whose own binding
+ * answers each key first and stops it, so the keys the app registered are dead
+ * for as long as it is up. The router does not dispatch for it -- the overlay's
+ * own function binding does that -- and this is how the footer is told which keys
+ * are live instead.
+ */
+export interface KeyHold {
+  /**
+   * Lists a key this overlay answers itself, and only while it holds the keys.
+   *
+   * @param keys - The key or sequence, as a spec.
+   * @param help - What to list it as.
+   * @returns Removes the listing.
+   */
+  describe(keys: string, help: BindingHelp): () => void;
+  /** Ends the hold, and the listings with it. Doing it twice does nothing. */
+  release(): void;
+}
+
 export interface FocusRing {
   /**
    * The focused element, as a signal.
@@ -584,9 +606,29 @@ export interface InputRouter {
    * to the focus and to bindings being added or removed, which is what lets a
    * footer follow both without a second mechanism.
    *
+   * **While a {@link hold} is open it is a different list**: what the overlay on
+   * top described itself, then the scoped entries whose element is inside it. The
+   * app-wide and fallback entries are left out, because the overlay takes every
+   * key before they are reached and a footer that listed them would name keys it
+   * knows are dead -- which is not the text-field case above, where the router
+   * cannot know whether the field will take the key.
+   *
    * @returns A fresh array of frozen records.
    */
   bindings(): readonly BindingInfo[];
+  /**
+   * Declares that an overlay has taken every key, for what `bindings()` lists.
+   *
+   * Documentation, not dispatch: the overlay's own `bind(fn)` is what takes the
+   * keys, and this says so to the one reader that cannot see it. The last hold
+   * opened is the one that counts, so a menu over a dialog lists the menu's keys
+   * and the dialog's again when the menu goes.
+   *
+   * @param element - What it drew. A scoped description is still listed while it
+   *   is inside it, since an element in a dialog still gets its keys.
+   * @returns The hold.
+   */
+  hold(element: Element): KeyHold;
   /**
    * Describes a key that an element's `onKey` handles.
    *
@@ -1029,6 +1071,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const describedFallbacks = new Set<BindingInfo>();
   /** Bumped whenever either set changes, so a reader inside an effect re-runs. */
   const describedRev = new State(0);
+  /** The overlays that have taken every key, bottom first. The last one is what is listed. */
+  const holds: { element: Element; own: Set<BindingInfo> }[] = [];
 
   /**
    * Lists a binding, and hands back the way to unlist it.
@@ -2835,7 +2879,35 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
       // `sort` is stable, so registration order holds within one element
       scoped.sort((a, b) => a.at - b.at);
+      const top = holds.at(-1);
+      if (top !== undefined) {
+        // what the overlay takes every key for: its own, then what an element
+        // inside it handles, which the overlay's binding hands the key on to
+        const inside = scoped.filter((it) => it.info.scope && top.element.contains(it.info.scope));
+        return [...top.own, ...inside.map((it) => it.info)];
+      }
       return [...global, ...scoped.map((it) => it.info), ...describedFallbacks];
+    },
+
+    hold(element: Element): KeyHold {
+      const mine = { element, own: new Set<BindingInfo>() };
+      untrack(() => {
+        holds.push(mine);
+        describedRev.set(describedRev.get() + 1);
+      });
+      return {
+        describe: (keys: string, help: BindingHelp) =>
+          describe(parseKeys(keys), { ...help }, mine.own),
+        release(): void {
+          untrack(() => {
+            const index = holds.indexOf(mine);
+            if (index !== -1) {
+              holds.splice(index, 1);
+              describedRev.set(describedRev.get() + 1);
+            }
+          });
+        },
+      };
     },
 
     describe(keys: string, opts: DescribeOptions): () => void {

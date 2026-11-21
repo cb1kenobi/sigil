@@ -144,7 +144,7 @@ describe('decryptPlan()', () => {
 
   // the single detail that makes the effect work: the shape of the text stays
   // legible while not one word of it is
-  it.each([' ', '\t', ' ', '　', ' '])('should never hide %j', (space) => {
+  it.each([' ', '\t', '\u00A0', '\u3000', '\u2003'])('should never hide %j', (space) => {
     const plan = decryptPlan(`a${space}b`, { random: flat(0) });
     const cells = plan.lines[0] ?? [];
     // a tab is a space by the time the plan holds one, because the plan

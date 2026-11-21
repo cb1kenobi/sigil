@@ -248,7 +248,7 @@ describe('isSpaceCluster()', () => {
     expect(isSpaceCluster(' ')).to.equal(true);
     expect(isSpaceCluster('\t')).to.equal(true);
     expect(isSpaceCluster('\n')).to.equal(true);
-    expect(isSpaceCluster(' ')).to.equal(true);
+    expect(isSpaceCluster('\u00A0')).to.equal(true);
   });
 
   it('should be true of a CRLF, which is one cluster of two', () => {

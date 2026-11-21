@@ -92,6 +92,46 @@ export function controlState<T>(value: T | State<T>, message: string): State<T> 
 }
 
 /**
+ * Refuses a function handed as a value to start from when no option holds it.
+ *
+ * `value={() => level.get()}` is the template's spelling of a reactive prop, and
+ * on a control that writes its value it is the value itself: nothing holds it, so
+ * nothing is selected, and it is never called. A function cannot be refused by its
+ * shape -- an option's value may be one, an action to run -- so it is refused when
+ * it is not one of the options' own, which is exactly the case where it selects
+ * nothing and is therefore the mistake. A `State` holding one is the app's own
+ * statement and is not looked at.
+ *
+ * @param value - What the caller passed as the control's `value`.
+ * @param held - The value each option holds.
+ * @param message - The `TypeError` to throw.
+ * @throws If `value` is a function that none of `held` is.
+ */
+export function refuseUnheldFunction(
+  value: unknown,
+  held: readonly unknown[],
+  message: string
+): void {
+  if (typeof value === 'function' && !held.some((one) => Object.is(one, value))) {
+    throw new TypeError(message);
+  }
+}
+
+/**
+ * What a value a control writes may be, with a `Computed` taken out: `T` itself,
+ * or `never` where `T` is a `Computed`.
+ *
+ * `controlState()` refuses one at runtime, and this is the same refusal where a
+ * `tsc` can say it, so the mistake is found when the app compiles. It is written
+ * `T extends Computed<any> ? never : T`, which TypeScript does not infer
+ * through: `T` is still decided by the other props that name it, a list's items or
+ * a radio set's options, and the value is then checked against it. `Computed` has
+ * private fields, so it is told apart by what it is and an app's own object with a
+ * `get()` is not mistaken for one.
+ */
+export type Written<T> = T extends Computed<any> ? never : T;
+
+/**
  * A boolean read live: a `State`, a `Computed`, or anything else with a `get()`.
  *
  * What a control reads and never writes, which is why it is narrower than a

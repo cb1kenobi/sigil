@@ -811,6 +811,9 @@ export function createModel(): Model {
         close(true);
       }
     };
+    // while the dialog is up the footer lists its own keys and what is described
+    // inside it, which is this -- and none of the app's, which the dialog takes
+    const offHelp = input.describe('ctrl+s', { description: 'commit', priority: 4, scope: body });
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: 'Commit', value: true },
@@ -824,6 +827,7 @@ export function createModel(): Model {
     close = (yes) => dialog.close(yes);
     input.focus.focus(area);
     const answer = await dialog.result;
+    offHelp();
     built.dispose();
     if (!answer) {
       return;

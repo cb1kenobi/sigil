@@ -262,7 +262,7 @@ describe('what is drawn in a cell', () => {
       OPTS
     );
     const selected = rasterize(
-      frame(1, 1, (p) => p.text(0, 0, '#︎')),
+      frame(1, 1, (p) => p.text(0, 0, '#\uFE0E')),
       OPTS
     );
     expect(selected.data).toEqual(plain.data);

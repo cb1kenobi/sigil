@@ -2895,9 +2895,27 @@ it is a component rather than the frame effect SIG-103 is.
   one set is how they come apart. It does not split at a space that carries a
   combining mark or a joiner -- that is one cluster, and `wrap()` reads it as part
   of the word -- and `paragraph()` splits its lines at `\r?\n` as `wrap()` does,
-  since a CRLF blank line arrived as a `\r` word and drew an empty row. Markdown
-  still splits on `\s` in `components/markdown.ts` and so breaks at a no-break
-  space: SIG-441, not done here.
+  since a CRLF blank line arrived as a `\r` word and drew an empty row.
+
+  **Markdown breaks where `wrap()` does too (SIG-441).** It split a run of text on
+  `\s`, so `10&nbsp;seconds` came apart at the no-break space an author writes to
+  prevent exactly that, and the space was lost at the break. It is a registry
+  component and so cannot reach `words()`, which is private; it asks the public
+  `isBreakSpace()` of each blank instead. A blank that is not a space
+  character -- a line break, a form feed, a vertical tab, the line and paragraph
+  separators, a byte order mark -- is still a gap, as `\s` made it, so the
+  drawing never sees a control character glued into a word (`wrap()` keeps those
+  raw; markdown does not, and a lone `\r` is a gap here for the same reason);
+  every space character that `wrap()` does not break at stays in the word beside
+  it. Per blank rather than per run, because a run can
+  mix the two kinds (`' \u00a0 '` is a gap, a word made of the no-break space, and
+  a gap), which a split on `\s+` could not tell apart -- and a published separator-keeping split was
+  refused for the same reason `words()` is private: what `@ttylabs/sigil/wrap`
+  exports freezes at 1.0, and one function already answers the question. A
+  combining mark after a space is not handled: it is a gap and the mark is drawn
+  as it always was, where `wrap()` reads the two as one cluster. `should break only where wrap() does` compares markdown's rows with
+  `wrap()` byte for byte at widths of ten and up -- markdown draws no narrower, and
+  a word wider than a row is cut by each in its own way.
 
   **Only `isBreakSpace()` is public, and it has to be.** Decrypt is a registry
   component: `sigil add` copies it into an app, and `rewrite()` in
@@ -11773,6 +11791,19 @@ of 24, and 6 to 9 after. The lazy lines are measured against the same paragraph
 unquoted, about 40 times before and 2.1 after, against a limit of 10. What is left
 there is the bars, which are drawn on every line.
 
+- **The two growth tests count the layout's `measure` calls and time nothing
+  (SIG-437).** Each failed once in a loaded full-suite run, passing alone, which
+  is a wall clock reading its neighbours. What they guard is how often the layout
+  measures an element, which is a count: `measuringRatio()` wraps every element's
+  `measure` -- a leaf's, since a box has none -- and divides the calls for the large document by the calls for the
+  small one, the same on any machine. Depth 12 to 96 is 6.3 times the calls now
+  and 49.5 on the pre-SIG-423 `markdown.ts`, against a limit of 12; the lazy lines
+  are 1.01 times unquoted and were 53.5, against a limit of 2. Counting calls to
+  the width module was tried first and cannot see this: it was 7.4 times before
+  and after, because the text measure caches by width and the extra cost was in
+  the boxes above it. The parse-time `growth()` tests are left on the clock; they
+  have never failed, and a parse has no call to count.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of
@@ -12037,9 +12068,9 @@ exception per widget. This is the one answer, and every widget below follows it.
 - **The shipped themes leave it alone.** A theme is a palette, and the focus is
   the terminal's own two colours swapped, which is the same under every palette:
   `themes.test.ts`'s seven roles are the ones a palette is a value for, and the
-  eighth comes from the framework sheet under all of them. One overlap is known
-  and left: `MONO` draws `.sigil-error` as `inverse`, so under `MONO` a focused
-  part and an error look alike.
+  eighth comes from the framework sheet under all of them. `MONO` used to overlap
+  it -- it drew `.sigil-error` as `inverse` -- and does not since SIG-452: the
+  error is bold italic there, so a focused part and an error are told apart.
 - **At colour level 0 a focus is content, in a blank the control already reserves,
   drawn at every level.** Degradation drops `inverse` with every attribute, so a
   role says nothing there. The precedents are the modal's `[ Yes ]` against
@@ -12184,6 +12215,27 @@ exception per widget. This is the one answer, and every widget below follows it.
   fill, each carrying a comment saying whose it was). One definition, published at
   `@ttylabs/sigil/components/overlay` because an ejected modal and the built-in menu
   have to share the **same** stack for either to stand aside for the other.
+
+- **A dialog and a menu list their own keys in the footer, and the app's are gone
+  while they are up** (SIG-374). `holdInput()` also declares the layer to the
+  router (`InputRouter.hold()`, whose rule is under "Describing a binding" in
+  `src/input`), and a layer's `describe()` is what `bindings()` then lists in
+  place of the app's entries. A modal lists Tab and Shift-Tab when it has more than
+  one thing to focus, Escape when it can be dismissed, and **Enter only when every focusable thing inside it is one of
+  its buttons**: Enter is the focused element's, and with a text field in the body
+  it is a submit or a newline, so a footer saying `enter select` there would name a
+  key that does something else. It is asked once, as the dialog opens, which is the
+  cost: a body that grows a field later keeps the line. A menu lists `↑/↓ move`,
+  `enter/space select`, `esc close`, and `←/→ menu` for a menubar's, and leaves out
+  the submenu arrows and the mnemonics rather than add catalog messages for them --
+  the rule is that nothing listed is dead, not that everything live is listed. All
+  the descriptions are existing catalog messages, so no key was added. An app that
+  wants a key of its own in the footer for a dialog's body declares it with
+  `input.describe(keys, { scope: body })`, as the git client's `ctrl-s commit`
+  does. A **prompt** on a borrowed router (`router:`) swallows every key with a
+  function binding and does not hold, so an app's footer still lists keys the
+  prompt is eating; it draws its own footer from its own table, and wiring it to
+  `hold()` is a follow-up rather than part of this change.
 
 - **The menubar: F10 and Alt-letter as fallbacks, Left and Right between titles,
   submenus, and the titles out of the ring.** F10 opens the first title on offer
@@ -13161,14 +13213,37 @@ value it had ever shown.
   whatever under it the tree no longer has. SIG-479's marking of those reads as out
   of date stands: they are read again when they open.
 
-  **The limit, left as one (review round 2):** `last` lives as long as the failure
-  does, not until a retry lands. A search while a retry is in flight, or after the
-  failed branch was closed and before it opens again, reaches nothing under it and
-  drops it, so when the retry lands a branch there that the reader closed and that
-  says `expanded: true` opens, and every read under it is made again. Carrying
-  `last` on the retry's read and on a closed failed branch would close it, at the
-  cost of a third place an answer that is not shown lives; it needs a failure, a
-  search and a retry in one window, so it is written down rather than built.
+  **Kept past the failure, until the retry lands (SIG-521).** `last` used to live as
+  long as the failure did: a retry, or closing the failed branch, forgot the failure
+  and its `last` with it, so a search in that window reached nothing under the
+  branch, dropped it, and a branch there that the reader closed and that says
+  `expanded: true` opened when the retry landed, with every read under it made
+  again. `unfail()` is now the one place a failed read is forgotten -- `forget()`,
+  a closed branch the walk meets, and opening one -- and it moves `last` into
+  `kept`, a map by value of an answer that is the tree's and is shown nowhere. The
+  walk reaches under it as it does under `last`, for an open branch whose retry is
+  out and for a closed one, nested or not; a read that lands drops it, a failure
+  that follows takes it back as its own `last`, and a value leaving the tree takes
+  it with the rest. It is the "third place an answer that is not shown lives" the
+  limit was written down to avoid, and it cost one map and one line in each of those
+  four places, which was less than the ticket's other shape -- a third `Load` state
+  every reader of `loads` would have to know. It also closed a smaller gap beside it:
+  `put()` compares a landing answer with the one `kept` holds, so a retry that lands
+  something different from what the failure replaced sets the search going at once
+  and `deep` under the old answer is gone with it, where before it waited for the
+  next search. `treeListHeld().kept` counts it. A walk that meets a value which is no
+  longer a function branch drops its entry, since nothing would ever read it
+  again (review round 1). Pinned by seven `(SIG-521)` tests in
+  `tree-list-view.test.ts`; sabotage, each caught: the open branch not reaching
+  under `kept`, `unfail()` not setting it, a closed branch not reaching under it,
+  `childrenOf()` not reading it, `dropGone()` not looking through it, `put()`
+  not comparing against it, a failure that follows not taking `kept` back, and
+  the walk not dropping the entry of a value that stopped being a function. Not
+  pinned, and said so: the `unfail()` in `setOpen()`, which the walk's own call
+  normally reaches first and is there for an `expand()` that comes between a
+  failure landing and the walk that sees it; and the line in `put()` that treats a
+  read begun with nothing to show as no answer at all, which only saves a search
+  at the start of a retry and drops nothing either way.
 
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
@@ -13197,6 +13272,66 @@ value it had ever shown.
   closed branch counted twice (the other order from the first) -- each caught; and
   a failure counted as an answer replaced, which survives because `last` keeps
   the same values reachable, so it costs a search and drops nothing.
+
+### What a tree's walk costs per row (SIG-520)
+
+SIG-471 kept an unchanged row the same object and found the list's own work was
+about 5% of an append at 200,000 open rows: the rest was the walk of the whole open
+tree, which every change runs. The ticket asked for a walk of only the part that
+changed, or a per-row cost that drops enough to matter. The first is **not done, and
+that was a decision**: a walk that goes only where something changed has to keep
+each row's guide, its parent and the duplicate check valid across walks, and an
+open or a close in the middle, a replaced answer and a source changed in place each
+invalidate a different part of it -- a second, incremental implementation of what
+`walk()` does, beside the one every other path uses, to save tens of milliseconds
+on a tree of a size no terminal draws. The per-row cost was cut instead, in three
+places, none of which changes what a walk finds:
+
+- **`flat()` runs its regex only for a text with a line break in it.** It ran
+  `replaceAll()` over every node's text, and almost none has one. It is in
+  `tree.ts`, so `selectTree()` reads its nodes the same cheaper way.
+- **A node's guide for its children is built only for an open branch.** `rest` was
+  concatenated for every row and used by the few that are open.
+- **The map of rows by key is added to rather than made again,** and a row found in
+  it is compared in the same pass that fills the new array, where there had been a
+  `map()`, an `every()` and a `new Map()` over all of them. It is made again when it
+  holds more than the walk found, which is a key gone: `treeListHeld().rows` says it
+  holds the rows shown and no others, and a removed node is what the test removes.
+  The duplicate-value check is one `Map.set` and a size compared, not a `has()`
+  and a `set()`. New rows are put in the map after the loop, so a walk that throws
+  inside it -- a guide written in a `Computed` -- leaves the map as it was.
+
+**Measured** over the built package, 200,000 open rows, one change that appends 3
+nodes, the CPU time of `items.set()` and `flush()` (user plus system, which counts
+the collector's threads) on a machine other work was running on, six alternated
+runs of twenty-two changes each, the minimum and the median of the runs' medians
+(`before` is the commit before this one, `after` is this):
+
+| 200,000 open rows, append 3       | before min / median | after min / median |
+| --------------------------------- | ------------------- | ------------------ |
+| flat list of 200,000              | 52.7 / 60.3 ms      | 32.4 / 37.4 ms     |
+| 100 open branches of 2,000        | 64.7 / 85.0 ms      | 37.0 / 50.3 ms     |
+| same, appended to the last branch | 72.9 / 84.9 ms      | 38.6 / 44.9 ms     |
+
+About 40% of an append, and on a quiet machine the rest is the walk's own: a
+`treeChoiceOf()` per row (two objects), a `parents` entry, a line object and a guide
+string, with a `State.set` per kept row. Wall-clock figures on a loaded machine
+move by a factor of two between runs, which is why the table is CPU time and
+minimums. The script is not kept in the repository, because a benchmark that is
+not run is a number that rots; to repeat it, build a tree of 200,000 nodes, draw it
+once with `renderToLines()`, and time `items.set([...nodes, ...three])` with
+`flush()`.
+
+What a further cut would be, if it is ever worth it: a `parent` field on a row in
+place of the `parents` map, with a generation on each row to find a duplicate, which
+takes the 200,000-entry map out of the walk and moves the duplicate check after it.
+Not done because the check then happens after state was written, which is the
+ordering `walkFrom()` keeps on purpose.
+
+SIG-471's counting test holds: the three tests in `tree-list-view-rekey.test.ts`
+pass unchanged. Sabotage: the map of rows made again never (caught by the rows
+count), and `flat()` never joining lines (caught by the existing test of a node
+drawn on one line).
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 
@@ -13381,10 +13516,14 @@ the probes and the sabotage pass are in
   0 a row class draws nothing -- the picture is a table without one -- and the
   pointer says which row is current, as it always did there. Both are tests.
 
-  Two limits, written down rather than mechanised. **`MONO` spells `.sigil-error`
-  as `inverse`**, the focus's declaration, and inverse on inverse is still inverse,
-  so there a crashing row looks like the focused one and the pointer is what tells
-  them apart -- a theme's choice that no rule order can undo. And a **disabled row that is also given a
+  `MONO` used to spell `.sigil-error` as `inverse`, the focus's declaration, so a
+  crashing row looked like the focused one and the pointer was what told them
+  apart -- recorded here as a limit no rule order could undo, until SIG-452 settled
+  it in the theme. `MONO`'s error is bold italic, the one pair none of its other
+  roles says, so the hot row, the focused row and the focused hot row are three
+  looks in the painted cells (`should tell a hot row, the focused row and a
+  focused hot row apart under MONO`). One limit is left, written down rather than
+  mechanised: a **disabled row that is also given a
   role** carries two roles, which is the case the framework sheet's comment warns
   about: where a theme gives both `sigil-muted` and the role a colour, that
   sheet's source order decides. An app that wants a disabled row muted returns no
@@ -14163,13 +14302,44 @@ was never read. No error, and a derivation that did nothing at all.
   and for a tree's and a treemap's `current`. The rare app keying by a signal pays
   one wrapper so that every app passing a derivation hears about it, rather than
   the other way round.
-- **A function is still taken as a value, deliberately.** `() => level.get()` is
-  the template's spelling of a reactive prop, and as a `value` it selects nothing
-  and is never called, which is this ticket's silent no-op in another shape. It is
-  not refused because a choice's value may well be a function -- an action to run
-  -- and a function cannot be told from one; `disabled` can take one only because
-  a function there is never a legitimate value. Following one live is the same
-  question as following a `Computed`, and has the same answer.
+- **A function is refused as a value unless an option holds it (SIG-514).** `() =>
+  level.get()` is the template's spelling of a reactive prop, and as a `value` on
+  `RadioSet` or `Dropdown` it was taken as the value itself: it selected nothing
+  and was never called, which is this ticket's silent no-op in another shape.
+  `refuseUnheldFunction()` in `control.ts` refuses it when none of the options'
+  own values is that function. That is the one case it cannot be a legitimate
+  value, since an option's value may well be a function -- an action to run -- and
+  a function that an option holds selects it, as it always did. A function nothing
+  holds can only select nothing, which is a valid answer for any other value (the
+  set "selects none for a value no option holds") and the mistake for this one. It
+  is still a behaviour change for one previously valid call, said plainly: options
+  that hold actions and are filtered, with a `value` that is an action no longer
+  offered, selected none before and throw now. The way through is a `State`, which
+  is not looked at. The alternative, following one live, is
+  the same question as following a `Computed` and has the same answer: the control
+  writes the value, and a read-only function has nowhere to be written. A `State`
+  that holds a function is not looked at; it is the app's own statement. Compared
+  with `Object.is`, as the dropdown matches and as `promptSameValue()` does. Tests
+  per control in `test/components/radio-set.test.ts` and `dropdown.test.ts`: the
+  refusal, an option holding a function selected, and a `State` of one left alone,
+  and the refusal fails with `refuseUnheldFunction()` taken out.
+- **The other controls were swept, and a function is refused or cannot be told
+  apart.** `TextField`, `TextArea`, `Slider`, `Checkbox`, `Switch`, `Tabs`,
+  `Collapsible` and `Pane` have a value of a fixed type and refuse whatever is
+  neither that type nor a `State`, so a function is a `TypeError` there; one test
+  each pins it in `test/components/control-types.test.ts`. `DataTable`'s `sort` is
+  an object with a `column`, which a function lacks, so it fails as naming a column
+  `undefined`. A list's, a tree's and a treemap's `current` are the one place left
+  that takes a function as a key and says nothing (`DiffView`'s `current` and
+  `wrap`, `Pane`'s `collapsed` and a list's `tail`, `selected` and `expanded` were
+  read as well and all refuse one with a `TypeError`; `keyHelp()`'s `expanded` only
+  reads and takes a function as `false`, which is its own question): a key is the item itself by
+  default, an item may be a function, and the keys are not known when the control
+  is built -- a list's items arrive late and a tree's branches load on demand --
+  so there is nothing to compare a function against at construction, and refusing
+  later would be a throw from inside a change of rows. Left as it is: the cursor
+  starts on the first row, as for any key no row has, and a `State` is how an app
+  that wants to follow something says so.
 - **The same defect in four more places, fixed the same way.** Swept every
   `instanceof State ?` in `src/components/`: a list's `current` (in
   `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
@@ -14186,10 +14356,43 @@ was never read. No error, and a derivation that did nothing at all.
   not arise: each names the prop and says why, `Expected a radio set value to be a
   value or a State, not a Computed, since the set writes it`. Six keys in
   `src/i18n/keys.ts`, regenerated.
-- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
-  needs a conditional type over `T`, which TypeScript cannot infer through and
-  which would change what every existing call infers. A test per component pins the
-  refusal, and each fails with the check in `controlState()` taken out.
+- **A `Computed` is also refused by the types (SIG-515).** `Written<T>` in
+  `control.ts` is `T extends Computed<any> ? never : T`, and the prop is
+  `Written<K> | State<K | undefined>`: a radio set's and a dropdown's `value`, a
+  list's, a data table's, a tree's and a treemap's `current`. Passing a `Computed`
+  is a compile error now, found by `tsc` rather than when the app runs. The first
+  reading of this was that excluding it needs a conditional type over `T`, which
+  TypeScript cannot infer through and which would change what every call infers;
+  measured, that was wrong in the way that matters. TypeScript infers into both
+  branches of a conditional, so `T` is still decided by the other props that name
+  it -- the options, the items, a `key` function -- and `Written<T>` is then
+  checked against it; where nothing else names `T`, as in `RadioSet({ options:
+  ['a', 'b'], value })`, it is inferred from the value as it was and the check
+  fails on a `Computed` all the same. `pnpm check` over the examples, every package
+  and the JSX type test passes unchanged, which is the callers there are -- the
+  demos are plain JavaScript and are not type-checked. The `any` is not laziness:
+  `Computed<string>` does not extend `Computed<unknown>`, since the class is
+  invariant in `T` through its `equals`, so the first spelling excluded nothing.
+  **The cost, which is real and was found by review:** a conditional type over an
+  unresolved type parameter is deferred, so `T` is not assignable to `Written<T>`,
+  and a generic wrapper that forwards a plain `T` -- `function Picker<T>(items: T[],
+  current?: T) { return ListView({ items, current }) }` -- stopped compiling, where
+  forwarding `ListViewProps<T>` whole, a `State<T | undefined>` or a concrete key
+  type still does. No caller in this repository is shaped that way, which is why
+  `pnpm check` did not show it. The fix at the call is `current as Written<T>`, or
+  a `State`; it is the price of finding a `Computed` at compile time, taken because
+  the mistake is silent at run time in every app that makes it while a wrapper is
+  written once. Reversing it is replacing `Written<K>` with `K` in six props.
+  `DataTable`'s `sort` is not wrapped, because `DataTableSort` is an object with a
+  `column` and a `Computed` is not assignable to it already. What the types cannot
+  do is the case the runtime check exists for: a `Computed` that reaches a prop
+  through `any`, a cast, or a second copy of the package, and a function, which is
+  the value above. `test/components/control-types.test.ts` holds a
+  `// @ts-expect-error` over each call with no `as never` between it and the type,
+  so it fails to compile if the types go back to accepting one, and the same calls
+  with a value, a `State`, and a `State` holding a `Computed` still compile. Each
+  of the six props was swapped back to `T` together and `tsc` reported an unused
+  directive on all six.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

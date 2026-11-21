@@ -1316,11 +1316,32 @@ makes it testable with a fixture directory and no bundler at all.
   `sigil.json` and `sigil.jsonc`; and `tree.ts`'s three, which name a
   command directory and are escaped by reading -- the one a review tried to
   reach arrived as a diagnostic first. Review round 2 found the same shape in `package`'s
-  own refusals, and they are left for a ticket of their own rather than taken
-  here: `parseTarget()`'s and `parseSpec()`'s echo of a `--target` or
-  `--runtime` from `sigil.json` or the flag, `codesign failed for <file>` and the
-  other `compile.ts` sentences quoting the output path, and `@ttylabs/sigil`'s
-  update-check refusal of a `repo` that is not `owner/name`.
+  own refusals, which SIG-510 took: `parseTarget()`'s and `parseSpec()`'s echo of
+  a `--target` or `--runtime` from `sigil.json` or the flag, `codesign failed for
+  <file>` and the other `compile.ts` sentences quoting the output path, and
+  `@ttylabs/sigil`'s update-check refusal of a `repo` that is not `owner/name`.
+  The audit went past the three it was filed for: every path or program output a
+  `throw` in `compile.ts`, `runtimes.ts` and `package.ts` interpolates -- the
+  `bun` or `node` executable, the output path, the version a `node` printed, what
+  a failing `tar` said, the cache root -- goes through `escapeControls()`, and
+  what is left raw is a value already validated by `isVersion()` or built from
+  a constant. A **file system** error is the other source: Node's `ENOTDIR` and
+  `ENOENT` quote the path they failed on, so `package` catches the ones from
+  `mkdirSync(out)`, the runtime fetches and the compile stage and escapes them
+  with `escapeControls()` -- the whole line, since it is one line and a newline
+  in the path is the path's -- where `escaped()` keeps line breaks for a message
+  with structure of its own and would let a forged line start. What `tar` said is
+  written a line at a time and indented, as `said()` writes a compiler's. Not
+  done, and shared with `build` where it is not `package`'s alone: the runtime
+  picker's labels, built from a `PATH` runtime's `--version` and cache directory
+  names, which the canvas garbles but does not act on; `readSigilConfig()`'s
+  read and parse failures, which quote the app root; and the bundle stage's
+  `escaped()`, which keeps line breaks and so lets a newline in a root start a
+  line. `clean(out)`'s wrap has no test, because the one error that reaches it
+  needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
+  compiler or signer, skipped on Windows, which cannot make the names; the `tar`
+  one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
+  `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
 
   `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
   throws quoted the app's root and the `tsc` under it raw, and `main()` prints
@@ -1916,7 +1937,7 @@ makes it testable with a fixture directory and no bundler at all.
 - **It reads the files rather than `written.output[].code`, which is byte
   identical.** Measured: `write()` hands back exactly what is on disk, sourcemap
   comment included, so reading would have cost nothing. The file is read anyway
-  because the whole reason `escapeControls()` exists is that rolldown's
+  because the whole reason `escapeChunks()` exists is that rolldown's
   in-memory view of a chunk and the bytes it finally writes came apart once, and
   a question about whether **node** can parse the bundle has to ask the bytes
   node will read. The cost is 2.7ms for a 9-chunk 111 kB bundle and 4.8ms for 44
@@ -1937,6 +1958,64 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
+- **The control-character pass refuses a raw control byte in a tagged template
+  or a regular expression,
+  and moves the sourcemap with what it widens.** SIG-394. The pass that escapes
+  every `\p{Cc}` in what a build wrote lives in `src/build/escape-chunks.ts`, and
+  `\xNN` is "the same string to JavaScript" only for the _cooked_ value: a tagged
+  template's `.raw` is the text as written, so `` String.raw`<ESC>x` `` was two
+  characters from source and five once built, and a tag reading `strings.raw`
+  was handed seven where its source said four. Measured on a built fixture before
+  the fix: `{"rawLen":4,"strRaw":2}` from source, `{"rawLen":7,"strRaw":5}`
+  built. Nothing can be written that has no raw byte and keeps the `.raw`, and
+  "leave it raw inside a tagged template" breaks the rule that nothing ships one,
+  so the choice was between rewriting it silently and **refusing**; it refuses,
+  naming the chunk, the line and column, and the code point, and tells the author
+  to write the escape in source -- which is what the pass would have written, now
+  done where the author can see it and where `.raw` is what they meant. The
+  chunk's quasis are found with the oxc parse the build already uses and only for
+  a chunk the pass would change. Only a _tagged_ quasi is asked: an untagged template's raw is
+  unreadable and its cooked value is the same either way. Asked of every chunk
+  before any is written, so a refusal leaves the files as rolldown wrote them for
+  `undo()` to remove, and it is the same shape as the raw JSX gate beside it.
+  What reaches it is only source: the minifier folds a constant into a string or
+  an untagged template and prints it escaped there, and does not fold into a
+  quasi a tag reads. A dependency that ships a raw byte in a tagged template
+  would refuse an app that cannot edit it, which is accepted over a pass that
+  quietly changes what a tag reads; none of this repository's own packages can,
+  because `sources.test.ts` holds their source free of a raw control character.
+  A regular expression literal is refused the same way -- found by review round
+  1, and the same shape: matching is unchanged but `re.source` and `String(re)`
+  came back longer (`4:6` from source, `10:12` built), and the minifier leaves a
+  raw byte in a literal raw. A raw `U+2028` or `U+2029` in a quasi is the third
+  thing the review found: they are not control characters and are left alone, but
+  a sourcemap starts a new line at either, so the pass counts them as line starts
+  when it records where it widened. Round 2 found a fourth: a backslash before
+  a raw byte in an **untagged** template (`` `a\<ESC>b` `` cooks to `a<ESC>b`),
+  which the pass turned into `\\x1B` -- a backslash and the text `x1B` -- because
+  the minifier prints a template's text as it found it, where a string literal is
+  reprinted and is safe. Refused with the rest, for an odd run of backslashes only.
+  A pass that throws, as opposed to refusing, unwinds the output through
+  `undo()` as well, since what rolldown wrote still holds the raw bytes; that
+  path is covered by `escapeChunks()` writing nothing when a map is malformed,
+  and not end to end, because rolldown does not write a malformed map.
+
+  The other half was real and is fixed. The pass rewrote the chunk **after** its
+  sourcemap was written, and a minified chunk is one line, so each escape moved
+  every later token three columns off the entry the map recorded for it:
+  measured, four raw C1 characters ahead of `console.log` put the map's entry for
+  it on the `c); console.wa` of the source. The ticket reasoned about this and
+  had not shown it, and it is not rare -- the runtime's own `U+009B` is folded
+  back raw, so every app has one. `shiftMappings()` reads each segment's
+  generated column, which is the one field that is a difference from the segment
+  before it, moves it by three per replaced character before it, and writes it
+  back; the other fields are copied untouched. A segment at the replaced
+  character stays where the character starts. `packages/sigil`'s copy needs
+  neither half: it writes no sourcemap, and its sources are held free of raw
+  control characters by `sources.test.ts`, so no quasi of its own can hold one.
+  Pinned by `test/escape-chunks.test.ts`, whose two build tests fail with either
+  half taken out.
+
 - **`parseModule()` keeps what it read, keyed by the path and checked against
   the source.** SIG-355. Every pass with a question for a module parsed it
   again to ask, so a comment in `extract.ts` saying the build "parses each
@@ -2200,10 +2279,25 @@ makes it testable with a fixture directory and no bundler at all.
   `package.runtime` and `package.target` are a runtime and a platform -- are
   asked here with `parseSpec()` and `parseTarget()`, the functions `package`
   asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
-  `package` both call. What stays with the command is what depends on how it
-  was run: `assertCleanable()` over `build.out` (it needs `--out`, `--bin` and
-  `--no-clean`) and `package`'s refusal of `build.external`. The echoed values in
-  those three messages are escaped where they are thrown. A section's rule goes
+  `package` both call. The output directory is asked of `assertCleanable()` too
+  (SIG-540), with what `build` does when given no flags: `build.out` from the
+  file, cleaning on and no `--bin` -- over
+  `buildReads()` of the very `Inspection` `check` already holds, which is what
+  `build` hands it before it bundles, so the sentence is `build`'s and a
+  `"out": "src"` or `"out": "."` is one `check` refuses. It is reported against
+  `sigil.json` when the file chose the directory, and against the entry when it
+  did not and the refusal is of the default `dist`. What stays with the command is what depends on how it was
+  run or what only the bundle knows: `--out`, `--bin`, `--name` and `--no-clean`
+  on the command line (so `check` can refuse a `"out": "."` that
+  `build --no-clean` would take -- the one way it is stricter, deliberately: a
+  file that needs a flag on every build is one whose `check` should say so), a
+  module in the graph that `inspect()` never read, which `clean()` refuses
+  once the bundle exists, and `package`'s refusal of `build.external` and its
+  own `package.out`. `build.external` is **not** reported as a warning or an
+  error: `build` accepts it and only `package` refuses it, so either would fail
+  an app that never packages, and `check` has no tier between the two that
+  says "fine to build, not to package". The echoed values in those messages are
+  escaped where they are thrown. A section's rule goes
   in its reader, never in `check`; `sigil reference`
   and `sigil add` read the file themselves and were never affected. Pinned in
   `test/check.test.ts`.
@@ -2548,6 +2642,19 @@ other is refused with numbers.
   output; and a runtime override leaves _both_ copies in the bundle, since the
   original constant is still statically referenced. At 19 rules and 0.023 ms
   that is not a loss worth inventing a seam for.
+
+- **A shaken sheet carries the variant rules an app names, which the committed
+  sheet does not hold (SIG-526).** The shake used to filter the base set and print
+  it with `variants: false`, so nothing with a `focus:` or an `md:` in front of
+  it ever reached a build. `shakeUtilities()` now also asks the evidence about
+  each `variant:utility` name and generates just those, and the summary says
+  `25 of 383 utility rules, plus 2 variant rules` when there are any -- the
+  phrase an app with none reads is unchanged, since several tests and every
+  reader of that line depend on it. The reasoning, the clock-shaped evidence that
+  is refused, and what an unbuilt app gets are under "The utility layer" in
+  `packages/sigil/src/style/AGENTS.md`. `--no-shake` ships the base set and no
+  variant, because nothing reads the evidence; `warnEmptyShake()` counts a
+  variant as something kept.
 
 - **Measured on `test/fixtures/styled/`, which draws with utilities**: 383 rules
   shaken to 25, and the bundle **133,692 B to 122,234 B**. Startup goes with it,
@@ -6576,7 +6683,7 @@ test in this package writes for something to run -- a fake `bun`, a fake
 - **The shipped code does not have the race.** A runtime download is unpacked
   by `tar`, a child, then renamed and `chmod`-ed; `bun build --compile` and
   `node --build-sea` write the binary in their own processes. `sigil build`
-  writes the bin in-process, through rolldown and `escapeControls()`, but
+  writes the bin in-process, through rolldown and `escapeChunks()`, but
   nothing in the toolchain executes it, and the tests run it through `node`,
   which reads it rather than executing it. The toolchain is one thread, too,
   and libuv's spawn returns only once its child has exec'd, so no fork of its

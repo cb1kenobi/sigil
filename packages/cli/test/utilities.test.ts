@@ -315,6 +315,52 @@ describe('variants', () => {
   it('should be skippable', () => {
     expect(generateUtilities({ variants: false })).not.toContain('md\\:');
   });
+
+  it('should generate exactly the variant-qualified names it is handed', () => {
+    // SIG-526: a build that has read which variants an app names asks for those
+    // and nothing else, so the base set keeps its size
+    const css = generateUtilities({
+      only: [],
+      variants: ['focus:border-green', 'md:flex-row', 'md:p-2'],
+    });
+    const sheet = parseStylesheet(css);
+
+    expect(css).toContain('.focus\\:border-green:focus { border-color: green }');
+    expect(css).toContain('.md\\:flex-row { flex-direction: row }');
+    // one `@media` block for both of the `md:` rules, in the generator's order
+    expect(css.match(/@media/g)).toHaveLength(1);
+    expect(css).not.toContain('lg\\:');
+    expect(sheet.rules).toHaveLength(3);
+    // no base rule came with them
+    expect(css).not.toMatch(/^ {2}\.border-green/m);
+
+    const cascade = new Cascade([sheet]);
+    const classes = ['focus:border-green'];
+    expect(cascade.resolve({ classes, type: 'box' }).borderColor).not.toBe(2);
+    expect(cascade.resolve({ classes, states: ['focus'], type: 'box' }).borderColor).toBe(2);
+  });
+
+  it('should ignore a variant name nothing generates, and a stacked one', () => {
+    // a variant does not stack, and a safelist is written by hand against a
+    // vocabulary that moves, which is why `only` ignores a stale name too
+    expect(
+      generateUtilities({ only: [], variants: ['hover:p-2', 'md:focus:p-2', 'md:nope'] })
+    ).toBe(generateUtilities({ only: [], variants: [] }));
+  });
+
+  it("should print variants in the generator's order whatever order they are asked in", () => {
+    const asked = generateUtilities({ only: [], variants: ['focus:p-1', 'md:p-1', 'sm:p-1'] });
+    const all = generateUtilities({ variants: true });
+
+    // the same lines, as a subsequence of the whole sheet: a subset rather than
+    // a second sheet that happens to agree
+    let from = 0;
+    for (const line of asked.split('\n').filter((one) => one.includes('p-1'))) {
+      const at = all.indexOf(line, from);
+      expect(at, line).toBeGreaterThanOrEqual(from);
+      from = at;
+    }
+  });
 });
 
 describe('@apply', () => {

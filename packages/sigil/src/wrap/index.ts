@@ -28,6 +28,13 @@ export interface TerminalWidthOptions {
   max?: number;
   /** The stream to measure. Defaults to `process.stdout`. */
   stream?: { columns?: number };
+  /**
+   * Whether the stream's own width outranks `COLUMNS`, which is then what is used
+   * when the stream reports none. Off by default. It is for a stream that is a
+   * live terminal: its width is the screen and moves when the window does, while
+   * an exported `COLUMNS` is whatever the shell last said.
+   */
+  streamFirst?: boolean;
 }
 
 /**
@@ -39,6 +46,7 @@ export interface TerminalWidthOptions {
  *
  * `COLUMNS` is read first, because it is how a caller says what to use when the
  * stream cannot be asked, and how a test says it without a pseudo-terminal.
+ * `streamFirst` swaps the two for a caller that knows the stream is a terminal.
  *
  * @param opts - Where to read the width from.
  * @returns The number of columns.
@@ -52,7 +60,10 @@ export function terminalWidth(opts: TerminalWidthOptions = {}): number {
   const max = opts.max !== undefined && opts.max > 0 ? opts.max : MAX_WIDTH;
   const fallback = positive(opts.fallback) ?? DEFAULT_WIDTH;
 
-  const columns = positive(env.COLUMNS) ?? positive(stream?.columns) ?? fallback;
+  const fromEnv = positive(env.COLUMNS);
+  const fromStream = positive(stream?.columns);
+  const columns =
+    (opts.streamFirst ? (fromStream ?? fromEnv) : (fromEnv ?? fromStream)) ?? fallback;
 
   return Math.min(columns, max);
 }

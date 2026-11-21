@@ -1,7 +1,8 @@
+import { displayPath } from '../src/build/index.ts';
 import { run, schema } from '../src/index.js';
 import { linkedFixture } from './copy-fixture.ts';
 import { readRoutes } from '@ttylabs/sigil/routes';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -416,6 +417,109 @@ describe('sigil check', () => {
 
       expect(err).toContain('no problems found');
       expect(process.exitCode).toBeFalsy();
+    });
+  });
+
+  describe('a build.out that build refuses because it would empty the app (SIG-540)', () => {
+    /** A copy of an app that builds, with `sigil.json` saying where it builds to. */
+    function appBuildingTo(out: string): string {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-');
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out } }));
+      return dir;
+    }
+
+    it.each([
+      ['src', (dir: string) => `Refusing to empty ${displayPath(join(dir, 'src'))}, which holds`],
+      [
+        '.',
+        (dir: string) =>
+          `Refusing to empty ${displayPath(dir)}, which holds the app itself. Name a directory inside it, or pass --no-clean.`,
+      ],
+    ])('should fail on "build.out": %j, with the sentence build gives', async (out, message) => {
+      // `check` reported nothing for either, and `build` refused with SIG-350's
+      // guard: the output directory holds the app's own source, or the app
+      const dir = appBuildingTo(out);
+
+      const checked = await sigil('check', dir);
+      const checkedCode = process.exitCode;
+      process.exitCode = undefined;
+      const built = await sigil('build', dir);
+
+      expect(built.err).toContain(message(dir));
+      expect(checked.err).toContain(message(dir));
+      expect(checked.err).toContain('sigil.json: error:');
+      expect(checked.err).not.toContain('no problems found');
+      expect(checkedCode).toBe(1);
+    });
+
+    it('should name the file the output directory would take with it', async () => {
+      const dir = appBuildingTo('src');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain(`Name a directory that holds none of the app's source.`);
+      expect(err).toContain(displayPath(join('src', 'index.ts')));
+    });
+
+    it('should pass a build.out that holds none of the app', async () => {
+      const dir = appBuildingTo('built');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should pass the default output directory, with no sigil.json at all', async () => {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-default-');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should report the default directory against the entry, when no file chose it', async () => {
+      // the source lives in `dist`, which is where a build with no `sigil.json`
+      // goes: the refusal is about the app, and there is no file to blame
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-entry-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      const flags = ['--entry', join('dist', 'index.ts')];
+
+      const checked = await sigil('check', dir, ...flags);
+      const checkedCode = process.exitCode;
+      process.exitCode = undefined;
+      const built = await sigil('build', dir, ...flags);
+
+      const message = `Refusing to empty ${displayPath(join(dir, 'dist'))}, which holds`;
+      expect(built.err).toContain(message);
+      expect(checked.err).toContain(message);
+      expect(checked.err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(checked.err).not.toContain('sigil.json');
+      expect(checkedCode).toBe(1);
+    });
+
+    it('should report a file that does not set build.out against the entry too', async () => {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-other-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { sourcemap: false } }));
+
+      const { err } = await sigil('check', dir, '--entry', join('dist', 'index.ts'));
+
+      expect(err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(err).not.toContain('sigil.json: error');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should not ask the guard about a file it could not read', async () => {
+      // a bad value is the file's own error, and one diagnostic is enough
+      const dir = appBuildingTo('src');
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out: 5 } }));
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Invalid value for "build.out" in sigil.json');
+      expect(err).not.toContain('Refusing');
     });
   });
 

@@ -1542,7 +1542,7 @@ describe('regressions', () => {
       '0o1000000000000000001',
       '0b100000000000000000000000000000000000000000000000000001',
       ' 12345678901234567890 ',
-      ' 12345678901234567890 ',
+      '\u00A012345678901234567890\u00A0',
       // the same integers spelled with a point or an exponent: `Number()` reads
       // them to the same double, so they are refused as the plain ones are
       '9007199254740993.0',
@@ -1626,7 +1626,7 @@ describe('regressions', () => {
       ['9007199254740991.0', 9007199254740991],
       ['9.007199254740991e15', 9007199254740991],
       ['  42  ', 42],
-      [' 42 ', 42],
+      ['\u00A042\u00A0', 42],
       ['007', 7],
       // a 13-digit epoch is nowhere near 2^53 and is still a number
       ['1718454600000', 1718454600000],

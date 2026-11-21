@@ -251,6 +251,20 @@ describe('updates', () => {
       }
     });
 
+    it('should not quote a repo with a control character in it as it was written', () => {
+      // `repo` comes from `sigil.json`, and the refusal is printed as it stands:
+      // an escape sequence would rename the window, a newline forge a line
+      let message = '';
+      try {
+        githubChecker({ repo: 'o/n/a\u001b]0;PWNED\u0007\nforged: error: forged' });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+
+      expect(message).to.contain('got "o/n/a\\x1B]0;PWNED\\x07\\x0Aforged: error: forged"');
+      expect(message).to.not.match(/\p{Cc}/u);
+    });
+
     it('should answer undefined rather than throw on an answer with no version', () => {
       const checker = npmChecker({ packageName: 'a' });
       for (const body of [undefined, null, {}, { latest: 1 }, { latest: '' }, 'nope']) {

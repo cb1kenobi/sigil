@@ -483,6 +483,25 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   root.append(backdrop);
   claimFocus();
 
+  // what the footer lists while this is up: the keys it answers itself, in place of
+  // the app's, which its binding takes before they are reached. Asked once, as it
+  // opens, when the tree can say what is focusable inside it. Tab is listed only
+  // where there is somewhere to go. Enter presses the focused button and nothing
+  // the modal does, so it is listed only where it can only mean that: a field in
+  // the body takes Enter for itself -- a newline, a submit -- and a footer saying
+  // "select" over it would be the lie this listing exists to remove
+  const focusable = inside(panel);
+  if (focusable.length > 1) {
+    layer.describe('tab', { description: __`next`, priority: 1 });
+    layer.describe('shift+tab', { description: __`previous`, priority: 0 });
+  }
+  if (buttons.length > 0 && focusable.every((element) => buttons.includes(element))) {
+    layer.describe('enter', { description: __`select`, priority: 2 });
+  }
+  if (dismissible) {
+    layer.describe('escape', { description: __`close`, priority: 3 });
+  }
+
   // closed with no answer when the renderer goes. The binding above stops every
   // key it is given, so a dialog left open on a router the app goes on owning
   // would swallow its keys for good -- and `result` would never settle. Last,

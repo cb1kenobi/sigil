@@ -84,6 +84,10 @@ export interface BuildConfig {
    * it by calling `utilitySheet()` -- and because a build that quietly kept
    * everything is an optimization nobody notices is gone. Off is the blunt
    * answer for an app that would otherwise need a long safelist.
+   *
+   * Off also means no utility *variant*: `focus:border-green` and `md:flex-row`
+   * are generated for the classes the shake finds, and with nothing reading the
+   * source the sheet is the whole base set, which has none. They need the shake.
    */
   readonly shake?: boolean;
   /** Whether to write sourcemaps. */
