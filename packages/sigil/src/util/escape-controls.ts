@@ -24,15 +24,17 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
  *
  * **A format character, and U+2028 and U+2029, become `\u{NNNN}`** -- upper-case
  * hex, as above, at least four digits and as many more as the code point needs,
- * which is also what that escape means to JavaScript. They are all above
- * U+00FF, so the two-digit spelling cannot hold them. They are not a terminal's
+ * which is also what that escape means to JavaScript. Every one but the soft
+ * hyphen is above U+00FF, so the two-digit spelling cannot hold them. They are not a terminal's
  * to act on, they are a reader's to be misled by: U+202E, the right-to-left
  * override, makes the terminal draw the rest of the line reversed, so a
  * message reads differently from what was written, and U+200B, U+200C and U+200D
  * are not drawn at all, so two values that print identically can differ. U+2028
  * and U+2029 end a line to JavaScript and are drawn as one by some terminals,
- * which is the forged second line again. U+FEFF, the soft hyphen and the tag
- * characters are `\p{Cf}` too and go the same way.
+ * which is the forged second line again. U+FEFF, the tag characters and the
+ * Arabic number signs are `\p{Cf}` too and go the same way. The soft hyphen,
+ * U+00AD, is the one format character the two-digit spelling holds, so it is
+ * `\xAD`.
  *
  * **The zero-width joiner is escaped like the rest**, so a joined emoji in an
  * echoed value prints with `\u{200D}` between its parts. That is the honest

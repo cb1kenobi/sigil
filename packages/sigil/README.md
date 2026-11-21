@@ -181,7 +181,8 @@ rather than renaming the terminal's window. Every `\p{Cc}` is escaped, which is
 C0, `DEL` and C1, and that includes a tab and a newline: inside a quoted value a
 newline would let argv print a second `Error:` line of its own. So is every
 format character, `\p{Cf}`, and U+2028 and U+2029, which are written
-`\u{NNNN}` because they are above U+00FF: a right-to-left override makes the
+`\u{NNNN}` because they are above U+00FF (the soft hyphen, the one that is
+not, is `\xAD`): a right-to-left override makes the
 terminal draw the rest of the line reversed, and a zero-width space is not
 drawn at all, so two values that print alike can differ. That includes the
 zero-width joiner, so a joined emoji in an echoed value shows `\u{200D}` between

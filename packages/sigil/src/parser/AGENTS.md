@@ -1104,8 +1104,8 @@ messages.
   the rest of the line reversed, so a message read differently from what was
   written, and a zero-width space or joiner was not drawn at all, so two values
   that printed alike differed. The SIG-541 review found it through the update
-  check, where a `repo` of `o/n` and U+202E was refused and the refusal echoed
-  it raw. The set is `[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]`: the class the source check
+  check, where a `repo` of `o/n` and U+202E is refused (SIG-541) and the refusal
+  echoed it raw. The set is `[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]`: the class the source check
   refuses in this repository's own files (SIG-483), named rather than listed, with
   U+2028 and U+2029 -- `Zl` and `Zp` exactly -- that check refuses beside it.
   Those are all above U+00FF, so the two-digit spelling cannot hold them, and
@@ -1119,6 +1119,9 @@ messages.
   the glyph never says whether it is there, which is why the rest of the class is
   escaped. Decided with the ticket rather than found: the alternative of
   exempting it means a value can hide one and print identically to one without.
+  The same holds for the zero-width non-joiner and joiner in Persian and Indic
+  text, which an echoed value now shows as `\u{200C}`: an echoed value is not
+  prose there either.
   **`\p{Zs}` is left alone**, the no-break space included, because it is drawn.
   The build's escape pass in `tsdown.config.ts` and the toolchain's copy are about
   raw bytes in shipped files and are a separate rule, deliberately unchanged.

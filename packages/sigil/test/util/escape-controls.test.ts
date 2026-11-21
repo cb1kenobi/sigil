@@ -8,7 +8,7 @@ describe('escapeControls()', () => {
   });
 
   it('should write every C0, DEL and C1 character as two upper-case hex digits', () => {
-    for (let code = 0; code <= 0xa0; code++) {
+    for (let code = 0; code <= 0xff; code++) {
       const char = String.fromCharCode(code);
       // U+00AD, the soft hyphen, is a format character and takes the same spelling
       const control = code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0xad;
@@ -65,6 +65,8 @@ describe('escapeControls()', () => {
     // above the BMP: the escape takes as many digits as the code point needs
     expect(escapeControls('\u{e0041}')).toBe('\\u{E0041}');
     expect(escapeControls('\u{e0001}')).toBe('\\u{E0001}');
+    // below U+1000 the escape is padded to four digits
+    expect(escapeControls('\u0600\u061c')).toBe('\\u{0600}\\u{061C}');
   });
 
   it('should leave nothing of the format class in a hostile value', () => {
