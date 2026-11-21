@@ -1,5 +1,6 @@
 import {
   check,
+  customChecker,
   githubChecker,
   npmChecker,
   versionFrom,
@@ -499,6 +500,145 @@ describe('updates', () => {
       expect(versionFrom({ tag_name: '\rv1.2.3' }, githubChecker({ repo: 'a/b' }))).to.equal(
         '1.2.3'
       );
+    });
+
+    // SIG-546: a `custom` check's `url` was copied across as written, so
+    // `ftp://h` and a URL with a newline in it were baked into a worker that
+    // refuses them, where the check swallows the failure
+    describe('customChecker', () => {
+      const url = 'https://example.com/latest.json';
+      const path = ['data', 'version'];
+
+      it('should build the checker `sigil.json` declares', () => {
+        expect(customChecker({ path, url })).to.deep.equal({ path, type: 'custom', url });
+      });
+
+      it('should keep a query, which a custom endpoint may need', () => {
+        expect(
+          customChecker({ path, url: 'https://h/api/latest?channel=stable&x=1' }).url
+        ).to.equal('https://h/api/latest?channel=stable&x=1');
+        // and a trailing slash, which is part of the path of a request and not a root
+        expect(customChecker({ path, url: 'https://h/api/latest/' }).url).to.equal(
+          'https://h/api/latest/'
+        );
+        expect(customChecker({ path, url: 'https://h:8443/v.json' }).url).to.equal(
+          'https://h:8443/v.json'
+        );
+      });
+
+      it('should hold what it was given in a copy, so a later edit cannot move it', () => {
+        const keys = ['a', 'b'];
+        const checker = customChecker({ path: keys, url });
+        keys.push('c');
+        expect(checker.path).to.deep.equal(['a', 'b']);
+      });
+
+      it('should refuse a URL that is not an absolute https one', () => {
+        for (const bad of [
+          'ftp://h/latest.json',
+          'http://h/latest.json',
+          'https://h/\nx',
+          'https://h/a b',
+          'https://h/a\tb',
+          ' https://h/x',
+          'https://h/x ',
+          '\nhttps://h/x',
+          'https://h/\u001b[31m',
+          'https://h/\u007f',
+          'https://h/\u0085',
+          'not a url',
+          'h/latest.json',
+          '//h/latest.json',
+          '',
+          'https://',
+          'https:///x',
+          'https://?x=1',
+          'https://:443/x',
+          'https://h:99999/x',
+          'https://user@h/x',
+          'https://user:pass@h/x',
+          'https://:pass@h/x',
+          'https://h/x#frag',
+          'https://h/x?a=1#frag',
+          'https://h/x#',
+        ]) {
+          expect(() => customChecker({ path, url: bad }), JSON.stringify(bad)).to.throw(
+            TypeError,
+            /Update check url must be an absolute https:\/\/ URL with no credentials or fragment/
+          );
+        }
+        for (const bad of [undefined, null, 42, {}, ['https://h']]) {
+          expect(() => customChecker({ path, url: bad } as never), String(bad)).to.throw(
+            TypeError,
+            /Update check url must be an absolute https:\/\/ URL/
+          );
+        }
+      });
+
+      it('should not quote a control character, a password or a query as written', () => {
+        const messageOf = (value: string): string => {
+          try {
+            customChecker({ path, url: value });
+          } catch (error) {
+            return (error as Error).message;
+          }
+          return '';
+        };
+
+        const forged = messageOf('https://h/a\u001b]0;PWNED\u0007\nforged: error: forged');
+        expect(forged).to.contain('got "https://h/a\\x1B]0;PWNED\\x07\\x0Aforged: error: forged"');
+        expect(forged).to.not.match(/\p{Cc}/u);
+
+        for (const bad of [
+          'https://user:hunter2@h/x',
+          'https://:hunter2@h/x',
+          'https://u:hun?ter2@h/',
+          'https://u:hunter2#x@h/',
+          // a token in the query of a URL refused for another reason
+          'ftp://h/x?token=hunter2',
+          'https://h/x\n?token=hunter2',
+          'https://h/x?token=hunter2#frag',
+        ]) {
+          const message = messageOf(bad);
+          expect(message, JSON.stringify(bad)).to.contain('must be an absolute https:// URL');
+          expect(message, JSON.stringify(bad)).to.not.contain('hunter2');
+          expect(message, JSON.stringify(bad)).to.not.match(/\p{Cc}/u);
+        }
+      });
+
+      it('should refuse a path that is not a non-empty list of non-empty strings', () => {
+        for (const bad of [
+          undefined,
+          null,
+          'version',
+          [],
+          [''],
+          ['a', ''],
+          [1],
+          [null],
+          [['a']],
+          {},
+        ]) {
+          expect(() => customChecker({ path: bad, url } as never), JSON.stringify(bad)).to.throw(
+            TypeError,
+            /Update check path must be a non-empty list of non-empty strings/
+          );
+        }
+        // and what it prints is escaped like everything else it quotes, and
+        // is not asked to serialize a value JSON cannot hold
+        expect(() => customChecker({ path: [1, 'a\nforged'], url } as never)).to.throw(
+          'got "1,a\\x0Aforged"'
+        );
+        expect(() => customChecker({ path: [1n], url } as never)).to.throw(
+          /Update check path must be a non-empty list/
+        );
+      });
+
+      it('should read a version out of what it asked for', () => {
+        expect(versionFrom({ data: { version: '2.0.0' } }, customChecker({ path, url }))).to.equal(
+          '2.0.0'
+        );
+      });
     });
 
     it('should let a custom checker name its own url and path', () => {

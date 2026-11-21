@@ -88,6 +88,22 @@ export interface GithubCheckerOptions {
   readonly prefix?: string;
 }
 
+/** What `customChecker()` is given. */
+export interface CustomCheckerOptions {
+  /**
+   * Where the version sits in the JSON response, as a non-empty list of keys.
+   * A list rather than a dotted string so a key may contain a dot.
+   */
+  readonly path: readonly string[];
+  /**
+   * The endpoint to GET: an absolute `https://` URL with a host. A query is
+   * kept (`https://h/api/latest?channel=stable`); whitespace, a control
+   * character, credentials and a fragment are refused. Anything else throws a
+   * `TypeError`.
+   */
+  readonly url: string;
+}
+
 const defaultApiURL = 'https://api.github.com';
 
 /**
@@ -128,7 +144,7 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
     type: 'npm',
     url: distTagsURL(
       packageName,
-      registryURL === undefined ? undefined : rootURL(registryURL, 'registryURL')
+      registryURL === undefined ? undefined : checkedURL(registryURL, 'registryURL', 'root')
     ),
   };
 }
@@ -159,13 +175,14 @@ function redact(value: unknown): string {
 }
 
 /**
- * Validates the root an update check's URL is built on, and returns it
- * normalized and without a trailing slash (SIG-544).
+ * Validates a URL an update check asks, and returns it normalized (SIG-544,
+ * SIG-546).
  *
  * `apiURL` and `registryURL` are joined to a path, and either was taken as
  * given: a newline, a missing scheme or `ftp:` produced a request that failed
  * in the worker, which the check swallows -- the silent miss it exists to stop.
- * The rule is the one the worker holds the whole URL to, `https:`, and nothing
+ * A `custom` check's `url` is the whole request and was taken the same way. The
+ * rule is the one the worker holds the whole URL to, `https:`, and nothing
  * wider. `http:` is not accepted although the ticket allowed it, because the
  * worker refuses it (`CHECK_URL must use https`) and the in-process fetch is
  * `node:https`, so accepting it moves the failure to where nobody sees it.
@@ -174,21 +191,29 @@ function redact(value: unknown): string {
  * strips tabs and newlines rather than rejecting them and trims a leading
  * space, so the raw string is checked for whitespace and control characters
  * first, and has to open with `https://` and a host -- which is the whole of
- * the scheme rule, since the parser cannot then read it as anything but `https:`. A query or a fragment
- * would land in the middle of the path the request is built from, and
- * credentials would travel in an environment variable and a process listing,
- * so each is refused. A path is kept: an enterprise root is `.../api/v3`.
+ * the scheme rule, since the parser cannot then read it as anything but `https:`.
+ * Credentials would travel in an environment variable and a process listing, so
+ * they are refused, and so is a fragment, which no request carries.
+ *
+ * The two kinds differ in the query and in the path. A **root** is joined to a
+ * path, so a query would land in the middle of it and is refused, the path is
+ * kept (an enterprise root is `.../api/v3`), and a trailing slash goes. An
+ * **endpoint** is the request itself: it may carry a query
+ * (`https://h/api/latest?channel=stable`), and is returned as it was written,
+ * so a trailing slash is part of the path.
  *
  * @param value - What the caller passed.
  * @param label - The option's name, for the message.
- * @returns The URL as the parser wrote it, minus any trailing slash.
+ * @param kind - `root` for a URL a path is joined to, `endpoint` for one that is fetched as it stands.
+ * @returns The URL as the parser wrote it, minus any trailing slash for a root.
  * @throws If it is not an `https` URL of that shape.
  */
-function rootURL(value: unknown, label: string): string {
+function checkedURL(value: unknown, label: string, kind: 'endpoint' | 'root'): string {
+  const root = kind === 'root';
   const refuse = (): never => {
     throw new TypeError(
-      `Update check ${label} must be an absolute https:// URL with no credentials, query or ` +
-        `fragment, got "${escapeControls(redact(value))}"`
+      `Update check ${label} must be an absolute https:// URL with no credentials` +
+        `${root ? ', query or fragment' : ' or fragment'}, got "${escapeControls(redact(value))}"`
     );
   };
 
@@ -196,7 +221,8 @@ function rootURL(value: unknown, label: string): string {
     typeof value !== 'string' ||
     /[\p{Cc}\s]/u.test(value) ||
     !/^https:\/\/[^/\\]/i.test(value) ||
-    /[?#]/.test(value)
+    value.includes('#') ||
+    (root && value.includes('?'))
   ) {
     return refuse();
   }
@@ -211,7 +237,7 @@ function rootURL(value: unknown, label: string): string {
     return refuse();
   }
 
-  return url.href.replace(/\/+$/, '');
+  return root ? url.href.replace(/\/+$/, '') : url.href;
 }
 
 /**
@@ -237,7 +263,7 @@ const repoNameRE = /^[A-Za-z0-9._-]+$/;
  */
 export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   const { apiURL = defaultApiURL, prefix = 'v', repo } = opts;
-  const root = rootURL(apiURL, 'apiURL');
+  const root = checkedURL(apiURL, 'apiURL', 'root');
 
   // `owner/name` and nothing else: a bare name, a trailing slash or a whole
   // URL each produce a request to a path that is not the one meant, and the
@@ -282,6 +308,38 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
       parts[1]
     )}/releases/latest`,
   };
+}
+
+/**
+ * Asks an endpoint of your own for the latest version.
+ *
+ * The third source beside npm and GitHub, for an app that publishes a version
+ * somewhere else: a JSON file on a CDN, an API of its own. It is what
+ * `sigil.json`'s `{ "type": "custom" }` builds, so a URL baked in at build time
+ * and one built in source are held to the same rule (SIG-546).
+ *
+ * @param opts - The endpoint and where the version sits in its answer.
+ * @returns The checker.
+ * @throws If the URL is not an `https` URL of that shape, or the path is not a
+ * non-empty list of non-empty strings.
+ */
+export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
+  const { path, url } = opts;
+
+  // an empty path reads the whole body, which is never a string, and a key
+  // that is not one is looked up as whatever it coerces to: either is a check
+  // that answers `undefined` for ever, which is the silent miss again
+  if (
+    !Array.isArray(path) ||
+    path.length === 0 ||
+    path.some((key) => typeof key !== 'string' || !key)
+  ) {
+    throw new TypeError(
+      `Update check path must be a non-empty list of non-empty strings, got "${escapeControls(path)}"`
+    );
+  }
+
+  return { path: [...path], type: 'custom', url: checkedURL(url, 'url', 'endpoint') };
 }
 
 /**

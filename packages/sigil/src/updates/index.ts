@@ -12,8 +12,13 @@ import { dirname, join } from 'node:path';
 const { log } = debug('sigil:updates');
 const oneDay = 86400000;
 
-export type { GithubCheckerOptions, NpmCheckerOptions, UpdateChecker } from './checker.js';
-export { githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
+export type {
+  CustomCheckerOptions,
+  GithubCheckerOptions,
+  NpmCheckerOptions,
+  UpdateChecker,
+} from './checker.js';
+export { customChecker, githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
 export { isFreshStamp } from './stamp.js';
 
