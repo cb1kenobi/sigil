@@ -89,6 +89,18 @@ describe('a value echoed into an error message', () => {
     expect(err).toBe('Error: Invalid number: \\x9B2J\\x7F\n');
   });
 
+  it('should escape a bidi override, a zero-width character and a line separator (SIG-543)', async () => {
+    // U+202E draws the rest of the line reversed, U+200B is not drawn at all
+    // and U+2028 ends a line, so each one changes what a reader sees
+    const err = await stderrOf(['--n', 'o/n\u202e\u200b\u2028x'], {
+      name: 'mycli',
+      options: { '--n <n>': { type: 'int' } },
+      run() {},
+    });
+
+    expect(err).toBe('Error: Invalid integer: o/n\\u{202E}\\u{200B}\\u{2028}x\n');
+  });
+
   it('should escape a value from the environment', async () => {
     vi.stubEnv('SIG412_PORT', `${ESC}[31m9`);
 
