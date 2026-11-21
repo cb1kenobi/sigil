@@ -50,6 +50,7 @@ import {
   type ShakenStyles,
 } from '../build/index.ts';
 import { readSigilConfig } from '../config.ts';
+import { writeOut } from '../output.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
@@ -295,7 +296,7 @@ function printSizes(chunks: readonly BuiltChunk[]): void {
     ]);
 
   if (rows.length) {
-    process.stdout.write(
+    writeOut(
       `${table(rows, {
         // stdout's level rather than the process styler's, for the reason
         // `printTree()` records: the default reads stdout whoever is asking
@@ -328,7 +329,7 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
     return;
   }
 
-  process.stdout.write(
+  writeOut(
     `${table(
       // a package name is whatever the package's manifest says, for
       // `printSizes()`'s reason

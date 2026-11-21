@@ -81,6 +81,7 @@ import {
   formatDiagnostic,
   type Severity,
 } from './build/index.ts';
+import { writeTo } from './output.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
   box,
@@ -585,11 +586,11 @@ export function writeDiagnostics(
     : diagnostics;
 
   if (!isTerminal(stream)) {
-    stream.write(`${shown.map((d) => formatDiagnostic(d)).join('\n')}\n`);
+    writeTo(stream, `${shown.map((d) => formatDiagnostic(d)).join('\n')}\n`);
     return;
   }
 
-  stream.write(`${render((width) => diagnosticsView(shown, { width }), stream)}\n`);
+  writeTo(stream, `${render((width) => diagnosticsView(shown, { width }), stream)}\n`);
 }
 
 /**
@@ -630,7 +631,8 @@ export function writeSummary(
   const plain = (): string =>
     shown.map((run) => (typeof run === 'string' ? run : run.text)).join(' ');
 
-  stream.write(
+  writeTo(
+    stream,
     `\n${isTerminal(stream) ? render((width) => summaryView(shown, width), stream) : plain()}\n`
   );
 }
@@ -661,5 +663,5 @@ export function writeNote(
     return;
   }
 
-  stream.write(`${render((width) => summaryView(runs, width), stream)}\n`);
+  writeTo(stream, `${render((width) => summaryView(runs, width), stream)}\n`);
 }
