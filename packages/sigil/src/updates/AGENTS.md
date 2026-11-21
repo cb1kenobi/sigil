@@ -39,7 +39,10 @@ the entry it belongs to.
   a real owner is worse than one that lets a 404 through for an odd one. The
   message is the one it always was, escaped by `escapeControls()`. One
   function, so `check`, `build` and `package` all refuse it through
-  `bakedUpdateCheck()`. See `test/updates.test.ts`.
+  `bakedUpdateCheck()`. The grammar is GitHub's even under `apiURL`, which is
+  documented for an enterprise host: a Gitea-style forge that allows a dot in an
+  owner is refused by it, and that is deliberate rather than an oversight. See
+  `test/updates.test.ts`.
 - **The cache filename was a collision, not a broken write.** Worth saying plainly,
   because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
   a file in a directory nobody created, and that is not what happened: `check()`

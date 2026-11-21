@@ -203,6 +203,9 @@ describe('updates', () => {
         'o/n\nx',
         'o\n/n',
         'o /n',
+        ' o/n',
+        'o/ n',
+        '\no/n',
         'o/n x',
         'o/n\t',
         'my org/my repo',
@@ -228,7 +231,7 @@ describe('updates', () => {
       }
     });
 
-    it('should take every shape of name GitHub does give', () => {
+    it('should take every name the class allows, including the odd shapes real ones have', () => {
       for (const repo of [
         'a/b',
         'acme/mycli',
