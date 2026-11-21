@@ -352,7 +352,10 @@ const ATTRIBUTE_NAMES: Readonly<Record<string, string>> = {
  * that could have generated it, is the shape of stale that nothing in a build
  * catches.
  *
- * Still not `hover:` until mouse tracking exists.
+ * `hover:` is here now: `StyleState` has `hover` and the input layer sets it as the
+ * pointer moves, so the sentence that said it waited for mouse tracking stopped
+ * being true when that landed (SIG-527). It matches only where the app turned on
+ * `mouse: { motion: true }`, which is off by default.
  */
 interface Variant {
   readonly name: string;
@@ -372,16 +375,21 @@ const VARIANTS: readonly Variant[] = [
   { media: '(color-level: 2)', name: 'c256' },
   { media: '(prefers-color-scheme: dark)', name: 'dark' },
   { media: '(prefers-color-scheme: light)', name: 'light' },
-  // before `focus`, which is Tailwind's order in v3 and v4 alike: the focused
-  // element matches `:focus-within` too, both rules are one class and one
-  // pseudo-class, so the later block is what `focus:` beating `focus-within:` on
-  // that element comes down to
-  { name: 'focus-within', pseudo: ':focus-within' },
-  { name: 'focus', pseudo: ':focus' },
-  { name: 'disabled', pseudo: ':disabled' },
-  { name: 'checked', pseudo: ':checked' },
+  // The state variants are in Tailwind's order, which is not the order they read
+  // in: structure, then form state, then the interactive ones, then `disabled`.
+  // That order is what decides a clash, because each of these is one class and
+  // one pseudo-class, so on an element that matches two the block printed later
+  // wins -- `focus:` over `hover:` over `focus-within:`, and `disabled:` over all
+  // three (SIG-451, SIG-527, SIG-528). Read from tailwindcss 4.3.5's own compiled
+  // output rather than recalled -- first, last, checked, focus-within, hover,
+  // focus, disabled -- and v3.4's pseudo-class list is the same sequence.
   { name: 'first', pseudo: ':first-child' },
   { name: 'last', pseudo: ':last-child' },
+  { name: 'checked', pseudo: ':checked' },
+  { name: 'focus-within', pseudo: ':focus-within' },
+  { name: 'hover', pseudo: ':hover' },
+  { name: 'focus', pseudo: ':focus' },
+  { name: 'disabled', pseudo: ':disabled' },
 ];
 
 /** Every variant, for documentation and for tests that walk them. */
