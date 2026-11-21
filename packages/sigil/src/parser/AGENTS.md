@@ -1883,6 +1883,36 @@ and a built app that answers `deploy` in `build-command.test.ts`.
   through a default is `Unknown command "status"` there even though `mycli
   status` runs it. Whether `help <name>` should resolve through a default is a
   product decision that was left open rather than taken inside a bug fix.
+- **`mycli status help` is not a form, and prints what `mycli nope help` does.**
+  SIG-419. `help` is a command of the root, matched on pass 0, before a default
+  is dispatched -- so `status`, a subcommand of the default `serve`, is not yet a
+  command of anything and is a stray word ahead of `help`. The command form reads
+  the path _after_ itself (`path()` in `src/parser/help.ts`: `mycli nope help
+  build` is about `build`, not `nope`), so the stray word is ignored and the root
+  screen prints, exactly as it does for `mycli bogus help`. The ticket asked
+  whether the trailing `help` should describe the subcommand typed before it,
+  the way `--help` now does, and the answer is no, because there is no trailing
+  form to extend: `help` is looked up in the _innermost_ context, so `mycli
+  build help` and `mycli serve status help` are `Unexpected argument "help"` with
+  or without a default -- for a command that takes no argument and declares no
+  `help` of its own, since a `[dir]` takes the word and a `help` child is run --
+  and making `status help` describe `status` would be the
+  one spelling in the program where a word before `help` names what it is about.
+  The cost is that `status help` is not always a stray word: where `status` has
+  a `help` child of its own or a positional, `mycli serve status help` runs that
+  command or binds `'help'`, and `mycli status help` prints the root screen
+  instead, because the root's `help` matched first and the default was not yet
+  dispatched. That is the pass ordering again, and is recorded rather than fixed.
+  The questions that do get an answer are `mycli status --help` (SIG-340, above),
+  and `mycli help serve status`, which names the default in the path and
+  describes `status` with `serve` above it. The other fix on offer was the pass
+  ordering -- dispatching the default before the root's `help` matches -- and it
+  is refused here: it is parser semantics for every app and it is the pass
+  ordering behind the known bug about a default command's options, which is not
+  a thing to change from inside a question about one screen. Pinned under `help
+  as a command, after a subcommand of a default` in
+  `test/parser/default-command.test.ts`; if the pass ordering ever moves, those
+  tests are the ones to revisit first.
 
 ### A token split at its `=` is handed on whole
 

@@ -843,7 +843,8 @@ export interface Schema {
    * the version and the baked tree: the runtime cannot read that file, because
    * reading one at startup is what `locales` being a map rather than a
    * directory convention exists to avoid. An unbundled app writes it here
-   * itself.
+   * itself, and a value written here wins over the one `sigil.json` names --
+   * the build fills in only what the schema left out.
    *
    * It is a tag rather than a catalog, so it goes through the same
    * normalization and the same fallback chain: `'de'` serves Austria from one
@@ -1107,7 +1108,9 @@ export interface Schema {
    * -- `../package.json` off `import.meta.url` points wherever the bundle was
    * written. `sigil build` replaces this with the literal it read at build
    * time, so the function is the unbundled answer and the string is the built
-   * one.
+   * one. A **string** declared here is the app's own statement and is kept:
+   * the build fills in the manifest's version only where the schema has no
+   * string, so the same app answers the same from source and built.
    */
   version?: string | (() => string);
 }

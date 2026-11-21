@@ -799,6 +799,158 @@ describe('a translated app', () => {
   });
 });
 
+describe('a version and a default locale the schema states', () => {
+  /**
+   * `sigil build` baked the manifest's `version` over the schema's own, so
+   * `main({ schema })` printed `9.9.9` and the built app `1.0.0` (SIG-536).
+   *
+   * The bake is a fallback now, and the precedence has two halves worth pinning
+   * from both sides: a **string** the schema states wins, and a **function**
+   * still does not -- it is the spelling `Schema.version` documents for an app
+   * reading its own `package.json` off `import.meta.url`, which a bundle moves.
+   * `defaultLocale` is the same minus the function.
+   *
+   * Each variant is its own copy of `buildable` with the manifest at `1.0.0`,
+   * built and run for real, since the generated text says nothing about what
+   * the bundle answers.
+   */
+  const MANIFEST = '1.0.0';
+
+  /** Builds a copy of `buildable` whose entry is `schema`; returns the app and its bin. */
+  async function variant(name: string, schema: string, files: Record<string, string> = {}) {
+    const dir = linkedFixture(app, `sigil-version-${name}-`);
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@ttylabs/sigil': '*' },
+        name: 'buildable',
+        type: 'module',
+        version: MANIFEST,
+      })
+    );
+    writeFileSync(join(dir, 'src', 'index.ts'), schema);
+    for (const [file, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), text);
+    }
+
+    const found = discoverApp(dir);
+    const result = await bundleApp({
+      app: found,
+      binName: 'buildable',
+      defaultLocale: readSigilConfig(dir).locale,
+      out: join(dir, 'dist'),
+      tree: resolveCommandTree(join(dir, 'src', 'commands')),
+    });
+
+    return { bin: result.bin, dir };
+  }
+
+  /** Runs a built bin with every locale variable cleared. */
+  function built(bin: string, ...argv: string[]) {
+    return spawnSync(process.execPath, [bin, ...argv], {
+      cwd: tmpdir(),
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        LANG: undefined,
+        LC_ALL: undefined,
+        LC_MESSAGES: undefined,
+        SIGIL_LOCALE: undefined,
+      },
+    });
+  }
+
+  /** The same schema from source, which is what the built app has to agree with. */
+  function fromSource(dir: string, ...argv: string[]) {
+    writeFileSync(
+      join(dir, 'source.ts'),
+      "import { main } from '@ttylabs/sigil';\nimport schema from './src/index.ts';\nawait main({ schema });\n"
+    );
+    return spawnSync(process.execPath, [join(dir, 'source.ts'), ...argv], {
+      cwd: dir,
+      encoding: 'utf-8',
+    });
+  }
+
+  const header =
+    "const base = { desc: 'x', name: 'buildable', baseDir: import.meta.dirname, commands: './commands' };\n";
+
+  it('should print the version the schema declares, as source does, over the manifest`s', async () => {
+    const { bin, dir } = await variant(
+      'string',
+      `${header}export default { ...base, version: '9.9.9' };\n`
+    );
+
+    const source = fromSource(dir, '--version');
+    expect(source.stdout).toBe('9.9.9\n');
+
+    const result = built(bin, '--version');
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe(source.stdout);
+  }, 60_000);
+
+  it('should print a version stated by an async schema function', async () => {
+    const { bin } = await variant(
+      'async',
+      `${header}export default async () => ({ ...base, version: '9.9.9' });\n`
+    );
+
+    expect(built(bin, '--version').stdout).toBe('9.9.9\n');
+  }, 60_000);
+
+  it('should fill in the manifest`s version when the schema declares none', async () => {
+    const { bin } = await variant('none', `${header}export default base;\n`);
+
+    expect(built(bin, '--version').stdout).toBe(`${MANIFEST}\n`);
+  }, 60_000);
+
+  it('should still replace a version function, which reads a path a bundle moves', async () => {
+    // `dist/buildable.mjs` is not `src/lib/version.ts`: `../../package.json` is
+    // the app's own manifest from the one and the directory above the app from
+    // the other. Left to win, the function throws ENOENT out of `--version` --
+    // measured, which is what keeps the string rule from being a plain `??`
+    const { bin, dir } = await variant(
+      'function',
+      `import { version } from './lib/version.ts';\n${header}export default { ...base, version };\n`,
+      {
+        'src/lib/version.ts':
+          "import { readFileSync } from 'node:fs';\n" +
+          "export const version = (): string =>\n  JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8')).version;\n",
+      }
+    );
+
+    // from source it is the function, reading the manifest two directories up
+    expect(fromSource(dir, '--version').stdout).toBe(`${MANIFEST}\n`);
+
+    const result = built(bin, '--version');
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe(`${MANIFEST}\n`);
+  }, 60_000);
+
+  it('should keep the locale the schema declares over the one `sigil.json` names', async () => {
+    const i18n = {
+      'sigil.json': JSON.stringify({ locale: 'de' }),
+      'src/commands/build.ts': "export default { desc: 'Build the app', run() {} };\n",
+      'src/locales/de.json': JSON.stringify({
+        'Build the app': 'Die App bauen',
+        'Usage:': 'Verwendung:',
+      }),
+    };
+    const localized = (extra: string) =>
+      `${header.replace('};', `, locales: { de: () => import('./locales/de.json', { with: { type: 'json' } }) }${extra} };`)}export default base;\n`;
+
+    const config = await variant('locale-config', localized(''), i18n);
+    const schema = await variant('locale-schema', localized(", defaultLocale: 'en'"), i18n);
+
+    // the control: with the schema silent the config's locale is the answer
+    expect(built(config.bin, '--help').stdout).toContain('Verwendung:');
+    // and the schema's own beats it, as it does from source
+    expect(built(schema.bin, '--help').stdout).toContain('Usage:');
+    expect(built(schema.bin, '--help').stdout).not.toContain('Verwendung:');
+  }, 60_000);
+});
+
 describe('an import nothing can resolve', () => {
   /**
    * The gate that had never fired.

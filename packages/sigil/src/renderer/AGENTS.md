@@ -691,6 +691,51 @@ the entry it belongs to.
   cleanup that registers another sends it where the effect was created rather
   than into the list being walked. Both are pinned: moving the refusal out of the
   `try`, or running the list with the run still current, each fails its own test.
+- **`provideContext()` opens a scope something disposes, in the two places it
+  still did not (SIG-425).** The SIG-344 entries tie a scope to the effect run
+  that opened it; two more shapes left one nothing would ever dispose, both
+  reproduced on `main` before the fix. **Under an owner that is already disposed**
+  the scope was a fresh, live child of a parent nothing will walk again, and it
+  was how an effect got past the refusal a bare `createEffect()` makes there:
+  five calls left five live effects, five sinks and five children on the dead
+  owner. It is born disposed now and taken back off the parent it registered
+  with -- not a throw. `fn` still runs and still reads the value, and what it
+  starts starts nothing and what it registers runs at once, which is the answer
+  `createBranch()` and `onCleanup()` already give under a disposed owner, and a
+  throw would have made `provideContext()` the one entry point that refuses where
+  every other one declines. The scope keeps its parent, so `useContext()` inside
+  it still sees the outer scopes. **Inside a bare signals `effect()`** there is
+  no run list: `runCleanups` is this file's, and a bare effect never sets it, so
+  the scope was unowned by `runWithOwner()` and a re-run left one more behind
+  (six runs, six scopes, six sinks for one write; no cleanup had run). The scope
+  is handed to the signals layer the way a child effect is, through
+  `adoptIntoRun()` in `src/signals/effect.ts`, which adds a disposer to the set
+  the running body's children are held in -- so it is disposed before the next
+  run, and at `dispose()`, and what it throws is reported on a re-run and raised
+  from the disposer, as the run's own cleanups are. That is the same answer as a
+  plain nested `effect()`, which is what the ticket's second question asked.
+  `adoptIntoRun()` is not exported from `signals/index.ts`: it is the owner
+  tree's, and it is a no-op where nothing is running or inside `unowned()` --
+  which is every `createRoot()`, `createBranch()` and `runWithOwner()` -- so a
+  root opened in a bare effect keeps what it builds, as one must. The renderer's
+  own effects are unchanged: their run list is tried first, but only where it is
+  the innermost run's -- a bare `effect()` created in one of their bodies never
+  clears `runCleanups`, so its first run put the scope into the outer run's list
+  and it lived as long as that effect did (found by review). `runOf` records
+  which signals-level run the list belongs to and `currentRun()` names the
+  innermost, and where they differ the scope is adopted instead. Where there is
+  no signals-level run at all the list is still used, because that is
+  `unowned()` inside the body, which sets the signals parentage aside and leaves
+  the run's list alone -- the first version of this treated it as a stale list
+  and leaked a scope per re-run in that shape (found by the second review).
+
+  One limit is the signals layer's and is left as it is: when a bare effect is
+  stopped, its children are disposed by a loop that stops at the first throw, so
+  a scope whose cleanup throws leaves the effect's later scopes, and its own
+  cleanup, undisposed -- exactly what a plain nested `effect()` whose cleanup
+  throws already does there. A re-run reports instead and carries on. Changing it
+  is a change to how every effect is stopped, which is not this ticket's.
+
 - **An owned effect stopped by hand is taken off its owner (SIG-344).** The
   disposer went onto `owner.cleanups` and stayed there after the caller had
   called it -- a closure over the computed, the body and its cleanups -- so an
@@ -1610,6 +1655,34 @@ it.
   way out, and a different `'error'` spent the guard -- was eight, every one caught,
   under "A router stopped over a failed stream" in `src/input`; the attach tick
   survived the first run of it and is pinned by a test of its own.
+- **A `colorLevel` the app names is final, and a `detect()` reply never raises it
+  (SIG-508).** `runApp({ colorLevel: 1 })` drew the first frame at 16 colors and
+  then at truecolor once the terminal answered the probe, so an app that asked for
+  16 got more -- and the treemap demo's `1` argument only held because it also
+  passed `detect: false`, which was the only way to stop the reply raising it
+  and also turned the whole probe off, a `detect: { background: true }` with it. The renderer's own comment on `refined` had argued the other way for a
+  reason that is true of `mountLive()` and not of this: every built-in passes
+  `opts.colorLevel ?? ansi.level`, the environment's own guess in the caller's
+  clothes, so a named level there has to stay refinable. Nothing fills in
+  `runApp()`'s on anyone's behalf -- only the app sets it, which is the reason
+  `colorScheme` is already not overruled by a reply. So the bit is the caller's to
+  say: `RenderOptions.pinColorLevel`, which `runApp()` sets exactly when
+  `opts.colorLevel` is named and `mountLive()` never sets. **Which callers' levels
+  are final: `runApp()`'s, when named; nobody else's.** A pinned level still sends the probe, so whatever
+  `detect` asks for is learned -- the background with `detect: { background: true }`,
+  which is off by default, as it was -- and the version reply is read; only the raise is withheld, and `refined.colorLevel` is simply
+  never recorded, which is what leaves the chain in `readMedia()` on
+  `opts.colorLevel`. `Capabilities.colorLevel` from `app.view.detect()` still reports
+  what the terminal said, and an app that passes the environment's own guess as its
+  `colorLevel` has named one: omit it to be refined. An app that names no level is refined exactly as before, and
+  raise-only protecting a level of zero is untouched. Chosen over
+  `detect: { level: false }` because that makes every app that wants both a level
+  and a background say so twice, and over making a named level final everywhere
+  because that would stop `mountLive()` from ever being refined. Pinned by
+  `a colorLevel the app named` in `test/renderer/app.test.ts` and, for the
+  renderer's half, `should not raise a level the caller pinned` in
+  `test/renderer/renderer.test.ts`; reverting the one line in `runApp()` fails the
+  first.
 - **Not done:** an `App` handle to a router the caller built, since the host is
   what makes the router exist at build time. Capturing `console.log()` while the
   app owns the screen was on this list until SIG-310 -- see the entry above.

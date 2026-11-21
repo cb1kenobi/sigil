@@ -6197,11 +6197,15 @@ borrows `runPrompt()` and the field helpers rather than reading a key itself.
   that arrives after the prompt ended (`closed`, set by an `onCleanup`, which is
   also what aborts the call in flight when the prompt is cancelled -- `settle()`
   never runs for a Ctrl-C).
-- **Enter waits for a lookup in flight.** The list on screen belongs to an
+- **Enter and Tab do nothing while a lookup is in flight.** The list on screen belongs to an
   earlier term while one is out; it is left drawn because blanking it per
   keystroke flickers on a fast source, but answering from it would hand back a row
-  for a question no longer being asked. The cost is a source that never settles
-  blocks Enter, and Ctrl-C is how out of that.
+  for a question no longer being asked. Tab is the same question put to the field
+  rather than to the answer (SIG-529): it did not ask, so `z` and Tab over a slow
+  source wrote the earlier term's row into the field, which then looked up a label
+  nobody typed. Both do nothing while `pending` and are not queued, so the key is
+  lost rather than replayed against a list it was not pressed over. The cost is a
+  source that never settles blocks both, and Ctrl-C is how out of that.
 - **A failed lookup empties the list and says why on the line under it; the next
   keystroke asks again.** That is `validate`'s own channel (one reserved line,
   `sigil-prompt-error`), shared with the status and empty messages because the
@@ -12755,11 +12759,12 @@ reason.
   `autocomplete()`, with a static or an async source, `autocompleteMultiselect()`
   and `path()` are prompts: each filters and draws inside `key()`, and an async
   source already refuses Enter and Space while a lookup is out, which is this rule
-  one step along. **Tab is the exception, and it is left as it was**: it completes
-  the field from the active row without asking whether a lookup is out, so `z` and
-  Tab in one read over an async source complete to a row of the earlier term's
-  list. Review round 2 reproduced it. It predates this change and shares no code
-  with it, so it is a ticket of its own rather than a fix here. `select()`, `multiselect()`,
+  one step along. **Tab was the exception, and it was fixed in SIG-529**: it
+  completed the field from the active row without asking whether a lookup is out,
+  so `z` and Tab in one read over an async source completed to a row of the earlier
+  term's list. Review round 2 of SIG-469 reproduced it. It predates that change and
+  shares no code with it, so it was a ticket of its own; Tab now does nothing while
+  a lookup is out, which is what Enter does. `select()`, `multiselect()`,
   `groupMultiselect()`, `filePicker()`, `selectTree()`, `sort()` and `selectRow()`
   were read too and take no typed filter. `Dropdown` and `Menu` have no filter
   either, and their effects only draw. `DataTable` is built on the list and gets the
@@ -12826,8 +12831,8 @@ reason.
     walk asked for after it -- a key reaching a tree already gone -- is refused.
     `should let go of its source when it is disposed` counts the sinks, and fails
     with either half taken out. `DataTable`'s two `Computed`s, `specs` and `sorted`,
-    leak the same way -- five sinks on both `rows` and `columns` after five tables --
-    and are on `main` rather than from this change, so they are left for a ticket.
+    leaked the same way -- five sinks on both `rows` and `columns` after five tables --
+    and are disposed too, as SIG-530 (see "A data table").
   - **A source that writes a signal while it is read is refused, in words that say
     so.** The graph's own refusal names a `Computed` the app never wrote, so the
     reading catches that one and throws a `TypeError` naming `TreeListView` and
@@ -13388,6 +13393,29 @@ the probes and the sabotage pass are in
   off again, because the cursor's and the selection's classes are put on after
   `rowClass`'s; so it is not refused, only pointless. `should leave the cursor's
   classes to the cursor, whatever rowClass says` pins that order.
+
+- **A table lets go of its rows and its columns when it is disposed, and what asks
+  after that is handed what the table last read (SIG-530).** `specs` and `sorted` are
+  `Computed`s over the app's `rows` and `columns`, and a source holds every sink that
+  read it until the sink lets go -- so five tables made and disposed over one
+  long-lived `State` left five sinks on it, and each table, with its element tree,
+  reachable from it. Both are disposed in the table's cleanup. A dispose is a release
+  that a later read undoes, and a key, a digit, `sortBy()`, `shown()`, `refresh()` or
+  a call on the selection reaches a table whose owner has gone, so each read goes
+  through a function that answers the last value once the table is disposed; the list
+  reads its items through an object that does the same, not through `sorted`. Which is
+  also why `DataTable` does not hand `sorted` to the list as it did. `should let go of
+  its rows and its columns when it is disposed` counts the sinks after five tables and
+  a key, a digit and the control's calls on each, and fails with the dispose taken out
+  and with either guard taken out, each on its own -- measured.
+  `Tabs` over a live list had the same leak in the one `Computed` it builds, read only
+  by effects that go with the owner, so it needed the dispose and no guard
+  (`should let go of a live list of tabs when it is disposed`). Swept: outside `signals/`, `raw()`'s computeds release their own and
+  `TreeListView`'s is disposed above. `sortBy()` refuses once the table is disposed,
+  so a stale heading click or control call writes nothing to a sort the app still
+  holds. Listed rather than changed, because they are apps and not components:
+  `examples/dashboard`'s `Card` badge and `buildTraffic()` build `Computed`s over the
+  dashboard model that are never disposed, and live as long as the app does.
 
 **Not done:** a cell cursor and Left/Right, which `selectRow()` refused for the
 reason it gives; type-to-find, for the digits; dragging a column's edge; a

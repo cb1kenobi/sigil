@@ -1425,7 +1425,9 @@ makes it testable with a fixture directory and no bundler at all.
   schema module and spreads it, then passes `commands` over the top -- so there
   is no source rewriting anywhere, and everything the app said about its name,
   options and hooks survives untouched. `commands` is the one property the build
-  knows better than the app does. A schema export may be a function, because a
+  knows better than the app does; `version` and `defaultLocale` fill in only
+  what the schema left out (see the entry on `version` below). A schema export
+  may be a function, because a
   schema that reads the environment has to be built rather than declared, and it
   is called exactly where the app would have called it -- and awaited, which is
   the entry below.
@@ -1509,6 +1511,56 @@ makes it testable with a fixture directory and no bundler at all.
   as a literal and gives up on a function of either kind, keeping the general
   message, which is its recorded rule. `sigil check` is `inspect()`, which is
   the static passes above.
+
+- **A built app's `version` is the schema's when the schema states one, and the
+  manifest's fills in the rest (SIG-536).** The entry wrote `version` over the
+  schema's own, so a schema saying `'9.9.9'` over a manifest saying `1.0.0` was
+  `9.9.9` from `main({ schema })` and `1.0.0` from `node dist/app.mjs
+  --version` -- the same app answering differently from source and built, and a
+  version the app stated silently replaced. The override had a reason, and it
+  was **measured before it was narrowed** rather than assumed: a bundle has no
+  `package.json` beside it, and a version read off `import.meta.url` reads
+  wherever the bundle was written.
+
+  Three shapes of that read, built and run. A schema **function** reading
+  `../package.json` from `src/index.ts` printed the right version by coincidence
+  -- `dist/app.mjs` and `src/index.ts` sit at the same depth -- while the same
+  function in `src/lib/version.ts` reading `../../package.json` threw `ENOENT`
+  out of `--version`, and with a `package.json` one directory above the app
+  printed **that** file's version instead. A version **computed at import**
+  from such a read threw at import in the deep case, which is before
+  `compose()` runs, so the override never saved it -- and printed the wrong
+  file's version in the wrong-file case, which it did save.
+
+  So the rule is **a string the schema declares wins; a function is still
+  replaced; nothing declared is filled in.** In the generated entry it is
+  `typeof schema.version === 'string' ? schema.version : '<manifest>'`, applied
+  to the _resolved_ schema, so a function or Promise export is covered too. A
+  function stays replaced because it is the spelling `Schema.version` documents
+  for exactly this read, and a plain `??` was tried first and broke it. The
+  limit, stated plainly: a version **string computed eagerly** from a read that
+  resolves to the wrong file is now what the app prints, where the bake used to
+  hide it, and a string cannot be told from the literal it was computed from at
+  run time. No warning and no comparison against the manifest is added for it --
+  the app that computes its version should declare a function, which is what
+  the type's own documentation says. The same holds for a string computed from
+  the environment, `process.env.npm_package_version ?? '0.0.0'`: set under
+  `pnpm dev` and unset when the built bin is run directly, so the built app
+  prints `0.0.0` where the bake used to supply the manifest's. And "a function
+  is still replaced" means when the manifest has a `version`: with none,
+  nothing is baked and the function stands.
+
+  `defaultLocale` is the same precedence with none of the exception: nothing
+  computes a locale from a path, so a `defaultLocale` the schema declares simply
+  wins over `"locale"` in `sigil.json`, and the config fills in only a schema
+  that said none. The consumers of the baked version were checked for a reliance
+  on the manifest always winning, and there is none: `--version`, and the update
+  check, which reads the same composed schema (`updates/auto.ts`) and so now
+  checks against what `--version` prints. `sigil package` bundles through the
+  same `writeEntry()`. `a version and a default locale the schema states` in
+  `test/build/bundle.test.ts` builds each shape and runs it, and was swept: the
+  old override fails three of its five, and a plain `??` fails the function
+  case.
 
 - **One `quote()` for every string the toolchain prints as source, and it
   escapes the union of what the two copies did.** SIG-353. `generate.ts` and the
@@ -2134,6 +2186,27 @@ makes it testable with a fixture directory and no bundler at all.
   reaches -- a helper the commands import -- which `check` does not read; see "A
   template that cannot be compiled is a diagnostic" under "Compiling an app's
   templates" for why it stops at the modules it already reads.
+- **`sigil check` reads `sigil.json` through `readSigilConfig()`, in full, and
+  reports what it says as a diagnostic (SIG-535).** It never read the file, so
+  `{ "build": { "out": 5 } }` and a `sigil.json` beside a `sigil.jsonc` were
+  "no problems found" and then a `build` error -- the one thing the fast loop
+  exists to prevent. `checkConfig()` in `_inspect.ts` is a call to the one reader
+  every command reads the file through, so there is one verdict and the sentence
+  is `build`'s own; it is not folded into `inspect()`, because `build` and
+  `package` read the file after their report and raise it as the plain error
+  they always did. `check` asks the whole file rather than the sections `build`
+  reads, because `check` is about the app: `readSigilConfig()` already validates
+  every section, and the two things it leaves to `sigil package` -- whether
+  `package.runtime` and `package.target` are a runtime and a platform -- are
+  asked here with `parseSpec()` and `parseTarget()`, the functions `package`
+  asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
+  `package` both call. What stays with the command is what depends on how it
+  was run: `assertCleanable()` over `build.out` (it needs `--out`, `--bin` and
+  `--no-clean`) and `package`'s refusal of `build.external`. The echoed values in
+  those three messages are escaped where they are thrown. A section's rule goes
+  in its reader, never in `check`; `sigil reference`
+  and `sigil add` read the file themselves and were never affected. Pinned in
+  `test/check.test.ts`.
 - **The CLI declares its own `check` the way `sigil build` generates an app's
   commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
   and it pays immediately -- the module behind it imports `oxc-parser`, which is
@@ -3862,6 +3935,72 @@ is a command that owns its terminal for seconds and knows its own progress, and
 none of these three is that. The measurement scripts are worth re-running before
 anybody revisits it, because two of the three numbers are facts about other
 people's software and will move.
+
+- **A reader that goes away ends a command's output quietly, and the listener is
+  on the schema rather than in each command** (SIG-537). `sigil add | head -1`
+  exited 1 every time with Node's unhandled-error dump: `head` quits at its
+  line, the next write fails `EPIPE`, and an `error` event on a stream with no
+  listener is an uncaught exception. `check`, `reference` and `--help` only
+  looked safe because their output finishes before `head` closes the pipe; any
+  command whose output grows had it. The commands write to `process.stdout` and
+  `process.stderr` directly, at about three dozen references, so the guard is one
+  `beforeParse` hook on `schema()` in `src/index.ts` that puts a listener on both
+  streams, and a hook rather than a call in `run()` because the built executable
+  never reaches `run()` (the same reason `settings` lives on the schema). A
+  command added next year is covered without anybody remembering to. What counts
+  as the reader leaving is `@ttylabs/sigil/terminal`'s `isStreamGone()`, the one
+  the terminal's own listener asks, and nothing here spells `EPIPE` -- which is
+  also what puts `EOF`, Windows's name for the same condition, on the list once
+  for both. `--version`, which `run()` answers before the schema exists, calls
+  the same function.
+
+  **The behaviour is the runtime's: stop noticing, do not stop the command.**
+  Later writes land nowhere, nothing is printed, and the exit code is whatever
+  the command's own result was -- `0` for a listing, `1` for a failed `check`,
+  never `141`. A command that quits early would have to decide what "early"
+  means for a build that is half way through writing files, and the runtime
+  made the same call for the same reason. The listener is attached once per
+  stream per process and never taken off, unlike a terminal's: a terminal
+  outlives a command and a bin does not, and the `EPIPE` for the last write
+  arrives after `main()` has resolved.
+
+  **Only the reader leaving is quiet, and the terminal's listener is not the one
+  to copy for that.** The terminal swallows every `error` event, which is right
+  for best-effort output and wrong here: the first version of this reused that
+  listener, and `ulimit -f 1; sigil add > out` -- `EFBIG` -- went from exit 1 to
+  **exit 0 over a cut-off file** (round 1). The toolchain's listener throws
+  whatever `isStreamGone()` does not call the reader leaving, which is the
+  uncaught exception it was before the guard. `guardGone()` was exported for this
+  in that first version and is not any more: with a throwing listener it was a
+  second, no-op listener, and a published contract of "swallows everything" is
+  the footgun that produced the bug. Not covered, measured in round 2: a **short
+  write** raises no `error` at all, so `sigil reference app > out` under
+  `ulimit -f 1` still exits 0 over 1,024 of its 2,276 bytes. That is the same on
+  `main` -- the document is one `write()` -- so it is not a regression and not
+  this ticket's, and `add`, which writes in several pieces, is the case that
+  reaches `EFBIG`.
+
+  **"Before any command writes a byte" has one exception, which is `DEBUG`.** The
+  hook is the first thing `main()` fires once the schema is built, and a
+  `DEBUG=*` trace of schema init (`sigil:init-command`) is written before that.
+  Measured: ten debug lines on stdout before any listener exists. No failure was
+  reproduced -- the `EPIPE` event arrives after the hook -- so it is a window and
+  not a bug, and a debug trace is what a person asks for with a terminal in front
+  of them.
+
+  `test/closed-pipe.test.ts` spawns both `src/sigil.ts` and the built
+  `dist/sigil.mjs` and **closes the read end itself** the moment the child
+  exists, rather than racing a `head`: node has not started yet, so every write
+  meets a reader that is gone. The cases that write into a closed stream (`add`
+  and `check --tree` into stdout, `check` into stderr) fail on both entries with
+  the hook removed; the case where a failing command keeps its own exit code
+  does not, since an uncaught `EPIPE` also gives 1, so it pins the rule rather
+  than the guard. The `ENOSPC` and `EFBIG` rethrow is an in-process case that
+  emits the error on the worker's own streams and takes its listeners off again.
+  Not covered, and said so: the close here is before the first write, so it
+  proves every write is safe but not that a write racing the close is. Windows is
+  unmeasured -- an `EPIPE` there can arrive as `EOF`, which is in the set for
+  that reason -- and the three Windows jobs are the check.
 
 ### `sigil new`
 

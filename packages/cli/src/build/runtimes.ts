@@ -1389,13 +1389,13 @@ export function parseSpec(text: string): Spec {
 
   if (!(RUNTIMES as readonly string[]).includes(runtime)) {
     throw new Error(
-      `"${runtime}" is not a runtime. Use ${RUNTIMES.join(' or ')}, optionally with a version -- ${RUNTIMES.map((one) => `${one}@<version>`).join(' or ')}.`
+      `"${escapeControls(runtime)}" is not a runtime. Use ${RUNTIMES.join(' or ')}, optionally with a version -- ${RUNTIMES.map((one) => `${one}@<version>`).join(' or ')}.`
     );
   }
 
   if (version !== undefined && !isVersion(version)) {
     throw new Error(
-      `"${version}" is not a version. Name one as <major>.<minor>.<patch>, for example ${example(runtime as Runtime)}.`
+      `"${escapeControls(version)}" is not a version. Name one as <major>.<minor>.<patch>, for example ${example(runtime as Runtime)}.`
     );
   }
 

@@ -16,6 +16,7 @@
  * order things were built in, undone.
  */
 
+import { adoptIntoRun, currentRun } from '../signals/effect.js';
 import { effect as defaultEffect, unowned, untrack } from '../signals/index.js';
 import { raise, refuseAsync } from '../signals/raise.js';
 
@@ -77,6 +78,17 @@ let current: OwnerNode | undefined;
  */
 let runCleanups: Cleanup[] | undefined;
 
+/**
+ * Which signals-level run `runCleanups` belongs to, as `currentRun()` names it.
+ *
+ * A bare `effect()` created inside one of this file's effect bodies never clears
+ * `runCleanups`, so reading the list alone cannot say whether the run that is
+ * innermost is the one that list is for. This can: where it no longer matches
+ * `currentRun()`, a bare effect is the innermost run and the list is a stale
+ * outer one.
+ */
+let runOf: unknown;
+
 /** Whether an effect body is running, which is what makes ownership implicit. */
 let inBody = 0;
 
@@ -103,6 +115,7 @@ export function getOwner(): Owner | undefined {
 export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
   const previousOwner = current;
   const previousCleanups = runCleanups;
+  const previousRun = runOf;
   const previousBody = inBody;
   // a fresh ownership scope, not just a different context to read: what `fn`
   // registers belongs to `owner`. Both of the others have to be put aside for
@@ -115,6 +128,7 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
   // is a new owner each time and disposing it is what disposes the effect
   current = owner as OwnerNode | undefined;
   runCleanups = undefined;
+  runOf = undefined;
   inBody = 0;
   try {
     // and detached at the signals level too, or the ownership this establishes
@@ -127,6 +141,7 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
   } finally {
     current = previousOwner;
     runCleanups = previousCleanups;
+    runOf = previousRun;
     inBody = previousBody;
   }
 }
@@ -341,8 +356,10 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
     const cleanups: Cleanup[] = [];
     const previousOwner = current;
     const previousCleanups = runCleanups;
+    const previousRun = runOf;
     current = owner;
     runCleanups = cleanups;
+    runOf = currentRun();
     inBody++;
 
     let returned: void | Cleanup;
@@ -352,6 +369,7 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
       } finally {
         current = previousOwner;
         runCleanups = previousCleanups;
+        runOf = previousRun;
         inBody--;
       }
 
@@ -508,7 +526,10 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
  * Inside an effect body the scope it opens belongs to *that run*, the way an
  * `onCleanup()` there does: the body is about to run again and build the scope
  * again, so the one it built last time is disposed when it does, effects and
- * cleanups with it. Anywhere else it belongs to the component.
+ * cleanups with it -- and that holds for a bare `effect()` from the signals
+ * layer too, which has no list of cleanups but does dispose what it adopts.
+ * Anywhere else it belongs to the component. Under an owner that is already
+ * disposed it is born disposed: `fn` runs, and starts nothing.
  *
  * @param context - The context.
  * @param value - The value.
@@ -518,6 +539,18 @@ export function createContext<T>(defaultValue: T, name = 'context'): Context<T> 
 export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R): R {
   const owner = new OwnerNode(current);
   owner.context = new Map([[context.id, value]]);
+  if (current?.disposed) {
+    // the scope was a live child of an owner nothing will ever walk again, so
+    // its effects and cleanups lived until the process went, and it was how an
+    // effect got past the refusal `createEffect()` makes there. It is born
+    // disposed instead, and taken back off the parent it registered with on the
+    // way in: `fn` still runs and still reads the value, and what it starts
+    // starts nothing and what it registers runs at once -- the answer
+    // `createBranch()` gives under a disposed owner, for the same reason
+    owner.disposed = true;
+    current.children.delete(owner);
+    return runWithOwner(owner, fn);
+  }
   // without this the scope was a child of the component and `runWithOwner()`
   // detached what was built in it from the run, so every re-run left one more
   // scope behind, its effects live and its cleanups waiting for the whole tree
@@ -529,9 +562,25 @@ export function provideContext<T, R>(context: Context<T>, value: T, fn: () => R)
   // returned, so that a cleanup inside it that fails is reported the way the
   // run's own cleanups are: by the signals layer on a re-run, and out of
   // `dispose()` where somebody asked
-  runCleanups?.push(() => {
+  const dispose = (): void => {
     disposeOwner(owner, true);
-  });
+  };
+  // and a bare `effect()` from the signals layer has no run list to join, since
+  // it is not one of this file's effects -- including one created inside one of
+  // this file's bodies, where `runCleanups` is still the outer run's and `runOf`
+  // is what says so: it is handed the scope the way it is
+  // handed a child effect, which is what it already disposes on a re-run and
+  // reports from the same way. A no-op anywhere else -- under `createRoot()`,
+  // `createBranch()` or any `runWithOwner()` the signals layer is detached
+  // `unowned()` inside the run puts the signals level aside without touching
+  // this list, so `undefined` is not a different run: it is the same one with
+  // its parentage set down, and the list is still the innermost's
+  const run = currentRun();
+  if (runCleanups && (run === undefined || run === runOf)) {
+    runCleanups.push(dispose);
+  } else {
+    adoptIntoRun(dispose);
+  }
   return runWithOwner(owner, fn);
 }
 

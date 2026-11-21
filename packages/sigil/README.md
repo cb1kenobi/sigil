@@ -1568,7 +1568,8 @@ The runtime cannot read that file — reading one at startup is what `locales`
 being a map rather than a directory convention exists to avoid — so the build is
 what carries it across, beside the version and the baked tree. An app that wants
 its **unbundled** runs to match writes `defaultLocale` in its schema as well,
-which is the same asymmetry `version` already has.
+which is the same asymmetry `version` already has -- and a value the schema
+states wins over `sigil.json`'s, built or not.
 
 POSIX spellings are taken everywhere a tag is: `de_DE.UTF-8`, `pt_BR` and
 `de_DE@euro` all resolve, which `Intl` itself refuses for all three. The
@@ -2831,6 +2832,27 @@ head -1` closes the pipe the instant `head` has its line, and an `EPIPE` with
 no listener is an uncaught exception. After that `terminal.closed` is `true`
 and writes are no-ops.
 
+A program that writes to `process.stdout` itself, with no terminal to go
+through, needs a listener of its own, and `isStreamGone()` is what it asks:
+
+```js
+import { isStreamGone } from '@ttylabs/sigil/terminal';
+
+process.stdout.on('error', (err) => {
+  // `mycli list | head -1` is a command that finished, not a stack trace; a
+  // full disk (`ENOSPC`) is still a failure
+  if (!isStreamGone(err)) {
+    throw err;
+  }
+});
+
+isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
+```
+
+The terminal's own listener swallows every error, since its output is
+best-effort, and leaves the exit code alone; a program with output that must not
+be cut short silently rethrows as above.
+
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
 `MAX_WIDTH`: that cap is a readability limit on generated prose, while this is
 the real screen, and cursor math needs the real number.
@@ -3643,7 +3665,7 @@ that can be cancelled stops costing anything the moment its answer could not be
 used. A call that was aborted **never draws**, whether or not it honoured the
 signal. A source that rejects shows its message under the field and the prompt
 carries on: the next keystroke asks again. While a lookup is out the list on
-screen belongs to an earlier term, so Enter waits for the answer.
+screen belongs to an earlier term, so Enter and Tab do nothing until it answers.
 
 **There is no debounce, because that is a trade for the caller to make.** The
 signal is what makes the recipe short — wait a moment, and give up the wait if
@@ -7405,19 +7427,19 @@ function App() {
 process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                                   |
-| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
-| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                                 |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                                 |
-| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
-| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
-| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                          |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                     |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                                       |
-| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                  |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
+| Option                         | Default       | What it does                                                                                                                                         |
+| ------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                                                      |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                                                        |
+| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                                                                       |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                                                                       |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing                                                   |
+| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing                                       |
+| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                                                                |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                                                           |
+| `detect`                       | `true`        | Asks the terminal for its colour depth once the app is up (`{ background: true }` adds the background); a `colorLevel` the app named is never raised |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                                                        |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                                                        |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
 `Renderer`), `cascade`, `setTheme()`, `logs`, `terminal`, `interactive` and

@@ -145,8 +145,10 @@ export interface AppOptions extends Pick<
   /**
    * Whether to ask the terminal what it is once the app is up. Defaults to `true`.
    *
-   * `Renderer.detect()`: the background colour for light and dark, and the colour
-   * depth, read from replies rather than guessed from the environment. On by
+   * `Renderer.detect()`: the colour depth, read from a reply rather than guessed
+   * from the environment -- except a `colorLevel` the app named, which a reply does
+   * not raise -- and, with `{ background: true }`, the background colour for light
+   * and dark. On by
    * default here and nowhere else, because the rule it would break is a CLI
    * paying a round trip to print one line -- and an app is the long-lived,
    * interactive program that rule was never about. The first frame does not wait
@@ -1129,6 +1131,9 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
           (opts.fullscreen === false ? undefined : createFullscreenCanvas({ terminal })),
         cascade,
         colorLevel: opts.colorLevel,
+        // a level the app named is the app's decision, and nothing here fills one
+        // in on its behalf, so the terminal's reply may not raise it
+        pinColorLevel: opts.colorLevel !== undefined,
         colorScheme: opts.colorScheme,
         effects: opts.effects,
         frameMs: opts.frameMs,

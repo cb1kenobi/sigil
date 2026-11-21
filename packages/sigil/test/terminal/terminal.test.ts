@@ -1,4 +1,9 @@
-import { createTerminal, type OutputStream, type ProcessLike } from '../../src/terminal/index.js';
+import {
+  createTerminal,
+  isStreamGone,
+  type OutputStream,
+  type ProcessLike,
+} from '../../src/terminal/index.js';
 import {
   DISABLE_MOUSE_BUTTONS,
   DISABLE_MOUSE_MOTION,
@@ -324,7 +329,9 @@ describe('createTerminal()', () => {
       expect(term.closed).to.equal(true);
     });
 
-    it.each(['ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END'])(
+    // `EOF` is what libuv calls `ERROR_BROKEN_PIPE`, which a write into a pipe
+    // whose reader has closed can come back as on Windows
+    it.each(['ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END', 'EOF'])(
       'should treat %s as the far end going away too',
       (code) => {
         const { stdout, term } = setup();
@@ -333,6 +340,15 @@ describe('createTerminal()', () => {
         expect(term.closed).to.equal(true);
       }
     );
+
+    it('should swallow EOF from an error event, which is how Windows says EPIPE', () => {
+      const { stdout, term } = setup();
+
+      term.write('first');
+      stdout.emit('error', Object.assign(new Error('EOF'), { code: 'EOF' }));
+
+      expect(term.closed).to.equal(true);
+    });
 
     // only the pipe going away is this module's to swallow; a real fault is
     // still a fault
@@ -696,4 +712,20 @@ describe('createTerminal()', () => {
       expect(proc.killed).to.deep.equal([]);
     });
   });
+});
+
+describe('isStreamGone()', () => {
+  it.each(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END'])(
+    'should say %s is the reader leaving',
+    (code) => {
+      expect(isStreamGone(Object.assign(new Error(code), { code }))).to.equal(true);
+    }
+  );
+
+  it.each([undefined, null, 'EPIPE', new Error('EPIPE'), { code: 'ENOSPC' }])(
+    'should say %s is not',
+    (value) => {
+      expect(isStreamGone(value)).to.equal(false);
+    }
+  );
 });

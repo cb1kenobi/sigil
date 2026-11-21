@@ -25,7 +25,7 @@ import {
   type MouseEvent,
 } from '../../src/input/index.js';
 import type { MouseButton, MouseEventKind } from '../../src/input/mouse.js';
-import { onCleanup } from '../../src/renderer/index.js';
+import { createRoot, onCleanup } from '../../src/renderer/index.js';
 import { Computed, flush, setErrorHandler, State } from '../../src/signals/index.js';
 import { createTerminal, type Terminal } from '../../src/terminal/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -834,6 +834,25 @@ describe('tabs that change while they are up', () => {
     expect(host.children[1]?.children[0]).toBe(panelOfB);
     expect(picture(host, 12)).toEqual([' b  c', '━━━─────────', 'the b']);
     expect(built).toEqual(['a', 'b', 'c']);
+  });
+
+  it('should let go of a live list of tabs when it is disposed', () => {
+    // the list is read through a Computed, and a source holds every sink that read
+    // it until the sink lets go: tabs that did not would stay reachable from the
+    // State they follow for as long as it lived
+    const list = new State<readonly Tab[]>([{ label: 'a' }, { label: 'b' }]);
+    const sinks = (): number => (list as unknown as { sinks: Set<unknown> }).sinks.size;
+    for (let i = 0; i < 5; i++) {
+      const dispose = createRoot((done) => {
+        Tabs({ ascii: false, tabs: list });
+        return done;
+      });
+      flush();
+      dispose();
+      list.set([{ label: 'a' }, { label: 'b' }, { label: `c${i}` }]);
+      flush();
+    }
+    expect(sinks()).toBe(0);
   });
 
   it('should take an empty live list of tabs, and refuse a tab it cannot draw when it is read', () => {

@@ -32,7 +32,7 @@
 import { box, type Element, type ElementPropsWithout, toDisplayLine } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
-import { createEffect } from '../renderer/index.js';
+import { createEffect, onCleanup } from '../renderer/index.js';
 import { Computed, State, untrack } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
@@ -428,6 +428,16 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       };
     });
   });
+  // a source holds every sink that read it until the sink lets go, so a table that
+  // did not would stay reachable, with its element tree, from a long-lived State of
+  // rows or columns for as long as that State lived. A release rather than a
+  // destruction: reading a Computed again links it again, which is why what asks
+  // after the table is gone -- a key, a call on the control -- is handed what it
+  // last read instead (SIG-530)
+  let disposed = false;
+  let lastSpecs: readonly Spec<T>[] = [];
+  const readSpecs = (): readonly Spec<T>[] => (disposed ? lastSpecs : (lastSpecs = specs.get()));
+
   const headOf = (list: readonly Spec<T>[]): boolean =>
     props.head ?? list.some((spec) => spec.column.header !== undefined);
 
@@ -438,7 +448,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   const initial = untrack(() => sort.get());
   if (
     initial !== undefined &&
-    !untrack(() => specs.get()).some((spec) => spec.id === initial.column)
+    !untrack(() => readSpecs()).some((spec) => spec.id === initial.column)
   ) {
     throw new TypeError(
       __`Expected data table sort to name a column: ${String(initial.column)} is not one`
@@ -459,7 +469,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   const sorted = new Computed<readonly T[]>(() => {
     const all = readRows();
     const by = sort.get();
-    const spec = by === undefined ? undefined : specs.get().find((s) => s.id === by.column);
+    const spec = by === undefined ? undefined : readSpecs().find((s) => s.id === by.column);
     if (spec === undefined || !spec.sortable) {
       return all;
     }
@@ -471,6 +481,16 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       .map((row) => ({ row, value: valueOf(row, spec) }))
       .sort((a, b) => order(a.value, b.value))
       .map((entry) => entry.row);
+  });
+  let lastSorted: readonly T[] = [];
+  /** What the list reads its items through, so a key after the table is gone relinks nothing. */
+  const sortedRows: ListItems<T> = {
+    get: () => (disposed ? lastSorted : (lastSorted = sorted.get())),
+  };
+  onCleanup(() => {
+    disposed = true;
+    specs.dispose();
+    sorted.dispose();
   });
 
   // -- the widths ------------------------------------------------------------------
@@ -533,7 +553,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
 
   /** Fits the columns into the room, and redraws whatever that changed. */
   const relayout = (): boolean => {
-    const list = untrack(() => specs.get());
+    const list = untrack(() => readSpecs());
     const fitted = fitColumns(
       list.map((spec, i) => {
         const { grow, maxWidth, minWidth, priority, width: declared } = spec.column;
@@ -577,7 +597,11 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   });
 
   function sortBy(id: string): boolean {
-    const spec = untrack(() => specs.get()).find((s) => s.id === id);
+    // a table that is gone writes nothing to a sort the app still holds
+    if (disposed) {
+      return false;
+    }
+    const spec = untrack(() => readSpecs()).find((s) => s.id === id);
     if (spec === undefined || !spec.sortable) {
       return false;
     }
@@ -596,7 +620,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   }
 
   function drawHead(): void {
-    const list = untrack(() => specs.get());
+    const list = untrack(() => readSpecs());
     const by = untrack(() => sort.get());
     while (header.children.length > 0) {
       header.removeChild(header.children[0] as Element);
@@ -648,7 +672,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
   // measured and laid out before the list is built, so its first rows are built
   // at the widths they will keep
   createEffect(() => {
-    const list = specs.get();
+    const list = readSpecs();
     const rows = readRows();
     untrack(() => {
       measure(list, rows);
@@ -662,7 +686,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
     disabled: props.disabled,
     empty: props.empty,
     follow: props.follow ?? false,
-    items: sorted,
+    items: sortedRows,
     key: props.key,
     multiple,
     onActivate: props.onActivate,
@@ -673,7 +697,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       'min-height': 0,
     },
     row: (row) => {
-      const list = untrack(() => specs.get());
+      const list = untrack(() => readSpecs());
       const columns = layout.shown.map((i) => list[i] as Spec<T>);
       return tableRowView(
         columns.map((spec) => cellOf(row, spec)),
@@ -694,7 +718,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
 
   createEffect(() => {
     sort.get();
-    specs.get();
+    readSpecs();
     untrack(drawHead);
   });
 
@@ -717,7 +741,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       return;
     }
     const index = Number(k.name) - 1;
-    const spec = untrack(() => specs.get())[index];
+    const spec = untrack(() => readSpecs())[index];
     if (spec === undefined || !layout.shown.includes(index) || !sortBy(spec.id)) {
       return;
     }
@@ -733,7 +757,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
         // rebuilds the rows in view, whether or not a width moved
         measuredFor = undefined;
         measure(
-          untrack(() => specs.get()),
+          untrack(() => readSpecs()),
           untrack(readRows)
         );
         relayout();
@@ -741,7 +765,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
       reveal: (key) => control.reveal(key as K | undefined),
       scroll: control.scroll,
       selection: control.selection as ListControl<unknown>['selection'],
-      shown: () => layout.shown.map((i) => (untrack(() => specs.get())[i] as Spec<T>).id),
+      shown: () => layout.shown.map((i) => (untrack(() => readSpecs())[i] as Spec<T>).id),
       sort,
       sortBy,
     },
