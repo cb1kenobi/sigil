@@ -360,7 +360,7 @@ function printInlined(inlined: readonly InlinedPackage[]): void {
  * @param styles - What shaking came to, or nothing when it did not shake.
  */
 function warnEmptyShake(styles: ShakenStyles | undefined): void {
-  if (!styles || styles.kept > 0) {
+  if (!styles || styles.kept > 0 || styles.variants > 0) {
     return;
   }
 

@@ -190,7 +190,9 @@ export interface BundleOptions {
    * Whether to shake the utility sheet. On by default.
    *
    * See `shake.ts` for what that means and for why it is only the utility
-   * sheet.
+   * sheet. It is also what ships a utility variant (`focus:border-green`): the
+   * rules the source names are generated on top of the base set, and with the
+   * shake off the sheet is the base set whole, which holds none.
    */
   readonly shake?: boolean;
   /**
@@ -268,6 +270,8 @@ export interface ShakenStyles {
   readonly kept: number;
   /** How many utilities there were. */
   readonly total: number;
+  /** How many variant-qualified rules (`focus:border-green`) the app named, on top. */
+  readonly variants: number;
 }
 
 /** What the build produced. */
@@ -1285,7 +1289,7 @@ function packageOf(from: string, cache: Map<string, string | undefined>): string
  */
 function styleReport(shaker: Shaker | undefined): ShakenStyles | undefined {
   const sheet: ShakenSheet | undefined = shaker?.result();
-  return sheet ? { kept: sheet.kept, total: sheet.total } : undefined;
+  return sheet ? { kept: sheet.kept, total: sheet.total, variants: sheet.variants } : undefined;
 }
 
 /** The part of a written chunk `chunkLoads()` reads. */

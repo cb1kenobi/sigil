@@ -21,6 +21,7 @@
     "./test/fixtures/templated-tsx",
     "./test/fixtures/opaque",
     "./test/fixtures/styled",
+    "./test/fixtures/variants",
     "./test/fixtures/two-trees"
   ]
 }
