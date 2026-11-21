@@ -1090,8 +1090,8 @@ messages.
   `\x1B[31m` text. The cost is that an app quoting argv in a message of its own
   has to escape it itself, which is why the helper is published and documented.
 - **The set is `escapeControls()`'s `UNSAFE` class, which began as `\p{Cc}` and
-  has been widened twice (SIG-543, SIG-548) -- see the next two entries for what
-  was added.** Anything that needs to say what is escaped points at that
+  has been widened three times (SIG-543, SIG-548, SIG-557) -- see the next three
+  entries for what was added.** Anything that needs to say what is escaped points at that
   function rather than listing the classes, so the next widening does not leave
   a comment stale. `\p{Cc}` is C0, `DEL` and C1, and it includes `\t`, `\n`
   and `\r`. It is the set the build's escape pass names, written the way that
