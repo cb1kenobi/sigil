@@ -8623,6 +8623,35 @@ checked: it is data, `check()` takes it as it is, and an `ftp://` URL in one is
 a check that fails in the worker. `customChecker()` is how to have it refused
 instead.
 
+An endpoint that wants a header, or answers `v1.2.3` where the app's version is
+`1.2.3`, says so with `headers` and `prefix`:
+
+```js
+customChecker({
+  url: 'https://downloads.acme.example/mycli/latest.json',
+  path: ['stable', 'version'],
+  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  prefix: 'v',
+});
+```
+
+`headers` is a plain object of header names to string values. A name has to be
+an HTTP token and a value may hold no control character -- a carriage return or
+a line feed would forge a header, and Node refuses to send the request at all --
+so either throws a `TypeError` when the checker is built, instead of failing in
+the background where nothing reports it. The message names the header and
+**never quotes its value**, since a value is often a credential. `prefix` is a
+non-empty string, stripped off the version when the answer starts with it; leave
+it out to strip nothing. `sigil.json`'s `custom` check takes `prefix` but not
+`headers`: that file is committed, so a header belongs in code, passed as
+`checker`.
+
+A refusal of an endpoint's `url` shows its query by parameter **name**, with the
+value hidden -- `https://h/latest json?channel=***&token=***` -- so you can see
+which query you wrote and nothing a token could be in. The root URLs of
+`npmChecker()` and `githubChecker()` may not carry a query, and a refusal of one
+hides everything from the `?`.
+
 Or pass one in code, which beats whatever is baked in:
 
 ```js

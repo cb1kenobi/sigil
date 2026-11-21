@@ -316,6 +316,11 @@ describe('what the build bakes in', () => {
       ['updateCheck.repo', 'repo', { repo: 'notarepo', type: 'github' }],
       ['updateCheck.url', 'url', { path: ['v'], type: 'custom', url: 'ftp://h' }],
       ['updateCheck.path', 'path', { path: [1], type: 'custom', url: 'https://h/x' }],
+      [
+        'updateCheck.prefix',
+        'prefix',
+        { path: ['v'], prefix: '', type: 'custom', url: 'https://h/x' },
+      ],
     ];
 
     for (const [key, word, updateCheck] of cases) {
@@ -379,6 +384,32 @@ describe('what the build bakes in', () => {
       packageName: 'mycli',
     });
     expect(baked.checker?.url).toBe('https://h/api/latest?channel=stable');
+  });
+
+  it("should carry a custom check's prefix, which strips what the endpoint puts in front of a version (SIG-555)", () => {
+    const baked = bakedUpdateCheck({
+      compiled: true,
+      config: {
+        updateCheck: { path: ['tag'], prefix: 'v', type: 'custom', url: 'https://h/latest.json' },
+      },
+      packageName: 'mycli',
+    });
+    expect(baked.checker).toEqual({
+      path: ['tag'],
+      prefix: 'v',
+      type: 'custom',
+      url: 'https://h/latest.json',
+    });
+  });
+
+  it.each([''])('should refuse a custom prefix that is empty, naming the key: %j', (prefix) => {
+    expect(() =>
+      bakedUpdateCheck({
+        compiled: true,
+        config: { updateCheck: { path: ['tag'], prefix, type: 'custom', url: 'https://h/x' } },
+        packageName: 'mycli',
+      })
+    ).toThrow('Update check "updateCheck.prefix" must be a non-empty string, got ""');
   });
 
   it('should build a custom checker', () => {
@@ -506,6 +537,33 @@ describe('what sigil.json will take', () => {
     // this is the one name in the file that is not refused for being empty
     const config = read({ updateCheck: { prefix: '', repo: 'a/b', type: 'github' } });
     expect(config.updateCheck?.prefix).toBe('');
+  });
+
+  it('should take a prefix on a custom check, and still refuse one on an npm check', () => {
+    expect(
+      read({ updateCheck: { path: ['a'], prefix: 'v', type: 'custom', url: 'https://e.com' } })
+        .updateCheck?.prefix
+    ).toBe('v');
+    expect(() => read({ updateCheck: { package: 'x', prefix: 'v', type: 'npm' } })).toThrow(
+      /"updateCheck.prefix" does not belong to a "npm" check/
+    );
+  });
+
+  it('should not carry headers into the build, which would put a credential in a committed file', () => {
+    // an unknown key beside the section is ignored, as `config.test.ts` pins for
+    // `build`, so this is a file that was read and a key that went nowhere
+    const config = read({
+      updateCheck: {
+        headers: { authorization: 'hunter2' },
+        path: ['a'],
+        type: 'custom',
+        url: 'https://e.com',
+      },
+    });
+    expect(config.updateCheck).not.toHaveProperty('headers');
+    const baked = bakedUpdateCheck({ compiled: true, config, packageName: 'mycli' });
+    expect(JSON.stringify(baked)).not.toContain('hunter2');
+    expect(baked.checker).not.toHaveProperty('headers');
   });
 
   it('should take each kind written correctly', () => {

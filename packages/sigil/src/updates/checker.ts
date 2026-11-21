@@ -91,6 +91,17 @@ export interface GithubCheckerOptions {
 /** What `customChecker()` is given. */
 export interface CustomCheckerOptions {
   /**
+   * Request headers: a plain object of header names to string values, for an
+   * endpoint that wants an `Authorization` token or an `Accept` type. A name
+   * must be an HTTP token and a value may hold no control character -- what
+   * Node itself refuses to send -- or `customChecker()` throws a `TypeError`
+   * naming the header and never quoting its value.
+   *
+   * Code only: `sigil.json` takes no headers, because a value is often a
+   * credential and that file is committed.
+   */
+  readonly headers?: Readonly<Record<string, string>>;
+  /**
    * Where the version sits in the JSON response, as a non-empty list of keys.
    * A list rather than a dotted string so a key may contain a dot.
    */
@@ -102,6 +113,12 @@ export interface CustomCheckerOptions {
    * `TypeError`.
    */
   readonly url: string;
+  /**
+   * A prefix stripped off the version the endpoint answers with, for one that
+   * says `v1.2.3` where the app's own version is `1.2.3`. A non-empty string;
+   * left out, nothing is stripped.
+   */
+  readonly prefix?: string;
 }
 
 const defaultApiURL = 'https://api.github.com';
@@ -150,9 +167,50 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
 }
 
 /**
+ * The most a refusal says of one query parameter's name, and of how many.
+ *
+ * A name is what the reader typed and is there to be recognized, so a short
+ * one is quoted whole. A long one is where a token goes when it was pasted in
+ * the wrong place -- `?eyJhbGciOi...` -- and a refusal is for a terminal and a
+ * log, so the rest is cut rather than echoed.
+ */
+const MAX_QUERY_NAME = 32;
+const MAX_QUERY_PARAMS = 8;
+
+/**
+ * A query as a refusal may quote it: each parameter's name, and `***` where its
+ * value was (SIG-556).
+ *
+ * Split by hand on `&` and the first `=`, because the string is one a parser
+ * may have refused. A parameter with no `=` is a name with no value and is
+ * quoted as it is, which is what a server reads it as; an empty one (`&&`) says
+ * nothing and is dropped. Only `&` separates: a `;` is part of a value as far as
+ * this knows, and a value is hidden whole.
+ */
+function redactQuery(query: string): string {
+  const names: string[] = [];
+  for (const param of query.split('&')) {
+    if (!param) {
+      continue;
+    }
+    const eq = param.indexOf('=');
+    const name = eq === -1 ? param : param.slice(0, eq);
+    const chars = Array.from(name);
+    const shown =
+      chars.length > MAX_QUERY_NAME ? `${chars.slice(0, MAX_QUERY_NAME).join('')}...` : name;
+    names.push(eq === -1 ? shown : `${shown}=***`);
+  }
+  return names.length > MAX_QUERY_PARAMS
+    ? `${names.slice(0, MAX_QUERY_PARAMS).join('&')}&...`
+    : names.join('&');
+}
+
+/**
  * A URL as a refusal may quote it: nothing up to the last `@`, then nothing
  * after the first `?` or `#`, so a refusal never prints a password or a token
- * written in the places one goes.
+ * written in the places one goes. For an **endpoint**, which may carry a query,
+ * the query is shown by name instead (`?channel=***&token=***`), so the reader
+ * can see which parameter they wrote; the values are never shown (SIG-556).
  *
  * Deliberately cruder than the grammar. The value is one the parser may have
  * refused, and a parser that refused it cannot say where the credentials were:
@@ -163,15 +221,44 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
  * legitimate `@` in a path hidden in a refusal -- a message losing detail
  * rather than a log gaining a secret.
  *
+ * The same `@` is the reason a query is not shown whole after it: an `@` inside
+ * a query (`?email=a@b&token=hunter2`) is cut like any other, and what is left
+ * is the tail of the query, not a host. So where an `@` was cut, nothing past
+ * the first `&` or `=` of what remains is shown either, and no name is quoted
+ * from it. A credential-free URL keeps the names.
+ *
  * What it does not recognize is a secret with no `@` after it and none of
  * those characters before it: a bare token passed as the whole value, or
  * `https://user:secret` with the host forgotten. No cut by character can tell
- * those from a mistyped host.
+ * those from a mistyped host. A parameter written with no `=` is likewise
+ * taken for a name.
  */
-function redact(value: unknown): string {
-  return String(value)
-    .replace(/^[\s\S]*@/, '***@')
-    .replace(/([?#])[\s\S]*$/, '$1***');
+function redact(value: unknown, kind: 'endpoint' | 'root'): string {
+  let rest = String(value);
+  const at = rest.lastIndexOf('@');
+  const cut = at !== -1;
+  if (cut) {
+    rest = rest.slice(at + 1);
+  }
+  const head = cut ? '***@' : '';
+
+  // after a credential cut, what is left may be the tail of a query, so it is
+  // cut at the first thing that could separate one parameter's value from the
+  // rest, as well as at `?` and `#`
+  const end = rest.search(cut ? /[?#&=]/ : /[?#]/);
+  if (end === -1) {
+    return head + rest;
+  }
+
+  const separator = rest[end]!;
+  const before = rest.slice(0, end);
+  if (separator !== '?' || kind === 'root' || cut) {
+    return `${head}${before}${separator}***`;
+  }
+
+  const fragment = rest.indexOf('#', end);
+  const query = rest.slice(end + 1, fragment === -1 ? undefined : fragment);
+  return `${head}${before}?${redactQuery(query)}${fragment === -1 ? '' : '#***'}`;
 }
 
 /**
@@ -214,7 +301,7 @@ function checkedURL(value: unknown, label: string, kind: 'endpoint' | 'root'): s
   const refuse = (): never => {
     throw new TypeError(
       `Update check ${label} must be an absolute https:// URL with no credentials` +
-        `${root ? ', query or fragment' : ' or fragment'}, got "${escapeControls(redact(value))}"`
+        `${root ? ', query or fragment' : ' or fragment'}, got "${escapeControls(redact(value, kind))}"`
     );
   };
 
@@ -312,20 +399,81 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
 }
 
 /**
+ * What a header name is: an HTTP token, which is what `http.validateHeaderName()`
+ * accepts and what Node refuses to send anything else as.
+ */
+const headerNameRE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
+/**
+ * What a header value may hold: a tab, printable ASCII and the Latin-1 letters.
+ *
+ * That is `http.validateHeaderValue()`'s rule with one difference, deliberate:
+ * Node also lets `U+0080` to `U+009F` through, the C1 controls, and this does
+ * not, so the rule the source and the build already apply to every other
+ * string (`\p{Cc}`) is the one applied here. `CR`, `LF` and `NUL` are refused
+ * by both, which is the injection and the request Node refuses at send time.
+ * Written as a class of escapes rather than asked of `node:http`, so a module
+ * the compiled path loads at start-up does not load the whole HTTP stack for
+ * one regular expression; `updates.test.ts` compares the two over every code
+ * point below `U+0300`, so the rule cannot drift from what would fail.
+ */
+const headerValueRE = /^[\t\u0020-\u007e\u00a0-\u00ff]*$/;
+
+/**
+ * Validates `headers` and returns a copy of them (SIG-555).
+ *
+ * A refusal names the header and never its value: a value is often a
+ * credential, and a message goes to a terminal and a log. A name that is not a
+ * token is quoted (escaped), since it is the thing that is wrong and a name is
+ * not where a secret goes; a value's refusal quotes the name, which has passed
+ * that test by then, and says nothing of the value but that it is not allowed.
+ * The object itself is never echoed, for the same reason.
+ */
+function checkedHeaders(headers: unknown): Record<string, string> {
+  const proto: unknown =
+    typeof headers === 'object' && headers !== null && Object.getPrototypeOf(headers);
+  if (proto !== Object.prototype && proto !== null) {
+    throw new TypeError('Update check headers must be an object of header names to string values');
+  }
+
+  const checked: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers as object)) {
+    if (!headerNameRE.test(name)) {
+      throw new TypeError(
+        `Update check header name must be an HTTP token, got "${escapeControls(name)}"`
+      );
+    }
+    if (typeof value !== 'string') {
+      throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof value}`);
+    }
+    if (!headerValueRE.test(value)) {
+      throw new TypeError(
+        `Update check header "${name}" must not contain a control character or a character past U+00FF`
+      );
+    }
+    checked[name] = value;
+  }
+  return checked;
+}
+
+/**
  * Asks an endpoint of your own for the latest version.
  *
  * The third source beside npm and GitHub, for an app that publishes a version
  * somewhere else: a JSON file on a CDN, an API of its own. It is what
  * `sigil.json`'s `{ "type": "custom" }` builds, so a URL baked in at build time
- * and one built in source are held to the same rule (SIG-546).
+ * and one built in source are held to the same rule (SIG-546). `headers` and
+ * `prefix` are options of the checker it returns and are validated here too
+ * (SIG-555), which a hand-written `{ type: 'custom', ... }` object never is.
  *
- * @param opts - The endpoint and where the version sits in its answer.
+ * @param opts - The endpoint, where the version sits in its answer, and the headers and prefix.
  * @returns The checker.
- * @throws If the URL is not an `https` URL of that shape, or the path is not a
- * non-empty list of non-empty strings.
+ * @throws If the URL is not an `https` URL of that shape, the path is not a
+ * non-empty list of non-empty strings, a header is not a valid name and value,
+ * or the prefix is not a non-empty string.
  */
 export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
-  const { path, url } = opts;
+  const { headers, path, prefix, url } = opts;
 
   // an empty path reads the whole body, which is never a string, and a key
   // that is not one is looked up as whatever it coerces to: either is a check
@@ -340,7 +488,23 @@ export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
     );
   }
 
-  return { path: [...path], type: 'custom', url: checkedURL(url, 'url', 'endpoint') };
+  // `undefined` is the option left out; an empty string is not. An empty prefix
+  // strips nothing, which is what leaving it out says, so it is refused rather
+  // than accepted as a second spelling (a GitHub check's `''` means something
+  // there only because its default is `v`)
+  if (prefix !== undefined && (typeof prefix !== 'string' || !prefix)) {
+    throw new TypeError(
+      `Update check prefix must be a non-empty string, got "${escapeControls(prefix)}"`
+    );
+  }
+
+  return {
+    ...(headers !== undefined && { headers: checkedHeaders(headers) }),
+    path: [...path],
+    ...(prefix !== undefined && { prefix }),
+    type: 'custom',
+    url: checkedURL(url, 'url', 'endpoint'),
+  };
 }
 
 /**
