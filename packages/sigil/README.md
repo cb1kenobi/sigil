@@ -7423,19 +7423,19 @@ function App() {
 process.exitCode = await runApp(App, { sheets: ['.title { font-weight: bold }'] }).exited;
 ```
 
-| Option                         | Default       | What it does                                                                                                   |
-| ------------------------------ | ------------- | -------------------------------------------------------------------------------------------------------------- |
-| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                |
-| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                  |
-| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                                 |
-| `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                                 |
-| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing             |
-| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing |
-| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                          |
-| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                     |
-| `detect`                       | `true`        | Asks the terminal for its background and colour depth once the app is up                                       |
-| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                  |
-| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                  |
+| Option                         | Default       | What it does                                                                                                                                         |
+| ------------------------------ | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fullscreen`                   | `true`        | The alternate screen; `false` draws inline and leaves the last frame in the log                                                                      |
+| `sheets`                       | none          | App stylesheets, over `theme`, over the framework's own sheet                                                                                        |
+| `theme`                        | none          | A theme: source text, or a sheet from `parseTheme()` (any other origin throws)                                                                       |
+| `cascade`                      | themed        | The whole cascade, in place of the themed one; `app.setTheme()` throws with it                                                                       |
+| `quit`                         | `isAbort`     | Which key ends the app, with 130; checked before anything else sees the key. `false` binds nothing                                                   |
+| `quitKey`                      | `'q'`         | The key that ends it with 0, as a `fallback()`: a focused field that takes `q` keeps it. `false` binds nothing                                       |
+| `console`                      | `true`        | Captures `console.*` while it runs, into `app.logs`; `false` leaves the console alone                                                                |
+| `mouse`                        | off           | `true`, or `{ motion: true }` for `:hover`                                                                                                           |
+| `detect`                       | `true`        | Asks the terminal for its colour depth once the app is up (`{ background: true }` adds the background); a `colorLevel` the app named is never raised |
+| `onError`                      | one line      | Where a failure goes; by default one line on stderr, after the screen is back                                                                        |
+| `terminal`, `stdin`, `backend` | the process's | Injected for a test or an unusual destination                                                                                                        |
 
 `runApp()` returns an `App`: `exit(code = 0)`, `exited`, `input`, `view` (the
 `Renderer`), `cascade`, `setTheme()`, `logs`, `terminal`, `interactive` and
