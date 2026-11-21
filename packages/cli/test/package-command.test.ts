@@ -9,6 +9,7 @@ import {
   type Target,
 } from '../src/build/compile.ts';
 import { bunTriple, displayPath } from '../src/build/index.ts';
+import { parseSpec } from '../src/build/runtimes.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
@@ -415,6 +416,53 @@ describe('sigil package', () => {
       },
       120_000
     );
+  });
+
+  describe.skipIf(process.platform === 'win32')('a bun on PATH that is not a release', () => {
+    it('should be what the picker\'s bare "bun" row builds with, and nothing is downloaded', async () => {
+      // SIG-553: the picker offers a canary on `PATH` as the row `bun`, and that
+      // value goes through `parseSpec()` and `resolveExec()` -- which is the path
+      // `--runtime bun` takes. A canary is not a release, so a spec naming one is
+      // refused; the bare name has to reach the executable instead of a registry
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-canary-'));
+      const ran = join(dir, 'ran');
+      const downloads: string[] = [];
+
+      try {
+        writeExecutable(
+          join(dir, 'bun'),
+          `#!/bin/sh\n[ "$1" = "--version" ] && { echo '1.3.0-canary.5+abc'; exit 0; }\nif [ "$1" = "build" ]; then\n  echo ran > '${ran}'\n  for a in "$@"; do [ "$prev" = "--outfile" ] && out="$a"; prev="$a"; done\n  echo PLACEHOLDER > "$out"; exit 0\nfi\nexit 1\n`
+        );
+        vi.stubGlobal('fetch', (url: string) => {
+          downloads.push(String(url));
+          return Promise.reject(new Error('offline'));
+        });
+
+        expect(parseSpec('bun')).toEqual({ runtime: 'bun' });
+        expect(() => parseSpec('bun@1.3.0-canary.5+abc')).toThrow(/is not a version/);
+
+        await withBun(dir, () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            parseSpec('bun').runtime,
+            '--target',
+            label(hostTarget())
+          )
+        );
+
+        // the stand-in cannot sign what it writes on macOS, so the run may fail
+        // late; what is asked is which executable was used and whether anything
+        // was fetched
+        expect(existsSync(ran)).toBe(true);
+        expect(downloads).toEqual([]);
+      } finally {
+        rmSync(dir, { force: true, maxRetries: 5, recursive: true });
+      }
+    }, 60_000);
   });
 
   describe.skipIf(process.platform === 'win32')('a path a file system error names', () => {
