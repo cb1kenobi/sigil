@@ -1,3 +1,4 @@
+import { checkedChecker } from '../src/updates/checker.js';
 import {
   check,
   customChecker,
@@ -1075,6 +1076,150 @@ describe('updates', () => {
   // check could not handle: the slash split the registry path and nested the
   // cache file in a directory nothing created. Every test above uses an
   // unscoped name, which is why the suite was green
+  // SIG-563: `check()` took a checker as data, so one written as an object
+  // literal never met `customChecker()`'s rules. A header Node refuses to send
+  // made `https.get()` throw inside a worker that says nothing, so the check
+  // just stopped. What is refused is what could never have worked, and a URL
+  // with credentials; everything a hand-written checker could do before it still does
+  describe('A checker written by hand', () => {
+    const good = { path: ['tag_name'], type: 'github', url: 'https://h/releases/latest' };
+    const refusal = (checker: unknown): string => {
+      try {
+        checkedChecker(checker);
+      } catch (err) {
+        expect(err).to.be.instanceOf(TypeError);
+        return (err as Error).message;
+      }
+      throw new Error(`accepted ${JSON.stringify(checker)}`);
+    };
+
+    it('should refuse what no request could be made from', () => {
+      for (const url of ['http://h/x', 'ftp://h/x', 'not a url', '', 'https://', undefined, 42]) {
+        expect(refusal({ ...good, url }), String(url)).to.contain(
+          'Update check url must be an absolute https:// URL'
+        );
+      }
+      expect(refusal({ ...good, path: [] })).to.contain('path must be a non-empty list');
+      expect(refusal({ ...good, path: undefined })).to.contain('path must be a non-empty list');
+      expect(refusal(undefined)).to.contain('must be an object');
+      expect(refusal('https://h/x')).to.contain('must be an object');
+    });
+
+    it('should refuse a header Node would refuse to send, and never quote its value', () => {
+      const secret = 'hunter2';
+      for (const headers of [
+        { authorization: `${secret}\r\nx-injected: 1` },
+        { authorization: `${secret}\n` },
+        { authorization: `${secret}\0` },
+        { authorization: `${secret}\u0100` },
+      ]) {
+        const message = refusal({ ...good, headers });
+        expect(message).to.contain('header "authorization" must not contain a control character');
+        expect(message).to.not.contain(secret);
+      }
+      expect(refusal({ ...good, headers: { 'bad name': secret } })).to.contain('HTTP token');
+      expect(refusal({ ...good, headers: { 'bad name': secret } })).to.not.contain(secret);
+      expect(refusal({ ...good, headers: 'x' })).to.contain('must be an object');
+      expect(refusal({ ...good, headers: null })).to.contain('must be an object');
+      expect(refusal({ ...good, headers: [secret] })).to.contain('must be an object');
+    });
+
+    it('should refuse credentials in the URL, and never quote them', () => {
+      for (const url of [
+        'https://user:hunter2@h/x',
+        'https://hunter2@h/x',
+        'https://h:80@h/x?token=hunter2',
+      ]) {
+        const message = refusal({ ...good, url });
+        expect(message, url).to.contain('no credentials');
+        expect(message, url).to.not.contain('hunter2');
+      }
+    });
+
+    it('should say the same thing customChecker() does about what they share', () => {
+      const throws = (fn: () => unknown): string => {
+        try {
+          fn();
+        } catch (err) {
+          return (err as Error).message;
+        }
+        return '';
+      };
+      // credentials and the scheme are the same sentence, minus a fragment that a
+      // hand-written URL is allowed to carry
+      const strip = (m: string): string => m.replace(' or fragment', '');
+      for (const url of ['http://h/x', 'https://u:p@h/x']) {
+        expect(refusal({ ...good, url })).to.equal(
+          strip(throws(() => customChecker({ path: ['a'], url })))
+        );
+      }
+      expect(refusal({ ...good, headers: { a: 'x\ny' } })).to.equal(
+        throws(() => customChecker({ headers: { a: 'x\ny' }, path: ['a'], url: 'https://h/x' }))
+      );
+    });
+
+    it('should keep accepting what worked before', () => {
+      for (const checker of [
+        good,
+        // each of these is something `customChecker()` refuses and `https.get()` sends
+        { ...good, url: 'https://h/x#fragment' },
+        { ...good, url: ' https://h/x ' },
+        { ...good, url: 'HTTPS://H/x' },
+        { ...good, url: 'https://h/x\ny' },
+        { ...good, url: 'https://h/x?channel=stable' },
+        { ...good, prefix: '' },
+        { ...good, prefix: ' v' },
+        { ...good, path: [''] },
+        { ...good, headers: {} },
+        { ...good, headers: { 'x-c1': 'a\u0085b', 'x-latin': 'caf\u00e9', 'x-tab': 'a\tb' } },
+        { ...good, type: 'anything at all' },
+      ]) {
+        expect(checkedChecker(checker), JSON.stringify(checker)).to.equal(checker);
+      }
+    });
+
+    it('should leave what customChecker() is stricter about to customChecker()', () => {
+      const url = 'https://h/x';
+      expect(() => customChecker({ path: [''], url })).to.throw('non-empty strings');
+      expect(() => customChecker({ path: ['a'], prefix: '', url })).to.throw('prefix');
+      expect(() => customChecker({ path: ['a'], url: `${url}#f` })).to.throw('fragment');
+      expect(() => customChecker({ headers: { a: '\u0085' }, path: ['a'], url })).to.throw(
+        'control character'
+      );
+    });
+
+    it('should refuse the checker where check() is handed it', async () => {
+      const cacheDir = await generateTmpDir();
+      for (const checker of [
+        { ...good, url: 'http://h/x' },
+        { ...good, headers: { a: 'x\r\ny' } },
+        { ...good, path: [] },
+        { ...good, url: 'https://u:hunter2@h/x' },
+      ]) {
+        await expect(
+          check({ cacheDir, checker, packageName: 'a', packageVersion: '1.0.0', wait: true })
+        ).rejects.toThrow(TypeError);
+      }
+    });
+
+    it('should still use a checker that was working, from a fresh cache', async () => {
+      const cacheDir = await generateTmpDir();
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(
+        join(cacheDir, cacheFileName('a', 'latest')),
+        JSON.stringify({ body: { '': 'v2.0.0' }, ts: Date.now() })
+      );
+
+      const result = await check({
+        cacheDir,
+        checker: { ...good, path: [''], prefix: '', url: 'https://h/x#fragment' },
+        packageName: 'a',
+        packageVersion: '1.0.0',
+      });
+      expect(result.latest).to.equal('v2.0.0');
+    });
+  });
+
   describe('Scoped package names', () => {
     it('should encode the package name into one path segment', () => {
       expect(distTagsURL('@ttylabs/sigil')).to.equal(

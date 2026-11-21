@@ -154,13 +154,57 @@ the entry it belongs to.
     array. The
     builder copies the list, so a later edit of the caller's array cannot move a
     baked checker.
-  - **A literal `{ type: 'custom', url, path }` is still not checked.** A checker
-    is data (`isChecker()` is a shape test), so `check({ checker })` and a
-    schema's `updateCheck` take a hand-written object as it stands. Making
-    `check()` validate every checker it is handed would change what a working app
-    does at run time, and the type is the contract it was always given;
-    `customChecker()` is the way to have the rule applied, and the README says
-    so.
+  - **A checker written by hand is held to what could never have worked, and
+    to credentials -- and to nothing `customChecker()` is stricter about
+    (SIG-563).** This used to read "a literal `{ type: 'custom', url, path }` is
+    still not checked", on the grounds that `isChecker()` is a shape test and
+    that making `check()` validate every checker would change what a working app
+    does. The second half was true of the _rules_, not of the idea: `check()` and
+    a schema's `updateCheck` took a literal as it stood, so a header holding a
+    newline made `https.get()` throw inside the worker, which says nothing, and
+    the check simply stopped. `check()` now asks `checkedChecker()` of every
+    checker it resolves -- the `checker` option and the baked one, whatever its
+    `type` -- through the **same** `checkedURL()`, `checkedHeaders()` and
+    `checkedPath()` that `customChecker()` calls, with `strict: false`. One
+    definition of each rule and two strengths of it, rather than a second copy
+    that can drift. A refusal is the message `customChecker()` gives for what the
+    two share, minus the word "fragment" where a fragment is allowed.
+
+    Which rules is the decision, and the measure is whether the request worked:
+    every case was run against `https.get()` before it was refused.
+
+    - **Refused: what could never have worked.** A URL that is not `https` or has
+      no host (`ERR_INVALID_PROTOCOL`, and the worker refuses it too); a header
+      name that is not a token and a value holding CR, LF, NUL or a character
+      past U+00FF (`ERR_INVALID_CHAR`, `ERR_INVALID_HTTP_TOKEN`) -- the rule is
+      **Node's**, so the C1 controls U+0080 to U+009F stay allowed here although
+      `customChecker()` refuses them; a `path` that is not a list or has nothing
+      in it, which reads the whole body and answers `undefined` for ever; and a
+      header value that is not a string, or `headers` that is not an object, which
+      the type already forbids.
+    - **Refused although it works: credentials in the URL.** `https://u:p@h/x`
+      is requested, with a `Basic` header, and is refused anyway. It is the one
+      rule here that turns a working checker into a throw, and it is a security
+      rule rather than a correctness one: a URL travels in the worker's
+      environment and a process listing, and a header is where a token belongs.
+      The message goes through `redact()`, so it never quotes them.
+    - **Still allowed, and still `customChecker()`'s to refuse.** A fragment,
+      whitespace or a newline in the URL (`new URL()` strips them, so the request
+      is made), an upper-case scheme or a leading space (the in-process fetch takes
+      both; the _spawned_ worker's `startsWith('https:')` does not, which is a
+      failure that was already there and is left), an empty or whitespace key in
+      `path`, a `prefix` of `''` or one that starts with whitespace, and a C1
+      control in a header value. Each works today, so refusing it would be a
+      throw for an app with a checker that was doing its job. `customChecker()` is
+      still the way to have them refused, and `sigil.json`'s `custom` check
+      still goes through it.
+    - **A refusal for a schema's `updateCheck` is a log line.** It reaches
+      `beginUpdateCheck()`, which catches everything because an update notice may
+      not fail a command, so the app sees nothing unless `DEBUG` is on. That is
+      the cost of keeping the notice unable to fail anything, and whether a
+      bad schema `updateCheck` should surface somewhere louder is open.
+    - `check()` rejects with the `TypeError`, as it does for a bad `registryURL`.
+
   - **The re-wording is the toolchain's and is a table, not an option on the
     builders.** `bakedUpdateCheck()` renames what `sigil.json` spells on the way in
     (`registry` is `registryURL`, `package` is `packageName`), and a refusal said
