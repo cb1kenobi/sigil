@@ -146,6 +146,30 @@ describe('a held key sequence that keeps growing', () => {
     stop();
   });
 
+  it('should not cut a long reply to a query, which is a control string and not a key', async () => {
+    // an OSC 52 clipboard read is as long as the clipboard. Cut at the limit it
+    // resolved with nothing and typed its payload into whatever was focused
+    const { terminal } = createTestTerminal();
+    const input = createInput({ root: box({}), terminal });
+    const keys: string[] = [];
+    input.bind((event) => {
+      keys.push(event.key.name);
+    });
+    const reply = `${ESC}]52;c;${'QUJD'.repeat(HELD_LIMIT)}\u0007`;
+    const replies = input.query({
+      timeout: 5000,
+      until: () => true,
+      write: `${ESC}]52;c;?\u0007`,
+    });
+    for (let at = 0; at < reply.length; at += READ) {
+      input.feed(reply.slice(at, at + READ));
+    }
+    const answers = await replies;
+    expect(keys).toEqual([]);
+    expect(answers).toHaveLength(1);
+    input.stop();
+  });
+
   it('should still read a held sequence under the limit when the rest arrives', () => {
     // a real split, which is what holding is for
     const { feed, keys, stop } = recording();

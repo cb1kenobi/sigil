@@ -234,14 +234,13 @@ export const PASTE_LIMIT: number = 32 * 1024 * 1024;
  * written into a raw-mode terminal. Past this many, what was held is read as
  * `ESCAPE_TIMEOUT` would have read it -- the keys it decodes to with nothing
  * more coming, an Alt-Escape for a run of `ESC` and an `unknown` for a CSI --
- * and what follows starts fresh. That is a bound on the *per-read* cost rather
+ * and what follows starts fresh. A held control string is not
+ * cut: a reply to a query can be as long as a clipboard. That is a bound on the *per-read* cost rather
  * than on the total: no read measures more than this plus what it brought, so a
  * stream of any length is linear in its size.
  *
- * Sixteen kibibytes, far above any sequence a terminal writes -- the longest
- * are replies to the queries this package sends, which run to a few hundred
- * bytes -- while a read at the cap measures it in about a tenth of a
- * millisecond. Not `PASTE_LIMIT`'s figure, because a paste is held in a list and
+ * Sixteen kibibytes, far above any key a terminal writes, while a read at the
+ * cap measures it in about a tenth of a millisecond. Not `PASTE_LIMIT`'s figure, because a paste is held in a list and
  * never re-read, and this one is read again from its start by every read.
  */
 export const HELD_LIMIT: number = 16 * 1024;
@@ -2419,8 +2418,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // is held again from its start, so one that never finishes costs the square
     // of its length. It is read as final, which is the reading `expire()` gives
     // a tail nothing followed: the whole of `joined` again, because only its
-    // last read differs, and the bytes after the cut start a key of their own
-    if (length > HELD_LIMIT) {
+    // last read differs, and the bytes after the cut start a key of their own.
+    // Not a control string, though: a reply to a query can be long -- an OSC 52
+    // clipboard read is the size of the clipboard -- and cutting one types its
+    // payload into the focused field, which is the route `armExpiry()` refuses
+    // to give a held reply. Those are left held, and re-read, as they were
+    if (length > HELD_LIMIT && !pendingIsString(joined, opts)) {
       length = 0;
       opts = { ...decoding(), final: true };
     }

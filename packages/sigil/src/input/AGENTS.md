@@ -311,8 +311,7 @@ the entry it belongs to.
   million `1`s took 664ms. The `indexOf(PASTE_START)` over `held + rest` in
   `consume()` re-reads the same tail and is bounded by the same cut. Only garbage
   on stdin reaches it, such as binary data written into a raw-mode terminal,
-  which is also why nothing a terminal writes is near the figure: the longest
-  legitimate tail is a reply to a query this package sent, a few hundred bytes.
+  which is also why no _key_ a terminal writes is near the figure.
   SIG-408 made the decoder linear in a run and left this per-read term.
 
   **The decision is a cap rather than a resumable scan, and what it costs is
@@ -328,6 +327,21 @@ the entry it belongs to.
   `HELD_LIMIT` is 16 KiB of UTF-16 code units, far above any real sequence, and
   the bound is on the cost _per read_ (what is held plus what the read brought),
   so a stream of any length is linear in its size.
+
+  **A held control string is exempt, and stays quadratic.** A reply to a query is
+  not a key and can be long: an OSC 52 clipboard read is the size of the
+  clipboard, and 40,000 base64 characters held with a query outstanding was
+  delivered whole before this and typed into the focused field, one `unknown` and
+  22,600 characters, by the first version of the cut -- the route `armExpiry()`
+  refuses a held reply, reopened (review round 1). So the cut asks
+  `pendingIsString()` and leaves a string held. What that leaves is an
+  unterminated OSC or DCS payload, which still costs the square of its length
+  (1,000,000 units in 1 KiB reads was about a second), bounded in time by the
+  query's deadline or the key timer rather than in size. Making that linear is a
+  resumable `stringEnd()` search, which is one state and not the four above, and
+  is a ticket of its own. The cost per byte of the rest is the limit over the
+  read size: 16-byte reads of 200,000 `ESC` bytes took 870ms where 1 KiB reads
+  took 86ms, against 11s without the cut.
 
   **At the cap the tail is released as keys, not dropped and not made text.** A
   tail longer than `HELD_LIMIT` is read as final, the reading `expire()` gives a
