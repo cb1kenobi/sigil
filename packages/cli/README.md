@@ -334,7 +334,7 @@ The build reads that from the schema's source, so it has to be written there: a
 checker built elsewhere and passed in by name is not seen.
 
 `type` is required and is one of `npm` (with `package`, `distTag`, `registry`),
-`github` (with `repo` and an optional tag `prefix`, which defaults to `v` and is
+`github` (with `repo`, as `owner/name` in the characters GitHub allows, and an optional tag `prefix`, which defaults to `v` and is
 stripped), `custom` (with a `url` and the `path` of keys the version sits under
 in the JSON it returns), or `none`. `none` is a declaration rather than an
 absence: it is how an app says it checks nothing, and also how one that passes

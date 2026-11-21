@@ -266,6 +266,20 @@ describe('what the build bakes in', () => {
     expect(baked.checker?.prefix).toBe('v');
   });
 
+  it.each(['o/n\nx', 'o /n', 'o/n x', 'o/..'])(
+    'should refuse a github repo that is not a name GitHub allows: %j',
+    (repo) => {
+      // SIG-541, from the `build` and `package` side: the same function `check` asks
+      expect(() =>
+        bakedUpdateCheck({
+          compiled: true,
+          config: { updateCheck: { repo, type: 'github' } },
+          packageName: 'mycli',
+        })
+      ).toThrow(/must be "owner\/name"/);
+    }
+  );
+
   it('should build a custom checker', () => {
     const baked = bakedUpdateCheck({
       compiled: true,
