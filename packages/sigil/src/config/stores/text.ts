@@ -1,4 +1,5 @@
 import { __ } from '../../i18n/index.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { isMissing, writeAtomic, writeAtomicSync } from '../atomic.js';
 import { overlay } from '../merge.js';
 import type { WriteOptions } from '../types.js';
@@ -116,11 +117,11 @@ function decode(bytes: Uint8Array, source: string): string {
     const [a, b] = bytes;
     if ((a === 0xff && b === 0xfe) || (a === 0xfe && b === 0xff)) {
       throw new Error(
-        __`Failed to read ${source}: it is not UTF-8, it starts with a UTF-16 byte order mark`
+        __`Failed to read ${escapeControls(source)}: it is not UTF-8, it starts with a UTF-16 byte order mark`
       );
     }
     throw new Error(
-      __`Failed to read ${source}: it is not UTF-8, the first invalid byte is at offset ${invalidUtf8At(bytes)}`
+      __`Failed to read ${escapeControls(source)}: it is not UTF-8, the first invalid byte is at offset ${invalidUtf8At(bytes)}`
     );
   }
 }
@@ -149,7 +150,9 @@ export async function readText(source: string): Promise<string | undefined> {
     bytes = await readFile(source);
   } catch (e: unknown) {
     if (!isMissing(e)) {
-      throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+      throw new Error(
+        __`Failed to read ${escapeControls(source)}: ${escapeControls((e as Error).message)}`
+      );
     }
     return undefined;
   }
@@ -173,7 +176,9 @@ export function readTextSync(source: string): string | undefined {
     bytes = readFileSync(source);
   } catch (e: unknown) {
     if (!isMissing(e)) {
-      throw new Error(__`Failed to read ${source}: ${(e as Error).message}`);
+      throw new Error(
+        __`Failed to read ${escapeControls(source)}: ${escapeControls((e as Error).message)}`
+      );
     }
     return undefined;
   }
@@ -210,7 +215,9 @@ export function claim(
     return value;
   }
 
-  overlay(theirs, value, paths, source);
+  // the file is named in what `overlay()` refuses, and the name is the app's
+  // root as it is on disk
+  overlay(theirs, value, paths, escapeControls(source));
   return theirs;
 }
 
