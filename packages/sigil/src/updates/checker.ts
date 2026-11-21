@@ -93,9 +93,12 @@ export interface CustomCheckerOptions {
   /**
    * Request headers: a plain object of header names to string values, for an
    * endpoint that wants an `Authorization` token or an `Accept` type. A name
-   * must be an HTTP token and a value may hold no control character -- what
-   * Node itself refuses to send -- or `customChecker()` throws a `TypeError`
-   * naming the header and never quoting its value.
+   * must be an HTTP token, and a value may hold a tab, printable ASCII and
+   * Latin-1 letters and no control character or character past `U+00FF` --
+   * what Node would refuse to send, and the C1 controls it would not -- or
+   * `customChecker()` throws a `TypeError` naming the header and never quoting
+   * its value. The headers travel to the worker in its environment, like
+   * anything else a check is told.
    *
    * Code only: `sigil.json` takes no headers, because a value is often a
    * credential and that file is committed.
@@ -167,14 +170,21 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
 }
 
 /**
- * The most a refusal says of one query parameter's name, and of how many.
+ * What a query parameter's name has to look like to be quoted: the plain
+ * identifier a name is (`channel`, `api_key`, `filter[type]`, `v1.2`), short.
  *
- * A name is what the reader typed and is there to be recognized, so a short
- * one is quoted whole. A long one is where a token goes when it was pasted in
- * the wrong place -- `?eyJhbGciOi...` -- and a refusal is for a terminal and a
- * log, so the rest is cut rather than echoed.
+ * A name is what the reader typed and is there to be recognized, but the
+ * position is also where a token goes when it was pasted in the wrong place, in
+ * front of a `=` or on its own -- `?eyJhbGciOi...`, `?token%3Dhunter2`,
+ * `?{"token":"hunter2"}` -- and the old rule hid all of those. So a name is
+ * quoted only when it is this shape *and* a `=` follows it; anything else is
+ * `***`, which keeps the parameter's place in the list and nothing of what it
+ * held. A 24-character identifier can still be a token, and that is the price
+ * of showing names at all.
  */
-const MAX_QUERY_NAME = 32;
+const queryNameRE = /^[A-Za-z0-9_.\-[\]]{1,24}$/;
+
+/** How many parameters a refusal lists before it says there were more. */
 const MAX_QUERY_PARAMS = 8;
 
 /**
@@ -182,35 +192,33 @@ const MAX_QUERY_PARAMS = 8;
  * value was (SIG-556).
  *
  * Split by hand on `&` and the first `=`, because the string is one a parser
- * may have refused. A parameter with no `=` is a name with no value and is
- * quoted as it is, which is what a server reads it as; an empty one (`&&`) says
- * nothing and is dropped. Only `&` separates: a `;` is part of a value as far as
- * this knows, and a value is hidden whole.
+ * may have refused. A parameter with no `=` is quoted as `***`, name and all:
+ * it is a flag to a server and a bare token to a typo, and nothing here can say
+ * which. An empty one (`&&`) says nothing and is dropped. Only `&` separates: a
+ * `;` is part of a value as far as this knows, and a value is hidden whole.
  */
 function redactQuery(query: string): string {
-  const names: string[] = [];
+  const shown: string[] = [];
   for (const param of query.split('&')) {
     if (!param) {
       continue;
     }
     const eq = param.indexOf('=');
-    const name = eq === -1 ? param : param.slice(0, eq);
-    const chars = Array.from(name);
-    const shown =
-      chars.length > MAX_QUERY_NAME ? `${chars.slice(0, MAX_QUERY_NAME).join('')}...` : name;
-    names.push(eq === -1 ? shown : `${shown}=***`);
+    const name = eq === -1 ? '' : param.slice(0, eq);
+    shown.push(eq === -1 ? '***' : `${queryNameRE.test(name) ? name : '***'}=***`);
   }
-  return names.length > MAX_QUERY_PARAMS
-    ? `${names.slice(0, MAX_QUERY_PARAMS).join('&')}&...`
-    : names.join('&');
+  return shown.length > MAX_QUERY_PARAMS
+    ? `${shown.slice(0, MAX_QUERY_PARAMS).join('&')}&...`
+    : shown.join('&');
 }
 
 /**
  * A URL as a refusal may quote it: nothing up to the last `@`, then nothing
  * after the first `?` or `#`, so a refusal never prints a password or a token
  * written in the places one goes. For an **endpoint**, which may carry a query,
- * the query is shown by name instead (`?channel=***&token=***`), so the reader
- * can see which parameter they wrote; the values are never shown (SIG-556).
+ * the `?` cut is replaced by the query's parameter names with their values
+ * hidden (`?channel=***&token=***`), so the reader can see which parameter they
+ * wrote (SIG-556); a root URL, which may carry none, still hides it whole.
  *
  * Deliberately cruder than the grammar. The value is one the parser may have
  * refused, and a parser that refused it cannot say where the credentials were:
@@ -224,14 +232,13 @@ function redactQuery(query: string): string {
  * The same `@` is the reason a query is not shown whole after it: an `@` inside
  * a query (`?email=a@b&token=hunter2`) is cut like any other, and what is left
  * is the tail of the query, not a host. So where an `@` was cut, nothing past
- * the first `&` or `=` of what remains is shown either, and no name is quoted
- * from it. A credential-free URL keeps the names.
+ * the first `?`, `#`, `&` or `=` of what remains is shown either, and no name is
+ * quoted from it. A credential-free URL keeps the names.
  *
  * What it does not recognize is a secret with no `@` after it and none of
  * those characters before it: a bare token passed as the whole value, or
  * `https://user:secret` with the host forgotten. No cut by character can tell
- * those from a mistyped host. A parameter written with no `=` is likewise
- * taken for a name.
+ * those from a mistyped host.
  */
 function redact(value: unknown, kind: 'endpoint' | 'root'): string {
   let rest = String(value);
@@ -436,7 +443,7 @@ function checkedHeaders(headers: unknown): Record<string, string> {
     throw new TypeError('Update check headers must be an object of header names to string values');
   }
 
-  const checked: Record<string, string> = {};
+  const checked: [string, string][] = [];
   for (const [name, value] of Object.entries(headers as object)) {
     if (!headerNameRE.test(name)) {
       throw new TypeError(
@@ -451,9 +458,11 @@ function checkedHeaders(headers: unknown): Record<string, string> {
         `Update check header "${name}" must not contain a control character or a character past U+00FF`
       );
     }
-    checked[name] = value;
+    checked.push([name, value]);
   }
-  return checked;
+  // `fromEntries()` defines each property, where assigning `checked['__proto__']`
+  // sets the prototype and drops a header the name test accepted
+  return Object.fromEntries(checked);
 }
 
 /**

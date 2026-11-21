@@ -187,7 +187,10 @@ the entry it belongs to.
     of what was in it. A name that is not a token is quoted (escaped), since it
     is the thing that is wrong and a name is not where a secret goes; the
     object itself is never echoed, for the reason `path`'s message cannot
-    serialize its own value. Duplicate names that differ in case are **not**
+    serialize its own value. The headers travel in the worker's environment
+    (`CHECK_HEADERS`), the transport the credentials entry above gives as the
+    reason a URL may not carry one: a header is where a token belongs, not a
+    place it is hidden from a process that can read the environment. Duplicate names that differ in case are **not**
     refused: Node sends the last, which is a surprise and not a failure.
   - **The rule is a regular expression and a test holds it to Node's.**
     `http.validateHeaderName()` and `validateHeaderValue()` are what would fail
@@ -216,13 +219,16 @@ the entry it belongs to.
   order SIG-544 settled is untouched. It is split by hand on `&` and the first
   `=`, because the value is one the parser refused. The decisions:
 
-  - **A parameter with no `=` is a name, an empty one (`&&`) is dropped, and
-    only `&` separates.** A `;` and what follows it are part of a value and are
-    hidden with it. A name past 32 characters is cut, and a list past 8
-    parameters is, because a token pasted in the wrong place is a long name and
-    a refusal is not for echoing it. What this cannot know is that a bare
-    `?hunter2` is a secret and not a name: it is quoted, the same limit the
-    function already records for a bare token passed as the whole value.
+  - **A name is quoted only if a `=` follows it and it is a short plain
+    identifier; anything else is `***`.** The first version quoted every name
+    up to 32 characters and a bare `?hunter2` as itself, and round 1 measured
+    what that put back: the old rule hid `?0123456789abcdef0123456789abcdef`,
+    `?token%3Dhunter2`, `??hunter2` and `?{"token":"hunter2"}`, and the first
+    version printed each. `[A-Za-z0-9_.\-[\]]{1,24}` is what `channel`,
+    `api_key` and `filter[type]` look like and what a pasted token does not. An
+    empty parameter (`&&`) is dropped, only `&` separates (a `;` and its tail are
+    part of a value), and a list past 8 is cut. A 24-character identifier can
+    still be a token, which is the price of showing names at all.
   - **Nothing past an `@` is quoted as a query.** Cutting the `@` first
     removed the `?` along with everything before it, and what was left of a query
     behind an `@` was echoed whole: `ftp://h/x?email=a@b&token=hunter2` printed

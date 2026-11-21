@@ -646,9 +646,15 @@ describe('updates', () => {
         });
 
         it('should say what a parameter with no value, an empty name and a double separator are', () => {
-          // no `=` is a name with no value and is quoted as it is; `a=` has a value that is empty and is still hidden
-          expect(quoted('ftp://h/x?a=&b')).to.equal('ftp://h/x?a=***&b');
-          expect(quoted('ftp://h/x?=hunter2')).to.equal('ftp://h/x?=***');
+          // `a=` has a value that is empty and is still hidden
+          expect(quoted('ftp://h/x?a=&b=1')).to.equal('ftp://h/x?a=***&b=***');
+          // a name is quoted only where a `=` follows it: a parameter with none is
+          // a flag to a server and a bare token to a typo, and is not told apart
+          expect(quoted('ftp://h/x?a=1&hunter2')).to.equal('ftp://h/x?a=***&***');
+          expect(quoted('ftp://h/x?hunter2')).to.equal('ftp://h/x?***');
+          expect(quoted('ftp://h/x??hunter2')).to.equal('ftp://h/x?***');
+          // an empty name has nothing to quote
+          expect(quoted('ftp://h/x?=hunter2')).to.equal('ftp://h/x?***=***');
           // an empty parameter says nothing and is dropped
           expect(quoted('ftp://h/x?&&a=1&&b=2&')).to.equal('ftp://h/x?a=***&b=***');
           expect(quoted('ftp://h/x?&')).to.equal('ftp://h/x?');
@@ -667,21 +673,55 @@ describe('updates', () => {
           expect(quoted('https://h/x#')).to.equal('https://h/x#***');
         });
 
-        it('should cut a name that is long, and a list of names that is, rather than echo them', () => {
-          expect(quoted(`ftp://h/x?${'n'.repeat(40)}=hunter2`)).to.equal(
-            `ftp://h/x?${'n'.repeat(32)}...=***`
-          );
-          expect(quoted(`ftp://h/x?${'n'.repeat(40)}`)).to.equal(`ftp://h/x?${'n'.repeat(32)}...`);
-          const many = Array.from({ length: 12 }, (_, i) => `p${i}=hunter2`).join('&');
-          expect(quoted(`ftp://h/x?${many}`)).to.equal(
-            `ftp://h/x?${Array.from({ length: 8 }, (_, i) => `p${i}=***`).join('&')}&...`
-          );
+        it('should quote a name only if it is a short plain identifier, whatever follows it', () => {
+          for (const name of [
+            'channel',
+            'api_key',
+            'filter[type]',
+            'v1.2',
+            'a-b',
+            'n'.repeat(24),
+          ]) {
+            expect(quoted(`ftp://h/x?${name}=hunter2`), name).to.equal(`ftp://h/x?${name}=***`);
+          }
+          // what a pasted token looks like is not one, and the old rule hid every one of these
+          for (const name of [
+            'n'.repeat(25),
+            '0123456789abcdef0123456789abcdef0123456789abcdef',
+            'token%3Dhunter2',
+            'token:hunter2',
+            '{"token":"hunter2"}',
+            'a b',
+            'a\u00e9',
+            '\u{1f600}',
+          ]) {
+            const message = quoted(`ftp://h/x?${name}=1`);
+            expect(message, name).to.equal('ftp://h/x?***=***');
+          }
+          expect(quoted('ftp://h/x?0123456789abcdef0123456789abcdef')).to.equal('ftp://h/x?***');
         });
 
-        it('should escape a name, which is what the reader typed', () => {
-          const message = messageOf('https://h/x?a\nforged: error=1&\u001b]0;PWNED\u0007=2');
-          expect(message).to.contain('?a\\x0Aforged: error=***&\\x1B]0;PWNED\\x07=***"');
+        it('should list eight parameters and say there were more', () => {
+          const list = (count: number): string =>
+            quoted(
+              `ftp://h/x?${Array.from({ length: count }, (_, i) => `p${i}=hunter2`).join('&')}`
+            );
+          const shown = (count: number): string =>
+            Array.from({ length: count }, (_, i) => `p${i}=***`).join('&');
+          expect(list(8)).to.equal(`ftp://h/x?${shown(8)}`);
+          expect(list(9)).to.equal(`ftp://h/x?${shown(8)}&...`);
+          expect(list(12)).to.equal(`ftp://h/x?${shown(8)}&...`);
+        });
+
+        it('should escape what it does quote, and quote no control character', () => {
+          const message = messageOf('https://h/x\n?a\nforged: error=1&\u001b]0;PWNED\u0007=2');
+          expect(message).to.contain('?***=***&***=***"');
+          expect(message).to.not.contain('PWNED');
           expect(message).to.not.match(/\p{Cc}/u);
+          // and the part in front of the `?` still goes through `escapeControls()`
+          expect(messageOf('https://h/a\u001b[31m?a=1')).to.contain(
+            'got "https://h/a\\x1B[31m?a=***"'
+          );
         });
 
         // the cut order: a `@` is cut before anything else, so the query is not
@@ -715,6 +755,12 @@ describe('updates', () => {
             'ftp://h/x\t?a=1&token=hunter2',
             'https://h/x?a=1&token=hunter2#hunter2',
             'https://h/x?token=hunter2#',
+            'ftp://h/x?a=1&hunter2',
+            'ftp://h/x?token%3Dhunter2',
+            'ftp://h/x?token:hunter2',
+            'ftp://h/x??hunter2',
+            'ftp://h/x?{"token":"hunter2"}',
+            'ftp://h/x?0123456789abcdef0123456789abcdef-hunter2',
           ]) {
             const message = messageOf(bad);
             expect(message, JSON.stringify(bad)).to.contain('must be an absolute https:// URL');
@@ -774,6 +820,13 @@ describe('updates', () => {
           ]);
           // an empty object is a set of no headers, and is kept as given
           expect(customChecker({ headers: {}, path, url }).headers).to.deep.equal({});
+        });
+
+        it('should keep a header named __proto__, which assigning would have dropped', () => {
+          const headers = JSON.parse('{"__proto__":"x","a":"b"}') as Record<string, string>;
+          const checked = customChecker({ headers, path, url }).headers!;
+          expect(Object.keys(checked)).to.deep.equal(['__proto__', 'a']);
+          expect(JSON.stringify(checked)).to.equal('{"__proto__":"x","a":"b"}');
         });
 
         it('should hold its own copy of the headers', () => {
@@ -913,18 +966,6 @@ describe('updates', () => {
           expect(refusal({ prefix: 42 })).to.equal(
             'Update check prefix must be a non-empty string, got "42"'
           );
-        });
-
-        it('should reach the worker as the request headers it sends', () => {
-          const checker = customChecker({
-            headers: { Authorization: 'Bearer x' },
-            path,
-            url,
-          });
-          // `CHECK_HEADERS` is this object, serialized, and the worker parses it back
-          expect(JSON.parse(JSON.stringify(checker.headers))).to.deep.equal({
-            Authorization: 'Bearer x',
-          });
         });
       });
 

@@ -402,7 +402,8 @@ describe('what the build bakes in', () => {
     });
   });
 
-  it.each([''])('should refuse a custom prefix that is empty, naming the key: %j', (prefix) => {
+  it('should refuse a custom prefix that is empty, naming the key', () => {
+    const prefix = '';
     expect(() =>
       bakedUpdateCheck({
         compiled: true,
