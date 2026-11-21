@@ -1,3 +1,4 @@
+import { writeOut } from './output.ts';
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
 import { isStreamGone } from '@ttylabs/sigil/terminal';
 import { readFileSync } from 'node:fs';
@@ -148,7 +149,7 @@ function isVersionOnly(argv: readonly string[]): boolean {
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
   if (isVersionOnly(argv ?? process.argv.slice(2))) {
     guardOutput();
-    process.stdout.write(`${version()}\n`);
+    writeOut(`${version()}\n`);
     return undefined;
   }
 

@@ -3973,12 +3973,48 @@ people's software and will move.
   uncaught exception it was before the guard. `guardGone()` was exported for this
   in that first version and is not any more: with a throwing listener it was a
   second, no-op listener, and a published contract of "swallows everything" is
-  the footgun that produced the bug. Not covered, measured in round 2: a **short
-  write** raises no `error` at all, so `sigil reference app > out` under
-  `ulimit -f 1` still exits 0 over 1,024 of its 2,276 bytes. That is the same on
-  `main` -- the document is one `write()` -- so it is not a regression and not
-  this ticket's, and `add`, which writes in several pieces, is the case that
-  reaches `EFBIG`.
+  the footgun that produced the bug. What the listener cannot see is a **short
+  write**, which raises no `error` at all -- measured in round 2: `sigil
+  reference app > out` under `ulimit -f 1` exited 0 over 1,024 of its 2,276
+  bytes, because the document is one `write()`. That is SIG-539, below, and `add`,
+  which writes in several pieces, was the case that reached `EFBIG`.
+
+  **A document is written through `writeOut()`, which checks the count** (SIG-539).
+  Node writes to a file with one `fs.writeSync()` and throws its return value
+  away, so the kernel taking part of a write -- a full disk, `ulimit -f` -- is
+  invisible to the stream, and a command that writes once has no second write to
+  fail on. Measured on node 24 rather than read: one `writeSync()` of 5,000 bytes
+  under `ulimit -f 1` returns 512 and throws nothing, a second call for the rest
+  throws `EFBIG`, and node ignores `SIGXFSZ` so the process lives to see it.
+  `src/output.ts` is that second call: stdout a regular file, write with
+  `fs.writeSync()` in a loop on the returned count, and a short write becomes
+  `The output was cut off: N of M bytes were written (EFBIG).`, a plain `Error`
+  that `main()` renders with exit 1. A write that returns zero is refused rather
+  than looped on. `sigil reference app > docs/cli.md` is the case it exists for;
+  `check`'s tree, the `build` and `package` size tables and `--version` go through
+  it too, since a command added next year that prints a document should not have
+  to rediscover this -- `the commands that write a document` in
+  `test/output.test.ts` fails if one of those files goes back to
+  `process.stdout.write()`. `add` and `new` stay on the stream: they write short
+  messages in several pieces, so the second fails by itself.
+
+  **Only a regular file takes the new path, and only the real stream.** A pipe or
+  a terminal is the stream's, whose queue carries a partial write to completion
+  and whose `error` event is `guardOutput()`'s, so `reference | head` is
+  untouched (`closed-pipe.test.ts` holds). And a `process.stdout` whose `write`
+  somebody has replaced -- an own property, which `vi.spyOn` makes and the
+  prototype's method is not -- is a capture, and writing to the descriptor under
+  it would bypass the capture. Checked by `Object.hasOwn()`, not by comparing
+  functions.
+
+  **`--out` was never exposed.** `reference --out` writes through `writeFileSync()`,
+  which loops until every byte is out and throws when the next write fails, so a
+  limit exits 1 with `EFBIG: file too large, write` (pinned in
+  `test/output.test.ts`). **Not covered: the runtime's own output.** `--help`
+  written to a file is `main()`'s and is `@ttylabs/sigil`'s for every app, with
+  the same one-write shape (measured: `sigil reference --help` is 1,032 bytes and
+  `ulimit -f 1` leaves 1,024 of them, exit 0); changing what the runtime does for every app is not
+  a toolchain ticket, so it is left and filed rather than fixed here.
 
   **"Before any command writes a byte" has one exception, which is `DEBUG`.** The
   hook is the first thing `main()` fires once the schema is built, and a

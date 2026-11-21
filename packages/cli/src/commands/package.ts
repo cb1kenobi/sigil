@@ -66,6 +66,7 @@ import {
   fetchNote,
 } from '../build/index.ts';
 import { CONFIG_FILE, readSigilConfig } from '../config.ts';
+import { writeOut } from '../output.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
@@ -863,7 +864,7 @@ function printBinaries(compiled: readonly Built[]): void {
   ]);
 
   if (rows.length) {
-    process.stdout.write(
+    writeOut(
       `${table(rows, {
         // stdout's level rather than the process styler's, for the reason
         // `printTree()` records: the default reads stdout whoever is asking

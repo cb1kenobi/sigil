@@ -54,6 +54,7 @@
 
 import { displayPath } from '../build/diagnostic.ts';
 import { readSigilConfig } from '../config.ts';
+import { writeOut } from '../output.ts';
 import { loadAppSchema } from '../reference/load.ts';
 import { referenceDocument, referencePages } from '../reference/markdown.ts';
 import { snapshotJson } from '../reference/snapshot.ts';
@@ -217,7 +218,7 @@ const reference: AnyCommand = command({
         );
       }
 
-      process.stdout.write(json ? snapshotJson(surface) : referenceDocument(surface));
+      writeOut(json ? snapshotJson(surface) : referenceDocument(surface));
       return;
     }
 
