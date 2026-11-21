@@ -52,6 +52,7 @@ import {
   type TypeCheckResult,
 } from '../build/index.ts';
 import { CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
+import { writeOut } from '../output.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
@@ -455,7 +456,7 @@ export function printTree(commands: readonly ResolvedCommand[], root: string): v
     // saying: `supportsColor()` defaults to `process.stdout` whoever is asking,
     // so a default that is right here is right by luck and wrong the moment
     // something like this goes to stderr
-    process.stdout.write(
+    writeOut(
       `${table(rows, {
         colorLevel: reportLevel(process.stdout),
         columns: ['Command', 'Module', 'Description'],

@@ -29,6 +29,7 @@
  * agree for now.
  */
 
+import { writeOut } from '../output.ts';
 import {
   CONFIG_FILE,
   DEFAULT_REGISTRY,
@@ -68,9 +69,7 @@ function list(registry: Registry): void {
   // the heading is the one line here not drawn by `table()`, which strips
   // control characters itself, and the version on it is the registry's text
   const heading = `${escapeControls(registry.pkg)} ${escapeControls(registry.manifest.version)}`;
-  process.stdout.write(
-    `\n${heading}\n\n${table(rows)}\n\n` + `Add one with \`sigil add <component>\`.\n\n`
-  );
+  writeOut(`\n${heading}\n\n${table(rows)}\n\n` + `Add one with \`sigil add <component>\`.\n\n`);
 
   // wrapped to the terminal rather than broken by hand at about seventy columns,
   // which is what this was and which is ragged at forty and narrow at two hundred
@@ -102,17 +101,15 @@ function describe(plan: Plan, registry: Registry, target: string): void {
   // in any of it is escaped rather than handed to the terminal. What goes
   // through `writeNote()` below is drawn on a canvas, which strips them itself
   const version = escapeControls(registry.manifest.version);
-  process.stdout.write(
-    `\nFrom ${escapeControls(registry.pkg)} ${version} into ${escapeControls(target)}:\n\n`
-  );
+  writeOut(`\nFrom ${escapeControls(registry.pkg)} ${version} into ${escapeControls(target)}:\n\n`);
 
   for (const file of plan.files) {
     const note = file.exists ? '  (overwrites)' : '';
-    process.stdout.write(`  ${escapeControls(file.shown)}${note}\n`);
+    writeOut(`  ${escapeControls(file.shown)}${note}\n`);
   }
 
   if (plan.pulled.length > 0) {
-    process.stdout.write(`\nAlso needed: ${plan.pulled.map(escapeControls).join(', ')}\n`);
+    writeOut(`\nAlso needed: ${plan.pulled.map(escapeControls).join(', ')}\n`);
   }
 
   const classes = plan.entries
@@ -125,7 +122,7 @@ function describe(plan: Plan, registry: Registry, target: string): void {
     // missed: with it left behind, a quiet `add` ended in a blank line, which
     // its own test caught
     if (!isQuiet()) {
-      process.stdout.write('\n');
+      writeOut('\n');
     }
     writeNote(
       [
@@ -220,7 +217,7 @@ const add: AnyCommand = command({
     describe(plan, registry, config.shown);
 
     if (!argv.yes) {
-      process.stdout.write('\n');
+      writeOut('\n');
       if (!(await confirm({ message: 'Write these files?' }))) {
         // through the note writer, so the two outcomes of one dialogue are
         // treated the same way: `Copied 1 file.` below is gated, and a declined
@@ -238,7 +235,7 @@ const add: AnyCommand = command({
     // which survives quiet, so it stays -- and the plan above it is the answer,
     // since `add` writes files and the list of what it wrote is what was asked
     if (!isQuiet()) {
-      process.stdout.write('\n');
+      writeOut('\n');
     }
     writeNote(
       [

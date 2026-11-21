@@ -21,6 +21,7 @@
  */
 
 import { displayPath } from '../build/index.ts';
+import { writeOut, writeTo } from '../output.ts';
 import {
   commandNameProblem,
   type Language,
@@ -255,11 +256,11 @@ const newApp: AnyCommand = command({
       run('git', ['init', '--quiet'], dir);
     }
     if (argv.install !== false) {
-      process.stdout.write(`\nInstalling with ${pm}...\n`);
+      writeOut(`\nInstalling with ${pm}...\n`);
       run(pm, ['install'], dir);
     }
 
-    process.stdout.write(
+    writeOut(
       `\nCreated ${name} in ${displayPath(dir)}.\n\n  cd ${displayPath(relative(process.cwd(), dir) || '.')}\n` +
         (argv.install === false ? `  ${pm} install\n` : '') +
         (tui?.at === 'root' ? `  ${runScript(pm, 'dev')}\n` : '') +
@@ -655,7 +656,8 @@ function run(cmd: string, argv: string[], cwd: string): void {
   });
 
   if (result.status !== 0) {
-    process.stderr.write(
+    writeTo(
+      process.stderr,
       `\n${cmd} ${argv.join(' ')} did not succeed; run it yourself in the new app.\n`
     );
   }
