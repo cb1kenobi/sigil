@@ -280,6 +280,21 @@ describe('what the build bakes in', () => {
     }
   );
 
+  it.each(['not a url', 'ftp://npm.example.com', 'http://npm.example.com', 'https://h/a\nb'])(
+    'should refuse an npm registry that is not an absolute https URL: %j',
+    (registry) => {
+      // SIG-544: `registry` is the one root `sigil.json` can set, and it was
+      // joined to the request path as written
+      expect(() =>
+        bakedUpdateCheck({
+          compiled: true,
+          config: { updateCheck: { package: 'other', registry, type: 'npm' } },
+          packageName: 'mycli',
+        })
+      ).toThrow(/registryURL must be an absolute https:\/\/ URL/);
+    }
+  );
+
   it('should build a custom checker', () => {
     const baked = bakedUpdateCheck({
       compiled: true,

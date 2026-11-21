@@ -93,6 +93,22 @@ const defaultApiURL = 'https://api.github.com';
  */
 export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
   const { distTag = 'latest', packageName, registryURL } = opts;
+
+  // a name and a tag are strings, and `encodeURIComponent()` takes anything: an
+  // `undefined` became the package called `undefined` and a request for it
+  // (SIG-545). `check()` asks the same of its own options, and this is the
+  // builder an app calls without going through it
+  if (typeof packageName !== 'string' || !packageName) {
+    throw new TypeError(
+      `Update check package name must be a non-empty string, got "${escapeControls(packageName)}"`
+    );
+  }
+  if (typeof distTag !== 'string' || !distTag) {
+    throw new TypeError(
+      `Update check dist tag must be a non-empty string, got "${escapeControls(distTag)}"`
+    );
+  }
+
   return {
     headers: {
       accept: 'application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*',
@@ -102,8 +118,79 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
     // path is a list of keys rather than a dotted string
     path: [distTag],
     type: 'npm',
-    url: distTagsURL(packageName, registryURL),
+    url: distTagsURL(
+      packageName,
+      registryURL === undefined ? undefined : rootURL(registryURL, 'registryURL')
+    ),
   };
+}
+
+/**
+ * The part of a message that is the user's own spelling of a URL, with
+ * whatever sits before an `@` in its authority replaced, so that a refusal
+ * never prints a password.
+ *
+ * Matched on the raw string and loosely -- anything up to a `:`, the slashes
+ * after it, then a run with no separator in it that ends in `@` -- because the
+ * value being echoed is one the URL parser may have refused, and a parser that
+ * refused it cannot be asked where the credentials were.
+ */
+const credentialsRE = /^([^/\\?#@]*:[/\\]*)[^/\\?#]*@/;
+
+/**
+ * Validates the root an update check's URL is built on, and returns it
+ * normalized and without a trailing slash (SIG-544).
+ *
+ * `apiURL` and `registryURL` are joined to a path, and either was taken as
+ * given: a newline, a missing scheme or `ftp:` produced a request that failed
+ * in the worker, which the check swallows -- the silent miss it exists to stop.
+ * The rule is the one the worker holds the whole URL to, `https:`, and nothing
+ * wider. `http:` is not accepted although the ticket allowed it, because the
+ * worker refuses it (`CHECK_URL must use https`) and the in-process fetch is
+ * `node:https`, so accepting it moves the failure to where nobody sees it.
+ *
+ * What `new URL()` accepts is wider than what this is willing to build on: it
+ * strips tabs and newlines rather than rejecting them and trims a leading
+ * space, so the raw string is checked for whitespace and control characters
+ * first, and has to open with `https://` and a host -- which is the whole of
+ * the scheme rule, since the parser cannot then read it as anything but `https:`. A query or a fragment
+ * would land in the middle of the path the request is built from, and
+ * credentials would travel in an environment variable and a process listing,
+ * so each is refused. A path is kept: an enterprise root is `.../api/v3`.
+ *
+ * @param value - What the caller passed.
+ * @param label - The option's name, for the message.
+ * @returns The URL as the parser wrote it, minus any trailing slash.
+ * @throws If it is not an `https` URL of that shape.
+ */
+function rootURL(value: unknown, label: string): string {
+  const refuse = (): never => {
+    throw new TypeError(
+      `Update check ${label} must be an absolute https:// URL with no credentials, query or ` +
+        `fragment, got "${escapeControls(String(value).replace(credentialsRE, '$1***@'))}"`
+    );
+  };
+
+  if (
+    typeof value !== 'string' ||
+    /[\p{Cc}\s]/u.test(value) ||
+    !/^https:\/\/[^/\\]/i.test(value) ||
+    /[?#]/.test(value)
+  ) {
+    return refuse();
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return refuse();
+  }
+  if (url.username || url.password) {
+    return refuse();
+  }
+
+  return url.href.replace(/\/+$/, '');
 }
 
 /**
@@ -129,6 +216,7 @@ const repoNameRE = /^[A-Za-z0-9._-]+$/;
  */
 export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   const { apiURL = defaultApiURL, prefix = 'v', repo } = opts;
+  const root = rootURL(apiURL, 'apiURL');
 
   // `owner/name` and nothing else: a bare name, a trailing slash or a whole
   // URL each produce a request to a path that is not the one meant, and the
@@ -144,7 +232,11 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   // are in the class, neither is a name, and `..` is a path segment the URL
   // resolves away. Length, and a leading, trailing or doubled hyphen, are
   // left to GitHub, which still holds legacy accounts that break each
-  const parts = repo.split('/');
+  //
+  // A `repo` that is not a string is the same refusal and not Node's own
+  // `repo.split is not a function` (SIG-545): the types guard `sigil.json` and
+  // a plain-JavaScript caller has nothing to
+  const parts = typeof repo === 'string' ? repo.split('/') : [];
   if (
     parts.length !== 2 ||
     !ownerRE.test(parts[0]!) ||
@@ -165,7 +257,7 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
     path: ['tag_name'],
     ...(prefix && { prefix }),
     type: 'github',
-    url: `${apiURL.replace(/\/$/, '')}/repos/${encodeURIComponent(parts[0])}/${encodeURIComponent(
+    url: `${root}/repos/${encodeURIComponent(parts[0])}/${encodeURIComponent(
       parts[1]
     )}/releases/latest`,
   };
