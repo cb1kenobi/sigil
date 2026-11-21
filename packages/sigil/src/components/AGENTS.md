@@ -13161,14 +13161,37 @@ value it had ever shown.
   whatever under it the tree no longer has. SIG-479's marking of those reads as out
   of date stands: they are read again when they open.
 
-  **The limit, left as one (review round 2):** `last` lives as long as the failure
-  does, not until a retry lands. A search while a retry is in flight, or after the
-  failed branch was closed and before it opens again, reaches nothing under it and
-  drops it, so when the retry lands a branch there that the reader closed and that
-  says `expanded: true` opens, and every read under it is made again. Carrying
-  `last` on the retry's read and on a closed failed branch would close it, at the
-  cost of a third place an answer that is not shown lives; it needs a failure, a
-  search and a retry in one window, so it is written down rather than built.
+  **Kept past the failure, until the retry lands (SIG-521).** `last` used to live as
+  long as the failure did: a retry, or closing the failed branch, forgot the failure
+  and its `last` with it, so a search in that window reached nothing under the
+  branch, dropped it, and a branch there that the reader closed and that says
+  `expanded: true` opened when the retry landed, with every read under it made
+  again. `unfail()` is now the one place a failed read is forgotten -- `forget()`,
+  a closed branch the walk meets, and opening one -- and it moves `last` into
+  `kept`, a map by value of an answer that is the tree's and is shown nowhere. The
+  walk reaches under it as it does under `last`, for an open branch whose retry is
+  out and for a closed one, nested or not; a read that lands drops it, a failure
+  that follows takes it back as its own `last`, and a value leaving the tree takes
+  it with the rest. It is the "third place an answer that is not shown lives" the
+  limit was written down to avoid, and it cost one map and one line in each of those
+  four places, which was less than the ticket's other shape -- a third `Load` state
+  every reader of `loads` would have to know. It also closed a smaller gap beside it:
+  `put()` compares a landing answer with the one `kept` holds, so a retry that lands
+  something different from what the failure replaced sets the search going at once
+  and `deep` under the old answer is gone with it, where before it waited for the
+  next search. `treeListHeld().kept` counts it. A walk that meets a value which is no
+  longer a function branch drops its entry, since nothing would ever read it
+  again (review round 1). Pinned by seven `(SIG-521)` tests in
+  `tree-list-view.test.ts`; sabotage, each caught: the open branch not reaching
+  under `kept`, `unfail()` not setting it, a closed branch not reaching under it,
+  `childrenOf()` not reading it, `dropGone()` not looking through it, `put()`
+  not comparing against it, a failure that follows not taking `kept` back, and
+  the walk not dropping the entry of a value that stopped being a function. Not
+  pinned, and said so: the `unfail()` in `setOpen()`, which the walk's own call
+  normally reaches first and is there for an `expand()` that comes between a
+  failure landing and the walk that sees it; and the line in `put()` that treats a
+  read begun with nothing to show as no answer at all, which only saves a search
+  at the start of a retry and drops nothing either way.
 
 - **And not even then where nothing left.** Everything held is for a value in
   `seen`, and every value the walk meets is put there: so where what was shown and
@@ -13197,6 +13220,66 @@ value it had ever shown.
   closed branch counted twice (the other order from the first) -- each caught; and
   a failure counted as an answer replaced, which survives because `last` keeps
   the same values reachable, so it costs a search and drops nothing.
+
+### What a tree's walk costs per row (SIG-520)
+
+SIG-471 kept an unchanged row the same object and found the list's own work was
+about 5% of an append at 200,000 open rows: the rest was the walk of the whole open
+tree, which every change runs. The ticket asked for a walk of only the part that
+changed, or a per-row cost that drops enough to matter. The first is **not done, and
+that was a decision**: a walk that goes only where something changed has to keep
+each row's guide, its parent and the duplicate check valid across walks, and an
+open or a close in the middle, a replaced answer and a source changed in place each
+invalidate a different part of it -- a second, incremental implementation of what
+`walk()` does, beside the one every other path uses, to save tens of milliseconds
+on a tree of a size no terminal draws. The per-row cost was cut instead, in three
+places, none of which changes what a walk finds:
+
+- **`flat()` runs its regex only for a text with a line break in it.** It ran
+  `replaceAll()` over every node's text, and almost none has one. It is in
+  `tree.ts`, so `selectTree()` reads its nodes the same cheaper way.
+- **A node's guide for its children is built only for an open branch.** `rest` was
+  concatenated for every row and used by the few that are open.
+- **The map of rows by key is added to rather than made again,** and a row found in
+  it is compared in the same pass that fills the new array, where there had been a
+  `map()`, an `every()` and a `new Map()` over all of them. It is made again when it
+  holds more than the walk found, which is a key gone: `treeListHeld().rows` says it
+  holds the rows shown and no others, and a removed node is what the test removes.
+  The duplicate-value check is one `Map.set` and a size compared, not a `has()`
+  and a `set()`. New rows are put in the map after the loop, so a walk that throws
+  inside it -- a guide written in a `Computed` -- leaves the map as it was.
+
+**Measured** over the built package, 200,000 open rows, one change that appends 3
+nodes, the CPU time of `items.set()` and `flush()` (user plus system, which counts
+the collector's threads) on a machine other work was running on, six alternated
+runs of twenty-two changes each, the minimum and the median of the runs' medians
+(`before` is the commit before this one, `after` is this):
+
+| 200,000 open rows, append 3       | before min / median | after min / median |
+| --------------------------------- | ------------------- | ------------------ |
+| flat list of 200,000              | 52.7 / 60.3 ms      | 32.4 / 37.4 ms     |
+| 100 open branches of 2,000        | 64.7 / 85.0 ms      | 37.0 / 50.3 ms     |
+| same, appended to the last branch | 72.9 / 84.9 ms      | 38.6 / 44.9 ms     |
+
+About 40% of an append, and on a quiet machine the rest is the walk's own: a
+`treeChoiceOf()` per row (two objects), a `parents` entry, a line object and a guide
+string, with a `State.set` per kept row. Wall-clock figures on a loaded machine
+move by a factor of two between runs, which is why the table is CPU time and
+minimums. The script is not kept in the repository, because a benchmark that is
+not run is a number that rots; to repeat it, build a tree of 200,000 nodes, draw it
+once with `renderToLines()`, and time `items.set([...nodes, ...three])` with
+`flush()`.
+
+What a further cut would be, if it is ever worth it: a `parent` field on a row in
+place of the `parents` map, with a generation on each row to find a duplicate, which
+takes the 200,000-entry map out of the walk and moves the duplicate check after it.
+Not done because the check then happens after state was written, which is the
+ordering `walkFrom()` keeps on purpose.
+
+SIG-471's counting test holds: the three tests in `tree-list-view-rekey.test.ts`
+pass unchanged. Sabotage: the map of rows made again never (caught by the rows
+count), and `flat()` never joining lines (caught by the existing test of a node
+drawn on one line).
 
 ### A data table: a list view with columns, a sort, and widths that hold still (SIG-281)
 

@@ -289,8 +289,12 @@ interface Model {
 
 /** How many values a tree list view holds something for: see {@link treeListHeld}. */
 export interface TreeListHeld {
+  /** Branches whose failed read's answer is held, with no read to hold it (SIG-521). */
+  readonly kept: number;
   /** Branches with a loading or an error line made for them. */
   readonly notes: number;
+  /** Rows the tree finds a value's row by: the rows it shows, and no others (SIG-520). */
+  readonly rows: number;
   /** Branches whose function has been read, or is being read. */
   readonly reads: number;
   /** Values the tree has met. */
@@ -391,6 +395,14 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   /** The reads of branches whose `items` is a function, by value. */
   const loads = new Map<T, Load<T>>();
   /**
+   * The answer a failed read replaced, for a branch whose failure is gone -- retried,
+   * or closed over -- and whose new read has not landed (SIG-521). It is never shown,
+   * and what is under it is still the tree's: a search in that window finds it here,
+   * so a value under it is not new when the read lands. A failed read holds it as
+   * its `last`, a read that lands drops it, and a value that leaves the tree takes it.
+   */
+  const kept = new Map<T, readonly TreeChoiceItem<T>[]>();
+  /**
    * Whether a read's answer was replaced or dropped since the last walk that looked
    * for values gone from the tree: the nodes it held may have gone with it.
    */
@@ -401,9 +413,21 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * not the tree losing the branches under it.
    */
   const put = (value: T, load: Load<T>): void => {
-    const had = answerOf(loads.get(value));
-    left ||= had !== undefined && answerOf(load) !== had;
+    const had = answerOf(loads.get(value)) ?? kept.get(value);
+    // a read begun with nothing to show holds no answer yet, which is not one replaced
+    const next = load.state === 'loading' && load.items === undefined ? had : answerOf(load);
+    left ||= had !== undefined && next !== had;
     loads.set(value, load);
+  };
+  /**
+   * Forgets a read that failed so the branch reads again, keeping the answer it
+   * replaced: that is still the tree's, though nothing shows it (SIG-521).
+   */
+  const unfail = (value: T, held: Extract<Load<T>, { state: 'failed' }>): void => {
+    loads.delete(value);
+    if (held.last !== undefined) {
+      kept.set(value, held.last);
+    }
   };
   /** Bumped when a read lands, which is what makes the rows be walked again. */
   const landed = new State(0);
@@ -449,7 +473,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     if (held === undefined || (held.state === 'loaded' && held.stale === true)) {
       return false;
     }
-    if (held.state !== 'failed' && held.items !== undefined) {
+    if (held.state === 'failed') {
+      unfail(value, held);
+    } else if (held.items !== undefined) {
       put(value, { items: held.items, stale: true, state: 'loaded' });
     } else {
       loads.delete(value);
@@ -505,7 +531,11 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
    * and with the items gone a subtree reload could no longer find them.
    */
   const fail = (value: T, message: string, before?: readonly TreeChoiceItem<T>[]): void => {
-    put(value, { last: before, message, state: 'failed' });
+    // a read again over a failure has no answer of its own to replace: it replaces
+    // the one the failure kept
+    const replaced = before ?? kept.get(value);
+    kept.delete(value);
+    put(value, { last: replaced, message, state: 'failed' });
     if (before === undefined) {
       return;
     }
@@ -536,6 +566,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       return;
     }
     put(value, { items: items as readonly TreeChoiceItem<T>[], state: 'loaded' });
+    kept.delete(value);
   };
 
   /**
@@ -603,7 +634,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       if (Array.isArray(what)) {
         return what;
       }
-      return answerOf(loads.get(parts.value));
+      return answerOf(loads.get(parts.value)) ?? kept.get(parts.value);
     };
 
     /**
@@ -642,18 +673,25 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       root: boolean,
       waiting: boolean
     ): void => {
-      for (const [index, item] of items.entries()) {
+      for (let index = 0; index < items.length; index++) {
+        const item = items[index];
         const parts = treeChoiceOf(item);
         const key = parts.value;
-        if (up.has(key)) {
+        // one lookup, not two: a key already there leaves the size where it was
+        const size = up.size;
+        up.set(key, parent);
+        if (up.size === size) {
           throw new TypeError(
             __`Expected every tree node to have a value of its own: ${String(key)} is used twice`
           );
         }
-        up.set(key, parent);
         // reached under a closed branch and shown as well: counted once
         if (reached.size > 0) {
           reached.delete(key);
+        }
+        // an answer kept for a value that is no longer a function branch is no one's
+        if (kept.size > 0 && !(parts.branch && typeof parts.choice.items === 'function')) {
+          kept.delete(key);
         }
         const under = seen.get(key);
         if (under === undefined) {
@@ -665,11 +703,10 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
 
         const last = index === items.length - 1;
         const guide = root ? '' : base + (last ? glyphs.last : glyphs.branch);
-        const rest = root ? '' : base + (last ? glyphs.after : glyphs.through);
         const isOpen = parts.branch && open.has(key);
         let status: TreeLoadStatus = 'idle';
         let children: readonly TreeChoiceItem<T>[] | undefined;
-        /** The answer a failure replaced, under an open branch that shows the error. */
+        /** The answer a failure replaced, which is not shown but is still the tree's. */
         let hidden: readonly TreeChoiceItem<T>[] | undefined;
         let message = '';
 
@@ -680,7 +717,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
             // a read that failed is not kept: a branch closed over one reads
             // again when it opens, whatever opened it
             if (!isOpen && held?.state === 'failed') {
-              loads.delete(key);
+              unfail(key, held);
               held = undefined;
             }
             // read for the first time, or again over what the last read found --
@@ -702,6 +739,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
                 children = held.items;
               }
             }
+            // a read begun over a failure, or a branch closed over one, shows nothing
+            // and still has what the failure replaced under it
+            hidden ??= kept.get(key);
           } else if (Array.isArray(what)) {
             children = what;
           } else {
@@ -721,11 +761,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
           status,
         });
         if (!isOpen) {
-          if (prune && under === true && children !== undefined) {
-            beneath(children);
+          const below = children ?? hidden;
+          if (prune && under === true && below !== undefined) {
+            beneath(below);
           }
           continue;
         }
+        const rest = root ? '' : base + (last ? glyphs.after : glyphs.through);
         if (prune && under === true && hidden !== undefined) {
           beneath(hidden);
         }
@@ -842,7 +884,7 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
       return;
     }
     const gone = (value: T): boolean => !found.parents.has(value) && !found.reached.has(value);
-    for (const held of [seen, loads, notes]) {
+    for (const held of [seen, loads, notes, kept]) {
       for (const value of held.keys()) {
         if (gone(value)) {
           held.delete(value);
@@ -919,20 +961,43 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     // a row that draws what it drew last time is the same object, so the list
     // keeps the element it built for it and finds the rows it already keyed; one
     // whose guide alone moved is handed the guide
-    const next = found.rows.map((line): Row<T> => {
-      const was = byKey.get(line.key);
-      if (was !== undefined && sameRow(was, line)) {
-        was.guide.set(line.guide);
-        return was;
-      }
-      return { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
-    });
+    const lines = found.rows;
     // against what the list was handed rather than what the last walk found, which
     // differ where handing it over threw -- inside a `Computed`, which may not write
     const held = untrack(() => listed.get());
-    const unchanged = next.length === held.length && next.every((row, i) => row === held[i]);
+    const next: Row<T>[] = [];
+    let unchanged = lines.length === held.length;
+    // added to the map after the loop, so a throw inside it leaves the map as it was
+    const added: Row<T>[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const was = byKey.get(line.key);
+      let row: Row<T>;
+      if (was === undefined) {
+        row = { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
+        added.push(row);
+      } else {
+        if (sameRow(was, line)) {
+          was.guide.set(line.guide);
+          row = was;
+        } else {
+          row = { ...line, bare: line.guide === '', guide: new State(line.guide) } as Row<T>;
+          added.push(row);
+        }
+      }
+      next.push(row);
+      unchanged &&= row === held[i];
+    }
+    for (const row of added) {
+      byKey.set(row.key, row);
+    }
+    // the map the rows are found by was added to rather than made again, which for
+    // a tree that only grew is a few entries and not 200,000; where it holds more
+    // than the rows, one of its keys is gone and it is made again
+    if (byKey.size !== lines.length) {
+      byKey = new Map(next.map((row) => [row.key, row]));
+    }
     rows = next;
-    byKey = new Map(next.map((row) => [row.key, row]));
     parents = found.parents;
     shown = found.shown;
     if (!unchanged) {
@@ -963,8 +1028,9 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
     if (now.has(value) === on) {
       return false;
     }
-    if (on && loads.get(value)?.state === 'failed') {
-      loads.delete(value);
+    const failed = loads.get(value);
+    if (on && failed?.state === 'failed') {
+      unfail(value, failed);
     }
     const next = new Set(now);
     if (on) {
@@ -1200,7 +1266,13 @@ export function TreeListView<T = string>(props: TreeListViewProps<T>): Element {
   };
   MODELS.set(host, {
     control: control as TreeListControl<unknown>,
-    held: () => ({ notes: notes.size, reads: loads.size, seen: seen.size }),
+    held: () => ({
+      kept: kept.size,
+      notes: notes.size,
+      rows: byKey.size,
+      reads: loads.size,
+      seen: seen.size,
+    }),
     keys: { multiple, vim: props.vim === true },
   });
   return host;

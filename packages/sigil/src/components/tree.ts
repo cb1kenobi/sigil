@@ -403,7 +403,10 @@ interface TreeNode<T> {
 
 /** A node's text on one line, with its escape sequences dropped. */
 function flat(text: string): string {
-  return strip(text).replaceAll(/\s*[\n\r]+\s*/g, ' ');
+  const bare = strip(text);
+  // almost every node is one line, and a regex over each of 200,000 is a good part
+  // of what reading them costs (SIG-520)
+  return bare.includes('\n') || bare.includes('\r') ? bare.replaceAll(/\s*[\n\r]+\s*/g, ' ') : bare;
 }
 
 /** A node as an interactive tree reads it: what `treeChoiceOf()` returns. */
