@@ -111,7 +111,7 @@ export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
  * one of them into a slash.
  *
  * @param diagnostic - The diagnostic.
- * @returns The location, with no trailing colon and no control character.
+ * @returns The location, with no trailing colon, escaped by `escapeControls()`.
  */
 export function diagnosticLocation(diagnostic: Diagnostic): string {
   const { column, file, line } = diagnostic;

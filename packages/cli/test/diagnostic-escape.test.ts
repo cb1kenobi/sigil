@@ -134,6 +134,10 @@ describe('a diagnostic that quotes a name with a control character in it', () =>
 
     expect(diagnosticMessage(diagnostic({ message }))).toBe('the "a\\u{3164}b\\u{FE0F}" command');
     expect(formatDiagnostic(diagnostic({ message }))).toContain('a\\u{3164}b\\u{FE0F}');
+    // and a file name, which `diagnosticLocation()` escapes on its own
+    expect(
+      diagnosticLocation(diagnostic({ column: undefined, file: 'a\u3164b.ts', line: undefined }))
+    ).toBe('a\\u{3164}b.ts');
   });
 
   it('should not escape twice what a producer already escaped', () => {

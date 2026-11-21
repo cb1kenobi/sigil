@@ -1157,7 +1157,11 @@ messages.
   reason: an echoed value is not prose, and the glyph never says whether the
   selector is there. Decided with the ticket rather than found; exempting it
   would make an emoji that carries one print the same as one that does not.
-  Covered by `test/util/escape-controls.test.ts`, which walks every code point.
+  The cost reaches further than an echoed value where a sink escapes a whole
+  message: `escapeMessage()` runs it over the type checker's output, so a string
+  literal `'<heart><VS16>'` in a `tsc` diagnostic prints with `\u{FE0F}` too, as the
+  joiner already did. Covered by `test/util/escape-controls.test.ts`, which walks
+  every code point.
 - **The backslash is not escaped.** So a value holding the literal text `\x1B`
   reads the same as one holding `ESC`. Doubling every backslash would make a
   mistyped Windows path harder to read, and what reaches the terminal is inert
