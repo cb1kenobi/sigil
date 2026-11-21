@@ -106,7 +106,7 @@ describe('writing an executable', () => {
    */
   const exempt: Record<string, { count: number; why: string }> = {
     'packages/cli/test/bundle-escape.test.ts': {
-      count: 6,
+      count: 8,
       why: 'a directory made unwritable so that a build cannot empty it or write to it, and given back',
     },
     'packages/cli/test/clean-guard.test.ts': {

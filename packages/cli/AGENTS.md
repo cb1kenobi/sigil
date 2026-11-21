@@ -4935,9 +4935,11 @@ about what a valid app is would be the worse half of the feature.
 
   What is **not** closed, and is rolldown's still: a failure only the write can
   discover -- a full disk, an I/O error, a file removed or made between the check
-  and the write -- and a chunk file whose hashed name is a directory, which no
-  pre-flight can name. Neither is a newline problem by itself: the first needs a
-  path with a newline in it **and** a disk that fills mid-write. A side effect is
+  and the write -- and a chain of links to nothing, of which only the first is
+  followed. A hashed chunk name that is a directory **is** caught, since
+  `outputBundle` already holds the final names. None is a newline problem by
+  itself: each needs a path with a newline in it **and** a failure no check can
+  see coming. A side effect is
   that `--out` and `chunks/` are made a moment earlier than rolldown would have,
   which leaves an empty directory behind a build that then fails, where rolldown's
   own failure left whatever it had made. `test/bundle-escape.test.ts` drives each
@@ -4953,15 +4955,16 @@ about what a valid app is would be the worse half of the feature.
   system call reachable from it, and from its callers, was listed rather than
   assumed:
 
-  | call                                       | where                                                       | can throw for an unusable path                                       |
-  | ------------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------- |
-  | `existsSync`                               | `buildReads()`, `clean()`                                   | never; it answers `false` for `ENOTDIR`, `EACCES` and `ELOOP`        |
-  | `realpathSync.native`, through `landsAt()` | `assertCleanable()`, `heldFile()`, `bundleApp()`            | yes, but `landsAt()` catches everything and answers `resolve(path)`  |
-  | `lstatSync`, through `statOf()`            | `heldFile()`                                                | yes, but `statOf()` catches everything and answers `undefined`       |
-  | `statSync`, through `statOf()`             | `heldFile()`'s walk up from each file the build reads       | yes, caught the same way                                             |
-  | `lstatSync(target)`                        | `clean()`                                                   | only if `target` vanishes between the `existsSync` and it; see below |
-  | `rmSync`                                   | `clean()`                                                   | yes, `EACCES` for a directory it cannot empty; see below             |
-  | `readSigilConfig()`'s reads                | `build`, `package` and `check`, before and beside the guard | yes; not `assertCleanable()`'s, and recorded below                   |
+  | call                                       | where                                                             | can throw for an unusable path                                                                       |
+  | ------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+  | `existsSync`                               | `buildReads()`, `clean()`                                         | never; it answers `false` for `ENOTDIR`, `EACCES` and `ELOOP`                                        |
+  | `realpathSync.native`, through `landsAt()` | `assertCleanable()`, `heldFile()`, `bundleApp()`                  | yes, but `landsAt()` catches everything and answers `resolve(path)`                                  |
+  | `lstatSync`, through `statOf()`            | `heldFile()`                                                      | yes, but `statOf()` catches everything and answers `undefined`                                       |
+  | `statSync`, through `statOf()`             | `heldFile()`'s walk up from each file the build reads             | yes, caught the same way                                                                             |
+  | `lstatSync(target)`                        | `clean()`                                                         | only if `target` vanishes between the `existsSync` and it; see below                                 |
+  | `rmSync`                                   | `clean()`                                                         | yes, `EACCES` for a directory it cannot empty; see below                                             |
+  | `readSigilConfig()`'s reads                | `build`, `package` and `check`, before and beside the guard       | yes; not `assertCleanable()`'s; `check` catches it into a diagnostic                                 |
+  | `rmSync(staging)`, twice                   | `package`, between the guard and the bundle, and in its `finally` | yes, `EACCES` for a stale directory; the first wrapped with `quoting()`, the second swallowed, below |
 
   The rest of what `assertCleanable()` does is arithmetic on spellings --
   `resolve()`, `relative()`, `holdsApp()`, `isInside()` -- which asks the file
@@ -4977,7 +4980,12 @@ about what a valid app is would be the worse half of the feature.
   The two that can throw are `clean()`'s and are not in the pre-flight: they run
   inside `beforeWrite`, whose error `bundleApp()` carries out as `refusedWith`
   so `escaped()` still sees its `code` and `syscall` (SIG-552), and `package`
-  wraps its own call with `quoting()`. The `lstatSync` is a race between two
+  wraps its own call with `quoting()`, and now the first `rmSync(staging)` too --
+  the staging directory is under the app's root, and a stale one that cannot be
+  removed quoted it raw, found by review. The one in the `finally` swallows
+  instead, as `entryLocation()`'s does: a throw there replaces the error the
+  build was reporting, and the next run's first `rmSync` reports it. That has no test: it needs an
+  unremovable directory and a runtime, like `clean(out)`'s wrap. The `lstatSync` is a race between two
   adjacent statements and was left. `prepareOutput()` (SIG-559) is the other file
   system calls added before the write, and runs in the same hook for the same
   reason. What this does not cover is `readSigilConfig()`, whose read and parse

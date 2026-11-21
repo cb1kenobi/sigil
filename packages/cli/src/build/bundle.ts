@@ -64,8 +64,10 @@ import {
   accessSync,
   chmodSync,
   constants,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   rmdirSync,
   statSync,
@@ -1016,8 +1018,9 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * `ENOTDIR` for an `--out` under a file, `EEXIST` for one that is a file and
  * `EACCES` for one inside a directory that cannot be written; each of them
  * can be written to, which is a read-only `--out`; and no file is a directory,
- * which rolldown reports as `Failed to write file`. That last one has no error
- * of Node's to raise, so it is a sentence built here, with the path escaped
+ * which rolldown reports as `Failed to write file`. A link to nothing is asked
+ * about its target's directory, since the write goes through it. That last one
+ * has no error of Node's to raise, so it is a sentence built here, with the path escaped
  * where it is built.
  *
  * Run from `generateBundle`, which is after `clean()` has emptied the
@@ -1048,6 +1051,10 @@ function prepareOutput(dir: string, fileNames: readonly string[]): void {
     }
     if (existing) {
       accessSync(path, constants.W_OK);
+    } else if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      // a link to nothing: the write goes through it and makes the target, so
+      // what has to be there is the target's directory
+      accessSync(dirname(resolve(parent, readlinkSync(path))), constants.W_OK);
     }
   }
 }

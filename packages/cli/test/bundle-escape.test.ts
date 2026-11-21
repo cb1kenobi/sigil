@@ -6,7 +6,7 @@ import { run, STACK } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -322,6 +322,28 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
 
     await refused(app, out, 'EEXIST', '--no-clean');
   }, 60_000);
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should not forge a line when a file the build writes is a link to nothing, in a directory it cannot write',
+    async () => {
+      // the write goes through the link, and `statSync()` finds nothing to ask about
+      const app = linkedFixture(buildable, 'sigil-out-dangling-');
+      const out = join(app, FORGED);
+      // named with the forged name too, since that is the directory the error quotes
+      const locked = `${out}-locked`;
+      mkdirSync(out, { recursive: true });
+      mkdirSync(locked);
+      symlinkSync(join(locked, 'x.mjs'), join(out, 'buildable.mjs'));
+      chmodSync(locked, 0o555);
+
+      try {
+        await refused(app, out, 'EACCES', '--no-clean');
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    },
+    60_000
+  );
 
   // a directory made with a mode, which root ignores
   it.skipIf(process.getuid?.() === 0)(
