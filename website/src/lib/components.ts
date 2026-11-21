@@ -902,6 +902,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'controlFlag',
     'controlState',
     'describeControls',
+    'refuseUnheldFunction',
   ],
   'What a prompt answers with or rejects with': [
     'PromptBack',

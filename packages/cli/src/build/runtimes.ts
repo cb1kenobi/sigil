@@ -54,6 +54,7 @@ import {
   BUN_COMPILES_FROM,
   NODE_BUILD_SEA,
   RUNTIMES,
+  said,
   type Runtime,
   type Target,
 } from './compile.ts';
@@ -150,7 +151,7 @@ export function isVersion(version: unknown): version is string {
 export function cacheDir(root: string, runtime: Runtime, version: string): string {
   if (!isVersion(version)) {
     throw new Error(
-      `"${version}" is not a ${runtime} version, so there is nothing to download. Name one as <major>.<minor>.<patch>, for example ${example(runtime)}.`
+      `"${escapeControls(version)}" is not a ${runtime} version, so there is nothing to download. Name one as <major>.<minor>.<patch>, for example ${example(runtime)}.`
     );
   }
 
@@ -158,7 +159,7 @@ export function cacheDir(root: string, runtime: Runtime, version: string): strin
 
   if (!isInside(root, into)) {
     throw new Error(
-      `Refusing to install ${runtime} ${version} at ${into}, which is outside the runtime cache ${root}.`
+      `Refusing to install ${runtime} ${version} at ${escapeControls(into)}, which is outside the runtime cache ${escapeControls(root)}.`
     );
   }
 
@@ -712,7 +713,9 @@ export function bunVersion(exec: string): string {
   const run = spawnSync(exec, ['--revision'], { encoding: 'utf-8', timeout: 30_000 });
 
   if (run.error) {
-    throw new Error(`Failed to run bun at ${exec}: ${escapeControls(run.error.message)}`);
+    throw new Error(
+      `Failed to run bun at ${escapeControls(exec)}: ${escapeControls(run.error.message)}`
+    );
   }
 
   const said = run.stdout.trim();
@@ -720,7 +723,7 @@ export function bunVersion(exec: string): string {
 
   if (run.status !== 0 || !isVersion(version)) {
     throw new Error(
-      `${exec} did not report a release version (it said "${escapeControls(said.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
+      `${escapeControls(exec)} did not report a release version (it said "${escapeControls(said.slice(0, 80))}"), so there is no published digest to check the runtime it would embed for another platform against.\n  Use a release of Bun, with --runtime bun@<version>.`
     );
   }
 
@@ -728,7 +731,7 @@ export function bunVersion(exec: string): string {
   // would only be found out after the download, by `assertEmbedded()`
   if (compare(version, BUN_COMPILES_FROM) < 0) {
     throw new Error(
-      `${exec} is Bun ${version}, which accepts "compile" in Bun.build() and ignores it, so it cannot embed the runtime sigil verified for another platform; use ${BUN_COMPILES_FROM} or newer.`
+      `${escapeControls(exec)} is Bun ${version}, which accepts "compile" in Bun.build() and ignores it, so it cannot embed the runtime sigil verified for another platform; use ${BUN_COMPILES_FROM} or newer.`
     );
   }
 
@@ -876,7 +879,7 @@ async function download(runtime: Runtime, version: string, target?: Target): Pro
 
     if (tar.status !== 0) {
       throw new Error(
-        `Could not extract ${runtime} ${version}: ${tar.stderr || tar.error?.message}`
+        `Could not extract ${runtime} ${version}:\n${said({ stderr: (tar.stderr || tar.error?.message || `tar exited ${tar.status}`).trim() })}`
       );
     }
 
@@ -1389,13 +1392,13 @@ export function parseSpec(text: string): Spec {
 
   if (!(RUNTIMES as readonly string[]).includes(runtime)) {
     throw new Error(
-      `"${runtime}" is not a runtime. Use ${RUNTIMES.join(' or ')}, optionally with a version -- ${RUNTIMES.map((one) => `${one}@<version>`).join(' or ')}.`
+      `"${escapeControls(runtime)}" is not a runtime. Use ${RUNTIMES.join(' or ')}, optionally with a version -- ${RUNTIMES.map((one) => `${one}@<version>`).join(' or ')}.`
     );
   }
 
   if (version !== undefined && !isVersion(version)) {
     throw new Error(
-      `"${version}" is not a version. Name one as <major>.<minor>.<patch>, for example ${example(runtime as Runtime)}.`
+      `"${escapeControls(version)}" is not a version. Name one as <major>.<minor>.<patch>, for example ${example(runtime as Runtime)}.`
     );
   }
 

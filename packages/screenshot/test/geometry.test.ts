@@ -192,7 +192,7 @@ describe('blocks', () => {
 
 describe('braille', () => {
   it('should draw no dots for the blank pattern and eight for the full one', () => {
-    expect(inked(cell('⠀'))).toBe(0);
+    expect(inked(cell('\u2800'))).toBe(0);
     const full = cell('⣿');
     const one = cell('⠁');
     expect(inked(full)).toBe(inked(one) * 8);

@@ -639,6 +639,169 @@ describe('the router', () => {
   });
 });
 
+describe('a handler that throws', () => {
+  // the stream's `data` listener is the router's entry from outside, and a throw
+  // nothing catches there is an uncaught exception over whatever the terminal was
+  // in -- SIG-524. These are the router's own half of it: `runApp()` ends the app,
+  // and its tests are in `renderer/app.test.ts`
+
+  it('should escape the data listener when there is no onError, as it always did', () => {
+    const { feed, terminal } = harness();
+    const input = createInput({ terminal });
+    input.bind('x', () => {
+      throw new Error('handler broke');
+    });
+
+    expect(() => feed('x')).toThrow('handler broke');
+    input.stop();
+  });
+
+  it.each([
+    [
+      'a binding',
+      (input: ReturnType<typeof createInput>) =>
+        input.bind((event) => {
+          if (event.key.name === 'x') {
+            throw new Error('handler broke');
+          }
+        }),
+    ],
+    [
+      'a key sequence',
+      (input: ReturnType<typeof createInput>) =>
+        input.bind('x', () => {
+          throw new Error('handler broke');
+        }),
+    ],
+    [
+      'a fallback',
+      (input: ReturnType<typeof createInput>) =>
+        input.fallback('x', () => {
+          throw new Error('handler broke');
+        }),
+    ],
+  ])(
+    'should hand what %s threw to onError, once per event, and carry on with the read',
+    (_, install) => {
+      const { feed, terminal } = harness();
+      const errors: unknown[] = [];
+      const input = createInput({ onError: (error) => errors.push(error), terminal });
+      install(input);
+      const after: string[] = [];
+      input.fallback('y', (key) => void after.push(key.name ?? ''));
+
+      // the key that throws is one of three in a read, and the ones after it are
+      // still the user's
+      feed('xyy');
+
+      expect(errors.map(String)).toEqual(['Error: handler broke']);
+      expect(after).toEqual(['y', 'y']);
+      input.stop();
+    }
+  );
+
+  it('should hand what a focused element threw to onError', () => {
+    const { feed, terminal } = harness();
+    const errors: unknown[] = [];
+    const { first, root } = tree();
+    first.onKey = () => {
+      throw new Error('onKey broke');
+    };
+    const input = createInput({ onError: (error) => errors.push(error), root, terminal });
+    input.focus.focus(first);
+
+    feed('a');
+
+    expect(errors.map(String)).toEqual(['Error: onKey broke']);
+    input.stop();
+  });
+
+  it('should hand what a paste handler threw to onError', () => {
+    const { feed, terminal } = harness();
+    terminal.enableBracketedPaste();
+    const errors: unknown[] = [];
+    const input = createInput({ onError: (error) => errors.push(error), terminal });
+    input.onPaste(() => {
+      throw new Error('paste broke');
+    });
+    const after: string[] = [];
+    input.fallback('z', () => void after.push('z'));
+
+    feed(`${ESC}[200~hello${ESC}[201~z`);
+
+    expect(errors.map(String)).toEqual(['Error: paste broke']);
+    expect(after).toEqual(['z']);
+    input.stop();
+  });
+
+  it('should hand what a sequence threw at its deadline to onError rather than to the timer', () => {
+    vi.useFakeTimers();
+    try {
+      const { feed, terminal } = harness();
+      const errors: unknown[] = [];
+      const input = createInput({
+        onError: (error) => errors.push(error),
+        sequenceTimeout: 50,
+        terminal,
+      });
+      input.bind('g', () => {
+        throw new Error('deadline broke');
+      });
+      input.bind('g g', () => {});
+
+      // `g` is a binding and a prefix, so it waits for a second one and then fires
+      // from the clock, where a throw has no stream to be caught by
+      feed('g');
+      expect(errors).toEqual([]);
+      vi.advanceTimersByTime(60);
+
+      expect(errors.map(String)).toEqual(['Error: deadline broke']);
+      input.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('should hand what a resize handler threw to onError, and still tell the next one', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    const errors: unknown[] = [];
+    const input = createInput({ onError: (error) => errors.push(error), terminal: term.terminal });
+    const sizes: number[] = [];
+    input.onResize(() => {
+      throw new Error('resize broke');
+    });
+    input.onResize((size) => void sizes.push(size.width));
+
+    term.resize(20, 5);
+
+    expect(errors.map(String)).toEqual(['Error: resize broke']);
+    expect(sizes).toEqual([20]);
+    input.stop();
+  });
+
+  it('should report what a handler that was fed a key threw once, where it was thrown', () => {
+    const { feed, terminal } = harness();
+    const errors: unknown[] = [];
+    const input = createInput({ onError: (error) => errors.push(error), terminal });
+    const outer: string[] = [];
+    input.fallback('x', () => {
+      input.feed('y');
+      outer.push('after feed');
+    });
+    input.fallback('y', () => {
+      throw new Error('inner broke');
+    });
+
+    feed('x');
+
+    // the outer handler went on, because the throw was reported at the inner
+    // event and not rethrown through its `feed()`
+    expect(errors.map(String)).toEqual(['Error: inner broke']);
+    expect(outer).toEqual(['after feed']);
+    input.stop();
+  });
+});
+
 describe('focus', () => {
   it('should move along the ring and wrap', () => {
     const { feed, terminal } = harness();

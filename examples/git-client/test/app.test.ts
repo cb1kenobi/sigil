@@ -426,6 +426,40 @@ for (const [syntax, App] of [
     );
 
     it(
+      "should list the dialog's keys in the footer while it is open, and none the dialog swallows",
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', TWO_HUNKS);
+        const client = await mount(App, repo);
+        const footer = (): string => client.screen().split('\n').slice(-3).join('\n');
+
+        // staged first, so that `c` opens the dialog; the footer is the files'
+        await client.press(' ');
+        expect(footer()).toMatch(/space stage/);
+        expect(footer()).toMatch(/d discard/);
+
+        await client.press('c');
+        // the dialog takes every key: space, `d`, the pane numbers and `q` are all
+        // typed into the message, so none of what the app lists is on offer, and
+        // what is are the dialog's own keys and the one the example declares in it
+        expect(footer()).toMatch(/tab next/);
+        expect(footer()).toMatch(/esc close/);
+        expect(footer()).toMatch(/ctrl-s commit/);
+        expect(footer()).not.toMatch(/space stage/);
+        expect(footer()).not.toMatch(/discard/);
+        expect(footer()).not.toMatch(/pane/);
+        expect(footer()).not.toMatch(/quit/);
+
+        await escape(client);
+        expect(footer()).toMatch(/space stage/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should not commit when nothing is staged, or when the message is empty',
       async () => {
         const repo = repository();

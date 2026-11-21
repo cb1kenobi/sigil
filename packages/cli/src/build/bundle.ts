@@ -44,6 +44,7 @@ import {
   type Diagnostic,
 } from './diagnostic.ts';
 import { isInside, landsAt, RUNTIME, type DiscoveredApp } from './discover.ts';
+import { escapeChunks } from './escape-chunks.ts';
 import { generateBin } from './generate.ts';
 import { MODULE_RE, parses, parseTree } from './parse-module.ts';
 import { createShaker, STYLE_MODULE, shakeStyles, type ShakenSheet, type Shaker } from './shake.ts';
@@ -52,8 +53,8 @@ import type { ResolvedTree } from './tree.ts';
 import { updateCheckDefine, UPDATE_CHECK_SPECIFIER } from './update-check.ts';
 import { walk } from './walk.ts';
 import { ansiMatcher } from '@ttylabs/sigil/ansi';
-// aliased because this module already has an `escapeControls()` of its own --
-// the pass over the bundle's bytes -- and the two are not the same rule
+// aliased because `escapeChunks()` is the pass over the bundle's bytes, which is
+// not the same rule as escaping a value for a message
 import { escapeControls as escapeValue } from '@ttylabs/sigil/error-handler';
 import { byCodeUnit, escapeRegExp } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
@@ -118,8 +119,9 @@ export interface BundleOptions {
    * The locale the built app falls back on, from `"locale"` in `sigil.json`.
    *
    * Written into the generated schema as `defaultLocale`, beside the version,
-   * because the runtime has no way to read a config file at startup. Absent
-   * leaves whatever the app's own schema said.
+   * because the runtime has no way to read a config file at startup. A
+   * `defaultLocale` the app's own schema declares wins over it, and absent
+   * leaves whatever the schema said.
    */
   readonly defaultLocale?: string;
   /** An executable of the app's own, bundled instead of a generated one. */
@@ -758,7 +760,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 
   // there is one leak and it is a `write()` that rejects: `close()` used to be
   // the statement immediately after the write, so the unresolved gate,
-  // `undo()`, `escapeControls()` and the `chmod` below all ran with the bundle
+  // `undo()`, `escapeChunks()` and the `chmod` below all ran with the bundle
   // already closed. A `finally` around the write alone would have closed the
   // same leak -- what the wide one buys is where the correctness lives. The
   // eager call was right only because nothing between the write and it threw,
@@ -863,7 +865,29 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
       );
     }
 
-    escapeControls(out, written.output);
+    // last, once nothing else is going to refuse the bundle, because it
+    // rewrites the files the gates above read. A raw control character in a
+    // tagged template or a regular expression is refused rather than escaped, since an escape changes
+    // what the tag's `.raw` says -- SIG-394, and `escape-chunks.ts` for why
+    let raw: ReturnType<typeof escapeChunks>;
+    try {
+      raw = escapeChunks(out, written.output);
+    } catch (e) {
+      // a pass that could not finish, by a map it could not read or a file it
+      // could not write: the build fails, and what rolldown wrote still holds
+      // the raw bytes the pass is for, so it is not left behind
+      undo(out, written.output);
+      throw e;
+    }
+
+    if (raw) {
+      undo(out, written.output);
+      const where = `${escapeValue(raw.chunk)}:${raw.line}:${raw.column}`;
+      const code = `U+${raw.codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
+      throw new Error(
+        `Cannot build: ${where} holds a raw control character (${code}) inside ${raw.in}.\n  A build escapes every control character so a crash cannot write one to the reader's terminal, and an escape would change what the program reads -- \`strings.raw\`, \`RegExp.prototype.source\`, or the string a backslash before it makes. Write it as an escape (\`\\x1B\`, \`\\u009B\`) in the module that holds it, where the build leaves it as it is. The chunk's name says which module, unless it is shared.`
+      );
+    }
 
     const loads = chunkLoads(written.output);
     const chunks = written.output
@@ -1439,7 +1463,7 @@ export function chunkLoads(output: readonly LinkedChunk[]): Map<string, ChunkLoa
  *
  * `chunk.code` is byte-identical to the file today -- measured -- and reading it
  * would cost nothing. The file is read anyway, because the whole reason
- * `escapeControls()` exists is that rolldown's in-memory view of a chunk and the
+ * `escapeChunks()` exists is that rolldown's in-memory view of a chunk and the
  * bytes it finally writes came apart once, and a check about whether **node** can
  * parse the bundle has to ask the bytes node will read. The cost is measured and
  * small: 2.7ms to read and parse a 9-chunk, 111 kB bundle and 4.8ms for 44
@@ -1461,7 +1485,7 @@ export function rawJsxIn(
   output: readonly { fileName: string; type: string }[]
 ): string | undefined {
   for (const chunk of output) {
-    // an asset is not a module, which is the same line `escapeControls()`
+    // an asset is not a module, which is the same line `escapeChunks()`
     // draws -- and here it is a **cost** guard rather than a correctness one,
     // which is worth saying because it looks like the latter. A sourcemap
     // fails both parses and would fall into the conservative branch below
@@ -1570,7 +1594,7 @@ function hasJsx(file: string, source: string): boolean {
  * `INVALID_OPTION` and a chunk name that climbs out is
  * `FILE_NAME_OUTSIDE_OUTPUT_DIRECTORY` -- and closed anyway, because the one
  * operation here is a delete and a delete is not the place to rely on somebody
- * else's validation. `escapeControls()` builds the same paths and only writes to
+ * else's validation. `escapeChunks()` builds the same paths and only writes to
  * them, which is why it is left as it is.
  *
  * Checked rather than resolved through `realpath`: if `out/chunks` is a symlink
@@ -1738,72 +1762,4 @@ function writeEntry(
  */
 export function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 16);
-}
-
-/**
- * Every control character, as a property rather than as a range.
- *
- * `\p{Cc}` is exactly C0, `DEL` and C1 -- the same set a class of
- * `\u0000-\u0008\u000B...` spelled out, checked against all 1,112,064 code
- * points -- and it names what is being matched instead of enumerating it. It
- * also carries no control character, escaped or otherwise, so `no-control-regex`
- * has nothing to say and there is no suppression to keep in place.
- *
- * Which is what this replaced: the class was covered by an
- * `eslint-disable-next-line`, the formatter later wrapped the call and moved the
- * regex to its own line, and the comment stayed above the line it had been
- * written over. A suppression a formatter can detach from its target is one that
- * stops working without anybody editing it.
- */
-const CONTROL = /\p{Cc}/gu;
-
-/** The three a file is allowed to keep, because they are its own formatting. */
-const FORMATTING = new Set(['\t', '\n', '\r']);
-
-/**
- * Escapes every control character a terminal would act on, in what was written.
- *
- * The runtime builds `ESC` with `String.fromCharCode()` precisely so a raw
- * control character never sits in source -- and the minifier constant-folds
- * that straight back into a raw byte. A built app inlines the runtime, so
- * without this every minified app ships the sequence: three raw control
- * characters in one fixture's bundle, the first time minification was turned
- * on, and three is all it takes -- one of them opens a hyperlink.
- *
- * It matters because Node prints the offending source line on an uncaught
- * error, so a crash near one writes `ESC ] 8 ; ;` to the user's terminal and
- * leaves everything after it inside a hyperlink nothing closes. A CLI that dies
- * must not take the terminal with it.
- *
- * Done to the **files**, not in a `generateBundle` hook, which is where this
- * started: minification is an output stage that runs after the hooks, so the
- * escapes were folded straight back. What is written is the only thing the
- * minifier is finished with. Escaping a
- * raw byte inside a string to `\xNN` is the same string to JavaScript and inert
- * to a terminal, so doing it last is safe as well as sufficient.
- *
- * `\t`, `\n` and `\r` are left alone as the file's own formatting, which is
- * `FORMATTING` above. The same pass `packages/sigil`'s own build runs over its
- * own output, said here because an app's bundle is the other place the
- * runtime's source ends up.
- *
- * @param out - The output directory.
- * @param output - What rolldown wrote.
- */
-function escapeControls(out: string, output: readonly { fileName: string; type: string }[]): void {
-  for (const chunk of output) {
-    if (chunk.type !== 'chunk') {
-      continue;
-    }
-
-    const file = join(out, chunk.fileName);
-    const code = readFileSync(file, 'utf-8');
-    const escaped = code.replaceAll(CONTROL, (c) =>
-      FORMATTING.has(c) ? c : `\\x${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`
-    );
-
-    if (escaped !== code) {
-      writeFileSync(file, escaped);
-    }
-  }
 }

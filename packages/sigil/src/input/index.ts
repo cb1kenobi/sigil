@@ -458,6 +458,28 @@ export interface BindingInfo {
   readonly scope: Element | undefined;
 }
 
+/**
+ * An overlay that has taken every key, as {@link InputRouter.hold} hands it back.
+ *
+ * What a dialog or an open menu is to the router: something whose own binding
+ * answers each key first and stops it, so the keys the app registered are dead
+ * for as long as it is up. The router does not dispatch for it -- the overlay's
+ * own function binding does that -- and this is how the footer is told which keys
+ * are live instead.
+ */
+export interface KeyHold {
+  /**
+   * Lists a key this overlay answers itself, and only while it holds the keys.
+   *
+   * @param keys - The key or sequence, as a spec.
+   * @param help - What to list it as.
+   * @returns Removes the listing.
+   */
+  describe(keys: string, help: BindingHelp): () => void;
+  /** Ends the hold, and the listings with it. Doing it twice does nothing. */
+  release(): void;
+}
+
 export interface FocusRing {
   /**
    * The focused element, as a signal.
@@ -584,9 +606,29 @@ export interface InputRouter {
    * to the focus and to bindings being added or removed, which is what lets a
    * footer follow both without a second mechanism.
    *
+   * **While a {@link hold} is open it is a different list**: what the overlay on
+   * top described itself, then the scoped entries whose element is inside it. The
+   * app-wide and fallback entries are left out, because the overlay takes every
+   * key before they are reached and a footer that listed them would name keys it
+   * knows are dead -- which is not the text-field case above, where the router
+   * cannot know whether the field will take the key.
+   *
    * @returns A fresh array of frozen records.
    */
   bindings(): readonly BindingInfo[];
+  /**
+   * Declares that an overlay has taken every key, for what `bindings()` lists.
+   *
+   * Documentation, not dispatch: the overlay's own `bind(fn)` is what takes the
+   * keys, and this says so to the one reader that cannot see it. The last hold
+   * opened is the one that counts, so a menu over a dialog lists the menu's keys
+   * and the dialog's again when the menu goes.
+   *
+   * @param element - What it drew. A scoped description is still listed while it
+   *   is inside it, since an element in a dialog still gets its keys.
+   * @returns The hold.
+   */
+  hold(element: Element): KeyHold;
   /**
    * Describes a key that an element's `onKey` handles.
    *
@@ -748,6 +790,25 @@ export interface InputOptions {
    * Shift-drag overrides it in most terminals and not all.
    */
   mouse?: MouseOptions;
+  /**
+   * Where a throw from an app's handler goes.
+   *
+   * Every handler the router calls -- a binding, an `onKey` or `onMouse` on an
+   * element, a router `onMouse()`, `onPaste()` or `onResize()`, a fallback, a
+   * sequence -- is called from inside the stream's `data` listener or one of the
+   * router's own timers, so a throw that nothing catches there is an uncaught
+   * exception: on the alternate screen, with the cursor hidden and the mouse being
+   * reported, where the message is written to a screen the process is about to
+   * leave. With this the throw is handed here instead, once per event, and the
+   * router carries on with whatever else was in the read.
+   *
+   * What happens next is the caller's: `runApp()` ends the app with the terminal
+   * given back and the error reported, which is what a frame that throws does.
+   * Without it a throw is left to escape, as it always was -- a router with no
+   * caller to report to has no better answer, and a prompt is not one that needs
+   * it. A handler that throws here is not caught again.
+   */
+  onError?: (error: unknown) => void;
   /**
    * Whether a paste arrives whole.
    *
@@ -980,6 +1041,25 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let writingTo: { element: Element | undefined } | undefined;
   let moves = 0;
 
+  /**
+   * Hands a throw from a handler to `onError`, or lets it go on as it was.
+   *
+   * Called from the four places the router is entered from outside -- a key or
+   * a mouse report, a paste, a sequence's deadline, and a resize -- and from no
+   * handler site inside them, which is what "at the router rather than per
+   * component" comes to: one catch per entry, however many handlers the event
+   * reaches. A key a handler `feed()`s is an entry of its own, so what its handlers
+   * throw is reported there and is not rethrown through the `feed()` call.
+   *
+   * @param error - What the handler threw.
+   */
+  const failed = (error: unknown): void => {
+    if (opts.onError === undefined) {
+      throw error;
+    }
+    opts.onError(error);
+  };
+
   // -- described bindings ---------------------------------------------------
 
   const described = new Set<BindingInfo>();
@@ -991,6 +1071,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const describedFallbacks = new Set<BindingInfo>();
   /** Bumped whenever either set changes, so a reader inside an effect re-runs. */
   const describedRev = new State(0);
+  /** The overlays that have taken every key, bottom first. The last one is what is listed. */
+  const holds: { element: Element; own: Set<BindingInfo> }[] = [];
 
   /**
    * Lists a binding, and hands back the way to unlist it.
@@ -1197,8 +1279,12 @@ export function createInput(opts: InputOptions = {}): InputRouter {
         if (next.handlers.size === 0) {
           return;
         }
-        clearSequence();
-        fire(next, keys);
+        try {
+          clearSequence();
+          fire(next, keys);
+        } catch (error) {
+          failed(error);
+        }
       }, waitFor);
     }
   }
@@ -2046,6 +2132,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function flushPaste(text: string): void {
+    try {
+      deliverPaste(text);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  /** `flushPaste()` without the catch: the focus, then the router's handlers, then the keys. */
+  function deliverPaste(text: string): void {
     // a paste is aimed at the focus, so the focus is asked first: one that was
     // hidden or unmounted since the last key is not where it goes
     reconcileFocus();
@@ -2512,6 +2607,15 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * the failure this order exists to prevent.
    */
   function route(key: Key): void {
+    try {
+      routeKey(key);
+    } catch (error) {
+      failed(error);
+    }
+  }
+
+  /** `route()` without the catch: what a key, or a mouse report, is offered to. */
+  function routeKey(key: Key): void {
     // before anything else, because everything else is a place a reply must not
     // reach: a binding, a focused text prompt, or the Tab default
     if (takeReply(key.sequence)) {
@@ -2644,10 +2748,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   const offResize = terminal.onResize((size) => {
     // eslint-disable-next-line unicorn/no-useless-spread
     for (const handler of [...resizers]) {
+      // asked again because a handler that failed may have stopped the router, and
+      // `runApp()` does: the rest of the app is not told of a size it will not see
+      if (stopped) {
+        return;
+      }
       if (!resizers.has(handler)) {
         continue;
       }
-      handler(size);
+      try {
+        handler(size);
+      } catch (error) {
+        failed(error);
+      }
     }
   });
 
@@ -2766,7 +2879,35 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       }
       // `sort` is stable, so registration order holds within one element
       scoped.sort((a, b) => a.at - b.at);
+      const top = holds.at(-1);
+      if (top !== undefined) {
+        // what the overlay takes every key for: its own, then what an element
+        // inside it handles, which the overlay's binding hands the key on to
+        const inside = scoped.filter((it) => it.info.scope && top.element.contains(it.info.scope));
+        return [...top.own, ...inside.map((it) => it.info)];
+      }
       return [...global, ...scoped.map((it) => it.info), ...describedFallbacks];
+    },
+
+    hold(element: Element): KeyHold {
+      const mine = { element, own: new Set<BindingInfo>() };
+      untrack(() => {
+        holds.push(mine);
+        describedRev.set(describedRev.get() + 1);
+      });
+      return {
+        describe: (keys: string, help: BindingHelp) =>
+          describe(parseKeys(keys), { ...help }, mine.own),
+        release(): void {
+          untrack(() => {
+            const index = holds.indexOf(mine);
+            if (index !== -1) {
+              holds.splice(index, 1);
+              describedRev.set(describedRev.get() + 1);
+            }
+          });
+        },
+      };
     },
 
     describe(keys: string, opts: DescribeOptions): () => void {

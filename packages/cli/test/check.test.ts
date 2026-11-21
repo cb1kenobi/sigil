@@ -1,6 +1,8 @@
+import { displayPath } from '../src/build/index.ts';
 import { run, schema } from '../src/index.js';
+import { linkedFixture } from './copy-fixture.ts';
 import { readRoutes } from '@ttylabs/sigil/routes';
-import { readFileSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -239,6 +241,265 @@ describe('sigil check', () => {
       expect(err).toContain('no command directory here');
       expect(err).toContain('--commands');
       expect(process.exitCode).toBe(1);
+    });
+  });
+
+  describe('sigil.json, which build refuses and check used to pass', () => {
+    /** A copy of an app that builds, so the file beside it is the only thing wrong. */
+    function app(): string {
+      return linkedFixture(join(fixtures, 'buildable'), 'sigil-check-config-');
+    }
+
+    it('should fail on a value the config schema refuses, as build does', async () => {
+      // `check` never read the file: `{ "build": { "out": 5 } }` was "no problems
+      // found" and then `Invalid value for "build.out"` from the build
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out: 5 } }));
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Invalid value for "build.out" in sigil.json: Invalid string: 5');
+      expect(err).not.toContain('no problems found');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should fail on both sigil.json and sigil.jsonc, as build does', async () => {
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), '{}');
+      writeFileSync(join(dir, 'sigil.jsonc'), '{}');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('has both sigil.json and sigil.jsonc; keep one.');
+      expect(err).not.toContain('no problems found');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should answer with the sentence build raises, from one reader', async () => {
+      // one function gives one verdict: whatever `build` says about the file is
+      // what `check` printed, word for word
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out: 5 } }));
+
+      const checked = await sigil('check', dir);
+      process.exitCode = undefined;
+      const built = await sigil('build', dir);
+
+      expect(built.err).toContain('Invalid value for "build.out" in sigil.json: Invalid string: 5');
+      expect(checked.err).toContain(
+        'Invalid value for "build.out" in sigil.json: Invalid string: 5'
+      );
+    });
+
+    it('should check a section only another command reads, and say which file', async () => {
+      // `check` is about the app, so a `reference` or `updateCheck` mistake is
+      // one too, and a `.jsonc` is named as the `.jsonc` it is
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.jsonc'),
+        '{ // not a github repo\n "updateCheck": { "type": "github" } }'
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain(
+        'sigil.jsonc: error: sigil.jsonc: a "github" check needs "updateCheck.repo"'
+      );
+      expect(process.exitCode).toBe(1);
+    });
+
+    it.each([
+      ['a runtime that is not one', { runtime: 'deno' }, '"deno" is not a runtime'],
+      ['a target that is not one', { target: ['linux-x64', 'linux'] }, '"linux" is not a target'],
+    ])('should fail on %s, which only package used to ask', async (_name, packaging, message) => {
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ package: packaging }));
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain(message);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should fail on an update check build would refuse to bake', async () => {
+      // `repo` has to be `owner/name`, and only `build` and `package` asked
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({ updateCheck: { repo: 'notarepo', type: 'github' } })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Update check repo must be "owner/name", got "notarepo"');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should not let a github repo in the file forge a diagnostic line', async () => {
+      // three parts, because two is a valid repo and is accepted
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: { repo: 'o/n/a\nsrc/forged.ts:1:1: error: forged', type: 'github' },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('o/n/a\\x0Asrc/forged.ts');
+      expect(err.split('\n').some((line) => line.startsWith('src/forged.ts'))).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should fail on a file that is not JSON, as a diagnostic and not a stack', async () => {
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), '{ "build": ');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('sigil.json: error:');
+      expect(err).not.toContain('no problems found');
+      expect(err).not.toContain('at Object.');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it.each([
+      ['a runtime', { runtime: 'a\nsrc/forged.ts:1:1: error: forged' }],
+      ['a runtime version', { runtime: 'node@a\nsrc/forged.ts:1:1: error: forged' }],
+      ['a target', { target: ['a\nsrc/forged.ts:1:1: error: forged'] }],
+    ])('should not let %s in the file forge a diagnostic line', async (_name, packaging) => {
+      // the value is echoed in the message, and a newline in an echoed value is
+      // a second line the toolchain never wrote
+      const dir = app();
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ package: packaging }));
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('a\\x0Asrc/forged.ts');
+      expect(err.split('\n').some((line) => line.startsWith('src/forged.ts'))).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should pass a file that is valid in every section', async () => {
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          build: { out: 'built', sourcemap: 'off' },
+          components: 'src/ui',
+          package: { runtime: 'bun@1.3.14', target: ['linux-x64'] },
+          reference: { out: 'docs' },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+  });
+
+  describe('a build.out that build refuses because it would empty the app (SIG-540)', () => {
+    /** A copy of an app that builds, with `sigil.json` saying where it builds to. */
+    function appBuildingTo(out: string): string {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-');
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out } }));
+      return dir;
+    }
+
+    it.each([
+      ['src', (dir: string) => `Refusing to empty ${displayPath(join(dir, 'src'))}, which holds`],
+      [
+        '.',
+        (dir: string) =>
+          `Refusing to empty ${displayPath(dir)}, which holds the app itself. Name a directory inside it, or pass --no-clean.`,
+      ],
+    ])('should fail on "build.out": %j, with the sentence build gives', async (out, message) => {
+      // `check` reported nothing for either, and `build` refused with SIG-350's
+      // guard: the output directory holds the app's own source, or the app
+      const dir = appBuildingTo(out);
+
+      const checked = await sigil('check', dir);
+      const checkedCode = process.exitCode;
+      process.exitCode = undefined;
+      const built = await sigil('build', dir);
+
+      expect(built.err).toContain(message(dir));
+      expect(checked.err).toContain(message(dir));
+      expect(checked.err).toContain('sigil.json: error:');
+      expect(checked.err).not.toContain('no problems found');
+      expect(checkedCode).toBe(1);
+    });
+
+    it('should name the file the output directory would take with it', async () => {
+      const dir = appBuildingTo('src');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain(`Name a directory that holds none of the app's source.`);
+      expect(err).toContain(displayPath(join('src', 'index.ts')));
+    });
+
+    it('should pass a build.out that holds none of the app', async () => {
+      const dir = appBuildingTo('built');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should pass the default output directory, with no sigil.json at all', async () => {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-default-');
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('no problems found');
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it('should report the default directory against the entry, when no file chose it', async () => {
+      // the source lives in `dist`, which is where a build with no `sigil.json`
+      // goes: the refusal is about the app, and there is no file to blame
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-entry-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      const flags = ['--entry', join('dist', 'index.ts')];
+
+      const checked = await sigil('check', dir, ...flags);
+      const checkedCode = process.exitCode;
+      process.exitCode = undefined;
+      const built = await sigil('build', dir, ...flags);
+
+      const message = `Refusing to empty ${displayPath(join(dir, 'dist'))}, which holds`;
+      expect(built.err).toContain(message);
+      expect(checked.err).toContain(message);
+      expect(checked.err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(checked.err).not.toContain('sigil.json');
+      expect(checkedCode).toBe(1);
+    });
+
+    it('should report a file that does not set build.out against the entry too', async () => {
+      const dir = linkedFixture(join(fixtures, 'buildable'), 'sigil-check-out-other-');
+      renameSync(join(dir, 'src'), join(dir, 'dist'));
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { sourcemap: false } }));
+
+      const { err } = await sigil('check', dir, '--entry', join('dist', 'index.ts'));
+
+      expect(err).toContain(`${displayPath(join('dist', 'index.ts'))}: error:`);
+      expect(err).not.toContain('sigil.json: error');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should not ask the guard about a file it could not read', async () => {
+      // a bad value is the file's own error, and one diagnostic is enough
+      const dir = appBuildingTo('src');
+      writeFileSync(join(dir, 'sigil.json'), JSON.stringify({ build: { out: 5 } }));
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Invalid value for "build.out" in sigil.json');
+      expect(err).not.toContain('Refusing');
     });
   });
 

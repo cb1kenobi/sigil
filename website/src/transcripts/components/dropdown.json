@@ -57,7 +57,7 @@
         "default": "nothing chosen",
         "name": "value",
         "optional": true,
-        "type": "State<T | undefined> | T"
+        "type": "State<T | undefined> | Written<T>"
       },
       {
         "description": "How many columns the field takes, brackets and arrow included. Defaults to what the widest choice needs, so the field does not change width as the value does.",

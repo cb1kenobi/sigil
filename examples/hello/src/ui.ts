@@ -11,7 +11,7 @@
  * prints it -- and nothing builds this file, so without a version of its own
  * `--version` is an option nobody declared and the app runs instead. Read off
  * the manifest beside `src/`, a path that holds only unbuilt, which is why the
- * build replaces an app's version rather than keeping it; and as a function,
+ * build replaces an app's version function rather than keeping it; and as a function,
  * so that only `--version` reads it. The toolchain's own `version()` in
  * `packages/cli/src/index.ts` is the same read.
  */

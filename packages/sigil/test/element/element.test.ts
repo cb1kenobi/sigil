@@ -192,6 +192,44 @@ describe('a refused insertBefore', () => {
     expect(two.children).toEqual([elsewhere]);
   });
 
+  it("should refuse to move a tree's root into another tree, leaving both trees alone", () => {
+    // the move told only the gaining tree, so the old one went on naming a root
+    // that was now another tree's, and was never told it had lost it
+    const lost = box();
+    const kept = text('x');
+    lost.append(kept);
+    const oldTree = createTree(lost);
+    const into = box();
+    const newTree = createTree(into);
+    oldTree.take();
+    newTree.take();
+
+    expect(() => into.append(lost)).toThrow(/root element cannot be moved/);
+    expect(() => into.insertBefore(lost, undefined)).toThrow(/root element cannot be moved/);
+
+    expect(oldTree.root).toBe(lost);
+    expect(lost.tree).toBe(oldTree);
+    expect(lost.parent).toBeUndefined();
+    expect(kept.tree).toBe(oldTree);
+    expect(into.children).toEqual([]);
+    expect(oldTree.take().children.size).toBe(0);
+    expect(newTree.take().children.size).toBe(0);
+  });
+
+  it("should still move an element that is not a tree's root between trees", () => {
+    const from = box();
+    const to = box();
+    const child = text('x');
+    from.append(child);
+    const fromTree = createTree(from);
+    const toTree = createTree(to);
+
+    to.append(child);
+
+    expect(child.tree).toBe(toTree);
+    expect(fromTree.root.children).toEqual([]);
+  });
+
   it('should refuse a before that is not an element with the same message', () => {
     // a brand check rather than reading `#parent` off it, which threw a raw
     // TypeError naming a private member the caller has never heard of

@@ -34,7 +34,10 @@ the entry it belongs to.
   only when `--version` was used, and `sigil build` replaces it outright with
   the literal it read from the manifest at build time. So the function is the
   unbundled answer, the string is the built one, and neither is a file read at
-  startup. This is the entry about a bundled app not reading files relative to
+  startup. (A string the schema states itself is not replaced: the manifest's
+  fills in only where the schema has no string -- SIG-536, recorded under "A
+  built app's `version` is the schema's when the schema states one" in
+  `packages/cli/AGENTS.md`.) This is the entry about a bundled app not reading files relative to
   `import.meta.url`, met from the inside and answered rather than warned about.
 - **Help outranks it, which is the rule help already had.** `mycli --help
   --version` prints help: being asked what a program does and answering with a

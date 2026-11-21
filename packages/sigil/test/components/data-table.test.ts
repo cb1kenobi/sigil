@@ -27,9 +27,11 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
+import { createRoot } from '../../src/renderer/index.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { MONO } from '../../src/theme/themes.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -903,6 +905,74 @@ describe('DataTable()', () => {
       );
     });
 
+    it('should tell a hot row, the focused row and a focused hot row apart under MONO', () => {
+      // SIG-452: MONO drew the error role as inverse, which is the focus's own
+      // declaration, so a crashing row and the focused row were the same cells and
+      // only the pointer told them apart
+      const host = procs({ rowClass: hot });
+      const list = control(host).list;
+      list.onFocusChange?.(list, true);
+      flush();
+
+      /** The attributes in effect at the first cell of a word, as a terminal reads them. */
+      function look(line: string, word: string): string {
+        const on = new Set<string>();
+        const names = new Map([
+          [1, 'bold'],
+          [3, 'italic'],
+          [7, 'inverse'],
+        ]);
+        const off = new Map([
+          [22, 'bold'],
+          [23, 'italic'],
+          [27, 'inverse'],
+        ]);
+        const SGR = new RegExp(`^${String.fromCharCode(0x1b)}\\[([\\d;]*)m`);
+        let at = 0;
+        let plain = '';
+        const seen: string[] = [];
+        while (at < line.length) {
+          const sgr = SGR.exec(line.slice(at));
+          if (sgr) {
+            for (const code of (sgr[1] || '0').split(';').map(Number)) {
+              if (code === 0) on.clear();
+              else if (names.has(code)) on.add(names.get(code) as string);
+              else if (off.has(code)) on.delete(off.get(code) as string);
+            }
+            at += sgr[0].length;
+            continue;
+          }
+          plain += line[at];
+          seen.push([...on].sort().join('+'));
+          at++;
+        }
+        const found = plain.indexOf(word);
+        if (found < 0) {
+          throw new Error(`no ${word} in ${plain}`);
+        }
+        return seen[found] as string;
+      }
+
+      const mono = (): string[] =>
+        renderToLines(host, { cascade: themedCascade({ theme: MONO }), colorLevel: 1, width: 48 });
+
+      // cursor on the first row: a hot row, the focused row and an ordinary row are three looks
+      let lines = mono();
+      const hotRow = look(lines[2] as string, 'node');
+      const focused = look(lines[1] as string, 'launchd');
+      const plain = look(lines[3] as string, 'WindowServer');
+      expect(focused).toBe('inverse');
+      expect(hotRow).toBe('bold+italic');
+      expect(plain).toBe('');
+
+      // cursor on the hot row: still told from the focused row of an ordinary one
+      press(host, 'down');
+      lines = mono();
+      expect(look(lines[2] as string, 'node')).toBe('bold+inverse+italic');
+      expect(look(lines[2] as string, 'node')).not.toBe(focused);
+      expect(look(lines[1] as string, 'launchd')).toBe('');
+    });
+
     it('should draw nothing at colour level 0 but what a table without one draws', () => {
       const plain = procs();
       const marked = procs({ rowClass: hot });
@@ -995,6 +1065,41 @@ describe('DataTable()', () => {
       sort: { column: '1' },
     });
     expect(picture(host).slice(0, 3)).toEqual(['  A    B ▲', '❯ y    1', '  x    2']);
+  });
+
+  it('should let go of its rows and its columns when it is disposed', () => {
+    // the table's two Computeds read the rows and the columns, and a source holds
+    // every sink that read it until the sink lets go: a table that did not would
+    // stay reachable from a long-lived State for as long as the State lived
+    const rows = new State<readonly Proc[]>(PROCS);
+    const columns = new State<readonly DataTableColumn<Proc>[]>(COLUMNS);
+    const sinks = (source: object): number =>
+      (source as unknown as { sinks: Set<unknown> }).sinks.size;
+    const sort = new State<DataTableSort | undefined>(undefined);
+    for (let i = 0; i < 5; i++) {
+      let host: Element | undefined;
+      const dispose = createRoot((done) => {
+        host = procs({ columns, rows, sort });
+        return done;
+      });
+      flush();
+      dispose();
+      // what reaches a table after it is gone -- a key, a digit, a call on the
+      // control -- asks for the columns and the order again, which would read each
+      // Computed and link it to its source again
+      press(host as Element, 'down');
+      press(host as Element, '3');
+      control(host as Element).sortBy('cpu');
+      control(host as Element).shown();
+      control(host as Element).refresh();
+      control(host as Element).selection.index();
+      flush();
+    }
+    expect(sinks(rows)).toBe(0);
+    expect(sinks(columns)).toBe(0);
+    expect(sinks(sort)).toBe(0);
+    // and a table that is gone does not sort for the app that still holds the state
+    expect(sort.get()).toBeUndefined();
   });
 
   it('should hand nothing to dataTableControl() for an element no table built', () => {

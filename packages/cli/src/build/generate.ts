@@ -329,20 +329,49 @@ export const SCHEMA_EXPORT: string =
 export function generateBin(options: GenerateBinOptions): string {
   const { defaultLocale, from, runtime = RUNTIME, schemaModule, tree, version, wrap } = options;
 
-  // baked, because a bundle has no `package.json` beside it: an app reading
-  // its own version off `import.meta.url` is reading a path that points
-  // wherever the bundle was written, which is a throw rather than a version.
-  // The app keeps its own answer for the unbundled case and this replaces it,
-  // the same way the tree replaces `commands`
-  const bakedVersion = version === undefined ? '' : `\n    version: ${quote(version)},`;
+  // baked as a *fallback*, and a string the schema states wins over it -- so
+  // the same app answers `--version` the same from source and built (SIG-536).
+  // The bake exists because a bundle has no `package.json` beside it: an app
+  // reading its own version off `import.meta.url` is reading a path that points
+  // wherever the bundle was written. That reason is about a version the schema
+  // *computes*, and it is measured rather than assumed:
+  //
+  // - a **function** (`version: () => readFileSync(new URL('../package.json',
+  //   import.meta.url))`, the spelling `Schema.version` documents for exactly
+  //   this) is called only for `--version`, so the bundle answers the manifest's
+  //   by coincidence when the schema module sits as deep as `dist/` does and
+  //   throws `ENOENT` -- or reads the wrong file, a `package.json` one directory
+  //   up -- when it does not. The manifest's version replaces it, as it always
+  //   did
+  // - a **string** is what the app stated, and replacing it was the defect. The
+  //   one string the bake used to rescue is a version computed at import time
+  //   from such a read that resolves to the *wrong* file, which is now what the
+  //   app prints. One that throws at import never reached this line -- `import
+  //   * as app` runs before `compose()` -- so the override was not saving that
+  //   case either. A computed string cannot be told from a stated one once it
+  //   is a string, and the app that computes its version eagerly -- from a path
+  //   or from `process.env.npm_package_version`, unset outside a package
+  //   manager -- is told to use the function spelling
+  // - nothing declared at all is the ordinary case, and the manifest fills it in
+  const bakedVersion =
+    version === undefined
+      ? ''
+      : `\n    version: typeof schema.version === 'string' ? schema.version : ${quote(version)},`;
 
   // baked for the reason the version is: the runtime cannot read `sigil.json`,
   // because reading a file at startup is what `locales` being a map rather than
   // a directory convention exists to avoid. It is the *bottom* of the locale
   // chain, so this says what the app ships in and every environment variable
-  // still beats it
+  // still beats it. A `defaultLocale` the schema declares wins over it, as a
+  // version string does and for the same reason, with none of the version's
+  // exception: nothing computes a locale from a path, so there is no case the
+  // config has to rescue. The app that states a default in its schema and
+  // another in `sigil.json` means the schema's, and gets it built as it does
+  // from source
   const bakedLocale =
-    defaultLocale === undefined ? '' : `\n    defaultLocale: ${quote(defaultLocale)},`;
+    defaultLocale === undefined
+      ? ''
+      : `\n    defaultLocale: schema.defaultLocale ?? ${quote(defaultLocale)},`;
 
   // The schema is resolved, composed with the baked tree and then handed to
   // `main()` in one chain, so that everything the app's export can do before
@@ -378,7 +407,9 @@ export function generateBin(options: GenerateBinOptions): string {
   )`;
 
   // \`commands\` last, because the baked tree is the one property the build
-  // knows better than the app does -- everything else is the app's own
+  // knows better than the app does -- everything else is the app's own, the
+  // version and the default locale included: they are written over the spread
+  // only to fill in what it did not carry
   const compose = `function compose(schema) {
   if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
     throw new Error(${quote(`This app's entry exports no schema: ${SCHEMA_EXPORT}.`)});
@@ -433,16 +464,17 @@ export interface GenerateBinOptions {
    * The locale to fall back on, from `"locale"` in `sigil.json`.
    *
    * Written beside the version and the baked tree, and absent when the config
-   * names none -- which leaves whatever the app's own schema said, the way the
-   * version does.
+   * names none -- which leaves whatever the app's own schema said. A value the
+   * schema declares wins over this one, the way a version string does.
    */
   readonly defaultLocale?: string;
   /**
    * The app's version, read from its manifest at build time.
    *
    * Baked because a bundle has no `package.json` beside it to read at run
-   * time. Left out when the manifest names none, which leaves whatever the
-   * app's own schema said.
+   * time, and used where the schema declares no string `version` of its own:
+   * a string it states wins, a function it declares is replaced. Left out when
+   * the manifest names none, which leaves whatever the app's own schema said.
    */
   readonly version?: string;
   /** The directory the generated module will sit in. */

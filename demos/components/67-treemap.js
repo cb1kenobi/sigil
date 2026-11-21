@@ -261,8 +261,9 @@ if (live) {
     ? Number(process.argv[2])
     : undefined;
   const app = runApp(TreemapDemo, {
-    // a level named here is drawn at as it is, so the terminal is not asked
-    ...(level === undefined ? {} : { colorLevel: level, detect: false }),
+    // a level named here is drawn at as it is: the terminal's reply to the probe
+    // `runApp()` sends does not raise it
+    ...(level === undefined ? {} : { colorLevel: level }),
     // motion, so the pointer is reported with no button held: what onHover reads
     mouse: { motion: true },
   });

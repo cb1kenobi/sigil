@@ -23,6 +23,7 @@
 
 import {
   appKeys,
+  bakedUpdateCheck,
   checkCatalogs,
   checkMainSettings,
   compileTemplates,
@@ -34,6 +35,8 @@ import {
   isFatal,
   isInside,
   landsAt,
+  parseSpec,
+  parseTarget,
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
@@ -48,7 +51,7 @@ import {
   type ShakenStyles,
   type TypeCheckResult,
 } from '../build/index.ts';
-import { CONFIG_FILES, type SigilConfig } from '../config.ts';
+import { CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
 import type { TextRun } from '@ttylabs/sigil/element';
@@ -231,6 +234,102 @@ function checkTranslations(
     framework: SIGIL_KEYS,
     keys: appKeys(app.root),
   });
+}
+
+/**
+ * What `sigil.json` says wrong with itself, as diagnostics.
+ *
+ * `check` answers for the app and the app's configuration is part of it: a
+ * `sigil.json` that `build` refuses must not be one `check` calls clean, which
+ * is what the fast loop is for. It is `inspect()`'s sibling rather than part of
+ * it, because `build` and `package` read the file themselves, after the report
+ * and for their own section, and raise what it says as the plain error they
+ * always did -- folding it in there would change what every build prints.
+ *
+ * There is no second validator here. `readSigilConfig()` is the one reader every
+ * command reads the file through, and it already validates **every** section --
+ * `build`, `package`, `reference`, `updateCheck`, `components` and `locale` --
+ * and refuses `sigil.json` and `sigil.jsonc` side by side, so calling it is the
+ * whole of the verdict for the file's shape. What it leaves to the command that
+ * uses the value is whether `package.runtime` and `package.target` are a runtime
+ * and a platform, which `sigil package` asks `parseSpec()` and `parseTarget()`,
+ * and whether `updateCheck` can be baked, which `build` and `package` ask
+ * `bakedUpdateCheck()`; those are asked here, by the same functions, so a file
+ * either would refuse for them is one `check` refuses.
+ *
+ * And the output directory is asked of `assertCleanable()`, with what `build`
+ * does when it is given no flags: `build.out` from the file, cleaning on, no
+ * `--bin`, and the default name. Everything it reads is known before a bundle
+ * exists -- `build` asks it at the same point -- so it is the same function over
+ * the same `reads` and the answer is `build`'s own sentence. What it cannot know
+ * is what `--out`, `--bin`, `--name` and `--no-clean` will say on the command
+ * line, and what only the bundle knows: a module in the graph that `inspect()`
+ * never read, which `clean()` refuses later. `package`'s refusal of
+ * `build.external` and its own `package.out` stay with `package`.
+ *
+ * @param found - What reading the app turned up.
+ * @returns One error diagnostic, or none.
+ */
+export function checkConfig(found: Inspection): Diagnostic[] {
+  const { root } = found.app;
+
+  try {
+    const config = readSigilConfig(root);
+    const { package: packaging } = config;
+    const packageName = found.app.manifest.name;
+
+    // what `build` and `package` both make of `updateCheck` before they bundle:
+    // a `repo` that is not `owner/name`, and an npm check with no name to ask
+    // about, are refused there and nowhere else. Asked of the same function
+    // with the same arguments, which is what keeps it the same answer
+    bakedUpdateCheck({ compiled: false, config, packageName });
+
+    // a falsy runtime is the one `package` asks about rather than parses
+    if (packaging?.runtime) {
+      parseSpec(packaging.runtime);
+    }
+
+    for (const target of packaging?.target ?? []) {
+      parseTarget(target);
+    }
+
+    // the guard `build` raises before it bundles, asked with the defaults it
+    // would use: `build.out` from the file, cleaning on, and no `--bin`. No
+    // `writes`: those are asked only of a build that is not cleaning, which is
+    // the one thing this is not. It is the file's to answer for only when the
+    // file chose the directory; otherwise it is the default `dist`, which is a
+    // fact about the app and not about a file that never mentioned it
+    try {
+      assertCleanable(buildOutDir(root, config), {
+        clean: true,
+        reads: buildReads(found),
+        root,
+      });
+    } catch (e: unknown) {
+      return [
+        {
+          file: config.build?.out === undefined ? found.app.entry : configFile(root),
+          message: (e as Error).message,
+          severity: 'error',
+        },
+      ];
+    }
+
+    return [];
+  } catch (e: unknown) {
+    return [{ file: configFile(root), message: (e as Error).message, severity: 'error' }];
+  }
+}
+
+/**
+ * The `sigil.json` that was read, which is whichever of the two names is there;
+ * with both there it is the first, and the message says which two.
+ *
+ * @param root - The app's root.
+ * @returns Its path.
+ */
+function configFile(root: string): string {
+  return join(root, CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILES[0]);
 }
 
 /**
@@ -483,7 +582,7 @@ export function bundleFailure(
  * @param error - What bundling threw.
  * @returns The same error, or one built from a value that was not an error.
  */
-function escaped(error: unknown): unknown {
+export function escaped(error: unknown): unknown {
   if (!(error instanceof Error)) {
     return new Error(escapeMessage(String(error)));
   }

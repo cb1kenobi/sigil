@@ -448,6 +448,10 @@ describe('autocompleteMultiselect() over a source', () => {
     expect(rows(ui).join('\n')).toContain('Searching...');
     expect(rows(ui).at(-2)).toBe('  Selected: 1');
 
+    // Tab shares the rule: it must not write the stale row's label over the term
+    await type(ui.stdin, TAB);
+    expect(rows(ui)[0]).toBe('? Pick x');
+
     await type(ui.stdin, ENTER);
     expect((await answer).value).toEqual(['react']);
     resolve([]);

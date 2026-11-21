@@ -26,8 +26,9 @@ async function version(settings: Settings): Promise<ParseState> {
 describe("the toolchain's unknown-option setting", () => {
   it('should be on the schema, where a build carries it', () => {
     expect(schema().settings).toEqual({ allowUnknownOptions: false });
-    // the hook this replaced, and not hooks in general: an unrelated one is fine
-    expect(schema().hooks?.beforeParse).toBeUndefined();
+    // the setting is not set by a `beforeParse` hook any more, which is what
+    // the next two cases pin. The schema does carry one now -- the closed-pipe
+    // guard, SIG-537 -- and it is an unrelated one, which is fine
   });
 
   it('should set the flag on the parse it ran in', async () => {

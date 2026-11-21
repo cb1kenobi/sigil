@@ -1316,11 +1316,32 @@ makes it testable with a fixture directory and no bundler at all.
   `sigil.json` and `sigil.jsonc`; and `tree.ts`'s three, which name a
   command directory and are escaped by reading -- the one a review tried to
   reach arrived as a diagnostic first. Review round 2 found the same shape in `package`'s
-  own refusals, and they are left for a ticket of their own rather than taken
-  here: `parseTarget()`'s and `parseSpec()`'s echo of a `--target` or
-  `--runtime` from `sigil.json` or the flag, `codesign failed for <file>` and the
-  other `compile.ts` sentences quoting the output path, and `@ttylabs/sigil`'s
-  update-check refusal of a `repo` that is not `owner/name`.
+  own refusals, which SIG-510 took: `parseTarget()`'s and `parseSpec()`'s echo of
+  a `--target` or `--runtime` from `sigil.json` or the flag, `codesign failed for
+  <file>` and the other `compile.ts` sentences quoting the output path, and
+  `@ttylabs/sigil`'s update-check refusal of a `repo` that is not `owner/name`.
+  The audit went past the three it was filed for: every path or program output a
+  `throw` in `compile.ts`, `runtimes.ts` and `package.ts` interpolates -- the
+  `bun` or `node` executable, the output path, the version a `node` printed, what
+  a failing `tar` said, the cache root -- goes through `escapeControls()`, and
+  what is left raw is a value already validated by `isVersion()` or built from
+  a constant. A **file system** error is the other source: Node's `ENOTDIR` and
+  `ENOENT` quote the path they failed on, so `package` catches the ones from
+  `mkdirSync(out)`, the runtime fetches and the compile stage and escapes them
+  with `escapeControls()` -- the whole line, since it is one line and a newline
+  in the path is the path's -- where `escaped()` keeps line breaks for a message
+  with structure of its own and would let a forged line start. What `tar` said is
+  written a line at a time and indented, as `said()` writes a compiler's. Not
+  done, and shared with `build` where it is not `package`'s alone: the runtime
+  picker's labels, built from a `PATH` runtime's `--version` and cache directory
+  names, which the canvas garbles but does not act on; `readSigilConfig()`'s
+  read and parse failures, which quote the app root; and the bundle stage's
+  `escaped()`, which keeps line breaks and so lets a newline in a root start a
+  line. `clean(out)`'s wrap has no test, because the one error that reaches it
+  needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
+  compiler or signer, skipped on Windows, which cannot make the names; the `tar`
+  one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
+  `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
 
   `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
   throws quoted the app's root and the `tsc` under it raw, and `main()` prints
@@ -1425,7 +1446,9 @@ makes it testable with a fixture directory and no bundler at all.
   schema module and spreads it, then passes `commands` over the top -- so there
   is no source rewriting anywhere, and everything the app said about its name,
   options and hooks survives untouched. `commands` is the one property the build
-  knows better than the app does. A schema export may be a function, because a
+  knows better than the app does; `version` and `defaultLocale` fill in only
+  what the schema left out (see the entry on `version` below). A schema export
+  may be a function, because a
   schema that reads the environment has to be built rather than declared, and it
   is called exactly where the app would have called it -- and awaited, which is
   the entry below.
@@ -1509,6 +1532,56 @@ makes it testable with a fixture directory and no bundler at all.
   as a literal and gives up on a function of either kind, keeping the general
   message, which is its recorded rule. `sigil check` is `inspect()`, which is
   the static passes above.
+
+- **A built app's `version` is the schema's when the schema states one, and the
+  manifest's fills in the rest (SIG-536).** The entry wrote `version` over the
+  schema's own, so a schema saying `'9.9.9'` over a manifest saying `1.0.0` was
+  `9.9.9` from `main({ schema })` and `1.0.0` from `node dist/app.mjs
+  --version` -- the same app answering differently from source and built, and a
+  version the app stated silently replaced. The override had a reason, and it
+  was **measured before it was narrowed** rather than assumed: a bundle has no
+  `package.json` beside it, and a version read off `import.meta.url` reads
+  wherever the bundle was written.
+
+  Three shapes of that read, built and run. A schema **function** reading
+  `../package.json` from `src/index.ts` printed the right version by coincidence
+  -- `dist/app.mjs` and `src/index.ts` sit at the same depth -- while the same
+  function in `src/lib/version.ts` reading `../../package.json` threw `ENOENT`
+  out of `--version`, and with a `package.json` one directory above the app
+  printed **that** file's version instead. A version **computed at import**
+  from such a read threw at import in the deep case, which is before
+  `compose()` runs, so the override never saved it -- and printed the wrong
+  file's version in the wrong-file case, which it did save.
+
+  So the rule is **a string the schema declares wins; a function is still
+  replaced; nothing declared is filled in.** In the generated entry it is
+  `typeof schema.version === 'string' ? schema.version : '<manifest>'`, applied
+  to the _resolved_ schema, so a function or Promise export is covered too. A
+  function stays replaced because it is the spelling `Schema.version` documents
+  for exactly this read, and a plain `??` was tried first and broke it. The
+  limit, stated plainly: a version **string computed eagerly** from a read that
+  resolves to the wrong file is now what the app prints, where the bake used to
+  hide it, and a string cannot be told from the literal it was computed from at
+  run time. No warning and no comparison against the manifest is added for it --
+  the app that computes its version should declare a function, which is what
+  the type's own documentation says. The same holds for a string computed from
+  the environment, `process.env.npm_package_version ?? '0.0.0'`: set under
+  `pnpm dev` and unset when the built bin is run directly, so the built app
+  prints `0.0.0` where the bake used to supply the manifest's. And "a function
+  is still replaced" means when the manifest has a `version`: with none,
+  nothing is baked and the function stands.
+
+  `defaultLocale` is the same precedence with none of the exception: nothing
+  computes a locale from a path, so a `defaultLocale` the schema declares simply
+  wins over `"locale"` in `sigil.json`, and the config fills in only a schema
+  that said none. The consumers of the baked version were checked for a reliance
+  on the manifest always winning, and there is none: `--version`, and the update
+  check, which reads the same composed schema (`updates/auto.ts`) and so now
+  checks against what `--version` prints. `sigil package` bundles through the
+  same `writeEntry()`. `a version and a default locale the schema states` in
+  `test/build/bundle.test.ts` builds each shape and runs it, and was swept: the
+  old override fails three of its five, and a plain `??` fails the function
+  case.
 
 - **One `quote()` for every string the toolchain prints as source, and it
   escapes the union of what the two copies did.** SIG-353. `generate.ts` and the
@@ -1864,7 +1937,7 @@ makes it testable with a fixture directory and no bundler at all.
 - **It reads the files rather than `written.output[].code`, which is byte
   identical.** Measured: `write()` hands back exactly what is on disk, sourcemap
   comment included, so reading would have cost nothing. The file is read anyway
-  because the whole reason `escapeControls()` exists is that rolldown's
+  because the whole reason `escapeChunks()` exists is that rolldown's
   in-memory view of a chunk and the bytes it finally writes came apart once, and
   a question about whether **node** can parse the bundle has to ask the bytes
   node will read. The cost is 2.7ms for a 9-chunk 111 kB bundle and 4.8ms for 44
@@ -1885,6 +1958,64 @@ makes it testable with a fixture directory and no bundler at all.
   counting only the ones marked `Error` would be a second answer to one question.
   The two agree today -- measured over those 114 chunks, oxc returns no entry of
   any severity for code that is fine -- and this is about keeping them agreeing.
+- **The control-character pass refuses a raw control byte in a tagged template
+  or a regular expression,
+  and moves the sourcemap with what it widens.** SIG-394. The pass that escapes
+  every `\p{Cc}` in what a build wrote lives in `src/build/escape-chunks.ts`, and
+  `\xNN` is "the same string to JavaScript" only for the _cooked_ value: a tagged
+  template's `.raw` is the text as written, so `` String.raw`<ESC>x` `` was two
+  characters from source and five once built, and a tag reading `strings.raw`
+  was handed seven where its source said four. Measured on a built fixture before
+  the fix: `{"rawLen":4,"strRaw":2}` from source, `{"rawLen":7,"strRaw":5}`
+  built. Nothing can be written that has no raw byte and keeps the `.raw`, and
+  "leave it raw inside a tagged template" breaks the rule that nothing ships one,
+  so the choice was between rewriting it silently and **refusing**; it refuses,
+  naming the chunk, the line and column, and the code point, and tells the author
+  to write the escape in source -- which is what the pass would have written, now
+  done where the author can see it and where `.raw` is what they meant. The
+  chunk's quasis are found with the oxc parse the build already uses and only for
+  a chunk the pass would change. Only a _tagged_ quasi is asked: an untagged template's raw is
+  unreadable and its cooked value is the same either way. Asked of every chunk
+  before any is written, so a refusal leaves the files as rolldown wrote them for
+  `undo()` to remove, and it is the same shape as the raw JSX gate beside it.
+  What reaches it is only source: the minifier folds a constant into a string or
+  an untagged template and prints it escaped there, and does not fold into a
+  quasi a tag reads. A dependency that ships a raw byte in a tagged template
+  would refuse an app that cannot edit it, which is accepted over a pass that
+  quietly changes what a tag reads; none of this repository's own packages can,
+  because `sources.test.ts` holds their source free of a raw control character.
+  A regular expression literal is refused the same way -- found by review round
+  1, and the same shape: matching is unchanged but `re.source` and `String(re)`
+  came back longer (`4:6` from source, `10:12` built), and the minifier leaves a
+  raw byte in a literal raw. A raw `U+2028` or `U+2029` in a quasi is the third
+  thing the review found: they are not control characters and are left alone, but
+  a sourcemap starts a new line at either, so the pass counts them as line starts
+  when it records where it widened. Round 2 found a fourth: a backslash before
+  a raw byte in an **untagged** template (`` `a\<ESC>b` `` cooks to `a<ESC>b`),
+  which the pass turned into `\\x1B` -- a backslash and the text `x1B` -- because
+  the minifier prints a template's text as it found it, where a string literal is
+  reprinted and is safe. Refused with the rest, for an odd run of backslashes only.
+  A pass that throws, as opposed to refusing, unwinds the output through
+  `undo()` as well, since what rolldown wrote still holds the raw bytes; that
+  path is covered by `escapeChunks()` writing nothing when a map is malformed,
+  and not end to end, because rolldown does not write a malformed map.
+
+  The other half was real and is fixed. The pass rewrote the chunk **after** its
+  sourcemap was written, and a minified chunk is one line, so each escape moved
+  every later token three columns off the entry the map recorded for it:
+  measured, four raw C1 characters ahead of `console.log` put the map's entry for
+  it on the `c); console.wa` of the source. The ticket reasoned about this and
+  had not shown it, and it is not rare -- the runtime's own `U+009B` is folded
+  back raw, so every app has one. `shiftMappings()` reads each segment's
+  generated column, which is the one field that is a difference from the segment
+  before it, moves it by three per replaced character before it, and writes it
+  back; the other fields are copied untouched. A segment at the replaced
+  character stays where the character starts. `packages/sigil`'s copy needs
+  neither half: it writes no sourcemap, and its sources are held free of raw
+  control characters by `sources.test.ts`, so no quasi of its own can hold one.
+  Pinned by `test/escape-chunks.test.ts`, whose two build tests fail with either
+  half taken out.
+
 - **`parseModule()` keeps what it read, keyed by the path and checked against
   the source.** SIG-355. Every pass with a question for a module parsed it
   again to ask, so a comment in `extract.ts` saying the build "parses each
@@ -2134,6 +2265,42 @@ makes it testable with a fixture directory and no bundler at all.
   reaches -- a helper the commands import -- which `check` does not read; see "A
   template that cannot be compiled is a diagnostic" under "Compiling an app's
   templates" for why it stops at the modules it already reads.
+- **`sigil check` reads `sigil.json` through `readSigilConfig()`, in full, and
+  reports what it says as a diagnostic (SIG-535).** It never read the file, so
+  `{ "build": { "out": 5 } }` and a `sigil.json` beside a `sigil.jsonc` were
+  "no problems found" and then a `build` error -- the one thing the fast loop
+  exists to prevent. `checkConfig()` in `_inspect.ts` is a call to the one reader
+  every command reads the file through, so there is one verdict and the sentence
+  is `build`'s own; it is not folded into `inspect()`, because `build` and
+  `package` read the file after their report and raise it as the plain error
+  they always did. `check` asks the whole file rather than the sections `build`
+  reads, because `check` is about the app: `readSigilConfig()` already validates
+  every section, and the two things it leaves to `sigil package` -- whether
+  `package.runtime` and `package.target` are a runtime and a platform -- are
+  asked here with `parseSpec()` and `parseTarget()`, the functions `package`
+  asks, and `updateCheck` is run through `bakedUpdateCheck()`, which `build` and
+  `package` both call. The output directory is asked of `assertCleanable()` too
+  (SIG-540), with what `build` does when given no flags: `build.out` from the
+  file, cleaning on and no `--bin` -- over
+  `buildReads()` of the very `Inspection` `check` already holds, which is what
+  `build` hands it before it bundles, so the sentence is `build`'s and a
+  `"out": "src"` or `"out": "."` is one `check` refuses. It is reported against
+  `sigil.json` when the file chose the directory, and against the entry when it
+  did not and the refusal is of the default `dist`. What stays with the command is what depends on how it was
+  run or what only the bundle knows: `--out`, `--bin`, `--name` and `--no-clean`
+  on the command line (so `check` can refuse a `"out": "."` that
+  `build --no-clean` would take -- the one way it is stricter, deliberately: a
+  file that needs a flag on every build is one whose `check` should say so), a
+  module in the graph that `inspect()` never read, which `clean()` refuses
+  once the bundle exists, and `package`'s refusal of `build.external` and its
+  own `package.out`. `build.external` is **not** reported as a warning or an
+  error: `build` accepts it and only `package` refuses it, so either would fail
+  an app that never packages, and `check` has no tier between the two that
+  says "fine to build, not to package". The echoed values in those messages are
+  escaped where they are thrown. A section's rule goes
+  in its reader, never in `check`; `sigil reference`
+  and `sigil add` read the file themselves and were never affected. Pinned in
+  `test/check.test.ts`.
 - **The CLI declares its own `check` the way `sigil build` generates an app's
   commands: a `desc` on the placeholder and a `load` beside it.** Dogfooding,
   and it pays immediately -- the module behind it imports `oxc-parser`, which is
@@ -3875,6 +4042,72 @@ is a command that owns its terminal for seconds and knows its own progress, and
 none of these three is that. The measurement scripts are worth re-running before
 anybody revisits it, because two of the three numbers are facts about other
 people's software and will move.
+
+- **A reader that goes away ends a command's output quietly, and the listener is
+  on the schema rather than in each command** (SIG-537). `sigil add | head -1`
+  exited 1 every time with Node's unhandled-error dump: `head` quits at its
+  line, the next write fails `EPIPE`, and an `error` event on a stream with no
+  listener is an uncaught exception. `check`, `reference` and `--help` only
+  looked safe because their output finishes before `head` closes the pipe; any
+  command whose output grows had it. The commands write to `process.stdout` and
+  `process.stderr` directly, at about three dozen references, so the guard is one
+  `beforeParse` hook on `schema()` in `src/index.ts` that puts a listener on both
+  streams, and a hook rather than a call in `run()` because the built executable
+  never reaches `run()` (the same reason `settings` lives on the schema). A
+  command added next year is covered without anybody remembering to. What counts
+  as the reader leaving is `@ttylabs/sigil/terminal`'s `isStreamGone()`, the one
+  the terminal's own listener asks, and nothing here spells `EPIPE` -- which is
+  also what puts `EOF`, Windows's name for the same condition, on the list once
+  for both. `--version`, which `run()` answers before the schema exists, calls
+  the same function.
+
+  **The behaviour is the runtime's: stop noticing, do not stop the command.**
+  Later writes land nowhere, nothing is printed, and the exit code is whatever
+  the command's own result was -- `0` for a listing, `1` for a failed `check`,
+  never `141`. A command that quits early would have to decide what "early"
+  means for a build that is half way through writing files, and the runtime
+  made the same call for the same reason. The listener is attached once per
+  stream per process and never taken off, unlike a terminal's: a terminal
+  outlives a command and a bin does not, and the `EPIPE` for the last write
+  arrives after `main()` has resolved.
+
+  **Only the reader leaving is quiet, and the terminal's listener is not the one
+  to copy for that.** The terminal swallows every `error` event, which is right
+  for best-effort output and wrong here: the first version of this reused that
+  listener, and `ulimit -f 1; sigil add > out` -- `EFBIG` -- went from exit 1 to
+  **exit 0 over a cut-off file** (round 1). The toolchain's listener throws
+  whatever `isStreamGone()` does not call the reader leaving, which is the
+  uncaught exception it was before the guard. `guardGone()` was exported for this
+  in that first version and is not any more: with a throwing listener it was a
+  second, no-op listener, and a published contract of "swallows everything" is
+  the footgun that produced the bug. Not covered, measured in round 2: a **short
+  write** raises no `error` at all, so `sigil reference app > out` under
+  `ulimit -f 1` still exits 0 over 1,024 of its 2,276 bytes. That is the same on
+  `main` -- the document is one `write()` -- so it is not a regression and not
+  this ticket's, and `add`, which writes in several pieces, is the case that
+  reaches `EFBIG`.
+
+  **"Before any command writes a byte" has one exception, which is `DEBUG`.** The
+  hook is the first thing `main()` fires once the schema is built, and a
+  `DEBUG=*` trace of schema init (`sigil:init-command`) is written before that.
+  Measured: ten debug lines on stdout before any listener exists. No failure was
+  reproduced -- the `EPIPE` event arrives after the hook -- so it is a window and
+  not a bug, and a debug trace is what a person asks for with a terminal in front
+  of them.
+
+  `test/closed-pipe.test.ts` spawns both `src/sigil.ts` and the built
+  `dist/sigil.mjs` and **closes the read end itself** the moment the child
+  exists, rather than racing a `head`: node has not started yet, so every write
+  meets a reader that is gone. The cases that write into a closed stream (`add`
+  and `check --tree` into stdout, `check` into stderr) fail on both entries with
+  the hook removed; the case where a failing command keeps its own exit code
+  does not, since an uncaught `EPIPE` also gives 1, so it pins the rule rather
+  than the guard. The `ENOSPC` and `EFBIG` rethrow is an in-process case that
+  emits the error on the worker's own streams and takes its listeners off again.
+  Not covered, and said so: the close here is before the first write, so it
+  proves every write is safe but not that a write racing the close is. Windows is
+  unmeasured -- an `EPIPE` there can arrive as `EOF`, which is in the set for
+  that reason -- and the three Windows jobs are the check.
 
 ### `sigil new`
 
@@ -6450,7 +6683,7 @@ test in this package writes for something to run -- a fake `bun`, a fake
 - **The shipped code does not have the race.** A runtime download is unpacked
   by `tar`, a child, then renamed and `chmod`-ed; `bun build --compile` and
   `node --build-sea` write the binary in their own processes. `sigil build`
-  writes the bin in-process, through rolldown and `escapeControls()`, but
+  writes the bin in-process, through rolldown and `escapeChunks()`, but
   nothing in the toolchain executes it, and the tests run it through `node`,
   which reads it rather than executing it. The toolchain is one thread, too,
   and libuv's spawn returns only once its child has exec'd, so no fork of its

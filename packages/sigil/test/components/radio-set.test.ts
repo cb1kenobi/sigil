@@ -144,6 +144,36 @@ describe('RadioSet', () => {
     );
   });
 
+  // `value={() => level.get()}` is the template's spelling of a live prop, and it
+  // was taken as the value itself: nothing selected, the function never called
+  it('should refuse a function value that no option holds rather than never call it', () => {
+    const level = new State('info');
+    expect(() =>
+      RadioSet({ options: ['debug', 'info'], value: (() => level.get()) as never })
+    ).toThrow(
+      'Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called'
+    );
+  });
+
+  it('should select the option that holds a function, since an option value may be one', () => {
+    const run = (): void => {};
+    const stop = (): void => {};
+    const set = RadioSet({
+      options: [
+        { label: 'run', value: run },
+        { label: 'stop', value: stop },
+      ],
+      value: stop,
+    });
+    expect(picture(set)).toEqual(['  ◯ run', '  ◉ stop']);
+  });
+
+  it('should leave a State that holds a function to the app', () => {
+    const run = (): void => {};
+    const held = new State<(() => void) | undefined>(() => 'unheld');
+    expect(() => RadioSet({ options: [{ label: 'run', value: run }], value: held })).not.toThrow();
+  });
+
   it('should take an option value with a get of its own as a value', () => {
     const own = { get: () => 'b' };
     const set = RadioSet({ options: [{ label: 'own', value: own }], value: own });

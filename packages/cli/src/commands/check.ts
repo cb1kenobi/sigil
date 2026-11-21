@@ -32,6 +32,7 @@
 import { writeSummary } from '../report.ts';
 import {
   appRuns,
+  checkConfig,
   commandsFound,
   failure,
   inspect,
@@ -67,11 +68,18 @@ const check: AnyCommand = command({
   },
 
   run({ argv }) {
-    const found = inspect({
+    const inspected = inspect({
       commands: argv.commands as string | undefined,
       cwd: String(argv.dir ?? '.'),
       entry: argv.entry as string | undefined,
     });
+
+    // `sigil.json` is part of the app, and `build` refuses a bad one -- so it is
+    // reported with the rest rather than found out at the end of a build
+    const found = {
+      ...inspected,
+      diagnostics: [...inspected.diagnostics, ...checkConfig(inspected)],
+    };
 
     if (argv.tree) {
       printTree(found.commands, found.app.root);

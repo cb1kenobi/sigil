@@ -405,3 +405,52 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   before the DA1 written after it, whether DECRQM is implemented, what a real round
   trip costs, and whether `mode 9999` comes back `unrecognised` rather than silent
   -- which is DECRPM's whole value in one line.
+
+- **`isStreamGone()` is exported, and the guard around it is not** (SIG-537). The
+  terminal's `EPIPE` listener asks one function which errors mean the reader
+  left, and a program that writes to `process.stdout` itself -- the toolchain,
+  whose commands name the process streams about three dozen times -- asks the
+  same one, so the two cannot come to disagree. The listener itself stays the
+  terminal's: it swallows **every** `error`, because a terminal's output is
+  best-effort, and that is the wrong contract to publish. A first version
+  exported it as `guardGone()` and the toolchain reused it, which made
+  `sigil add > out` under `ulimit -f 1` exit 0 over a cut-off file; a public
+  guard that rethrew a real fault would have fixed that and changed the
+  terminal's own behaviour for every app, so the answer is the predicate and
+  each caller writes the three-line listener its output deserves. `EOF` joined
+  the set in the same change: on Windows libuv reports `ERROR_BROKEN_PIPE`,
+  which a write to a pipe whose reader closed can come back as, as `EOF`.
+  `isStreamGone()` is asked only of errors from writing to an output stream;
+  input has its own listener and never asks. Unmeasured on a Windows machine --
+  `terminal.test.ts` pins that the set holds it and `packages/cli`'s
+  `closed-pipe.test.ts` is the end-to-end check.
+
+- **`Terminal.width` asks a live TTY before it reads `COLUMNS`, and `terminalWidth()`
+  still reads `COLUMNS` first** (SIG-404). Both are right, for different streams.
+  `COLUMNS` is how a caller states a width when the stream cannot be asked -- a
+  pipe, a file, a test with no pseudo-terminal -- and `terminalWidth()` documents
+  it as first because its readers are prose: help, a rule, a note, wrapped text,
+  where `COLUMNS=60 mycli --help` is a user asking for narrower output. A
+  `Terminal` is the other thing, the screen a canvas is sized to and a live
+  region's erase arithmetic counts rows against. An exported `COLUMNS` (GNU
+  `watch`, an Emacs shell, some rc files) is whatever the shell last said, so read
+  first it answered 80 for a 120-column window, and answered 80 again after every
+  resize, because the resize event re-asks the same function. So `createTerminal()`
+  passes `streamFirst: isTTY` and a TTY that reports a positive `columns` is
+  believed; `COLUMNS` is the answer for one that reports none, and for every
+  stream that is not a TTY. `isTTY` is the terminal's own -- the `isTTY` option
+  over the stream's -- so one decision is made in one place. Nothing was
+  removed, and what moved is narrow: the testing helpers set `COLUMNS` and the
+  stream's `columns` to the same number (`runOnTerminal()`), so they agree, but an
+  explicit `env.COLUMNS` handed to a faked TTY -- `createTestTerminal({ columns:
+  40, env: { COLUMNS: '60' } })`, or `runOnTerminal()`'s `env` over its own -- no
+  longer moves that terminal's `width`, which is the stream's `columns` like a
+  real one's. `terminalWidth()` in the same process still reads it. No test did
+  either. The cost is that a live TTY reporting a wrong positive width (a serial
+  console, a `docker exec -t` stuck at 80x24) can no longer be corrected through
+  `COLUMNS` for the canvas and prompts, while help, `rule`, `note` and the other
+  prose readers still honour it: one process, two widths, on purpose, since the
+  screen is the stream's to say and the prose is the user's. `terminalWidth()`
+  itself is unchanged by default: it gained the `streamFirst` option and nothing
+  else. Covered by `size` in
+  `test/terminal/terminal.test.ts`, which pins both streams.
