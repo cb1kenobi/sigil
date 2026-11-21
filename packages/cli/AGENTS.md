@@ -1337,8 +1337,17 @@ makes it testable with a fixture directory and no bundler at all.
   names, which the canvas garbles but does not act on; `readSigilConfig()`'s
   read and parse failures, which quote the app root; and the bundle stage's
   `escaped()`, which keeps line breaks and so lets a newline in a root start a
-  line. `clean(out)`'s wrap has no test, because the one error that reaches it
-  needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
+  line. The three wraps that catch a file system error rather than a message
+  -- the executable's and the embedded runtime's fetches, and `clean(out)` --
+  are driven end to end in `test/package-command.test.ts` and each fails alone
+  when removed. The cache is made unusable by pointing the mocked `cache()` at a
+  file with a control character in its name, since `download()` makes its
+  directory before it reaches for the network; and `clean()` is made to fail
+  with a real `ENOTEMPTY`, by mocking `rmSync()` for one path to `rmdir` it,
+  because a permission-based failure is not one under root and a CI job can be
+  root. `--runtime bun@1.2.0` is the wrong version to provoke the first: a
+  version in Bun's own download cache is resolved by `local()` and sigil's cache
+  is never touched. `test/package-escape.test.ts` drives each one through a stub
   compiler or signer, skipped on Windows, which cannot make the names; the `tar`
   one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
   `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
