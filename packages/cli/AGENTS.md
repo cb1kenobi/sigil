@@ -3990,13 +3990,17 @@ people's software and will move.
   `fs.writeSync()` in a loop on the returned count, and a short write becomes
   `The output was cut off: N of M bytes were written (EFBIG).`, a plain `Error`
   that `main()` renders with exit 1. A write that returns zero is refused rather
-  than looped on. `sigil reference app > docs/cli.md` is the case it exists for;
-  `check`'s tree, the `build` and `package` size tables and `--version` go through
-  it too, since a command added next year that prints a document should not have
-  to rediscover this -- `the commands that write a document` in
-  `test/output.test.ts` fails if one of those files goes back to
-  `process.stdout.write()`. `add` and `new` stay on the stream: they write short
-  messages in several pieces, so the second fails by itself.
+  than looped on. `sigil reference app > docs/cli.md` is the case it exists for.
+  Every stdout write in `src/commands/` and `src/report.ts` goes through it --
+  `writeOut()` for stdout, `writeTo(stream, text)` for the report writers, which
+  are handed a stream and so cover `2> log` as well. Round 1 found why routing
+  only the documents was not enough: `add --quiet` writes a table and then a note,
+  a quiet run prints no note, and so the table was one write with no second to
+  fail -- exit 0 over a cut-off listing, and exit 1 as an uncaught stack without
+  `--quiet`. "The second write fails by itself" is never true of a command's last
+  write. `the commands that write to a stream` in `test/output.test.ts` reads
+  every file in `src/commands/` (and `report.ts`, `index.ts`) for a call that goes
+  round it, so a command added next year is checked without anybody listing it.
 
   **Only a regular file takes the new path, and only the real stream.** A pipe or
   a terminal is the stream's, whose queue carries a partial write to completion
@@ -4011,7 +4015,7 @@ people's software and will move.
   which loops until every byte is out and throws when the next write fails, so a
   limit exits 1 with `EFBIG: file too large, write` (pinned in
   `test/output.test.ts`). **Not covered: the runtime's own output.** `--help`
-  written to a file is `main()`'s and is `@ttylabs/sigil`'s for every app, with
+  and, in a **built** executable, `--version` written to a file are `main()`'s, which is `@ttylabs/sigil`'s for every app, with
   the same one-write shape (measured: `sigil reference --help` is 1,032 bytes and
   `ulimit -f 1` leaves 1,024 of them, exit 0); changing what the runtime does for every app is not
   a toolchain ticket, so it is left and filed rather than fixed here.

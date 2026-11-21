@@ -67,36 +67,50 @@ export function writeFully(text: string, write: WriteBytes): void {
  *
  * @returns The descriptor, or `undefined` for the stream to handle.
  */
-function fileDescriptor(): number | undefined {
-  const stdout = process.stdout;
-  if (Object.hasOwn(stdout, 'write') || typeof stdout.fd !== 'number') {
+function fileDescriptor(stream: object): number | undefined {
+  const fd = (stream as { fd?: unknown }).fd;
+  if (Object.hasOwn(stream, 'write') || typeof fd !== 'number') {
     return undefined;
   }
 
   try {
-    return fstatSync(stdout.fd).isFile() ? stdout.fd : undefined;
+    return fstatSync(fd).isFile() ? fd : undefined;
   } catch {
     return undefined;
   }
 }
 
 /**
- * Writes a document to stdout, and throws if all of it did not land.
+ * Writes to a stream, and throws if the stream is a file and not all of it landed.
  *
- * Every toolchain command that prints something a caller redirects goes through
- * here rather than through `process.stdout.write()`, so a command added next
- * year is cut off loudly too if it asks for this and not otherwise: the one
- * definition is the point, and `sigil.ts`'s own `--version` uses it as well.
+ * What `report.ts`'s writers go through, since they are handed the stream they
+ * write to: `process.stdout` for a note or a summary, and `process.stderr` for a
+ * diagnostic -- and `2> log` is a file as much as `> out` is.
  *
- * @param text - The document.
+ * @param stream - Where to write.
+ * @param text - What to write.
  */
-export function writeOut(text: string): void {
-  const fd = fileDescriptor();
+export function writeTo(stream: { write(text: string): unknown }, text: string): void {
+  const fd = fileDescriptor(stream);
 
   if (fd === undefined) {
-    process.stdout.write(text);
+    stream.write(text);
     return;
   }
 
   writeFully(text, (bytes, offset) => writeSync(fd, bytes, offset));
+}
+
+/**
+ * Writes to stdout, and throws if all of it did not land.
+ *
+ * Every toolchain command that prints to stdout goes through here rather than
+ * `process.stdout.write()`, so the one definition is what a command added next
+ * year is measured against: `test/output.test.ts` reads the command files for a
+ * call that goes round it.
+ *
+ * @param text - The text.
+ */
+export function writeOut(text: string): void {
+  writeTo(process.stdout, text);
 }

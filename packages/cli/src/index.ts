@@ -1,5 +1,6 @@
 import { writeOut } from './output.ts';
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
+import { errorHandler } from '@ttylabs/sigil/error-handler';
 import { isStreamGone } from '@ttylabs/sigil/terminal';
 import { readFileSync } from 'node:fs';
 
@@ -149,7 +150,13 @@ function isVersionOnly(argv: readonly string[]): boolean {
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
   if (isVersionOnly(argv ?? process.argv.slice(2))) {
     guardOutput();
-    writeOut(`${version()}\n`);
+    try {
+      writeOut(`${version()}\n`);
+    } catch (err) {
+      // `main()` renders what a command throws, and this is answered before it
+      // exists: a cut-off version is still an error somebody should be told about
+      errorHandler(err);
+    }
     return undefined;
   }
 
