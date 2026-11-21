@@ -1334,8 +1334,7 @@ makes it testable with a fixture directory and no bundler at all.
   written a line at a time and indented, as `said()` writes a compiler's. Not
   done, and shared with `build` where it is not `package`'s alone: the runtime
   picker's labels, built from a `PATH` runtime's `--version` and cache directory
-  names, which the canvas garbles but does not act on; `readSigilConfig()`'s
-  read and parse failures, which quote the app root; and the bundle stage's
+  names, which the canvas garbles but does not act on; and the bundle stage's
   `escaped()`, which keeps line breaks and so lets a newline in a root start a
   line. `clean(out)`'s wrap has no test, because the one error that reaches it
   needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
