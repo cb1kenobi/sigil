@@ -372,7 +372,7 @@ describe('lineChart()', () => {
     const rows = line([0, 5, 10], { ascii: true });
 
     expect(rows.join('\n')).to.contain('*');
-    expect(rows.join('\n')).not.to.match(/[⠀-⣿┤└─│]/);
+    expect(rows.join('\n')).not.to.match(/[\u2800-\u28FF┤└─│]/);
     expect(rows.at(-1)).to.match(/\+-+$/);
   });
 

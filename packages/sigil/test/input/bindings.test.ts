@@ -271,3 +271,95 @@ describe('moving the focus from an effect', () => {
     expect(input.focus.current.get()).toBe(b);
   });
 });
+
+describe('an overlay that holds every key', () => {
+  it('should list only what the overlay describes, and drop the app-wide and fallback entries', () => {
+    const { a, input } = setup();
+    input.bind('x', () => {}, { description: 'cut' });
+    input.fallback('q', () => {}, { description: 'quit' });
+    input.focus.focus(a);
+    input.describe('space', { description: 'stage', scope: a });
+    expect(input.bindings().map((b) => b.description)).toEqual(['cut', 'stage', 'quit']);
+
+    const panel = box({ focusable: true });
+    const hold = input.hold(panel);
+    hold.describe('escape', { description: 'close' });
+
+    // nothing the overlay swallows: `x` and `q` are dead while it is up, and so
+    // is a scoped entry for an element outside it
+    expect(input.bindings().map((b) => b.description)).toEqual(['close']);
+    hold.release();
+    expect(input.bindings().map((b) => b.description)).toEqual(['cut', 'stage', 'quit']);
+  });
+
+  it('should still list a scoped entry for an element inside the overlay that holds the focus', () => {
+    const { input } = setup();
+    const field = box({ focusable: true });
+    const panel = box({ focusable: true }, field);
+    const root = box({}, panel);
+    const term = createTestTerminal();
+    const router = createInput({ root, terminal: term.terminal });
+    router.focus.focus(field);
+    router.describe('ctrl+s', { description: 'commit', scope: field });
+    router.describe('x', { description: 'elsewhere', scope: root });
+    const hold = router.hold(panel);
+    hold.describe('tab', { description: 'next' });
+
+    expect(router.bindings().map((b) => b.description)).toEqual(['next', 'commit']);
+    hold.release();
+    router.stop();
+    input.stop();
+  });
+
+  it('should list the one on top, and the one below again when it is released', () => {
+    const { input } = setup();
+    const lower = input.hold(box({}));
+    lower.describe('escape', { description: 'close dialog' });
+    const upper = input.hold(box({}));
+    upper.describe('down', { description: 'move' });
+
+    expect(input.bindings().map((b) => b.description)).toEqual(['move']);
+    upper.release();
+    upper.release();
+    expect(input.bindings().map((b) => b.description)).toEqual(['close dialog']);
+    lower.release();
+    expect(input.bindings()).toEqual([]);
+  });
+
+  it('should re-run a reader when a hold opens and when it closes', () => {
+    const { input } = setup();
+    input.bind('x', () => {}, { description: 'cut' });
+    const seen: string[][] = [];
+    createEffect(() => {
+      seen.push(input.bindings().map((b) => b.description));
+    });
+    flush();
+
+    const hold = input.hold(box({}));
+    // opening one is a change in itself: an overlay that describes nothing leaves
+    // the footer empty rather than showing the app's dead keys
+    flush();
+    expect(seen.at(-1)).toEqual([]);
+    hold.describe('escape', { description: 'close' });
+    flush();
+    hold.release();
+    flush();
+
+    expect(seen.at(0)).toEqual(['cut']);
+    expect(seen.at(-2)).toEqual(['close']);
+    expect(seen.at(-1)).toEqual(['cut']);
+  });
+
+  it('should take a listing off with its disposer, and leave dispatch alone', async () => {
+    const { input, press } = setup();
+    const seen: string[] = [];
+    input.bind('q', () => seen.push('q'));
+    const hold = input.hold(box({}));
+    const off = hold.describe('escape', { description: 'close' });
+    off();
+    expect(input.bindings()).toEqual([]);
+    await press('q');
+    expect(seen).toEqual(['q']);
+    hold.release();
+  });
+});

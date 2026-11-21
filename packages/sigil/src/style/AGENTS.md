@@ -1354,13 +1354,12 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   7.29ms to parse against the base set's 0.63ms. A CLI's whole startup is around
   35ms, so that is a fifth of it spent on rules almost no app names one of.
   `generateUtilities()` still emits them for a caller that asks; what is
-  committed is the base set. Style shaking has since landed and does **not**
-  change this: `shakeUtilities()` filters the _base_ set by name and then prints
-  it with `variants: false`, because what a build shakes has to be a subset of
-  the sheet `utilitySheet()` already returns -- a shake that quietly added 4,613
-  rules would not be a shake. Shipping the variants means the evidence naming
-  `md:flex-row` rather than `flex-row`, which is a separate decision about the
-  vocabulary and not one to take inside a size optimization.
+  committed is the base set. Style shaking landed first and did **not** change
+  this: `shakeUtilities()` filtered the _base_ set by name and printed it with
+  `variants: false`, because a shake that quietly added 4,613 rules would not be
+  a shake -- and that left no path by which any variant reached an app, which is
+  SIG-526 and the entry below. The committed sheet is still the base set; the
+  variants arrive by the evidence naming `md:flex-row` rather than `flex-row`.
 - **The sheet is opt-in, and `FRAMEWORK_CSS` is not.** Every app draws a
   built-in eventually and that sheet is the vocabulary a theme restyles, so it
   is parsed for everyone. This one is 383 rules an app may never name a single
@@ -1423,9 +1422,74 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   `dark:focus-within:` -- so the media variants meet it only through specificity,
   where a pseudo-class variant's two beats a media variant's one whatever the
   order, exactly as `focus:` already did. And it ships the way every variant
-  does, which is in the generator only: `UTILITY_CSS` and a shaken sheet are the
-  base set, per the entry above, so regenerating `utilities.ts` for it was a
-  no-op, and no app can load the rule until the variants ship at all.
+  does: `UTILITY_CSS` is the base set, so regenerating `utilities.ts` for it was a
+  no-op, and an app gets the rule when a build sees `focus-within:border-green`
+  in its source (SIG-526, below).
+- **A variant reaches an app through the build, which generates the ones the
+  source names; an unbuilt app gets the base set and no variants (SIG-526).**
+  `focus:border-green`, `md:flex-row` and `dark:text-red` were generated, tested
+  and loaded by nothing: `UTILITY_CSS` is the base set, the shake started from
+  it, and `generateUtilities()` is not exported from `@ttylabs/cli`. So no class
+  with a variant did anything in any app.
+
+  The decision is the one the ticket proposed, because the build already has the
+  thing that makes it cheap. `shakeUtilities()` asks the class evidence about
+  every name the app could write -- each base utility, and each of the fifteen
+  variants in front of each -- and `generateUtilities({ variants: [...] })` now
+  takes that list of qualified names and prints exactly those rules, in the
+  generator's order, inside their `@media` block where they have one. What an
+  app pays is the rules it names: two variant classes is two rules and not
+  the 5,745 the fifteen variants come to, and `UTILITY_CSS` and its 13 KB never grew. `variants` is
+  `boolean | readonly string[]` rather than a new option because the three
+  answers -- all, none, these -- are one question. A variant rule stands on its
+  own, so `focus:border-green` is kept without `border-green`: a token is whole,
+  and it is the name written that is evidence.
+
+  Open evidence is held tighter for a qualified name than for a base one. A
+  piece of one class counts for a variant only if the token holds a `:` and
+  something beside it: `focus:border-${colour}` keeps `focus:border-*`, and
+  `${hours}:${minutes}` leaves the token `:` open on both sides, which as
+  evidence would have kept every variant of every utility for an app that prints
+  a clock. What `focus:` followed by an unknown keeps is that variant's 383
+  rules -- over-approximating, the safe direction -- and a class built wholly
+  out of unknowns goes in `build.safelist`, which takes a qualified name like
+  any other. A variant does not stack, so `md:focus:p-2` is evidence for
+  nothing; that is SIG-528's.
+
+  **That tightening resolves towards dropping in one shape, and it is the
+  documented limit.** A variant in one literal and its utility in another --
+  `` `${wide ? 'md:' : ''}flex-row` ``, `['focus', 'border-green'].join(':')` --
+  leaves `md:` and `flex-row` as two tokens and no evidence for `md:flex-row`, so
+  the rule is dropped, where the base set's `` `${x}flex-row` `` is kept by its
+  open suffix. Counting the pieces apart would keep a whole variant (383 rules)
+  for every `last:` or `checked:` that is only a key prefix, or `border-green`
+  for every variant at once, to rescue a spelling nobody has been seen to write;
+  `build.safelist` takes `md:flex-row` as written. Pinned by `should not
+  assemble a variant out of two literals` in `shake.test.ts`, so changing it is
+  a decision rather than an accident. The same evidence is why a prefix like
+  `` `last:${id}` `` on a string that is no class keeps `last:*`: over-keeping, the
+  safe direction, and a build whose every real class is dynamic can read `0 of 383
+  utility rules, plus 383 variant rules` and not be warned -- `warnEmptyShake()`
+  counts a variant as something kept.
+
+  **An app run from source gets the base set and no variant, and that is the
+  answer rather than a gap.** `utilitySheet()` is a constant parsed at startup,
+  and giving it variants means either shipping all 5,745 variant rules to everybody
+  (7.29ms against 0.63ms, a fifth of a CLI's whole startup, for rules almost no
+  app names) or putting a class scanner and a generator into the runtime, which
+  is the dependency the zero-dependency constraint on this package exists to
+  refuse -- the generator reads `PROPERTIES` and parses every declaration, and
+  is toolchain work for the reason `utilities.ts` is committed rather than
+  computed. So from source `md:flex-row` matches nothing and says nothing, which
+  is also what `--no-shake` does: nothing sees the evidence there, and the
+  sheet is the whole base set. Both are written down in `sigil.json`'s
+  documentation for `shake`. The failure is a style that does not apply, in
+  development, where the author is looking at the screen; a built app is what
+  ships, and it is the one that is right. `test/fixtures/variants/` is the app
+  that pins both halves, built and run from source, in `build-command.test.ts`.
+  What a user wants who needs a variant unbuilt is a stylesheet rule of their
+  own, which is an ordinary class selector and the cascade's.
+
 - **`@apply` is one statement, and an `@apply` in a comment is not one.** The
   name list stops at `;`, `{` or `}`: a regex of `[^;}]+` also matched a brace,
   so `@apply foo { bar: 1; }` swallowed the block after it and a missing

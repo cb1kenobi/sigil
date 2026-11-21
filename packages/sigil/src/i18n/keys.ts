@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 454 keys, which is what a catalog has to carry to translate sigil's own
+ * 457 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -88,6 +88,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a dropdown option to be a string or a choice with a label',
   'Expected a dropdown placeholder to be a string',
   'Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it',
+  'Expected a dropdown value to be a value or a State, not a function no choice holds, since a function is taken as the value and never called',
   'Expected a dropdown width of more than four cells',
   'Expected a list of values',
   'Expected a menu host to be an element or a renderer',
@@ -112,6 +113,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a radio set direction to be column or row',
   'Expected a radio set onChange to be a function',
   'Expected a radio set value to be a value or a State, not a Computed, since the set writes it',
+  'Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called',
   'Expected a retry delay in milliseconds',
   'Expected a slider format to be a function',
   'Expected a slider min and max to be finite numbers, min below max',

@@ -63,6 +63,15 @@ function withoutRichHalf(css: string): string {
 }
 
 function styleOf(css: string, role: string, colorScheme: 'dark' | 'light', colorLevel = 1) {
+  return styleOfClasses(css, `sigil-${role}`, colorScheme, colorLevel);
+}
+
+function styleOfClasses(
+  css: string,
+  classes: string,
+  colorScheme: 'dark' | 'light',
+  colorLevel = 1
+) {
   const cascade = themedCascade({ colorScheme, theme: css });
 
   // the level is set on the cascade rather than passed to it, because that is
@@ -70,7 +79,7 @@ function styleOf(css: string, role: string, colorScheme: 'dark' | 'light', color
   // each theme is a `@media (min-color-level: 2)` block keyed on it
   cascade.media = { ...cascade.media, colorLevel };
 
-  const node = text('x', { class: `sigil-${role}` });
+  const node = text('x', { class: classes });
   resolveStyles(node, new Restyler(cascade));
   return node.style;
 }
@@ -172,4 +181,51 @@ describe('the themes sigil ships', () => {
       });
     });
   }
+});
+
+describe('MONO, which tells its roles apart by attribute alone', () => {
+  /** The attributes a role is told apart by, as one comparable string. */
+  function look(classes: string, scheme: 'dark' | 'light'): string {
+    const s = styleOfClasses(themes.MONO, classes, scheme);
+
+    return (['bold', 'dim', 'inverse', 'italic', 'underline'] as const)
+      .filter((attribute) => s[attribute])
+      .join('+');
+  }
+
+  it('should draw no role as inverse, which is what the focus, a badge and a match are', () => {
+    // SIG-452: the error role was inverse, so a crashing row and the focused row
+    // were the same cells and only the pointer told them apart
+    for (const scheme of ['dark', 'light'] as const) {
+      for (const role of ROLES) {
+        expect(look(`sigil-${role}`, scheme), `${role} in ${scheme}`).not.toContain('inverse');
+      }
+    }
+  });
+
+  it('should draw an error differently from every other role and from the focus', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const error = look('sigil-error', scheme);
+
+      expect(error).not.toBe(look('sigil-focus', scheme));
+
+      for (const role of ROLES.filter((r) => r !== 'error')) {
+        expect(look(`sigil-${role}`, scheme), `${role} in ${scheme}`).not.toBe(error);
+      }
+    }
+  });
+
+  it('should keep a disabled error dim, so it is not an enabled one', () => {
+    // `font-weight: bold` is a shorthand that resets `dim`, and the error comes after
+    // the muted role in the sheet
+    expect(look('sigil-muted sigil-error', 'dark')).toBe('bold+dim+italic');
+  });
+
+  it('should keep an error badge apart from a neutral one and from the other variants', () => {
+    const badge = (variant: string) => look(`sigil-badge ${variant}`, 'dark');
+    const neutral = look('sigil-badge', 'dark');
+    const variants = ['sigil-success', 'sigil-warn', 'sigil-info', 'sigil-error'].map(badge);
+
+    expect(new Set([neutral, ...variants]).size).toBe(5);
+  });
 });

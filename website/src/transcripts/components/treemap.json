@@ -32,7 +32,7 @@
         "description": "The item marked with an outline, as its key, or the state that holds it -- the shape `ListView`'s `current` has. A click writes it, so a `Computed` is refused. An item with no tile of its own outlines what it was drawn in: the tile it was gathered into, or the tile of an ancestor drawn in one piece -- which takes `parent` to find. The root is the whole map and is not outlined. The outline is the map's `border-color`: bright white where nothing sets one, and green while the map has the focus, which is how a reader tells where the arrows go. Only the colour changes, so at colour level 0 the two look the same.",
         "name": "current",
         "optional": true,
-        "type": "K | State<K | undefined>"
+        "type": "Written<K> | State<K | undefined>"
       },
       {
         "description": "What to say where there is no map: no root, or a root of no size. A function is called as the map paints, so a signal it reads -- a scan's progress -- is followed. Lines are centred. Defaults to \"Nothing to show\".",

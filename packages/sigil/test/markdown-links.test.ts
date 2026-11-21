@@ -124,7 +124,7 @@ const ENTITIES: Readonly<Record<string, string>> = {
   apos: "'",
   gt: '>',
   lt: '<',
-  nbsp: ' ',
+  nbsp: '\u00A0',
   quot: '"',
 };
 
@@ -368,7 +368,10 @@ describe('what links in markdown are read as', () => {
       ['# Café déjà vu 🚀 rocket', 'café-déjà-vu--rocket'],
       ['## İstanbul ß ÅNGSTRÖM Ελληνικά 日本語', 'i̇stanbul-ß-ångström-ελληνικά-日本語'],
       ['# Nums ½ ² Ⓐ Ⅻ ٣ x\u200Cy', 'nums---ⓐ-ⅻ-٣-x\u200Cy'],
-      ['## Emoji :tada: 👍🏽 👨\u200D👩\u200D👧 ✔︎ done', 'emoji-tada--\u200D\u200D-︎-done'],
+      [
+        '## Emoji :tada: 👍🏽 👨\u200D👩\u200D👧 ✔\uFE0E done',
+        'emoji-tada--\u200D\u200D-\uFE0E-done',
+      ],
       [
         '## a_b *em* _em2_ __strong__ [link](x) ![img](y.png) & <b>bold</b> -- dash',
         'a_b-em-em2-strong-link---bold----dash',
@@ -380,7 +383,7 @@ describe('what links in markdown are read as', () => {
       ['## Under_score_ _lead and trail_ x', 'under_score_-lead-and-trail-x'],
       ['## Escaped \\_under\\_ \\* \\# \\`tick\\`', 'escaped-_under_---tick'],
       ['## Link [`code` in it](z) and \\`not code\\`', 'link-code-in-it-and-not-code'],
-      ['## nb&nbsp;sp and nb sp &#169; &#x41;B', 'nbsp-and-nbsp--ab'],
+      ['## nb&nbsp;sp and nb\u00A0sp &#169; &#x41;B', 'nbsp-and-nbsp--ab'],
       ['## Tabs\tand  double  spaces', 'tabsand--double--spaces'],
       ['## Numbers 1.2.3 v2 (beta) [x] {y} <z>', 'numbers-123-v2-beta-x-y-'],
       ['## Trailing hashes ##', 'trailing-hashes'],

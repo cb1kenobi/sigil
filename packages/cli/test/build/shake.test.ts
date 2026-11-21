@@ -7,7 +7,7 @@ import {
   type ClassEvidence,
 } from '../../src/build/index.js';
 import { quote } from '../../src/template/emit.js';
-import { generateUtilities, utilities } from '../../src/utilities/index.js';
+import { generateUtilities, utilities, VARIANT_NAMES } from '../../src/utilities/index.js';
 import { parseStylesheet, UTILITY_CSS } from '@ttylabs/sigil/style';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -361,16 +361,111 @@ describe('the shaken sheet', () => {
     expect(parseStylesheet(sheet.css).rules).toHaveLength(0);
   });
 
-  it('should be the whole sheet when everything is named', () => {
-    const sheet = shakeUtilities({ mayName: () => true });
+  it('should be the whole base sheet when every base name is named', () => {
+    const sheet = shakeUtilities({ mayName: (name) => !name.includes(':') });
 
     expect(sheet.css).toBe(UTILITY_CSS);
     expect(sheet.kept).toBe(sheet.total);
+    expect(sheet.variants).toBe(0);
+  });
+
+  it('should be the whole generated sheet when every variant is named too', () => {
+    const sheet = shakeUtilities({ mayName: () => true });
+
+    expect(sheet.css).toBe(generateUtilities({ variants: true }));
+    expect(sheet.variants).toBe(VARIANT_NAMES.length * sheet.total);
+  });
+
+  it('should generate the variant rules an app names, and only those', () => {
+    // SIG-526: the committed sheet is the base set, so a variant is a rule the
+    // build has to *add*, and it adds the ones the evidence names
+    const sheet = shakeUtilities(only('p-2', 'focus:border-green', 'md:flex-row'));
+
+    expect(sheet.kept).toBe(1);
+    expect(sheet.variants).toBe(2);
+    expect(sheet.css).toContain('.focus\\:border-green:focus { border-color: green }');
+    expect(sheet.css).toContain('@media (min-width: 80) {');
+    expect(sheet.css).toContain('.md\\:flex-row { flex-direction: row }');
+    expect(sheet.css).not.toContain('lg\\:');
+    // a variant stands on its own: naming `focus:border-green` is not naming
+    // `border-green`
+    expect(sheet.css).not.toContain('.border-green');
+    expect(parseStylesheet(sheet.css).rules).toHaveLength(3);
+  });
+
+  it("should keep a variant-only app's sheet a valid one", () => {
+    const sheet = shakeUtilities(only('dark:text-red'));
+
+    expect(sheet.kept).toBe(0);
+    expect(sheet.variants).toBe(1);
+    expect(parseStylesheet(sheet.css).rules).toHaveLength(1);
+  });
+});
+
+/** The evidence a real scan produces, from source text. */
+describe('variant evidence', () => {
+  it('should read a variant-qualified class out of a literal', () => {
+    const found = evidenceOf(`export const c = 'border focus:border-green';`);
+
+    expect(found.mayName('focus:border-green')).toBe(true);
+    expect(found.mayName('focus:border-red')).toBe(false);
+    expect(found.mayName('md:border-green')).toBe(false);
+  });
+
+  it('should read a variant out of a ui template, where it sits in an attribute', () => {
+    const found = evidenceOf('export const t = ui`<box class="p-1 md:flex-row"></box>`;');
+
+    expect(found.mayName('md:flex-row')).toBe(true);
+    expect(found.mayName('lg:flex-row')).toBe(false);
+  });
+
+  it('should keep every colour for a variant with the colour built out of a piece', () => {
+    const found = evidenceOf('export const c = (x: string) => `focus:border-${x}`;');
+
+    expect(found.mayName('focus:border-red')).toBe(true);
+    expect(found.mayName('focus:text-red')).toBe(false);
+    expect(found.mayName('md:border-red')).toBe(false);
+  });
+
+  it('should not assemble a variant out of two literals', () => {
+    // the documented limit, pinned so that changing it is a decision: the
+    // variant and the utility are separate tokens, neither is a variant
+    // qualified class, and the answer is the safelist
+    const found = evidenceOf(
+      `export const c = (w: boolean) => \`${'$'}{w ? 'md:' : ''}flex-row\`;\n` +
+        `export const d = ['focus', 'border-green'].join(':');`
+    );
+
+    expect(found.mayName('md:flex-row')).toBe(false);
+    expect(found.mayName('focus:border-green')).toBe(false);
+  });
+
+  it('should not read a clock as evidence for every variant', () => {
+    // `${hours}:${minutes}` leaves the token `:` open on both sides, and as
+    // evidence that would keep all 5,745 variant rules for an app that prints
+    // a time. A token has to hold something beside the colon to be half a class
+    const found = evidenceOf('export const c = (h: number, m: number) => `${h}:${m}`;');
+
+    expect(found.mayName('focus:border-green')).toBe(false);
+    expect(found.mayName('md:flex-row')).toBe(false);
+  });
+
+  it('should accept a variant named in the safelist', () => {
+    const found = scanClassEvidence(tree({ 'src/app.ts': 'export {};' }), {
+      safelist: ['lg:flex-row'],
+    });
+
+    expect(found.mayName('lg:flex-row')).toBe(true);
   });
 });
 
 /** A sheet to splice, small enough to read in an assertion. */
-const sheet = { css: '@layer utilities {\n\t.p-2 { padding: 2 }\n}\n', kept: 1, total: 383 };
+const sheet = {
+  css: '@layer utilities {\n\t.p-2 { padding: 2 }\n}\n',
+  kept: 1,
+  total: 383,
+  variants: 0,
+};
 
 /**
  * Rewriting the call site.

@@ -51,7 +51,7 @@ import {
   type ShakenStyles,
   type TypeCheckResult,
 } from '../build/index.ts';
-import { CONFIG_FILE, CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
+import { CONFIG_FILES, readSigilConfig, type SigilConfig } from '../config.ts';
 import { writeOut } from '../output.ts';
 import { reportLevel, writeDiagnostics, writeSummary } from '../report.ts';
 import { table } from '@ttylabs/sigil/components/table';
@@ -258,18 +258,26 @@ function checkTranslations(
  * `bakedUpdateCheck()`; those are asked here, by the same functions, so a file
  * either would refuse for them is one `check` refuses.
  *
- * What stays with the command is what depends on how it was run: whether the
- * output directory is safe to empty (`--out`, `--bin` and `--no-clean` decide
- * it) and `package`'s refusal of `build.external`.
+ * And the output directory is asked of `assertCleanable()`, with what `build`
+ * does when it is given no flags: `build.out` from the file, cleaning on, no
+ * `--bin`, and the default name. Everything it reads is known before a bundle
+ * exists -- `build` asks it at the same point -- so it is the same function over
+ * the same `reads` and the answer is `build`'s own sentence. What it cannot know
+ * is what `--out`, `--bin`, `--name` and `--no-clean` will say on the command
+ * line, and what only the bundle knows: a module in the graph that `inspect()`
+ * never read, which `clean()` refuses later. `package`'s refusal of
+ * `build.external` and its own `package.out` stay with `package`.
  *
- * @param root - The app's root.
- * @param packageName - The app's own name, which an npm update check defaults to.
+ * @param found - What reading the app turned up.
  * @returns One error diagnostic, or none.
  */
-export function checkConfig(root: string, packageName: string | undefined): Diagnostic[] {
+export function checkConfig(found: Inspection): Diagnostic[] {
+  const { root } = found.app;
+
   try {
     const config = readSigilConfig(root);
     const { package: packaging } = config;
+    const packageName = found.app.manifest.name;
 
     // what `build` and `package` both make of `updateCheck` before they bundle:
     // a `repo` that is not `owner/name`, and an npm check with no name to ask
@@ -286,14 +294,43 @@ export function checkConfig(root: string, packageName: string | undefined): Diag
       parseTarget(target);
     }
 
+    // the guard `build` raises before it bundles, asked with the defaults it
+    // would use: `build.out` from the file, cleaning on, and no `--bin`. No
+    // `writes`: those are asked only of a build that is not cleaning, which is
+    // the one thing this is not. It is the file's to answer for only when the
+    // file chose the directory; otherwise it is the default `dist`, which is a
+    // fact about the app and not about a file that never mentioned it
+    try {
+      assertCleanable(buildOutDir(root, config), {
+        clean: true,
+        reads: buildReads(found),
+        root,
+      });
+    } catch (e: unknown) {
+      return [
+        {
+          file: config.build?.out === undefined ? found.app.entry : configFile(root),
+          message: (e as Error).message,
+          severity: 'error',
+        },
+      ];
+    }
+
     return [];
   } catch (e: unknown) {
-    // the file that was read, which is whichever of the two names is there; with
-    // both there it is the first, and the message says which two
-    const file = CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILE;
-
-    return [{ file: join(root, file), message: (e as Error).message, severity: 'error' }];
+    return [{ file: configFile(root), message: (e as Error).message, severity: 'error' }];
   }
+}
+
+/**
+ * The `sigil.json` that was read, which is whichever of the two names is there;
+ * with both there it is the first, and the message says which two.
+ *
+ * @param root - The app's root.
+ * @returns Its path.
+ */
+function configFile(root: string): string {
+  return join(root, CONFIG_FILES.find((name) => existsSync(join(root, name))) ?? CONFIG_FILES[0]);
 }
 
 /**
@@ -546,7 +583,7 @@ export function bundleFailure(
  * @param error - What bundling threw.
  * @returns The same error, or one built from a value that was not an error.
  */
-function escaped(error: unknown): unknown {
+export function escaped(error: unknown): unknown {
   if (!(error instanceof Error)) {
     return new Error(escapeMessage(String(error)));
   }
@@ -569,7 +606,10 @@ function escaped(error: unknown): unknown {
  * @returns The phrase, with no punctuation of its own.
  */
 export function utilityRules(styles: ShakenStyles): string {
-  return `${styles.kept} of ${styles.total} utility rules`;
+  const base = `${styles.kept} of ${styles.total} utility rules`;
+  // said only when there are some, so the phrase an app that names no variant
+  // has always read is the phrase it still reads
+  return styles.variants > 0 ? `${base}, plus ${styles.variants} variant rules` : base;
 }
 
 /**

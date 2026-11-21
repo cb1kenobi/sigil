@@ -527,6 +527,16 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
   // opens -- so the dialog stands aside while this answers. Not a trap: the focus
   // is left where it was, and the keys are taken by the binding below
   const hold = holdInput(input, { element: backdrop, trap: false });
+  // the keys its binding answers, which the footer lists in place of the app's
+  hold.describe('up', { description: __`move`, priority: 3 });
+  hold.describe('down', { description: __`move`, priority: 3 });
+  hold.describe('enter', { description: __`select`, priority: 2 });
+  hold.describe('space', { description: __`select`, priority: 2 });
+  hold.describe('escape', { description: __`close`, priority: 1 });
+  if (bar !== undefined) {
+    hold.describe('left', { description: __`menu`, priority: 0 });
+    hold.describe('right', { description: __`menu`, priority: 0 });
+  }
 
   /** Builds a row of a menu. */
   function buildRow(entry: MenuEntry<T>, width: number): Row<T> {

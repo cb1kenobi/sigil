@@ -67,7 +67,7 @@
  */
 
 import { quote } from '../template/emit.ts';
-import { generateUtilities, utilities } from '../utilities/index.ts';
+import { generateUtilities, utilities, VARIANT_NAMES } from '../utilities/index.ts';
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
 import { landsAt } from './discover.ts';
@@ -129,6 +129,16 @@ class Evidence implements ClassEvidence {
   readonly #infix = new Set<string>();
   readonly #prefix = new Set<string>();
   readonly #suffix = new Set<string>();
+  /**
+   * The open tokens that could be part of a variant-qualified name, kept apart
+   * so asking about one of the ~6,000 of those never walks the ones that
+   * could not be.
+   */
+  readonly #qualified = {
+    infix: new Set<string>(),
+    prefix: new Set<string>(),
+    suffix: new Set<string>(),
+  };
 
   /** Adds a name that is kept whatever the source says. */
   safelist(name: string): void {
@@ -152,12 +162,28 @@ class Evidence implements ClassEvidence {
       const left = chunk.openLeft && match.index === 0;
       const right = chunk.openRight && match.index + token.length === chunk.text.length;
 
+      // an open token names a *qualified* class only if it is itself half of
+      // one: it holds the `:` and something to read beside it. `${h}:${m}` is
+      // a clock and leaves the token `:` open on both sides, and counting that
+      // as evidence would keep every variant of every utility -- 5,745 rules --
+      // for an app that formats a time
+      const half = token.includes(':') && /\w/.test(token);
+
       if (left && right) {
         this.#infix.add(token);
+        if (half) {
+          this.#qualified.infix.add(token);
+        }
       } else if (left) {
         this.#suffix.add(token);
+        if (half) {
+          this.#qualified.suffix.add(token);
+        }
       } else if (right) {
         this.#prefix.add(token);
+        if (half) {
+          this.#qualified.prefix.add(token);
+        }
       } else {
         this.#exact.add(token);
       }
@@ -167,6 +193,24 @@ class Evidence implements ClassEvidence {
   mayName(name: string): boolean {
     if (this.#exact.has(name)) {
       return true;
+    }
+    if (name.includes(':')) {
+      for (const token of this.#qualified.prefix) {
+        if (name.startsWith(token)) {
+          return true;
+        }
+      }
+      for (const token of this.#qualified.suffix) {
+        if (name.endsWith(token)) {
+          return true;
+        }
+      }
+      for (const token of this.#qualified.infix) {
+        if (name.includes(token)) {
+          return true;
+        }
+      }
+      return false;
     }
     for (const prefix of this.#prefix) {
       if (name.startsWith(prefix)) {
@@ -628,6 +672,8 @@ export interface ShakenSheet {
   readonly kept: number;
   /** How many there were. */
   readonly total: number;
+  /** How many variant-qualified rules the evidence asked for, on top of those. */
+  readonly variants: number;
 }
 
 /**
@@ -645,15 +691,26 @@ export interface ShakenSheet {
  * @returns The shaken sheet and what it cost.
  */
 export function shakeUtilities(evidence: ClassEvidence): ShakenSheet {
-  // the committed sheet is the base set, so this asks for the base set: a
-  // shaken sheet that quietly grew the variants would be a different sheet
+  // the base set is the committed sheet's, so what is asked of it is a subset
+  // of that sheet; the variants are not in it at all and are added below
   const all = utilities({ variants: false });
   const keep = all.filter((utility) => evidence.mayName(utility.name));
 
+  // the variants are the other half of it, and are asked about by the name the
+  // app would write -- `focus:border-green` -- because that is the only thing
+  // its source can say. Only the ones named are generated, so the committed
+  // sheet keeps its size and an app pays for exactly the variant rules it uses
+  // (SIG-526). A variant rule stands on its own: `focus:border-green` is kept
+  // without `border-green`, since a token is whole
+  const qualified = VARIANT_NAMES.flatMap((variant) =>
+    all.map((utility) => `${variant}:${utility.name}`)
+  ).filter((name) => evidence.mayName(name));
+
   return {
-    css: generateUtilities({ only: keep.map((utility) => utility.name), variants: false }),
+    css: generateUtilities({ only: keep.map((utility) => utility.name), variants: qualified }),
     kept: keep.length,
     total: all.length,
+    variants: qualified.length,
   };
 }
 

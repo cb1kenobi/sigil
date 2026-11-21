@@ -986,7 +986,7 @@ describe('filesystem routing', () => {
           /contains whitespace, which a command name string reads as a separator between aliases/
         );
 
-        for (const name of ['a\tb.mjs', 'a b.mjs', 'a　b.mjs']) {
+        for (const name of ['a\tb.mjs', 'a\u00A0b.mjs', 'a\u3000b.mjs']) {
           let message = '';
           try {
             resolveRoutes('/nowhere', [entry(name)]);

@@ -1,3 +1,4 @@
+import { writeExecutable } from './executable.ts';
 import { tempDir } from './temp.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -206,6 +207,41 @@ describe('verifying a runtime against its own origin', () => {
       expect(existsSync(cached('node'))).toBe(false);
       expect(readdirSync(join(box, 'cache', 'sigil/runtimes', 'node'))).toEqual([]);
     });
+
+    it.skipIf(process.platform === 'win32')(
+      'should not pass what a failing tar printed to the terminal as it printed it',
+      async () => {
+        // the digest matches, so extraction runs, and what `tar` says about an
+        // archive somebody else made is text from outside: an escape sequence in
+        // it would rename the window once the error handler wrote it
+        const bytes = Buffer.from('not an archive');
+        origin({ bytes, digest: sha256(bytes) });
+
+        const fakebin = join(box, 'fakebin-tar');
+        mkdirSync(fakebin, { recursive: true });
+        writeExecutable(
+          join(fakebin, 'tar'),
+          "#!/bin/sh\nprintf 'tar: \\033]0;PWNED\\007\\nsrc/forged.ts:1:1: error: forged\\n' >&2\nexit 2\n"
+        );
+        const path = process.env.PATH;
+        process.env.PATH = fakebin;
+
+        const refusal = await resolve('node', VERSION, TARGET)
+          .catch((error: Error) => error)
+          .finally(() => {
+            process.env.PATH = path;
+          });
+
+        const message = (refusal as Error).message;
+
+        expect(message).toContain('Could not extract node 9.9.9');
+        expect(message).toContain('\\x1B]0;PWNED\\x07');
+        expect(message).not.toContain(String.fromCharCode(0x1b));
+        // each line of it on a line of its own, indented, so none can read as ours
+        expect(message).toContain('\n  src/forged.ts:1:1');
+        expect(message.split('\n').some((line) => line.startsWith('src/forged.ts'))).toBe(false);
+      }
+    );
 
     it('should refuse when SHASUMS256.txt has no line for the archive, and not fetch it', async () => {
       const bytes = archive('node', 'REAL');

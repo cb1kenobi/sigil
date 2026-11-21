@@ -88,7 +88,7 @@ describe('runOnTerminal()', () => {
     expect(seen.columns).toBeNull();
   });
 
-  it('should set COLUMNS as well, which is what outranks a stream', async () => {
+  it('should set COLUMNS as well, which is what terminalWidth() reads over a stream', async () => {
     // `terminalWidth()` reads `COLUMNS` over a stream's own `columns`, which is
     // how a test says a width without a pseudo-terminal -- and it is set for a
     // piped run too, so that a differential compares one width

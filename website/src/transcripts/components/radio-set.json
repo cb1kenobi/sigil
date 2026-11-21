@@ -39,7 +39,7 @@
         "default": "none selected",
         "name": "value",
         "optional": true,
-        "type": "State<T | undefined> | State<T> | T"
+        "type": "State<T | undefined> | State<T> | Written<T>"
       }
     ],
     "shared": [],

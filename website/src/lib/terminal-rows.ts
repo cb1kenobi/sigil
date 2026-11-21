@@ -140,7 +140,7 @@ const GLYPHS: readonly [RegExp, string][] = [
   [/^[▲⚠]/u, 'text-term-yellow'],
   [/^ℹ/u, 'text-term-blue'],
   // the spinner's frames are Braille
-  [/^(?:\?(?= )|[›◆◇❯]|[⠀-⣿])/u, 'text-term-accent'],
+  [/^(?:\?(?= )|[›◆◇❯]|[\u2800-\u28FF])/u, 'text-term-accent'],
 ];
 
 /** A section heading, as help prints one: `Commands:` alone on its line. */

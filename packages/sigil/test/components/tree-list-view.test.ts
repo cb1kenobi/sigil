@@ -1523,8 +1523,13 @@ describe('TreeListView()', () => {
   });
 
   describe('values that leave the tree (SIG-487)', () => {
-    /** What the tree holds on to. */
-    const held = treeListHeld;
+    /** What the tree holds on to, but for the rows it shows. */
+    const held = (
+      host: Element
+    ): Omit<NonNullable<ReturnType<typeof treeListHeld>>, 'rows'> | undefined => {
+      const all = treeListHeld(host);
+      return all && { kept: all.kept, notes: all.notes, reads: all.reads, seen: all.seen };
+    };
 
     /** A branch whose function counts its calls, under `name`, and hands back `items()`. */
     function counting(
@@ -1548,11 +1553,11 @@ describe('TreeListView()', () => {
       const b = counting(calls, 'b', () => ['b1']);
       const items = new State<TreeChoiceItem[]>([a, b]);
       const host = tree({ expanded: ['a', 'deep', 'b'], items });
-      expect(held(host)).toEqual({ notes: 0, reads: 3, seen: 6 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 3, seen: 6 });
 
       items.set([b]);
       flush();
-      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 2 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 1, seen: 2 });
       expect(control(host).status('a')).toBe('idle');
       expect(control(host).status('deep')).toBe('idle');
       expect(control(host).status('b')).toBe('loaded');
@@ -1588,7 +1593,7 @@ describe('TreeListView()', () => {
       // a new tree is what sets the tree looking for values that went
       items.set([a, 'c']);
       flush();
-      expect(held(host)).toEqual({ notes: 0, reads: 2, seen: 5 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 2, seen: 5 });
       control(host).expand('a');
       flush();
       expect(calls).toEqual({ a: 1, deep: 1 });
@@ -1610,12 +1615,12 @@ describe('TreeListView()', () => {
         expanded: ['a', 'deep'],
         items: [counting(calls, 'a', () => answer)],
       });
-      expect(held(host)).toEqual({ notes: 0, reads: 2, seen: 4 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 2, seen: 4 });
 
       answer = ['a1'];
       control(host).reload('a');
       flush();
-      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 2 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 1, seen: 2 });
       expect(control(host).status('deep')).toBe('idle');
 
       // and it is new when it comes back: open, since the open set keeps it, and read
@@ -1635,14 +1640,14 @@ describe('TreeListView()', () => {
       const read = deferred<string[]>();
       const items = new State<TreeChoiceItem[]>([{ items: () => read.promise, text: 'slow' }, 'b']);
       const host = tree({ expanded: ['slow'], items });
-      expect(held(host)).toEqual({ notes: 1, reads: 1, seen: 2 });
+      expect(held(host)).toEqual({ kept: 0, notes: 1, reads: 1, seen: 2 });
 
       items.set(['b']);
       flush();
-      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 0, seen: 1 });
       read.resolve(['late']);
       await landed();
-      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 0, seen: 1 });
       expect(picture(host)).toEqual(['❯ └──   b']);
     });
 
@@ -1702,12 +1707,12 @@ describe('TreeListView()', () => {
           },
         },
       });
-      expect(held(host)).toEqual({ notes: 0, reads: 1, seen: 3 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 1, seen: 3 });
 
       nodes.shift();
       tick.set(1);
       flush();
-      expect(held(host)).toEqual({ notes: 0, reads: 0, seen: 1 });
+      expect(held(host)).toEqual({ kept: 0, notes: 0, reads: 0, seen: 1 });
       nodes.unshift(a);
       tick.set(2);
       flush();
@@ -1752,6 +1757,247 @@ describe('TreeListView()', () => {
       expect(control(host).expanded.get().has('deep')).toBe(false);
       expect(calls).toEqual({ a: 3, deep: 1 });
       expect(picture(host)).toEqual(['❯ └── ▾ a', '      ├──   a1', '      └── ▸ deep']);
+    });
+
+    it('should keep what a failed read replaced through a search during the retry (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1', deep]);
+      const a = {
+        items: () => {
+          calls.a = (calls.a ?? 0) + 1;
+          return next;
+        },
+        text: 'a',
+      };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      expect(control(host).status('a')).toBe('failed');
+
+      // the retry is in flight, with the branch showing a loading line
+      const retry = deferred<TreeChoiceItem[]>();
+      next = retry.promise;
+      control(host).reload('a');
+      flush();
+      expect(control(host).status('a')).toBe('loading');
+      expect(picture(host, 40)).toEqual(['❯ └── ▾ a', '      └──   Loading…']);
+      // what the failure replaced is held while the retry is out, and dropped when it lands
+      expect(held(host)?.kept).toBe(1);
+
+      // a new tree, which is what sets the walk looking for values that left
+      items.set([a]);
+      flush();
+      retry.resolve(['a1', deep]);
+      await landed();
+      // `deep` was not new when the retry landed: still closed as the reader left it,
+      // and not read again
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls).toEqual({ a: 3, deep: 1 });
+      expect(held(host)?.kept).toBe(0);
+      expect(picture(host)).toEqual(['❯ └── ▾ a', '      ├──   a1', '      └── ▸ deep']);
+    });
+
+    it('should keep what a failed read replaced through a retry that fails again (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1', deep]);
+      const a = { items: () => next, text: 'a' };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      for (let i = 0; i < 2; i++) {
+        next = Promise.reject(new Error('offline'));
+        control(host).reload('a');
+        flush();
+        await landed();
+        expect(control(host).status('a')).toBe('failed');
+        // the failure holds the answer itself, so it is not held twice
+        expect(treeListHeld(host)?.kept).toBe(0);
+      }
+      // a reload while the second read is out supersedes it, and the kept answer stays
+      next = new Promise(() => {});
+      control(host).reload('a');
+      flush();
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      items.set([a]);
+      flush();
+      next = Promise.resolve(['a1', deep]);
+      control(host).reload('a');
+      flush();
+      await landed();
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls.deep).toBe(1);
+    });
+
+    it('should not keep an answer for a value that is no longer a function branch (SIG-521)', async () => {
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1']);
+      const items = new State<TreeChoiceItem[]>([{ items: () => next, text: 'a' }]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      control(host).collapse('a');
+      flush();
+      expect(treeListHeld(host)?.kept).toBe(1);
+
+      items.set([{ items: ['q'], text: 'a' }]);
+      flush();
+      expect(treeListHeld(host)?.kept).toBe(0);
+    });
+
+    it('should keep what a failed read replaced while its branch is closed, and through a search (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let fails = false;
+      const a = {
+        items: () => {
+          calls.a = (calls.a ?? 0) + 1;
+          return fails ? Promise.reject(new Error('offline')) : Promise.resolve(['a1', deep]);
+        },
+        text: 'a',
+      };
+      const items = new State<TreeChoiceItem[]>([a]);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      fails = true;
+      control(host).reload('a');
+      flush();
+      await landed();
+      control(host).collapse('a');
+      flush();
+      expect(control(host).status('a')).toBe('idle');
+
+      items.set([a]);
+      flush();
+      fails = false;
+      control(host).expand('a');
+      flush();
+      await landed();
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls).toEqual({ a: 3, deep: 1 });
+    });
+
+    it('should keep what a failed read replaced under a branch that is itself closed (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let fails = false;
+      const a = {
+        items: () => (fails ? Promise.reject(new Error('offline')) : Promise.resolve(['a1', deep])),
+        text: 'a',
+      };
+      const outer = { items: [a], text: 'outer' };
+      const items = new State<TreeChoiceItem[]>([outer]);
+      const host = tree({ expanded: ['outer', 'a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      fails = true;
+      control(host).reload('a');
+      flush();
+      await landed();
+      control(host).collapse('a');
+      flush();
+      control(host).collapse('outer');
+      flush();
+
+      items.set([outer]);
+      flush();
+      expect(held(host)?.kept).toBe(1);
+      fails = false;
+      control(host).expand('outer');
+      control(host).expand('a');
+      flush();
+      await landed();
+      expect(control(host).expanded.get().has('deep')).toBe(false);
+      expect(calls).toEqual({ deep: 1 });
+    });
+
+    it('should drop what a retry that lands without it takes out of the tree, at once (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = counting(calls, 'deep', () => ['z']);
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1', deep]);
+      const items = new State<TreeChoiceItem[]>([{ items: () => next, text: 'a' }]);
+      const host = tree({ expanded: ['a', 'deep'], items });
+      await landed();
+      expect(held(host)?.seen).toBe(4);
+
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      next = Promise.resolve(['a1']);
+      control(host).reload('a');
+      flush();
+      await landed();
+      // the answer that replaced the failure's is a different one: `deep` is gone
+      expect(held(host)).toEqual({ kept: 0, notes: 1, reads: 1, seen: 2 });
+    });
+
+    it('should drop what a failed read replaced when its branch leaves the tree during the retry (SIG-521)', async () => {
+      const calls: Record<string, number> = {};
+      const deep = {
+        expanded: true,
+        ...(counting(calls, 'deep', () => ['z']) as Exclude<TreeChoiceItem, string>),
+      };
+      let next: Promise<TreeChoiceItem[]> = Promise.resolve(['a1', deep]);
+      const a = { items: () => next, text: 'a' };
+      const items = new State<TreeChoiceItem[]>([a, 'b']);
+      const host = tree({ expanded: ['a'], items });
+      await landed();
+      control(host).collapse('deep');
+      flush();
+
+      next = Promise.reject(new Error('offline'));
+      control(host).reload('a');
+      flush();
+      await landed();
+      next = new Promise(() => {});
+      control(host).reload('a');
+      flush();
+
+      // gone while the retry is out, so the answer it kept goes too: back again, it
+      // is a new branch, and `deep` is new with it
+      items.set(['b']);
+      flush();
+      expect(held(host)?.kept).toBe(0);
+      next = Promise.resolve(['a1', deep]);
+      items.set([a, 'b']);
+      flush();
+      await landed();
+      expect(control(host).expanded.get().has('deep')).toBe(true);
+      expect(calls.deep).toBe(2);
     });
 
     it('should read a node that comes back with expanded: true as new, and open it again', () => {
@@ -1802,6 +2048,24 @@ describe('TreeListView()', () => {
         get.mockRestore();
       }
       expect(held(host)?.seen).toBe(2_005);
+    });
+  });
+
+  describe('finding a row by its value (SIG-520)', () => {
+    it('should hold a row for each row shown and no more, though the walk keeps its map from one walk to the next', () => {
+      const items = new State<TreeChoiceItem[]>([{ items: ['x', 'y'], text: 'a' }, 'b', 'c']);
+      const host = tree({ expanded: ['a'], items });
+      expect(treeListHeld(host)?.rows).toBe(5);
+
+      items.set([...items.get(), 'd']);
+      flush();
+      expect(treeListHeld(host)?.rows).toBe(6);
+
+      // a node that leaves is not held for, and one that arrives is
+      items.set(['b', 'd', 'e']);
+      flush();
+      expect(treeListHeld(host)?.rows).toBe(3);
+      expect(picture(host)).toEqual(['❯ ├──   b', '  ├──   d', '  └──   e']);
     });
   });
 

@@ -715,10 +715,18 @@ These look like bugs and are not. Each is intentional and covered by tests.
   an entry naming a character the file no longer holds fails, so the list
   cannot outlive its reason. U+2028 and U+2029 are refused with them though
   they are not `Cf`: either ends a `//` comment, which is one of the places
-  `oxlint`'s `no-irregular-whitespace` was measured not to look. The no-break
-  space is left out on purpose, as the docblock on `FORMAT` says. A file git
+  `oxlint`'s `no-irregular-whitespace` was measured not to look. A file git
   calls binary is skipped only when it is on `ALLOWED`, so a NUL is no way past
   the check, and tracked file names are held to the same class plus `\p{Cc}`.
+  The no-break space was left out at first on the strength of that same rule,
+  and SIG-511 took it back: lint flags one in code and a comment and is silent
+  on a string, a template literal and a regular expression, which is where all
+  ten in the tree were, and on every file that is not JavaScript. So the check
+  also refuses every space but U+0020, `\p{Default_Ignorable_Code_Point}` (the
+  variation selectors, the Hangul fillers, the Khmer inherent vowels, U+034F
+  and the unassigned points between them) and U+2800,
+  with no new `FORMAT_ALLOWED` entry, because every hit was an escape away in
+  TypeScript. Reasons and the sweep are on the docblock on `FORMAT`.
 - **The styler skips an extended color's own parameters.** In the semicolon
   form `38`, `48`, and `58` spread one color over the parameters after them, and
   `reopen()` read those as attributes: `38;2;255;0;0` carries a `0`, was taken

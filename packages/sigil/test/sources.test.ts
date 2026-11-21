@@ -128,12 +128,45 @@ function codePoint(code: number): string {
  * history file, were escapes a tool write had turned into the characters, and
  * are escapes again.
  *
- * What is left out is left out on purpose. A no-break space is `\p{Zs}`, about
- * ten files hold one, and lint refuses it in JavaScript; a variation selector or
- * a Hangul filler is a mark or a letter with literal uses of its own. Each would
- * be a decision about its own sweep, not a widening of this one.
+ * The no-break space, the other spaces, the variation selectors and the blank
+ * letters are refused with them (SIG-511), and what lint leaves open is why.
+ * The first answer to leaving a no-break space out was that lint refuses it in
+ * JavaScript, and that is true of code and of a comment and false of a string,
+ * a template literal and a regular expression -- measured, `oxlint`'s
+ * `no-irregular-whitespace` is silent on all three, and it reads nothing but
+ * JavaScript, so Markdown, JSON, YAML and CSS are nobody's. All ten lines in
+ * the tree were in a string, so lint was the check that did not look where they
+ * were, and it only warns, so `pnpm check` exits 0 over the places it does look.
+ * A string is where it matters: `'a\u00A0b.mjs'` is a file name nobody can type
+ * and a diff draws as `'a b.mjs'`. So:
+ *
+ * - `\p{Zs}` but for U+0020: the no-break space, the en and em spaces, the
+ *   narrow no-break and the ideographic space. None is the space a shell or a
+ *   path means, and most draw as a gap. Markdown has `&nbsp;` for the one a
+ *   document needs.
+ * - `\p{Default_Ignorable_Code_Point}`: what Unicode says a renderer draws as
+ *   nothing. It is named for the reason `\p{Cf}` is, and it takes in the
+ *   variation selectors, the Hangul fillers, the Khmer inherent vowels, the
+ *   combining grapheme joiner and the unassigned points inside those blocks,
+ *   which `\p{Cf}` does not reach (U+E0080 is as invisible as U+E0041). A
+ *   selector after an emoji chooses between two glyphs, which is a real
+ *   literal use and the reason one is no use as text: it has no glyph of its
+ *   own, and the supplementary ones are what a payload has been hidden in, after
+ *   a visible character. JavaScript has an escape for each, so a test that
+ *   measures what a selector does writes the escape between the characters it
+ *   joins, as the joiners already are.
+ * - U+2800, the blank braille pattern, which renders as nothing and is not
+ *   default-ignorable. The rest of the braille block is visible and is not
+ *   refused.
+ *
+ * The sweep that settled it: ten lines held a no-break space, two of them
+ * another space as well, seven held a variation selector and three a blank
+ * braille pattern -- all in TypeScript, all escapes now -- and nothing held a
+ * Hangul filler, a Khmer vowel, a combining grapheme joiner or a supplementary
+ * selector. So nothing new joins `FORMAT_ALLOWED`, which is where a document
+ * that has to show one would be listed.
  */
-const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/gu;
+const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u2800]|(?!\u0020)\p{Zs}/gu;
 
 /**
  * The tracked names that hold a character a reader cannot see: `FORMAT`, and a
@@ -326,6 +359,11 @@ describe('committed sources', () => {
     const planted = [
       0x061c, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
       0x2028, 0x2029, 0x2060, 0x2066, 0x2067, 0x2068, 0x2069, 0xfeff, 0xe0041,
+      // SIG-511: spaces that are not U+0020, the selectors, and the blank letters
+      0x00a0, 0x1680, 0x2003, 0x202f, 0x205f, 0x3000, 0xfe00, 0xfe0e, 0xfe0f, 0x180b, 0x180d,
+      0x180f, 0xe0100, 0xe01ef, 0x034f, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x2800, 0x3164, 0xffa0,
+      // default-ignorable but unassigned, which is not `Cf`
+      0x2065, 0xfff0, 0xe0080, 0xe0fff,
     ];
     const zwj = String.fromCodePoint(0x200d);
     const rlo = String.fromCodePoint(0x202e);
@@ -359,6 +397,17 @@ describe('committed sources', () => {
       ]);
     });
 
+    it('should pass a plain space and what sits beside the refused characters', () => {
+      // each is next to a refused code point and is not one: the space, the
+      // visible braille cells either side of the blank one, and the
+      // characters just outside the default-ignorable blocks
+      const beside = [
+        0x20, 0x2801, 0x28ff, 0xfe10, 0x34e, 0x180a, 0x1810, 0xe1000, 0x3165, 0xff9f, 0xffa1,
+      ];
+      const text = beside.map((code) => String.fromCodePoint(code)).join('');
+      expect(plant(`const label = 'a b ${text}';\n`)).toEqual([]);
+    });
+
     it('should pass the same character written as an escape, which is the fix', () => {
       const backslash = String.fromCodePoint(0x5c);
       expect(plant(`const label = 'a${backslash}u202Eb';\n`)).toEqual([]);
@@ -378,7 +427,14 @@ describe('committed sources', () => {
     });
 
     it('should refuse one in a file name, and a control character there too', () => {
-      const names = ['src/ok.ts', `src/gnp${rlo}.exe`, 'src/a\tb.ts', `src/c${zwj}d.ts`];
+      const nbsp = String.fromCodePoint(0xa0);
+      const names = [
+        'src/ok.ts',
+        `src/gnp${rlo}.exe`,
+        'src/a\tb.ts',
+        `src/c${zwj}d.ts`,
+        `src/e${nbsp}f.ts`,
+      ];
       expect(hiddenInNames(names)).toEqual(names.slice(1).map((name) => JSON.stringify(name)));
     });
   });

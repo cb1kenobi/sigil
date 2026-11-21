@@ -33,7 +33,13 @@ import { createEffect, onCleanup } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { maxOf, stringWidth } from '../width/index.js';
 import { truncate } from '../wrap/index.js';
-import { controlCondition, type ControlCondition, controlState } from './control.js';
+import {
+  controlCondition,
+  type ControlCondition,
+  controlState,
+  refuseUnheldFunction,
+  type Written,
+} from './control.js';
 import {
   type MenuEntry,
   type MenuItem,
@@ -79,7 +85,7 @@ export interface DropdownProps<T = unknown> {
    * no choice has shows the placeholder. A `Computed` is refused, since a pick
    * writes the value and a `Computed` cannot be written. Defaults to nothing chosen.
    */
-  value?: State<T | undefined> | T;
+  value?: State<T | undefined> | Written<T>;
   /**
    * How many columns the field takes, brackets and arrow included. Defaults to
    * what the widest choice needs, so the field does not change width as the
@@ -151,6 +157,11 @@ export function Dropdown<T = unknown>(props: DropdownProps<T>): Element {
   const value = controlState<T | undefined>(
     props.value,
     __`Expected a dropdown value to be a value or a State, not a Computed, since the dropdown writes it`
+  );
+  refuseUnheldFunction(
+    props.value,
+    options.filter((option) => !option.separator).map((option) => option.value),
+    __`Expected a dropdown value to be a value or a State, not a function no choice holds, since a function is taken as the value and never called`
   );
   const placeholder = props.placeholder ?? '';
   const glyph = (props.ascii ?? !unicodeSupported()) ? 'v' : '▾';

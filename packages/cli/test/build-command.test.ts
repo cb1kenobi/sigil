@@ -377,6 +377,53 @@ describe('sigil build', () => {
     }
   }, 120_000);
 
+  it('should style an element through a variant the app names, once built', async () => {
+    // SIG-526: `focus:` and `md:` were generated and then loaded by nothing, so
+    // no app could use one. The build sees the class names, so it generates the
+    // variant rules those names need and nothing else: the built app paints the
+    // focused box green and the wide one red, which the committed base sheet
+    // cannot, and the same app run from source -- the base sheet only -- paints
+    // all of them white. Green is SGR 32, red 31 and white 37
+    const { err } = await sigil('build', join(fixtures, 'variants'), '--out', out);
+
+    expect(err).toMatch(/\d+ of 383 utility rules, plus \d+ variant rules/);
+
+    const paint = (entry: string, ...args: string[]) => {
+      const run = spawnSync(process.execPath, [entry, 'panel', ...args], { encoding: 'utf-8' });
+      expect(run.status, run.stderr).toBe(0);
+      return /^\[(\d+)m/.exec(run.stdout.split(String.fromCharCode(0x1b))[1] ?? '')?.[1];
+    };
+    const built = join(out, 'variants.mjs');
+    const source = join(fixtures, 'variants', 'dev.ts');
+
+    expect(paint(built)).toBe('37');
+    expect(paint(built, '--focused')).toBe('32');
+    expect(paint(built, '--width', '100')).toBe('31');
+    // a pseudo-class variant is two specificity points and a media one is one,
+    // whatever order they are printed in
+    expect(paint(built, '--focused', '--width', '100')).toBe('32');
+
+    // the unbuilt answer, recorded in "The utility layer": the base set, and a
+    // variant is a class that matches nothing
+    expect(paint(source, '--focused')).toBe('37');
+    expect(paint(source, '--width', '100')).toBe('37');
+  }, 60_000);
+
+  it('should carry no variant rule the app does not name', async () => {
+    // the other half of the size argument: variants are 13 times the base set
+    // and an app pays for the ones it uses. `lg:` and `dark:` are in the
+    // generator and not in this app, so neither may be in its bundle
+    await sigil('build', join(fixtures, 'variants'), '--out', out);
+
+    const bundled = bundledCode(out);
+
+    // the sheet is a string literal in the bundle, so a selector's one
+    // backslash is two there
+    expect(bundled).toContain('focus\\\\:border-green:focus');
+    expect(bundled).not.toContain('lg\\\\:');
+    expect(bundled).not.toContain('dark\\\\:');
+  }, 60_000);
+
   it('should let both transforms rewrite one module and keep its source map', async () => {
     // `tpl.ts` holds a `ui` template *and* asks for the utility sheet, so both
     // plugins rewrite it. Two things have to survive that: what it renders,
@@ -446,6 +493,24 @@ describe('sigil build', () => {
     expect(err).toContain('0 of 383 utility rules');
     expect(err).toContain('No utility class is named anywhere in this app');
     expect(err).toContain('build.safelist');
+  }, 60_000);
+
+  it('should not call a build empty that kept only a variant', async () => {
+    // SIG-526: a variant is something kept. The `opaque` app names no class at
+    // all, so a safelisted variant is the only thing the shake keeps, and the
+    // note about dropping everything would be false -- and a safelist takes a
+    // qualified name like any other
+    const config = join(fixtures, 'opaque', 'sigil.json');
+    writeFileSync(config, JSON.stringify({ build: { safelist: ['focus:border-green'] } }));
+
+    try {
+      const { err } = await sigil('build', join(fixtures, 'opaque'), '--out', out);
+
+      expect(err).toContain('0 of 383 utility rules, plus 1 variant rules');
+      expect(err).not.toContain('No utility class is named');
+    } finally {
+      rmSync(config, { force: true });
+    }
   }, 60_000);
 
   it('should say nothing of the sort when it kept something', async () => {

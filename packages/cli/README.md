@@ -353,6 +353,15 @@ and `safelist` is how to keep those — if it dropped _everything_, the build
 says so rather than leaving you to notice. `--no-shake` turns it off for one
 build.
 
+The shake is also what ships a utility _variant_. A class like
+`focus:border-green` or `md:flex-row` is generated for the build when your
+source names it, and counted after the base rules — `25 of 383 utility rules,
+plus 2 variant rules` — so a variant costs one rule and not the thousands the
+whole set would. Two limits come with that. An app run from source, or built with
+`--no-shake`, has the base set only, so a variant matches nothing there. And a
+variant and its utility in two separate literals (`` `${wide ? 'md:' : ''}flex-row` ``)
+leave no evidence for `md:flex-row`, so name it in `safelist`.
+
 ## Building this package
 
 ```sh
