@@ -376,6 +376,110 @@ describe('sigil package', () => {
       },
       120_000
     );
+
+    it.skipIf(process.platform === 'win32')(
+      'should not print as it was printed what a too-old node said its version is',
+      async () => {
+        // the version is whatever the `node` on `PATH` printed, and it is quoted
+        // in the refusal when no newer one can be fetched (SIG-510)
+        const name = [...candidates('node', { path: fakebin })].find((one) =>
+          one.startsWith(fakebin)
+        );
+        writeExecutable(
+          name as string,
+          "#!/bin/sh\nprintf 'v1.0.0\\033]0;PWNED\\007\\nforged: error: forged\\n'\n"
+        );
+        vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+
+        let err: string;
+        try {
+          ({ err } = await sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            'node',
+            '--target',
+            label(hostTarget())
+          ));
+        } finally {
+          vi.unstubAllGlobals();
+        }
+
+        expect(err).toContain('in a version that can package itself -- this is 1.0.0\\x1B]0;PWNED');
+        expect(err).toContain('\\x0Aforged: error: forged');
+        expect(err).not.toContain(String.fromCharCode(0x1b));
+        expect(err.split('\n').some((line) => line.startsWith('forged: error'))).toBe(false);
+        expect(process.exitCode).toBeTruthy();
+      },
+      120_000
+    );
+  });
+
+  describe.skipIf(process.platform === 'win32')('a path a file system error names', () => {
+    // `ENOTDIR` and `ENOENT` quote the path they failed on, `main()` prints an
+    // error as it stands, and the path is the caller's (SIG-510)
+    const hostile = '\u001b]0;PWNED\u0007\nforged: error: forged';
+
+    function expectInert(err: string): void {
+      expect(err).toContain('\\x1B]0;PWNED\\x07');
+      expect(err).not.toContain(String.fromCharCode(0x1b));
+      expect(err).not.toContain(String.fromCharCode(0x07));
+      expect(err.split('\n').some((line) => line.startsWith('forged: error'))).toBe(false);
+      expect(process.exitCode).toBeTruthy();
+    }
+
+    it('should escape the output directory it could not make', async () => {
+      const file = join(out, `file-${hostile}`);
+      writeFileSync(file, 'not a directory');
+
+      const { err } = await withBun(stubBun(), () =>
+        sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          join(file, 'o'),
+          '--runtime',
+          'bun',
+          '--target',
+          label(hostTarget())
+        )
+      );
+
+      expectInert(err);
+    }, 60_000);
+
+    it('should escape the scratch directory it could not make, after the binaries before it', async () => {
+      const tmp = process.env.TMPDIR;
+      process.env.TMPDIR = join(out, `no-such-${hostile}`);
+
+      try {
+        const { err } = await withBun(stubBun(), () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            join(out, 'bins'),
+            '--runtime',
+            'bun',
+            '--target',
+            label(hostTarget())
+          )
+        );
+
+        expect(err).toContain('Could not package');
+        expectInert(err);
+      } finally {
+        // an unset variable is put back unset: assigning it `undefined` makes the
+        // string `'undefined'`, which is a directory nobody has
+        if (tmp === undefined) {
+          delete process.env.TMPDIR;
+        } else {
+          process.env.TMPDIR = tmp;
+        }
+      }
+    }, 60_000);
   });
 
   describe('the bundle it embeds', () => {

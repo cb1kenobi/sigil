@@ -1316,11 +1316,32 @@ makes it testable with a fixture directory and no bundler at all.
   `sigil.json` and `sigil.jsonc`; and `tree.ts`'s three, which name a
   command directory and are escaped by reading -- the one a review tried to
   reach arrived as a diagnostic first. Review round 2 found the same shape in `package`'s
-  own refusals, and they are left for a ticket of their own rather than taken
-  here: `parseTarget()`'s and `parseSpec()`'s echo of a `--target` or
-  `--runtime` from `sigil.json` or the flag, `codesign failed for <file>` and the
-  other `compile.ts` sentences quoting the output path, and `@ttylabs/sigil`'s
-  update-check refusal of a `repo` that is not `owner/name`.
+  own refusals, which SIG-510 took: `parseTarget()`'s and `parseSpec()`'s echo of
+  a `--target` or `--runtime` from `sigil.json` or the flag, `codesign failed for
+  <file>` and the other `compile.ts` sentences quoting the output path, and
+  `@ttylabs/sigil`'s update-check refusal of a `repo` that is not `owner/name`.
+  The audit went past the three it was filed for: every path or program output a
+  `throw` in `compile.ts`, `runtimes.ts` and `package.ts` interpolates -- the
+  `bun` or `node` executable, the output path, the version a `node` printed, what
+  a failing `tar` said, the cache root -- goes through `escapeControls()`, and
+  what is left raw is a value already validated by `isVersion()` or built from
+  a constant. A **file system** error is the other source: Node's `ENOTDIR` and
+  `ENOENT` quote the path they failed on, so `package` catches the ones from
+  `mkdirSync(out)`, the runtime fetches and the compile stage and escapes them
+  with `escapeControls()` -- the whole line, since it is one line and a newline
+  in the path is the path's -- where `escaped()` keeps line breaks for a message
+  with structure of its own and would let a forged line start. What `tar` said is
+  written a line at a time and indented, as `said()` writes a compiler's. Not
+  done, and shared with `build` where it is not `package`'s alone: the runtime
+  picker's labels, built from a `PATH` runtime's `--version` and cache directory
+  names, which the canvas garbles but does not act on; `readSigilConfig()`'s
+  read and parse failures, which quote the app root; and the bundle stage's
+  `escaped()`, which keeps line breaks and so lets a newline in a root start a
+  line. `clean(out)`'s wrap has no test, because the one error that reaches it
+  needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
+  compiler or signer, skipped on Windows, which cannot make the names; the `tar`
+  one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
+  `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
 
   `typecheck.ts`'s `ENOBUFS` error and its two `Failed to run the type checker`
   throws quoted the app's root and the `tsc` under it raw, and `main()` prints
