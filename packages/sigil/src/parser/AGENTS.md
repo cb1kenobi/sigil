@@ -1166,7 +1166,7 @@ messages.
 - **U+2800 BRAILLE PATTERN BLANK is escaped too, which leaves `\p{Zs}` the one
   difference from the source check** (SIG-557). SIG-548 took the source check's
   class minus its spaces and missed the one character that check names beside the
-  properties: `FORMAT` in `test/sources.test.ts` lists U+2800 explicitly because no
+  properties: `FORMAT` in `test/sources.test.ts` (now `INVISIBLE` in `test/invisible.ts`, the entry below) lists U+2800 explicitly because no
   Unicode property covers it. It draws as a space but is a symbol (`So`), neither a
   space nor default-ignorable, so a value holding it was echoed raw and printed
   like one holding U+0020. The class gains `\u{2800}`, spelled as an escape like
@@ -1185,7 +1185,7 @@ messages.
   and the hostile-value test each spelled it out, so widening `FORMAT` left the
   other two passing against the old class -- which is how U+2800 got through. They
   read `INVISIBLE` and `ESCAPED` from that file now, and the spaces, the one
-  difference, are stated there and nowhere else. It is a helper in `test/` and not
+  difference, are defined there, once, in code (other files only point at it). It is a helper in `test/` and not
   `UNSAFE` read from `src/`, because a test that read the code's own class would
   compare the code with itself. Sabotaged: adding U+00B7 to the shared class fails
   the walk with `U+B7` and nothing else, with `escapeControls()` unchanged.

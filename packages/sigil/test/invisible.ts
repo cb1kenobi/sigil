@@ -34,6 +34,10 @@ const SPACES = String.raw`(?! )\p{Zs}`;
 /**
  * What committed source may not hold: the hidden characters and the spaces.
  * Global, for `matchAll()`; read `.source` to build another flag set.
+ *
+ * To widen the class, add to `HIDDEN`, never a third alternative here: `ESCAPED`
+ * reads `HIDDEN` and not this, so a member added only here is one the walk test
+ * would not hold `escapeControls()` to.
  */
 export const INVISIBLE: RegExp = new RegExp(`[${HIDDEN}]|${SPACES}`, 'gu');
 
