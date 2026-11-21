@@ -14163,13 +14163,44 @@ was never read. No error, and a derivation that did nothing at all.
   and for a tree's and a treemap's `current`. The rare app keying by a signal pays
   one wrapper so that every app passing a derivation hears about it, rather than
   the other way round.
-- **A function is still taken as a value, deliberately.** `() => level.get()` is
-  the template's spelling of a reactive prop, and as a `value` it selects nothing
-  and is never called, which is this ticket's silent no-op in another shape. It is
-  not refused because a choice's value may well be a function -- an action to run
-  -- and a function cannot be told from one; `disabled` can take one only because
-  a function there is never a legitimate value. Following one live is the same
-  question as following a `Computed`, and has the same answer.
+- **A function is refused as a value unless an option holds it (SIG-514).** `() =>
+  level.get()` is the template's spelling of a reactive prop, and as a `value` on
+  `RadioSet` or `Dropdown` it was taken as the value itself: it selected nothing
+  and was never called, which is this ticket's silent no-op in another shape.
+  `refuseUnheldFunction()` in `control.ts` refuses it when none of the options'
+  own values is that function. That is the one case it cannot be a legitimate
+  value, since an option's value may well be a function -- an action to run -- and
+  a function that an option holds selects it, as it always did. A function nothing
+  holds can only select nothing, which is a valid answer for any other value (the
+  set "selects none for a value no option holds") and the mistake for this one. It
+  is still a behaviour change for one previously valid call, said plainly: options
+  that hold actions and are filtered, with a `value` that is an action no longer
+  offered, selected none before and throw now. The way through is a `State`, which
+  is not looked at. The alternative, following one live, is
+  the same question as following a `Computed` and has the same answer: the control
+  writes the value, and a read-only function has nowhere to be written. A `State`
+  that holds a function is not looked at; it is the app's own statement. Compared
+  with `Object.is`, as the dropdown matches and as `promptSameValue()` does. Tests
+  per control in `test/components/radio-set.test.ts` and `dropdown.test.ts`: the
+  refusal, an option holding a function selected, and a `State` of one left alone,
+  and the refusal fails with `refuseUnheldFunction()` taken out.
+- **The other controls were swept, and a function is refused or cannot be told
+  apart.** `TextField`, `TextArea`, `Slider`, `Checkbox`, `Switch`, `Tabs`,
+  `Collapsible` and `Pane` have a value of a fixed type and refuse whatever is
+  neither that type nor a `State`, so a function is a `TypeError` there; one test
+  each pins it in `test/components/control-types.test.ts`. `DataTable`'s `sort` is
+  an object with a `column`, which a function lacks, so it fails as naming a column
+  `undefined`. A list's, a tree's and a treemap's `current` are the one place left
+  that takes a function as a key and says nothing (`DiffView`'s `current` and
+  `wrap`, `Pane`'s `collapsed` and a list's `tail`, `selected` and `expanded` were
+  read as well and all refuse one with a `TypeError`; `keyHelp()`'s `expanded` only
+  reads and takes a function as `false`, which is its own question): a key is the item itself by
+  default, an item may be a function, and the keys are not known when the control
+  is built -- a list's items arrive late and a tree's branches load on demand --
+  so there is nothing to compare a function against at construction, and refusing
+  later would be a throw from inside a change of rows. Left as it is: the cursor
+  starts on the first row, as for any key no row has, and a `State` is how an app
+  that wants to follow something says so.
 - **The same defect in four more places, fixed the same way.** Swept every
   `instanceof State ?` in `src/components/`: a list's `current` (in
   `createListSelection()`, so `ListView` and `DataTable` both), `TreeListView`'s
@@ -14186,10 +14217,43 @@ was never read. No error, and a derivation that did nothing at all.
   not arise: each names the prop and says why, `Expected a radio set value to be a
   value or a State, not a Computed, since the set writes it`. Six keys in
   `src/i18n/keys.ts`, regenerated.
-- **Runtime only.** The types still accept a `Computed` as `T`, since excluding it
-  needs a conditional type over `T`, which TypeScript cannot infer through and
-  which would change what every existing call infers. A test per component pins the
-  refusal, and each fails with the check in `controlState()` taken out.
+- **A `Computed` is also refused by the types (SIG-515).** `Written<T>` in
+  `control.ts` is `T extends Computed<any> ? never : T`, and the prop is
+  `Written<K> | State<K | undefined>`: a radio set's and a dropdown's `value`, a
+  list's, a data table's, a tree's and a treemap's `current`. Passing a `Computed`
+  is a compile error now, found by `tsc` rather than when the app runs. The first
+  reading of this was that excluding it needs a conditional type over `T`, which
+  TypeScript cannot infer through and which would change what every call infers;
+  measured, that was wrong in the way that matters. TypeScript infers into both
+  branches of a conditional, so `T` is still decided by the other props that name
+  it -- the options, the items, a `key` function -- and `Written<T>` is then
+  checked against it; where nothing else names `T`, as in `RadioSet({ options:
+  ['a', 'b'], value })`, it is inferred from the value as it was and the check
+  fails on a `Computed` all the same. `pnpm check` over the examples, every package
+  and the JSX type test passes unchanged, which is the callers there are -- the
+  demos are plain JavaScript and are not type-checked. The `any` is not laziness:
+  `Computed<string>` does not extend `Computed<unknown>`, since the class is
+  invariant in `T` through its `equals`, so the first spelling excluded nothing.
+  **The cost, which is real and was found by review:** a conditional type over an
+  unresolved type parameter is deferred, so `T` is not assignable to `Written<T>`,
+  and a generic wrapper that forwards a plain `T` -- `function Picker<T>(items: T[],
+  current?: T) { return ListView({ items, current }) }` -- stopped compiling, where
+  forwarding `ListViewProps<T>` whole, a `State<T | undefined>` or a concrete key
+  type still does. No caller in this repository is shaped that way, which is why
+  `pnpm check` did not show it. The fix at the call is `current as Written<T>`, or
+  a `State`; it is the price of finding a `Computed` at compile time, taken because
+  the mistake is silent at run time in every app that makes it while a wrapper is
+  written once. Reversing it is replacing `Written<K>` with `K` in six props.
+  `DataTable`'s `sort` is not wrapped, because `DataTableSort` is an object with a
+  `column` and a `Computed` is not assignable to it already. What the types cannot
+  do is the case the runtime check exists for: a `Computed` that reaches a prop
+  through `any`, a cast, or a second copy of the package, and a function, which is
+  the value above. `test/components/control-types.test.ts` holds a
+  `// @ts-expect-error` over each call with no `as never` between it and the type,
+  so it fails to compile if the types go back to accepting one, and the same calls
+  with a value, a `State`, and a `State` holding a `Computed` still compile. Each
+  of the six props was swapped back to `T` together and `tsc` reported an unused
+  directive on all six.
 
 ### A largest or a smallest over data is `maxOf()` or `minOf()` (SIG-363)
 

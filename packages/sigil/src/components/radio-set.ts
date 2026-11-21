@@ -36,6 +36,8 @@ import {
   controlDisabled,
   controlState,
   describeControls,
+  refuseUnheldFunction,
+  type Written,
 } from './control.js';
 import { labelLine } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
@@ -84,7 +86,7 @@ export interface RadioSetProps<T = unknown> {
    * since the set writes the value and a `Computed` cannot be written. Compared
    * the way a `Map` compares keys. Defaults to none selected.
    */
-  value?: State<T | undefined> | State<T> | T;
+  value?: State<T | undefined> | State<T> | Written<T>;
 }
 
 /** Each set's host, which is its focusable element, and the way its options run. */
@@ -124,6 +126,11 @@ export function RadioSet<T = string>(props: RadioSetProps<T>): Element {
   const value = controlState<T | undefined>(
     props.value as State<T | undefined> | T | undefined,
     __`Expected a radio set value to be a value or a State, not a Computed, since the set writes it`
+  );
+  refuseUnheldFunction(
+    props.value,
+    values,
+    __`Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called`
   );
   const disabled = controlCondition(
     props.disabled,

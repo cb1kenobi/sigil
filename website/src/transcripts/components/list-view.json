@@ -19,7 +19,7 @@
         "description": "The current row, as its key, or the state that holds it, never a `Computed`: see `ListSelectionOptions.current`.",
         "name": "current",
         "optional": true,
-        "type": "K | State<K | undefined>"
+        "type": "Written<K> | State<K | undefined>"
       },
       {
         "description": "Whether an item's row is disabled: drawn muted, passed over by the cursor, not clicked, and never selected by a key or a click.",

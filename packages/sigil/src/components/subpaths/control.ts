@@ -8,4 +8,6 @@ export {
   controlState,
   describeControls,
   type LiveFlag,
+  refuseUnheldFunction,
+  type Written,
 } from '../control.js';

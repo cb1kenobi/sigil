@@ -6408,14 +6408,19 @@ from or a `State`, and a `Computed` there is refused with a `TypeError`. That ho
 where the value is the app's own type as well -- a radio set's and a dropdown's
 `value`, a list's, a tree's and a treemap's `current`, a data table's `sort` --
 which used to take a `Computed` as the value itself, select nothing, and never read
-it again.
+it again. The types refuse one too, so it is a compile error rather than a throw.
+A radio set and a dropdown refuse a function `value` that none of their options
+holds, because `value={() => level.get()}` was taken as the value itself and never
+called; pass a `State`, and write it from an effect to follow something derived.
 
 `describeButton()`, `describeCheckbox()`, `describeSwitch()` and
 `describeRadioSet()` describe each control's keys scoped to it, for a `keyHelp()`
 footer -- the switch's arrows by the names of its states, `← light · → dark` --
 and return a function that takes them off. `controlFlag()` (a value the control
 writes), `controlState()` (the same, for a value of any type, refusing only a
-`Computed`), `controlCondition()` (a `ControlCondition` it only reads, such as
+`Computed`), `Written<T>` (the type that leaves a `Computed` out of it),
+`refuseUnheldFunction()` (a function no option holds, which is the template's live
+prop and not a value), `controlCondition()` (a `ControlCondition` it only reads, such as
 `disabled`), `controlDisabled()` and `describeControls()` (from
 `@ttylabs/sigil/components/control`) are what the controls share, for a control of
 your own. The theme hooks are `.sigil-button`
