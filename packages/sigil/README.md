@@ -190,8 +190,9 @@ zero-width joiner, so a joined emoji in an echoed value shows `\u{200D}` between
 its parts. So is every other character Unicode says is drawn as nothing,
 `\p{Default_Ignorable_Code_Point}`: the Hangul fillers, the combining grapheme
 joiner and the variation selectors, which include the U+FE0F that follows an
-emoji, so a heart there shows as the heart and then `\u{FE0F}`. The no-break space and the other spaces are drawn and are left
-alone. Only the echoed value is escaped, never the message around it, so an
+emoji, so a heart there shows as the heart and then `\u{FE0F}`. So is the blank
+braille pattern, U+2800, which is drawn as a space but is not one. The no-break
+space and the other spaces are drawn and are left alone. Only the echoed value is escaped, never the message around it, so an
 error your own code throws keeps its colors.
 
 `escapeControls()` from `@ttylabs/sigil/error-handler` is that function. Use it

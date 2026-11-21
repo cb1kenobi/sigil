@@ -9,11 +9,13 @@
  * says a renderer draws as nothing, and it is the same name the source check
  * uses: it takes in the Hangul fillers (U+115F, U+3164), the combining grapheme
  * joiner (U+034F) and the variation selectors, which are letters and marks
- * rather than format characters and so are in none of the other classes. The
- * no-break space and the rest of `\p{Zs}` are not here; they are visible, and a
+ * rather than format characters and so are in none of the other classes.
+ * `\u{2800}` is the one character the source check names that no property
+ * covers: the blank braille pattern, a symbol (`So`) that is neither a space nor
+ * default-ignorable and is drawn as a space all the same. The no-break space and the rest of `\p{Zs}` are not here; they are visible, and a
  * value holding one reads as the value it is.
  */
-const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/gu;
 
 /**
  * A value as a message may quote it, with nothing in it a terminal would act on
@@ -49,6 +51,11 @@ const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/gu;
  * Each one makes two values print alike that are not. **U+FE0F is escaped too**,
  * so a heart (U+2764) followed by it echoes as the heart and then `\u{FE0F}`,
  * for the reason the joiner below is.
+ *
+ * **U+2800 BRAILLE PATTERN BLANK goes the same way**, as `\u{2800}`: it draws as
+ * a space but is a symbol rather than a space, so a value holding it prints like
+ * one holding U+0020 and differs. The rest of the braille block is visible and
+ * is left alone.
  *
  * **The zero-width joiner is escaped like the rest**, so a joined emoji in an
  * echoed value prints with `\u{200D}` between its parts. That is the honest

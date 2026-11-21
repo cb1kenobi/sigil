@@ -95,9 +95,10 @@ describe('escapeControls()', () => {
   });
 
   it('should escape exactly what the source check refuses, bar the spaces, and spell each one the same way', () => {
-    // the class `FORMAT` in sources.test.ts names, without its `Zs` half and
-    // without U+2800, which is not default-ignorable
-    const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+    // the class `FORMAT` in sources.test.ts names, without its `Zs` half -- which
+    // is the one deliberate difference -- and with U+2800 (SIG-557), which no
+    // property covers
+    const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
     const wrong: string[] = [];
     for (let code = 0; code <= 0x10ffff; code++) {
       if (code >= 0xd800 && code <= 0xdfff) continue;
@@ -113,10 +114,19 @@ describe('escapeControls()', () => {
     expect(wrong).toEqual([]);
   });
 
+  it('should write the blank braille pattern as \\u{2800}, and leave the rest of the block alone', () => {
+    // U+2800 draws as a space but is a symbol, so a value holding it prints like
+    // one holding U+0020 and differs (SIG-557)
+    expect(escapeControls('a\u2800b')).toBe('a\\u{2800}b');
+    expect(escapeControls('a b')).not.toBe(escapeControls('a\u2800b'));
+    // the dots are drawn
+    expect(escapeControls('\u2801\u28ff')).toBe('\u2801\u28ff');
+  });
+
   it('should leave nothing of the format class in a hostile value', () => {
-    const hostile = 'a\u202eb\u200bc\u2028d\u2029e\ufefff\u{e0041}g\u200d\u3164\u034f\ufe0f';
+    const hostile = 'a\u202eb\u200bc\u2028d\u2029e\ufefff\u{e0041}g\u200d\u3164\u034f\ufe0f\u2800';
     expect(escapeControls(hostile)).not.toMatch(
-      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u
     );
   });
 
