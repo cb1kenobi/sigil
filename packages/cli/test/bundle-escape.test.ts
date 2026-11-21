@@ -6,7 +6,7 @@ import { run, STACK } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -218,6 +218,38 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
     ).toEqual([]);
   }, 60_000);
 });
+
+// a directory that cannot be emptied is made with a mode, which root ignores
+describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'an output directory the build cannot empty',
+  () => {
+    it('should not let a newline in the app root forge a line through the error clean() raised', async () => {
+      // `clean()` runs inside a hook, which kept the message and rebuilt a plain
+      // error from it -- so the file system error reached `escaped()` with no
+      // `syscall` and was read as rolldown's own message
+      const app = linkedFixture(buildable, FORGED);
+      const locked = join(app, 'dist', 'locked');
+      mkdirSync(locked, { recursive: true });
+      writeFileSync(join(locked, 'f'), '');
+      chmodSync(locked, 0o555);
+
+      try {
+        const { code, stderr, stdout } = await build(app, '0');
+
+        expect(code, stderr).toBe(1);
+        for (const out of [stderr, stdout]) {
+          expect(
+            out.split('\n').filter((line) => line.startsWith('forged.ts')),
+            out
+          ).toEqual([]);
+        }
+        expect(stderr).toContain('forge\\x0Aforged.ts');
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    }, 60_000);
+  }
+);
 
 describe('what escaped() does to a message', () => {
   /** What Node raises for a `mkdir` under a root that holds a newline. */

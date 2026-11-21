@@ -1290,7 +1290,12 @@ makes it testable with a fixture directory and no bundler at all.
   `--out` under a file -- which arrives as rolldown's `UNHANDLEABLE_ERROR` with
   the path inside its own multi-line text and is rebuilt by `bundleError()` as an
   `Error` with neither `code` nor `syscall`; nothing in it tells the path's
-  newline from rolldown's. Guarded by `escaped()` in
+  newline from rolldown's. The one that did lose its shape was `clean()`'s, which
+  runs inside a rolldown hook: the hook kept `e.message` and `bundleApp()` threw
+  `new Error(refused)`, so an `rmSync` failure reached `escaped()` with no
+  `syscall` and printed the forged line (found by review). It keeps the error
+  itself now, and a `chmod 555` directory under `dist/` provokes it unprivileged.
+  Guarded by `escaped()` in
   `test/bundle-escape.test.ts` in both directions, and by a spawned build whose
   root holds a newline and a diagnostic-shaped line.
 
