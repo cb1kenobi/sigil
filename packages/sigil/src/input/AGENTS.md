@@ -300,6 +300,58 @@ the entry it belongs to.
   in "a paste whose end marker never arrives", "a start marker with bracketed
   paste off" and "a key held when a paste begins" in `test/input/input.test.ts`.
 
+- **A held key sequence is cut at `HELD_LIMIT`, and read as `ESCAPE_TIMEOUT` would
+  have read it (SIG-439).** `keys()` holds a read that ends where a longer key
+  could continue and joins it to the next, and every read measured the whole of
+  `held + input` again from its start, with nothing bounding `held` the way
+  `PASTE_LIMIT` bounds a paste. So a sequence that stays unfinished across many
+  reads cost the square of its length, with the event loop blocked for all of it.
+  Measured in 1 KiB reads: 100,000 `ESC` bytes took 86ms, 500,000 took 1.2s and
+  1,000,000 took 8s -- all of it `pendingLength()` -- and `ESC [` followed by a
+  million `1`s took 664ms. The `indexOf(PASTE_START)` over `held + rest` in
+  `consume()` re-reads the same tail and is bounded by the same cut. Only garbage
+  on stdin reaches it, such as binary data written into a raw-mode terminal,
+  which is also why nothing a terminal writes is near the figure: the longest
+  legitimate tail is a reply to a query this package sent, a few hundred bytes.
+  SIG-408 made the decoder linear in a run and left this per-read term.
+
+  **The decision is a cap rather than a resumable scan, and what it costs is
+  stated.** The scan could have resumed where the last read stopped, which keeps
+  the key stream identical for every input. It is refused because the reader is
+  not a loop over one state: an `ESC` run, a CSI's parameters, a control
+  string's payload and the Linux console's `ESC [ [` are four resumptions, each
+  of which has to stay in agreement with `decodeKeys()` over the same bytes --
+  the disagreement `pendingLength()` exists to prevent -- and `pendingLength()`
+  is a published export whose signature would have grown a hint. A cap is one
+  comparison, and nothing under it decodes differently: a run of exactly
+  `HELD_LIMIT` `ESC` bytes and an `a` is the one Alt-`a` it always was.
+  `HELD_LIMIT` is 16 KiB of UTF-16 code units, far above any real sequence, and
+  the bound is on the cost _per read_ (what is held plus what the read brought),
+  so a stream of any length is linear in its size.
+
+  **At the cap the tail is released as keys, not dropped and not made text.** A
+  tail longer than `HELD_LIMIT` is read as final, the reading `expire()` gives a
+  tail nothing followed: a run of `ESC` is one Alt-Escape and an unfinished CSI is
+  one `unknown`, each carrying every byte it took in its `sequence`, so nothing
+  is lost and nothing becomes a typed character. This is the precedent
+  SIG-402 set for a paste -- handed over as what it was, with what follows read
+  fresh -- with the difference that a paste is content and this is a key that
+  never finished. The cost is the one `ESCAPE_TIMEOUT` already accepts: a
+  sequence cut where it did not end, so the remainder of a CSI parameter run
+  arrives as keys, typed into a focused field a character at a time. Held rather
+  than released early would make the next read cost the square again, and that
+  trailing run is the garbage the cap exists for. The cut is made by the read
+  that crosses it, so a run arriving in one read larger than the limit is
+  released at once instead of waiting fifty milliseconds.
+
+  Pinned by counting the characters `pendingLength()` is asked to read, summed
+  over every read, in `test/input/held-limit.test.ts`: a count rather than a
+  clock, because a threshold in milliseconds flakes under the load the suite runs
+  in. It asserts the per-read bound, that twice the run costs about twice the work
+  for both a held `ESC` run and a held CSI parameter run, and that the cut
+  changes nothing at the limit and releases one key past it. Sabotaged by
+  removing the cut: five of the eight fail, the key-stream ones among them.
+
 - **A paste is offered to the tree before the router's own handlers, which is
   the mouse's order and not the keys'.** `Element.onPaste` on the focused element
   and then on each ancestor, and `onPaste()` sees what none of them stopped; what

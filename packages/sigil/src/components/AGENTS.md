@@ -4972,9 +4972,10 @@ how the two come to disagree." It is decided, and the answer is no.
   reading of `ESC ESC` -- which is why the doubled Alt is still just Alt rather
   than something a binding could name, and why a trailing `ESC ESC` is still an
   Alt-Escape that `pendingLength()` holds. The decoder is linear in the run now,
-  but `createInput()` is not for a run that arrives over many reads: it holds the
-  tail and calls `pendingLength()` over all of it on each read, which is
-  quadratic in the run and uncapped, and is SIG-439's rather than this entry's.
+  but `createInput()` was not for a run that arrives over many reads: it holds the
+  tail and calls `pendingLength()` over all of it on each read, which was
+  quadratic in the run and uncapped. SIG-439 cut the held tail at `HELD_LIMIT`
+  ("A held key sequence is cut at `HELD_LIMIT`" in `src/input/AGENTS.md`).
   `src/input` has no second copy of the reader: it reads keys through
   `decodeKeys()` and `pendingLength()`, and `parseMouseReport()` and
   `parseCapabilityResponse()` match one whole sequence with a pattern. See
