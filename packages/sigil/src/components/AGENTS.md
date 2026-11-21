@@ -2895,9 +2895,27 @@ it is a component rather than the frame effect SIG-103 is.
   one set is how they come apart. It does not split at a space that carries a
   combining mark or a joiner -- that is one cluster, and `wrap()` reads it as part
   of the word -- and `paragraph()` splits its lines at `\r?\n` as `wrap()` does,
-  since a CRLF blank line arrived as a `\r` word and drew an empty row. Markdown
-  still splits on `\s` in `components/markdown.ts` and so breaks at a no-break
-  space: SIG-441, not done here.
+  since a CRLF blank line arrived as a `\r` word and drew an empty row.
+
+  **Markdown breaks where `wrap()` does too (SIG-441).** It split a run of text on
+  `\s`, so `10&nbsp;seconds` came apart at the no-break space an author writes to
+  prevent exactly that, and the space was lost at the break. It is a registry
+  component and so cannot reach `words()`, which is private; it asks the public
+  `isBreakSpace()` of each blank instead. A blank that is not a space
+  character -- a line break, a form feed, a vertical tab, the line and paragraph
+  separators, a byte order mark -- is still a gap, as `\s` made it, so the
+  drawing never sees a control character glued into a word (`wrap()` keeps those
+  raw; markdown does not, and a lone `\r` is a gap here for the same reason);
+  every space character that `wrap()` does not break at stays in the word beside
+  it. Per blank rather than per run, because a run can
+  mix the two kinds (`' \u00a0 '` is a gap, a word made of the no-break space, and
+  a gap), which a split on `\s+` could not tell apart -- and a published separator-keeping split was
+  refused for the same reason `words()` is private: what `@ttylabs/sigil/wrap`
+  exports freezes at 1.0, and one function already answers the question. A
+  combining mark after a space is not handled: it is a gap and the mark is drawn
+  as it always was, where `wrap()` reads the two as one cluster. `should break only where wrap() does` compares markdown's rows with
+  `wrap()` byte for byte at widths of ten and up -- markdown draws no narrower, and
+  a word wider than a row is cut by each in its own way.
 
   **Only `isBreakSpace()` is public, and it has to be.** Decrypt is a registry
   component: `sigil add` copies it into an app, and `rewrite()` in
@@ -11772,6 +11790,19 @@ construction and not the depth rule; it measured about 35 before against a limit
 of 24, and 6 to 9 after. The lazy lines are measured against the same paragraph
 unquoted, about 40 times before and 2.1 after, against a limit of 10. What is left
 there is the bars, which are drawn on every line.
+
+- **The two growth tests count the layout's `measure` calls and time nothing
+  (SIG-437).** Each failed once in a loaded full-suite run, passing alone, which
+  is a wall clock reading its neighbours. What they guard is how often the layout
+  measures an element, which is a count: `measuringRatio()` wraps every element's
+  `measure` -- a leaf's, since a box has none -- and divides the calls for the large document by the calls for the
+  small one, the same on any machine. Depth 12 to 96 is 6.3 times the calls now
+  and 49.5 on the pre-SIG-423 `markdown.ts`, against a limit of 12; the lazy lines
+  are 1.01 times unquoted and were 53.5, against a limit of 2. Counting calls to
+  the width module was tried first and cannot see this: it was 7.4 times before
+  and after, because the text measure caches by width and the extra cost was in
+  the boxes above it. The parse-time `growth()` tests are left on the clock; they
+  have never failed, and a parse has no call to count.
 
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
