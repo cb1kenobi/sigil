@@ -9,6 +9,7 @@ import {
   type ConfigSchema,
   type ConfigStore,
 } from '../../src/config/index.js';
+import { jsonCanHold } from '../../src/config/represent.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -233,7 +234,7 @@ describe('a layer name with a control character in it', () => {
 
   it('should be escaped when a source is not a file path', () => {
     const errors: string[] = [];
-    const store: ConfigStore = { ...object({}), source: 'https://example.com/x' };
+    const store: ConfigStore = { ...object({}), source: `https://example.com/${HOSTILE}` };
     const config = createConfigSync({
       layers: [{ name: HOSTILE, store }],
       watch: { onError: (e) => errors.push((e as Error).message) },
@@ -244,6 +245,8 @@ describe('a layer name with a control character in it', () => {
 
     expect(errors).toHaveLength(1);
     expectInert(errors[0] as string);
+    // the layer and the source, each escaped
+    expect((errors[0] as string).split(ESCAPED)).toHaveLength(3);
   });
 });
 
@@ -298,5 +301,89 @@ describe('a setting path with a control character in it', () => {
 
   it('should be escaped when a list was declared and a scalar was written', () => {
     expectInert(said(() => build({ [HOSTILE]: { multiple: true } }, { [HOSTILE]: 'b' })));
+  });
+});
+
+describe('every other place a config message echoes a value', () => {
+  it('should escape the path a read-only delete names, beside both layers', () => {
+    const config = createConfigSync({
+      layers: [
+        { name: `${HOSTILE}0`, store: object({ [HOSTILE]: 1 }), readOnly: true },
+        { name: `${HOSTILE}1`, store: object({}) },
+      ],
+    });
+    const refused = said(() => config.delete(HOSTILE));
+
+    expectInert(refused);
+    expect(refused.split(ESCAPED).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('should escape what a store answered when it cannot hold a value', () => {
+    const store: ConfigStore = { ...object({}), canRepresent: () => HOSTILE };
+    const config = createConfigSync({ layers: [{ name: 'base', store }] });
+
+    expectInert(said(() => config.set('a', 1)));
+  });
+
+  it('should escape the layer name when pop() and shift() meet a value that is not a list', () => {
+    const config = one(HOSTILE, { x: 1 });
+
+    expectInert(said(() => config.pop('x')));
+    expectInert(said(() => config.shift('x')));
+  });
+
+  it('should escape the layer name when a store answers with a non-object at save time', () => {
+    let reads = 0;
+    const store: ConfigStore = {
+      ...object({}),
+      readSync: () => ({ value: reads++ === 0 ? {} : [1] }),
+    };
+    const config = createConfigSync({ layers: [{ name: HOSTILE, store }] });
+
+    config.set('a', 1);
+    expectInert(said(() => config.saveSync()));
+  });
+
+  it('should escape the kind of a loss that has no line', () => {
+    const store: ConfigStore = {
+      ...object({}),
+      readSync: () => ({ value: {}, wouldLose: [{ kind: HOSTILE }] }),
+    };
+    const config = createConfigSync({ layers: [{ name: 'base', store }] });
+
+    config.set('a', 1);
+    expectInert(said(() => config.saveSync()));
+  });
+
+  it('should escape the prefix overlay() finds is not an object', () => {
+    expectInert(
+      said(() => overlay({ [HOSTILE]: 1 }, { [HOSTILE]: { k: 1 } }, [`${HOSTILE}.k`], 'file'))
+    );
+  });
+
+  it('should escape the layer name when a value refers back to itself', () => {
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+
+    expectInert(said(() => one(HOSTILE).apply(HOSTILE, cycle)));
+  });
+
+  it('should escape the layer name when a value holds an unsafe key', () => {
+    expectInert(said(() => one(HOSTILE).apply(HOSTILE, JSON.parse('{"__proto__":{}}'))));
+  });
+
+  it('should escape the label of a hole in a list JSON cannot write', () => {
+    // eslint-disable-next-line no-sparse-arrays
+    expectInert(String(jsonCanHold({ [HOSTILE]: [1, , 2] }, '')));
+  });
+
+  it('should escape the layer name when a setting refuses what a layer holds', () => {
+    const config = (): Config =>
+      createConfigSync({
+        layers: [{ name: HOSTILE, store: object({ port: 'text' }) }],
+        schema: { port: { type: 'int' } },
+      });
+
+    expectInert(said(config));
   });
 });

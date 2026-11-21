@@ -1770,19 +1770,40 @@ failed to close.
   `canRepresent()` answered -- with `escapeControls()` inside the placeholder where
   the message is built, so a `__` key is the same string it was.
 
-- **Every site, in four files.** `config.ts` (the mutators' refusals, the layer
+- **Every site, in five files.** `config.ts` (the mutators' refusals, the layer
   lookup and the names it lists, `save()`'s, `apply()`'s, the layer declaration
-  checks, the unrepresentable value, the read-only `delete()` and the losses), `dotted.ts`
-  (an invalid path, which is what the mutators call first), `merge.ts`
-  (`overlay()` and `copyValue()` escape the `where` they are handed, so a caller
-  hands over a raw name and the escape is one place rather than each caller's), and
-  `schema.ts` (six `Setting "${path}"` refusals, the type, and `settingLabel()`,
-  which is the one spelling of `setting "${path}"` that six sites used to write). `atPath()` in
-  `represent.ts` escapes the dotted path it appends, which is built from a value's
-  own keys and is what every store's `canRepresent()` returns. Escaping is
+  checks, the unrepresentable value and what the store answered, the read-only
+  `delete()` and the losses' `kind` and `detail`), `dotted.ts` (an invalid path,
+  which is what the mutators call first), `merge.ts` (`overlay()` and
+  `copyValue()` escape the `where` they are handed, so a caller hands over a raw
+  name and the escape is one place rather than each caller's), `schema.ts` (six
+  `Setting "${path}"` refusals, the type, and `settingLabel()`, the one spelling
+  of `setting "${path}"` that six sites used to write) and `represent.ts`
+  (`atPath()` and the hole label, built from a value's own keys). Escaping is
   idempotent -- the output holds no character it escapes -- so a message that
   passes through two of these is not doubled, and `claim()` no longer escapes
   `source` itself because `overlay()` does.
+
+- **The stores escape the answer a refusal quotes, where they throw it.** A
+  store's `canRepresent()` answer is built from a value's own keys, and `apply()`
+  then `save()` reaches the store's `write()` with no early check in front of it,
+  so `Cannot write ${source}: ${ok}` escapes `ok` in all three stores -- core's
+  `json()`, `@ttylabs/config-xml` and `@ttylabs/config-yaml` -- rather than trusting
+  every `look()` in every store to have escaped its labels. `config-yaml`'s
+  `write.ts` names the key path in seven refusals (`Cannot write` and `Cannot
+  remove` over an alias, an anchor, a merge key and a tag) and escapes it, the
+  anchor's path, the tag and the value. Tested by a `message-escape.test.ts` in
+  each of the two packages, over an ordinary file name, so they run on Windows.
+
+- **Two escapes are defence rather than a fix, and no test can fail them.** The
+  segment in `Invalid config path ... is not a safe key` and the key in
+  `Unsafe config key` are only echoed when `isUnsafeKey()` is true, so the value
+  is one of three fixed identifiers. They are escaped so that the rule has no
+  exception to remember. Likewise `merge.ts` escapes a `where` that is sometimes
+  `settingLabel()`'s translated phrase: a catalog whose translation of `setting
+  "{0}"` holds a zero-width non-joiner would print `\u{200C}` there, in the one case
+  where a setting's `default` or environment value holds a cycle or an unsafe key.
+  Accepted rather than split into two code paths.
 
 - **What stays unescaped is not a value.** `Cannot ${what} without a path` is the
   mutator's own name, and the message text that comes back from `checkValue()` in
@@ -1791,12 +1812,16 @@ failed to close.
 
 - **Tested by `test/config/message-escape.test.ts`**, in memory with no file
   system name in it, so it runs on every platform: a key path through `set()`,
-  `push()`, `unshift()`, `pop()`, `shift()`, `overlay()` and `atPath()`; a layer
-  name through a duplicate, an unknown layer and the names listed beside it,
-  `apply()`, `save()`, a read-only write and `delete()`, an unrepresentable value
-  and a loss; a setting path through every `readSchema()` refusal and the two
-  value refusals. Sabotaged by reverting the source and leaving the tests: all 35
-  fail.
+  `push()`, `unshift()`, `pop()`, `shift()`, `delete()`, `overlay()` and
+  `atPath()`; a layer name through a duplicate, an unknown layer and the names
+  listed beside it, `apply()`, `save()`, a read-only write and `delete()`, an
+  unrepresentable value, a loss, a cycle and an unsafe key; a setting path through
+  every `readSchema()` refusal and the value refusals. **Sabotaged site by site**:
+  each added `escapeControls(` call was replaced by `String(` in turn and the file
+  run, and every one fails a test but the two defence escapes above and SIG-551's
+  own `escapeControls(at)` on a non-file source, which this file now pins as well.
+  A whole-source revert alone is a weaker check than that, since one test can
+  fail for several sites at once.
 
 #### What the write half costs
 
