@@ -3936,6 +3936,72 @@ none of these three is that. The measurement scripts are worth re-running before
 anybody revisits it, because two of the three numbers are facts about other
 people's software and will move.
 
+- **A reader that goes away ends a command's output quietly, and the listener is
+  on the schema rather than in each command** (SIG-537). `sigil add | head -1`
+  exited 1 every time with Node's unhandled-error dump: `head` quits at its
+  line, the next write fails `EPIPE`, and an `error` event on a stream with no
+  listener is an uncaught exception. `check`, `reference` and `--help` only
+  looked safe because their output finishes before `head` closes the pipe; any
+  command whose output grows had it. The commands write to `process.stdout` and
+  `process.stderr` directly, at about three dozen references, so the guard is one
+  `beforeParse` hook on `schema()` in `src/index.ts` that puts a listener on both
+  streams, and a hook rather than a call in `run()` because the built executable
+  never reaches `run()` (the same reason `settings` lives on the schema). A
+  command added next year is covered without anybody remembering to. What counts
+  as the reader leaving is `@ttylabs/sigil/terminal`'s `isStreamGone()`, the one
+  the terminal's own listener asks, and nothing here spells `EPIPE` -- which is
+  also what puts `EOF`, Windows's name for the same condition, on the list once
+  for both. `--version`, which `run()` answers before the schema exists, calls
+  the same function.
+
+  **The behaviour is the runtime's: stop noticing, do not stop the command.**
+  Later writes land nowhere, nothing is printed, and the exit code is whatever
+  the command's own result was -- `0` for a listing, `1` for a failed `check`,
+  never `141`. A command that quits early would have to decide what "early"
+  means for a build that is half way through writing files, and the runtime
+  made the same call for the same reason. The listener is attached once per
+  stream per process and never taken off, unlike a terminal's: a terminal
+  outlives a command and a bin does not, and the `EPIPE` for the last write
+  arrives after `main()` has resolved.
+
+  **Only the reader leaving is quiet, and the terminal's listener is not the one
+  to copy for that.** The terminal swallows every `error` event, which is right
+  for best-effort output and wrong here: the first version of this reused that
+  listener, and `ulimit -f 1; sigil add > out` -- `EFBIG` -- went from exit 1 to
+  **exit 0 over a cut-off file** (round 1). The toolchain's listener throws
+  whatever `isStreamGone()` does not call the reader leaving, which is the
+  uncaught exception it was before the guard. `guardGone()` was exported for this
+  in that first version and is not any more: with a throwing listener it was a
+  second, no-op listener, and a published contract of "swallows everything" is
+  the footgun that produced the bug. Not covered, measured in round 2: a **short
+  write** raises no `error` at all, so `sigil reference app > out` under
+  `ulimit -f 1` still exits 0 over 1,024 of its 2,276 bytes. That is the same on
+  `main` -- the document is one `write()` -- so it is not a regression and not
+  this ticket's, and `add`, which writes in several pieces, is the case that
+  reaches `EFBIG`.
+
+  **"Before any command writes a byte" has one exception, which is `DEBUG`.** The
+  hook is the first thing `main()` fires once the schema is built, and a
+  `DEBUG=*` trace of schema init (`sigil:init-command`) is written before that.
+  Measured: ten debug lines on stdout before any listener exists. No failure was
+  reproduced -- the `EPIPE` event arrives after the hook -- so it is a window and
+  not a bug, and a debug trace is what a person asks for with a terminal in front
+  of them.
+
+  `test/closed-pipe.test.ts` spawns both `src/sigil.ts` and the built
+  `dist/sigil.mjs` and **closes the read end itself** the moment the child
+  exists, rather than racing a `head`: node has not started yet, so every write
+  meets a reader that is gone. The cases that write into a closed stream (`add`
+  and `check --tree` into stdout, `check` into stderr) fail on both entries with
+  the hook removed; the case where a failing command keeps its own exit code
+  does not, since an uncaught `EPIPE` also gives 1, so it pins the rule rather
+  than the guard. The `ENOSPC` and `EFBIG` rethrow is an in-process case that
+  emits the error on the worker's own streams and takes its listeners off again.
+  Not covered, and said so: the close here is before the first write, so it
+  proves every write is safe but not that a write racing the close is. Windows is
+  unmeasured -- an `EPIPE` there can arrive as `EOF`, which is in the set for
+  that reason -- and the three Windows jobs are the check.
+
 ### `sigil new`
 
 - **The scaffold's `tsconfig.json` is not boilerplate.** `lib: ["esnext"]` and

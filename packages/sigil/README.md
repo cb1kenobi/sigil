@@ -2828,6 +2828,27 @@ head -1` closes the pipe the instant `head` has its line, and an `EPIPE` with
 no listener is an uncaught exception. After that `terminal.closed` is `true`
 and writes are no-ops.
 
+A program that writes to `process.stdout` itself, with no terminal to go
+through, needs a listener of its own, and `isStreamGone()` is what it asks:
+
+```js
+import { isStreamGone } from '@ttylabs/sigil/terminal';
+
+process.stdout.on('error', (err) => {
+  // `mycli list | head -1` is a command that finished, not a stack trace; a
+  // full disk (`ENOSPC`) is still a failure
+  if (!isStreamGone(err)) {
+    throw err;
+  }
+});
+
+isStreamGone(err); // `EPIPE`, `EOF`, `ERR_STREAM_DESTROYED` or `ERR_STREAM_WRITE_AFTER_END`
+```
+
+The terminal's own listener swallows every error, since its output is
+best-effort, and leaves the exit code alone; a program with output that must not
+be cut short silently rethrows as above.
+
 `width` is deliberately **uncapped**, unlike `terminalWidth()`, which stops at
 `MAX_WIDTH`: that cap is a readability limit on generated prose, while this is
 the real screen, and cursor math needs the real number.
