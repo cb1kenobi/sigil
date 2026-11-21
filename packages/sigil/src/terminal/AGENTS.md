@@ -424,3 +424,33 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   input has its own listener and never asks. Unmeasured on a Windows machine --
   `terminal.test.ts` pins that the set holds it and `packages/cli`'s
   `closed-pipe.test.ts` is the end-to-end check.
+
+- **`Terminal.width` asks a live TTY before it reads `COLUMNS`, and `terminalWidth()`
+  still reads `COLUMNS` first** (SIG-404). Both are right, for different streams.
+  `COLUMNS` is how a caller states a width when the stream cannot be asked -- a
+  pipe, a file, a test with no pseudo-terminal -- and `terminalWidth()` documents
+  it as first because its readers are prose: help, a rule, a note, wrapped text,
+  where `COLUMNS=60 mycli --help` is a user asking for narrower output. A
+  `Terminal` is the other thing, the screen a canvas is sized to and a live
+  region's erase arithmetic counts rows against. An exported `COLUMNS` (GNU
+  `watch`, an Emacs shell, some rc files) is whatever the shell last said, so read
+  first it answered 80 for a 120-column window, and answered 80 again after every
+  resize, because the resize event re-asks the same function. So `createTerminal()`
+  passes `streamFirst: isTTY` and a TTY that reports a positive `columns` is
+  believed; `COLUMNS` is the answer for one that reports none, and for every
+  stream that is not a TTY. `isTTY` is the terminal's own -- the `isTTY` option
+  over the stream's -- so one decision is made in one place. Nothing was
+  removed, and what moved is narrow: the testing helpers set `COLUMNS` and the
+  stream's `columns` to the same number (`runOnTerminal()`), so they agree, but an
+  explicit `env.COLUMNS` handed to a faked TTY -- `createTestTerminal({ columns:
+  40, env: { COLUMNS: '60' } })`, or `runOnTerminal()`'s `env` over its own -- no
+  longer moves that terminal's `width`, which is the stream's `columns` like a
+  real one's. `terminalWidth()` in the same process still reads it. No test did
+  either. The cost is that a live TTY reporting a wrong positive width (a serial
+  console, a `docker exec -t` stuck at 80x24) can no longer be corrected through
+  `COLUMNS` for the canvas and prompts, while help, `rule`, `note` and the other
+  prose readers still honour it: one process, two widths, on purpose, since the
+  screen is the stream's to say and the prose is the user's. `terminalWidth()`
+  itself is unchanged by default: it gained the `streamFirst` option and nothing
+  else. Covered by `size` in
+  `test/terminal/terminal.test.ts`, which pins both streams.

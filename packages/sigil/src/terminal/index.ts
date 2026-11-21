@@ -275,7 +275,9 @@ export interface Terminal {
   readonly stdin: InputStream | undefined;
   readonly stdout: OutputStream;
   /**
-   * Columns, from `COLUMNS`, then the stream, then 80.
+   * Columns. A terminal that is a TTY and reports a width answers for itself,
+   * then `COLUMNS`, then 80. Any other stream reads `COLUMNS` first, then its own
+   * `columns`, then 80.
    *
    * Uncapped, unlike `terminalWidth()`, which stops at `MAX_WIDTH` because a
    * line of prose is hard to read much past it. That cap is about generated
@@ -346,7 +348,18 @@ export function createTerminal(opts: TerminalOptions = {}): Terminal {
     // `max: Infinity` because the cap `terminalWidth()` applies by default is a
     // readability limit on generated prose, and this is the width of the actual
     // screen -- erasing a wrapped line needs the real number
-    return terminalWidth({ env, fallback: DEFAULT_WIDTH, max: Infinity, stream: stdout });
+    //
+    // a live terminal answers for itself, and `COLUMNS` is only what is left
+    // when it does not: an exported `COLUMNS` is whatever the shell last said,
+    // and it would otherwise outlive every resize. A stream that is not a
+    // terminal has nothing to ask but the variable, which is its job there
+    return terminalWidth({
+      env,
+      fallback: DEFAULT_WIDTH,
+      max: Infinity,
+      stream: stdout,
+      streamFirst: isTTY,
+    });
   }
 
   function height(): number {
