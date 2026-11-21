@@ -55,13 +55,21 @@ export interface NpmCheckerOptions {
   readonly distTag?: string;
   /** The package to ask about. */
   readonly packageName: string;
-  /** The registry to ask, which defaults to npm's. */
+  /**
+   * The registry to ask, which defaults to npm's: an absolute `https://` URL,
+   * with a path if the registry has one and no credentials, query or fragment.
+   * Anything else throws a `TypeError`.
+   */
   readonly registryURL?: string;
 }
 
 /** What `githubChecker()` is given. */
 export interface GithubCheckerOptions {
-  /** The API root, for an enterprise host. Defaults to `api.github.com`. */
+  /**
+   * The API root, for an enterprise host. Defaults to `api.github.com`. An
+   * absolute `https://` URL, keeping its path (`https://host/api/v3`), with no
+   * credentials, query or fragment. Anything else throws a `TypeError`.
+   */
   readonly apiURL?: string;
   /**
    * `owner/name`, each half in the characters GitHub allows: letters, digits,
@@ -126,16 +134,22 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
 }
 
 /**
- * The part of a message that is the user's own spelling of a URL, with
- * whatever sits before an `@` in its authority replaced, so that a refusal
- * never prints a password.
+ * A URL as a refusal may quote it: nothing after the first `?` or `#`, and
+ * nothing up to the last `@`, so a refusal never prints a password or a token.
  *
- * Matched on the raw string and loosely -- anything up to a `:`, the slashes
- * after it, then a run with no separator in it that ends in `@` -- because the
- * value being echoed is one the URL parser may have refused, and a parser that
- * refused it cannot be asked where the credentials were.
+ * Deliberately cruder than the grammar. The value is one the parser may have
+ * refused, and a parser that refused it cannot say where the credentials were:
+ * `https://u:pa/ss@h` reads as a host `u` and a port `pa`, and a token with no
+ * scheme in front of it is no URL at all. So both cuts are by character, on the
+ * raw string -- the query first, so that an `@` inside one cannot move the
+ * second cut -- which also hides a legitimate `@` in a path. That is a refusal
+ * message losing a little detail, and the other direction is a secret in a log.
  */
-const credentialsRE = /^([^/\\?#@]*:[/\\]*)[^/\\?#]*@/;
+function redact(value: unknown): string {
+  return String(value)
+    .replace(/([?#])[\s\S]*$/, '$1***')
+    .replace(/^[\s\S]*@/, '***@');
+}
 
 /**
  * Validates the root an update check's URL is built on, and returns it
@@ -167,7 +181,7 @@ function rootURL(value: unknown, label: string): string {
   const refuse = (): never => {
     throw new TypeError(
       `Update check ${label} must be an absolute https:// URL with no credentials, query or ` +
-        `fragment, got "${escapeControls(String(value).replace(credentialsRE, '$1***@'))}"`
+        `fragment, got "${escapeControls(redact(value))}"`
     );
   };
 

@@ -46,6 +46,7 @@ export interface CheckOptions {
   notifyInterval?: number;
   packageName: string;
   packageVersion: string;
+  /** An absolute `https://` URL; anything else makes `check()` reject with a `TypeError`. */
   registryURL?: string;
   timeout?: number;
   wait?: boolean;

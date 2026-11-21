@@ -447,6 +447,20 @@ describe('updates', () => {
           'https:\\\\user:hunter2@h\\api',
           'user:hunter2@h/api',
           'ht\ttps://user:hunter2@h/api',
+          // a separator inside the password: the parser reads the userinfo as a host
+          'https://u:hun/ter2@h/',
+          'https://u:hunter2@h/\u0000',
+          'https://u:hun?ter2@h/',
+          'https://u:hun#ter2@h/',
+          // no colon before it, and no scheme
+          'hunter2@github.example.com/api/v3',
+          '//u:hunter2@h/',
+          '\\\\u:hunter2@h',
+          'https://u@x:hunter2@h/',
+          // a secret in the query or the fragment
+          'https://npm.example.com/?_authToken=hunter2',
+          'https://npm.example.com/#hunter2',
+          'https://npm.example.com/?a=1@b#hunter2',
         ]) {
           const message = messageOf(apiURL);
           expect(message, JSON.stringify(apiURL)).to.contain('must be an absolute https:// URL');
@@ -454,7 +468,8 @@ describe('updates', () => {
           expect(message, JSON.stringify(apiURL)).to.not.match(/\p{Cc}/u);
         }
         // and what is left of it is still enough to find the value by
-        expect(messageOf('https://user:hunter2@h/api')).to.contain('got "https://***@h/api"');
+        expect(messageOf('https://user:hunter2@h/api')).to.contain('got "***@h/api"');
+        expect(messageOf('https://h/api?token=hunter2')).to.contain('got "https://h/api?***"');
       });
     });
 

@@ -73,11 +73,28 @@ the entry it belongs to.
   - **Credentials are refused, and never printed.** A password in the URL would
     travel in the worker's environment and a process listing, and a token
     belongs in a header. Refusal is the simple half; the other is that the
-    message echoes the value and a password must not reach a terminal or a log,
-    so what precedes an `@` in the authority is replaced with `***` before
-    `escapeControls()` -- on the raw string and loosely, since the value being
-    echoed may be one the parser refused and so cannot say where the credentials
-    were. Everything else echoed goes through `escapeControls()` like `repo`.
+    message echoes the value and a secret must not reach a terminal or a log.
+    `redact()` cuts by character on the raw string, not by grammar: everything
+    after the first `?` or `#`, then everything up to the last `@`. The first
+    grammar-shaped attempt (what precedes an `@` after a `scheme:`) was beaten by
+    review with a `/` or `?` inside the password -- the parser reads
+    `https://u:pa/ss@h` as a host and a port, so it is refused and the secret
+    sat past where the pattern stopped -- and by a token with no scheme at all.
+    A value that is refused is one the parser cannot be asked about. The price is
+    that a legitimate `@` in a path is hidden in a refusal, which is a message
+    losing detail rather than a log gaining a secret. Everything echoed goes
+    through `escapeControls()` as `repo` does.
+  - **`check()` rejects on a bad `registryURL`, where it used to resolve.** It
+    builds an `npmChecker()`, which now throws, so `await check({ registryURL })`
+    with an `http://` or empty value rejects with the `TypeError` rather than
+    resolving `{ latest: undefined }` after a failed request. That is the same
+    treatment `check()` already gives a bad `packageName`, `packageVersion` or
+    `distTag`, and the request it used to make could not have succeeded -- the
+    worker refuses anything but `https`. The automatic path (`auto.ts`) catches
+    and logs it, and `sigil check`, `build` and `package` report it as a
+    diagnostic; only a hand-called `check()` with an environment-supplied
+    registry and no `catch` is newly exposed, and the refusal names `registryURL`
+    even where `sigil.json` spelled it `registry`.
   - **Not a string is the same refusal** (`undefined` is the default only for
     `apiURL`; `null`, a number and an object are refused).
 
