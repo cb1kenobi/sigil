@@ -8573,7 +8573,10 @@ Or say it in `sigil.json`, where the build bakes it into what it emits and your
 `prefix` defaults to `v` and is stripped off the release tag, because `v1.2.3`
 against an app version of `1.2.3` would report an update forever. `path` is the
 sequence of keys the version sits under in the response, as a list rather than
-a dotted string so a key may contain a dot.
+a dotted string so a key may contain a dot. A `repo` is `owner/name` and each
+half has to be a name GitHub allows -- letters, digits and `-` and `_` in the
+owner, and those plus `.` in the name, never `.` or `..` alone -- so a repo with
+a space or a newline in it is refused rather than asked about.
 
 Or pass one in code, which beats whatever is baked in:
 

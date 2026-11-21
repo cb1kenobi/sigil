@@ -195,6 +195,62 @@ describe('updates', () => {
       }
     });
 
+    // SIG-541: the count of parts was the whole of the check, so a name GitHub
+    // could never have given reached the request path and came back a 404 the
+    // check swallows
+    it('should refuse a repo with a character GitHub does not allow in a name', () => {
+      for (const repo of [
+        'o/n\nx',
+        'o\n/n',
+        'o /n',
+        ' o/n',
+        'o/ n',
+        '\no/n',
+        'o/n x',
+        'o/n\t',
+        'my org/my repo',
+        'o/n?x=1',
+        'o/n#x',
+        'o/n%2Fx',
+        'o@x/n',
+        'o.x/n',
+        'ö/n',
+        'o/ñ',
+        'o/n\u200b',
+        'o/n\n',
+      ]) {
+        expect(() => githubChecker({ repo }), JSON.stringify(repo)).to.throw(
+          /must be "owner\/name"/
+        );
+      }
+    });
+
+    it('should refuse a repository named . or .., which are path segments and not names', () => {
+      for (const repo of ['o/.', 'o/..']) {
+        expect(() => githubChecker({ repo }), repo).to.throw(/must be "owner\/name"/);
+      }
+    });
+
+    it('should take every name the class allows, including the odd shapes real ones have', () => {
+      for (const repo of [
+        'a/b',
+        'acme/mycli',
+        'Some-Org/my.repo_1',
+        'octocat_acme/tool',
+        '0xabc/9',
+        'o/.github',
+        'o/-x',
+        'o/a..b',
+        'o/...',
+        'o/x.git',
+      ]) {
+        const [owner, name] = repo.split('/');
+        expect(githubChecker({ repo }).url, repo).to.equal(
+          `https://api.github.com/repos/${owner}/${name}/releases/latest`
+        );
+      }
+    });
+
     it('should not quote a repo with a control character in it as it was written', () => {
       // `repo` comes from `sigil.json`, and the refusal is printed as it stands:
       // an escape sequence would rename the window, a newline forge a line

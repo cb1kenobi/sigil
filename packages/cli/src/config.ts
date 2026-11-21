@@ -138,7 +138,7 @@ export interface UpdateCheckConfig {
   readonly prefix?: string;
   /** `npm`: the registry to ask. Defaults to npm's. */
   readonly registry?: string;
-  /** `github`: the repository, as `owner/name`. */
+  /** `github`: the repository, as `owner/name`, in the characters GitHub allows. */
   readonly repo?: string;
   /**
    * Which kind of check this is.

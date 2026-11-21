@@ -63,7 +63,11 @@ export interface NpmCheckerOptions {
 export interface GithubCheckerOptions {
   /** The API root, for an enterprise host. Defaults to `api.github.com`. */
   readonly apiURL?: string;
-  /** `owner/name`. */
+  /**
+   * `owner/name`, each half in the characters GitHub allows: letters, digits,
+   * `-` and `_` in the owner, and those plus `.` in the name, which is never
+   * `.` or `..`.
+   */
   readonly repo: string;
   /**
    * The tag prefix to strip, which defaults to `v`.
@@ -103,6 +107,16 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
 }
 
 /**
+ * What an owner is made of: letters, digits and hyphens, and the underscore an
+ * enterprise managed user's login carries (`octocat_acme`), which is a valid
+ * owner of a repository and which the looser reading would have refused.
+ */
+const ownerRE = /^[A-Za-z0-9_-]+$/;
+
+/** What a repository's name is made of: letters, digits, `.`, `-` and `_`. */
+const repoNameRE = /^[A-Za-z0-9._-]+$/;
+
+/**
  * Asks GitHub for a repository's latest release.
  *
  * The answer to "my app is a binary people download from the releases page",
@@ -110,7 +124,8 @@ export function npmChecker(opts: NpmCheckerOptions): UpdateChecker {
  *
  * @param opts - The repository, the API root and the tag prefix.
  * @returns The checker.
- * @throws If the repository is not `owner/name`.
+ * @throws If the repository is not `owner/name`, or either half is not a name
+ * GitHub allows.
  */
 export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   const { apiURL = defaultApiURL, prefix = 'v', repo } = opts;
@@ -120,8 +135,23 @@ export function githubChecker(opts: GithubCheckerOptions): UpdateChecker {
   // answer to that is a 404 the check swallows rather than an error anybody
   // sees. Checked here, where a test can reach it, for the reason the registry
   // URL is built here rather than in the worker
+  //
+  // Each half also has to be a name GitHub could have given, so the characters
+  // are checked as well as the count: a newline or a space went into the
+  // request path and produced the same swallowed 404 (SIG-541). The classes
+  // are ASCII spelled out, since GitHub's names are and a Unicode-aware `\w`
+  // would not be. `.` and `..` as a whole repository name are refused: both
+  // are in the class, neither is a name, and `..` is a path segment the URL
+  // resolves away. Length, and a leading, trailing or doubled hyphen, are
+  // left to GitHub, which still holds legacy accounts that break each
   const parts = repo.split('/');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+  if (
+    parts.length !== 2 ||
+    !ownerRE.test(parts[0]!) ||
+    !repoNameRE.test(parts[1]!) ||
+    parts[1] === '.' ||
+    parts[1] === '..'
+  ) {
     throw new TypeError(`Update check repo must be "owner/name", got "${escapeControls(repo)}"`);
   }
 

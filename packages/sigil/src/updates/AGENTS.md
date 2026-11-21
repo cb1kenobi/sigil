@@ -22,6 +22,27 @@ the entry it belongs to.
   verified by hand against the real endpoint, never from the suite -- but
   `registryURL` is the caller's, and a self-hosted registry behind a
   path-normalizing proxy owes nothing.
+- **A `repo` is `owner/name` in the characters GitHub allows, and the owner
+  may hold an underscore (SIG-541).** The rule was two non-empty parts on a
+  `/`, so `o/n\nx` and `o /n` were accepted, encoded into a request path that
+  names no repository, and answered with a 404 the check swallows -- the silent
+  miss the check exists to stop. Each half is now matched against an ASCII
+  class: letters, digits, `-` and `_` for the owner; letters, digits, `.`, `-`
+  and `_` for the name, with `.` and `..` refused as a whole name because both
+  are in the class and are path segments. ASCII spelled out, not `\w` or
+  `\p{L}`, since GitHub's names are. The ticket asked for letters, digits and
+  hyphens in the owner; the underscore is added because an enterprise managed
+  user's login is `name_shortcode` and owns repositories, so the stricter rule
+  would refuse a real owner. What is **not** enforced is GitHub's own owner
+  grammar -- no leading, trailing or doubled hyphen, and a length -- because
+  GitHub still holds legacy accounts that predate it, and a check that refuses
+  a real owner is worse than one that lets a 404 through for an odd one. The
+  message is the one it always was, escaped by `escapeControls()`. One
+  function, so `check`, `build` and `package` all refuse it through
+  `bakedUpdateCheck()`. The grammar is GitHub's even under `apiURL`, which is
+  documented for an enterprise host: a Gitea-style forge that allows a dot in an
+  owner is refused by it, and that is deliberate rather than an oversight. See
+  `test/updates.test.ts`.
 - **The cache filename was a collision, not a broken write.** Worth saying plainly,
   because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
   a file in a directory nobody created, and that is not what happened: `check()`

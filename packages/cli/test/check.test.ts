@@ -352,6 +352,26 @@ describe('sigil check', () => {
       expect(process.exitCode).toBe(1);
     });
 
+    it.each([
+      ['a newline', 'o/n\nx'],
+      ['a space in the owner', 'o /n'],
+      ['a space in the name', 'o/n x'],
+      ['a name that is a path segment', 'o/..'],
+    ])('should refuse a github repo with %s, which cannot be a repository', async (_name, repo) => {
+      // SIG-541: two non-empty parts was the whole of the rule, so each of
+      // these was accepted and then asked GitHub for a 404 the check swallows
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({ updateCheck: { repo, type: 'github' } })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Update check repo must be "owner/name"');
+      expect(process.exitCode).toBe(1);
+    });
+
     it('should fail on a file that is not JSON, as a diagnostic and not a stack', async () => {
       const dir = app();
       writeFileSync(join(dir, 'sigil.json'), '{ "build": ');
