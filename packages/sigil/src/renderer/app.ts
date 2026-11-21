@@ -597,10 +597,25 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   /** Whether `render()` is on the stack, which is when a report has nowhere to go yet. */
   let rendering = false;
   /**
-   * Whether stdin failed under the app -- the one failure the renderer does not
-   * know about, so it is kept here beside `view.failed`, which is the other.
+   * Whether the input failed under the app -- stdin erroring, or a handler a key,
+   * a mouse report, a paste or a resize reached throwing -- the failures the
+   * renderer does not know about, so it is kept here beside `view.failed`, which
+   * is the other.
    */
-  let stdinFailed = false;
+  let inputFailed = false;
+  /**
+   * What the first handler of the app's that threw, threw -- held until the screen
+   * is back, which is where `finish()` reports it. Boxed, because a handler may
+   * throw `undefined`.
+   */
+  let handlerFailure: { error: unknown } | undefined;
+  /**
+   * What the router's `stop()` threw when a failed handler let it go -- its
+   * `onEnd()` handlers, which it raises -- and the stream error it told them of.
+   * Kept for `finish()` beside `handlerFailure`, because by the teardown the router
+   * is already stopped and would say nothing again.
+   */
+  const stopFailures: unknown[] = [];
   let code = 0;
   /** The runner's ring, once it is installed. `undefined` where nothing is captured. */
   let logs: LogRing | undefined;
@@ -891,7 +906,13 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
         thrown.push(...(error instanceof AggregateError ? error.errors : [error]));
       }
     }
-    const final = stdinFailed || view?.failed === true ? EXIT_FAILED : code;
+    // the handler's own failure goes first, as the one that ended the app, and
+    // after the steps above so that it is written to a screen that is back
+    thrown.unshift(...stopFailures);
+    if (handlerFailure !== undefined) {
+      thrown.unshift(handlerFailure.error);
+    }
+    const final = inputFailed || view?.failed === true ? EXIT_FAILED : code;
     // the console goes back after the teardown rather than before it, so that a
     // cleanup which logs is captured like everything else rather than drawn over
     // a screen that is on its way out
@@ -1023,6 +1044,31 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     mouse: mouse
       ? { motion: mouse !== true && mouse.motion === true, surface: lateSurface(() => view) }
       : undefined,
+    // a handler of the app's that throws is a failure like a frame that throws:
+    // the terminal is given back and then it is reported, and the app ends with 1.
+    // Held for `finish()` rather than reported here, because a handler runs on the
+    // alternate screen and a custom `onError` that writes would draw there. The
+    // router is let go of at once rather than at the teardown a microtask away, so
+    // that the rest of the read does not run more of an app that has failed -- the
+    // renderer's own rule, that the first failure ends the loop. Only the first is
+    // reported: what follows it is the same app, past the point of being asked
+    onError: (error) => {
+      if (inputFailed) {
+        return;
+      }
+      inputFailed = true;
+      handlerFailure = { error };
+      app.exit(EXIT_FAILED);
+      // `stop()` runs the `onEnd()` handlers and raises what they threw, and an
+      // `onError` that throws is not caught again -- it would leave the data
+      // listener as an uncaught exception, on the alternate screen. Kept and
+      // reported once the screen is back, after the handler's own failure
+      try {
+        router.stop();
+      } catch (error) {
+        stopFailures.push(...(error instanceof AggregateError ? error.errors : [error]));
+      }
+    },
     paste: opts.paste,
     root: host,
     stdin,
@@ -1058,7 +1104,15 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       app.exit(EXIT_HUNG_UP);
       return;
     }
-    stdinFailed = true;
+    inputFailed = true;
+    // told from inside the `stop()` a failed handler's `onError` called, for a
+    // stream that failed in the same read: kept with what that `stop()` threw, so
+    // that it is said once the screen is back and after the failure that ended
+    // the app, rather than to a custom `onError` over the alternate screen
+    if (handlerFailure !== undefined) {
+      stopFailures.push(error);
+      return;
+    }
     report(error);
     app.exit(EXIT_FAILED);
   });

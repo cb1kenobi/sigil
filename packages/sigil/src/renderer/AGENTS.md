@@ -1349,6 +1349,27 @@ it.
   over the same dead stdin chooses its own code. A
   signal is the terminal's own restore handlers, as it always
   was; the runner adds none.
+- **A handler of the app's that throws is a failure like a frame that throws
+  (SIG-524).** A key, a mouse report, a paste, a resize or a sequence's deadline
+  reaches app code from the router's `data` listener, where a throw was an
+  uncaught exception over the alternate screen. The router hands it to the
+  `onError` that `runApp()` gives it, and the app ends the way a failed frame ends
+  it: `exited` settles 1, whatever `exit()` had latched, and the error is reported
+  once the screen is back -- by `finish()`, after the teardown, with what the
+  teardown threw -- rather than from inside the handler, so that a custom
+  `onError` that writes does not draw on the alternate screen. The router is
+  stopped at once rather than at the teardown a microtask away, so the rest of the
+  read runs none of an app that has failed, and only the first failure is
+  reported: it is the renderer's rule that the first failure ends the loop. It
+  shares `inputFailed` with stdin ending in an error, the other failure the
+  renderer does not know of. The router's half is under "A handler that throws is
+  the router's to catch" in `src/input`. Stopping the router there can itself
+  throw: for a stream failure still on its way, `stop()` tells the `onEnd()`
+  handlers and raises what they threw, and an `onError` that throws is not caught
+  again, so that throw would have left the `data` listener as the very exception
+  this is for. So it is caught and kept, with the stream error those handlers were
+  told of, and `finish()` reports both after the failure that ended the app --
+  opened up if several handlers threw, as the teardown's are.
 - **The teardown is the renderer, the router, then `restore()`.** The router is the
   half `restore()` cannot do -- raw mode comes back through either, but a `data`
   listener left on stdin holds the process open after the last frame -- and

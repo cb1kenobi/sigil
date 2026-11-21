@@ -446,6 +446,46 @@ the entry it belongs to.
   `bind('g g', fn)` is consulted after every one of those and before the focused
   element. "Key sequences" below has the trie, the pending state, the two
   deadlines and why the alternatives to that ordering are worse.
+- **A handler that throws is the router's to catch, once per entry, and where it
+  goes is the caller's (SIG-524).** Every handler an app writes -- a binding, an
+  `onKey` or `onMouse` on an element, a fallback, a sequence, `onMouse()`,
+  `onPaste()`, `onResize()` -- is called from inside the stream's `data` listener
+  or one of the router's timers, so a throw nothing caught was an uncaught
+  exception over a terminal on the alternate screen with the cursor hidden and the
+  mouse reporting: the message went to a screen the process was about to leave, and
+  nothing ended the app or settled `exited`. The policy is the one `runApp()` already has for a frame
+  that throws -- the terminal goes back, the error is reported once, the app ends
+  with 1 -- rather than a third rule: reporting and carrying on was refused because
+  an app whose handler threw has no known state, and the renderer's own reason is
+  that a failure that carried on would throw the same thing thirty times a second.
+  The router cannot end an app, so `InputOptions.onError` is where the throw goes,
+  and `runApp()` is what hands it one. `route()` (a key, and a mouse report, which
+  arrives through it), `flushPaste()`, a sequence's deadline and each `onResize()`
+  handler are the four entries and each has one `catch`, so a new handler site
+  inside any of them is covered and a new entry from outside is the thing to
+  check. A throw ends that event's delivery -- an element's `onMouse` that throws
+  does not bubble to its ancestors -- and the router goes on with the rest of the
+  read, since which handler comes next is not what failed.
+
+  **Without `onError` a throw escapes as it always did**, which is a choice and not
+  an omission: a bare router has nobody to report to, and a caller that wants a
+  different answer asks for one. **What it does not cover, stated rather than left
+  to be found:** a handler that returns a promise which rejects -- the router never
+  looks at a handler's return value, so an `async` `onSelect` fails as an unhandled
+  rejection, and the handler's own `catch` is where that is dealt with; and
+  `onEnd()`, which is called from the stream's `end` and `error` listeners and from
+  `stop()` and raises what its handlers threw, by the rule recorded under "A router
+  stopped over a failed stream". A failure `runApp()` was holding when its component
+  body then threw is not reported either: the body's error is what the caller gets.
+  `feed()` is not an entry of its own. It reaches
+  `route()` and is guarded there, so a throw from a handler a handler fed is
+  reported at that event and is not rethrown through the `feed()` call. An
+  `onError` that throws is not caught again, which is the router's rule for every
+  callback it hands a failure to.
+  What `runApp()` does with it is under "Running an app: `runApp()`" in
+  `src/renderer`. Pinned in `test/input/input.test.ts` and
+  `test/input/mouse-router.test.ts` for the router and `test/renderer/app.test.ts`
+  for the terminal being given back.
 
 ### Key sequences
 

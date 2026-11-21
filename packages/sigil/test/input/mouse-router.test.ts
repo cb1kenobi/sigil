@@ -164,6 +164,57 @@ function tree(): { all: Element[]; left: Element; outer: Element; right: Element
   return { all: [left, right, outer, root], left, outer, right, root };
 }
 
+describe('a mouse handler that throws', () => {
+  it('should hand what an element threw to onError', () => {
+    const { feed, terminal } = harness();
+    const { left, root } = tree();
+    const errors: unknown[] = [];
+    left.onMouse = () => {
+      throw new Error('onMouse broke');
+    };
+    createInput({ mouse: { surface: surface() }, onError: (e) => errors.push(e), root, terminal });
+
+    feed(press(1, 1));
+
+    expect(errors.map(String)).toEqual(['Error: onMouse broke']);
+  });
+
+  it('should hand what a router handler threw to onError, and read the next report', () => {
+    const { feed, terminal } = harness();
+    const { root } = tree();
+    const errors: unknown[] = [];
+    const kinds: string[] = [];
+    const input = createInput({
+      mouse: { surface: surface() },
+      onError: (e) => errors.push(e),
+      root,
+      terminal,
+    });
+    input.onMouse((event) => {
+      kinds.push(event.kind);
+      throw new Error('router onMouse broke');
+    });
+
+    feed(press(1, 1) + release(1, 1));
+
+    expect(errors.length).toBeGreaterThanOrEqual(2);
+    expect(kinds).toContain('mousedown');
+    expect(kinds).toContain('mouseup');
+    expect(String(errors[0])).toBe('Error: router onMouse broke');
+  });
+
+  it('should escape the data listener when there is no onError, as it always did', () => {
+    const { feed, terminal } = harness();
+    const { left, root } = tree();
+    left.onMouse = () => {
+      throw new Error('onMouse broke');
+    };
+    createInput({ mouse: { surface: surface() }, root, terminal });
+
+    expect(() => feed(press(1, 1))).toThrow('onMouse broke');
+  });
+});
+
 describe('a mouse report reaching the tree', () => {
   it('should bubble from the element under it up through its ancestors', () => {
     const { feed, terminal } = harness();
