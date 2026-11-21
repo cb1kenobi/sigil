@@ -223,8 +223,9 @@ const b = ui\`<text>2</text>\`;`;
     // takes. If they were ever UTF-8 bytes every expression after a non-ASCII
     // character would be sliced at the wrong place -- silently, and only for
     // the app that had one
+    const VS16 = String.fromCodePoint(0xfe0f);
     const source = `import { ui } from '@ttylabs/sigil/template';
-const label = 'café ☕️ 𝄞';
+const label = 'café ☕${VS16} 𝄞';
 const t = ui\`<text>\${theValue}</text>\`;`;
     const [template] = findTemplates('a.ts', source);
 
