@@ -847,7 +847,10 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
             return { value: promptValue(picked) };
           }
         } else if (k.name === 'tab') {
-          const picked = offers[active]?.choice;
+          // Enter's reason: while a lookup is out the row under the highlight
+          // belongs to an earlier term, and writing its label into the field would
+          // put a value there that is not what was typed
+          const picked = pending ? undefined : offers[active]?.choice;
           if (picked && picked.label !== value) {
             value = picked.label;
             cursor = value.length;

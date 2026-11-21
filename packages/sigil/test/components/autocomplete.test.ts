@@ -526,6 +526,36 @@ describe('autocomplete() over a source', () => {
     expect((await answer).value).toBe('new-term-row');
   });
 
+  it('should not complete from a list that belongs to an earlier term', async () => {
+    const ui = screenSetup({ rows: 10 });
+    const next = deferred<string[]>();
+    const answer = settle(
+      open(ui, { source: (term) => (term === '' ? ['old-term-row'] : next.promise) })
+    );
+
+    await until(() => expect(rows(ui)[1]).toBe('  ❯ old-term-row'));
+
+    // `x` has been asked for and the row on screen answers the empty term: Tab
+    // must not write its label over what was typed
+    await type(ui.stdin, 'x', TAB);
+    expect(rows(ui)[0]).toBe('? Pick x');
+    expect(rows(ui)[1]).toBe('  ❯ old-term-row');
+
+    // and the same in one read, which is a paste or fast fingers
+    ui.stdin.send('y' + TAB);
+    await tick();
+    expect(rows(ui)[0]).toBe('? Pick xy');
+
+    next.resolve(['new-term-row']);
+    await until(() => expect(rows(ui)[1]).toBe('  ❯ new-term-row'));
+
+    await type(ui.stdin, TAB);
+    expect(rows(ui)[0]).toBe('? Pick new-term-row');
+
+    await type(ui.stdin, CTRL_C);
+    await answer;
+  });
+
   it('should say a lookup is out until it answers', async () => {
     const ui = screenSetup({ rows: 10 });
     const pending = deferred<string[]>();
