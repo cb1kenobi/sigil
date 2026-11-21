@@ -1,4 +1,4 @@
-import { writeFully, writeOut } from '../src/output.ts';
+import { writeFully, writeOut, writeTo } from '../src/output.ts';
 import { STACK } from './spawned.ts';
 import { spawn } from 'node:child_process';
 import {
@@ -112,6 +112,64 @@ describe('writeOut()', () => {
   });
 });
 
+describe('writeTo()', () => {
+  // a worker's own `process.stdout` has no descriptor, so these are the in-process
+  // cover for both branches of the stream-or-descriptor choice, on every platform
+  let file: string;
+  let fd: number;
+
+  beforeAll(() => {
+    file = join(mkdtempSync(join(tmpdir(), 'sigil-writeto-')), 'out.txt');
+  });
+  afterAll(() => {
+    rmSync(dirname(file), { force: true, recursive: true });
+  });
+
+  it('should write a regular file through its descriptor, whole', () => {
+    class FileStream {
+      constructor(readonly fd: number) {}
+      write(): boolean {
+        throw new Error('went through the stream');
+      }
+    }
+    fd = openSync(file, 'w');
+    try {
+      writeTo(new FileStream(fd), 'one\n');
+      writeTo(new FileStream(fd), 'two\n');
+    } finally {
+      closeSync(fd);
+    }
+
+    expect(readFileSync(file, 'utf-8')).toBe('one\ntwo\n');
+  });
+
+  it('should leave a stream whose write was replaced to its replacement', () => {
+    // an own `write` is a capture, and writing to the descriptor under it would
+    // bypass what it captures -- which is what keeps this suite's own capture of
+    // `process.stdout.write` seeing the output
+    fd = openSync(file, 'w');
+    try {
+      const write = vi.fn(() => true);
+      writeTo({ fd, write }, 'captured\n');
+
+      expect(write).toHaveBeenCalledWith('captured\n');
+      expect(readFileSync(file, 'utf-8')).toBe('');
+    } finally {
+      closeSync(fd);
+    }
+  });
+
+  it('should leave a stream that is not a file to the stream', () => {
+    const write = vi.fn(() => true);
+
+    // no descriptor at all, and a descriptor that is not open
+    writeTo({ write }, 'a');
+    writeTo({ fd: 1 << 20, write }, 'b');
+
+    expect(write.mock.calls).toEqual([['a'], ['b']]);
+  });
+});
+
 interface Ran {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -179,8 +237,9 @@ async function whole(bin: string, args: string[], name: string): Promise<number>
 describe.each(Object.entries(bins))('a document redirected to a file, %s', (binName, bin) => {
   const slug = binName.replace(/\W/g, '-');
 
-  // not skipped on Windows, which has no `ulimit` but does have the descriptor
-  // path: this is the one test there that runs `fstat` and `writeSync` for real
+  // not skipped on Windows, which has no `ulimit`: it proves the redirected
+  // command works end to end there, and `writeTo()` above is what pins the
+  // descriptor path itself, since this passes with that path removed
   it('should write the whole of it when nothing limits the file', async () => {
     // larger than a one-block limit is in either shell, so the limited runs
     // below really are cut

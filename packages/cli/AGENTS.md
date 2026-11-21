@@ -4009,7 +4009,11 @@ people's software and will move.
   somebody has replaced -- an own property, which `vi.spyOn` makes and the
   prototype's method is not -- is a capture, and writing to the descriptor under
   it would bypass the capture. Checked by `Object.hasOwn()`, not by comparing
-  functions.
+  functions. The limit of that: a capture that **restores by assignment** leaves
+  `write` an own property for the rest of the process (`@ttylabs/sigil/testing`
+  does), so an embedding process that ran one gets the old unchecked write
+  afterwards. The bin never reassigns it, so it is the cost of not bypassing a
+  capture rather than a way for the toolchain itself to be cut off quietly.
 
   **`--out` was never exposed.** `reference --out` writes through `writeFileSync()`,
   which loops until every byte is out and throws when the next write fails, so a

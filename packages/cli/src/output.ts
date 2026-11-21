@@ -90,7 +90,10 @@ function fileDescriptor(stream: object): number | undefined {
  * @param stream - Where to write.
  * @param text - What to write.
  */
-export function writeTo(stream: { write(text: string): unknown }, text: string): void {
+export function writeTo(
+  stream: { readonly fd?: unknown; write(text: string): unknown },
+  text: string
+): void {
   const fd = fileDescriptor(stream);
 
   if (fd === undefined) {
