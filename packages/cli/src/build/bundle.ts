@@ -1029,8 +1029,8 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * `undo()`, and the write is the one step that left what it had made. What is
  * removed is each file this call **began** to write, the one that failed
  * included -- a write that runs out of disk leaves a truncated file, and one that
- * overwrote an earlier build's (`--no-clean`) has already destroyed it, which is
- * what any later gate's `undo()` would also have removed. A file not reached is
+ * overwrote an earlier build's (`--no-clean`) has usually destroyed it already --
+ * and is removed either way, as any later gate's `undo()` would remove it. A file not reached is
  * never in that list, so an earlier build's file under a name this one would have
  * written later survives: handing `undo()` the whole of `output` would delete it.
  * The cleanup is `undo()`'s, so it follows the rules recorded there and never

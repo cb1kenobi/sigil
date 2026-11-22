@@ -402,9 +402,12 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
 describe.skipIf(process.platform === 'win32')('a write that fails after the check', () => {
   /**
    * A module that makes the `$SIGIL_FAIL_WRITE_NTH`th file (the first, unset)
-   * written under `$SIGIL_FAIL_WRITE_UNDER` a directory just before the write, which is a file made between the check and
-   * the write -- and an `EISDIR` from the real `writeFileSync()`, quoting the
-   * path as it is. Not a permission, so it holds as root.
+   * written under `$SIGIL_FAIL_WRITE_UNDER` a directory just before the write,
+   * which is a file made between the check and the write -- and an `EISDIR` from
+   * the real `writeFileSync()`, quoting the path as it is. With
+   * `$SIGIL_FAIL_WRITE_PARTIAL` it writes a few bytes and throws `ENOSPC`
+   * instead. With `$SIGIL_FAIL_REMOVE`, a removal fails once the write has.
+   * None is a permission, so each holds as root.
    *
    * @returns The `NODE_OPTIONS` that loads it.
    */
@@ -424,6 +427,13 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
         '  if (!failed && under && typeof path === "string" && resolve(path).startsWith(resolve(under) + sep)) {',
         '    count += 1;',
         '    if (count === Number(process.env.SIGIL_FAIL_WRITE_NTH ?? 1)) {',
+        // a disk that fills partway through a file: some of it is written and
+        // the call throws, which leaves a truncated file `undo()` can remove
+        '      if (process.env.SIGIL_FAIL_WRITE_PARTIAL) {',
+        '        failed = true;',
+        '        real.call(this, path, "partial");',
+        '        throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC", errno: -28, syscall: "write" });',
+        '      }',
         // a file already there is replaced by the directory, which is what
         // `--no-clean` over an earlier build needs
         '      fs.rmSync(path, { force: true });',
@@ -501,6 +511,25 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
     expect(statSync(out).isDirectory()).toBe(true);
   }, 60_000);
 
+  it('should remove the file that failed when it was left truncated', async () => {
+    const app = linkedFixture(buildable, 'sigil-partial-write-full-');
+    const out = join(app, 'dist');
+
+    const { code, stderr } = await run(cli, app, ['build', app, '--out', out], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_WRITE_NTH: '3',
+      SIGIL_FAIL_WRITE_PARTIAL: '1',
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('ENOSPC');
+    // the third file holds what was written before the disk filled, and goes
+    // with the two before it
+    expect(filesUnder(out)).toEqual([]);
+  }, 60_000);
+
   it('should report the original error when the cleanup fails too', async () => {
     const app = linkedFixture(buildable, 'sigil-partial-write-cleanup-');
     const out = join(app, 'dist');
@@ -539,9 +568,9 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
     expect(code, stderr).toBe(1);
     expect(stderr).toContain('EISDIR');
     expect(readFileSync(join(out, 'keep.txt'), 'utf8')).toBe('mine');
-    // the two this build rewrote are removed and the third, which it never
-    // reached, is a file the previous build left and is still there -- as is
-    // everything after it
+    // the two this build rewrote are removed, the third is the one the preload
+    // replaced with a directory, and the fourth onward, which the build never
+    // reached, are files the previous build left and are still there
     const after = filesUnder(out);
     expect(before.length - after.length).toBe(3);
     expect(after).toContain('keep.txt');

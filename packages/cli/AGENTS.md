@@ -5190,8 +5190,10 @@ about what a valid app is would be the worse half of the feature.
     from one somebody else left. The file that failed is in the list, because a
     full disk leaves it truncated; one that failed in `mkdirSync()` is not, since
     nothing of it was touched. A file this build rewrote is removed like any
-    other gate's `undo()` removes it: that is `undo()`'s rule and it is
-    unchanged.
+    other gate's `undo()` removes it, whether or not the failed `open()`
+    got as far as truncating it: that is `undo()`'s rule and it is unchanged.
+    One test fails a write after it wrote some bytes (`ENOSPC`), which is what
+    pins the failed file being in the list.
   - **Directories follow `undo()`: those a removed file sat in, while empty, and
     never `out`.** A directory `prepareOutput()` made that held no file this
     build began to write stays -- failing the first write leaves an empty
