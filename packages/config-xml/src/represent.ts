@@ -1,4 +1,4 @@
-import { forbiddenControl } from './wellformed.js';
+import { outsideChar } from './wellformed.js';
 import { atPath, isPlainObject } from '@ttylabs/sigil/config';
 
 /**
@@ -72,8 +72,9 @@ import { atPath, isPlainObject } from '@ttylabs/sigil/config';
  * nobody else can read, with nothing saying so. The store's own read refuses one
  * now (SIG-581), which is the other half of the same rule.
  *
- * - **Forbidden by XML 1.0's `Char` production**: C0 except tab, newline and
- *   carriage return; a lone surrogate; U+FFFE and U+FFFF. `Char` is
+ * - **Forbidden by XML 1.0's `Char` production**, which `outsideChar()` in
+ *   `wellformed.ts` answers: C0 except tab, newline and carriage return; a lone
+ *   surrogate; U+FFFE and U+FFFF. `Char` is
  *   `#x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]`,
  *   so the range stopping at U+FFFD is why the last two are in. U+007F to
  *   U+009F **are** legal and are not here, which is the one place reading the
@@ -97,14 +98,15 @@ import { atPath, isPlainObject } from '@ttylabs/sigil/config';
  * escaped or otherwise and leaves nothing to keep in place.
  */
 function badChar(code: number): boolean {
-  // C0, except the three XML's own `Char` production keeps. One definition,
-  // which the read asks as well: it refuses a document holding one (SIG-581)
-  if (forbiddenControl(code)) {
+  // everything outside XML's own `Char` production, which is one definition and
+  // is the one the read asks as well: it refuses a document holding one, raw or
+  // as a numeric reference (SIG-581, SIG-587)
+  if (outsideChar(code)) {
     return true;
   }
   // a carriage return is legal and is normalized to a newline, so it is in the
   // second set rather than the first
-  return code === 0x0d || code === 0x85 || code === 0xfffe || code === 0xffff;
+  return code === 0x0d || code === 0x85;
 }
 
 /**
@@ -114,13 +116,13 @@ function badChar(code: number): boolean {
  * character is one character rather than two surrogates -- which is what lets a
  * **lone** surrogate be the thing that is refused: iterating a string yields a
  * paired surrogate as one code point above U+FFFF and an unpaired one as itself.
- * So the check is "is this code point in the surrogate range at all", and it is
- * only ever true for a lone one.
+ * So `badChar()`'s question about the surrogate range is only ever true for a
+ * lone one.
  */
 function firstBadChar(value: string): number | undefined {
   for (const char of value) {
     const code = char.codePointAt(0) as number;
-    if (badChar(code) || (code >= 0xd800 && code <= 0xdfff)) {
+    if (badChar(code)) {
       return code;
     }
   }

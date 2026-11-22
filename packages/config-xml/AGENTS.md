@@ -534,11 +534,11 @@ five things core had deliberately not published, which is the entry below.
   recorded reason -- so a file that already holds a character XML cannot carry
   refuses **every** write to it, naming the character and the key. The alternative
   is the store deliberately emitting a document no conforming tool can read.
-  Reading such a file is fine **for a character the parser takes and the store
-  can hold** -- a lone surrogate, U+FFFE -- and `wouldLose` reports nothing about
-  it, which is honest: nothing is lost, the file was illegal before and after. A
-  **C0 control** is no longer one of them: it is refused at the read, which is
-  the entry below.
+  That was reachable by a lone surrogate, U+FFFE and a `&#27;` reference, which
+  `@xmldom/xmldom` takes and the store can hold, and **none of them is a file this
+  store reads any more**: the read refuses each, which is the entries below
+  (SIG-581, SIG-586, SIG-587). What the merged-document check still guards is a
+  value that reaches `write()` without passing `set()`.
 
 > Moved: _What review round 1 found, and it reviewed a source it had invented_, _What review round 2 found, and what reading its findings cost_, _What the pass over round 2's own fixes found_, _Round 3 never answered, and what was done in its place_, _What the PR review round found: an errno and a code unit_, _What the second PR review round found: the same number, three more times_, _The sabotage pass, counted in one run against the final tree_, _What the packaging claims come to, measured_ — see [docs/history/an-xml-config-store-in-a-package-of-its-own.md](../../docs/history/an-xml-config-store-in-a-package-of-its-own.md).
 
@@ -636,8 +636,9 @@ five things core had deliberately not published, which is the entry below.
   orphan for `sigil check`, which the entry below records for every message
   here.
 
-- **One definition of a forbidden control.** `forbiddenControl()` in
-  `src/wellformed.ts` is asked by the scan and by `badChar()`, which is what
+- **One definition of a forbidden control.** `outsideChar()` in
+  `src/wellformed.ts` (`forbiddenControl()` until SIG-587 widened it to the whole
+  of what `Char` excludes) is asked by the scan and by `badChar()`, which is what
   `canRepresent()` refuses a value or a key with: the read and the write answer
   "is this a character XML 1.0 forbids" from one function rather than two lists
   that agree today.
@@ -660,16 +661,10 @@ five things core had deliberately not published, which is the entry below.
   -- found by review round 1. `isBlank()` asks `firstControl()` too, and the file
   goes on to `parse()` and is refused like any other.
 
-- **What is left alone, recorded rather than silently missed.** A numeric
-  character reference to a control character, `&#1;`, is not well-formed either
-  (the `Legal Character` constraint) and `xmldom` reads it as the character; the
-  scan reads the source, where it is five ordinary characters, so it is not
-  refused. It is a different mechanism -- the document **says** the character
-  rather than containing it, and the value would then be refused at the next
-  write by `canRepresent()` -- and widening this check to references is a
-  decision for its own ticket. A lone surrogate, U+FFFE and U+FFFF are outside
-  `Char` too and are not refused at the read for the same reason: the ticket
-  names C0, and the write side already refuses them.
+- **What was left alone is not any more.** A numeric character reference to a
+  control character and a lone surrogate, U+FFFE and U+FFFF were each recorded
+  here as outside this check, and are refused by the entry below (SIG-586,
+  SIG-587), which is why that paragraph is gone rather than amended.
 
 - **`SIG-412`'s test moved to characters this check lets through.** It used `ESC`
   and `BEL` in an end tag to prove the parser's quoted text is escaped, and a C0
@@ -677,6 +672,80 @@ five things core had deliberately not published, which is the entry below.
   testing what it names. `DEL` and the C1 string terminator are legal XML, are
   quoted by the parser, and are what `escapeControls()` still has to escape
   there.
+
+#### A numeric reference, U+FFFE, U+FFFF and a lone surrogate are refused too (SIG-586, SIG-587)
+
+- **`Char` has more outside it than C0, and the scan now asks all of it.**
+  `[#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]` leaves out the
+  surrogate range, U+FFFE and U+FFFF as well, and `outsideChar()` is that
+  production's complement (plus anything above U+10FFFF, which only a reference
+  can name). The message is unchanged in shape -- `Failed to parse <file>: line L,
+  column C: the character U+FFFE is not allowed in XML` -- with a C0 character
+  still named `\x1B` and the rest `U+XXXX`: a terminal acts on the first, and
+  prints a lone surrogate as U+FFFD and U+FFFE as nothing at all, so none of them
+  is echoed. The column is in code points: a pair is one, a lone surrogate is
+  one.
+
+- **A reference is found in the source, not in the parsed values, and that was
+  the decision the ticket left open.** A walk of the DOM after the parse sees
+  what `&#1;` resolved to and has nowhere to say where: a text node has no line,
+  and the position is the thing the raw scan exists to give. So the scan reads
+  the source and asks which `&#...;` are references, which is a question about
+  where markup is -- a comment, a CDATA section, a processing instruction and a
+  DOCTYPE hold the five characters as text. `contentOf()` already answers that,
+  for the write-loss report: it blanks those four regions at the same offsets,
+  so the reference scan runs over its output and the offsets are the source's.
+  It moved to `src/content.ts` so that both readers share it rather than each
+  walking comments. A region opener inside an attribute value cannot matter,
+  because the parser refuses a `<` there (measured). Where a DOCTYPE ends is the
+  walk's one hard part and review round 1 found it wrong: it tracked quotes and
+  brackets but not the comments and processing instructions an internal subset
+  holds, so `<!-- it's -->` opened a quote nothing closed and blanked the rest
+  of the file -- every reference after it was read as the character, through a
+  check that exists to refuse that -- and `<!-- ]> &#1; -->` ended the DOCTYPE
+  inside the comment and refused a document that was fine. It steps over both
+  whole now. Round 2 found the same walk wrong once more -- it searched for
+  `-->` from two characters into `<!--`, so `<!-->` was a complete comment, which
+  the parser reads as one still open -- and a differential over about 400,000
+  generated DOCTYPEs against the parser found nothing else.
+  A raw character is still checked against the **whole** source, comments and
+  CDATA included, because there it is the character and not a reference to it.
+  A DOCTYPE entity holding `&#1;` that nothing references is read, like any
+  unreferenced declaration; one that is referenced is refused by the entity rule
+  before its value is.
+
+- **The recognised reference is the one the parser resolves.** Decimal, or hex
+  with a **lowercase** `x`: `&#X41;` is the parser's own error and `&#;` is read
+  as text, and neither is this check's to say. A digit string too long for a number is
+  `Infinity`, above the last code point like any other number that big, so a file
+  of a megabyte of nines needs no cap of its own (a cap of eight digits was
+  written first and sabotaged away with every test still green, which is what
+  said it was doing nothing); a reference that is allowed however many zeros it
+  has (`&#0000000000000000065;`) is read. `&#xD83D;&#xDE00;` is refused: the parser joins the two into an astral
+  character, and each is a surrogate reference on its own. The message names
+  the code point rather than echoing the reference, `the character reference to
+  U+0001`, which is also what bounds its length. A reference past U+10FFFF is
+  `a code point above U+10FFFF`; the parser answers one with a character it
+  made up (`&#x110000;` is two U+DC00).
+
+- **Which routes to a lone surrogate exist, which the ticket asked to have found
+  out.** A raw one cannot arrive through a file: it is `ED A0 80` or its kin, and
+  `@ttylabs/sigil`'s `decode()` is a fatal UTF-8 decoder that refuses it -- CESU-8
+  pairs too -- as `it is not UTF-8, the first invalid byte is at offset N`, on the
+  read, the async read and every write. That is pinned in
+  `test/surrogate.test.ts`, as is the scan's own handling of one, called with a
+  string because a string can hold one however the bytes could not and a later
+  change to the reader would otherwise open the route unnoticed. The routes a file
+  does have are `&#xD800;` to `&#xDFFF;`, and U+FFFE and U+FFFF raw (`EF BF BE`
+  and `EF BF BF` are valid UTF-8) and as references. The write side already
+  refused all three, so a file this store writes is one it reads.
+
+- **Where it is in the code.** `firstForbidden()` in `src/wellformed.ts` is one
+  pass over the code units that pairs a surrogate with its partner as it goes,
+  and looks for references only in a document that holds `&#` at all, since the
+  blanking is a copy. The reference loop stops at the raw hit, so the error names
+  whichever of the two comes first. `isBlank()` asks it, as it asked
+  `firstControl()` before.
 
 #### A declared encoding is refused unless it is UTF-8, even over ASCII
 
