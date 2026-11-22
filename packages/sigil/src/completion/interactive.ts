@@ -50,6 +50,7 @@ import { confirm, PromptError, select } from '../components/prompt.js';
 import { __ } from '../i18n/index.js';
 import { createTerminal, type Terminal } from '../terminal/index.js';
 import type { ParseState } from '../types.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { completionScript, programOf } from './index.js';
 import { detectShell, instructions, shQuote } from './install.js';
 import {
@@ -86,6 +87,50 @@ export interface InstallRequest {
 const NOTHING = { file: false, rc: false } as const;
 
 /**
+ * A path as one shell word that is safe to print and still names the file.
+ *
+ * `shQuote()` is right for a startup file, where the word is read by a shell and
+ * a raw control character is the shell's to take. It is wrong for a line printed
+ * for somebody to **copy**: single quotes keep an `ESC` raw, so the terminal acts
+ * on it before anybody has chosen to paste anything. `escapeControls()` alone is
+ * wrong the other way, because `\x1B` inside single quotes is four characters and
+ * names a file that is not there. So a path with nothing in it to escape is
+ * `shQuote()`'s word, and a path with something is the same word in the `$'...'`
+ * form bash and zsh read, each character `escapeControls()` would change spelled
+ * as the escape that means it to the shell -- `\xNN`, `\uNNNN` or `\UNNNNNNNN`
+ * -- and the backslash and the quote the two that form needs for themselves
+ * (SIG-576). The question of *which* characters is `escapeControls()`'s, asked
+ * of one character at a time, so the class is still defined once.
+ *
+ * @param path - The path.
+ * @returns It, as one word.
+ */
+function shDisplay(path: string): string {
+  if (escapeControls(path) === path) {
+    return shQuote(path);
+  }
+
+  let word = '';
+  for (const c of path) {
+    const code = c.codePointAt(0) ?? 0;
+    if (escapeControls(c) !== c) {
+      const hex = code.toString(16).toUpperCase();
+      word +=
+        code < 0x100
+          ? `\\x${hex.padStart(2, '0')}`
+          : code < 0x10000
+            ? `\\u${hex.padStart(4, '0')}`
+            : `\\U${hex.padStart(8, '0')}`;
+    } else if (c === '\\' || c === "'") {
+      word += `\\${c}`;
+    } else {
+      word += c;
+    }
+  }
+  return `$'${word}'`;
+}
+
+/**
  * Says how to do it by hand, which is what there is to say with nobody to ask.
  *
  * The same block the command printed before an installer existed. It names the
@@ -113,9 +158,15 @@ function byHand(
   action: Action,
   target: InstallTarget | undefined
 ): string {
+  // escaped where it is put into text, as the paths are: the name was reduced by
+  // `programOf()`, which takes the control characters out, and the format
+  // characters it leaves are what is left to make a line read differently from
+  // what it says (SIG-576)
+  const name = escapeControls(program);
+
   if (action === 'uninstall') {
     if (target !== undefined) {
-      return `${__`Remove it yourself:`}\n\n    rm ${shQuote(target.file)}\n\n`;
+      return `${__`Remove it yourself:`}\n\n    rm ${shDisplay(target.file)}\n\n`;
     }
 
     // no target, which means `askShell()` is what failed: nobody to ask and no
@@ -124,21 +175,21 @@ function byHand(
     // one, which the first version computed and then did not use. Found by
     // review, and nothing reached this branch because every test named a shell
     return shell === undefined
-      ? `${__`Name a shell to remove completion for ${program} from:`}\n\n${SHELL_NAMES.map(
-          (name) => `    ${program} completion ${name} --uninstall\n`
+      ? `${__`Name a shell to remove completion for ${name} from:`}\n\n${SHELL_NAMES.map(
+          (it) => `    ${name} completion ${it} --uninstall\n`
         ).join('')}\n`
-      : `${__`Name the shell to remove completion for ${program} from:`}\n\n    ${program} completion ${shell} --uninstall\n\n`;
+      : `${__`Name the shell to remove completion for ${name} from:`}\n\n    ${name} completion ${shell} --uninstall\n\n`;
   }
 
   if (shell !== undefined) {
-    return `${__`Set up completion for ${program}, detected ${shell}:`}\n\n${instructions(
+    return `${__`Set up completion for ${name}, detected ${shell}:`}\n\n${instructions(
       shell,
-      program
+      name
     )}`;
   }
 
-  return `${__`Name a shell to set up completion for ${program}:`}\n\n${SHELL_NAMES.map(
-    (name) => `    ${program} completion ${name}\n`
+  return `${__`Name a shell to set up completion for ${name}:`}\n\n${SHELL_NAMES.map(
+    (it) => `    ${name} completion ${it}\n`
   ).join('')}\n`;
 }
 
@@ -198,6 +249,7 @@ function question(
   program: string
 ): { default: boolean; message: string } {
   const { shell } = plan.target;
+  const name = escapeControls(program);
 
   // the plan has already said whose the file is, so this is the question and
   // not the statement. It is an **install's** question, and the condition says
@@ -216,8 +268,8 @@ function question(
     default: true,
     message:
       action === 'uninstall'
-        ? __`Remove ${shell} completion for ${program}?`
-        : __`Install ${shell} completion for ${program}?`,
+        ? __`Remove ${shell} completion for ${name}?`
+        : __`Install ${shell} completion for ${name}?`,
   };
 }
 
