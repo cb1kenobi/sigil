@@ -451,6 +451,24 @@ describe('the class evidence', () => {
     expect(mixed.mayName('border-red')).toBe(false);
   });
 
+  it('should not spend the cap on a right-hand literal that an unknown part did not', () => {
+    // SIG-595, found by review: `x || 'p '` was an unknown part, which reset the
+    // run, so the three choices after it were nine texts. Read as a choice it
+    // left two texts, and the same three choices were 18 -- past the cap, where
+    // `sm`, `:` and `flex` are read open on both ends and `sm:flex` is not half
+    // of a qualified name. A rule the app names was dropped that the unknown
+    // part had kept
+    const size = `(s ? 'sm' : m ? 'md' : 'lg')`;
+    const colon = `(v ? ':' : w ? ':hover:' : ':focus:')`;
+
+    for (const left of [`(x || 'p ')`, `(x ?? 'p ')`]) {
+      const evidence = evidenceOf(`const c = ${left} + ${size} + ${colon} + 'flex';`);
+
+      expect(evidence.mayName('sm:flex'), left).toBe(true);
+      expect(evidence.mayName('lg:flex'), left).toBe(true);
+    }
+  });
+
   it('should still not read a literal on the right of &&, which is not the value', () => {
     // `x && 'text-'` is `'text-'` only when `x` is truthy and is `x` -- which may
     // be `''` or `0` -- otherwise. A decision of SIG-578 and not changed

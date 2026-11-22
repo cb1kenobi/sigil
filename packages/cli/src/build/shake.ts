@@ -608,14 +608,14 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
   // until a choice multiplies it. A choice holding an unknown alternative makes
   // a text that is open on the left where the rest are not, which is why the
   // openness belongs to the text rather than to the run
-  let states: RunState[] = [{ openLeft: false, text: '', touched: false }];
+  let states: RunState[] = [{ fresh: true, openLeft: false, text: '', touched: false }];
   // consecutive known text, joined once rather than appended to every text
   let pending: string[] = [];
 
   const settle = (): void => {
     if (pending.length) {
       const text = pending.join('');
-      states = states.map((s) => ({ openLeft: s.openLeft, text: s.text + text, touched: true }));
+      states = states.map((s) => ({ ...s, text: s.text + text, touched: true }));
       pending = [];
     }
   };
@@ -628,7 +628,7 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
 
   // the first run starts at the start of the expression, where there is
   // nothing to be open towards; every one after an unknown is open on the left
-  const reset = (): RunState => ({ openLeft: true, text: '', touched: false });
+  const reset = (): RunState => ({ fresh: true, openLeft: true, text: '', touched: false });
 
   const flush = (openRight: boolean): void => {
     settle();
@@ -637,6 +637,9 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
     }
     states = [reset()];
   };
+
+  const over = (known: number, unknown: boolean): boolean =>
+    states.length * known + (unknown ? 1 : 0) > MAX_RUN_TEXTS;
 
   for (const part of parts) {
     if (part === undefined) {
@@ -651,7 +654,23 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
 
     const known = part.filter((text): text is string => text !== undefined);
     const unknown = known.length < part.length;
-    if (states.length * known.length + (unknown ? 1 : 0) > MAX_RUN_TEXTS) {
+    settle();
+
+    // an unknown alternative must never cost a run more of the cap than the
+    // unknown part it replaced did. The texts that are not `fresh` are the ones
+    // that read it as something known, so when they are what overflows the cap
+    // they are ended -- read open on the right, as that unknown part would have
+    // ended them -- and what is left is exactly what the run was before (SIG-595)
+    if (over(known.length, unknown) && states.some((s) => !s.fresh)) {
+      for (const state of states) {
+        if (!state.fresh) {
+          read(state, true);
+        }
+      }
+      states = states.filter((s) => s.fresh);
+    }
+
+    if (over(known.length, unknown)) {
       flush(true);
       for (const text of known) {
         into.read({ openLeft: true, openRight: true, text });
@@ -659,9 +678,15 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
       continue;
     }
 
-    settle();
     const next = states.flatMap((s) =>
-      known.map((text) => ({ openLeft: s.openLeft, text: s.text + text, touched: true }))
+      known.map((text) => ({
+        // a choice with an unknown alternative is what read as an unknown part
+        // before, so what it adds to is no longer what that reading left
+        fresh: s.fresh && !unknown,
+        openLeft: s.openLeft,
+        text: s.text + text,
+        touched: true,
+      }))
     );
     if (unknown) {
       // the alternative nothing is known about ends what was read so far, as an
@@ -679,6 +704,11 @@ function readRuns(parts: readonly Part[], into: Evidence): void {
 
 /** One text a run can be so far, and what is known of how it is open. */
 interface RunState {
+  /**
+   * Whether this is what the run was before a choice with an unknown
+   * alternative: the text that an unknown part in its place would have left.
+   */
+  readonly fresh: boolean;
   readonly openLeft: boolean;
   readonly text: string;
   /** Whether any known text went into it, so an empty one is not read. */
@@ -832,8 +862,9 @@ function addChoiceTexts(node: Node, into: Set<string>): boolean {
  * since a literal that is not empty is always truthy, and `'x' ?? y` is `'x'`
  * whatever it is, since a string is never nullish -- so the right side is never
  * the value and only the left is read. An empty literal on the left of `||` is
- * falsy and the right side *is* the value, which is not known, so it is left
- * alone. The right-hand literal of `y || 'x'` is `'x'` **or whatever `y` is**
+ * falsy and the right side *is* the value, so the left is skipped and the right
+ * is read in its place: `'' || y` is unknown and `'' || 'x'` is `'x'`. The
+ * right-hand literal of `y || 'x'` is `'x'` **or whatever `y` is**
  * (SIG-595), so it is a choice with an unknown alternative: the run around it is
  * read once with the literal in it and once ended by an unknown part, and what
  * follows an unknown part is open on the left as it always is.

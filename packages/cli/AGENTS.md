@@ -2947,8 +2947,23 @@ other is refused with numbers.
     `a`, `b` or unknown, with every literal kept even where an earlier one is
     always truthy; `&&` and a `?:` with an unknown branch are the unknown
     alternative there as they are everywhere. It counts toward the cap above
-    (the unknown alternative is one more text), and each side is read once, so
-    a chain of n of them is linear -- pinned by a count in `shake-cost.test.ts`.
+    (the unknown alternative is one more text), **but never costs a run more of
+    it than the unknown part it replaced did**: each text of a run is marked
+    `fresh` while it is what the run was before such a choice, and when the cap
+    would be passed the texts that are not are ended -- read open on the right,
+    as that unknown part would have ended them -- and the rest is what main kept.
+    Without it a right-hand literal doubled every choice after it, `(x || 'p ') +
+    (s ? 'sm' : m ? 'md' : 'lg') + (v ? ':' : w ? ':hover:' : ':focus:') +
+    'flex'` went past the cap, and `sm:flex` -- which the app really builds, when
+    `x` is unset -- was dropped (found by review round 1). Each side is read
+    once, so a chain of n of them is linear: `shake-cost.test.ts` pins the
+    operands unwrapped, and separately the chunks read, since the operand count
+    cannot see `readRuns()` growing a text per term -- uncapped that is
+    quadratic in reads, and was 55 s at 4,000 terms.
+  - **`'' || 'u'` is tighter, not only more kept.** It is the closed text `u`
+    where it was an unknown part that opened its neighbours: the value is
+    exactly `'u'`, so this is the same trade as `'a' + 'b' + c`, and
+    `should not read an empty left of || as the value` pins it.
     The three rows above that name it are measured with `sigil build` on the
     `styled` fixture; `'md:' + (label || 'flex-') + 'row'` keeps `md:flex-row`
     and, because `label` may be `flex-col`, `md:*` as well.
