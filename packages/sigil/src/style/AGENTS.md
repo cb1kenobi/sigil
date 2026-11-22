@@ -1110,8 +1110,9 @@ toolchain's one reader.
   - **The saving is under what the stress workload can see.** A prototype took
     the object to fill in as a third argument and `Restyler` passed it the
     element's own previous result, which is the only reuse that can be correct
-    (below). On a four-element, five-rule sheet that is `resolveSheets()` at
-    about 604 bytes a call against about 554: 48 to 50 bytes, 8% of the call,
+    (below). On a four-element, five-rule sheet of its own -- not the seven-rule
+    one SIG-455 measured, whose 604 this happens to equal -- that is
+    `resolveSheets()` at about 604 bytes a call against about 554: 48 to 50 bytes, 8% of the call,
     three runs of 200,000 calls each and the spread under 6 bytes. A frame of
     SIG-290's stress workload resolves about 930 elements, so the most it can
     save is about 46 KB of the frame's 14.6 MB -- **0.3%**. Measured on that
@@ -1123,10 +1124,12 @@ toolchain's one reader.
     stress` prints 14.0 MiB for both, and the frame's p50 was 5.97 to 11.86 ms
     without and 5.72 to 12.81 ms with, which is the machine and not the change.
     The saving is a real 8% of one call and not a figure a frame can show.
-  - **The one caller that keeps the object keeps a thousand of them.** `Restyler`
+  - **The caller on the frame's path keeps a thousand of them.** `Restyler`
     stores a `CascadeResult` per element in `#results`, because the prop fast
     path re-applies an element's props over its own sheet-only style and
-    `colorLevel()` reads it back. So there is no moment at which "the caller has
+    `levelOf()` reads its `colorLevel` back. (`Cascade.resolve()` also calls
+    `resolveSheets()` and is done with the result before it returns, so it could
+    use a private one; nothing on a frame calls it.) So there is no moment at which "the caller has
     finished with it": a single object shared by every resolve gives every element
     the last one's style and locked set, and `test/style/cascade-precedence.test.ts`
     holds that (`a result the cascade handed back`). The only reuse that is correct
