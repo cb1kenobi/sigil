@@ -126,6 +126,33 @@ export const CORPUS: readonly CorpusEntry[] = [
     template: `<box><raw measure=\${0} paint=\${1} color=\${2} /></box>`,
   },
   {
+    exprs: [
+      '() => ({ height: 1, width: 10 })',
+      '(painter, at) => painter.text(at.x, at.y, "n=" + scope.count.get())',
+    ],
+    name: 'a tracked raw, bare, whose paint reads a signal',
+    template: `<box><raw tracked measure=\${0} paint=\${1} /></box>`,
+  },
+  {
+    exprs: [
+      '() => ({ height: 1, width: 10 })',
+      '(painter, at) => painter.text(at.x, at.y, "n=" + scope.count.get())',
+      'true',
+    ],
+    name: 'a tracked raw, written as a value, with static props beside it',
+    shadow: true,
+    template: `<box><raw measure=\${0} paint=\${1} tracked=\${2} color="green" /></box>`,
+  },
+  {
+    exprs: [
+      '() => ({ height: 1, width: 10 })',
+      '(painter, at) => painter.text(at.x, at.y, "n=" + scope.count.get())',
+      'false',
+    ],
+    name: 'a raw whose tracked is false, which is a plain one',
+    template: `<box><raw tracked=\${2} measure=\${0} paint=\${1} /></box>`,
+  },
+  {
     exprs: ['() => scope.count.get()', '() => scope.items.get().length'],
     name: 'a text built from several pieces, as the root',
     template: `<text>\${0} of \${1}</text>`,
@@ -337,5 +364,19 @@ export const REFUSALS: readonly RefusalEntry[] = [
       '`on-click` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
     name: 'a kebab event no element has, given a function',
     template: `<box on-click=\${0} />`,
+  },
+  {
+    exprs: ['() => ({ height: 1, width: 3 })', '() => {}'],
+    message:
+      '<raw tracked> is a flag, written bare or as true or false: it is read once, when the element is built, so a function or a string cannot follow a signal (at line 1)',
+    name: 'a tracked raw whose flag is a string',
+    template: `<raw tracked="false" measure=\${0} paint=\${1} />`,
+  },
+  {
+    exprs: ['() => ({ height: 1, width: 3 })', '() => {}', '() => true'],
+    message:
+      '<raw tracked> is a flag, written bare or as true or false: it is read once, when the element is built, so a function or a string cannot follow a signal (at line 1)',
+    name: 'a tracked raw whose flag is a function',
+    template: `<raw tracked=\${2} measure=\${0} paint=\${1} />`,
   },
 ];

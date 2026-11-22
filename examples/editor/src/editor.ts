@@ -119,11 +119,9 @@ export function createEditor(): Editor {
     return all[Math.min(Math.max(active.get(), 0), all.length - 1)];
   };
 
-  // a dialog and a text area are built from a key, and a key handler runs with
-  // no owner, so their effects would never be disposed: each is built under a
-  // branch of the component's owner instead, disposed when it is done with.
-  // The settings example and the git client have the same helper; SIG-335 is
-  // the ticket for `openModal()` doing it
+  // a text area is built from a key, and a key handler runs with no owner, so its
+  // effects would never be disposed: each is built under a branch of the
+  // component's owner instead, disposed when its tab closes
   const owner = getOwner();
   const owned = <T>(build: () => T): { dispose: () => void; value: T } => {
     const branch = runWithOwner(owner, createBranch);
@@ -437,7 +435,7 @@ export function createEditor(): Editor {
     busy = true;
     let chosen: Command | undefined;
     try {
-      chosen = await openPalette({ app, input, owned }, commands());
+      chosen = await openPalette({ app, input }, commands());
     } finally {
       busy = false;
     }

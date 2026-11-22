@@ -137,6 +137,21 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should colour the tokens of a source file in the preview, behind its line numbers',
+      async () => {
+        const { work } = workspace();
+        const m = await mount(App, work, { colorLevel: 3 });
+        await m.press('j', 'l');
+        expect(m.screen()).toMatch(/1 export const answer = 42;/);
+        // a keyword in a colour of its own, which is what the highlighter is for
+        const esc = String.fromCharCode(0x1b);
+        expect(m.term.output).toMatch(new RegExp(`${esc}\\[(?:3[1-6]|9[1-6])mexport${esc}\\[39m`));
+        m.app.exit(0);
+      },
+      LONG
+    );
+
+    it(
       'should draw a picture in half blocks where there is colour to draw it with',
       async () => {
         const { work } = workspace();

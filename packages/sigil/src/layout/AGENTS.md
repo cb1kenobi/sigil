@@ -18,15 +18,27 @@ the entry it belongs to.
   lay a tree out, render it to a grid of characters, read the result as a picture
   -- and it keeps that only by not knowing what an element is. The element tree
   will satisfy the interface; so does a literal in a test.
-- **Every division goes through `distribute()`.** Seven leftover columns across
+- **Every division goes through `distributeCells()`.** Seven leftover columns across
   three children means somebody gets three and somebody gets two, and the rule
   for who has to be stable: a layout that reshuffles its rounding between frames
   shimmers, and one whose parts do not add up leaves a gap that moves.
-- **`distribute()` floors and carries forward; it does not round.** Rounding
+- **`distributeCells()` floors and carries forward; it does not round.** Rounding
   sends the remainder backwards half the time, which put the spare cell in the
   _middle_ of a row of equal columns -- seven across three came out 2, 3, 2 --
   and contradicted the rule the function exists to keep. Flooring moves the
   remainder forward every time, so it lands on the last column.
+- **`@ttylabs/sigil/layout` is public API, and its names say what they are (SIG-400).**
+  The subpath was published with `layout`, `measureNode`, `resolve`, `clamp`,
+  `distribute` and `borderWidth` -- names that mean something else in every other
+  module, and that would have frozen at 1.0 next to `path.resolve()` and a progress
+  bar's own `clamp()`. They are `layoutTree()`, `measureSubtree()`,
+  `resolveLength()`, `clampSize()`, `distributeCells()` and `borderCells()` at the
+  definition, in the barrel and at every caller, with no alias left under the old
+  name: the package has not reached 1.0, so a second spelling would be one more
+  thing to freeze. `borderCells()` is not `borderWidth()` because that is also a
+  CSS property, and this answers a different question -- a count of cells, one or
+  none. The README documents the subpath; a name added to `index.ts` is a name
+  added to that table.
 - **Layout tests are pictures.** `test/layout/helpers.ts` renders a laid-out tree
   to a grid where each node paints its box with a letter, depth-first. A failing
   assertion that prints two grids says what went wrong; one that prints
@@ -113,7 +125,7 @@ the entry it belongs to.
   make the declared widths add up, and the diagnostic is to lay the row out at
   several values and watch whether any box moves.
 - **`justify-content` and `align-content` share one divider, and it goes through
-  `distribute()`.** A single `Math.floor()` per gap cannot hold a remainder:
+  `distributeCells()`.** A single `Math.floor()` per gap cannot hold a remainder:
   `space-evenly` over seven cells and four slots gave three gaps of one and a
   trailing gap of four, and `space-between` left the last item a cell short of
   the edge it is defined to touch. The main axis was fixed one round before the
@@ -121,11 +133,11 @@ the entry it belongs to.
 - **Every auto margin on a line shares the free space, wherever it sits.** A
   trailing one used to count towards the denominator and then contribute
   nothing, so two adjacent items each pushing away from the other pushed once.
-- **`layout()` honours the root's own declared size.** Every other node's is
+- **`layoutTree()` honours the root's own declared size.** Every other node's is
   resolved by its parent before `layoutNode()` is reached, and the root has no
-  parent to do that -- so `layout(panel, { width: 80 })` gave the panel eighty
+  parent to do that -- so `layoutTree(panel, { width: 80 })` gave the panel eighty
   columns however wide it said it was.
-- **Measurements are cached for the length of one `layout()` call.** Without it a
+- **Measurements are cached for the length of one `layoutTree()` call.** Without it a
   node's subtree is re-measured once per ancestor level, which is the node count
   times the depth rather than the node count -- a 5.3x multiplier at eight levels
   deep, on the most expensive operation in the stack. Per call, not persistent:
@@ -252,9 +264,9 @@ the entry it belongs to.
   that placed it at a width its child had said it need not keep.
 - **`max-width` is _not_ part of that, and it is asserted so that nobody adds it.**
   It is the obvious third divergence and it is unreachable on the main axis:
-  `measureUncached()` lays a child's content out at `clamp(declared ?? available, min,
+  `measureUncached()` lays a child's content out at `clampSize(declared ?? available, min,
   max)`, so a box child's measured width is already a sum taken inside its own limit --
-  and where the content cannot shrink that far, a long word, `clamp()` applies max
+  and where the content cannot shrink that far, a long word, `clampSize()` applies max
   before min so `min` wins, which is CSS. `max-width: 10` around `aa bb cc dd ee ff gg`
   measures 8 and is placed at 8; around a nowrap `supercalifragilistic` it measures 20
   and is placed at 20.
@@ -501,15 +513,15 @@ the entry it belongs to.
   wraps to five reported five, so an auto-width column measured itself five wide
   and drew the child outside its own box.
 - **Percentage lengths are rounded per box, and no per-box rule can make siblings
-  add up.** `resolve()` rounds -- `50%` of five is three -- and the reason
+  add up.** `resolveLength()` rounds -- `50%` of five is three -- and the reason
   recorded for it, that two boxes at 50% should still fill the row, is not
   something rounding can deliver: each sibling rounds on its own, so the two ask
   for three each in a five-wide row. What rounding does buy is that a percentage
   never collapses a box that asked for most of a cell: truncation makes those two
   two cells each and leaves a hole, and makes `10%` of five nothing at all. The
   row is put back to exactly full by the _shrink_ pass, which does go through
-  `distribute()` -- three and three become three and two. Where the items cannot
-  flex the overflow is real and `checkInvariants()` says so. `distribute()` is
+  `distributeCells()` -- three and three become three and two. Where the items cannot
+  flex the overflow is real and `checkInvariants()` says so. `distributeCells()` is
   not available here: it hands out one total across weights that partition it,
   and a percentage is not a partition -- siblings' percentages need not sum to
   100%, cross sizes and limits and margins overlap rather than divide, and the
@@ -570,7 +582,7 @@ the entry it belongs to.
 - **A node's size is settled by whoever placed it, and `layoutNode()` never
   clamps it again.** `makeItem()` resolves a child's `min` and `max` against the
   containing block -- the parent's content box, which is what a percentage is
-  _of_ -- and the flexible resolution clamps to them; `layout()` does the same
+  _of_ -- and the flexible resolution clamps to them; `layoutTree()` does the same
   for the root, whose containing block is the space it was given. Clamping a
   second time on the way down read the same declarations with less to go on, in
   two ways. A percentage resolved against the size just handed out, so a growing
@@ -659,7 +671,7 @@ the entry it belongs to.
   - **`crossWidth`**: a function of where a node sits -- its parent's axis, the
     root, an out-of-flow child -- so in a tree where every node has one parent it
     never differs for one node, which the five `measure()` call sites settle:
-    the root and `measureNode()` are `false`, an out-of-flow child is `true` and
+    the root and `measureSubtree()` are `false`, an out-of-flow child is `true` and
     never reaches `makeItem()`, `makeItem()` is its axis and `remeasureLine()` is
     `false` for a row only. What separates the two asks is a node reachable from
     two parents, which `the same node used twice` already makes a supported shape,

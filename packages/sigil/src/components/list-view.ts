@@ -613,7 +613,7 @@ export interface ListViewProps<T, K = T> {
  * What a component built **on** a list holds it by: the selection, the scroll
  * box, and the three things only the list can do.
  *
- * `activate()`, `reveal()`, `refresh()` and every method of the selection that reads
+ * `activate()`, `reveal()`, `rowElement()`, `refresh()` and every method of the selection that reads
  * or moves over the rows take the items as they are now, not as the last frame keyed
  * them: a filter typed and a key forwarded in one read act on the filtered rows. So
  * such a call may move the cursor where the items changed under it, which writes
@@ -638,6 +638,27 @@ export interface ListControl<K> {
    * @returns Whether the view moved.
    */
   reveal(key?: K): boolean;
+  /**
+   * The element a row was built as, the current row's by default: what an app
+   * anchors a menu, a tooltip or a popover to, instead of looking for it in the
+   * tree by a class.
+   *
+   * Only a row the scroll box has built has one -- exactly the rows in view,
+   * there being no overscan -- so a row that is scrolled away, or is windowed out of
+   * a long list, answers `undefined`, as does a key that is not a row or a list with
+   * no current row. `reveal(key)` first when the row has to be there, and that holds
+   * for the current row too: a move in the same handler scrolls with the next
+   * frame, so the row it moved to may not be built until then. The answer is
+   * the row's `.sigil-list-row` box, and **it is the element of one build**: a row
+   * is built again when its item is replaced by a different object, when it leaves
+   * the window and comes back, and on `refresh()`, and each build is a new element
+   * the old one is detached from. So ask where it is needed rather than holding
+   * the answer across a change of the items or a scroll.
+   *
+   * Takes the items as they are now, as `reveal()` does. It reads nothing
+   * reactive, so call it from an event handler rather than relying on it to re-run.
+   */
+  rowElement(key?: K): Element | undefined;
   /** The scroll box the rows are windowed in. */
   readonly scroll: ScrollControl;
   /** The selection: the cursor, the selected rows, and the moves. */
@@ -1412,6 +1433,11 @@ export function ListView<T, K = T>(props: ListViewProps<T, K>): Element {
       reveal: (key) => {
         catchUp();
         return reveal(key as K | undefined);
+      },
+      rowElement: (key) => {
+        catchUp();
+        const at = key === undefined ? untrack(() => current.get()) : (key as K);
+        return at === undefined ? undefined : live.get(at)?.row;
       },
       scroll: control,
       selection: published as ListSelection<unknown>,

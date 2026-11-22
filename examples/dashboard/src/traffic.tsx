@@ -12,7 +12,9 @@
  * Both series are shaded under their lines, as shadcn's area chart is, and the
  * pointer over the plot draws a rule at the day under it with a tooltip saying
  * that day's figures -- the crosshair, which needs `mouse: { motion: true }`, so
- * `src/index.ts` asks for it.
+ * `src/index.ts` asks for it. The chart takes the focus too, and Left and Right
+ * step the rule between days, so a keyboard reads a day's figures as a pointer
+ * does.
  */
 
 import { RANGES } from './data.ts';
@@ -26,8 +28,10 @@ import type { Element } from '@ttylabs/sigil/element';
 import type { InputRouter } from '@ttylabs/sigil/input';
 import { Computed } from '@ttylabs/sigil/signals';
 
-/** What the chart section hands back: the panel, and the tab row the keys reach. */
+/** What the chart section hands back: the panel, the chart, and the tab row the keys reach. */
 export interface TrafficView {
+  /** The line chart, which takes the focus and whose keys the footer describes. */
+  readonly chart: Element;
   readonly element: Element;
   readonly ranges: Element;
 }
@@ -37,7 +41,7 @@ export interface TrafficView {
  *
  * @param d - The dashboard.
  * @param input - The router, which the crosshair follows the pointer through.
- * @returns The panel and its range selector.
+ * @returns The panel, the chart and its range selector.
  */
 export function buildTraffic(d: Dashboard, input: InputRouter): TrafficView {
   const shown = new Computed(() => d.days.slice(-d.rangeNow.get().days));
@@ -70,6 +74,22 @@ export function buildTraffic(d: Dashboard, input: InputRouter): TrafficView {
     props: { class: 'ranges' },
   });
 
+  const chart = LineChart({
+    crosshair: { input, text: readout },
+    fill: true,
+    format: compact,
+    // the legend is in the head, beside the range, where it costs no row
+    legend: false,
+    min: 0,
+    props: { class: 'traffic-chart' },
+    series: [
+      { data: api, label: 'API', role: 'accent' },
+      { data: web, label: 'Web', role: 'warn' },
+    ],
+    step: 'fit',
+    xLabels: span,
+  });
+
   const element = (
     <Panel class="traffic" title="Traffic" annotation={total}>
       <box class="traffic-head">
@@ -84,23 +104,9 @@ export function buildTraffic(d: Dashboard, input: InputRouter): TrafficView {
         </box>
         {ranges}
       </box>
-      {LineChart({
-        crosshair: { input, text: readout },
-        fill: true,
-        format: compact,
-        // the legend is in the head, beside the range, where it costs no row
-        legend: false,
-        min: 0,
-        props: { class: 'traffic-chart' },
-        series: [
-          { data: api, label: 'API', role: 'accent' },
-          { data: web, label: 'Web', role: 'warn' },
-        ],
-        step: 'fit',
-        xLabels: span,
-      })}
+      {chart}
     </Panel>
   );
 
-  return { element, ranges };
+  return { chart, element, ranges };
 }

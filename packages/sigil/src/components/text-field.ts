@@ -15,7 +15,7 @@
  * const name = new State('draft.md');
  * const dialog = openModal(view, {
  *   actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
- *   body: TextField({ value: name, onSubmit: () => dialog.close(true) }),
+ *   body: () => TextField({ value: name, onSubmit: () => dialog.close(true) }),
  *   input,
  *   title: 'Rename',
  * });

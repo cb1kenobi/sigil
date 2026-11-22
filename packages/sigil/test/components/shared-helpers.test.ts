@@ -290,6 +290,7 @@ describe('one definition of each', () => {
     ['how many columns a digit sorts', /\bDIGIT(?:S|_COLUMNS)\b\s*=/],
     ['a raw element that takes no room', /function noSize\b/],
     ['a run of a tree drawn at its own width', /\b(?:TREE_)?FIXED\b\s*(?::[^=]*)?=/],
+    ['the classes of a run of code in a token', /classes\.push\('sigil-token'/],
     ['the message for too many ticked', /__`Choose at most/],
     ['the message for too few ticked', /__`Choose at least \$/],
   ])('should define %s in one place', (_, pattern) => {
