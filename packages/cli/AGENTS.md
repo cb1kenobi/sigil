@@ -1032,10 +1032,13 @@ makes it testable with a fixture directory and no bundler at all.
   reason particular to that reader: a nullish `wrap` leaves the schema with no
   `updateCheck` at all, so reading it as naming costs a declaration the build
   did not demand, which is the direction a reader that errs towards not refusing
-  is allowed to be wrong in. The default stays off because every other caller of
+  is allowed to be wrong in. (It also suppresses the `import` signal for that
+  app, as the plain `wrap({ checker })` already does: a nullish `wrap` plus a
+  hand-written `check()` with no checker ships a binary whose check does
+  nothing. Recorded rather than fixed here.) The default stays off because every other caller of
   `objectLiteral()` would be wrong the other way, and each was checked rather
-  than assumed: `extract.ts`'s `literalOf()` and `discover.ts`'s inline command
-  and `commands` readers bake a `desc`, a `hidden` or a subcommand tree out of
+  than assumed: `extract.ts`'s `literalOf()` and `discover.ts`'s inline command,
+  `commands` and unbaked-key readers bake a `desc`, a `hidden` or a subcommand tree out of
   the literal, and `command?.({ desc })` with a nullish `command` is no command
   when it runs, so the build would describe something that is not there;
   `i18n.ts`'s `locales` would bake catalogs for a schema that declares none. A
@@ -7217,8 +7220,9 @@ measurements are in
   of `@ttylabs/sigil/updates` rather than as a spelling, and it is asked
   _before_ `objectLiteral()`, which looks through a call with one object
   argument: asked the other way round, `githubChecker({ repo })` reads as the
-  options `{ repo }` and a correct build is refused. Any other call, or a
-  checker held in a variable, reads as asking without saying where -- the
+  options `{ repo }` and a correct build is refused. Any other call that is
+  not a one-argument pass-through of such a literal, or a checker held in a
+  variable, reads as asking without saying where -- the
   refusal's message says how to declare it, and a false refusal there is a
   `sigil.json` entry rather than a lost build.
 
