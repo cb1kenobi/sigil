@@ -12667,6 +12667,28 @@ How each question was settled, the probes and the sabotage pass are in
   lists give (SIG-478, below). Type-to-find is not described, for the reason
   `describeTabs()` leaves the digits out.
 
+- **A row's element is asked for by key, and only a built row has one
+  (SIG-459).** `listControl(list).rowElement(key?)` -- the current row's with no
+  key, and `dataTableControl(table).rowElement(key?)`, which is the same call --
+  hands out the `.sigil-list-row` box the row was built as, for an app that anchors
+  a menu, a tooltip or a popover to a row. Before it the dashboard's row menu walked
+  the tree for the class `is-current`, which reads structure nothing promises. It
+  answers from the `live` map `buildRow()` already kept for restyling the cursor,
+  so there is no second registry to drift, and it takes the items as they are now
+  (`catchUp()`) like `reveal()` beside it. Three cases answer `undefined` and are
+  documented rather than worked around: a row the window has not built (there is no
+  overscan, so that is any row out of view, **and the current row after a move in
+  the same handler**, since the view follows the cursor from an effect -- `reveal(key)`
+  first and, for its layout, a frame), a key that is no row, and a list with no current row. Building
+  a row on demand for the rest was refused: it would leave an element no slot
+  holds, with no owner to dispose it and no layout, which is a worse thing to hand
+  an app than `undefined`. The element is **one build's**: a row built again for a
+  replaced item, by `refresh()`, or by scrolling out and back, is a new element and
+  the old one is detached, so the call is for the moment of need and not for
+  holding -- there is no reactive version, since a stale one cannot be told apart
+  from a current one by its holder. Pinned in `test/components/list-view.test.ts`
+  and `data-table.test.ts`.
+
 **The contract a table and a tree build on.** Either of two layers, and
 `ListView` itself is built on the lower one, which is the evidence it is enough:
 

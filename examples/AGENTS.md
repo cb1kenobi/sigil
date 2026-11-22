@@ -1073,22 +1073,24 @@ dark -- built from sigil's own components, with its own data, names and colours.
   builds the menu's entries afresh each time it opens, so the position is read
   then anyway.
 
-- **The row menu opens under the row's right end, found by its classes.** Enter or
-  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+- **The row menu opens under the row's right end, found by asking the table.** Enter
+  or a double click is the table's `onActivate`, and the menu is `openMenu()` beside
   the current row's last cell, an element rather than a point, so it right-aligns
   under the row -- or above it, where the row is too low for it -- and leaves the
-  row in view, where a web table's row menu is. Nothing hands out the element a
-  row was built as, so `currentRow()` walks the table for the `sigil-list-row`
-  that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
-  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
-  because a letter two items share only steps the highlight between them; the
-  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
-  pauses the row the menu is about. A double click moves the cursor and activates
-  in one handler, before the effect that moves `is-current` has run, so the menu
-  settles a frame with `app.view.frame()` before it looks for the row --
-  `flush()` from the signals is not enough, since the renderer runs its own
-  effects. Both clicks have to arrive in one read for the gap to show, which is
-  how the test sends them.
+  row in view, where a web table's row menu is. The row is
+  `dataTableControl(table).rowElement(id)` (SIG-459), which replaced a walk for the
+  `sigil-list-row` that was `is-current`, structure `ListView` documents only as
+  hooks for a stylesheet. Each entry's mnemonic is distinct at its level
+  (`R&edeploy` beside `&Delete...`), because a letter two items share only steps
+  the highlight between them; the ticked rows' actions are a `Ticked` submenu for
+  the same reason, so `p` still pauses the row the menu is about. A move and Enter
+  arriving in one read -- End and Enter, or a double click -- activate before the
+  frame that scrolls the table to the row has run, so that row may not be built
+  yet: the menu settles a frame with `app.view.frame()` before it asks, which
+  scrolls and lays the row out -- `flush()` from the signals is not enough, since
+  the renderer runs its own effects. Both keys have to arrive in one read for the
+  gap to show, which is how the tests send them, and removing the frame fails
+  `should open the menu beside a row the same read scrolled to`.
 
 - **A card's badge follows its figure, and is written to in place.** `Badge` takes
   its label and variant as functions over one `Computed` (SIG-460); it used to be a

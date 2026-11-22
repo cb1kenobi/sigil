@@ -255,6 +255,45 @@ describe('DataTable()', () => {
     ]);
   });
 
+  it("should hand out a row's element for a key, in the sorted order, and the current row's by default (SIG-459)", () => {
+    const host = procs({ sort: { column: 'cpu', descending: true } });
+    picture(host, 48);
+    const rowElement = control(host).rowElement.bind(control(host));
+
+    const node = rowElement(42);
+    expect(node?.classes).toContain('sigil-list-row');
+    expect(node?.classes).toContain('is-current');
+    expect(every(node as Element).some((e) => e.text?.trim() === 'node')).toBe(true);
+    expect(rowElement()).toBe(node);
+    expect(rowElement(1)?.classes).not.toContain('is-current');
+    expect(rowElement(999)).toBeUndefined();
+  });
+
+  it('should hand out a new element for a row after the table refreshes, and none for a row windowed out (SIG-459)', () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      cpu: i,
+      name: `p${i}`,
+      pid: i,
+      user: 'root',
+    }));
+    const host = procs({ rows: many }, 6);
+    picture(host, 48);
+    const { refresh, reveal, rowElement } = control(host);
+    const before = rowElement(0);
+    expect(before).toBeDefined();
+    expect(rowElement(40)).toBeUndefined();
+
+    refresh();
+    picture(host, 48);
+    expect(rowElement(0)).toBeDefined();
+    expect(rowElement(0)).not.toBe(before);
+
+    reveal(40);
+    picture(host, 48);
+    expect(rowElement(40)).toBeDefined();
+    expect(rowElement(0)).toBeUndefined();
+  });
+
   it('should line the heading up past the marks of a multiple table too', () => {
     const host = procs({ multiple: true, selected: [7] });
     expect(picture(host, 48).slice(0, 3)).toEqual([

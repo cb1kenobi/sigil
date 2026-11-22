@@ -368,13 +368,32 @@ describe('the table', () => {
     const row = (s.term.viewport[y] ?? '').slice(x - 1);
     const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
     // both clicks in one read, as a fast double click arrives: the cursor moves
-    // and the row activates before the effect that moves `is-current` has run
+    // and the row activates in one handler, before a frame has run for either
     await s.press(click + click);
     // the menu opens under the clicked row, not under the row the cursor was on
     expect(s.term.viewport[y + 1]).toMatch(/╭─+╮/);
     expect(s.term.viewport[y + 2]).toContain('Pause');
     // and leaves the row itself, its name and every figure in it, in view
     expect((s.term.viewport[y] ?? '').slice(x - 1)).toBe(row);
+  });
+
+  it('should open the menu beside a row the same read scrolled to, which was built only then', async () => {
+    // a terminal too short for the page, so End scrolls the table to rows that
+    // were not built; End and Enter arrive in one read, before any frame
+    const s = mount({ columns: 120, rows: 24 });
+    await s.toTable();
+    const before = s.rows();
+    await s.press(`${KEYS.end}${KEYS.enter}`);
+    const shown = s.rows();
+    expect(shown).not.toStrictEqual(before);
+    const name = shown.at(-1) ?? '';
+    const y = s.term.viewport.findIndex((each) => each.includes(`❯ ◯ ${name}`));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const row = s.term.viewport[y] ?? '';
+    expect(s.screen()).toContain('Redeploy');
+    // the menu is beside that row: it ends on the line above it, and the row stays in view
+    expect(s.term.viewport[y - 1]).toMatch(/╰─+╯/);
+    expect(s.term.viewport[y]).toBe(row);
   });
 
   it('should open the menu above the last row of a page, and leave the row in view', async () => {
