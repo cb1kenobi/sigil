@@ -175,7 +175,8 @@ The parser quotes argv and environment values in its messages —
 --mode` — and argv is not always typed by the person reading the error: a glob
 over a hostile file name, a wrapper forwarding a branch name, or an environment
 variable set from a file can all put an escape sequence there. So every value
-the framework echoes has its control characters written out as `\xNN`, and
+the framework echoes has its control characters written out as `\xNN` (and the
+invisible ones below as `\u{NNNN}`), and
 `mycli $'bu\e]0;PWNED\aild'` reports `Unexpected argument "bu\x1B]0;PWNED\x07ild"`
 rather than renaming the terminal's window. Every `\p{Cc}` is escaped, which is
 C0, `DEL` and C1, and that includes a tab and a newline: inside a quoted value a
@@ -186,8 +187,12 @@ not, is `\xAD`): a right-to-left override makes the
 terminal draw the rest of the line reversed, and a zero-width space is not
 drawn at all, so two values that print alike can differ. That includes the
 zero-width joiner, so a joined emoji in an echoed value shows `\u{200D}` between
-its parts. The no-break space and the other spaces are drawn and are left
-alone. Only the echoed value is escaped, never the message around it, so an
+its parts. So is every other character Unicode says is drawn as nothing,
+`\p{Default_Ignorable_Code_Point}`: the Hangul fillers, the combining grapheme
+joiner and the variation selectors, which include the U+FE0F that follows an
+emoji, so a heart there shows as the heart and then `\u{FE0F}`. So is the blank
+braille pattern, U+2800, which is drawn as a space but is not one. The no-break
+space and the other spaces are drawn and are left alone. Only the echoed value is escaped, never the message around it, so an
 error your own code throws keeps its colors.
 
 `escapeControls()` from `@ttylabs/sigil/error-handler` is that function. Use it
@@ -8592,6 +8597,70 @@ credentials, query or fragment. Anything else, `http://` included, is refused
 when the checker is built: the worker only fetches over `https`, so a root it
 could not use would be a check that fails where nothing reports it.
 
+A `custom` check's `url` is held to the same rule where it is built, with one
+difference: it is the request itself rather than a root something is joined to,
+so it **may carry a query** -- `https://h/api/latest?channel=stable` -- and it
+is used as the parser wrote it -- a host is lower-cased and a dot segment
+resolved -- with its trailing slash kept. It is still an absolute `https://`
+URL with a host, with no whitespace or control character, no credentials and no
+fragment (which no request carries), and `path` is a non-empty list of non-empty
+strings. A declaration that breaks any of that fails `sigil check`, `sigil build`
+and `sigil package` naming `updateCheck.url`, instead of producing an app whose
+check fails in the background where nothing reports it. `customChecker()` is the
+same builder for code:
+
+```js
+import { check, customChecker } from '@ttylabs/sigil/updates';
+
+await check({
+  packageName: 'mycli',
+  packageVersion: VERSION,
+  checker: customChecker({
+    url: 'https://downloads.acme.example/mycli/latest.json?channel=stable',
+    path: ['stable', 'version'],
+  }),
+});
+```
+
+It throws a `TypeError` for a `url` or a `path` that is not what that says. A
+plain `{ type: 'custom', url, path }` object is still a checker, and is **not**
+checked: it is data, `check()` takes it as it is, and an `ftp://` URL in one is
+a check that fails in the worker. `customChecker()` is how to have it refused
+instead.
+
+An endpoint that wants a header, or answers `v1.2.3` where the app's version is
+`1.2.3`, says so with `headers` and `prefix`:
+
+```js
+customChecker({
+  url: 'https://downloads.acme.example/mycli/latest.json',
+  path: ['stable', 'version'],
+  headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  prefix: 'v',
+});
+```
+
+`headers` is a plain object of header names to string values. A name has to be
+an HTTP token and a value may hold a tab, printable ASCII and Latin-1 letters
+and nothing else -- no control character, so no carriage return or line feed to
+forge a header, and nothing past U+00FF, which Node refuses to send -- so either
+throws a `TypeError` when the checker is built, instead of failing in
+the background where nothing reports it. The message names the header and
+**never quotes its value**, since a value is often a credential. `prefix` is a
+non-empty string, stripped off the version when the answer starts with it; leave
+it out to strip nothing. `sigil.json`'s `custom` check takes `prefix` but not
+`headers`: that file is committed, so a header belongs in code, passed as
+`checker`. The headers reach the background worker through its environment,
+so they are visible to anything that can read that process's environment, as
+the rest of what a check is told is.
+
+A refusal of an endpoint's `url` shows its query by parameter **name**, with the
+value hidden -- `https://h/latest json?channel=***&token=***` -- so you can see
+which query you wrote and nothing a token could be in. A parameter with no `=`,
+or a name that is not a short plain identifier, is shown as `***`. The root URLs of
+`npmChecker()` and `githubChecker()` may not carry a query, and a refusal of one
+hides everything from the `?`.
+
 Or pass one in code, which beats whatever is baked in:
 
 ```js
@@ -8668,7 +8737,7 @@ The checker alone can also live in `sigil.json`, where the build bakes it in (a
 }
 ```
 
-`npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
+`npmChecker()`, `githubChecker()`, `customChecker()` and a plain `{ type, url, path, headers,
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
 

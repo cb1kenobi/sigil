@@ -1,5 +1,6 @@
 import {
   check,
+  customChecker,
   githubChecker,
   npmChecker,
   versionFrom,
@@ -12,6 +13,7 @@ import { tempDir } from './temp.js';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
 import https from 'node:https';
 import { createServer, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
@@ -499,6 +501,537 @@ describe('updates', () => {
       expect(versionFrom({ tag_name: '\rv1.2.3' }, githubChecker({ repo: 'a/b' }))).to.equal(
         '1.2.3'
       );
+    });
+
+    // SIG-546: a `custom` check's `url` was copied across as written, so
+    // `ftp://h` and a URL with a newline in it were baked into a worker that
+    // refuses them, where the check swallows the failure
+    describe('customChecker', () => {
+      const url = 'https://example.com/latest.json';
+      const path = ['data', 'version'];
+
+      it('should build the checker `sigil.json` declares', () => {
+        expect(customChecker({ path, url })).to.deep.equal({ path, type: 'custom', url });
+      });
+
+      it('should keep a query, which a custom endpoint may need', () => {
+        expect(
+          customChecker({ path, url: 'https://h/api/latest?channel=stable&x=1' }).url
+        ).to.equal('https://h/api/latest?channel=stable&x=1');
+        // and a trailing slash, which is part of the path of a request and not a root
+        expect(customChecker({ path, url: 'https://h/api/latest/' }).url).to.equal(
+          'https://h/api/latest/'
+        );
+        expect(customChecker({ path, url: 'https://h:8443/v.json' }).url).to.equal(
+          'https://h:8443/v.json'
+        );
+      });
+
+      it('should use the URL as the parser wrote it, which is what the worker will test', () => {
+        // the worker's check is a case-sensitive `startsWith('https:')`, so the
+        // scheme has to leave here lower-cased: the raw value passes the gate
+        expect(customChecker({ path, url: 'HTTPS://H/x' }).url).to.equal('https://h/x');
+        expect(customChecker({ path, url: 'https://h\\x' }).url).to.equal('https://h/x');
+        expect(customChecker({ path, url: 'https://h' }).url).to.equal('https://h/');
+      });
+
+      it('should refuse a path with a hole in it', () => {
+        const holey: string[] = [];
+        holey.length = 2;
+        expect(() => customChecker({ path: holey, url })).to.throw(TypeError);
+      });
+
+      it('should hold what it was given in a copy, so a later edit cannot move it', () => {
+        const keys = ['a', 'b'];
+        const checker = customChecker({ path: keys, url });
+        keys.push('c');
+        expect(checker.path).to.deep.equal(['a', 'b']);
+      });
+
+      it('should refuse a URL that is not an absolute https one', () => {
+        for (const bad of [
+          'ftp://h/latest.json',
+          'http://h/latest.json',
+          'https://h/\nx',
+          'https://h/a b',
+          'https://h/a\tb',
+          ' https://h/x',
+          'https://h/x ',
+          '\nhttps://h/x',
+          'https://h/\u001b[31m',
+          'https://h/\u007f',
+          'https://h/\u0085',
+          'not a url',
+          'h/latest.json',
+          '//h/latest.json',
+          '',
+          'https://',
+          'https:///x',
+          'https://?x=1',
+          'https://:443/x',
+          'https://h:99999/x',
+          'https://user@h/x',
+          'https://user:pass@h/x',
+          'https://:pass@h/x',
+          'https://h/x#frag',
+          'https://h/x?a=1#frag',
+          'https://h/x#',
+        ]) {
+          expect(() => customChecker({ path, url: bad }), JSON.stringify(bad)).to.throw(
+            TypeError,
+            /Update check url must be an absolute https:\/\/ URL with no credentials or fragment/
+          );
+        }
+        for (const bad of [undefined, null, 42, {}, ['https://h']]) {
+          expect(() => customChecker({ path, url: bad } as never), String(bad)).to.throw(
+            TypeError,
+            /Update check url must be an absolute https:\/\/ URL/
+          );
+        }
+      });
+
+      it('should not quote a control character, a password or a query as written', () => {
+        const messageOf = (value: string): string => {
+          try {
+            customChecker({ path, url: value });
+          } catch (error) {
+            return (error as Error).message;
+          }
+          return '';
+        };
+
+        const forged = messageOf('https://h/a\u001b]0;PWNED\u0007\nforged: error: forged');
+        expect(forged).to.contain('got "https://h/a\\x1B]0;PWNED\\x07\\x0Aforged: error: forged"');
+        expect(forged).to.not.match(/\p{Cc}/u);
+
+        for (const bad of [
+          'https://user:hunter2@h/x',
+          'https://:hunter2@h/x',
+          'https://u:hun?ter2@h/',
+          'https://u:hunter2#x@h/',
+          // a token in the query of a URL refused for another reason
+          'ftp://h/x?token=hunter2',
+          'https://h/x\n?token=hunter2',
+          'https://h/x?token=hunter2#frag',
+        ]) {
+          const message = messageOf(bad);
+          expect(message, JSON.stringify(bad)).to.contain('must be an absolute https:// URL');
+          expect(message, JSON.stringify(bad)).to.not.contain('hunter2');
+          expect(message, JSON.stringify(bad)).to.not.match(/\p{Cc}/u);
+        }
+      });
+
+      // SIG-556: `redact()` hid everything from the first `?`, so a refused
+      // endpoint with a legitimate query read `https://h/x?***` and the reader
+      // could not see which query they had written
+      describe('a refused endpoint with a query', () => {
+        const messageOf = (value: string): string => {
+          try {
+            customChecker({ path, url: value });
+          } catch (error) {
+            return (error as Error).message;
+          }
+          return '';
+        };
+        const quoted = (value: string): string =>
+          /got "([\s\S]*)"$/.exec(messageOf(value))?.[1] ?? '';
+
+        it('should quote each parameter name and hide each value', () => {
+          expect(quoted('https://h/latest json?channel=stable')).to.equal(
+            'https://h/latest json?channel=***'
+          );
+          expect(quoted('https://h/latest json?channel=stable&token=hunter2')).to.equal(
+            'https://h/latest json?channel=***&token=***'
+          );
+        });
+
+        it('should say what a parameter with no value, an empty name and a double separator are', () => {
+          // `a=` has a value that is empty and is still hidden
+          expect(quoted('ftp://h/x?a=1&b=2')).to.equal('ftp://h/x?a=***&b=***');
+          // but a `=` with nothing after it is a name that cannot be told from a token's padding
+          expect(quoted('ftp://h/x?a=&b=1')).to.equal('ftp://h/x?***&b=***');
+          expect(quoted('ftp://h/x?c2VjcmV0LXRva2VuLTEyMw==')).to.equal('ftp://h/x?***');
+          expect(quoted('ftp://h/x?a=1&c2VjcmV0=')).to.equal('ftp://h/x?a=***&***');
+          // a name is quoted only where a `=` follows it: a parameter with none is
+          // a flag to a server and a bare token to a typo, and is not told apart
+          expect(quoted('ftp://h/x?a=1&hunter2')).to.equal('ftp://h/x?a=***&***');
+          expect(quoted('ftp://h/x?hunter2')).to.equal('ftp://h/x?***');
+          expect(quoted('ftp://h/x??hunter2')).to.equal('ftp://h/x?***');
+          // an empty name has nothing to quote
+          expect(quoted('ftp://h/x?=hunter2')).to.equal('ftp://h/x?***=***');
+          // an empty parameter says nothing and is dropped
+          expect(quoted('ftp://h/x?&&a=1&&b=2&')).to.equal('ftp://h/x?a=***&b=***');
+          expect(quoted('ftp://h/x?&')).to.equal('ftp://h/x?');
+          expect(quoted('ftp://h/x?')).to.equal('ftp://h/x?');
+          // the first `=` ends the name: a value may hold another, and a `?`
+          expect(quoted('ftp://h/x?a=b=c&d=e?f=g')).to.equal('ftp://h/x?a=***&d=***');
+          // only `&` separates, so a `;` and its tail are part of a value
+          expect(quoted('ftp://h/x?a=1;token=hunter2')).to.equal('ftp://h/x?a=***');
+        });
+
+        it('should keep hiding everything after a fragment', () => {
+          expect(quoted('https://h/x?a=1#hunter2')).to.equal('https://h/x?a=***#***');
+          expect(quoted('https://h/x?a=1&b=2#c=3&d=4')).to.equal('https://h/x?a=***&b=***#***');
+          // a `#` before the `?` makes the whole of it the fragment
+          expect(quoted('https://h/x#hunter2?a=1')).to.equal('https://h/x#***');
+          expect(quoted('https://h/x#')).to.equal('https://h/x#***');
+        });
+
+        it('should quote a name only if it is a short plain identifier, whatever follows it', () => {
+          for (const name of [
+            'channel',
+            'api_key',
+            'filter[type]',
+            'v1.2',
+            'a-b',
+            'n'.repeat(24),
+          ]) {
+            expect(quoted(`ftp://h/x?${name}=hunter2`), name).to.equal(`ftp://h/x?${name}=***`);
+          }
+          // what a pasted token looks like is not one, and the old rule hid every one of these
+          for (const name of [
+            'n'.repeat(25),
+            '0123456789abcdef0123456789abcdef0123456789abcdef',
+            'token%3Dhunter2',
+            'token:hunter2',
+            '{"token":"hunter2"}',
+            'a b',
+            'a\u00e9',
+            '\u{1f600}',
+            'a+b',
+            'a~b',
+            '$filter',
+            'a!b',
+            'a*b',
+            'a,b',
+            'a;b',
+            "a'b",
+            'a(b)',
+            'a/b',
+            'a:b',
+          ]) {
+            const message = quoted(`ftp://h/x?${name}=1`);
+            expect(message, name).to.equal('ftp://h/x?***=***');
+          }
+          expect(quoted('ftp://h/x?0123456789abcdef0123456789abcdef')).to.equal('ftp://h/x?***');
+        });
+
+        it('should list eight parameters and say there were more', () => {
+          const list = (count: number): string =>
+            quoted(
+              `ftp://h/x?${Array.from({ length: count }, (_, i) => `p${i}=hunter2`).join('&')}`
+            );
+          const shown = (count: number): string =>
+            Array.from({ length: count }, (_, i) => `p${i}=***`).join('&');
+          expect(list(8)).to.equal(`ftp://h/x?${shown(8)}`);
+          expect(list(9)).to.equal(`ftp://h/x?${shown(8)}&...`);
+          expect(list(12)).to.equal(`ftp://h/x?${shown(8)}&...`);
+        });
+
+        it('should escape what it does quote, and quote no control character', () => {
+          const message = messageOf('https://h/x\n?a\nforged: error=1&\u001b]0;PWNED\u0007=2');
+          expect(message).to.contain('?***=***&***=***"');
+          expect(message).to.not.contain('PWNED');
+          expect(message).to.not.match(/\p{Cc}/u);
+          // and the part in front of the `?` still goes through `escapeControls()`
+          expect(messageOf('https://h/a\u001b[31m?a=1')).to.contain(
+            'got "https://h/a\\x1B[31m?a=***"'
+          );
+        });
+
+        // the cut order: a `@` is cut before anything else, so the query is not
+        // quoted after one. Before SIG-556 what was left of a query after its
+        // `@` was cut was echoed whole -- `***@b&token=hunter2` -- since the
+        // `?` that would have cut it had gone with the `@`
+        it('should not quote a query after an @, and not leak what follows one', () => {
+          expect(quoted('ftp://h/x?email=a@b&token=hunter2')).to.equal('***@b&***');
+          expect(quoted('ftp://h/x?email=a@b=hunter2')).to.equal('***@b=***');
+          expect(quoted('ftp://h/x?email=a@b?token=hunter2')).to.equal('***@b?***');
+          expect(quoted('https://h/x?a=1@b#hunter2')).to.equal('***@b#***');
+          // and a credential still goes first, with the query behind it hidden
+          expect(quoted('https://user:hunter2@h/x?a=1&token=2')).to.equal('***@h/x?***');
+          expect(quoted('https://user:hunter2@h/api')).to.equal('***@h/api');
+          expect(quoted('https://u:hunter2?x@h/')).to.equal('***@h/');
+          expect(quoted('https://u:hunter2&x=1@h/')).to.equal('***@h/');
+        });
+
+        it('should show no value, password or token, whatever order they come in', () => {
+          for (const bad of [
+            'ftp://h/x?token=hunter2',
+            'ftp://h/x?a=1&token=hunter2&b=2',
+            'ftp://h/x?token=hunter2&token=hunter2',
+            'ftp://h/x?a=b@c&token=hunter2',
+            'ftp://h/x?a=1#token=hunter2',
+            'ftp://h/x?a=1;token=hunter2',
+            'ftp://h/x?a=%68unter2&b=hunter2',
+            'ftp://u:hunter2@h/x?token=hunter2',
+            'ftp://h/x?a=1&&=hunter2&b',
+            'ftp://h/x\n?token=hunter2',
+            'ftp://h/x\t?a=1&token=hunter2',
+            'https://h/x?a=1&token=hunter2#hunter2',
+            'https://h/x?token=hunter2#',
+            'ftp://h/x?a=1&hunter2',
+            'ftp://h/x?token%3Dhunter2',
+            'ftp://h/x?token:hunter2',
+            'ftp://h/x??hunter2',
+            'ftp://h/x?{"token":"hunter2"}',
+            'ftp://h/x?0123456789abcdef0123456789abcdef-hunter2',
+            'ftp://h/x?c2VjcmV0LXRva2VuLTEyMw==',
+            'ftp://h/x?3q2-7wABCDEF_ghijk012w==',
+            'ftp://h/x?token=1&aHVudGVyMg=',
+          ]) {
+            const message = messageOf(bad);
+            expect(message, JSON.stringify(bad)).to.contain('must be an absolute https:// URL');
+            expect(message, JSON.stringify(bad)).to.not.contain('hunter2');
+            expect(message, JSON.stringify(bad)).to.not.match(/\p{Cc}/u);
+          }
+        });
+
+        it('should leave a root URL as it was, which may not carry a query at all', () => {
+          const rootMessage = (apiURL: string): string => {
+            try {
+              githubChecker({ apiURL, repo: 'o/n' });
+            } catch (error) {
+              return (error as Error).message;
+            }
+            return '';
+          };
+          expect(rootMessage('https://h/api?channel=stable&token=hunter2')).to.contain(
+            'got "https://h/api?***"'
+          );
+          expect(rootMessage('https://h/api#channel=stable')).to.contain('got "https://h/api#***"');
+          // and the cut order reaches it too
+          expect(rootMessage('https://h/api?a=b@c&token=hunter2')).to.contain('got "***@c&***"');
+          expect(rootMessage('https://h/api?a=b@c&token=hunter2')).to.not.contain('hunter2');
+        });
+      });
+
+      // SIG-555: an `UpdateChecker` can carry `headers` and a `prefix`, and the
+      // builder took neither, so an app that needed one wrote the object by
+      // hand and nothing it held was checked
+      describe('headers and prefix', () => {
+        const refusal = (opts: object): string => {
+          try {
+            customChecker({ path, url, ...opts } as never);
+          } catch (error) {
+            expect(error).to.be.instanceOf(TypeError);
+            return (error as Error).message;
+          }
+          return '';
+        };
+
+        it('should build a checker carrying both', () => {
+          const headers = { Accept: 'application/json', 'X-Api-Key': 'abc' };
+          const checker = customChecker({ headers, path, prefix: 'v', url });
+          expect(checker).to.deep.equal({ headers, path, prefix: 'v', type: 'custom', url });
+          expect(versionFrom({ data: { version: 'v1.2.3' } }, checker)).to.equal('1.2.3');
+        });
+
+        it('should leave both out of a checker that was not given them', () => {
+          expect(customChecker({ path, url })).to.deep.equal({ path, type: 'custom', url });
+          expect(customChecker({ headers: undefined, path, prefix: undefined, url })).to.deep.equal(
+            { path, type: 'custom', url }
+          );
+          expect(Object.keys(customChecker({ path, url }))).to.not.include.members([
+            'headers',
+            'prefix',
+          ]);
+          // an empty object is a set of no headers, and is kept as given
+          expect(customChecker({ headers: {}, path, url }).headers).to.deep.equal({});
+        });
+
+        it('should keep a header named __proto__, which assigning would have dropped', () => {
+          const headers = JSON.parse('{"__proto__":"x","a":"b"}') as Record<string, string>;
+          const checked = customChecker({ headers, path, url }).headers!;
+          expect(Object.keys(checked)).to.deep.equal(['__proto__', 'a']);
+          expect(JSON.stringify(checked)).to.equal('{"__proto__":"x","a":"b"}');
+        });
+
+        it('should hold its own copy of the headers', () => {
+          const headers: Record<string, string> = { a: 'b' };
+          const checker = customChecker({ headers, path, url });
+          headers.a = 'changed';
+          headers.c = 'd';
+          expect(checker.headers).to.deep.equal({ a: 'b' });
+        });
+
+        it('should take a header whose value is empty, tabbed or Latin-1, and a null-prototype object', () => {
+          expect(customChecker({ headers: { a: '' }, path, url }).headers).to.deep.equal({ a: '' });
+          expect(
+            customChecker({ headers: { a: 'x\ty z\u00e9' }, path, url }).headers
+          ).to.deep.equal({
+            a: 'x\ty z\u00e9',
+          });
+          const bare = Object.assign(Object.create(null) as object, { a: 'b' });
+          expect(customChecker({ headers: bare, path, url }).headers).to.deep.equal({ a: 'b' });
+        });
+
+        it('should refuse a header name that is not an HTTP token, naming it', () => {
+          for (const name of [
+            '',
+            'a b',
+            'a:b',
+            'a\nb',
+            'a\rb',
+            'a(b',
+            'a/b',
+            '\u00e9',
+            'a\u0000b',
+          ]) {
+            const message = refusal({ headers: { [name]: 'x' } });
+            expect(message, JSON.stringify(name)).to.contain(
+              'Update check header name must be an HTTP token, got "'
+            );
+            expect(message, JSON.stringify(name)).to.not.match(/\p{Cc}/u);
+          }
+          expect(refusal({ headers: { 'bad name': 'secret-token' } })).to.equal(
+            'Update check header name must be an HTTP token, got "bad name"'
+          );
+          // a name is escaped like everything else a message quotes
+          expect(refusal({ headers: { 'a\nforged: error': 'x' } })).to.contain(
+            'got "a\\x0Aforged: error"'
+          );
+        });
+
+        it('should refuse a value with a line break or another control character, and never quote it', () => {
+          for (const value of [
+            'Bearer hunter2\r\nX-Injected: 1',
+            'Bearer hunter2\n',
+            'hunter2\r',
+            'hunter2\u0000',
+            'hunter2\u001b[31m',
+            'hunter2\u007f',
+            'hunter2\u0085',
+            'hunter2\u009f',
+            'hunter2\u2028',
+            'hunter2\u0100',
+            'hunter2\u{1f600}',
+          ]) {
+            const message = refusal({ headers: { Authorization: value } });
+            expect(message, JSON.stringify(value)).to.equal(
+              'Update check header "Authorization" must not contain a control character or a character past U+00FF'
+            );
+            expect(message, JSON.stringify(value)).to.not.contain('hunter2');
+          }
+        });
+
+        it('should refuse a value that is not a string, naming the header and not the value', () => {
+          for (const value of [undefined, null, 42, true, {}, ['hunter2'], 1n]) {
+            const message = refusal({ headers: { Authorization: value } });
+            expect(message, String(value)).to.match(
+              /^Update check header "Authorization" must be a string, got a /
+            );
+            expect(message, String(value)).to.not.contain('hunter2');
+          }
+        });
+
+        it('should refuse headers that are not a plain object, without quoting them', () => {
+          for (const headers of [
+            null,
+            'hunter2',
+            42,
+            true,
+            ['hunter2'],
+            new Map([['a', 'hunter2']]),
+            () => 1,
+          ]) {
+            const message = refusal({ headers });
+            expect(message, String(headers)).to.equal(
+              'Update check headers must be an object of header names to string values'
+            );
+          }
+        });
+
+        it('should hold the rule to what Node itself would refuse to send', () => {
+          // the rule is written as a regular expression so that this module does
+          // not load `node:http`, and this is what keeps it from drifting
+          // from `http.validateHeaderName()` and `http.validateHeaderValue()`
+          const accepts = (check: () => void): boolean => {
+            try {
+              check();
+              return true;
+            } catch {
+              return false;
+            }
+          };
+          for (let code = 0; code < 0x300; code++) {
+            const char = String.fromCharCode(code);
+            const nodeName = accepts(() => http.validateHeaderName(`a${char}b`));
+            const ours = accepts(() =>
+              customChecker({ headers: { [`a${char}b`]: 'x' }, path, url })
+            );
+            expect(ours, `name U+${code.toString(16)}`).to.equal(nodeName);
+
+            const nodeValue = accepts(() => http.validateHeaderValue('a', `x${char}y`));
+            const oursValue = accepts(() =>
+              customChecker({ headers: { a: `x${char}y` }, path, url })
+            );
+            // the one difference is deliberate: the C1 controls, which Node lets through
+            const c1 = code >= 0x80 && code <= 0x9f;
+            expect(oursValue, `value U+${code.toString(16)}`).to.equal(c1 ? false : nodeValue);
+          }
+        });
+
+        it('should refuse an empty prefix, and one that is not a string', () => {
+          for (const prefix of [
+            '',
+            ' v',
+            '\nv',
+            'v\u0000',
+            'v\n',
+            'v\u007f',
+            null,
+            42,
+            true,
+            ['v'],
+            {},
+          ]) {
+            expect(refusal({ prefix }), String(prefix)).to.match(
+              /^Update check prefix must be a non-empty string with no leading whitespace or control character, got "/
+            );
+          }
+          expect(refusal({ prefix: '' })).to.equal(
+            'Update check prefix must be a non-empty string with no leading whitespace or control character, got ""'
+          );
+          expect(refusal({ prefix: 42 })).to.equal(
+            'Update check prefix must be a non-empty string with no leading whitespace or control character, got "42"'
+          );
+        });
+      });
+
+      it('should refuse a path that is not a non-empty list of non-empty strings', () => {
+        for (const bad of [
+          undefined,
+          null,
+          'version',
+          [],
+          [''],
+          ['a', ''],
+          [1],
+          [null],
+          [['a']],
+          {},
+        ]) {
+          expect(() => customChecker({ path: bad, url } as never), JSON.stringify(bad)).to.throw(
+            TypeError,
+            /Update check path must be a non-empty list of non-empty strings/
+          );
+        }
+        // and what it prints is escaped like everything else it quotes, and
+        // is not asked to serialize a value JSON cannot hold
+        expect(() => customChecker({ path: [1, 'a\nforged'], url } as never)).to.throw(
+          'got "1,a\\x0Aforged"'
+        );
+        expect(() => customChecker({ path: [1n], url } as never)).to.throw(
+          /Update check path must be a non-empty list/
+        );
+      });
+
+      it('should read a version out of what it asked for', () => {
+        expect(versionFrom({ data: { version: '2.0.0' } }, customChecker({ path, url }))).to.equal(
+          '2.0.0'
+        );
+      });
     });
 
     it('should let a custom checker name its own url and path', () => {

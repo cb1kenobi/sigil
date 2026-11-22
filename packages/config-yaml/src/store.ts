@@ -16,6 +16,7 @@ import {
   type WritableConfigStore,
   type WriteOptions,
 } from '@ttylabs/sigil/config';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { __ } from '@ttylabs/sigil/i18n';
 import { expand } from '@ttylabs/sigil/paths';
 import { Document, LineCounter, parseDocument, type ToStringOptions } from 'yaml';
@@ -187,7 +188,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
       return { value: {} };
     }
 
-    const read: ReadShape = { lines: new LineCounter(), what: source };
+    const read: ReadShape = { lines: new LineCounter(), what: escapeControls(source) };
     const { doc, losses } = parse(raw, read);
 
     // the null root and the must-hold-a-map refusal are `rootOf()`'s, which is
@@ -205,7 +206,7 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
    * that would touch an anchor all throw with the file untouched.
    */
   const render: RenderText = (now, value, paths) => {
-    const read: ReadShape = { lines: new LineCounter(), what: source };
+    const read: ReadShape = { lines: new LineCounter(), what: escapeControls(source) };
     const blank = now === undefined || !now.trim();
     const { doc, shape, style } = blank
       ? {
@@ -231,11 +232,11 @@ export function yaml(path: string, opts: YamlStoreOptions = {}): WritableConfigS
     // write that never touches it
     const ok = yamlCanHold(held, '');
     if (ok !== true) {
-      throw new Error(`Cannot write ${source}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${ok}`);
     }
 
     if (!isPlainObject(held)) {
-      throw new Error(__`${source} must hold an object`);
+      throw new Error(__`${escapeControls(source)} must hold an object`);
     }
 
     applyInto(doc, current, held, read);

@@ -69,9 +69,65 @@ describe('escapeControls()', () => {
     expect(escapeControls('\u0600\u061c')).toBe('\\u{0600}\\u{061C}');
   });
 
+  it('should write the Hangul fillers and the combining grapheme joiner, which are in no format class', () => {
+    // U+115F and U+3164 are letters (`Lo`) drawn blank, U+034F is a mark: a value
+    // holding one prints like one that does not
+    expect(escapeControls('a\u3164b\u115fc\u034fd')).toBe('a\\u{3164}b\\u{115F}c\\u{034F}d');
+    expect(escapeControls('a\u1160b\uffa0c')).toBe('a\\u{1160}b\\u{FFA0}c');
+    expect(escapeControls('ab')).not.toBe(escapeControls('a\u3164b'));
+  });
+
+  it('should write a variation selector, U+FE0F after an emoji included', () => {
+    // a heart then VS16: the selector is what chose the emoji glyph, and it is
+    // there whether or not anything is drawn for it
+    expect(escapeControls('\u2764\ufe0f')).toBe('\u2764\\u{FE0F}');
+    expect(escapeControls('a\ufe00b\ufe0e')).toBe('a\\u{FE00}b\\u{FE0E}');
+    // the supplementary selectors: a payload has been hidden in these
+    expect(escapeControls('\u{e0100}\u{e01ef}')).toBe('\\u{E0100}\\u{E01EF}');
+  });
+
+  it('should write the Mongolian free variation selectors and the unassigned points inside default-ignorable blocks', () => {
+    expect(escapeControls('\u180b\u180d\u180f')).toBe('\\u{180B}\\u{180D}\\u{180F}');
+    // unassigned, but default-ignorable, so as invisible as the tag characters
+    expect(escapeControls('\u2065\ufff0\u{e0080}\u{e0fff}')).toBe(
+      '\\u{2065}\\u{FFF0}\\u{E0080}\\u{E0FFF}'
+    );
+  });
+
+  it('should escape exactly what the source check refuses, bar the spaces, and spell each one the same way', () => {
+    // the class `FORMAT` in sources.test.ts names, without its `Zs` half -- which
+    // is the one deliberate difference -- and with U+2800 (SIG-557), which no
+    // property covers
+    const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
+    const wrong: string[] = [];
+    for (let code = 0; code <= 0x10ffff; code++) {
+      if (code >= 0xd800 && code <= 0xdfff) continue;
+      const char = String.fromCodePoint(code);
+      const hex = code.toString(16).toUpperCase();
+      const want = unsafe.test(char)
+        ? code < 0x100
+          ? `\\x${hex.padStart(2, '0')}`
+          : `\\u{${hex.padStart(4, '0')}}`
+        : char;
+      if (escapeControls(char) !== want) wrong.push(`U+${hex}`);
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it('should write the blank braille pattern as \\u{2800}, and leave the rest of the block alone', () => {
+    // U+2800 draws as a space but is a symbol, so a value holding it prints like
+    // one holding U+0020 and differs (SIG-557)
+    expect(escapeControls('a\u2800b')).toBe('a\\u{2800}b');
+    expect(escapeControls('a b')).not.toBe(escapeControls('a\u2800b'));
+    // the dots are drawn
+    expect(escapeControls('\u2801\u28ff')).toBe('\u2801\u28ff');
+  });
+
   it('should leave nothing of the format class in a hostile value', () => {
-    const hostile = 'a\u202eb\u200bc\u2028d\u2029e\ufefff\u{e0041}g\u200d';
-    expect(escapeControls(hostile)).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+    const hostile = 'a\u202eb\u200bc\u2028d\u2029e\ufefff\u{e0041}g\u200d\u3164\u034f\ufe0f\u2800';
+    expect(escapeControls(hostile)).not.toMatch(
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u
+    );
   });
 
   it('should leave every other space alone', () => {

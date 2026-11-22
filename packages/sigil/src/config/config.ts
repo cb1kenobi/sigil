@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
 import {
   copyDocument,
@@ -844,7 +845,9 @@ export class Config {
       if (URL_SOURCE.test(at)) {
         // not translated: a store's own source is the app's
         this.#onError(
-          new Error(`Config layer "${layer.name}" has a source that is not a file path: ${at}`)
+          new Error(
+            `Config layer "${layer.name}" has a source that is not a file path: ${escapeControls(at)}`
+          )
         );
         continue;
       }
@@ -1058,8 +1061,8 @@ export class Config {
 
   /** The message a read-only `delete()` prints, which names both ways out. */
   #cannotDelete(path: string, owner: Layer, target: Layer): string {
-    const where = owner.declared.store.source ?? owner.name;
-    const here = target.declared.store.source ?? target.name;
+    const where = escapeControls(owner.declared.store.source ?? owner.name);
+    const here = escapeControls(target.declared.store.source ?? target.name);
 
     // one key rather than three, because the shape is the translator's: a
     // sentence per line would hand them three fragments and no way to reorder

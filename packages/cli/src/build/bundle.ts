@@ -60,7 +60,19 @@ import { byCodeUnit, escapeRegExp } from '@ttylabs/sigil/reference';
 import type { BakedUpdateConfig } from '@ttylabs/sigil/updates';
 import { isSgr } from '@ttylabs/sigil/wrap';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  rmdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Plugin, RolldownLog } from 'rolldown';
 
@@ -409,6 +421,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // an error raised in a hook as `[plugin ...] RolldownError` with its own
   // stack, and what reaches the user is the message, never a stack
   let refused: string | undefined;
+  // and the error itself where it was one, so that a file system error from
+  // `clean()` reaches `escaped()` still carrying its `code` and `syscall`
+  // (SIG-552): rebuilt from its message it would read as rolldown's
+  let refusedWith: Error | undefined;
   let modules: readonly string[] = [];
 
   const generated = bin ? undefined : entryLocation(app, out);
@@ -673,6 +689,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             beforeWrite?.(modules);
           } catch (e: unknown) {
             refused = e instanceof Error ? e.message : String(e);
+            refusedWith = e instanceof Error ? e : undefined;
           }
           if (refused !== undefined) {
             this.error(refused);
@@ -696,6 +713,20 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
               refused = `Refusing to write ${escapeValue(displayPath(path))}, which is ${escapeValue(displayPath(relative(root, landing) || landing))}, a module the app is built from. Name a directory that holds none of the app's source.`;
               this.error(refused);
             }
+          }
+
+          // last, once nothing else is going to refuse the write: what is left
+          // is the file system's own answer, asked here by Node so that it is
+          // Node's error that reaches `escaped()` and not rolldown's rewrite of
+          // one (SIG-559). `refusedWith` is what carries it out of the hook
+          try {
+            prepareOutput(dir, Object.keys(outputBundle));
+          } catch (e: unknown) {
+            refused = e instanceof Error ? e.message : String(e);
+            refusedWith = e instanceof Error ? e : undefined;
+          }
+          if (refused !== undefined) {
+            this.error(refused);
           }
         },
       } satisfies Plugin,
@@ -804,7 +835,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
         // rolldown found itself -- a module that does not parse, an export that
         // is not there -- is located in the app's source, so it is reported the
         // way a template that cannot be compiled is: see `bundleError()`
-        throw refused === undefined ? bundleError(e) : new Error(refused);
+        throw refused === undefined ? bundleError(e) : (refusedWith ?? new Error(refused));
       });
 
     // a template that could not be compiled, asked first because it is about
@@ -967,6 +998,68 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
 }
 
 /**
+ * Makes what the write is about to need, so a write the file system will refuse
+ * is refused by Node and not by rolldown (SIG-559).
+ *
+ * A write rolldown fails itself arrives as its `UNHANDLEABLE_ERROR`, with the
+ * path inside multi-line text of rolldown's own -- `Could not create directory
+ * for output chunks: <out>` -- and `bundleError()` has to rebuild that as an
+ * `Error` with neither a `code` nor a `syscall`. A newline in `--out` then
+ * starts a line of the message that nothing can tell from rolldown's own, and
+ * `f/x<LF>forged.ts:1:1: error: y/out`, under a file, printed `forged.ts:1:1:
+ * error: y/out` at the start of a line a problem matcher reads as a diagnostic.
+ * Parsing rolldown's sentence for the path was the other way and is refused: it
+ * is a string the next rolldown may reword. This asks the file system the
+ * questions the write would, with Node's own calls, so the failure is a Node
+ * error carrying its `code` and `syscall`, which `escaped()` escapes whole.
+ *
+ * What it asks is each of the ways measured to fail a write: the output
+ * directory, and the directory of each file -- `chunks` -- are made, which is
+ * `ENOTDIR` for an `--out` under a file, `EEXIST` for one that is a file and
+ * `EACCES` for one inside a directory that cannot be written; each of them
+ * can be written to, which is a read-only `--out`; and no file is a directory,
+ * which rolldown reports as `Failed to write file`. A link to nothing is asked
+ * about its target's directory, since the write goes through it. That last one
+ * has no error of Node's to raise, so it is a sentence built here, with the path escaped
+ * where it is built.
+ *
+ * Run from `generateBundle`, which is after `clean()` has emptied the
+ * directory -- so what is asked is what the write will find -- and before the
+ * write.
+ *
+ * @param dir - The output directory.
+ * @param fileNames - What the bundle is about to write, relative to it.
+ * @throws A file system error, or a sentence naming a file that is a directory.
+ */
+function prepareOutput(dir: string, fileNames: readonly string[]): void {
+  mkdirSync(dir, { recursive: true });
+  accessSync(dir, constants.W_OK);
+
+  const asked = new Set<string>([dir]);
+  for (const fileName of fileNames) {
+    const path = resolve(dir, fileName);
+    const parent = dirname(path);
+    if (!asked.has(parent)) {
+      asked.add(parent);
+      mkdirSync(parent, { recursive: true });
+      accessSync(parent, constants.W_OK);
+    }
+
+    const existing = statSync(path, { throwIfNoEntry: false });
+    if (existing?.isDirectory()) {
+      throw new Error(`Cannot write ${escapeValue(displayPath(path))}, which is a directory.`);
+    }
+    if (existing) {
+      accessSync(path, constants.W_OK);
+    } else if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      // a link to nothing: the write goes through it and makes the target, so
+      // what has to be there is the target's directory
+      accessSync(dirname(resolve(parent, readlinkSync(path))), constants.W_OK);
+    }
+  }
+}
+
+/**
  * What a bundle that rolldown refused throws: diagnostics where rolldown said
  * where, and its own sentence escaped where it did not (SIG-447).
  *
@@ -989,12 +1082,12 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
  * "b.js"` -- and is cut at its first newline for the same reason, which loses the
  * rest of a name only when the name held a newline.
  *
- * An error rolldown did not locate -- an entry it could not resolve, a write the
- * file system refused -- is not a diagnostic, because pinning it on a file it is
+ * An error rolldown did not locate -- an entry it could not resolve -- is not a
+ * diagnostic, because pinning it on a file it is
  * not about would be a wrong answer said confidently. The whole message is thrown
  * instead, through `escapeMessage()`, which is `diagnosticMessage()`'s rule by
- * name. What that leaves is a newline inside a path quoted by such an error,
- * which the rule cannot tell from rolldown's own line breaks.
+ * name. A write the file system refuses is not left to it: `prepareOutput()`
+ * asks Node first, so what reaches here is not one (SIG-559).
  *
  * Exported for the reason `undo()` is: one shape it has to survive -- a plugin's
  * error carrying `loc: null` -- is not one this build's own plugins produce.
