@@ -68,15 +68,16 @@
 
 import { quote } from '../template/emit.ts';
 import { generateUtilities, utilities, VARIANT_NAMES } from '../utilities/index.ts';
-import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
+import { bindingName, importBindings, reachable } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
 import { landsAt } from './discover.ts';
+import { unwrapShallow } from './literals.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import MagicString from 'magic-string';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { CallExpression, Node } from 'oxc-parser';
+import type { CallExpression, Expression, Node } from 'oxc-parser';
 
 /** Where `utilitySheet` comes from. */
 export const STYLE_MODULE = '@ttylabs/sigil/style';
@@ -569,6 +570,14 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
 /**
  * The string a node is, when it is one.
  *
+ * Read through `unwrapShallow()`, which is the one list of the wrappers that
+ * change nothing -- parentheses, `as`, `satisfies`, `<T>x` and `!`. Read
+ * straight off the node an operand like `('text-' as string)` is not a
+ * literal, the openness is never applied, and the walk later reads the string
+ * as a closed token: a **dropped** rule rather than a kept one, which is the
+ * direction this analysis does not trade in. A second list here is how
+ * `<T>x` came to be missing from it while `literals.ts` had it.
+ *
  * @param node - The expression, wrappers and all.
  * @returns Its text, or `undefined` when it is not a constant string.
  */
@@ -577,7 +586,7 @@ function literalText(node: Node | undefined): string | undefined {
     return undefined;
   }
 
-  const inner = bare(node);
+  const inner = unwrapShallow(node as Expression);
 
   if (isStringLiteral(inner)) {
     return String(inner.value);
@@ -615,7 +624,7 @@ function isStringLiteral(node: Node): node is Node & { value: string } {
  */
 function flatten(node: Node): Node[] {
   const expression = node as { left: Node; operator: string; right: Node };
-  const left = bare(expression.left);
+  const left = unwrapShallow(expression.left as Expression);
 
   return [
     ...(left.type === 'BinaryExpression' &&
@@ -624,44 +633,6 @@ function flatten(node: Node): Node[] {
       : [expression.left]),
     expression.right,
   ];
-}
-
-/**
- * An expression with the wrappers that change nothing taken off.
- *
- * Parentheses, `as`, `satisfies` and `!` all erase or do nothing at run time,
- * so `('text-' as string) + colour` is the same concatenation as
- * `'text-' + colour` -- and read straight off the node the operand is not a
- * literal, the openness is never applied, and the walk later reads the string
- * as a closed token. That is a **dropped** rule rather than a kept one, which
- * is the direction this analysis does not trade in. The same unwrapping is
- * what lets `flatten()` see through `(x + 'b-') + y`.
- *
- * `unwrap()` is `bindings.ts`'s and handles the parentheses; the three type
- * wrappers are handled here rather than there because the static `desc` lift
- * already records them as the wrappers that change nothing, and adding them to
- * a matcher whose job is to identify an *import* would widen a different
- * question.
- *
- * @param node - The expression.
- * @returns The expression inside the wrappers.
- */
-function bare(node: Node): Node {
-  let inner = unwrap(node as Parameters<typeof unwrap>[0]) as Node;
-
-  for (;;) {
-    if (
-      inner.type === 'TSAsExpression' ||
-      inner.type === 'TSSatisfiesExpression' ||
-      inner.type === 'TSNonNullExpression'
-    ) {
-      inner = unwrap(
-        (inner as unknown as { expression: Parameters<typeof unwrap>[0] }).expression
-      ) as Node;
-      continue;
-    }
-    return inner;
-  }
 }
 
 /** What the utility sheet came to once the evidence had been applied. */

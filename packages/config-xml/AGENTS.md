@@ -563,9 +563,36 @@ five things core had deliberately not published, which is the entry below.
   stderr live through `Failed to parse …`, measured over eight malformed
   documents with a raw `ESC` at the error position. Both `Failed to parse` sites
   run the message through `escapeControls()` from `@ttylabs/sigil/error-handler`,
-  imported rather than copied. The read-time messages that name an element or
-  attribute need nothing: XML refuses a control character in a name as a parse
-  error first, so none can reach them.
+  imported rather than copied. This paragraph used to end "the read-time
+  messages that name an element or attribute need nothing: XML refuses a control
+  character in a name as a parse error first", which was true of a control
+  character and not of what `escapeControls()` changes. See the entry below.
+
+- **A name a message quotes is escaped too, and a name is the one echo a file can
+  fill (SIG-570).** The `Name` production allows U+200C and U+200D and `xmldom`
+  takes more than the spec does -- U+FEFF, U+061C, U+FFFA, U+180E and the tag
+  characters were each measured as an element name it accepts -- so `<a` + ZWNJ +
+  `b>` reads, and the four read-time refusals that name an element or an
+  attribute (`has text beside its attributes or children`, `has two attributes
+  called`, `sets ... both as an attribute and as a child element`, `has children
+  called ... under more than one namespace prefix`) printed it as an invisible
+  character. Each placeholder goes through `escapeControls()`, so the `__` key is
+  the same string, and each is tested by `test/message-escape.test.ts` with a
+  marker in the element and another in the name, so that removing either escape
+  fails. Sabotaged placeholder by placeholder: all seven fail a test. What a name
+  cannot hold is a control character -- `xmldom` either refuses one as a parse
+  error, which `Failed to parse` already escapes, or reads it as whitespace that
+  ends the name rather than joining it (measured: `a`, ESC, `b="1"` is an element
+  `a` with an attribute `b`, which is a quirk of its own and left alone here).
+
+  **Two escapes are defence.** The declared encoding in `it declares the encoding`
+  is read by a lenient regex, but `xmldom` refuses a declaration whose encoding is
+  not `[A-Za-z][A-Za-z0-9._-]*` before the store sees it -- a control character, a
+  zero-width one, a space, a quote and a non-ASCII letter were each measured and
+  each is `xml declaration is not well-formed` -- so no document reaches it, and
+  the test pins the property rather than the call. The `root` option is the
+  app's own string and a control character there is reachable and tested, but it
+  is not file content; it is escaped so that the rule has no exception.
 
 #### A declared encoding is refused unless it is UTF-8, even over ASCII
 

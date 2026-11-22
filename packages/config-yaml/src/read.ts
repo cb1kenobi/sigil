@@ -242,12 +242,12 @@ export function assertReadable(doc: Document, read: ReadShape): void {
     // a source so long the double cannot hold it at all, where `BigInt()` of
     // the value throws rather than disagreeing
     if (!Number.isFinite(value)) {
-      fault = __`${read.what}:${lineAt(node, read)}: the integer ${source} is larger than this runtime can hold at all`;
+      fault = __`${read.what}:${lineAt(node, read)}: the integer ${escapeControls(source)} is larger than this runtime can hold at all`;
       return;
     }
 
     if (BigInt(source) !== BigInt(value)) {
-      fault = __`${read.what}:${lineAt(node, read)}: the integer ${source} is not exactly representable; it would read back as ${String(value)}`;
+      fault = __`${read.what}:${lineAt(node, read)}: the integer ${escapeControls(source)} is not exactly representable; it would read back as ${escapeControls(String(value))}`;
     }
   };
 
@@ -261,7 +261,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
       // gets a value no sibling layer could have produced and this store's own
       // `canRepresent()` then refuses to write it back. Refused where it was
       // read instead, which is where the line is
-      fault = __`${read.what}:${lineAt(node, read)}: the tag ${tag} is outside YAML 1.2's core schema`;
+      fault = __`${read.what}:${lineAt(node, read)}: the tag ${escapeControls(tag)} is outside YAML 1.2's core schema`;
     }
   };
 
@@ -304,7 +304,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
           // names an alias, and what it would have resolved to is a plain
           // object rather than a key
           const kind = isAlias(key) ? 'an alias' : isSeq(key) ? 'a sequence' : 'a mapping';
-          fault = __`${read.what}:${lineAt(key, read)}: a mapping key is ${kind}, which names no config path`;
+          fault = __`${read.what}:${lineAt(key, read)}: a mapping key is ${escapeControls(kind)}, which names no config path`;
           return;
         }
         // and a **null** key names none either, which is the rule above one
@@ -358,7 +358,7 @@ export function assertReadable(doc: Document, read: ReadShape): void {
           const wrote = decimalOf(key.source);
 
           if (wrote !== undefined && wrote !== decimalOf(String(key.value))) {
-            fault = __`${read.what}:${lineAt(key, read)}: the mapping key ${key.source} names the config path ${String(key.value)}, which is a different number`;
+            fault = __`${read.what}:${lineAt(key, read)}: the mapping key ${escapeControls(key.source)} names the config path ${escapeControls(String(key.value))}, which is a different number`;
             return;
           }
         }

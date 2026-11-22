@@ -115,6 +115,24 @@ describe('the class evidence', () => {
     }
   });
 
+  it('should see through the angle-bracket assertion, which only a .ts file can write', () => {
+    // `<T>x` erases like `as` and `satisfies`, and `bare()` kept a list of its
+    // own that lacked it -- so `(<string>'text-') + colour` was read as a
+    // closed `text-` and every `text-*` rule the app reaches at run time was
+    // shaken out. It does not parse in a `.tsx` file, where it is JSX
+    for (const source of [
+      `const c = (<string>'text-') + colour;`,
+      `const c = <string>'text-' + colour;`,
+      `const c = colour + (<string>'-red');`,
+      `const c = (<string>(<unknown>'text-')!) + colour;`,
+      `const c = ((<string>'text-') + colour) + other;`,
+      'const c = `${<string>"text-"}${colour}`;',
+      `let c = ''; c += <string>'-red';`,
+    ]) {
+      expect(evidenceOf(source).mayName('text-red'), source).toBe(true);
+    }
+  });
+
   it('should read a suffix through a wrapper too', () => {
     expect(evidenceOf(`const c = colour + ('-red');`).mayName('text-red')).toBe(true);
   });

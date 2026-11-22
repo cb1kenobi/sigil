@@ -1775,7 +1775,13 @@ failed to close.
   (SIG-571). The layer name and the key path were
   left here as the app's own strings, and are closed by the entry below. The text a message quotes **from inside** a
   file -- a YAML tag, an XML element name -- is the file's content rather than its
-  path, and is escaped where that is already the case and left where it is not.
+  path, and is escaped in both stores now (SIG-570): every element and attribute
+  name, the declared encoding, the `root` option, a tag, an integer's spelling,
+  what it reads back as and a key's kind. Only the XML names can be filled
+  **by a file** with a character that `escapeControls()` changes -- U+200C and
+  U+200D, and more the parser accepts -- and each of those four refusals is
+  tested, as is the `root` option, which the app supplies; the rest are defence
+  and recorded as such in `packages/config-xml` and `packages/config-yaml`.
 
 - **Tested at three heights**, since the defect lived at the bottom and was
   reported at the top: `test/config/path-escape.test.ts` for core's store,

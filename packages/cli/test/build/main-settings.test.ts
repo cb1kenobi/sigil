@@ -388,6 +388,9 @@ describe('what the built app uses instead', () => {
       "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default schema satisfies Schema;\n",
       "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default (schema);\n",
       "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default schema!;\n",
+      // SIG-575: the angle-bracket assertion, which only parses in a `.ts` file
+      "export default <Schema>{ name: 'a', settings: { errorHandler: false } };\n",
+      "const schema = { name: 'a', settings: { errorHandler: false } };\nexport default <Schema>schema;\n",
     ]) {
       expect(said({ 'dev.ts': dev, 'index.ts': entry })).toContain("the schema's `errorHandler`");
     }

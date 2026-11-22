@@ -8208,6 +8208,14 @@ back on. It is what `writeAtomic` asks about its own target, and what
 `sigil build` asks before it empties or writes an output directory. A
 resolution that fails for any reason but something not being there throws.
 
+`realPathOf(path)` is where a write to `path` lands, with a symlink at it
+followed to what it points at -- and, where the link points at nothing, **the
+whole chain** of them followed to the path they end at, which is the file to
+create. A relative target is read from the directory that holds the link. A
+chain the file system cannot resolve, a loop or a permission failure, throws
+rather than answering somewhere else. It is what `writeAtomic` asks, and what
+`sigil build` asks of each file it is about to write.
+
 And the kit's **text half**, which is those six put together the way every file
 store needs them: `readText(source)` and `readTextSync(source)` are what a file
 holds, or `undefined` where it is not there -- and they refuse a file that is not

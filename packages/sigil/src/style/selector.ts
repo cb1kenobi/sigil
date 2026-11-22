@@ -16,6 +16,7 @@
  * ```
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import { StyleError } from './value.js';
 
 /**
@@ -195,8 +196,12 @@ class Cursor {
   }
 
   fail(why: string): StyleError {
-    const where = this.done ? 'end of selector' : `"${this.text.slice(this.at, this.at + 12)}"`;
-    return new StyleError(`Invalid selector "${this.text.trim()}": ${why} at ${where}`);
+    const where = this.done
+      ? 'end of selector'
+      : `"${escapeControls(this.text.slice(this.at, this.at + 12))}"`;
+    return new StyleError(
+      `Invalid selector "${escapeControls(this.text.trim())}": ${why} at ${where}`
+    );
   }
 }
 
@@ -232,7 +237,9 @@ export function parseSelectorList(source: string): Selector[] {
 export function parseSelector(source: string): Selector {
   const list = parseSelectorList(source);
   if (list.length !== 1) {
-    throw new StyleError(`Expected one selector, got ${list.length}: "${source.trim()}"`);
+    throw new StyleError(
+      `Expected one selector, got ${list.length}: "${escapeControls(source.trim())}"`
+    );
   }
   return list[0];
 }
@@ -344,7 +351,9 @@ function readPseudo(cursor: Cursor): Simple {
   }
 
   throw new StyleError(
-    `Unknown pseudo-class ":${name}" in "${cursor.text.trim()}": there is ${[...STATES]
+    `Unknown pseudo-class ":${escapeControls(name)}" in "${escapeControls(cursor.text.trim())}": there is ${[
+      ...STATES,
+    ]
       .map((s) => `:${s}`)
       .join(', ')}, :first-child, :last-child, :nth-child(), and :not()`
   );
@@ -367,7 +376,9 @@ function readNthChild(cursor: Cursor): Simple {
 
   const match = NTH.exec(argument);
   if (!match) {
-    throw new StyleError(`Invalid :nth-child("${argument}"): expected odd, even, or an+b`);
+    throw new StyleError(
+      `Invalid :nth-child("${escapeControls(argument)}"): expected odd, even, or an+b`
+    );
   }
   // `n` alone is 1n, `-n` is -1n; anything else is the number as written
   const coefficient = match[1];
@@ -390,13 +401,13 @@ function readNot(cursor: Cursor): Simple {
   const selectors = argument.split(',').map((part) => {
     const inner = new Cursor(part.trim());
     if (inner.done) {
-      throw new StyleError(`Invalid :not("${argument}"): empty`);
+      throw new StyleError(`Invalid :not("${escapeControls(argument)}"): empty`);
     }
     const compound = readCompound(inner);
     inner.space();
     if (!inner.done) {
       throw new StyleError(
-        `Invalid :not("${argument}"): combinators are not allowed inside :not()`
+        `Invalid :not("${escapeControls(argument)}"): combinators are not allowed inside :not()`
       );
     }
     return compound;
@@ -407,7 +418,7 @@ function readNot(cursor: Cursor): Simple {
 /** Reads a parenthesised argument, keeping nested parentheses together. */
 function readArgument(cursor: Cursor, name: string): string {
   if (cursor.peek !== '(') {
-    throw cursor.fail(`expected an argument for :${name}()`);
+    throw cursor.fail(`expected an argument for :${escapeControls(name)}()`);
   }
   cursor.at++;
   const start = cursor.at;
@@ -428,7 +439,7 @@ function readArgument(cursor: Cursor, name: string): string {
     cursor.at++;
   }
 
-  throw cursor.fail(`expected a closing parenthesis for :${name}()`);
+  throw cursor.fail(`expected a closing parenthesis for :${escapeControls(name)}()`);
 }
 
 /**

@@ -71,14 +71,14 @@ afterAll(() => {
  * because the app imports `@ttylabs/sigil` by name and node resolves that by
  * walking up from the file.
  */
-function variant(name: string, config?: unknown, entry?: string): string {
+function variant(name: string, config?: unknown, entry?: string, file = 'index.js'): string {
   const root = join(variants, name);
   rmSync(root, { force: true, recursive: true });
   mkdirSync(root, { recursive: true });
   cpSync(join(app, 'package.json'), join(root, 'package.json'));
   cpSync(join(app, 'src'), join(root, 'src'), { recursive: true });
   if (entry !== undefined) {
-    writeFileSync(join(root, 'src', 'index.js'), entry);
+    writeFileSync(join(root, 'src', file), entry);
   }
   if (config !== undefined) {
     writeFileSync(join(root, 'sigil.json'), JSON.stringify(config, null, 2));
@@ -86,17 +86,30 @@ function variant(name: string, config?: unknown, entry?: string): string {
   return root;
 }
 
-/** An entry module holding a schema with `schemaBody` in it, written into a variant of its own. */
-function entryOf(schemaBody: string, preamble = ''): string {
+/**
+ * An entry module holding a schema with `schemaBody` in it, written into a variant of its own.
+ *
+ * `file` is `index.ts` for anything with `<T>x` in it: oxc reads the language off
+ * the filename, and in a `.js` file the angle bracket opens JSX.
+ */
+function entryOf(schemaBody: string, preamble = '', file = 'index.js'): string {
   const root = variant(
     `schema-${Math.random().toString(36).slice(2, 8)}`,
     undefined,
     [preamble, `export default { name: 'x', commands: './commands', ${schemaBody} };`, ''].join(
       '\n'
-    )
+    ),
+    file
   );
-  return join(root, 'src', 'index.js');
+  return join(root, 'src', file);
 }
+
+/** `expression` under each wrapper `unwrapShallow()` looks through that changes nothing at run time. */
+const WRAPPERS: [string, (expression: string) => string][] = [
+  ['<T>', (expression) => `<Type>${expression}`],
+  ['as', (expression) => `${expression} as Type`],
+  ['satisfies', (expression) => `${expression} satisfies Type`],
+];
 
 /**
  * Runs the CLI with both streams captured.
@@ -788,6 +801,28 @@ describe('whether the schema names its own checker', () => {
     expect(reads('')).toBe(undefined);
     expect(reads('updateCheck: false')).toBe(undefined);
   });
+
+  // SIG-575: `unwrapShallow()` gained `<T>x` in SIG-569 and only `schema-module.ts`
+  // had a test for it. Without the case a wrapped builder call is "asks" rather
+  // than "names", and the build refuses an app that did say where to look
+  describe.each(WRAPPERS)('under %s', (_wrapper, wrap) => {
+    const readsTs = (body: string): ReturnType<typeof readSchemaUpdateCheck> =>
+      readSchemaUpdateCheck(entryOf(body, builders, 'index.ts'));
+
+    it.each([
+      ['a builder given bare', `updateCheck: ${wrap("githubChecker({ repo: 'a/b' })")}`],
+      [
+        'a checker written out',
+        `updateCheck: ${wrap("{ type: 'x', path: ['v'], url: 'https://e.com' }")}`,
+      ],
+    ])('should see %s as the bare form is seen', (_what, body) => {
+      expect(readsTs(body)).toBe('names');
+    });
+
+    it('should still see options with no checker as asking without saying where', () => {
+      expect(readsTs(`updateCheck: ${wrap("{ distTag: 'next' }")}`)).toBe('asks');
+    });
+  });
 });
 
 // SIG-564: `check()` refuses a hand-written checker that could never work, and a
@@ -1017,6 +1052,75 @@ describe('a schema checker the update check would refuse', () => {
     ['a builder, whatever it is given', "updateCheck: customChecker({ url: 'http://e.com' })"],
   ])('should leave %s alone', (_what, body) => {
     expect(refused(body)).toEqual([]);
+  });
+
+  // SIG-575: the readers of a checker look through `<T>`, `as` and `satisfies` at
+  // every level, because `updateCheck: <Options>{ checker: <Checker>{ ... } }` is
+  // what an app writes to have its literal typed. A reader that stopped seeing
+  // through one read the wrapped checker as no checker, and a refusal that went
+  // missing is the notice that never appears, which is what SIG-564 is about
+  describe.each(WRAPPERS)('written under %s', (_wrapper, wrap) => {
+    const refusedTs = (body: string): string[] =>
+      checkSchemaUpdateCheck(entryOf(body, '', 'index.ts')).map((d) => d.message);
+
+    it.each([
+      ['the options', `updateCheck: ${wrap(`{ checker: ${written("'http://e.com/v'")} }`)}`, /url/],
+      [
+        'the checker inside them',
+        `updateCheck: { checker: ${wrap(written("'http://e.com/v'"))} }`,
+        /url/,
+      ],
+      ['a checker given bare', `updateCheck: ${wrap(written("'ftp://e.com/v'"))}`, /url/],
+      ['a path', `updateCheck: { checker: ${written("'https://e.com/v'", wrap('[]'))} }`, /path/],
+      [
+        'the headers',
+        `updateCheck: { checker: ${written(
+          "'https://e.com/v'",
+          "['v']",
+          `, headers: ${wrap("{ Accept: 'a\\nb' }")}`
+        )} }`,
+        /header "Accept"/,
+      ],
+      [
+        'a header value',
+        `updateCheck: { checker: ${written(
+          "'https://e.com/v'",
+          "['v']",
+          `, headers: { Accept: ${wrap('1n')} }`
+        )} }`,
+        /header "Accept"/,
+      ],
+      [
+        'a path inside a bare literal',
+        `updateCheck: { type: 'custom', url: 'https://e.com/v', path: ${wrap('[]')} }`,
+        /path/,
+      ],
+    ])(
+      'should refuse a checker with %s wrapped as it refuses the bare one',
+      (_what, body, message) => {
+        const found = refusedTs(body);
+        expect(found).toHaveLength(1);
+        expect(found[0]).toMatch(/never shows an update notice/);
+        expect(found[0]).toMatch(message);
+      }
+    );
+
+    it.each([
+      // a list is a header value Node sends, and only a wrapped one is read through line by line
+      [
+        'a header value that is a list',
+        `updateCheck: { checker: ${written(
+          "'https://e.com/v'",
+          "['v']",
+          `, headers: { Accept: ${wrap("['a', 'b']")} }`
+        )} }`,
+      ],
+      ['the options', `updateCheck: ${wrap(`{ checker: ${written("'https://e.com/v'")} }`)}`],
+      ['the checker', `updateCheck: { checker: ${wrap(written("'https://e.com/v'"))} }`],
+      ['a path', `updateCheck: { checker: ${written("'https://e.com/v'", wrap("['v']"))} }`],
+    ])('should leave a good checker with %s wrapped alone', (_what, body) => {
+      expect(refusedTs(body)).toEqual([]);
+    });
   });
 
   it('should reach `sigil check`, `sigil build` and `sigil package` and fail each', async () => {
