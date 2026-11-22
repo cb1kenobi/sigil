@@ -1664,8 +1664,8 @@ hooks: {
 },
 ```
 
-A `UsageError` exits with **2** — the code `sysexits`-minded tools and Commander
-use for "you ran me wrong" — and everything else exits with **1**. Both are
+A `UsageError` exits with **2** — the code bash builtins, `getopt` and Python's
+`argparse` use for "you ran me wrong" — and everything else exits with **1**. Both are
 still `Error`s with a message written for the person running the CLI, and
 neither is printed with a stack.
 
@@ -1686,12 +1686,16 @@ the message it is safe to branch on:
 
 `invalid-value` covers a value from the environment as well as from argv, since
 a variable somebody exported is something somebody typed. A `default` the type
-rejects is a mistake in the schema rather than in the invocation, and stays a
-plain `Error`, as does everything an invalid schema throws.
+rejects (`default: 'eight'` on an `int`) is a mistake in the schema rather than
+in the invocation, and stays a plain `Error`, as does everything an invalid
+schema throws. The one exception is `choices`: that check does not know what
+wrote the value, so a `default` outside its own `choices`, or a value an
+`afterParse` hook wrote there, is reported as `invalid-value` too.
 
 What `transform` and `run()` throw is yours: the parser cannot tell a
 `transform` rejecting a bad value from a `transform` with a bug in it, so it
-does not guess. Throw a `UsageError` there to have your own check reported the
+does not guess. (A string a `transform` _returns_ is a value like any other, and
+the type still judges it.) Throw a `UsageError` there to have your own check reported the
 way the parser's are:
 
 ```js
@@ -1701,7 +1705,7 @@ options: {
   '--port <n>': {
     type: 'int',
     transform(port) {
-      if (port < 1024) {
+      if (Number(port) < 1024) {
         throw new UsageError(`Port ${port} is reserved`, 'invalid-value');
       }
     },

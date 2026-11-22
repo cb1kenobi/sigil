@@ -33,8 +33,8 @@ export type UsageErrorCode =
   | 'unsupported-format';
 
 /**
- * The exit code a usage error asks for: `2`, the one `sysexits`-minded tools and
- * Commander settle on for "you ran me wrong", leaving `1` for "I broke".
+ * The exit code a usage error asks for: `2`, the one bash builtins, `getopt` and
+ * `argparse` use for "you ran me wrong", leaving `1` for "I broke".
  */
 export const USAGE_EXIT_CODE = 2;
 

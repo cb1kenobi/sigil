@@ -990,7 +990,7 @@ and `db dashboard --json` is refused rather than run and then complained about.
 ```sh
 $ mycli db dashboard --json; echo "exit $?"
 Error: The "dashboard" command presents no output formats, so "json" cannot be asked for.
-exit 1
+exit 2
 ```
 
 Refused rather than ignored, which is the same answer a name the command cannot

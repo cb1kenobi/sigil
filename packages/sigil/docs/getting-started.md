@@ -258,8 +258,8 @@ $ my-cli deplyo api
 Error: Unexpected argument "deplyo". Did you mean "deploy"?
 ```
 
-Each of these is written to stderr, the process exits with code 1, and no stack
-trace is printed. A CLI's users need the message, not the stack.
+Each of these is written to stderr, the process exits with code 2 (what the user
+typed was wrong), and no stack trace is printed. A CLI's users need the message, not the stack.
 
 ## Options every command shares
 

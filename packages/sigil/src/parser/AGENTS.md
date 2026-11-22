@@ -1320,7 +1320,16 @@ stays 1.
   somebody's typo, so it is `invalid-value` and exits 2 like `--port eight`. A
   `default: 'eight'` on an `int` is the schema's own mistake and stays the plain
   error it was -- `applyFallback()` is told which it is filling from, because the
-  message is identical and nothing else distinguishes them.
+  message is identical and nothing else distinguishes them. **The `choices` check
+  is the exception, and is recorded rather than closed:** it runs at judging time,
+  where `produced()` says which declaration wrote a value and not from which
+  source, so a `default` outside its own `choices` (and a value an `afterParse`
+  hook wrote) is `invalid-value` and exits 2. Closing it means recording the
+  source beside the writer for a message that is the same either way.
+- **A string a `transform` returns is still judged by the type.** The wrap is on
+  the coercion, so `transform: () => 'bug'` on an `int` is `invalid-value`
+  whatever wrote the string. Narrower than wrapping the transform call itself,
+  which stays unguessed.
 - **A `transform` that throws is not guessed at.** It is the app's code and the
   parser cannot tell a transform rejecting a bad value from one with a bug in it,
   so a plain `Error` there stays plain and exits 1. The class being exported is the

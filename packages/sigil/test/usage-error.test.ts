@@ -77,6 +77,37 @@ describe('a usage error, which is what the user got wrong', () => {
     expect((bad as Error).message).toBe('Invalid integer: eight');
   });
 
+  it('should cover a positional argument as it does an option', async () => {
+    const schema: Schema = {
+      commands: {
+        copy: {
+          args: [
+            { env: 'COPY_COUNT', name: '[count]', type: 'int' },
+            { choices: ['now', 'later'], name: '[when]' },
+          ],
+          run() {},
+        },
+      },
+      name: 'mycli',
+    } as never;
+
+    // a value its type rejects, from argv
+    const typed = await thrown(['copy', 'eight'], schema);
+    expect(typed).toBeInstanceOf(UsageError);
+    expect((typed as UsageError).code).toBe('invalid-value');
+
+    // outside `choices`
+    const chosen = await thrown(['copy', '3', 'never'], schema);
+    expect(chosen).toBeInstanceOf(UsageError);
+    expect((chosen as UsageError).code).toBe('invalid-value');
+
+    // and from the environment, which is somebody's typo as much as argv is
+    vi.stubEnv('COPY_COUNT', 'eight');
+    const env = await thrown(['copy'], schema);
+    expect(env).toBeInstanceOf(UsageError);
+    expect((env as UsageError).code).toBe('invalid-value');
+  });
+
   it('should keep what a coercion said, and hand it on as the cause', async () => {
     const err = (await thrown(['build', 'a', '--target', 't', '--port', 'eight'], app)) as Error;
 
