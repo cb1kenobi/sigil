@@ -218,6 +218,7 @@ describe('a held key sequence that keeps growing', () => {
       ['an OSC with an ESC in its payload', `${ESC}]52;c;QU${ESC}JD${ESC}\\a`],
       ['an OSC under Alt', `${ESC}${ESC}]52;c;QUJD\u0007a`],
       ['two strings in a row', `${ESC}]11;rgb:1/2/3\u0007${ESC}P>|v${ESC}\\a`],
+      ['an OSC followed by a split arrow key', `${ESC}]52;c;QUJD\u0007${ESC}[A`],
       ['an OSC that never ends', `${ESC}]52;c;QUJD`],
     ];
 
@@ -284,6 +285,48 @@ describe('a held key sequence that keeps growing', () => {
       vi.advanceTimersByTime(100);
       input.feed('y');
       expect(keys).toEqual([`${ESC}]`, ';', 'x', 'y']);
+      input.stop();
+    });
+
+    it('should not carry a finished string into the next key held after it', () => {
+      // what was known of the string must go with it: a stale record read an
+      // `ESC [` held afterwards as more of it, and Up never came
+      const { feed, keys, stop } = recording();
+      feed(`${ESC}]52;c;x`);
+      feed('\u0007');
+      feed(`${ESC}[`);
+      feed('A');
+      expect(keys.map((key) => key.name)).toEqual(['up']);
+      stop();
+    });
+
+    it('should not resume a string the key timer has already flushed', () => {
+      // `expire()` clears what is held and nothing else, so what follows is not
+      // the continuation of anything
+      const { feed, keys, stop } = recording();
+      feed(`${ESC}]52;c;x`);
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT + 10);
+      feed('abc');
+      expect(keys.map((key) => key.sequence).slice(-3)).toEqual(['a', 'b', 'c']);
+      stop();
+    });
+
+    it('should not find a paste start from the edge of a tail that was flushed', () => {
+      const { terminal } = createTestTerminal();
+      const input = createInput({ root: box({}), terminal });
+      const seen: string[] = [];
+      input.onPaste((event) => {
+        seen.push(`paste:${event.text}`);
+        event.stop();
+      });
+      input.bind((event) => {
+        seen.push(event.key.name);
+      });
+      input.feed(`${ESC}[200`);
+      vi.advanceTimersByTime(ESCAPE_TIMEOUT + 10);
+      input.feed('~x');
+      expect(seen.some((entry) => entry.startsWith('paste:'))).toBe(false);
+      expect(seen.slice(-2)).toEqual(['~', 'x']);
       input.stop();
     });
 

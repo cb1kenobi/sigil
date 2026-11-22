@@ -235,13 +235,14 @@ export const PASTE_LIMIT: number = 32 * 1024 * 1024;
  * `ESCAPE_TIMEOUT` would have read it -- the keys it decodes to with nothing
  * more coming, an Alt-Escape for a run of `ESC` and an `unknown` for a CSI --
  * and what follows starts fresh. A held control string is not
- * cut: a reply to a query can be as long as a clipboard. That is a bound on the *per-read* cost rather
+ * cut: a reply to a query can be as long as a clipboard, and its search for an
+ * end resumes rather than starting again, so it is linear without a bound. That is a bound on the *per-read* cost rather
  * than on the total: no read measures more than this plus what it brought, so a
  * stream of any length is linear in its size.
  *
  * Sixteen kibibytes, far above any key a terminal writes, while a read at the
  * cap measures it in about a tenth of a millisecond. Not `PASTE_LIMIT`'s figure, because a paste is held in a list and
- * never re-read, and this one is read again from its start by every read.
+ * never re-read, and this one is read again from its start by every read that is not an unterminated control string.
  */
 export const HELD_LIMIT: number = 16 * 1024;
 
@@ -2406,7 +2407,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
   /**
    * Decodes what is certainly whole and holds what might not be.
    *
-   * `pendingLength()` says how much of a chunk's tail could still be the start
+   * `pendingTail()` says how much of a chunk's tail could still be the start
    * of a longer key, measured by the same reader `decodeKeys()` uses so the two
    * cannot disagree about where the last key begins. Held here rather than
    * inside the dispatch, because a second chunk landing while the first is being
@@ -2455,8 +2456,8 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       ({ length, string: isString } = pendingTail(joined, opts));
     }
     // and a tail longer than `HELD_LIMIT` is not held. Every read measures what
-    // is held again from its start, so one that never finishes costs the square
-    // of its length. It is read as final, which is the reading `expire()` gives
+    // is held again from its start -- a control string excepted, below -- so one
+    // that never finishes costs the square of its length. It is read as final, which is the reading `expire()` gives
     // a tail nothing followed: the whole of `joined` again, because only its
     // last read differs, and the bytes after the cut start a key of their own.
     // Not a control string, though: a reply to a query can be long -- an OSC 52

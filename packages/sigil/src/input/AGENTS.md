@@ -418,6 +418,13 @@ the entry it belongs to.
   was held under, which only the test of a query that settles between two reads
   catches.
 
+  `heldEdge` and `heldString` mean something only while `held` is not empty, and
+  `expire()`, `consume()` and `stop()` empty it without touching them, so the
+  `held !== ''` in the resume's condition and in `consume()`'s `lead` are what
+  stop a flushed tail being continued. Each has its own test, found missing by
+  review (a stale `heldString`, a flushed string resumed, a stale edge making a
+  paste start): neither was reached by a stream that ends in an expiry.
+
 - **A paste is offered to the tree before the router's own handlers, which is
   the mouse's order and not the keys'.** `Element.onPaste` on the focused element
   and then on each ancestor, and `onPaste()` sees what none of them stopped; what
