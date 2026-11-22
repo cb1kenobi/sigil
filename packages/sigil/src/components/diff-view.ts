@@ -619,6 +619,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
    */
   let anchor: number | undefined;
   let base: ReadonlySet<number> = NONE;
+  /**
+   * What the open range last wrote -- the cursor it is at and the picks it made --
+   * so a write from anywhere else ends it: an app that moved the cursor or changed
+   * the picks has left the range's own arithmetic behind.
+   */
+  let ranged: { cursor: number; picks: ReadonlySet<number> } | undefined;
 
   /**
    * Picks the changed lines from the anchor to the cursor, over what was picked
@@ -633,9 +639,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     }
     const low = Math.min(anchor, to);
     const high = Math.max(anchor, to);
-    picking.selected.set(
-      new Set([...base, ...changes.filter((line) => line >= low && line <= high)])
-    );
+    const picks = new Set([...base, ...changes.filter((line) => line >= low && line <= high)]);
+    ranged = { cursor: to, picks };
+    picking.selected.set(picks);
   };
 
   /**
@@ -647,6 +653,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       return;
     }
     anchor = undefined;
+    ranged = undefined;
     untrack(() => {
       if (picking.cursor.get() !== undefined) {
         picking.cursor.set(undefined);
@@ -1001,7 +1008,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
           // brought to a line it can be on, which runs this again
           return;
         }
-        if (at === undefined) {
+        const picked = picking.selected.get();
+        if (
+          at === undefined ||
+          (anchor !== undefined && ranged && (ranged.cursor !== at || ranged.picks !== picked))
+        ) {
           anchor = undefined;
         }
         if (at === undefined && picking.selected.get().size > 0) {

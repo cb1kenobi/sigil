@@ -647,8 +647,9 @@ commit message in a text area. What it settled:
   `[`, `w` and scrolling do not apply to a cursor on a line (`]` leaves the
   lines). It is one `createEffect()` over `lines.cursor !== undefined` that
   describes the one set and puts the other away, scoped to the diff panel as
-  every other pane key is. Measured at 110 columns: both rows reach `q quit`,
-  with the lowest priorities (`r refresh` and the pane switch) the ones cut, and `should list the line keys in the footer while the cursor is on the lines,
+  every other pane key is. Measured at 110 columns: both rows reach `q quit`;
+  the pane switch is cut from both, and the hunk row also loses `r refresh` to
+  the `enter lines` hint, which is the price of teaching the way in. And `should list the line keys in the footer while the cursor is on the lines,
   in place of the hunk keys` holds it.
 
 - **The diff pane is a `DiffView` over blocks the model builds, and the model asks

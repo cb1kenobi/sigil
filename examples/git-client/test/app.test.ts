@@ -372,7 +372,7 @@ for (const [syntax, App] of [
         );
         const client = await mount(App, repo);
 
-        // v at `-2`, then down three lines to `-4`: the range takes `-2`, `+two` and
+        // v at `-2`, then down twice to `-4`: the range takes `-2`, `+two` and
         // `-4` and steps over the context line between, and Space stages those three
         await client.press('4', KEYS.enter, 'v', KEYS.down, KEYS.down, ' ');
         expect(client.screen()).toMatch(/Staged 3 lines of a\.txt/);

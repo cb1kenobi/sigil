@@ -10190,7 +10190,9 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   the changed lines either side of it and not the context line. Moving back
   shrinks it, since the picks are recomputed from the anchor and the picks that
   were there; `v` again closes it and keeps what it picked; `x`, `a`, a click on a
-  line and leaving the lines end it too. The anchor is the view's own variable
+  line and leaving the lines end it too, as does the app writing the cursor or
+  the picks out from under it (the view remembers what the range last wrote and
+  compares). The anchor is the view's own variable
   rather than a third `State`, because nothing outside has a use for it: the
   marks already show every line it picked. Shift and the arrows is not a second
   spelling: a terminal reports no key release, so there is nothing to say when a

@@ -1137,6 +1137,41 @@ describe('DiffView lines', () => {
     }
   });
 
+  it('should end a range an app wrote the cursor or the picks out from under', () => {
+    const moved = mountLines();
+    press(moved.host, 'enter');
+    press(moved.host, 'v');
+    moved.cursor.set(5);
+    flush();
+    press(moved.host, 'up');
+    // no anchor: the cursor moved on its own and nothing was picked from the old one
+    expect([...moved.selected.get()]).toEqual([1]);
+
+    const cleared = mountLines();
+    press(cleared.host, 'enter');
+    press(cleared.host, 'x');
+    press(cleared.host, 'down');
+    press(cleared.host, 'down');
+    press(cleared.host, 'v');
+    cleared.selected.set(new Set());
+    flush();
+    press(cleared.host, 'down');
+    // what the app emptied stays empty
+    expect([...cleared.selected.get()]).toEqual([]);
+  });
+
+  it('should end a range with a click on another line of the hunk', () => {
+    const { cursor, host, root, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'v');
+    // a click on `+FOUR`, which is the cursor's from then on and picks nothing more
+    clickRow(root, '+FOUR');
+    expect(cursor.get()).toBe(5);
+    const before = [...selected.get()].sort();
+    press(host, 'up');
+    expect([...selected.get()].sort()).toEqual(before);
+  });
+
   it('should leave the lines with Enter or Escape, dropping the picks', () => {
     for (const name of ['enter', 'escape']) {
       const { cursor, host, root, selected } = mountLines();
