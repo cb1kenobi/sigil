@@ -6,7 +6,7 @@ import {
   writeAtomicSync,
 } from '../../src/config/index.js';
 import { inertError } from '../../src/util/escape-controls.js';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -156,6 +156,22 @@ describe.skipIf(!POSIX)('a save that fails under a directory with a control char
     expect(isMissing(Object.assign(new Error(`ENOENT ${HOSTILE}`), { code: 'ENOENT' }))).toBe(true);
   });
 
+  it('should escape what mkdirOwnerSync() refuses with, which is raised outside atomic.ts', async () => {
+    // a dangling link where a directory should be: `mkdir` answers `ENOENT`
+    // naming the link, and needs no permission to provoke
+    const dir = root();
+    symlinkSync(join(dir, 'missing'), join(dir, 'link'));
+    const target = join(dir, 'link', 'config.json');
+
+    for (const e of [
+      await caught(() => writeAtomic(target, 'x')),
+      await caught(() => writeAtomicSync(target, 'x')),
+    ]) {
+      expect(e.syscall).toBe('mkdir');
+      expectInert(e.message);
+    }
+  });
+
   it('should leave no temp file behind where the rename failed', async () => {
     const path = directoryTarget();
     await caught(() => writeAtomic(path, 'x'));
@@ -194,7 +210,9 @@ describe.skipIf(!POSIX)('a save that fails under a directory with a control char
     const e = await caught(() => writeAtomic(join(dir, 'config.json'), 'x'));
 
     expect(e.code).toBe('EISDIR');
-    expect(e.message).toContain(join(dir, 'config.json'));
+    // the message quotes the resolved path, which is `/private/var` where
+    // `tmpdir()` says `/var`, so it is the name that is asked for
+    expect(e.message).toContain(`${basename(dir)}`);
     expect(e.message).not.toContain('\\x');
   });
 });

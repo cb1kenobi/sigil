@@ -108,7 +108,7 @@ export function escapeControls(value: unknown): string {
  * `cause` would have to copy each of those across and would still be a different
  * object to anything that kept the first one.
  *
- * The `stack` is rewritten with it where it begins with the old message, because
+ * The old message is replaced in the `stack` too, because
  * V8 builds that header once, when the error is made, and a message edited
  * afterwards leaves the raw one in the stack that `DEBUG=sigil:error` and an
  * uncaught throw both print. Escaping is idempotent -- a backslash is not

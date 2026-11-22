@@ -1282,7 +1282,7 @@ hold, and `Config.save()` is the one caller of all four.
   anything that held the first, and is a change to what every store throws, which
   is the reason this was left open by SIG-551. The cost of editing is two things
   and both are handled: `stack` is built once with the old message in its header,
-  so it is rewritten where it begins with that message, and an error whose
+  so the message is replaced in it, and an error whose
   `message` cannot be written (frozen) is thrown as it was rather than replaced by
   a failure about the escape. Escaping is idempotent -- a backslash is not
   escaped -- so applying it at more than one level changes nothing the first pass
@@ -1292,8 +1292,11 @@ hold, and `Config.save()` is the one caller of all four.
   each of the ten `throw` sites: the failures that reach a user are not all this
   file's -- `mkdirOwnerSync()` raises its own -- and one place cannot miss a site
   added later. `physicalPath()` is the third, being exported and having its own
-  raw rethrow; `realPathOf()` is not, because its only caller that lets an error
-  out is `writeAtomic()` and the watcher discards it. The codes `isMissing()`,
+  raw rethrow; `realPathOf()` is not: its callers are `writeAtomic()`, the watcher
+  and the build, which discard it, and the completion installer's uninstall
+  (`unlinkSync(realPathOf(...))`), which does not -- so a failed uninstall under a
+  directory holding a control character still prints it raw. That is not a config
+  save and is left alone here. The codes `isMissing()`,
   `endsChain()` and `declinesFlush()` read are untouched, which is what a
   rewrite of the message cannot move. None of the tests provokes a failure by
   permission, which a CI job running as root does not have: a target name that
