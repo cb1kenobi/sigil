@@ -643,10 +643,12 @@ export interface ListControl<K> {
    * anchors a menu, a tooltip or a popover to, instead of looking for it in the
    * tree by a class.
    *
-   * Only a row the scroll box has built has one -- the rows in view and the few
-   * beside them -- so a row that is scrolled away, or is windowed out of a long
-   * list, answers `undefined`, as does a key that is not a row or a list with no
-   * current row. `reveal(key)` first when the row has to be there. The answer is
+   * Only a row the scroll box has built has one -- exactly the rows in view,
+   * there being no overscan -- so a row that is scrolled away, or is windowed out of
+   * a long list, answers `undefined`, as does a key that is not a row or a list with
+   * no current row. `reveal(key)` first when the row has to be there, and that holds
+   * for the current row too: a move in the same handler scrolls with the next
+   * frame, so the row it moved to may not be built until then. The answer is
    * the row's `.sigil-list-row` box, and **it is the element of one build**: a row
    * is built again when its item is replaced by a different object, when it leaves
    * the window and comes back, and on `refresh()`, and each build is a new element

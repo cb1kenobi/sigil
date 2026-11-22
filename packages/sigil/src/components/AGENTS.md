@@ -12531,8 +12531,9 @@ How each question was settled, the probes and the sabotage pass are in
   so there is no second registry to drift, and it takes the items as they are now
   (`catchUp()`) like `reveal()` beside it. Three cases answer `undefined` and are
   documented rather than worked around: a row the window has not built (there is no
-  overscan, so that is any row out of view -- `reveal(key)` first and, for its
-  layout, a frame), a key that is no row, and a list with no current row. Building
+  overscan, so that is any row out of view, **and the current row after a move in
+  the same handler**, since the view follows the cursor from an effect -- `reveal(key)`
+  first and, for its layout, a frame), a key that is no row, and a list with no current row. Building
   a row on demand for the rest was refused: it would leave an element no slot
   holds, with no owner to dispose it and no layout, which is a worse thing to hand
   an app than `undefined`. The element is **one build's**: a row built again for a

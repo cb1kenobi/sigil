@@ -5755,7 +5755,8 @@ control), `reveal(key?)`, `rowElement(key?)`, `refresh()` and `activate()`.
 key, for an app that anchors a menu or a popover to a row. A row the scroll box
 has not built -- scrolled out of view, or past the window of a long list -- has no
 element and answers `undefined`, as does a key that is no row, so `reveal(key)`
-first where it has to be there. The element is one build's: a row replaced by a
+first where it has to be there -- the current row too, since a move scrolls with the
+next frame. The element is one build's: a row replaced by a
 new item, `refresh()`, or a scroll away and back builds a new one, so ask where it
 is needed and do not hold the answer across those. `createListSelection()` is
 the selection on its own -- a current key, a set of selected keys, and the moves

@@ -341,6 +341,25 @@ describe('the table', () => {
     expect((s.term.viewport[y] ?? '').slice(x - 1)).toBe(row);
   });
 
+  it('should open the menu beside a row the same read scrolled to, which was built only then', async () => {
+    // a terminal too short for the page, so End scrolls the table to rows that
+    // were not built; End and Enter arrive in one read, before any frame
+    const s = mount({ columns: 120, rows: 24 });
+    await s.toTable();
+    const before = s.rows();
+    await s.press(`${KEYS.end}${KEYS.enter}`);
+    const shown = s.rows();
+    expect(shown).not.toStrictEqual(before);
+    const name = shown.at(-1) ?? '';
+    const y = s.term.viewport.findIndex((each) => each.includes(`❯ ◯ ${name}`));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const row = s.term.viewport[y] ?? '';
+    expect(s.screen()).toContain('Redeploy');
+    // the menu is beside that row: it ends on the line above it, and the row stays in view
+    expect(s.term.viewport[y - 1]).toMatch(/╰─+╯/);
+    expect(s.term.viewport[y]).toBe(row);
+  });
+
   it('should open the menu above the last row of a page, and leave the row in view', async () => {
     const s = mount({ columns: 120, rows: 30 });
     await s.toTable();
