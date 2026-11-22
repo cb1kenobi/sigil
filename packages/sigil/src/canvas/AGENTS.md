@@ -64,6 +64,13 @@ the entry it belongs to.
   Interned styles are frozen, `DEFAULT_STYLE` included -- it is index zero, which
   is what every cell starts with, so handing back the mutable object meant one
   write could make the diff start every frame from a "default" that was not one.
+  **Every refusal quotes what it was given through `escapeControls()`** (SIG-583):
+  the palette index, a colour channel, `attrs`, a link that is not a string, a
+  `fg` or `bg`, and the size and rectangle `resampleImage()` refuses. They report
+  a caller passing the wrong thing, but the caller is an app that took a colour
+  or a link from a config file, so a string holding `ESC` reached the terminal
+  raw in the message that complained about it. `String(x)` in a thrown message is
+  the shape to look for; `test/canvas/errors-echo.test.ts` has one test per site.
 - **A cluster occupies one cell or two, never more.** `graphemeWidth()` sums what
   a cluster contains and can exceed two -- a CJK character with a spacing mark,
   two leading Hangul jamo -- and a grid has no third cell to put that in. Left
