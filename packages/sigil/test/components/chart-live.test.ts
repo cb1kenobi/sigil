@@ -907,7 +907,10 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
     await press(KEYS.down);
     await press(`${ESC}[1;2D`);
     await press(`${ESC}[1;5D`);
-    expect(seen).toStrictEqual(['up', 'down', 'left', 'left']);
+    await press(`${ESC}[1;3D`);
+    await press(`${ESC}[200~x${ESC}[201~`);
+    expect(seen.slice(0, 5)).toStrictEqual(['up', 'down', 'left', 'left', 'left']);
+    seen.length = 5;
     // not moved: the rule is still at the newest sample
     expect((term.viewport[4] ?? '').indexOf('┴')).toBe(29);
     // a plain Left is the chart's, and so is a Right at the newest sample, where
@@ -915,7 +918,7 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
     await press(KEYS.left);
     await press(KEYS.right);
     await press(KEYS.right);
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(5);
   });
 
   it('should hand the keyboard sample to the pointer while it moves, and take it back when the pointer leaves', async () => {
@@ -939,6 +942,75 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
     // the pointer, still over the chart where it was, is not what the rule follows
     await m.key(KEYS.right);
     expect(tick(m.screen())).toBe(29);
+  });
+
+  it('should step from the rule the pointer has moved to, not from where the last key left it', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    expect(tick(m.screen())).toBe(20);
+    await m.move(5, 1);
+    expect(tick(m.screen())).toBe(3);
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should keep the rule at the keyboard sample while the pointer is over the chart where there is none', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    // the axis labels, which hold no sample: the rule is the keyboard's still, and
+    // so are the keys
+    await m.move(0, 1);
+    expect(tick(m.screen())).toBe(20);
+    expect(m.screen().join('\n')).toContain('API 3');
+    await m.key(KEYS.left);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should take the first arrow typed before any frame has drawn the focus', async () => {
+    const m = await mount();
+    await m.term.press(KEYS.tab);
+    await m.term.press(KEYS.left);
+    await m.key();
+    await frame(m.app);
+    expect(tick(m.screen())).toBe(20);
+  });
+
+  it('should step on from the oldest sample when the data shrinks under a rule far back', async () => {
+    const data = new State<readonly number[]>(Array.from({ length: 30 }, (_, i) => i));
+    const m = await mount(() => ({ series: [{ data, label: 'API' }] }));
+    await m.key(KEYS.tab);
+    for (let i = 0; i < 20; i++) {
+      await m.term.press(KEYS.left);
+    }
+    await frame(m.app);
+    data.set([0, 1, 2, 3]);
+    await flush();
+    await frame(m.app);
+    await frame(m.app);
+    // drawn at the oldest, and the first Right moves it
+    expect(tick(m.screen())).toBe(3);
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should keep the rule on a sample the plot draws when a resize narrows it', async () => {
+    // a step of four across 27 cells shows 14 of the 30 samples; narrowed to 17
+    // cells it shows 9, and a rule stood on the 14th is past the left edge
+    const m = await mount(() => ({
+      series: [{ data: Array.from({ length: 30 }, (_, i) => i), label: 'API' }],
+      step: 4,
+    }));
+    await m.key(KEYS.tab);
+    for (let i = 0; i < 20; i++) {
+      await m.term.press(KEYS.left);
+    }
+    await frame(m.app);
+    m.term.resize(20, 8);
+    await frame(m.app);
+    await frame(m.app);
+    const screen = m.screen();
+    expect(tick(screen)).toBeGreaterThanOrEqual(0);
+    expect(screen.join('\n')).toMatch(/API 2[1-3]/);
   });
 
   it('should start at the newest sample again after the focus has gone and come back', async () => {

@@ -7620,13 +7620,23 @@ took the focus and the arrows in SIG-491.
   there is not, so a pointer that leaves hands the rule back to the keyboard rather
   than taking it away. A key clears the pointer, so a pointer that has not moved
   since stops outvoting the key; the next report puts it back.
-- **A key steps from the keyboard's own sample, not from the last drawing.** Keys
-  can arrive faster than frames -- a held arrow -- and the drawing's `index` is one
-  behind them, so stepping from it turned forty Lefts into one. `shown` (the last
-  drawing's `index`, `first` and `count`) is read only for a pointer's sample and for
-  the ends; where the keyboard already has a `back` it is the baseline. `should stop
-  at the oldest sample a scrolling chart has drawn` presses forty Lefts with no frame
-  between.
+- **A key steps from the rule that is drawn, and keys outrun frames.** Keys can
+  arrive faster than frames -- a held arrow -- and the drawing's `index` is one
+  behind them, so stepping from it turned forty Lefts into one. From the pointer's
+  sample where the pointer has moved since the last key (a key clears it), and
+  otherwise from the keyboard's own `back`, which a key sets at once. Review round 1
+  found three ways the first version stepped from the wrong place: `back` checked
+  before the pointer, so a key after the pointer had moved stepped from a sample no
+  longer drawn; a pointer over the chart where there is no sample -- the axis labels,
+  the legend, a scrolling chart's empty left -- drawing no rule at all, which lost
+  the drawn focus and every key with it, where the keyboard's sample now stands
+  until the pointer is over one; and the keys gated on a crosshair having been
+  drawn, so an arrow typed before the first frame of the focus bubbled out. What a
+  key needs of the series -- `count` and the oldest drawn -- is `Drawing.samples`,
+  drawn whether or not a rule is, and the baseline is held to it, since data
+  shrinking under a large `back` left the first Right a no-op. `should step on from
+  the oldest sample when the data shrinks under a rule far back` and `should keep the
+  rule on a sample the plot draws when a resize narrows it` pin the two clamps.
 - **Every sample is a stop, where the pointer's cell holds several.** Under `fit`
   with more samples than dot columns, the pointer takes the newest in its cell and
   the older ones are unreachable. An arrow steps by sample, so the readout changes
