@@ -580,7 +580,7 @@ function readOne(input: string, start: number, opts: DecodeOptions): Read {
  *   whole key.
  */
 export function pendingLength(input: string, opts: DecodeOptions = {}): number {
-  return tail(input, opts).length;
+  return pendingTail(input, opts).length;
 }
 
 /**
@@ -606,11 +606,47 @@ export function pendingLength(input: string, opts: DecodeOptions = {}): number {
  *   held, and `false` for a key that merely has not finished arriving.
  */
 export function pendingIsString(input: string, opts: DecodeOptions = {}): boolean {
-  return tail(input, opts).string;
+  return pendingTail(input, opts).string;
 }
 
-/** The last read of a chunk, where it did not finish. */
-function tail(input: string, opts: DecodeOptions): { length: number; string: boolean } {
+/**
+ * Whether a control string held up to here ends at or after `from`.
+ *
+ * What lets a caller that already knows a held tail is an unterminated control
+ * string ask only about what arrived since, rather than walking the whole of it
+ * again through `pendingTail()` -- which finds the end by the same `stringEnd()`
+ * and so cannot disagree about what one is. Not exported from a subpath: it is
+ * the router's, and the one thing it needs that `pendingLength()` could not say
+ * without growing a hint.
+ *
+ * `from` is where the previous search left off, and the caller passes one before
+ * the end of what it had: an `ST` that is `ESC \` can split between two reads,
+ * and the `ESC` that ended the earlier one has to be looked at again with the
+ * `\` that follows it. It may be as early as the introducer's second byte, which
+ * is `]` or `P` and starts no terminator, but not before the introducer's own
+ * `ESC`, which would be read as the start of an `ST`.
+ *
+ * @param input - The held tail joined to what arrived, from the string's own `ESC`.
+ * @param from - The index to search from.
+ * @returns Whether a terminator is at or after `from`.
+ */
+export function hasStringEnd(input: string, from: number): boolean {
+  return stringEnd(input, from) !== undefined;
+}
+
+/**
+ * The tail of a chunk that has not finished arriving, and whether it is a control
+ * string. `pendingLength()` and `pendingIsString()` are the halves of this, so the
+ * router asks once instead of walking the chunk twice.
+ *
+ * @param input - What the terminal sent.
+ * @param opts - How to read an OSC or DCS introducer.
+ * @returns The length of the unfinished tail and whether it is a control string.
+ */
+export function pendingTail(
+  input: string,
+  opts: DecodeOptions = {}
+): { length: number; string: boolean } {
   let i = 0;
   let held = { length: 0, string: false };
 

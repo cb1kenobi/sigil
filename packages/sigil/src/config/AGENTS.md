@@ -1268,6 +1268,42 @@ hold, and `Config.save()` is the one caller of all four.
   a `write` may be short and a config half written into the temp file is the thing
   this is for.
 
+- **A save that fails escapes Node's message, on the error Node threw (SIG-571).**
+  `atomic.ts` rethrows what the file system raised -- `EACCES: permission denied,
+  open '<path>'` -- and the path is the app's root as it is on disk, so a root
+  holding `ESC ] 0 ; T BEL` retitled the terminal of whoever read `config set`'s
+  failure. The message is rewritten **on the original error** by `inertError()`
+  in `util/escape-controls.ts`, and not on a new error carrying it as `cause`.
+  Callers read `code` (`isMissing()`, the store kit, the watcher), and a caller
+  that kept the caught error can read `errno`, `syscall`, `path` and `dest`; an
+  edit leaves every one of them what Node set, `instanceof` and identity hold, and
+  `path` stays the real path because code uses it to find the file again. A
+  wrapper would have to copy each property across, would be a different object to
+  anything that held the first, and is a change to what every store throws, which
+  is the reason this was left open by SIG-551. The cost of editing is two things
+  and both are handled: `stack` is built once with the old message in its header,
+  so the message is replaced in it, and an error whose
+  `message` cannot be written (frozen) is thrown as it was rather than replaced by
+  a failure about the escape. Escaping is idempotent -- a backslash is not
+  escaped -- so applying it at more than one level changes nothing the first pass
+  did.
+
+  The wrap is at **the two exported writers**, around the whole body, and not at
+  each of the ten `throw` sites: the failures that reach a user are not all this
+  file's -- `mkdirOwnerSync()` raises its own -- and one place cannot miss a site
+  added later. `physicalPath()` is the third, being exported and having its own
+  raw rethrow; `realPathOf()` is not: its callers are `writeAtomic()`, the watcher
+  and the build, which discard it, and the completion installer's uninstall
+  (`unlinkSync(realPathOf(...))`), which does not -- so a failed uninstall under a
+  directory holding a control character still prints it raw. That is not a config
+  save and is left alone here. The codes `isMissing()`,
+  `endsChain()` and `declinesFlush()` read are untouched, which is what a
+  rewrite of the message cannot move. None of the tests provokes a failure by
+  permission, which a CI job running as root does not have: a target name that
+  leaves the temp name over the limit (`ENAMETOOLONG` on the open), a directory
+  where the file should be (`EISDIR` on the rename), and a path under a file
+  (`ENOTDIR` from the resolution). `test/config/atomic-escape.test.ts` holds them.
+
 - **It is not published.** No subpath reaches it. SIG-152's YAML store would want
   it, and the rule is to decide against the first caller that does rather than
   against one that does not -- which is the same call the span applier gets.
@@ -1733,10 +1769,10 @@ failed to close.
   where they throw. The two reads still go through core's `readText()`, which is
   why the UTF-8 and unreadable-file cases need nothing of their own.
 
-- **What is not done.** A write that fails inside `atomic.ts` rethrows Node's own
-  error, whose message quotes the path it failed on, unescaped; the write half of
-  an app's root is never the toolchain's to quote, and wrapping every `catch` is
-  a change to what every store throws. The layer name and the key path were
+- **What is not done.** A write that fails inside `atomic.ts` rethrew Node's own
+  error, whose message quotes the path it failed on, unescaped; that is closed
+  by "A save that fails escapes Node's message" in the atomic write section above
+  (SIG-571). The layer name and the key path were
   left here as the app's own strings, and are closed by the entry below. The text a message quotes **from inside** a
   file -- a YAML tag, an XML element name -- is the file's content rather than its
   path, and is escaped in both stores now (SIG-570): every element and attribute

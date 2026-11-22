@@ -2522,7 +2522,9 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   them parse and only compile() refuses`.
 
   `sigil check` reports it too, by compiling the templates in the modules it
-  already reads -- the entry and every command module -- in `checkTemplates()`.
+  already reads -- the entry, the file the schema is written in (SIG-568) and every
+  command module -- in `checkTemplates()`, once each by the path as resolved, so a
+  symlink or a differently cased spelling of one file is two.
   Not every module in the app: only the bundler knows what is reached, and
   walking the tree would refuse an app over a fixture or a test nothing imports,
   which the build would not. A template in a helper the commands import is
@@ -3154,6 +3156,20 @@ other is refused with numbers.
   makes the settings warning's "a built app uses ..." sentence safe: nothing on the
   way can have assigned to `settings` after the literal.
 
+  **A TypeScript wrapper around the name forwards it (SIG-569).** `export default
+  schema satisfies Schema`, `schema as Schema` and `<Schema>schema` erase to
+  `export default schema`, and the walk stopped at them: oxc gives such an export no
+  local name, so the module was read as writing its own schema, and every reader
+  answered a file with no schema literal in it. `defaultName()` reads the name off
+  the statement through `unwrapShallow()` -- `literals.ts`'s unwrapper, which gained
+  `TSTypeAssertion` for this (`shake.ts`'s `bare()` is its own matcher with its own
+  list and still lacks it, which is noted rather than changed here), so `main(<Schema>schema)` is followed too and every
+  other reader of it sees through `<T>{ ... }` as it already did `as`. A wrapper
+  around anything that is not a bare name (a spread, a call, a member) is not a
+  forward and still stops the walk, as the unwrapped one does, and the
+  forwards-only rule is unchanged: a module that also does something to the schema
+  is the entry whether or not its `export default` is wrapped.
+
   **An entry that reaches its schema only through `main()` is checked like any
   other app, and is an `inspect()` error unless `--commands` was given.** A built
   app imports the entry for an export, so it would build and then stop at start with
@@ -3165,11 +3181,20 @@ other is refused with numbers.
   that way. The schema module is also in `buildReads()`, so a clean never removes
   it.
 
-  **Not followed, and recorded rather than guessed:** the `ui` templates in a
-  schema file (the bundler's transform finds those and `checkTemplates()` reads
-  the entry and the commands, as it always has), the `dev.*` runner's own `main()`
-  (that call is what `main-settings` warns about and not where a schema is), and
-  any other file the entry imports.
+  **The `ui` templates in the schema file are checked (SIG-568).** `checkTemplates()`
+  read the entry and the command modules, so a template that cannot be compiled in
+  an imported schema file passed `sigil check` -- measured: exit 0, `no problems
+  found` -- and was found only by `build`'s bundler transform, which compiles every
+  module it bundles, as the same located line and `1 error in <app>`, exit 1. It
+  asks `schemaModule(app.entry)` for the file rather than finding it again, and the
+  files are a `Set`, so a schema file that is also the entry or a command module
+  (a `load` of itself) is compiled once. The rest of the app's modules are still
+  the bundler's, for the reason under "A template that cannot be compiled is a
+  diagnostic".
+
+  **Not followed, and recorded rather than guessed:** the `dev.*` runner's own
+  `main()` (that call is what `main-settings` warns about and not where a schema
+  is), and any other file the entry imports.
 
 ### Writing the CLI in sigil
 
