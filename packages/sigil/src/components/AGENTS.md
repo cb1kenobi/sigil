@@ -7712,7 +7712,14 @@ have.
   the pointer or the focus and nothing else, so a pin had no readout once the focus
   went. `TooltipOptions.hold` is a function that returns `true` for a third reason
   to show, asked in the effect that already reads the focus so a signal it reads is
-  tracked, and `delay` still applies to it. It is the one change outside the chart;
+  tracked -- read first and unconditionally, since a short-circuit on hover or focus
+  left it unread and a `hold` set later waiting for the next mouse report -- and
+  `delay` still applies to it. **Escape and `hide()` do nothing while it holds**:
+  `dismissed` clears only when the pointer, the focus and the hold have all gone,
+  so a pin that outlasted the other two made one Escape -- the dashboard's search
+  field clearing, a menu closing -- kill the readout until unpinned. The app asked
+  for the bubble to stay, and Enter again is how a reader takes it away. It is the
+  one change outside the chart;
   the chart sets it (`LineChartCrosshair` omits it, as it omits `area`), and no
   other component does.
 - **`props` leaves `onKey` out of a chart with a crosshair, in the type.** The
@@ -7720,14 +7727,21 @@ have.
   followed now: `LineChartProps` is a union of `PlainLineChartProps` and
   `CrosshairLineChartProps`, told apart by `crosshair` being absent or required,
   and the second's `props` is `ElementPropsWithout<'onKey' | 'onResize'>`. A plain
-  chart owns no key and still takes an `onKey`, so nothing that compiled before
-  stops compiling unless it passed an `onKey` the chart refused at run time anyway.
+  chart owns no key and still takes an `onKey`, so a literal that compiled before
+  stops compiling only if it passed an `onKey` the chart refused at run time anyway.
+  A union does narrow what generic code can do with the type, which review round 1
+  measured rather than assumed: `Omit<LineChartProps, 'data'>` collapses it and
+  assigning `.crosshair` onto a plain-typed value fails, where `crosshair: maybe`
+  and a conditional crosshair still compile. No consumer in the repository does
+  either. `vim?: false` rather than `undefined` on the plain chart, so a flag
+  `vim: false` beside a conditional crosshair still type-checks.
   `chart-live.test.ts` pins both halves with `@ts-expect-error`, one on `props`
   and one on `vim`, which `packages/sigil`'s tsconfig includes `./test` for.
 - **`describeLineChart()` lists them:** `left`, `right`, `h` and `l` where the chart
   is `vim`, `home` as `oldest`, `end` as `newest`, and `enter` as `pin`, three new
   words in `SIGIL_KEYS`. The arrows are priority 1 as before, Home and End 1 and
-  Enter 2 as a list's Enter is, so a narrow footer drops the pin first. The
+  Enter 2 as a list's Enter is -- a higher priority survives -- so a narrow
+  footer keeps the pin over the movement keys. The
   dashboard's chart footer is therefore longer by those words; its tests are
   re-read for it rather than assumed.
 

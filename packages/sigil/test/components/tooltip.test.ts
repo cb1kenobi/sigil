@@ -517,6 +517,49 @@ describe('attachTooltip()', () => {
       expect(tip.shown).toBe(true);
     });
 
+    it('should show for a hold set while the pointer left and the focus is elsewhere', async () => {
+      const s = scene();
+      const held = new State(false);
+      const tip = tipOn(s, { delay: 0, hold: () => held.get() });
+      await hover(s);
+      s.input.focus.focus(s.other);
+      flush();
+      await s.term.press(move(20, 10));
+      expect(tip.shown).toBe(false);
+      held.set(true);
+      flush();
+      expect(tip.shown).toBe(true);
+    });
+
+    it('should wait out the delay for a hold, as for the pointer', () => {
+      const s = scene();
+      const held = new State(false);
+      const tip = tipOn(s, { delay: 500, hold: () => held.get() });
+      held.set(true);
+      flush();
+      wait(499);
+      expect(tip.shown).toBe(false);
+      wait(1);
+      expect(tip.shown).toBe(true);
+    });
+
+    it('should not let Escape or hide() take away a bubble that is held', async () => {
+      const s = scene();
+      const held = new State(true);
+      const tip = tipOn(s, { delay: 0, hold: () => held.get() });
+      flush();
+      expect(tip.shown).toBe(true);
+      await s.term.press(KEYS.escape);
+      wait(ESCAPE_TIMEOUT + 1);
+      tip.hide();
+      flush();
+      expect(tip.shown).toBe(true);
+      // and once it is let go, Escape is the pointer's and the focus's again
+      held.set(false);
+      flush();
+      expect(tip.shown).toBe(false);
+    });
+
     it('should refuse a hold that is not a function', () => {
       const s = scene();
       expect(() => tipOn(s, { hold: true as never })).toThrow('hold');

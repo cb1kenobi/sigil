@@ -1796,7 +1796,7 @@ interface LineChartBase extends ChartElementProps, ScaleOptions {
 export interface PlainLineChartProps extends LineChartBase {
   crosshair?: undefined;
   /** Letters belong to the crosshair, so a chart with none takes none. */
-  vim?: undefined;
+  vim?: false;
 }
 
 /**

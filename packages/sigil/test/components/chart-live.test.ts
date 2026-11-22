@@ -12,7 +12,7 @@ import {
   sparkline,
 } from '../../src/components/chart.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
-import type { DescribeOptions, InputRouter } from '../../src/input/index.js';
+import { ESCAPE_TIMEOUT, type DescribeOptions, type InputRouter } from '../../src/input/index.js';
 import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal, ctrl, frame, KEYS } from '../../src/testing/index.js';
@@ -1249,6 +1249,45 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       expect(tick(m.screen())).toBe(before);
     });
 
+    it('should keep a pinned readout through Escape', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.left, KEYS.enter);
+      await m.blur();
+      await m.key(KEYS.escape);
+      // a lone Escape is held back until nothing can follow it
+      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 20));
+      await m.key();
+      expect(m.screen().join('\n')).toContain('│ API 3 │');
+      await m.move(12, 2);
+      expect(m.screen().join('\n')).toContain('│ API 5 │');
+    });
+
+    it("should pin the sample the pointer's rule is on, where the pointer moved last", async () => {
+      const m = await mount();
+      await m.key(KEYS.tab);
+      await m.move(12, 2);
+      await m.key(KEYS.enter);
+      await m.move(39, 7);
+      await m.blur();
+      expect(tick(m.screen())).toBe(12);
+    });
+
+    it('should unpin from the oldest sample once the data has shrunk past the pin', async () => {
+      const data = new State(Array.from({ length: 100 }, (_, i) => i));
+      const m = await mount(() => ({ series: [{ data, label: 'API' }], step: 1 }));
+      await m.key(KEYS.tab, KEYS.home, KEYS.enter);
+      await m.blur();
+      expect(tick(m.screen())).toBe(4);
+      // 51 samples back is past the start of 20, so the pin is drawn on the oldest
+      data.set(Array.from({ length: 20 }, (_, i) => i));
+      await m.key();
+      expect(tick(m.screen())).toBe(4);
+      // and Enter there is Enter on the pinned sample, which unpins it
+      await m.key(KEYS.tab, KEYS.enter);
+      await m.blur();
+      expect(tick(m.screen())).toBe(-1);
+    });
+
     it('should claim Enter, Home and End while it has the focus', async () => {
       const seen: string[] = [];
       const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
@@ -1320,6 +1359,15 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         'enter pin',
       ]);
       expect(live.every((e) => e.opts.scope === host)).toBe(true);
+    });
+
+    it('should rank Enter above the movement keys, as a list does, which a narrow footer keeps', async () => {
+      const { live, router } = recorder();
+      describeLineChart(router, await chart());
+      const priority = (keys: string) => live.find((e) => e.keys === keys)?.opts.priority;
+      expect(priority('left')).toBe(1);
+      expect(priority('home')).toBe(1);
+      expect(priority('enter')).toBe(2);
     });
 
     it("should describe h and l on the arrows' line only for a chart that takes them", async () => {

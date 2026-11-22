@@ -83,8 +83,9 @@ export interface TooltipOptions {
    * A third reason to show the bubble, beside the pointer and the focus: shown
    * while it returns `true`, with neither. Asked in the effect that reads the
    * focus, so a signal it reads shows or hides the bubble the moment it is set.
-   * `delay` still applies. That is how a line chart's pinned sample keeps its
-   * readout once the focus has gone. Defaults to none.
+   * `delay` still applies. While it returns `true`, Escape and `hide()` do nothing:
+   * the app asked for the bubble to stay. That is how a line chart's pinned sample
+   * keeps its readout once the focus has gone. Defaults to none.
    */
   hold?: () => boolean;
   /** The router hover and focus come from. */
@@ -526,7 +527,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
 
   /** Brings the bubble in line with the three reasons for it. */
   function update(): void {
-    if (!hovered() && !focused() && !held()) {
+    // read first and always, so that the effect running this tracks it even when the
+    // pointer or the focus is the reason it is running
+    const holding = held();
+    if (!hovered() && !focused() && !holding) {
       dismissed = false;
       remove();
       return;
@@ -550,6 +554,12 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   }
 
   function dismiss(): void {
+    // a bubble the app holds is not Escape's: `dismissed` only clears when the
+    // pointer, the focus and the hold have all gone, and a hold that outlasts
+    // the others would leave Escape's effect permanent
+    if (held()) {
+      return;
+    }
     if (bubble !== undefined || timer !== undefined) {
       dismissed = true;
     }
