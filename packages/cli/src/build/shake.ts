@@ -468,6 +468,11 @@ function collectLiterals(program: Node, into: Evidence): void {
   // tell one from an ordinary template. Filled on the way past the tag, which
   // the walk reaches first
   const tagged = new Set<Node>();
+  // the `+` chains and untagged templates `partsOf()` has already spliced into
+  // a run. The walk still descends into one -- a call in an operand holds
+  // literals of its own -- but does not read it as a run again, which is what
+  // made a chain of n terms cost n reads of up to n parts each
+  const spliced = new Set<Node>();
 
   walk(program, (node) => {
     if (node.type === 'TaggedTemplateExpression') {
@@ -475,8 +480,12 @@ function collectLiterals(program: Node, into: Evidence): void {
       return true;
     }
 
+    if (spliced.has(node)) {
+      return true;
+    }
+
     if (node.type === 'BinaryExpression' && node.operator === '+') {
-      readRuns(partsOf(node), into);
+      readRuns(partsOf(node, spliced), into);
       return true;
     }
 
@@ -490,12 +499,12 @@ function collectLiterals(program: Node, into: Evidence): void {
     // `c += '-red' + x` and `` c += `-red${x}` `` open on both ends rather than
     // being a closed `-red` after an unknown accumulator
     if (node.type === 'AssignmentExpression' && node.operator === '+=') {
-      readRuns([undefined, ...partsOf(node.right as Node)], into);
+      readRuns([undefined, ...partsOf(node.right as Node, spliced)], into);
       return true;
     }
 
     if (node.type === 'TemplateLiteral') {
-      readRuns(templateParts(node, tagged.has(node)), into);
+      readRuns(templateParts(node, tagged.has(node), spliced), into);
       return true;
     }
 
@@ -521,25 +530,39 @@ function collectLiterals(program: Node, into: Evidence): void {
  *
  * @param node - The template.
  * @param isTagged - Whether a tag decides what it comes to.
+ * @param spliced - Collects every node spliced in on the way.
  * @returns One entry per part, `undefined` where the text is not known.
  */
-function templateParts(node: Node, isTagged: boolean): (string | undefined)[] {
+function templateParts(node: Node, isTagged: boolean, spliced: Set<Node>): (string | undefined)[] {
+  const parts: (string | undefined)[] = [];
+  addTemplateParts(node, isTagged, spliced, parts);
+  return parts;
+}
+
+/** `templateParts()`, appending to a list instead of making one. */
+function addTemplateParts(
+  node: Node,
+  isTagged: boolean,
+  spliced: Set<Node>,
+  parts: (string | undefined)[]
+): void {
   const template = node as unknown as {
     expressions: Node[];
     quasis: { value: { cooked?: string | null; raw: string } }[];
   };
-  const parts: (string | undefined)[] = [];
 
   for (const [at, quasi] of template.quasis.entries()) {
     parts.push(quasi.value.cooked ?? quasi.value.raw);
 
     const expression = template.expressions[at];
     if (expression) {
-      parts.push(...(isTagged ? [undefined] : partsOf(expression)));
+      if (isTagged) {
+        parts.push(undefined);
+      } else {
+        addParts(expression, spliced, parts);
+      }
     }
   }
-
-  return parts;
 }
 
 /**
@@ -601,19 +624,37 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
  * open a neighbour.
  *
  * @param node - The expression, wrappers and all.
+ * @param spliced - Collects every `+` and template that was read into, so a walk
+ *   that has read the whole of one as a run does not read the nodes inside it
+ *   as runs of their own.
  * @returns Its parts, in source order, `undefined` where the text is not known.
  */
-function partsOf(node: Node): (string | undefined)[] {
+function partsOf(node: Node, spliced: Set<Node>): (string | undefined)[] {
+  const parts: (string | undefined)[] = [];
+  addParts(node, spliced, parts);
+  return parts;
+}
+
+/**
+ * `partsOf()`, appending to a list instead of making one, so that a chain of n
+ * terms is n pushes rather than a copy of every prefix of it. Every `+` and
+ * untagged template it reads into is recorded in `spliced`.
+ */
+function addParts(node: Node, spliced: Set<Node>, parts: (string | undefined)[]): void {
   const inner = unwrapShallow(node as Expression);
 
   if (isStringLiteral(inner)) {
-    return [String(inner.value)];
+    parts.push(String(inner.value));
+    return;
   }
 
   if (inner.type === 'BinaryExpression') {
     const binary = inner as unknown as { left: Node; operator: string; right: Node };
     if (binary.operator === '+') {
-      return [...partsOf(binary.left), ...partsOf(binary.right)];
+      spliced.add(inner);
+      addParts(binary.left, spliced, parts);
+      addParts(binary.right, spliced, parts);
+      return;
     }
   }
 
@@ -621,10 +662,12 @@ function partsOf(node: Node): (string | undefined)[] {
   // made `` `text-` + colour `` drop every `text-*` rule. A tagged one is a
   // `TaggedTemplateExpression` and never gets here
   if (inner.type === 'TemplateLiteral') {
-    return templateParts(inner, false);
+    spliced.add(inner);
+    addTemplateParts(inner, false, spliced, parts);
+    return;
   }
 
-  return [undefined];
+  parts.push(undefined);
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
