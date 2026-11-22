@@ -170,6 +170,8 @@ describe('what only looks like a reference', () => {
     ['a double quote', `<!-- say "hi -->`],
     ['a closing bracket and angle', `<!-- ]> -->`],
     ['an apostrophe in a processing instruction', `<?pi it's ?>`],
+    ['an apostrophe after a comment opened by <!-->', `<!--> ' -->`],
+    ['a quote after a comment opened by <!--->', `<!---> " -->`],
     ['a closing bracket and angle in a processing instruction', `<?pi ]> ?>`],
   ])('should find a reference after a DOCTYPE comment holding %s', (_what, region) => {
     expect(said(`<!DOCTYPE config [ ${region} ]><config><a>x&#1;y</a></config>`)).toContain(
@@ -183,6 +185,7 @@ describe('what only looks like a reference', () => {
   it.each([
     ['a comment', `<!-- ]> &#1; it's -->`],
     ['a processing instruction', `<?pi ]> &#1; it's ?>`],
+    ['a comment opened by <!-->', `<!--> ]> &#1; -->`],
   ])('should not find one inside %s in a DOCTYPE', (_what, region) => {
     expect(() => valueOf(`<!DOCTYPE config [ ${region} ]><config><a>1</a></config>`)).not.toThrow();
   });

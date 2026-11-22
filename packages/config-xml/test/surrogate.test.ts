@@ -150,6 +150,7 @@ describe('a lone surrogate, written raw, which is the route a file does not have
     const path = bytes(['<config><a>', [0xed, 0xa0, 0x80], '</a></config>']);
 
     await expect(xml(path).read()).rejects.toThrow(/it is not UTF-8/);
+    await expect(xml(path).write({ b: '1' })).rejects.toThrow(/it is not UTF-8/);
     expect(() => xml(path).writeSync({ b: '1' })).toThrow(/it is not UTF-8/);
   });
 

@@ -704,8 +704,10 @@ five things core had deliberately not published, which is the entry below.
   of the file -- every reference after it was read as the character, through a
   check that exists to refuse that -- and `<!-- ]> &#1; -->` ended the DOCTYPE
   inside the comment and refused a document that was fine. It steps over both
-  whole now, and a 55-document differential against the parser found nothing
-  else.
+  whole now. Round 2 found the same walk wrong once more -- it searched for
+  `-->` from two characters into `<!--`, so `<!-->` was a complete comment, which
+  the parser reads as one still open -- and a differential over about 400,000
+  generated DOCTYPEs against the parser found nothing else.
   A raw character is still checked against the **whole** source, comments and
   CDATA included, because there it is the character and not a reference to it.
   A DOCTYPE entity holding `&#1;` that nothing references is read, like any

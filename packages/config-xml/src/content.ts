@@ -41,8 +41,12 @@ function doctypeEnd(source: string, from: number): number {
       continue;
     }
     if (ch === '<' && (source.startsWith('<!--', i) || source.startsWith('<?', i))) {
-      const close = source.startsWith('<!--', i) ? '-->' : '?>';
-      const at = source.indexOf(close, i + 2);
+      // past the whole opener, so that `<!-->` is a comment still open and not one
+      // the opener's own dashes closed: the parser reads it that way, and the main
+      // loop below already does
+      const comment = source.startsWith('<!--', i);
+      const close = comment ? '-->' : '?>';
+      const at = source.indexOf(close, i + (comment ? 4 : 2));
       if (at === -1) {
         return source.length;
       }
