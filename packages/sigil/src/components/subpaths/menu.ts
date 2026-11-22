@@ -12,6 +12,7 @@ export {
   type MenuHost,
   type MenuInitial,
   type MenuItem,
+  type MenuMark,
   type MenuOptions,
   type MenuSession,
   type MenuSessionOptions,

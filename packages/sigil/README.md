@@ -6866,6 +6866,31 @@ Escape closes the menu and the next one the dialog.
   opened it and highlights nothing when the pointer did; with one, that entry is
   highlighted however the menu was opened, as a dropdown's value is.
 
+- **`check` and `radio`** make an item a thing that is on or off, and the menu
+  draws the mark -- `✔` for a check, `●` for a radio, `x` and `*` with `ascii` --
+  in a column every row of that menu reserves, blank while the item is off. Each
+  takes a boolean, a `State` (anything with a `get()`), or a function, read each
+  time the menu opens and not tracked (a radio function may be asked more than
+  once), so the mark follows what the app holds. The
+  menu never writes it: a chosen item reaches `onSelect()` like any other, and
+  flipping the state is the app's. A radio group is the radio items of one menu,
+  and the app's own state is what makes exactly one of them on:
+
+  ```js
+  const sorts = ['name', 'size', 'date'];
+  const item = {
+    label: 'Sort &by',
+    items: sorts.map((by) => ({ label: by, radio: () => sort.get() === by, value: by })),
+  };
+  const hidden = { label: '&Hidden files', check: showHidden, value: 'hidden' };
+  ```
+
+  A menu made only of radio items and separators opens on the one that is on and on
+  offer, so the choice is stated once; an `initial` given beside them wins, even a
+  function that answers none. A menu that mixes in anything else does not, since
+  it has no one current item to open on. An item has `check` or `radio`, not both,
+  and an item with `items` has neither.
+
 - `attachContextMenu(element, { input, items, onSelect })` opens one on a **right
   click** inside the element, at the pointer, and on **Shift-F10** or the
   **Menu** key with the focus inside it, under the focused element. `items` may be
@@ -7110,7 +7135,9 @@ there for a component you write yourself too:
   down, the check that a `menuClass` option is one, the check that an `initial` is
   a position or a function, and the position an `initial` names at the moment a
   menu opens -- which is what a session's `root()` takes, since it wants a
-  position rather than the option.
+  position rather than the option. `menuInitial()` also takes the menu's entries
+  as a third argument, which is how a radio group's current item becomes the
+  default.
 - `promptSeek(rows, from, direction, loop)`, from
   `@ttylabs/sigil/components/prompt`, is where Up or Down moves a list cursor: the
   nearest row whose `offered` is true, wrapping when `loop` is, and `from` itself
