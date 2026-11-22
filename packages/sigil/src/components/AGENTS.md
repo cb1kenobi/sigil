@@ -12518,6 +12518,20 @@ exception per widget. This is the one answer, and every widget below follows it.
   and Escape still closing it; catching it would be the menu deciding what an app
   bug means.
 
+  **That claim was measured rather than assumed (SIG-600), for a throwing `initial`
+  and a throwing check or radio mark alike.** Both are read before the submenu is
+  added to the chain -- `descend()` asks `initial` before it touches a level, and
+  a mark is read while `push()` builds the rows, before `levels.push()` -- so a
+  throw leaves the parent as it was, with its highlight, and Escape, Down and a
+  later try all work. With an `onError` on the router that reports and carries on
+  that is what a test sees, and under `runApp()` the throw is SIG-524's and ends
+  the app with 1. What looked like a stuck session in a test is the harness: with
+  **no** `onError` a throw escapes the router's `data` listener through the test
+  terminal's stdin, a `PassThrough`, which does not recover, so every later key is
+  lost and Escape included, whatever the menu did. A test that provokes a throwing
+  callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
+  no guard was added to `descend()` because it has nothing to protect.
+
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The
   dashboard's Theme and the menu demo's Sort by each drew a `●` into a hint by
