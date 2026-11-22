@@ -69,6 +69,7 @@ const check: AnyCommand = command({
 
   run({ argv }) {
     const inspected = inspect({
+      checkOnly: true,
       commands: argv.commands as string | undefined,
       cwd: String(argv.dir ?? '.'),
       entry: argv.entry as string | undefined,

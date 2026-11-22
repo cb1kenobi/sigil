@@ -1,4 +1,4 @@
-import { displayPath } from '../../src/build/diagnostic.ts';
+import { type Diagnostic, displayPath } from '../../src/build/diagnostic.ts';
 import { readAppCatalogs } from '../../src/build/i18n.ts';
 import {
   checkSchemaUpdateCheck,
@@ -8,7 +8,7 @@ import {
   schemaWantsUpdateCheck,
 } from '../../src/build/index.ts';
 import { checkMainSettings } from '../../src/build/main-settings.ts';
-import { findSchema, schemaModule } from '../../src/build/schema-module.ts';
+import { exportsNoSchema, findSchema, schemaModule } from '../../src/build/schema-module.ts';
 import { buildReads, inspect } from '../../src/commands/_inspect.ts';
 import { tempDir } from '../temp.ts';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -502,12 +502,13 @@ describe('an entry that calls main() with a schema it imports', () => {
     expect(exported?.file).toMatch(/index\.js$/);
   });
 
-  it('should not be said when --commands says where the commands are', () => {
+  it('should be said under --commands too, which says where the commands are and not where the schema is', () => {
     const root = appOf({ ...files, 'src/commands/hi.js': 'export default { run() {} };\n' });
 
     const { diagnostics } = inspect({ commands: join(root, 'src', 'commands'), cwd: root });
+    const [exported] = diagnostics.filter((d) => d.message.includes('exports none'));
 
-    expect(diagnostics.some((d) => d.message.includes('exports none'))).toBe(false);
+    expect(exported?.severity).toBe('error');
   });
 
   it('should not be said of an entry that exports its schema', () => {
@@ -516,5 +517,68 @@ describe('an entry that calls main() with a schema it imports', () => {
     });
 
     expect(diagnostics.some((d) => d.message.includes('exports none'))).toBe(false);
+  });
+});
+
+describe('an entry that exports no schema, however it reaches main()', () => {
+  const none = (diagnostics: readonly Diagnostic[]) =>
+    diagnostics.filter((d) => d.message.includes('exports none'));
+
+  it('should be an error for a schema written inline in the main() call', () => {
+    const root = appOf({
+      'src/index.js': `${RUNTIME}await main({ schema: { commands: './commands' } });\n`,
+      'src/commands/hi.js': 'export default { run() {} };\n',
+    });
+
+    const { diagnostics } = inspect({ cwd: root });
+
+    expect(none(diagnostics).map((d) => d.severity)).toEqual(['error']);
+  });
+
+  it('should be an error under --commands, where the entry names no schema at all', () => {
+    const root = appOf({
+      'src/index.js': `${RUNTIME}await main({ commands: './commands' });\n`,
+      'src/commands/hi.js': 'export default { run() {} };\n',
+    });
+
+    const { diagnostics } = inspect({ commands: join(root, 'src', 'commands'), cwd: root });
+
+    expect(none(diagnostics).map((d) => d.severity)).toEqual(['error']);
+  });
+
+  it('should be a warning for a caller that only checks and never produces an app', () => {
+    const root = appOf({
+      'src/index.js': `${RUNTIME}await main({ schema: { commands: './commands' } });\n`,
+      'src/commands/hi.js': 'export default { run() {} };\n',
+    });
+
+    const { diagnostics } = inspect({ checkOnly: true, cwd: root });
+
+    expect(none(diagnostics).map((d) => d.severity)).toEqual(['warning']);
+  });
+
+  it('should be asked of the two names the generated entry reads, and no others', () => {
+    const entry = (source: string): string =>
+      join(appOf({ 'src/index.js': source, 'src/schema.js': ASKS }), 'src', 'index.js');
+
+    expect(exportsNoSchema(entry(`${RUNTIME}await main({ schema: {} });\n`))).toBe(true);
+    expect(exportsNoSchema(entry('export const name = 1;\n'))).toBe(true);
+    expect(exportsNoSchema(entry('export default {};\n'))).toBe(false);
+    expect(exportsNoSchema(entry('export const schema = {};\n'))).toBe(false);
+    expect(exportsNoSchema(entry("export { default } from './schema.js';\n"))).toBe(false);
+    expect(exportsNoSchema(entry("export { default as schema } from './schema.js';\n"))).toBe(
+      false
+    );
+  });
+
+  it('should leave alone what it cannot see into', () => {
+    const entry = (source: string, name = 'index.js'): string =>
+      join(appOf({ [`src/${name}`]: source, 'src/schema.js': ASKS }), 'src', name);
+
+    // `export *` may supply `schema`, and CommonJS `module.exports` is `default`
+    expect(exportsNoSchema(entry("export * from './schema.js';\n"))).toBe(false);
+    expect(exportsNoSchema(entry('module.exports = { name: "x" };\n', 'index.cjs'))).toBe(false);
+    expect(exportsNoSchema(entry('export = {};\n', 'index.ts'))).toBe(false);
+    expect(exportsNoSchema(entry('export default {', 'index.js'))).toBe(false);
   });
 });

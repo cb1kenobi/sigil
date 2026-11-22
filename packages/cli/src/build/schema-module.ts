@@ -400,3 +400,37 @@ export function findSchema(entry: string): FoundSchema {
 export function schemaModule(entry: string): string {
   return findSchema(entry).file;
 }
+
+/**
+ * Whether an entry exports neither of the two names the generated entry reads.
+ *
+ * `generateBin()` takes `default ?? schema` from the entry, so a module that
+ * exports neither builds an app that stops at start with `This app's entry
+ * exports no schema` -- whatever else the module does, and wherever its `main()`
+ * call finds the schema: written in the call, or imported. It asks the question
+ * `findSchema()` asks of the same two names, with the same readers, so the two
+ * cannot disagree about what counts as an export (SIG-567).
+ *
+ * `true` only when it is certain. A module with no ES module syntax is CommonJS,
+ * whose `module.exports` is the namespace's `default`; `export =` is the same in
+ * TypeScript; and a module that cannot be read, or an `export *` that may supply
+ * `schema`, is one this cannot see into. Each of those is `false`, the direction
+ * the whole build errs in.
+ *
+ * @param entry - The app's entry module, as discovery found it.
+ * @returns Whether the entry certainly exports no schema.
+ */
+export function exportsNoSchema(entry: string): boolean {
+  const parsed = read(entry);
+  if (
+    !parsed ||
+    !parsed.module.hasModuleSyntax ||
+    parsed.program.body.some((statement) => statement.type === 'TSExportAssignment')
+  ) {
+    return false;
+  }
+
+  return ['default', 'schema'].every(
+    (name) => exportedFrom(entry, name, new Set()).kind === 'absent'
+  );
+}

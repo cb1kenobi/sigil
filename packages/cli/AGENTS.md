@@ -3155,21 +3155,60 @@ other is refused with numbers.
   way can have assigned to `settings` after the literal.
 
   **An entry that reaches its schema only through `main()` is checked like any
-  other app, and is an `inspect()` error unless `--commands` was given.** A built
-  app imports the entry for an export, so it would build and then stop at start with
+  other app, and is an `inspect()` error** -- under `--commands` and for a schema
+  written in the call as well, which SIG-567 added (below). A built app imports the
+  entry for an export, so it would build and then stop at start with
   `This app's entry exports no schema`. That app was refused before, with
   `no "commands" found`, so the verdict is the same and the message is the true
-  one. `--commands` says where the commands are and an app that passed
-  `check --commands` before still does, so the error is not raised there. It is not
-  extended to an entry whose `main()` is given a literal, which has always built
-  that way. The schema module is also in `buildReads()`, so a clean never removes
-  it.
+  one. The schema module is also in `buildReads()`, so a clean never removes it.
 
   **Not followed, and recorded rather than guessed:** the `ui` templates in a
   schema file (the bundler's transform finds those and `checkTemplates()` reads
   the entry and the commands, as it always has), the `dev.*` runner's own `main()`
   (that call is what `main-settings` warns about and not where a schema is), and
   any other file the entry imports.
+
+- **An entry that exports no schema is refused by `build` and `package` however it
+  reaches `main()`, `--commands` does not excuse it, and `check` says it as a
+  warning (SIG-567).** The generated entry takes `default ?? schema` from the
+  entry's namespace, so the question is whether the entry exports one of those two
+  names and has nothing to do with where `main()` finds its schema. SIG-566 asked
+  it only of an entry whose `main()` is given an imported schema and only without
+  `--commands`, so two forms built and then died at start, `--help` included, with
+  the same message: a schema written in the call,
+  `main({ schema: { commands: './commands' } })`, and anything under `--commands`.
+  `exportsNoSchema()` in `src/build/schema-module.ts` asks it of the same two names
+  with the same reader `findSchema()` uses (`exportedFrom()`), so what counts as an
+  export is one rule. Measured: building the `unbaked` fixture, whose entry was
+  exactly this, wrote an app whose every run, `--help` too, printed `This app's
+  entry exports no schema` and exited 1.
+
+  **Why `--commands` stops being an exemption: it says where the commands are, and
+  the export is about where the schema is.** The SIG-566 reason was that
+  `check --commands` passed for those apps before. It did, and what it passed is
+  an app a build produces and a start refuses; "it passed before" is the verdict
+  being wrong rather than a reason to keep it. So no flag moves it.
+
+  **Why `check` warns and does not fail, which is the one place the three differ.**
+  `build` and `package` produce an app, and an app with no schema export cannot
+  start, so there is nothing to be lenient about: an error. `check` is "check an app
+  without building it", and an app that is only ever run from source by its own
+  `main()` call is one it is asked about -- `test/fixtures/ts-app` is that app, and
+  `typescript.test.ts` runs it -- so failing it would turn a check of an app that
+  runs correctly into a failure over a build it will never make. A warning says what
+  a build would say, leaves the exit code to what else is wrong, and is the severity
+  the readers use for a thing that is wrong only for some caller. `inspect()` takes
+  `checkOnly` for it, and the default is the strict answer, so a caller that forgets
+  the option refuses rather than waves through. The alternative, error everywhere,
+  was the simpler one and is the one to move to if source-run apps turn out not to
+  want `check`.
+
+  **Only when it is certain.** A module with no ES module syntax is CommonJS, whose
+  `module.exports` is the namespace's `default`, and `export =` is the same in
+  TypeScript; a module that cannot be read or does not parse and an `export *` that
+  may supply `schema` are ones this cannot see into. Each of them is not refused,
+  the direction this file records everywhere. Covered by `an entry that exports no
+  schema, however it reaches main()` in `test/build/schema-module.test.ts`.
 
 ### Writing the CLI in sigil
 

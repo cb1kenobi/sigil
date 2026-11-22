@@ -32,7 +32,7 @@ import {
   discoverApp,
   displayPath,
   escapeMessage,
-  findSchema,
+  exportsNoSchema,
   forgetParsedModules,
   isFatal,
   isInside,
@@ -101,6 +101,13 @@ export interface Inspection {
 
 /** Where to look and what to trust. */
 export interface InspectOptions {
+  /**
+   * Whether the caller only reports on the app and will never produce one, which
+   * is `sigil check`. An entry that exports no schema is a warning there and an
+   * error everywhere else: a source-run app is a thing to check, and a built one
+   * is not (SIG-567).
+   */
+  readonly checkOnly?: boolean;
   /** A command directory, when the entry does not say or says wrong. */
   readonly commands?: string;
   /** The app's root. */
@@ -138,17 +145,18 @@ export function inspect(options: InspectOptions): Inspection {
   const catalogs = readAppCatalogs(app);
   diagnostics.push(...checkTranslations(app, catalogs, diagnostics));
 
-  // a schema reached through the entry's own `main()` call is read like any other,
-  // but a built app imports the entry for an export and finds none
-  // not under `--commands`, which says where the commands are and leaves the app
-  // as it was before the schema was followed
-  if (options.commands === undefined && findSchema(app.entry).viaMain) {
+  // a built app imports the entry for a `default` or `schema` export, so an entry
+  // with neither builds and then stops at start. Under `--commands` too, which says
+  // where the commands are and not where the schema is. An error for a caller that
+  // produces an app and a warning for `check`, which also reads apps that are only
+  // ever run from source (SIG-567)
+  if (exportsNoSchema(app.entry)) {
     diagnostics.push({
       file: app.entry,
       message:
-        'this entry calls main() with a schema it imports and exports none, which a built app ' +
-        'needs: export the schema as the default and call main() from a runner of its own',
-      severity: 'error',
+        'this entry exports none of what a built app needs, a default or a schema export: ' +
+        'export the schema as the default and call main() from a runner of its own',
+      severity: options.checkOnly ? 'warning' : 'error',
     });
   }
 

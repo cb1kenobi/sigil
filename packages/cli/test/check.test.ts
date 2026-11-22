@@ -153,6 +153,18 @@ describe('sigil check', () => {
       expect(process.exitCode).toBe(1);
     });
 
+    it('should warn, and not fail, for an entry that exports no schema', async () => {
+      // SIG-567. `check` reads apps that are only ever run from source, which
+      // `build` and `package` refuse -- so it says what a build would say and
+      // leaves the verdict to what else is wrong
+      const { err } = await sigil('check', join(fixtures, 'discover', 'inline-main'));
+
+      expect(err).toContain('warning: this entry exports none');
+      expect(err).toContain('1 warning');
+      expect(err).not.toContain('error:');
+      expect(process.exitCode).toBeFalsy();
+    });
+
     it('should take a schema that is itself the command', async () => {
       // a `run` and no `commands` is a single-command app -- the
       // `--layout single` layout -- where `main()` dispatches the root. It used to be refused
@@ -627,6 +639,7 @@ describe('sigil check', () => {
       expect(err).toContain('"baseDir"');
       expect(err).toContain('import.meta.dirname');
       expect(err).toContain('1 warning');
+      expect(err).not.toContain('error:');
     });
 
     it('should stay quiet when the schema says what it is relative to', async () => {

@@ -1070,6 +1070,32 @@ describe('sigil build', () => {
     expect(process.exitCode).toBe(1);
   }, 60_000);
 
+  it('should refuse an entry that exports no schema, which a built app would die on at start', async () => {
+    // SIG-567. The schema is written in the entry's own `main()` call, so every
+    // reader finds it and the build used to succeed; the generated entry takes
+    // `default ?? schema` from the module, finds neither, and stops at start
+    const { err } = await sigil('build', join(fixtures, 'discover', 'inline-main'), '--out', out);
+
+    expect(err).toContain('this entry exports none');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'inline-main.mjs'))).toBe(false);
+  }, 60_000);
+
+  it('should refuse it under --commands as well, which says where the commands are', async () => {
+    const { err } = await sigil(
+      'build',
+      join(fixtures, 'discover', 'inline-main'),
+      '--commands',
+      'src/commands',
+      '--out',
+      out
+    );
+
+    expect(err).toContain('this entry exports none');
+    expect(process.exitCode).toBe(1);
+    expect(existsSync(join(out, 'inline-main.mjs'))).toBe(false);
+  }, 60_000);
+
   it('should refuse a directory that is not a sigil app', async () => {
     const { err } = await sigil('build', join(fixtures, 'discover', 'not-an-app'), '--out', out);
 
