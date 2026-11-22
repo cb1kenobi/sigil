@@ -5676,7 +5676,7 @@ New items and a `current` key that only they hold can be written in one step, in
 either order: the list keys the rows before it reads the cursor.
 
 A key, a click and the calls on `listControl(list)` that read or move over the rows
--- `activate()`, `reveal()`, and the selection's moves and reads -- take the items
+-- `activate()`, `reveal()`, `rowElement()`, and the selection's moves and reads -- take the items
 as they are **now**, not as the last frame drew them. So a filter typed and Enter
 pressed in one read, which is a paste or fast fingers, opens a row of the filtered
 list. `follow: 'first'` puts the cursor on the first row at every change of the
@@ -5750,7 +5750,14 @@ describer with no list in it does not load the list view; the list view's subpat
 exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
-control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
+control), `reveal(key?)`, `rowElement(key?)`, `refresh()` and `activate()`.
+`rowElement()` hands out the element a row was built as, the current row's with no
+key, for an app that anchors a menu or a popover to a row. A row the scroll box
+has not built -- scrolled out of view, or past the window of a long list -- has no
+element and answers `undefined`, as does a key that is no row, so `reveal(key)`
+first where it has to be there. The element is one build's: a row replaced by a
+new item, `refresh()`, or a scroll away and back builds a new one, so ask where it
+is needed and do not hold the answer across those. `createListSelection()` is
 the selection on its own -- a current key, a set of selected keys, and the moves
 over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
 component that draws its own rows, a table or a tree, and wants the same answer
@@ -5928,7 +5935,7 @@ The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 `.sigil-data-table` is the host and `props` goes on it; the list inside it,
 `.sigil-data-table-body`, is the element that takes the focus, which Tab reaches.
 `dataTableControl(table)` is the handle: the list's `selection`, `scroll`,
-`reveal()` and `activate()`, and `list` (the focusable element), `sort`,
+`reveal()`, `rowElement(key?)` (a row's element, as the list's) and `activate()`, and `list` (the focusable element), `sort`,
 `sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
 again and rebuilds the rows in view for rows changed in place.
 `describeDataTable(input, ...tables)` describes the list's keys and a digit for

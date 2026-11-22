@@ -332,7 +332,7 @@ describe('the table', () => {
     const row = (s.term.viewport[y] ?? '').slice(x - 1);
     const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
     // both clicks in one read, as a fast double click arrives: the cursor moves
-    // and the row activates before the effect that moves `is-current` has run
+    // and the row activates in one handler, before a frame has run for either
     await s.press(click + click);
     // the menu opens under the clicked row, not under the row the cursor was on
     expect(s.term.viewport[y + 1]).toMatch(/╭─+╮/);
