@@ -22,7 +22,7 @@ import {
 } from '../../src/renderer/index.js';
 import { Computed, flush, sinkCount, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
-import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
+import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -1341,5 +1341,389 @@ describe('a body built by a function', () => {
     expect(() => openModal(s.root, { body: 42 as unknown as string, input: s.input })).toThrow(
       'Expected a modal body to be a string, an element or a function'
     );
+  });
+});
+
+/**
+ * A dialog that is a form (SIG-337): its buttons can be disabled, it can open on
+ * a field in its body, and Enter in a field can press a default action.
+ */
+describe('a dialog that is a form', () => {
+  /** A scene mounted under a renderer, so that the host has a root owner. */
+  function mounted() {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+    return { ...s, view };
+  }
+
+  /** The buttons of a dialog's action row, in order. */
+  const buttonsOf = (handle: { element: Element }): readonly Element[] =>
+    handle.element.children[0]?.children.at(-1)?.children ?? [];
+
+  /** A name field, an email field, and the answers a form has. */
+  function fields() {
+    const name = TextField({ value: new State('') });
+    const email = TextField({ value: new State('') });
+    return { email, name };
+  }
+
+  describe('disabled', () => {
+    it('should keep a disabled action from being pressed, tabbed to or clicked', async () => {
+      const s = scene();
+      const off = new State(true);
+      const handle = modalOn<string>(s, {
+        actions: [
+          { disabled: off, label: 'Save', value: 'save' },
+          { label: 'Cancel', value: 'cancel' },
+        ],
+      });
+      await settle();
+
+      // the first action is not what holds the focus: it cannot, and Tab wraps
+      // from Cancel back to Cancel
+      const [save, cancel] = buttonsOf(handle);
+      expect(s.input.focus.current.get()).to.equal(cancel);
+      await s.term.press(KEYS.tab);
+      expect(s.input.focus.current.get()).to.equal(cancel);
+      expect(save?.focusable).to.equal(false);
+      expect(handle.open).to.equal(true);
+
+      off.set(false);
+      await settle();
+      await s.term.press(KEYS.tab);
+      expect(screen(s.root)).to.include('[ Save ]');
+      await s.term.press(KEYS.enter);
+      expect(await handle.result).to.equal('save');
+    });
+
+    it.each([
+      ['a Computed', (state: State<boolean>) => new Computed(() => !state.get())],
+      ['a function', (state: State<boolean>) => () => !state.get()],
+    ])('should follow %s as it changes', async (_, derive) => {
+      const s = scene();
+      const valid = new State(false);
+      const handle = modalOn<string>(s, {
+        actions: [
+          { disabled: derive(valid), label: 'Save', value: 'save' },
+          { label: 'Cancel', value: 'cancel' },
+        ],
+        initial: 0,
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      // Save is disabled, so the focus began on Cancel and Enter pressed that
+      expect(await handle.result).to.equal('cancel');
+
+      valid.set(true);
+      const again = modalOn<string>(s, {
+        actions: [{ disabled: derive(valid), label: 'Save', value: 'save' }],
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(await again.result).to.equal('save');
+    });
+
+    it('should open on the first thing that can take the focus when the chosen action is disabled', async () => {
+      const s = scene();
+      const handle = modalOn(s, {
+        actions: [{ disabled: true, label: 'Save' }, { label: 'Cancel' }],
+        initial: 0,
+      });
+      await settle();
+      // Cancel holds it: Save is not in the ring
+      expect(s.input.focus.current.get()).to.equal(buttonsOf(handle)[1]);
+    });
+
+    it('should stop the effect that reads it when the dialog closes', async () => {
+      const s = mounted();
+      const app = new State(false);
+      const reads: boolean[] = [];
+      const handle = openModal(s.view, {
+        actions: [
+          {
+            disabled: () => {
+              reads.push(app.get());
+              return app.get();
+            },
+            label: 'Save',
+          },
+        ],
+        input: s.input,
+      });
+      expect(reads).toEqual([false]);
+      app.set(true);
+      s.view.frame();
+      expect(reads).toEqual([false, true]);
+
+      handle.close();
+      app.set(false);
+      s.view.frame();
+      expect(reads).toEqual([false, true]);
+    });
+
+    it('should refuse a disabled that is not a condition', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      expect(() =>
+        openModal(s.root, {
+          actions: [{ disabled: 'yes' as unknown as boolean, label: 'Save' }],
+          input: s.input,
+        })
+      ).toThrow(
+        'Expected modal action disabled to be a boolean, a State, a Computed or a function'
+      );
+    });
+  });
+
+  describe('initial', () => {
+    it("should open on the first field in the body with 'body', its buttons staying actions", async () => {
+      const s = scene();
+      const { email, name } = fields();
+      modalOn(s, {
+        actions: [{ label: 'Save' }, { label: 'Cancel' }],
+        body: box({ 'flex-direction': 'column' }, name, email),
+        initial: 'body',
+      });
+      await settle();
+      expect(s.input.focus.current.get()).to.equal(name);
+      // and the buttons are still in the ring, after the fields
+      await s.term.press(KEYS.tab, KEYS.tab);
+      expect(screen(s.root)).to.include('[ Save ]');
+    });
+
+    it("should open on the first field of a body function with 'body'", async () => {
+      const s = scene();
+      let name: Element | undefined;
+      modalOn(s, {
+        actions: [{ label: 'Save' }],
+        body: () => {
+          name = TextField({ value: new State('') });
+          return box({}, name);
+        },
+        initial: 'body',
+      });
+      await settle();
+      expect(s.input.focus.current.get()).to.equal(name);
+    });
+
+    it("should fall back to the first button when 'body' has nothing to focus", async () => {
+      const s = scene();
+      modalOn(s, {
+        actions: [{ label: 'Save' }, { label: 'Cancel' }],
+        body: 'Words',
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(screen(s.root)).to.not.include('Words');
+    });
+
+    it('should open on an element in the body', async () => {
+      const s = scene();
+      const { email, name } = fields();
+      modalOn(s, {
+        actions: [{ label: 'Save' }],
+        body: box({ 'flex-direction': 'column' }, name, email),
+        initial: email,
+      });
+      await settle();
+      expect(s.input.focus.current.get()).to.equal(email);
+    });
+
+    it('should refuse an element that is not in the body, with nothing attached', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      const { email, name } = fields();
+      const children = s.root.children.length;
+      expect(() => openModal(s.root, { body: name, initial: email, input: s.input })).toThrow(
+        'Expected modal initial to be an element in the body'
+      );
+      expect(s.root.children.length).to.equal(children);
+    });
+
+    it('should refuse an element when there is no body, and dispose what it built', () => {
+      const s = mounted();
+      const app = new State(0);
+      const reads: number[] = [];
+      expect(() =>
+        openModal(s.view, {
+          actions: [{ disabled: () => reads.push(app.get()) === 0, label: 'Save' }],
+          initial: text('elsewhere'),
+          input: s.input,
+        })
+      ).toThrow('Expected modal initial to be an element in the body');
+      app.set(1);
+      s.view.frame();
+      expect(reads).toEqual([0]);
+    });
+
+    it.each([['footer'], [-1], [1.5], [2]])('should refuse %j', (initial) => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      expect(() =>
+        openModal(s.root, {
+          actions: [{ label: 'A' }, { label: 'B' }],
+          initial: initial as unknown as number,
+          input: s.input,
+        })
+      ).toThrow(
+        "Expected modal initial to be the position of an action, 'body' or an element in the body"
+      );
+    });
+  });
+
+  describe('the default action', () => {
+    it('should press on Enter in a field that leaves it alone, once the action is enabled', async () => {
+      const s = scene();
+      const ok = new State(false);
+      const { name } = fields();
+      const handle = modalOn<string>(s, {
+        actions: [
+          { default: true, disabled: () => !ok.get(), label: 'Save', value: 'saved' },
+          { label: 'Cancel', value: 'cancelled' },
+        ],
+        body: name,
+        initial: 'body',
+      });
+      await settle();
+
+      // disabled: Enter in the field does nothing, and does not reach the app
+      await s.term.press('ada', KEYS.enter);
+      expect(handle.open).to.equal(true);
+      expect(s.seen).to.deep.equal([]);
+
+      ok.set(true);
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(await handle.result).to.equal('saved');
+    });
+
+    it('should leave Enter to a field with an onSubmit, and to the button that has the focus', async () => {
+      const s = scene();
+      const submitted: string[] = [];
+      const field = TextField({
+        onSubmit: () => submitted.push('field'),
+        value: new State(''),
+      });
+      const handle = modalOn<string>(s, {
+        actions: [
+          { default: true, label: 'Save', value: 'saved' },
+          { label: 'Cancel', value: 'cancelled' },
+        ],
+        body: field,
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(submitted).to.deep.equal(['field']);
+      expect(handle.open).to.equal(true);
+
+      // on Cancel, Enter is Cancel's and not the default's
+      await s.term.press(KEYS.tab, KEYS.tab);
+      await s.term.press(KEYS.enter);
+      expect(await handle.result).to.equal('cancelled');
+    });
+
+    it('should not press on an Enter with a modifier or a pasted one', async () => {
+      const s = scene();
+      const { name } = fields();
+      const handle = modalOn<string>(s, {
+        actions: [{ default: true, label: 'Save', value: 'saved' }],
+        body: name,
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(alt(KEYS.enter));
+      await s.term.paste('ada\r');
+      expect(handle.open).to.equal(true);
+      await s.term.press(KEYS.enter);
+      expect(await handle.result).to.equal('saved');
+    });
+
+    it('should press a default that has an onPress, and leave the dialog open', async () => {
+      const s = scene();
+      const { name } = fields();
+      const pressed: string[] = [];
+      const handle = modalOn<string>(s, {
+        actions: [{ default: true, label: 'Save', onPress: () => pressed.push('save') }],
+        body: name,
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(KEYS.enter, KEYS.enter);
+      expect(pressed).to.deep.equal(['save', 'save']);
+      expect(handle.open).to.equal(true);
+    });
+
+    it('should refuse two defaults', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      expect(() =>
+        openModal(s.root, {
+          actions: [
+            { default: true, label: 'A' },
+            { default: true, label: 'B' },
+          ],
+          input: s.input,
+        })
+      ).toThrow('Expected a modal to have one default action at most');
+    });
+  });
+
+  describe('onPress', () => {
+    it('should run in place of settling the dialog, which stays open until the handler closes it', async () => {
+      const s = scene();
+      let handle: ReturnType<typeof modalOn<string>> | undefined;
+      const pressed: number[] = [];
+      handle = modalOn<string>(s, {
+        actions: [
+          {
+            label: 'Sign in',
+            onPress: () => {
+              pressed.push(pressed.length);
+              if (pressed.length === 2) {
+                handle?.close('in');
+              }
+            },
+          },
+        ],
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(handle.open).to.equal(true);
+      await s.term.press(KEYS.enter);
+      expect(await handle.result).to.equal('in');
+    });
+
+    it('should be pressed by a click too', async () => {
+      const s = scene();
+      const pressed: string[] = [];
+      const handle = modalOn(s, {
+        actions: [{ label: 'Go', onPress: () => pressed.push('go') }],
+      });
+      await settle();
+      const [button] = buttonsOf(handle);
+      const click = mouseEvent('click', button);
+      button?.onMouse?.(click);
+      expect(pressed).to.deep.equal(['go']);
+    });
+
+    it('should refuse a value and an onPress together, or an onPress that is not a function', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      expect(() =>
+        openModal<string>(s.root, {
+          actions: [{ label: 'A', onPress: () => {}, value: 'a' }],
+          input: s.input,
+        })
+      ).toThrow('Expected a modal action to have a value or an onPress, not both');
+      expect(() =>
+        openModal(s.root, {
+          actions: [{ label: 'A', onPress: 'no' as unknown as () => void }],
+          input: s.input,
+        })
+      ).toThrow('Expected a modal action onPress to be a function');
+    });
   });
 });
