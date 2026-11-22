@@ -11,6 +11,8 @@ import {
   UPDATE_CHECK_DEFINE,
 } from '../src/build/index.ts';
 import { binaryName, hostTarget } from '../src/build/index.ts';
+import { objectLiteral } from '../src/build/literals.ts';
+import { parseModule } from '../src/build/parse-module.ts';
 import { readSigilConfig, type SigilConfig } from '../src/config.ts';
 import { run } from '../src/index.ts';
 import { tempDir } from './temp.js';
@@ -21,6 +23,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } fr
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Expression } from 'oxc-parser';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -925,6 +928,70 @@ describe('whether the schema names its own checker', () => {
   it('should see a callee in parentheses alone, which bindingName() already took off', () => {
     expect(reads("updateCheck: (githubChecker)({ repo: 'a/b' })")).toBe('names');
     expect(reads("updateCheck: ((githubChecker))({ repo: 'a/b' })")).toBe('names');
+  });
+
+  // SIG-591: an optional call to something that is not a builder. `wrap` may be
+  // nullish, and then the schema has no `updateCheck` at all -- so reading it as
+  // the options it wraps costs a declaration the build did not demand, which is
+  // the direction this reader errs in. `wrap({ checker })` already read as naming
+  describe("an optional call to a wrapper of the app's own", () => {
+    const wrapper = 'const wrap = <T>(options: T) => options;';
+    const readsWrapped = (body: string): ReturnType<typeof readSchemaUpdateCheck> =>
+      readSchemaUpdateCheck(entryOf(body, `${builders}\n${wrapper}`, 'index.ts'));
+
+    it.each([
+      ['the plain call', 'wrap({ checker: githubChecker({ repo: "a/b" }) })'],
+      ['the optional call', 'wrap?.({ checker: githubChecker({ repo: "a/b" }) })'],
+      ['the optional call in parentheses', '(wrap?.({ checker: githubChecker({ repo: "a/b" }) }))'],
+      [
+        'the optional call under as',
+        'wrap?.({ checker: githubChecker({ repo: "a/b" }) }) as object',
+      ],
+      [
+        'an optional call inside a call',
+        'wrap(wrap?.({ checker: githubChecker({ repo: "a/b" }) }))',
+      ],
+      ['an optional member call', 'ns?.wrap({ checker: githubChecker({ repo: "a/b" }) })'],
+    ])('should read %s as naming its checker', (_what, value) => {
+      expect(readsWrapped(`updateCheck: ${value}`)).toBe('names');
+    });
+
+    it('should still read one that names nothing as asking, optional or not', () => {
+      expect(readsWrapped("updateCheck: wrap({ distTag: 'next' })")).toBe('asks');
+      expect(readsWrapped("updateCheck: wrap?.({ distTag: 'next' })")).toBe('asks');
+    });
+
+    it('should not read a member of the optional call as the call', () => {
+      expect(
+        readsWrapped('updateCheck: wrap?.({ checker: githubChecker({ repo: "a/b" }) })?.checker')
+      ).toBe('asks');
+    });
+  });
+});
+
+// SIG-591: the one-argument-call look-through in `objectLiteral()` is shared by the
+// module lift and the command tree, where a nullish wrapper is not harmless -- the
+// build would bake a `desc` for a command that is `undefined` when it runs. So `?.`
+// is something a caller asks for, and only the update-check reader does
+describe('objectLiteral() and an optional call', () => {
+  const expressionOf = (source: string): Expression => {
+    const parsed = parseModule('probe.ts', `(${source});`);
+    const [statement] = parsed.program.body;
+    return (statement as { expression: Expression }).expression;
+  };
+
+  it('should read the plain call and leave the optional one unread by default', () => {
+    expect(objectLiteral(expressionOf("wrap({ desc: 'a' })"))).toBeDefined();
+    expect(objectLiteral(expressionOf("wrap?.({ desc: 'a' })"))).toBeUndefined();
+    expect(objectLiteral(expressionOf("a?.b({ desc: 'a' })"))).toBeUndefined();
+  });
+
+  it('should read it when the caller opts in, and nothing past the call', () => {
+    const optional = { optional: true };
+    expect(objectLiteral(expressionOf("wrap?.({ desc: 'a' })"), optional)).toBeDefined();
+    expect(objectLiteral(expressionOf("a?.b({ desc: 'a' })"), optional)).toBeDefined();
+    expect(objectLiteral(expressionOf("wrap?.({ desc: 'a' })?.desc"), optional)).toBeUndefined();
+    expect(objectLiteral(expressionOf('wrap?.(...args)'), optional)).toBeUndefined();
   });
 });
 
