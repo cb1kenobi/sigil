@@ -1045,10 +1045,10 @@ dark -- built from sigil's own components, with its own data, names and colours.
   otherwise and would punch a black hole in a white screen. Truecolor, since an
   app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
-  The account menu's Theme submenu opens on the theme in use, through the item's
-  `initial` (SIG-463): a position rather than a function, because the header
-  builds the menu's entries afresh each time it opens, so the position is read
-  then anyway.
+  The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
+  (SIG-523): the menu draws the `●` and opens on the theme in use because it is a
+  radio group, so the choice is stated once and no `initial` or hand-drawn mark is
+  left (SIG-463 had the first, through the item's `initial`).
 
 - **The row menu opens under the row's right end, found by its classes.** Enter or
   a double click is the table's `onActivate`, and the menu is `openMenu()` beside
