@@ -6763,8 +6763,9 @@ measurements are in
 
   Two limits are the price of reading rather than running, and neither is new.
   Only the **entry** module is read, so a schema exported from another file is
-  not seen (the same boundary the command tree has), and the schema is found the
-  way `readSchemaUpdateCheck()` finds it: the outermost object literal holding an
+  not seen (the same boundary the command tree has), and the schema object is
+  found the way `readSchemaUpdateCheck()` finds it (its `updateCheck` key is then
+  read last-wins, which that function's is not): the outermost object literal holding an
   `updateCheck` key. A fixture object in the entry that happens to carry one is
   judged too, and as an error, with no way to silence it short of renaming the key
   -- the heuristic was chosen for a pass that errs towards silence and this one

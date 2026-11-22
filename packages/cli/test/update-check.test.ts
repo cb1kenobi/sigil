@@ -879,6 +879,27 @@ describe('a schema checker the update check would refuse', () => {
         ' }',
       /headers must be an object/,
     ],
+    // a name is read as the type it needs, so these are still checkers written bare
+    [
+      'a bare literal whose path is a name',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: keys }",
+      /url/,
+    ],
+    [
+      'a bare literal whose url is a name',
+      "updateCheck: { type: 'custom', url: base, path: [] }",
+      /path/,
+    ],
+    [
+      'a bare literal beside a valid checker key, which the runtime never reads',
+      `updateCheck: { ...${written("'http://e.com/v'")}, checker: ${written("'https://e.com/v'")} }`,
+      /url/,
+    ],
+    [
+      'a bare literal after a spread that may carry a checker key',
+      `updateCheck: { ...opts, ${written("'http://e.com/v'").slice(2)}`,
+      /url/,
+    ],
     [
       'a checker with no url at all',
       "updateCheck: { checker: { type: 'custom', path: ['v'] } }",
@@ -963,6 +984,29 @@ describe('a schema checker the update check would refuse', () => {
       'an updateCheck a later spread may replace',
       `updateCheck: { checker: ${written("'http://e.com/v'")} }, ...overrides`,
     ],
+    // `isChecker()` is asked first at run time: not a list, or a name, or a type
+    // that is not a string, is not a checker written bare
+    [
+      'a bare literal whose path is an object',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: {} }",
+    ],
+    [
+      'a bare literal whose path is a pattern',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: /v/ }",
+    ],
+    [
+      'a bare literal whose type is a number',
+      "updateCheck: { type: 1, url: 'http://e.com/v', path: ['v'] }",
+    ],
+    [
+      'a bare literal whose url is a number',
+      "updateCheck: { type: 'custom', url: 42, path: ['v'] }",
+    ],
+    // the bare form wins over a `checker` beside it, and the refusal is of the bare one
+    [
+      'a valid bare literal beside a refused checker key',
+      `updateCheck: { ...${written("'https://e.com/v'")}, checker: ${written("'http://e.com/v'")} }`,
+    ],
     ['a checker held in a variable', 'updateCheck: { checker }'],
     ['a function call that builds it', 'updateCheck: { checker: build() }'],
     ['true', 'updateCheck: true'],
@@ -975,7 +1019,7 @@ describe('a schema checker the update check would refuse', () => {
     expect(refused(body)).toEqual([]);
   });
 
-  it('should reach `sigil check` and fail it, and `sigil build` before it bundles', async () => {
+  it('should reach `sigil check`, `sigil build` and `sigil package` and fail each', async () => {
     const root = variant(
       'schema-refused',
       undefined,
@@ -998,6 +1042,12 @@ describe('a schema checker the update check would refuse', () => {
     const built = await sigil('build', root, '--out', out);
     expect(built.code).toBeTruthy();
     expect(built.err).toContain('never shows an update notice');
+    expect(readdirSync(out)).toEqual([]);
+
+    // before any runtime is chosen or fetched, so this needs neither bun nor a network
+    const packaged = await sigil('package', root, '--out', out);
+    expect(packaged.code).toBeTruthy();
+    expect(packaged.err).toContain('never shows an update notice');
     expect(readdirSync(out)).toEqual([]);
   });
 });

@@ -469,9 +469,12 @@ function readHeaders(node: Expression): unknown {
  * not settle replaced by something `checkedChecker()` accepts.
  *
  * "Not settle" is a name, a call or a template with a substitution, and it is
- * read as valid, for the reason `readSchemaUpdateCheck()` errs towards not
- * refusing: a false refusal stops a correct build and a missed one is what
- * there was before this existed.
+ * read as valid, as is a literal of the wrong type (`url: 42`, a list holding a
+ * list as a header value) which the runtime refuses: only a `url` string, a
+ * `path` list or string, and a header value written as a function, an object, a
+ * bigint or a symbol are judged. It errs towards not refusing, for the reason
+ * `readSchemaUpdateCheck()` does: a false refusal stops a correct build and a
+ * missed one is what there was before this existed.
  */
 function readChecker(object: ObjectExpression): Record<string, unknown> {
   const members = flatten(object);
@@ -529,7 +532,12 @@ function isWrittenChecker(members: readonly Member[]): boolean {
       return false;
     }
     const written = literalType(field.node);
-    return written === undefined || written === type;
+    if (written === undefined) {
+      return true;
+    }
+    // an object or a regular expression is `'object'` to `literalType()` and is
+    // not a list, which `isChecker()` asks with `Array.isArray()`
+    return key === 'path' ? unwrapShallow(field.node).type === 'ArrayExpression' : written === type;
   });
 }
 
@@ -575,16 +583,17 @@ export function checkSchemaUpdateCheck(entry: string): Diagnostic[] {
       continue;
     }
 
-    // the same two spellings `updateCheckOptions()` tells apart: the options
-    // with a `checker` in them, and a checker written bare
+    // the same two spellings `updateCheckOptions()` tells apart, in its order: a
+    // checker written bare is asked first and a `checker` beside one is never
+    // looked at, then the options with a `checker` in them
     const members = flatten(value);
-    const named = fieldOf(members, 'checker');
     let checker: ObjectExpression | undefined;
-    if (named.kind === 'written') {
-      const node = unwrapShallow(named.node);
-      checker = node.type === 'ObjectExpression' ? node : undefined;
-    } else if (named.kind === 'absent' && isWrittenChecker(members)) {
+    if (isWrittenChecker(members)) {
       checker = value;
+    } else {
+      const named = fieldOf(members, 'checker');
+      const node = named.kind === 'written' ? unwrapShallow(named.node) : undefined;
+      checker = node?.type === 'ObjectExpression' ? node : undefined;
     }
     if (!checker) {
       continue;
