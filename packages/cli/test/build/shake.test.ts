@@ -461,7 +461,15 @@ describe('the class evidence', () => {
     const size = `(s ? 'sm' : m ? 'md' : 'lg')`;
     const colon = `(v ? ':' : w ? ':hover:' : ':focus:')`;
 
-    for (const left of [`(x || 'p ')`, `(x ?? 'p ')`]) {
+    // and a `||` or `??` over a choice was an unknown part on main too, so it
+    // keeps one beside its texts rather than spending more than that part did
+    for (const left of [
+      `(x || 'p ')`,
+      `(x ?? 'p ')`,
+      `((a ? 'p ' : 'q ') || 'r ')`,
+      `((a ? 'p ' : 'q ') ?? 'r ')`,
+      `('' || (a ? 'p ' : 'q '))`,
+    ]) {
       const evidence = evidenceOf(`const c = ${left} + ${size} + ${colon} + 'flex';`);
 
       expect(evidence.mayName('sm:flex'), left).toBe(true);

@@ -590,6 +590,10 @@ type Part = string | readonly (string | undefined)[] | undefined;
  * superset for a *variant* assembled across the choice -- `'md' + (w ? ':' : '-')
  * + 'flex-row'` is `md:flex-row` under the cap and not past it -- which is the
  * safelist's, as the same pieces joined by a call always were.
+ *
+ * A choice with an unknown alternative (SIG-595) counts toward it too, but is
+ * never allowed to cost a run more than the unknown part it replaced: see the
+ * `fresh` texts in `readRuns()`.
  */
 const MAX_RUN_TEXTS = 16;
 
@@ -771,7 +775,8 @@ function addParts(node: Node, spliced: Set<Node>, parts: Part[]): void {
   }
 
   // a `?:` of literals is a choice between them, and a `||` or `??` over a
-  // literal is that literal. Neither is spliced: its operands are not part of
+  // literal is that literal, or that literal and something unknown when the
+  // literal is on the right. Neither is spliced: its operands are not part of
   // the sequence, so the walk reads them as it always has
   const known = knownParts(inner);
   if (known !== undefined) {
@@ -888,7 +893,16 @@ function knownParts(node: Node): Part {
         return undefined;
       }
 
-      return texts.length === 1 ? texts[0] : texts;
+      if (texts.length === 1) {
+        return texts[0];
+      }
+
+      // a choice between several texts that main read as one unknown part -- a
+      // `?:` on the left of `||`, say -- keeps that part as an alternative, so
+      // it is `fresh` for the cap and cannot spend more of it than that part
+      // did. It is a superset of what the expression is, which is the direction
+      // this errs in
+      return texts.includes(undefined) ? texts : [...texts, undefined];
     }
   }
 
