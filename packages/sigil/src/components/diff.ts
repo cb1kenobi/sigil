@@ -828,9 +828,9 @@ function sourceRows(hunk: DiffHunk): { row: string; trailer?: string }[] | undef
  *   and the rewritten header it would need is not something to guess at. That is
  *   `deleted file mode` when staging, and `new file mode` with `reverse`.
  *
- * A hunk with no context lines, or at the start or end of a file in a way its
- * counts do not say, is as much a hunk `git apply` refuses here as it is in
- * `hunkPatch()`: this adds no context.
+ * No context is added, so a hunk read with none (`-U0`) is written with none,
+ * as `hunkPatch()` writes it, and what `git apply` makes of that is the same
+ * either way.
  *
  * @param file - The file the hunk is in.
  * @param hunk - The hunk.

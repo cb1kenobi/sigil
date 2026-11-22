@@ -1238,6 +1238,71 @@ describe('DiffView lines', () => {
     );
   });
 
+  it('should settle a cursor written before the first drawing, once there are lines', () => {
+    const cursor = new State<number | undefined>(0);
+    const selected = new State<ReadonlySet<number>>(new Set());
+    const { root } = mount({ content: { patch: LINES_PATCH }, lines: { cursor, selected } }, 14);
+
+    picture(root, 30, 14);
+    flush();
+    // line 0 is context, so the first changed line is the nearest
+    expect(cursor.get()).toBe(1);
+    expect(picture(root, 30, 14).some((row) => row.includes('▶-two'))).toBe(true);
+  });
+
+  it('should drop the picks when the cursor leaves the lines any way at all', () => {
+    const { cursor, host, root, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'x');
+
+    cursor.set(undefined);
+    flush();
+    expect(selected.get().size).toBe(0);
+    expect(picture(root, 30, 14).some((row) => row.includes('●'))).toBe(false);
+  });
+
+  it('should leave a key with Shift to the app, as the arrows are left', () => {
+    const { host, selected } = mountLines();
+    press(host, 'enter');
+
+    expect(press(host, 'x', { shift: true })).toBe(false);
+    expect(selected.get().size).toBe(0);
+  });
+
+  it('should take the room for two marks off every row, wrapping a line one cell sooner', () => {
+    const patch = ['--- a/f', '+++ b/f', '@@ -1 +1 @@', '-x', `+${'y'.repeat(28)}`, ''].join('\n');
+    const rows = (props: Partial<DiffViewProps>): number =>
+      picture(mount({ content: { patch }, ...props }, 8).root, 30, 8).filter((row) =>
+        row.includes('y')
+      ).length;
+
+    expect(rows({})).toBe(1);
+    expect(
+      rows({
+        lines: {
+          cursor: new State<number | undefined>(undefined),
+          selected: new State<ReadonlySet<number>>(new Set()),
+        },
+      })
+    ).toBe(2);
+  });
+
+  it('should keep the cursor in view when a redraw reveals the hunk, which is taller than the view', () => {
+    const body = Array.from({ length: 30 }, (_, at) => [`-old${at}`, `+new${at}`]).flat();
+    const patch = ['--- a/f', '+++ b/f', '@@ -1,30 +1,30 @@', ...body, ''].join('\n');
+    const { host, root } = mountLines({ content: { patch } }, 8);
+    press(host, 'enter');
+    for (let at = 0; at < 20; at++) {
+      press(host, 'down');
+    }
+    expect(picture(root, 30, 8).some((row) => row.includes('▶'))).toBe(true);
+
+    // another width draws every row again, and the hunk is shown from its start
+    expect(picture(root, 24, 8).some((row) => row.includes('▶'))).toBe(true);
+    press(host, 'w');
+    expect(picture(root, 30, 8).some((row) => row.includes('▶'))).toBe(true);
+  });
+
   it('should refuse lines that are not two States', () => {
     expect(() => DiffView({ content: { patch: LINES_PATCH }, lines: {} as never })).toThrow(
       TypeError

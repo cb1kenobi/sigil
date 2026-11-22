@@ -4753,8 +4753,8 @@ where the file applied to is the hunk's new side and the two kinds trade places.
 returns `undefined` where no added or removed line is selected, and throws where a
 patch cannot say what was asked: a line added after one that has no newline and was
 not selected, and part of a file the patch creates or deletes (`new file mode`
-with `reverse`, `deleted file mode` without). A patch with no context lines is no
-more applicable here than from `hunkPatch()`.
+with `reverse`, `deleted file mode` without). No context is added, so
+a hunk read with none (`-U0`) is written with none, as `hunkPatch()` writes it.
 
 ```js
 import { hunkLinesPatch } from '@ttylabs/sigil/components/diff';

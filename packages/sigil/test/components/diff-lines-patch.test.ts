@@ -373,6 +373,68 @@ describe('hunkLinesPatch()', () => {
       );
     });
 
+    it('should keep the carriage return of a patch that has one on every row', () => {
+      const [file] = parsePatch(PATCH.replaceAll('\n', '\r\n'));
+      const hunk = file!.hunks[0]!;
+
+      const written = hunkLinesPatch(file!, hunk, pick(hunk, '+D'))!;
+      expect(written).toContain('@@ -3,4 +3,5 @@ heading\r\n');
+      expect(written).toContain('\n d\r\n+D\r\n');
+    });
+
+    it('should write a blank context line that lost its space with one, and keep what follows it', () => {
+      const patch = ['--- a/f', '+++ b/f', '@@ -1,3 +1,2 @@', ' a', '', '-c', ''].join('\n');
+      const [file] = parsePatch(patch);
+      const hunk = file!.hunks[0]!;
+
+      expect(hunkLinesPatch(file!, hunk, pick(hunk, '-c'))).to.equal(
+        '--- a/f\n+++ b/f\n@@ -1,3 +1,2 @@\n a\n \n-c\n'
+      );
+    });
+
+    it('should write the no newline row the patch had, not a spelling of its own', () => {
+      const patch = [
+        '--- a/f',
+        '+++ b/f',
+        '@@ -1,2 +1,3 @@',
+        ' a',
+        ' b',
+        '+c',
+        '\\ No newline at end of file (odd)',
+        '',
+      ].join('\n');
+      const [file] = parsePatch(patch);
+      const hunk = file!.hunks[0]!;
+
+      expect(hunkLinesPatch(file!, hunk, pick(hunk, '+c'))).toContain(
+        '+c\n\\ No newline at end of file (odd)\n'
+      );
+    });
+
+    it("should anchor an unstaging patch at the hunk's new side, which a later hunk moves", () => {
+      const patch = [
+        '--- a/f',
+        '+++ b/f',
+        '@@ -1,2 +1,4 @@',
+        ' a',
+        '+x',
+        '+y',
+        ' b',
+        '@@ -20,2 +22,3 @@',
+        ' t',
+        '+z',
+        ' u',
+        '',
+      ].join('\n');
+      const [file] = parsePatch(patch);
+      const hunk = file!.hunks[1]!;
+
+      expect(hunkLinesPatch(file!, hunk, pick(hunk, '+z'), { reverse: true })).toContain(
+        '@@ -22,2 +22,3 @@'
+      );
+      expect(hunkLinesPatch(file!, hunk, pick(hunk, '+z'))).toContain('@@ -20,2 +20,3 @@');
+    });
+
     it('should refuse a position that is not a line of the hunk', () => {
       const [file] = parsePatch(PATCH);
       const hunk = file!.hunks[0]!;

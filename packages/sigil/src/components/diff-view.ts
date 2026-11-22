@@ -528,6 +528,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       current.set(nearest(at));
     }
     light(untrack(() => current.get()));
+    // a cursor written before there was a drawing to say which lines exist
+    settle();
     paint();
     if (!sideways) {
       if (drawn.length === 0) {
@@ -538,6 +540,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       // as the effect over the cursor does after it
       if (pointed !== untrack(() => current.get())) {
         reveal();
+      }
+      // and the line cursor, which a hunk taller than the view would leave scrolled off
+      const line = picking ? untrack(() => picking.cursor.get()) : undefined;
+      if (line !== undefined) {
+        revealLine(line);
       }
       if (look() < offset) {
         // scrolled further than any line now in view goes -- narrower content, a
@@ -949,6 +956,11 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         settle();
         if (picking.cursor.get() !== at) {
           // brought to a line it can be on, which runs this again
+          return;
+        }
+        if (at === undefined && picking.selected.get().size > 0) {
+          // the cursor is off the lines, however it got there: so are the picks
+          picking.selected.set(NONE);
           return;
         }
         const moved = at !== paintedCursor;

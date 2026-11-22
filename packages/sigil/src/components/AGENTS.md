@@ -9777,7 +9777,8 @@ exported beside them as pure functions.
   split. And a deleted file staged part-way is not a deletion, nor is a new file
   part-way unstaged a creation, so those are all or nothing: the header would need
   rewriting, which is the kind of thing that is guessed wrong once. A hunk with no
-  context lines is as unapplicable here as from `hunkPatch()`. Nothing selected is
+  context lines (`-U0`) is written with none, as `hunkPatch()` writes it: no
+  context is added, and what `git apply` makes of it is the same from both. Nothing selected is
   `undefined` rather than an empty patch, so a caller cannot hand git something it
   would call "no valid patches".
 

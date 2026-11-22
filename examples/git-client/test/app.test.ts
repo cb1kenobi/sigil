@@ -381,6 +381,25 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should say why a selection cannot be unstaged, rather than unstage something else',
+      async () => {
+        const repo = repository();
+        repo.write('c.txt', ['one', 'two']);
+        repo.git('add', 'c.txt');
+        const client = await mount(App, repo);
+
+        // part of a new file is not something git can take out of the index
+        await client.press('4', KEYS.enter, ' ');
+        expect(client.screen()).toMatch(/Cannot unstage part of a new file/);
+        expect(repo.git('diff', '--cached', '--name-only')).toBe('c.txt\n');
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should leave the lines with Escape before it leaves the pane, and say an untracked file is staged whole',
       async () => {
         const repo = repository();
