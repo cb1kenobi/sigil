@@ -69,6 +69,7 @@ import {
 import { createEffect, trackedRaw } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
 import { isKnownProperty } from '../style/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * Where in the source a node was written.
@@ -702,7 +703,7 @@ export function textPart(child: IRNode): unknown {
  *
  * @param node - The element node.
  * @returns The measure, the paint, the `tracked` flag, and every other prop in order.
- * @throws If the node has children.
+ * @throws If the node has children, or a prop that nothing reads.
  */
 export function rawParts(node: IRElement): {
   readonly measure: unknown;
@@ -715,7 +716,12 @@ export function rawParts(node: IRElement): {
   }
 
   for (const prop of node.props) {
-    refuseRawProp(prop.name, node.loc);
+    // `undefined` is a prop nobody set -- what the JSX transform passes for an
+    // omitted attribute, and what `applyProp()` already skips -- so a name that
+    // nothing reads is refused only when it was given something
+    if (prop.value !== undefined) {
+      refuseRawProp(prop.name, node.loc);
+    }
   }
 
   return {
@@ -767,7 +773,7 @@ function refuseRawProp(name: string, loc?: SourceLocation): void {
   const folded = name.replaceAll('-', '').toLowerCase();
   const option = RAW_OPTIONS.find((candidate) => candidate === folded);
   throw templateError(
-    `<raw> has no prop \`${name}\`` +
+    `<raw> has no prop \`${escapeControls(name)}\`` +
       (option === undefined
         ? `. It takes ${RAW_OPTIONS.join(', ')}, \`ref\`, and what any element takes: ` +
           'a style property, `class`, `id`, `key`, the focus props and the handlers'

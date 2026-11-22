@@ -286,6 +286,16 @@ describe('a prop a <raw> does not take (SIG-599)', () => {
     expect(build).toThrow(message);
   });
 
+  it('should not refuse a name nothing reads when it was given nothing, as an omitted attribute is', () => {
+    expect(() => jsx('raw', { foo: undefined, measure, paint })).not.toThrow();
+  });
+
+  it('should escape a control character in the name it echoes', () => {
+    expect(() => jsx('raw', { 'a\u001b[31mb': 1, measure, paint })).toThrow(
+      /no prop `a\\x1B\[31mb`/
+    );
+  });
+
   it('should still take everything a raw takes', () => {
     const element = ui`<raw tracked class="a" id="x" key="k" tabindex="0" focusable
       onKey=${() => {}} ref=${() => {}} width="3" background-color="red" padding="1"

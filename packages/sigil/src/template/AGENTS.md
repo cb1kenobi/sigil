@@ -163,8 +163,12 @@ the entry it belongs to.
   (`isKnownProperty()`), so the tag, JSX and the compiler -- which all read a raw's
   props through `rawParts()` -- refuse the same set in the same words, and the
   compiler does it at build time. An option spelled with the wrong case or a dash
-  gets a sentence naming the right one; a near miss for a handler keeps
-  `refuseHandlerName()`'s. Only `<raw>`: `<box padddding>` still reaches the cascade,
+  gets a sentence naming the right one; the seven handler spellings (`onkey`,
+  `on-key`) keep `refuseHandlerName()`'s, while an unknown event such as `onClick`
+  gets the generic sentence, because that half of it needs a value the compiler
+  does not have. A prop whose value is `undefined` is not refused, which is what
+  the JSX transform passes for an omitted attribute, and the name is escaped
+  where it is echoed. Only `<raw>`: `<box padddding>` still reaches the cascade,
   which is the same behaviour for the same reason and is not changed here. Pinned by
   `a prop a <raw> does not take` in `test/template/tracked-raw.test.ts` and by two
   entries in `REFUSALS`, which hold the compiled path to the same sentence.
