@@ -536,6 +536,17 @@ the entry it belongs to.
   since a failed renderer is just as gone. What a handler throws is reported
   once the screen is back, with what the owner cleanups threw -- see "An
   `onError` that throws cannot keep the screen" below, which moved both.
+- **`Renderer.owner` is the root owner, so that something holding only the
+  renderer can build under one.** SIG-335. `onDispose()` is for what the owner tree
+  cannot reach, and this is the other half: a dialog's `body` function is built
+  from a key handler, which has no owner, and a branch of the **root** is one that
+  runs its effects through this renderer's own factory -- a signal it reads asks
+  for a frame -- and is disposed with the renderer even if nothing else disposes
+  it. A branch made with `createRoot()` instead would have the default factory, and
+  an update to it would wait for somebody to flush. It is read through a getter
+  because the renderer object is built after `createRoot()` returns, which is also
+  why it is never `undefined` by the time anyone can read it. It is the owner and
+  not a disposer: a caller disposes the branch it made, never this.
 - **A handler given to a renderer that has gone is called at once.** The other
   answer was a no-op, and it is the wrong one for every caller there is: a toast
   raised from a promise that settles after the renderer went would keep its

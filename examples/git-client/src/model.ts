@@ -43,15 +43,7 @@ import {
 } from '@ttylabs/sigil/components';
 import { box, type Element, text } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
-import {
-  createBranch,
-  createEffect,
-  getOwner,
-  onCleanup,
-  onMount,
-  runWithOwner,
-  useContext,
-} from '@ttylabs/sigil/renderer';
+import { createEffect, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
 
 /** The four panes, by what they hold. */
@@ -337,18 +329,6 @@ export function createModel(): Model {
   let root = git.cwd;
   const run = (args: readonly string[], stdin?: string): Promise<string> =>
     git.run(args, { cwd: root, input: stdin, signal: stop.signal });
-
-  // a dialog is opened from a key, and a key handler runs with no owner, so
-  // the effects of a field built there -- a `TextArea` over the draft -- would
-  // never be disposed and would go on following the draft after the dialog had
-  // closed. So its body is built under a branch of the component's owner, which
-  // the dialog disposes when it settles. SIG-335 is the ticket for `openModal()`
-  // doing this itself
-  const owner = getOwner();
-  const owned = <T>(build: () => T): { dispose: () => void; value: T } => {
-    const branch = runWithOwner(owner, createBranch);
-    return { dispose: branch.dispose, value: runWithOwner(branch.owner, build) };
-  };
 
   // -- what the app says ------------------------------------------------------
   const toast = (message: string, variant: NoteVariant = 'success'): void => {
@@ -713,25 +693,23 @@ export function createModel(): Model {
     action: string
   ): Promise<string | undefined> => {
     const value = new State('');
-    let close: (yes: boolean) => void = () => {};
-    const { dispose, value: field } = owned(() =>
-      TextField({ onSubmit: () => close(true), placeholder, value })
-    );
+    let field: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: action, value: true },
         { label: 'Cancel', value: false },
       ],
-      body: field,
+      body: () => {
+        field = TextField({ onSubmit: () => dialog.close(true), placeholder, value });
+        return field;
+      },
       input,
       title,
     });
-    close = (yes) => dialog.close(yes);
     // `initial` names a button, so the field is focused once the dialog is open:
     // SIG-337 is the ticket for a dialog that opens on a field in its body
     input.focus.focus(field);
     const answer = await dialog.result;
-    dispose();
     return answer ? value.get().trim() : undefined;
   };
 
@@ -782,53 +760,46 @@ export function createModel(): Model {
       toast('Nothing is staged: Space on a file stages it', 'warning');
       return;
     }
-    let close: (yes: boolean) => void = () => {};
-    const built = owned(() => {
-      const area = TextArea({
-        placeholder: 'What this commit does',
-        props: { height: 6 },
-        value: draft,
-      });
-      return {
-        area,
-        body: box(
+    let area: Element | undefined;
+    const dialog = openModal<boolean>(app.view, {
+      actions: [
+        { label: 'Commit', value: true },
+        { label: 'Cancel', value: false },
+      ],
+      body: () => {
+        area = TextArea({
+          placeholder: 'What this commit does',
+          props: { height: 6 },
+          value: draft,
+        });
+        const body = box(
           { 'flex-direction': 'column' },
           area,
           text('Ctrl-S commits · Esc keeps the draft for later', {
             class: 'sigil-muted',
             'margin-top': 1,
           })
-        ),
-      };
-    });
-    const { area, body } = built.value;
-    // Enter is a newline in the area, so the commit has a key of its own. The
-    // dialog hands a key to the focused element and its ancestors up to its
-    // panel, so the box around the area hears what the area leaves alone
-    body.onKey = (event) => {
-      if (event.key.ctrl && event.key.name === 's') {
-        event.stop();
-        close(true);
-      }
-    };
-    // while the dialog is up the footer lists its own keys and what is described
-    // inside it, which is this -- and none of the app's, which the dialog takes
-    const offHelp = input.describe('ctrl+s', { description: 'commit', priority: 4, scope: body });
-    const dialog = openModal<boolean>(app.view, {
-      actions: [
-        { label: 'Commit', value: true },
-        { label: 'Cancel', value: false },
-      ],
-      body,
+        );
+        // Enter is a newline in the area, so the commit has a key of its own. The
+        // dialog hands a key to the focused element and its ancestors up to its
+        // panel, so the box around the area hears what the area leaves alone
+        body.onKey = (event) => {
+          if (event.key.ctrl && event.key.name === 's') {
+            event.stop();
+            dialog.close(true);
+          }
+        };
+        // while the dialog is up the footer lists its own keys and what is described
+        // inside it, which is this -- and none of the app's, which the dialog takes
+        onCleanup(input.describe('ctrl+s', { description: 'commit', priority: 4, scope: body }));
+        return body;
+      },
       input,
       title: 'Commit',
       width: 64,
     });
-    close = (yes) => dialog.close(yes);
     input.focus.focus(area);
     const answer = await dialog.result;
-    offHelp();
-    built.dispose();
     if (!answer) {
       return;
     }

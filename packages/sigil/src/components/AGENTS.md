@@ -10200,6 +10200,52 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   is still whole when the handler runs -- and settles `undefined`, so
   `confirmModal()` answers `false`, a dismissal's answer. An element host has no
   such signal, and the dialog is the caller's to close.
+- **A `body` function is built under an owner the dialog disposes, because a
+  dialog is nearly always opened from somewhere with none.** SIG-335. A key
+  handler and a button's `onPress` run with no owner, so an effect in a body the
+  caller built first -- a reactive text, a control's `disabled`, a `Computed`
+  mirrored into a state -- was created unowned and never disposed: one that read
+  the app's state ran again on every write long after the dialog had closed, and
+  kept the dialog's elements alive with it. Measured as an effect over an app
+  `State`, then `openModal()` and `close()`: a write afterwards ran it again, 2
+  runs where 1 belongs. `body: () => Element` is called once, as the modal opens,
+  untracked, under a branch of **`getOwner()` when something is running** -- the
+  component's, when it is opened from a body -- **and otherwise the host's `owner`**,
+  which every `Renderer` has now and is its root owner. A bare element has neither
+  and the body is then built under a `createRoot()` of its own, whose effects run
+  through the default factory. The branch is disposed in `close()`, so every way a
+  dialog ends does it: a button, Escape, `close()`, `dispose()` and the renderer
+  going, which closes first. It is disposed **before** the panel leaves the tree
+  and before the focus is handed back, so a cleanup still has its elements and an
+  effect over the focus does not hear the dialog's own hand-back.
+
+  What a cleanup threw is held until `result` has settled and then raised, rather
+  than thrown from where it was found, because a throw from the middle of
+  `close()` would leave the dialog's binding off, the panel in the tree and
+  `result` pending. A function that throws, or answers something that is not an
+  element, disposes its branch first, so a refused call leaves nothing running --
+  and nothing open, since nothing has been attached by then. An element is still
+  accepted and still adopted as it was; nothing about it is disposed, and a body
+  with anything reactive in it is the case the function is for.
+
+  **`confirmModal()`, the menus and the tooltip needed nothing.** The ticket asked
+  for the same form wherever an app builds content and hands it in, and the answer
+  is that none of the three takes any: a confirm's `message` is a string, a menu's
+  `items` are data -- labels, hints and values, which it builds every row from
+  itself -- and a tooltip's `text` is a string. Their elements are built inside the
+  component, whose only effects read the component's own state and are garbage with
+  it; `menu.ts` and `menubar.ts` create none at all. So there is no `body` to give
+  them, and adding one to a type that has nothing to put in it would be a property
+  with no reader. `ContextMenuOptions.items` as a function is called from a mouse
+  handler and returns data. The day one of them takes an element, it takes a
+  function with this owner and `buildOwned()` is what it calls.
+
+  **The owner is not a new public `Owner` on every host.** `ModalHost` gained an
+  optional `owner`, which a `Renderer` satisfies, and nothing else is asked of an
+  app: `openModal(app.view, ...)` is unchanged. `Renderer.owner` is the one new
+  published member, and it is for exactly this -- a component that has to build
+  under an owner from a place with none, holding only the renderer.
+
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a

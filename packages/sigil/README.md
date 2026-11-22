@@ -6158,7 +6158,13 @@ with a `label` and a `value`; Enter, Space or a click presses the focused one an
 holds the focus itself. `initial` is which button starts focused, by position;
 `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
 `closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
-string, which wraps, or an element, whose focusable parts join the trap.
+string, which wraps, an element, whose focusable parts join the trap, or **a
+function that builds one**. Use the function when the body has anything reactive
+in it -- a field over a `State`, a `disabled` that reads one: a dialog is opened
+from a key handler or an `onPress`, which have no owner, so an effect in an
+element built there is never disposed and goes on running after the dialog has
+gone. A function is called once, as it opens, under an owner of its own that is
+disposed when the dialog closes, the way `Show` owns what it mounts.
 `handle.close(value)` and `handle.dispose()` close it from outside, and closing
 twice does nothing.
 
@@ -6192,7 +6198,7 @@ import { State } from '@ttylabs/sigil/signals';
 const name = new State('draft.md');
 const dialog = openModal(view, {
   actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
-  body: TextField({ value: name, onSubmit: () => dialog.close(true) }),
+  body: () => TextField({ value: name, onSubmit: () => dialog.close(true) }),
   input,
   title: 'Rename',
 });
