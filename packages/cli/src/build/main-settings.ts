@@ -57,6 +57,7 @@ import { EXTENSIONS, isFile, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { defaultObject } from './extract.ts';
 import { isUndefined, plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
+import { schemaModule } from './schema-module.ts';
 import { walk } from './walk.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { readFileSync } from 'node:fs';
@@ -228,7 +229,8 @@ function namedKeys(object: ObjectExpression): string[] | undefined {
 function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined {
   let parsed: ParsedModule;
   try {
-    parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
+    const file = schemaModule(app.entry);
+    parsed = parseModule(file, readFileSync(file, 'utf-8'));
   } catch {
     return undefined;
   }

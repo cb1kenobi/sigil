@@ -5,8 +5,9 @@
  * run it; the fifth hands the app's own compiler its own config and asks.
  *
  * - `discoverApp()` finds the app's root and entry, and `readAppCommands()`
- *   reads where that entry says its commands are -- a directory the filesystem
- *   router walks, or commands the schema wrote out.
+ *   reads where its schema says its commands are -- a directory the filesystem
+ *   router walks, or commands the schema wrote out. The schema is in the entry
+ *   unless the entry imports it, and `schemaModule()` is what says which.
  * - `resolveCommandTree()` walks `commands/` the way the runtime would, all at
  *   once, and hands back the tree as data.
  * - `extractCommand()` reads one command module for the `desc` and `hidden`
@@ -160,6 +161,7 @@ export {
   type ResolvedTree,
   type ResolveOptions,
 } from './tree.ts';
+export { findSchema, schemaModule, type FoundSchema } from './schema-module.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
 export {
   assertUpdateCheckDeclared,

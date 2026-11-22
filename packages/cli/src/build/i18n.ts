@@ -34,6 +34,7 @@ import {
   propertyKey,
 } from './literals.ts';
 import { MODULE_RE, type ParsedModule, parseModule, position } from './parse-module.ts';
+import { schemaModule } from './schema-module.ts';
 import { walk } from './walk.ts';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { type Catalog, templateKey } from '@ttylabs/sigil/i18n';
@@ -373,11 +374,14 @@ export interface AppCatalogs {
  * @returns The catalogs, and what could not be read.
  */
 export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
-  const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
+  // the module the schema is written in, which is the entry unless the entry
+  // imports it: the loaders' specifiers are relative to it, and so are positions
+  const schemaFile = schemaModule(app.entry);
+  const parsed = parseModule(schemaFile, readFileSync(schemaFile, 'utf-8'));
   const diagnostics: Diagnostic[] = [];
   const catalogs: FoundCatalog[] = [];
   const files: string[] = [];
-  const file = displayPath(app.entry);
+  const file = displayPath(schemaFile);
 
   const schemas = outermostWith(parsed.program as never, 'locales');
 
@@ -401,7 +405,7 @@ export function readAppCatalogs(app: DiscoveredApp): AppCatalogs {
     return { catalogs, declared: true, diagnostics, files };
   }
 
-  const entryDir = dirname(app.entry);
+  const entryDir = dirname(schemaFile);
 
   for (const property of declared.properties) {
     if (property.type !== 'Property') {

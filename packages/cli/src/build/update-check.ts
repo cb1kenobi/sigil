@@ -35,6 +35,7 @@ import {
   type Member,
 } from './literals.ts';
 import { locate, parseModule } from './parse-module.ts';
+import { schemaModule } from './schema-module.ts';
 import {
   checkedChecker,
   customChecker,
@@ -275,13 +276,15 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
  * names its own checker -- which beats whatever `sigil.json` declares, so the
  * app has already said where to look.
  *
- * @param entry - The app's entry module.
+ * @param entry - The app's entry module. The schema is read from the module that holds it,
+ *   which is this one unless it imports its schema (`schemaModule()`).
  * @returns `'asks'` when some schema asks for a check that nothing says where
  *   to run, `'names'` when every schema that asks says where itself, and
  *   `undefined` when none asks.
  */
 export function readSchemaUpdateCheck(entry: string): SchemaUpdateCheck | undefined {
-  const parsed = parseModule(entry, readFileSync(entry, 'utf-8'));
+  const file = schemaModule(entry);
+  const parsed = parseModule(file, readFileSync(file, 'utf-8'));
   const builders = CHECKER_BUILDERS.map((name) =>
     importBindings(parsed, UPDATE_CHECK_SPECIFIER, name)
   );
@@ -312,7 +315,8 @@ export function readSchemaUpdateCheck(entry: string): SchemaUpdateCheck | undefi
 /**
  * Whether the schema asks for a check that nothing says where to run.
  *
- * @param entry - The app's entry module.
+ * @param entry - The app's entry module. The schema is read from the module that holds it,
+ *   which is this one unless it imports its schema (`schemaModule()`).
  * @returns Whether `readSchemaUpdateCheck()` answers `'asks'`.
  */
 export function schemaWantsUpdateCheck(entry: string): boolean {
@@ -561,13 +565,15 @@ function isWrittenChecker(members: readonly Member[]): boolean {
  * value that is a name, a call or a template with a substitution is read as
  * valid; a checker held in a variable is not read at all.
  *
- * @param entry - The app's entry module.
+ * @param entry - The app's entry module. The schema is read from the module that holds it,
+ *   which is this one unless it imports its schema (`schemaModule()`).
  * @returns One error per schema whose checker is refused.
  */
 export function checkSchemaUpdateCheck(entry: string): Diagnostic[] {
   let parsed: ReturnType<typeof parseModule>;
   try {
-    parsed = parseModule(entry, readFileSync(entry, 'utf-8'));
+    const file = schemaModule(entry);
+    parsed = parseModule(file, readFileSync(file, 'utf-8'));
   } catch {
     // an entry that does not read has been reported by what read it first
     return [];
