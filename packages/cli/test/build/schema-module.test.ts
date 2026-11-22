@@ -48,6 +48,7 @@ function appOf(files: Record<string, string>): string {
 }
 
 const RUNTIME = "import { main } from '@ttylabs/sigil';\n";
+const NAMESPACE = "import * as t from '@ttylabs/sigil';\n";
 /** A schema that asks for a check, names no checker, and routes `./commands`. */
 const ASKS =
   "export default { baseDir: import.meta.dirname, commands: './commands', updateCheck: true };\n";
@@ -768,5 +769,53 @@ describe.each([
     });
 
     expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+});
+
+// SIG-588, SIG-589: `fn<T>` is type syntax that erases, and so is a wrapper on the
+// namespace object of `t.main(...)`, so each is the same call and was left
+// unfollowed. SIG-590: `main?.(schema)` is a `ChainExpression` around the call,
+// which the statement check in `forwardsOnly()` did not look inside -- an import
+// is never nullish, so `?.` on it never short-circuits
+describe.each([
+  ['an instantiation', RUNTIME, '(main<Type>)'],
+  ['a namespace under as', NAMESPACE, '(t as any).main'],
+  ['a namespace under !', NAMESPACE, 't!.main'],
+  ['a namespace under <T>', NAMESPACE, '(<any>t).main'],
+  ['a namespace under satisfies', NAMESPACE, '(t satisfies object).main'],
+  ['an optional call', RUNTIME, 'main?.'],
+  ['an optional namespace member', NAMESPACE, 't?.main'],
+  ['an optional call on a wrapped namespace', NAMESPACE, '(t as any)?.main'],
+])('an entry that calls main() through %s', (_what, preamble, callee) => {
+  it('should be followed to the schema it passes', () => {
+    const root = appOf({
+      'src/index.ts': `${preamble}import schema from './schema.ts';\nawait ${callee}(schema);\n`,
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should be followed when the call is not awaited', () => {
+    const root = appOf({
+      'src/index.ts': `${preamble}import schema from './schema.ts';\n${callee}(schema);\n`,
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+});
+
+// SIG-590: what `importCall()` looks through is a chain whose outermost node is
+// the call to `main`. A chain that ends past the call is some other value, and
+// a statement that is not the call still stops the walk
+describe('an entry whose statement only contains a call to main()', () => {
+  it('should not be followed past a member read off the result', () => {
+    const root = appOf({
+      'src/index.ts': `${RUNTIME}import schema from './schema.ts';\nmain?.(schema)?.then;\n`,
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
   });
 });

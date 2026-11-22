@@ -125,3 +125,50 @@ describe.each([
     expect(keysIn(parseModule('app.ts', source)).map((found) => found.key)).toEqual(['one']);
   });
 });
+
+const PLURAL = "import { __n } from '@ttylabs/sigil/i18n';\n";
+const PLURAL_NAMESPACE = "import * as i from '@ttylabs/sigil/i18n';\n";
+
+// SIG-588, SIG-589: `fn<T>` is type syntax that erases, and so is a wrapper on the
+// namespace object of `i.__n(...)`, so each is the same call and its key was not
+// found. SIG-590: an optional call is a `CallExpression` inside a chain, which the
+// walk reaches on its own -- pinned
+describe.each([
+  ['an instantiation', PLURAL, '(__n<Type>)'],
+  ['a namespace under as', PLURAL_NAMESPACE, '(i as any).__n'],
+  ['a namespace under !', PLURAL_NAMESPACE, 'i!.__n'],
+  ['a namespace under <T>', PLURAL_NAMESPACE, '(<any>i).__n'],
+  ['a namespace under satisfies', PLURAL_NAMESPACE, '(i satisfies object).__n'],
+  ['an optional call', PLURAL, '__n?.'],
+  ['an optional namespace member', PLURAL_NAMESPACE, 'i?.__n'],
+])('a plural called through %s', (_what, preamble, callee) => {
+  it('should still be found', () => {
+    const source = `${preamble}export const s = ${callee}(2, 'one', 'many');\n`;
+
+    expect(keysIn(parseModule('app.ts', source)).map((found) => found.key)).toEqual(['one']);
+  });
+});
+
+// SIG-589: the tag readers are deliberately not changed -- a wrapped tag is not
+// recognised, because rewriting a template that might not be ours is the louder
+// failure (packages/cli/AGENTS.md). `calleeName()` is for callees only
+describe('a translated tag', () => {
+  const keys = (tag: string): string[] =>
+    keysIn(
+      parseModule(
+        'app.ts',
+        `import { __ } from '@ttylabs/sigil/i18n';\nimport * as i from '@ttylabs/sigil/i18n';\nexport const s = ${tag}\`Build the app\`;\n`
+      )
+    ).map((found) => found.key);
+
+  it.each([['__'], ['i.__'], ['(i.__)']])('should be found written as %s', (tag) => {
+    expect(keys(tag)).toEqual(['Build the app']);
+  });
+
+  it.each([['(i as any).__'], ['i!.__'], ['(<any>i).__'], ['(__<Type>)']])(
+    'should still not be found written as %s',
+    (tag) => {
+      expect(keys(tag)).toEqual([]);
+    }
+  );
+});

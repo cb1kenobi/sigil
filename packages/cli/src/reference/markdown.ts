@@ -851,7 +851,7 @@ function page(
       // `mycli` on its own runs the **leaf** -- measured, root -> `build` ->
       // `fast` runs `fast` for `[]`, `['build']` and `['build', 'fast']` alike.
       // A command with required arguments is the same sentence one step shorter:
-      // `mycli` alone then exits 1 with `Missing required arguments`. What is
+      // `mycli` alone then exits 2 with `Missing required arguments`. What is
       // true of every one of those is that this command is what the parent
       // dispatches, so that is what it says -- and the parent's own sentence,
       // which names this command, is where a reader following the chain goes

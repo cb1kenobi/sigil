@@ -43,7 +43,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { DOUBLE_CLICK_MS, type KeyEvent, type MouseEvent } from '../input/index.js';
-import { measureNode } from '../layout/index.js';
+import { measureSubtree } from '../layout/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { unicodeSupported } from './note.js';
@@ -195,14 +195,14 @@ function minimumOf(element: Element, axis: 'column' | 'row'): number {
     return declared.value;
   }
   const at = element.box;
-  const measured = measureNode(element, at?.width ?? 0);
+  const measured = measureSubtree(element, at?.width ?? 0);
   return axis === 'row' ? (measured.minWidth ?? 0) : (measured.minHeight ?? 0);
 }
 
 /**
  * The cells a box that cannot shrink holds along the axis before it grows: its basis.
  *
- * The placement's own rule -- a `flex-basis` in cells, else the size `measureNode()`
+ * The placement's own rule -- a `flex-basis` in cells, else the size `measureSubtree()`
  * reports, which is a declared `width` or `height` with its padding and border where
  * there is one and its content where there is not. A percentage basis, and a basis on
  * a `content-box` box, read as that measured size instead, which are the cases this
@@ -213,7 +213,7 @@ function basisOf(element: Element, axis: 'column' | 'row', available: number): n
   if (basis.type === 'cells' && element.style.boxSizing !== 'content-box') {
     return basis.value;
   }
-  const measured = measureNode(
+  const measured = measureSubtree(
     element,
     axis === 'row' ? available : (element.box?.width ?? available)
   );

@@ -113,6 +113,6 @@ it leaves its box empty, as `imageView()` does everywhere.
   a file in `$EDITOR`; watching a directory for changes (`R` reads it again).
 - The Windows hidden attribute: Node does not read it, so a file Explorer hides
   is shown unless its name starts with a dot.
-- What the library does not do yet, and this does by hand: a dialog that builds
-  its own body and opens on a field (SIG-335, SIG-337), and a bar that takes the
-  focus the moment it is shown (SIG-384).
+- What the library does not do yet, and this does by hand: a dialog that opens
+  on a field in its body (SIG-337), and a bar that takes the focus the moment it
+  is shown (SIG-384).

@@ -187,7 +187,7 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
 - **The C# reaches PowerShell in an environment variable, not in the command.**
   The encoded command was 24,792 characters with the C# in it and Windows stops
   at 32,767; the script that caches would not have fitted beside it.
-- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`,
+- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`, `compiled` (a refused load, below),
   or `none` when the call failed first -- because that is the whole difference
   between one call and the next, and the Windows tests in `test/trash.test.ts`
   pin each case with a cache they name: compiled once and loaded after; garbage,
@@ -201,10 +201,71 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   two calls racing on an empty cache; an unwritable cache
   compiling every call and still recycling. `test/trash-windows.test.ts` pins
   the key, the file name and what PowerShell is handed, on every platform.
-- `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also
-  what a reflective loader looks like, and .NET 4.8 shows such a load to AMSI.
-  Defender on the runner lets it through; an endpoint product that blocks it
-  fails the call rather than falling back, which is not handled.
+- **A refused load falls back to loading the library from a file, in a second
+  PowerShell, and the item is still recycled** (SIG-517).
+  `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also what
+  a reflective loader looks like, and .NET 4.8 shows such a load to AMSI; Defender
+  on the runner lets it through, and an endpoint product may refuse it. Neither
+  of the two obvious fallbacks avoids the call. Compiling in memory is no way
+  round it, because the unwritable-cache path loads its freshly compiled bytes
+  with the same call. And `Add-Type -TypeDefinition`, which is what every call did
+  before SIG-490, compiles with `GenerateInMemory` and CodeDom then does
+  `Assembly.Load(byte[])` on what it read back -- found by review round 1, from
+  .NET's reference source and PowerShell's `AddType.cs`, not measured on a
+  machine that refuses. So the fallback is the one path that loads from a file:
+  the same hand compile into a directory of its own, then
+  `Assembly.LoadFrom()` of the library, which an endpoint product sees as an
+  ordinary file load.
+
+  Only the load of the bytes just compiled counts as a refusal. A failed load of a
+  **cached** file is indistinguishable from a file that is not ours and is a
+  rebuild as it always was, and a refusal there reaches the same load after the
+  rebuild. The script answers `loadRefused` and stops **before** `Recycle()` runs,
+  so nothing has moved and asking again cannot move the item twice, and before the
+  cache is written, so a helper that cannot be loaded is never sealed and kept.
+  `recycle()` then asks once more with `SIGIL_TRASH_MODE=compile`, which reads and
+  writes no cache and reports `compiled`; a refusal answered to that is thrown,
+  never retried.
+
+  - **That is a trust trade, and a deliberate one.** `LoadFrom()` opens the file
+    itself, so the one-read-and-load-from-that-buffer rule above does not hold for
+    this path: the library sits in a directory under the user's temp directory,
+    named with a fresh GUID, between the compile and the load -- which is what
+    `Add-Type` always trusted, and a `TMP` others can write into was open to it
+    equally. Nothing is sealed, because nothing is kept for another call to trust.
+  - **The library cannot be removed by the call that loaded it,** since a loaded
+    file is locked until the process ends. The compile mode first removes the
+    directories an earlier call left -- named `sigil-trash-` and 32 hex digits, and
+    more than an hour old, so a concurrent call's is never touched -- which is a
+    few kilobytes per call in an environment that already pays for a second
+    PowerShell.
+  - **It is asked afresh on every call and not remembered for the process,** so
+    such an environment pays a second PowerShell start (about 350 ms on the runner)
+    per trash. A remembered refusal would be module state the tests could not reset
+    without reimporting the module.
+  - **A refusal of the library's own load is answered the same way,** by the
+    compile mode's own `catch`, so that `recycle()` throws `The helper could not
+    be loaded` with the reason rather than PowerShell's `Exception calling
+    "LoadFrom"`. A compile that fails is still an `error`: it is not a refusal.
+  - **Directories can be left behind, and the sweep is the only thing that
+    removes them.** Only a compile-mode call sweeps, so if the refusal stops --
+    an exclusion is added -- the last ones stay until something else clears the
+    temp directory; a compile or load that fails leaves its own; and a loop
+    trashing N items leaves N for the hour. The sweep is pinned by a Windows test
+    with a backdated directory, a fresh one and one named like ours but not made
+    by us.
+  - **What is not handled:** an endpoint product that blocks the script's text
+    before it runs, or kills the process, gives no JSON, and `run()` rejects --
+    that is not retried, because a process killed after the move would then be
+    asked to move an item that is gone, and report that as the failure.
+  - **What no test reaches is the script's own `catch` around the load,** since no
+    runner can be made to refuse one. `trash-windows.test.ts` replaces PowerShell
+    to pin the second ask, its mode, its errors and that it stops there, and reads
+    the script for the order -- the refusal caught before anything is kept, and
+    the compile mode loading from a file, reading and writing no cache. The Windows
+    jobs run the compile mode itself, asked for directly, and check that it
+    recycles and neither reads nor writes the cache.
+
 - The real-trash tests on a Windows runner go through `trash()` and so leave one
   such file in the runner's own cache, which is what a cache is for.
 

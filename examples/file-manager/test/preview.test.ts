@@ -1,8 +1,6 @@
 import { createFiles, type Entry, type Files } from '../src/files.ts';
-import { codeRows } from '../src/preview-pane.ts';
 import { MAX_TEXT_BYTES, MAX_TEXT_LINES, type Preview, readPreview } from '../src/preview.ts';
 import { PICTURE, removeTempDirs, tempDir, write } from './fixture.ts';
-import type { Element } from '@ttylabs/sigil/element';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -182,43 +180,5 @@ describe('a preview', () => {
       note: 'It is not there any more',
       role: 'error',
     });
-  });
-});
-
-describe('the text of a preview', () => {
-  /** Every run of a row, as its classes and its text. */
-  const runs = (row: Element): { classes: string; text: string }[] =>
-    row.children.slice(1).map((run) => ({ classes: run.classes.join(' '), text: run.text ?? '' }));
-
-  it('should draw each token in its role, behind a gutter of line numbers', () => {
-    const [row] = codeRows('const a = 1;', 'ts', 40);
-    expect(row?.children[0]?.text).toBe('1');
-    const keyword = runs(row as Element).find((run) => run.text === 'const');
-    expect(keyword?.classes).toContain('sigil-token-keyword');
-    expect(keyword?.classes).toContain('sigil-accent');
-    expect(runs(row as Element).find((run) => run.text.includes('1'))?.classes).toContain(
-      'sigil-token-number'
-    );
-  });
-
-  it('should leave out the gutter in a pane too narrow for it and some text', () => {
-    const rows = codeRows(Array.from({ length: 1000 }, () => 'x').join('\n'), undefined, 4);
-    const row = rows[0] as Element;
-    expect(row.children.map((child) => child.text)).toStrictEqual(['x']);
-  });
-
-  it('should leave a language it does not know plain', () => {
-    const [row] = codeRows('const a = 1;', 'cobol', 40);
-    expect(runs(row as Element)).toStrictEqual([{ classes: 'code', text: 'const a = 1;' }]);
-  });
-
-  it('should expand a tab to the next stop and cut a line at the width', () => {
-    const [row] = codeRows('\tab\tcdefghij', undefined, 12);
-    // a gutter of one and a space leave ten cells
-    expect(
-      runs(row as Element)
-        .map((run) => run.text)
-        .join('')
-    ).toBe('    ab  cd');
   });
 });

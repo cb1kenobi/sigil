@@ -9,6 +9,7 @@ import {
   type Schema,
 } from '../types.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
+import { UsageError } from '../util/usage-error.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { resolveTopic } from './command/topic.js';
@@ -226,7 +227,7 @@ async function resolve(state: ParseState, names: string[]): Promise<InternalComm
     // `resolveTopic()` grows -- so the walk puts what it resolved on the front
     // of it and takes it back off again where the path is refused
     if (!(segments && (await resolveTopic(chain, segments)))) {
-      throw new Error(unknownCommand(name, parent, state.settings));
+      throw new UsageError(unknownCommand(name, parent, state.settings), 'unknown-command');
     }
   }
 

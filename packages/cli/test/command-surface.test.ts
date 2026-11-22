@@ -1,5 +1,5 @@
 import { displayPath } from '../src/build/diagnostic.ts';
-import { readRoutes } from '@ttylabs/sigil/routes';
+import { readRoutes } from '@ttylabs/sigil/internal/routes';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,

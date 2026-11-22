@@ -77,7 +77,7 @@ describe('sigil', () => {
       expect(stderr.text).toBe('Error: Missing required options: --name\n');
       expect(stderr.text).not.toContain('at ');
       expect(result).toBeUndefined();
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
     });
 
     it('should render an error thrown by the command handler', async () => {
@@ -536,7 +536,7 @@ describe('sigil', () => {
       stderr.restore();
 
       expect(stderr.text).toBe('Error: Missing required options: --name\n');
-      expect(process.exitCode).toBe(1);
+      expect(process.exitCode).toBe(2);
     });
   });
 

@@ -97,9 +97,6 @@ Each is marked in the source.
   the rows it is handed and has no pages, so `src/model.ts` sorts the whole list
   with the table's own comparator, `cellOrder()`, over the sort the table writes,
   and hands it one page.
-- **The row menu finds its row by class.** Nothing hands out the element a
-  table's row was built as, so the menu walks the table for the `sigil-list-row`
-  that is `is-current` to open under its right end.
 - **A card's badge follows its figure.** Each card hands `Badge` the label and the
   variant as functions over one `Computed`, and the badge rewrites its own text and
   classes when the figure moves.

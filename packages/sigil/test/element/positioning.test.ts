@@ -345,7 +345,7 @@ describe('the room an arranged tree takes', () => {
     ]);
   });
 
-  // and it is the root's far **edges** rather than its size, because `layout()`
+  // and it is the root's far **edges** rather than its size, because `layoutTree()`
   // applies the root's own relative offset -- every other node's is applied by
   // the parent that places it and the root has no parent. Found by review round
   // 2, after round 1's border fix: measured, this came back as `["", "", "  ┌─────"]`,

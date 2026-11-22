@@ -44,7 +44,7 @@ export function resolveDesc(desc: unknown, what: string): string | undefined {
 /**
  * What a description that is neither a string nor a function is refused with.
  *
- * Exported, through `@ttylabs/sigil/routes`, because `sigil build` refuses the
+ * Exported, through `@ttylabs/sigil/internal/routes`, because `sigil build` refuses the
  * same placeholder from source and has to say it in these words (SIG-421).
  *
  * @param what - What is being described, as `resolveDesc()` takes it.

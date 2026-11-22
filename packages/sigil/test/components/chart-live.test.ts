@@ -1,6 +1,7 @@
 import { strip } from '../../src/ansi/index.js';
 import {
   BarChart,
+  describeLineChart,
   Gauge,
   LineChart,
   lineChart,
@@ -10,10 +11,10 @@ import {
   sparkline,
 } from '../../src/components/chart.js';
 import { box, type Element, renderToLines, text } from '../../src/element/index.js';
-import type { InputRouter } from '../../src/input/index.js';
+import type { DescribeOptions, InputRouter } from '../../src/input/index.js';
 import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
-import { createTestTerminal, frame } from '../../src/testing/index.js';
+import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -765,5 +766,404 @@ describe('LineChart, with a crosshair (SIG-464)', () => {
     expect(() =>
       LineChart({ crosshair: { input: {} as InputRouter, text: 'API' as never }, data: [1] })
     ).toThrow(/crosshair text/);
+  });
+});
+
+/**
+ * The crosshair from the keyboard: a chart that has one takes the focus, shows
+ * its rule at the newest sample while it has it, and Left and Right step it from
+ * sample to sample with the same readout the pointer gets.
+ */
+describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
+  const apps: { exit(code: number): void }[] = [];
+  afterEach(() => {
+    for (const app of apps.splice(0)) {
+      app.exit(0);
+    }
+  });
+
+  /**
+   * The same four-sample, 30-column chart as the pointer's: the samples are at
+   * columns 3, 12, 20 and 29, and the axis tick under the rule is on screen row 4.
+   */
+  async function mount(
+    chart: (input: InputRouter) => Partial<LineChartProps> = () => ({}),
+    colorLevel: 0 | 1 = 0
+  ) {
+    const term = createTestTerminal({ colorLevel, columns: 40, rows: 8 });
+    let host: Element | undefined;
+    const app = runApp(
+      () => {
+        const input = useApp().input as InputRouter;
+        return row(
+          (host = LineChart({
+            ascii: false,
+            crosshair: { input },
+            props: { height: 6, width: 30 },
+            series: [{ data: [1, 5, 3, 8], label: 'API' }],
+            step: 'fit',
+            ...chart(input),
+          }))
+        );
+      },
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    const settle = async () => {
+      await frame(app);
+      await frame(app);
+    };
+    return {
+      app,
+      blur: async () => {
+        app.input?.focus.focus(undefined);
+        await settle();
+      },
+      chart: host as Element,
+      /** Keys, one at a time, as a user types them. */
+      key: async (...keys: string[]) => {
+        for (const key of keys) {
+          await term.press(key);
+          await settle();
+        }
+      },
+      move: async (x: number, y: number) => {
+        await term.press(`${ESC}[<35;${x + 1};${y + 1}M`);
+        await settle();
+      },
+      screen: () => term.viewport.map((line) => line.trimEnd()),
+      term,
+    };
+  }
+
+  const tick = (screen: string[]): number => (screen[4] ?? '').indexOf('┴');
+
+  it('should take the focus, and put the rule and the readout at the newest sample while it has it', async () => {
+    const m = await mount();
+    expect(m.app.input?.focus.ring()).toStrictEqual([m.chart]);
+    expect(tick(m.screen())).toBe(-1);
+
+    await m.key(KEYS.tab);
+    expect(m.app.input?.focus.current.get()).toBe(m.chart);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).toContain('API 8');
+
+    await m.blur();
+    expect(tick(m.screen())).toBe(-1);
+    expect(m.screen().join('\n')).not.toContain('API 8');
+  });
+
+  it('should step the rule between samples with Left and Right, saying what the pointer would', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    expect(tick(m.screen())).toBe(20);
+    expect(m.screen().join('\n')).toContain('│ API 3 │');
+
+    await m.key(KEYS.left);
+    expect(tick(m.screen())).toBe(12);
+    expect(m.screen().join('\n')).toContain('│ API 5 │');
+
+    await m.key(KEYS.right, KEYS.right);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).toContain('API 8');
+  });
+
+  it('should claim an arrow at either end of the series, and leave the rule where it is', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.right, KEYS.right);
+    expect(tick(m.screen())).toBe(29);
+    await m.key(KEYS.left, KEYS.left, KEYS.left, KEYS.left, KEYS.left);
+    expect(tick(m.screen())).toBe(3);
+  });
+
+  it('should leave Up, Down, Shift and Ctrl with an arrow, and a paste, to what is around the chart', async () => {
+    const seen: string[] = [];
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+    const app = runApp(
+      () => {
+        const input = useApp().input as InputRouter;
+        return box(
+          { onKey: (event) => void seen.push(event.key.name) },
+          LineChart({
+            ascii: false,
+            crosshair: { input },
+            props: { height: 6, width: 30 },
+            series: [{ data: [1, 5, 3, 8], label: 'API' }],
+            step: 'fit',
+          })
+        );
+      },
+      { detect: false, mouse: { motion: true }, terminal: term.terminal }
+    );
+    apps.push(app);
+    await frame(app);
+    const press = async (key: string) => {
+      await term.press(key);
+      await frame(app);
+    };
+    await press(KEYS.tab);
+    await press(KEYS.up);
+    await press(KEYS.down);
+    await press(`${ESC}[1;2D`);
+    await press(`${ESC}[1;5D`);
+    await press(`${ESC}[1;3D`);
+    await press(`${ESC}[200~x${ESC}[201~`);
+    expect(seen.slice(0, 5)).toStrictEqual(['up', 'down', 'left', 'left', 'left']);
+    seen.length = 5;
+    // not moved: the rule is still at the newest sample
+    expect((term.viewport[4] ?? '').indexOf('┴')).toBe(29);
+    // a plain Left is the chart's, and so is a Right at the newest sample, where
+    // it goes nowhere
+    await press(KEYS.left);
+    await press(KEYS.right);
+    await press(KEYS.right);
+    expect(seen).toHaveLength(5);
+  });
+
+  it('should hand the keyboard sample to the pointer while it moves, and take it back when the pointer leaves', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    expect(tick(m.screen())).toBe(20);
+
+    await m.move(14, 1);
+    expect(tick(m.screen())).toBe(12);
+    await m.move(35, 1);
+    expect(tick(m.screen())).toBe(20);
+  });
+
+  it('should step from the sample the pointer is on, and the keyboard is the rule from then on', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab);
+    await m.move(14, 1);
+    expect(tick(m.screen())).toBe(12);
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(20);
+    // the pointer, still over the chart where it was, is not what the rule follows
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(29);
+  });
+
+  it('should step from the rule the pointer has moved to, not from where the last key left it', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    expect(tick(m.screen())).toBe(20);
+    await m.move(5, 1);
+    expect(tick(m.screen())).toBe(3);
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should keep the rule at the keyboard sample while the pointer is over the chart where there is none', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left);
+    // the axis labels, which hold no sample: the rule is the keyboard's still, and
+    // so are the keys
+    await m.move(0, 1);
+    expect(tick(m.screen())).toBe(20);
+    expect(m.screen().join('\n')).toContain('API 3');
+    await m.key(KEYS.left);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should take the first arrow typed before any frame has drawn the focus', async () => {
+    const m = await mount();
+    await m.term.press(KEYS.tab);
+    await m.term.press(KEYS.left);
+    await m.key();
+    await frame(m.app);
+    expect(tick(m.screen())).toBe(20);
+  });
+
+  it('should step on from the oldest sample when the data shrinks under a rule far back', async () => {
+    const data = new State<readonly number[]>(Array.from({ length: 30 }, (_, i) => i));
+    const m = await mount(() => ({ series: [{ data, label: 'API' }] }));
+    await m.key(KEYS.tab);
+    for (let i = 0; i < 20; i++) {
+      await m.term.press(KEYS.left);
+    }
+    await frame(m.app);
+    data.set([0, 1, 2, 3]);
+    await flush();
+    await frame(m.app);
+    await frame(m.app);
+    // drawn at the oldest, and the first Right moves it
+    expect(tick(m.screen())).toBe(3);
+    await m.key(KEYS.right);
+    expect(tick(m.screen())).toBe(12);
+  });
+
+  it('should keep the rule on a sample the plot draws when a resize narrows it', async () => {
+    // a step of four across 27 cells shows 14 of the 30 samples; narrowed to 17
+    // cells it shows 9, and a rule stood on the 14th is past the left edge
+    const m = await mount(() => ({
+      series: [{ data: Array.from({ length: 30 }, (_, i) => i), label: 'API' }],
+      step: 4,
+    }));
+    await m.key(KEYS.tab);
+    for (let i = 0; i < 20; i++) {
+      await m.term.press(KEYS.left);
+    }
+    await frame(m.app);
+    m.term.resize(20, 8);
+    await frame(m.app);
+    await frame(m.app);
+    const screen = m.screen();
+    expect(tick(screen)).toBeGreaterThanOrEqual(0);
+    const at = Number(/API (\d+)/.exec(screen.join('\n'))?.[1]);
+    expect(at).toBeGreaterThanOrEqual(21);
+    // and the first Right after it moves on from there, rather than from a sample
+    // the narrower plot no longer draws
+    await m.key(KEYS.right);
+    expect(m.screen().join('\n')).toContain(`API ${at + 1}`);
+  });
+
+  it('should start at the newest sample again after the focus has gone and come back', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.left, KEYS.left);
+    expect(tick(m.screen())).toBe(12);
+    await m.blur();
+    await m.key(KEYS.tab);
+    expect(tick(m.screen())).toBe(29);
+  });
+
+  it('should keep the sample it stands on as a live series is pushed to', async () => {
+    const data = new Series(20, [1, 2, 3, 4]);
+    const m = await mount(() => ({ series: [{ data, label: 'API' }], step: 1 }));
+    await m.key(KEYS.tab, KEYS.left);
+    const at = tick(m.screen());
+    expect(m.screen().join('\n')).toContain('API 3');
+    data.push(9);
+    await flush();
+    await frame(m.app);
+    await frame(m.app);
+    // one sample back from the newest, which is now the 4 that was newest
+    expect(m.screen().join('\n')).toContain('API 4');
+    expect(tick(m.screen())).toBe(at);
+  });
+
+  it('should stop at the oldest sample a scrolling chart has drawn', async () => {
+    // a step of four across 27 plot cells holds 14 samples of the 30 given
+    const m = await mount(() => ({
+      series: [{ data: Array.from({ length: 30 }, (_, i) => i), label: 'API' }],
+      step: 4,
+    }));
+    await m.key(KEYS.tab);
+    // pressed faster than a frame, as a held key is
+    for (let i = 0; i < 40; i++) {
+      await m.term.press(KEYS.left);
+    }
+    await frame(m.app);
+    await frame(m.app);
+    expect(m.screen().join('\n')).toContain('API 17');
+    expect(m.screen().join('\n')).not.toContain('API 16');
+    // and Right comes back one sample at a time
+    await m.key(KEYS.right);
+    expect(m.screen().join('\n')).toContain('API 18');
+  });
+
+  it('should step through every sample where fit puts several in a cell, as the pointer cannot', async () => {
+    const seen: number[] = [];
+    const m = await mount((input) => ({
+      crosshair: {
+        input,
+        text: (index) => {
+          seen.push(index);
+          return `day ${index}`;
+        },
+      },
+      series: [{ data: Array.from({ length: 90 }, (_, i) => i % 7), label: 'API' }],
+    }));
+    await m.key(KEYS.tab);
+    expect(seen.at(-1)).toBe(89);
+    await m.key(KEYS.left, KEYS.left, KEYS.left);
+    expect(seen.at(-1)).toBe(86);
+  });
+
+  it('should draw the rule in the accent while the chart has the focus, and muted otherwise', async () => {
+    // a warn series, so that nothing else on the screen is the accent's cyan
+    const m = await mount(
+      () => ({ ascii: true, series: [{ data: [1, 5, 3, 8], label: 'API', role: 'warn' }] }),
+      1
+    );
+    /** An SGR in `text` that sets palette colour `n` (0 to 7) as a foreground. */
+    const sets = (text: string, n: number) =>
+      new RegExp(`\\[(?:[0-9;]*;)?${30 + n}[;m]`).test(text);
+    // a pointer over it without the focus: the muted role, which is not cyan
+    await m.move(14, 1);
+    const hovered = m.term.output;
+    expect(hovered).toContain('|');
+    expect(sets(hovered, 6)).toBe(false);
+    await m.key(KEYS.tab);
+    // the accent is cyan, and the rule is drawn in it
+    expect(sets(m.term.output.slice(hovered.length), 6)).toBe(true);
+  });
+
+  it('should take no focus and no keys with focusable: false in its props', async () => {
+    const m = await mount(() => ({ props: { focusable: false, height: 6, width: 30 } }));
+    expect(m.app.input?.focus.ring()).toStrictEqual([]);
+    await m.key(KEYS.tab, KEYS.left);
+    expect(tick(m.screen())).toBe(-1);
+  });
+
+  it('should take no focus without a crosshair', async () => {
+    const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+    const app = runApp(() => row(LineChart({ ascii: false, data: [1, 2, 3] })), {
+      detect: false,
+      terminal: term.terminal,
+    });
+    apps.push(app);
+    await frame(app);
+    expect(app.input?.focus.ring()).toStrictEqual([]);
+  });
+
+  it('should refuse an onKey in its props, which the chart owns', () => {
+    const input = {} as InputRouter;
+    expect(() =>
+      LineChart({ crosshair: { input }, data: [1], props: { onKey: () => {} } })
+    ).toThrow(/onKey/);
+    // a chart without a crosshair owns no key
+    expect(() => LineChart({ data: [1], props: { onKey: () => {} } })).not.toThrow();
+  });
+
+  describe('describeLineChart', () => {
+    function recorder() {
+      const live: { keys: string; opts: DescribeOptions }[] = [];
+      const router = {
+        describe(keys: string, opts: DescribeOptions) {
+          const entry = { keys, opts };
+          live.push(entry);
+          return () => void live.splice(live.indexOf(entry), 1);
+        },
+      };
+      return { live, router, said: () => live.map((e) => `${e.keys} ${e.opts.description}`) };
+    }
+    /** A chart with a crosshair, which needs a router to be built over. */
+    const chart = async () => (await mount()).chart;
+
+    it('should describe Left and Right as move, scoped to the chart', async () => {
+      const { live, router, said } = recorder();
+      const host = await chart();
+      describeLineChart(router, host);
+      expect(said()).toStrictEqual(['left move', 'right move']);
+      expect(live.every((e) => e.opts.scope === host)).toBe(true);
+    });
+
+    it('should take every description back off', async () => {
+      const { live, router } = recorder();
+      const off = describeLineChart(router, await chart(), await chart());
+      expect(live).toHaveLength(4);
+      off();
+      expect(live).toHaveLength(0);
+    });
+
+    it('should refuse a chart with no crosshair, and describe nothing', async () => {
+      const { live, router } = recorder();
+      const host = await chart();
+      expect(() => describeLineChart(router, host, LineChart({ data: [1] }))).toThrow(
+        'Expected an element that LineChart() returned with a crosshair'
+      );
+      expect(live).toHaveLength(0);
+    });
   });
 });

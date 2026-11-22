@@ -94,6 +94,20 @@ const v = t.ui\`<text>ns</text>\`;`;
       expect(template?.quasis).to.deep.equal(['<text>ns</text>']);
     });
 
+    // SIG-589: the callee readers see through a wrapper on a namespace object and
+    // through `fn<T>`, and the tag readers deliberately do not -- rewriting a
+    // template that might not be ours is the louder failure (AGENTS.md)
+    it.each([['(t as any).ui'], ['t!.ui'], ['(<any>t).ui'], ['(ui<Type>)'], ['(ui as any)']])(
+      'should still decline a tag written as %s',
+      (tag) => {
+        const source = `import { ui } from '@ttylabs/sigil/template';
+import * as t from '@ttylabs/sigil/template';
+const v = ${tag}\`<text>wrapped</text>\`;`;
+
+        expect(findTemplates('a.ts', source)).to.deep.equal([]);
+      }
+    );
+
     it('should find a template through a parenthesized tag', () => {
       // oxc preserves the parentheses as a node, so reading the tag straight
       // off declines a template with nothing wrong with it

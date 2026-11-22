@@ -317,6 +317,10 @@ const ENTRIES = [
     desc: 'A treemap: a tree of sized items as squarified rectangles in half blocks, coloured by a callback, with the current item outlined',
     name: 'treemap',
   },
+  {
+    desc: 'A code view: highlighted lines with an optional gutter of line numbers, cut or folded to a width',
+    name: 'code-view',
+  },
 ];
 
 /** `./src/element/index.ts` -> `element`, read off the build's own entry list. */

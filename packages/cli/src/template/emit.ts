@@ -78,6 +78,7 @@ import {
   splitRefs,
   templateError,
   textPart,
+  trackedFlag,
 } from '@ttylabs/sigil/template';
 
 /** One name the generated code imports, and what it calls it. */
@@ -440,7 +441,7 @@ class Printer {
    * @returns The expression, or the name it was bound to.
    */
   #raw(node: IRElement): string {
-    const { measure, paint, props: all } = rawParts(node);
+    const { measure, paint, props: all, tracked } = rawParts(node);
     const { props, refs } = splitRefs(all);
 
     // a value the template wrote out is a value, and a value is never a
@@ -460,12 +461,20 @@ class Printer {
       }
     }
 
+    // the same refusal the interpreter makes, asked of the same function: what
+    // is not an expression is a literal and is decidable now, and what is one is
+    // printed for the run to check, since it can be a variable
+    const flag = trackedFlag(tracked, node.loc);
+
     const statics = this.#statics(props, node.loc);
     const args = [
       this.#source(measure),
       this.#source(paint),
       loc(node.loc),
-      ...(statics.argument === '' ? [] : [statics.argument]),
+      // `tracked` is the fifth argument, so a plain raw prints exactly what it
+      // did before and the fourth stands in for it when there are no static props
+      ...(flag === false && statics.argument === '' ? [] : [statics.argument || '{}']),
+      ...(flag === false ? [] : [flag === true ? 'true' : this.#source(flag)]),
     ];
     const expression = `${this.#use(this.#template, 'rawElement')}(${args.join(', ')})`;
 
