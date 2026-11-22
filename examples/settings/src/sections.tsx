@@ -21,7 +21,7 @@ import { TextField } from '@ttylabs/sigil/components/text-field';
 import { showToast } from '@ttylabs/sigil/components/toast';
 import type { Element } from '@ttylabs/sigil/element';
 import type { InputRouter } from '@ttylabs/sigil/input';
-import { getOwner, onCleanup, useContext } from '@ttylabs/sigil/renderer';
+import { onCleanup, useContext } from '@ttylabs/sigil/renderer';
 import { State } from '@ttylabs/sigil/signals';
 
 /** The settings form every section edits. */
@@ -178,16 +178,13 @@ export function Session(): Element {
   const app = useApp();
   const input = router();
   const account = useContext(AccountContext);
-  // the dialog is opened from a key handler, which has no owner, so it borrows
-  // this component's
-  const owner = getOwner();
   const user = new State<string | undefined>(undefined);
 
   const signIn = Button({
     disabled: () => user.get() !== undefined,
     label: 'Sign in...',
     onPress: () => {
-      const dialog = openLogin({ account, host: app.view, input, owner });
+      const dialog = openLogin({ account, host: app.view, input });
       void dialog.result.then((name) => {
         if (name === undefined) {
           return;

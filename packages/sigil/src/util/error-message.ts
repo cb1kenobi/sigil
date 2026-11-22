@@ -19,7 +19,7 @@ const fallbackMessage = 'Unknown error';
  * @param key - The property to read.
  * @returns The value, when it is a non-empty string.
  */
-export function readString(obj: object, key: 'message' | 'name'): string | undefined {
+export function readString(obj: object, key: 'code' | 'message' | 'name'): string | undefined {
   try {
     const value = (obj as Record<string, unknown>)[key];
     return typeof value === 'string' && value ? value : undefined;

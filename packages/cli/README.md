@@ -165,6 +165,9 @@ default.
 `sigil new` scaffolds `.github/workflows/release.yml`, which builds every target
 on a version tag and attaches them to a GitHub release. It is one job because
 Bun cross-compiles; the comment at the top says what to change for Node.
+Its actions are pinned to commit SHAs and `.github/dependabot.yml` keeps them
+current; the install skips lifecycle scripts, and the release token reaches only
+the step that creates the release.
 
 ## The command reference, and the surface snapshot
 

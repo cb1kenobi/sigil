@@ -58,7 +58,7 @@ describe('resolving a command tree', () => {
   });
 
   it('should agree with what the runtime walks', async () => {
-    // the whole reason the route rules live in `@ttylabs/sigil/routes`: an app
+    // the whole reason the route rules live in `@ttylabs/sigil/internal/routes`: an app
     // that routed differently bundled and unbundled is the one divergence a
     // user cannot debug, so the two walks are asserted against each other
     // rather than each against its own expectation
@@ -828,7 +828,7 @@ describe('a generated tree at run time', () => {
  * whitespace, `,`, a leading `!`, `@`, `<` or `[` -- is refused with the
  * runtime's message rather than baked, and a scoped package registers as the
  * name after its scope. A built app that registered what the source run
- * refuses is the divergence `@ttylabs/sigil/routes` exists to prevent.
+ * refuses is the divergence `@ttylabs/sigil/internal/routes` exists to prevent.
  */
 describe('resolving a tree whose names are the file system’s', () => {
   /** A directory holding the given files. */

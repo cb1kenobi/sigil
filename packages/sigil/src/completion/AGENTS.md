@@ -1591,6 +1591,65 @@ dispatches between the printer and the installer.
 
 > Moved: _What the three review rounds found, and what the sabotage pass found after them_, _What the first PR review round found: a recipe that could not work if followed_, _What the second PR review round found: the route that was not where the install was_, _What the third PR review round found: the compinit line that is not there_, _SIG-155: appending the block, and the three guards the sabotage pass had no test for_ — see [docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md](../../../../docs/history/shell-completion-printed-from-the-tree-the-parser-already-ho.md).
 
+##### The installer echoes a path inert
+
+- **A path, a program name and Node's own message are escaped where they are put
+  into text (SIG-576).** The target path comes from the environment --
+  `XDG_DATA_HOME`, `ZDOTDIR`, `HOME` -- and the installer writes into the user's
+  own directories, so a control character in one of them reached the terminal
+  raw from every message that quoted it: `installer.ts` and `interactive.ts` had
+  24 such messages and none escaped. `escapeControls()` is applied **inside the
+  placeholder** of the `__` tag, so the key each one looks up is the one it always
+  was and a catalog needs no change. `planLines()` and `resultLines()` escape the
+  script's path and the startup file's once, at the top. That is the half that
+  mattered most: `interactive.ts` writes them to `process.stderr` as they are and
+  not through a canvas, which would have stripped a control character, so the
+  plan was raw on every install under such a directory and not only on a failure.
+- **Node's own error from an uninstall goes through `inertError()`, around
+  `lstatSync()` and both `unlinkSync()` calls.** `EACCES: permission denied,
+  unlink '<path>'` quotes the path, and this is the case SIG-571 left open in
+  `packages/sigil/src/config`: `realPathOf()` is the one function there that does
+  not wrap its own throw, because its other callers discard it. The message is
+  edited **on the error Node threw**, so `code`, `path` and `syscall` are what
+  Node set -- `error.path` is the real path and is never escaped. `readOr()` is
+  the other Node message, and it builds a new error, so it escapes both the path
+  and the message it quotes.
+- **A line somebody may copy has to name the file, which escaping alone breaks.**
+  `rm ${shQuote(file)}` kept an `ESC` raw, and `rm '<path with \x1B>'` would name
+  a file that is not there. So `shDisplay()` in `interactive.ts` is `shQuote()`'s
+  word for a path with nothing in it to escape and the `$'...'` form for one with
+  something, each character `escapeControls()` would change written as its
+  UTF-8 **bytes**, each one `\xNN`, and the backslash and quote as themselves.
+  Bytes rather than `\uNNNN`, which was the first version and was wrong twice:
+  bash 3.2, the one macOS ships, has no `\u` and keeps it literal, and in zsh it
+  is read through the locale, so `LC_ALL=C` refuses it. And `\xNN` for a code
+  point such as U+009B is **one** byte, `9B`, where the file's name holds `C2 9B`
+  -- so the character's own number is not what that escape wants. Found by
+  review, with each shell handed the printed word. The class is `escapeControls()`'s, asked one character
+  at a time, so it is still defined once; `shQuote()` itself is not touched,
+  because it writes the startup file, where a shell reading a raw byte is what is
+  wanted. The test hands the printed word to `bash` and compares what it prints
+  with the path. `$'...'` is not POSIX before 2024 and a plain `sh` such as an
+  old `dash` would read it as a literal: it is the form for the two shells this
+  module installs for, and the rare path that needs it.
+- **The program name is escaped too, though `programOf()` has already taken the
+  control characters out of it.** What it leaves is the format characters -- a
+  U+202E in a name reverses the line it is printed on -- so the escape is what is
+  left to do, and the one rule is applied at every use rather than being argued
+  for per name. The recipes `instructions()` prints are given the escaped name:
+  a name holding one is not a name anybody could type, so it is the printed form
+  that is wrong rather than the escape.
+- **What is not covered.** The confirm and select prompts' own messages carry
+  the escaped name as well, but nothing tests that: they are drawn by a canvas
+  that strips what they hold, so the escape there is defence and a sabotage of it
+  fails no test. `planInstall()` and `applyRc()` write the path into the startup
+  file through `shQuote()` raw, which is correct for a file and is not output.
+  `test/completion-escape.test.ts` is skipped on Windows, which cannot create the
+  name. The refused `unlink` is a stand-in throwing Node's error as Node shapes
+  it, because a real one needs a read-only directory -- a mode `executable.test.ts`
+  counts, and one root does not have -- and nothing else makes it fail after a
+  read that succeeded.
+
 ##### What is deliberately out
 
 - **Editing a line this did not write**, which is what is left of SIG-151's

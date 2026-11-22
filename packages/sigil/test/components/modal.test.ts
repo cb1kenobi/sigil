@@ -13,8 +13,14 @@ import {
   text,
 } from '../../src/element/index.js';
 import { createInput, ESCAPE_TIMEOUT, type MouseEvent } from '../../src/input/index.js';
-import { render } from '../../src/renderer/index.js';
-import { flush, State } from '../../src/signals/index.js';
+import {
+  createEffect,
+  createRoot,
+  onCleanup,
+  render,
+  runWithOwner,
+} from '../../src/renderer/index.js';
+import { Computed, flush, sinkCount, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -1021,5 +1027,319 @@ describe('the quiet axis', () => {
     expect(screen(s.root)).to.include('Still here');
     await s.term.press(KEYS.enter);
     expect(handle.open).to.equal(false);
+  });
+});
+
+/**
+ * SIG-335. A dialog is opened from a key handler or an `onPress`, which run with
+ * no owner, so an effect in a body the caller built first was created unowned and
+ * never disposed: it went on following the app's state after the dialog had gone.
+ * A body function is built under an owner the dialog disposes on close.
+ */
+describe('a body built by a function', () => {
+  /** A scene mounted under a renderer, so that the host has a root owner. */
+  function mounted() {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+    return { ...s, view };
+  }
+
+  /** The measured shape: an effect over an app `State`, made as the body is built. */
+  function follower(app: State<number>, runs: number[]): () => Element {
+    return () => {
+      createEffect(() => {
+        runs.push(app.get());
+      });
+      return text('body');
+    };
+  }
+
+  it('should stop an effect in the body when the dialog closes', async () => {
+    const s = mounted();
+    const app = new State(0);
+    const runs: number[] = [];
+    const handle = openModal(s.view, { body: follower(app, runs), input: s.input });
+    expect(runs).toEqual([0]);
+
+    app.set(1);
+    s.view.frame();
+    expect(runs).toEqual([0, 1]);
+
+    handle.close();
+    app.set(2);
+    s.view.frame();
+    expect(runs).toEqual([0, 1]);
+  });
+
+  it('should leave an effect in a body built first running, which is what a function is for', () => {
+    const s = mounted();
+    const app = new State(0);
+    const runs: number[] = [];
+    const handle = openModal(s.view, { body: follower(app, runs)(), input: s.input });
+    handle.close();
+    app.set(1);
+    flush();
+    expect(runs).toEqual([0, 1]);
+  });
+
+  it('should stop it for every way a dialog ends', async () => {
+    const ended: Array<(s: ReturnType<typeof mounted>, handle: { close(): void }) => unknown> = [
+      (_, handle) => handle.close(),
+      async (s) => escape(s.term),
+      async (s) => s.term.press(KEYS.enter),
+      (s) => s.view.dispose(),
+    ];
+    for (const end of ended) {
+      const s = mounted();
+      const app = new State(0);
+      const runs: number[] = [];
+      const handle = openModal(s.view, { body: follower(app, runs), input: s.input });
+      await end(s, handle);
+      expect(handle.open).to.equal(false);
+      runs.length = 0;
+      app.set(1);
+      if (s.view.mounted) {
+        s.view.frame();
+      } else {
+        flush();
+      }
+      expect(runs).toEqual([]);
+    }
+  });
+
+  it('should run an onCleanup in the body once, as the dialog closes', () => {
+    const s = mounted();
+    const seen: string[] = [];
+    const handle = openModal(s.view, {
+      body: () => {
+        onCleanup(() => seen.push(`cleanup, attached: ${handle.element.parent !== undefined}`));
+        return text('body');
+      },
+      input: s.input,
+    });
+    expect(seen).toEqual([]);
+    handle.close();
+    handle.close();
+    expect(seen).toEqual(['cleanup, attached: true']);
+  });
+
+  it('should build it once, whatever the body reads', () => {
+    const s = mounted();
+    const app = new State('a');
+    let built = 0;
+    const handle = openModal(s.view, {
+      body: () => {
+        built++;
+        return text(app.get());
+      },
+      input: s.input,
+    });
+    app.set('b');
+    s.view.frame();
+    expect(built).toBe(1);
+    handle.close();
+  });
+
+  it('should belong to the screen rather than to the component that opened it', () => {
+    const s = mounted();
+    const app = new State(0);
+    const runs: number[] = [];
+    let handle!: ReturnType<typeof openModal>;
+    // a component that opens a dialog from its own body and then goes while the
+    // dialog is up: the dialog is still on the screen holding the keys, so what it
+    // built has to go on working, and go when the dialog does
+    const unmount = createRoot((dispose) => {
+      handle = openModal(s.view, { body: follower(app, runs), input: s.input });
+      return dispose;
+    });
+    unmount();
+    expect(handle.open).to.equal(true);
+    app.set(1);
+    s.view.frame();
+    expect(runs).toEqual([0, 1]);
+
+    handle.close();
+    app.set(2);
+    s.view.frame();
+    expect(runs).toEqual([0, 1]);
+  });
+
+  it('should not make the effect that opened the dialog depend on what the body reads', () => {
+    const s = mounted();
+    const app = new State('a');
+    let opened = false;
+    const handles: Array<{ close(): void }> = [];
+    runWithOwner(s.view.owner, () => {
+      createEffect(() => {
+        // once: opening moves the focus, which this effect reads and so re-runs on
+        if (!opened) {
+          opened = true;
+          handles.push(openModal(s.view, { body: () => text(app.get()), input: s.input }));
+        }
+      });
+    });
+    // read before any frame, while the opener's first run is all there has been: a
+    // later run sheds its sinks, which is what hid this from the first draft
+    expect(sinkCount(app)).toBe(0);
+    for (const handle of handles) {
+      handle.close();
+    }
+  });
+
+  it('should hand a cleanup that threw to the renderer when there is one', () => {
+    const errors: unknown[] = [];
+    const s = scene();
+    const view = render(() => s.root, {
+      onError: (e) => errors.push(e),
+      terminal: s.term.terminal,
+    });
+    handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+    const handle = openModal(view, {
+      body: () => {
+        onCleanup(() => {
+          throw new Error('cleanup failed');
+        });
+        return text('body');
+      },
+      input: s.input,
+    });
+    handle.close();
+    expect(handle.open).to.equal(false);
+    expect(errors.map((e) => (e as Error).message)).toEqual(['cleanup failed']);
+  });
+
+  it('should leave nothing running when the function throws on a bare element too', () => {
+    const s = scene();
+    handles.push({ dispose: () => s.input.stop() });
+    const app = new State(0);
+    const runs: number[] = [];
+    expect(() =>
+      openModal(s.root, {
+        body: () => {
+          createEffect(() => {
+            runs.push(app.get());
+          });
+          throw new Error('no body');
+        },
+        input: s.input,
+      })
+    ).toThrow('no body');
+    app.set(1);
+    flush();
+    expect(runs).toEqual([0]);
+  });
+
+  it('should be built and disposed under a root of its own on a host that is a bare element', () => {
+    const s = scene();
+    handles.push({ dispose: () => s.input.stop() });
+    const app = new State(0);
+    const runs: number[] = [];
+    const handle = openModal(s.root, { body: follower(app, runs), input: s.input });
+    app.set(1);
+    flush();
+    expect(runs).toEqual([0, 1]);
+    handle.close();
+    app.set(2);
+    flush();
+    expect(runs).toEqual([0, 1]);
+  });
+
+  it('should keep a computed read in the body live while open and let go after', () => {
+    const s = mounted();
+    const app = new State(1);
+    let doubled: Computed<number> | undefined;
+    const seen: number[] = [];
+    const handle = openModal(s.view, {
+      body: () => {
+        doubled = new Computed(() => app.get() * 2);
+        createEffect(() => {
+          seen.push(doubled!.get());
+        });
+        return text('body');
+      },
+      input: s.input,
+    });
+    app.set(2);
+    s.view.frame();
+    handle.close();
+    app.set(3);
+    s.view.frame();
+    expect(seen).toEqual([2, 4]);
+  });
+
+  it('should draw what the function returned, in the body', async () => {
+    const s = mounted();
+    openModal(s.view, { body: () => text('built late'), input: s.input, title: 'T' });
+    await settle();
+    expect(screen(s.root)).to.include('built late');
+  });
+
+  it('should leave nothing open, and nothing running, when the function throws', () => {
+    const s = mounted();
+    const app = new State(0);
+    const runs: number[] = [];
+    expect(() =>
+      openModal(s.view, {
+        body: () => {
+          createEffect(() => {
+            runs.push(app.get());
+          });
+          throw new Error('no body');
+        },
+        input: s.input,
+      })
+    ).toThrow('no body');
+    app.set(1);
+    s.view.frame();
+    expect(runs).toEqual([0]);
+    // and no dialog took the keys
+    expect(s.root.children.length).toBe(2);
+  });
+
+  it('should refuse an answer that is not an element, with nothing left running', () => {
+    const s = mounted();
+    const app = new State(0);
+    const runs: number[] = [];
+    expect(() =>
+      openModal(s.view, {
+        body: (() => {
+          createEffect(() => {
+            runs.push(app.get());
+          });
+          return 'words';
+        }) as unknown as () => Element,
+        input: s.input,
+      })
+    ).toThrow('Expected a modal body function to return an element');
+    app.set(1);
+    s.view.frame();
+    expect(runs).toEqual([0]);
+  });
+
+  it('should still settle, and say so, when a cleanup in the body throws', async () => {
+    const s = scene();
+    handles.push({ dispose: () => s.input.stop() });
+    const handle = openModal(s.root, {
+      body: () => {
+        onCleanup(() => {
+          throw new Error('cleanup failed');
+        });
+        return text('body');
+      },
+      input: s.input,
+    });
+    expect(() => handle.close()).toThrow(/cleanup failed/);
+    expect(handle.open).to.equal(false);
+    expect(handle.element.parent).to.equal(undefined);
+    expect(await handle.result).to.equal(undefined);
+  });
+
+  it('should refuse a body that is none of a string, an element or a function', () => {
+    const s = scene();
+    handles.push({ dispose: () => s.input.stop() });
+    expect(() => openModal(s.root, { body: 42 as unknown as string, input: s.input })).toThrow(
+      'Expected a modal body to be a string, an element or a function'
+    );
   });
 });

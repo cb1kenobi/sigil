@@ -29,6 +29,7 @@ import {
   type Layout,
   LAYOUTS,
   type Linter,
+  isExactVersion,
   type Manager,
   MANAGERS,
   nameProblem,
@@ -46,6 +47,7 @@ import { expand } from '@ttylabs/sigil/paths';
 import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 
 /** This toolchain's own manifest, for the versions it writes. */
@@ -81,6 +83,34 @@ export const DEFAULTS: {
   syntax: 'jsx',
   tui: false,
 };
+
+/**
+ * The exact version of the pnpm this machine has, if it answers with one.
+ *
+ * Asked of the pnpm that will write the lockfile, because the release workflow
+ * installs the pnpm that has to read it back: a developer on pnpm 9 who got CI
+ * on whatever this repository uses could fail a frozen install on a tag, which
+ * is the one run nobody gets to redo. Run from the temp directory rather than
+ * from where the app goes, since pnpm reads the `packageManager` of the
+ * project it is in and may report a different pnpm than the developer's own.
+ *
+ * `undefined` for anything that is not a plain version -- a failed spawn, a
+ * non-zero exit, a line of banner -- and the scaffold then writes no
+ * `packageManager` and installs by major, which is what it did before this.
+ *
+ * @returns The version, e.g. `12.21.0`.
+ */
+function installedPnpmVersion(): string | undefined {
+  const result = spawnSync('pnpm', ['--version'], {
+    cwd: tmpdir(),
+    encoding: 'utf-8',
+    shell: process.platform === 'win32',
+    stdio: ['ignore', 'pipe', 'ignore'],
+    timeout: 15_000,
+  });
+  const text = result.status === 0 ? result.stdout.trim() : '';
+  return isExactVersion(text) ? text : undefined;
+}
 
 /**
  * Which package manager to use, asked only when there is something to ask.
@@ -244,6 +274,8 @@ const newApp: AnyCommand = command({
       // on its first tag
       manager: pm,
       name,
+      // only a pnpm app reads it, so the others do not pay for a process
+      pnpmVersion: pm === 'pnpm' ? installedPnpmVersion() : undefined,
       syntax,
       tui,
       version: own.version,

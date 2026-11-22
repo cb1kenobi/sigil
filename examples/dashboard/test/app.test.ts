@@ -82,8 +82,8 @@ function mount({
     await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
     await settle();
   };
-  /** Tabs from the sidebar to the table: the search, the menu, the range, the table. */
-  const toTable = async () => press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+  /** Tabs from the sidebar to the table: the search, the menu, the range, the chart, the table. */
+  const toTable = async () => press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
 
   return { app, escape, line, press, rows: rows_, screen, settle, term, toTable, type };
 }
@@ -241,6 +241,42 @@ describe('the chart', () => {
   });
 });
 
+describe('the chart, from the keyboard (SIG-516)', () => {
+  it("should take the focus, and step the rule between days with Left and Right, saying that day's figures", async () => {
+    const s = mount();
+    await s.press('r', 'r');
+    const days = traffic();
+    const last = days.at(-1) as Day;
+    const before = days.at(-2) as Day;
+    // the chart is the fourth stop from the sidebar: the search, the menu, the
+    // range, the chart
+    await s.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+    expect(s.screen()).toContain('│ Nov 16');
+    expect(s.screen()).toContain(`API ${compact(last.api)}`);
+
+    await s.press(KEYS.left);
+    expect(s.screen()).toContain('│ Nov 15');
+    expect(s.screen()).toContain(`API ${compact(before.api)}`);
+    expect(s.screen()).toContain(`Web ${compact(before.web)}`);
+
+    await s.press(KEYS.right);
+    expect(s.screen()).toContain('│ Nov 16');
+    // and the arrows did not change the range, which is the tab row's
+    expect(s.screen()).toContain('Requests a day for the last 7 days');
+  });
+
+  it('should list the keys in the footer while the chart has the focus, and not before', async () => {
+    const s = mount();
+    const footer = (): string => s.term.viewport.findLast((each) => /\bnext\b/.test(each)) ?? '';
+    await s.settle();
+    const unfocused = footer();
+    await s.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+    const focused = footer();
+    expect(unfocused).not.toContain('←/→ move');
+    expect(focused).toContain('tab next · ←/→ move · / search');
+  });
+});
+
 describe('the table', () => {
   it('should sort every page by a heading digit, and turn pages with ] and [', async () => {
     const s = mount();
@@ -332,13 +368,32 @@ describe('the table', () => {
     const row = (s.term.viewport[y] ?? '').slice(x - 1);
     const click = `\x1b[<0;${x};${y + 1}M\x1b[<0;${x};${y + 1}m`;
     // both clicks in one read, as a fast double click arrives: the cursor moves
-    // and the row activates before the effect that moves `is-current` has run
+    // and the row activates in one handler, before a frame has run for either
     await s.press(click + click);
     // the menu opens under the clicked row, not under the row the cursor was on
     expect(s.term.viewport[y + 1]).toMatch(/╭─+╮/);
     expect(s.term.viewport[y + 2]).toContain('Pause');
     // and leaves the row itself, its name and every figure in it, in view
     expect((s.term.viewport[y] ?? '').slice(x - 1)).toBe(row);
+  });
+
+  it('should open the menu beside a row the same read scrolled to, which was built only then', async () => {
+    // a terminal too short for the page, so End scrolls the table to rows that
+    // were not built; End and Enter arrive in one read, before any frame
+    const s = mount({ columns: 120, rows: 24 });
+    await s.toTable();
+    const before = s.rows();
+    await s.press(`${KEYS.end}${KEYS.enter}`);
+    const shown = s.rows();
+    expect(shown).not.toStrictEqual(before);
+    const name = shown.at(-1) ?? '';
+    const y = s.term.viewport.findIndex((each) => each.includes(`❯ ◯ ${name}`));
+    expect(y).toBeGreaterThanOrEqual(0);
+    const row = s.term.viewport[y] ?? '';
+    expect(s.screen()).toContain('Redeploy');
+    // the menu is beside that row: it ends on the line above it, and the row stays in view
+    expect(s.term.viewport[y - 1]).toMatch(/╰─+╯/);
+    expect(s.term.viewport[y]).toBe(row);
   });
 
   it('should open the menu above the last row of a page, and leave the row in view', async () => {

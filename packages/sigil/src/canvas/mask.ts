@@ -9,7 +9,7 @@
  * only which generator filled the field.
  *
  * **Generated once, never per frame.** A per-frame random gives exactly the
- * shimmer `distribute()` exists to prevent one layer up: a cell that was in on
+ * shimmer `distributeCells()` exists to prevent one layer up: a cell that was in on
  * frame nine and out on frame ten flickers, and the reveal reads as noise rather
  * than as a dissolve. Every generator here is a pure function of its arguments
  * and a `Random`, so a seeded one reproduces.

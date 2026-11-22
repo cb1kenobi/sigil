@@ -26,8 +26,9 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
-import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
+import { maxOf, stringWidth } from '../width/index.js';
 import { isBreakSpace, terminalWidth } from '../wrap/index.js';
+import { codeView } from './code-view.js';
 import { colorLevelOf } from './color-level.js';
 import {
   type MarkdownAlign,
@@ -37,7 +38,7 @@ import {
   markdownText,
 } from './markdown-parse.js';
 import { unicodeSupported } from './note.js';
-import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
+import { type Highlighter, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
 import { type Column, tableRowView, tableWidths } from './table.js';
 
@@ -318,7 +319,9 @@ function blockView(block: MarkdownBlock, ctx: Context): Element {
  * the lines and then with the folds, so a block comment over three lines is one
  * span and a token a fold breaks is drawn in its own style on both rows. Each row
  * is then a row of fixed-width `pre` texts, one per run of cells with one token,
- * which is how `diff()` draws a highlighted line: one element resolves one style.
+ * which is `codeView()`: one element resolves one style. A block the hook marked
+ * nothing in is the same rows with the accent for every run -- the role `keyword`
+ * draws in, which is why it cannot stay under tokens that are there.
  *
  * @param code - The code.
  * @param info - The language, as the fence named it, or `''`.
@@ -326,122 +329,27 @@ function blockView(block: MarkdownBlock, ctx: Context): Element {
  * @returns Its tree.
  */
 function codeBlock(code: string, info: string, ctx: Context): Element {
-  const room = Math.max(1, ctx.room - 2);
-  const source = code.split('\n');
-  const outer = {
-    class: 'sigil-markdown-code-block',
-    'flex-direction': 'column',
-    'padding-left': 2,
-  };
   // a hook that throws is the caller's code failing, and is left to reach the
   // caller -- the answer `diff()` and `multiline()` give -- and a span out of range
   // is clipped and a bad token name refused by the validator all three share
   const tokens = ctx.highlight
     ? tokensOf(code, ctx.highlight(code, info === '' ? undefined : info))
     : undefined;
+  const marked = tokens?.some((token) => token !== undefined) === true;
 
-  if (!tokens?.some((token) => token !== undefined)) {
-    const lines = source.flatMap((line) => fold(line, room));
-    return box(
-      outer,
-      textNode(lines.join('\n'), {
-        class: 'sigil-markdown-code sigil-accent',
-        'white-space': 'pre',
-      })
-    );
-  }
-
-  const rows: Element[] = [];
-  let at = 0;
-  for (const line of source) {
-    for (const part of fold(line, room)) {
-      rows.push(codeRow(part, tokens, at));
-      at += part.length;
-    }
-    // the line break the split took out
-    at++;
-  }
-  return box(outer, ...rows);
-}
-
-/**
- * One row of a highlighted code block, as runs of cells that share a token.
- *
- * A cluster takes the token of the code unit it starts at, which is `diff()`'s
- * rule: a span that ends inside a cluster cannot colour half of one cell.
- *
- * @param part - The row's text.
- * @param tokens - The token of every code unit of the block.
- * @param at - Where the row starts in the block.
- * @returns The row.
- */
-function codeRow(part: string, tokens: readonly (string | undefined)[], at: number): Element {
-  const runs: { text: string; token: string | undefined }[] = [];
-  let offset = at;
-  for (const cluster of graphemes(part)) {
-    const token = tokens[offset];
-    const last = runs.at(-1);
-    if (last && last.token === token) {
-      last.text += cluster;
-    } else {
-      runs.push({ text: cluster, token });
-    }
-    offset += cluster.length;
-  }
-  if (runs.length === 0) {
-    // an empty text, so an empty line keeps its row
-    runs.push({ text: '', token: undefined });
-  }
-
-  return box(
-    { class: 'sigil-markdown-code-row', 'flex-direction': 'row', 'flex-shrink': 0 },
-    ...runs.map(({ text, token }) => {
-      // a token with no role, an app's own, is the plain foreground with a class
-      // for the app's sheet; a role replaces nothing, since nothing else is set
-      const role = token === undefined ? undefined : TOKEN_ROLE.get(token);
-      const classes = ['sigil-markdown-code'];
-      if (token !== undefined) {
-        classes.push('sigil-token', `sigil-token-${token}`);
-      }
-      if (role !== undefined) {
-        classes.push(role);
-      }
-      return textNode(text, {
-        class: classes.join(' '),
-        'flex-shrink': 0,
-        'white-space': 'pre',
-        width: stringWidth(text),
-      });
-    })
-  );
-}
-
-/**
- * A line cut into pieces no wider than the room, at grapheme boundaries.
- *
- * @param line - The line.
- * @param room - The columns.
- * @returns The pieces, at least one.
- */
-function fold(line: string, room: number): string[] {
-  if (stringWidth(line) <= room) {
-    return [line];
-  }
-  const out: string[] = [];
-  let current = '';
-  let used = 0;
-  for (const cluster of graphemes(line)) {
-    const w = graphemeWidth(cluster);
-    if (used + w > room && current !== '') {
-      out.push(current);
-      current = '';
-      used = 0;
-    }
-    current += cluster;
-    used += w;
-  }
-  out.push(current);
-  return out;
+  return codeView(code, {
+    class: 'sigil-markdown-code',
+    // a block the hook marked nothing in is drawn as it was: the accent
+    plain: marked ? undefined : 'sigil-accent',
+    props: {
+      class: 'sigil-markdown-code-block',
+      'flex-direction': 'column',
+      'padding-left': 2,
+    },
+    tokens: marked ? tokens : undefined,
+    width: Math.max(1, ctx.room - 2),
+    wrap: 'fold',
+  });
 }
 
 /**
