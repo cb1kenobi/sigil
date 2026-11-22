@@ -123,7 +123,12 @@ const CORE_TAGS: ReadonlySet<string> = new Set([
 export interface ReadShape {
   /** Lines from offsets, for a message that can point at one. */
   lines: LineCounter;
-  /** What to call the document in a message, which is its path. */
+  /**
+   * What to call the document in a message, which is its path **already
+   * escaped**: it is the path as it is on disk, and a message must not echo a
+   * control character in it raw. Built where the shape is, so no message has to
+   * remember.
+   */
   what: string;
 }
 
@@ -472,7 +477,7 @@ export function readDocument(doc: Document, read: ReadShape): unknown {
     return unshare(doc.toJS());
   } catch (e: unknown) {
     throw new Error(
-      __`Failed to read ${read.what}: ${(e as Error).message.split('\n')[0] as string}`
+      __`Failed to read ${read.what}: ${escapeControls((e as Error).message.split('\n')[0])}`
     );
   }
 }

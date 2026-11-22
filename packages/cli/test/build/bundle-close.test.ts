@@ -130,8 +130,10 @@ describe('closing the bundle', () => {
 
     // named, and naming the directory as well, so the test cannot pass because
     // something else went wrong on the way to the write -- and so that a
-    // harness faking rolldown's message would have to fake the path too
-    expect(failure).toContain('Could not create directory');
+    // harness faking the file system's message would have to fake the path too.
+    // `EEXIST` is Node's, from the `mkdir` that runs inside the bundle's write
+    // (SIG-559); it was rolldown's `Could not create directory` before
+    expect(failure).toContain('EEXIST');
     expect(failure).toContain(out);
     expect(closes).toStrictEqual(['close']);
   }, 60_000);
@@ -155,7 +157,7 @@ describe('closing the bundle', () => {
     // really does come out of `close()`
     const failure = await build(outIsAFile(), true);
 
-    expect(failure).toContain('Could not create directory');
+    expect(failure).toContain('EEXIST');
     expect(failure).not.toContain('closeBundle exploded');
     // the premise, so that arming the failure is load-bearing rather than
     // decoration: without this the test passes on a `close()` that never threw

@@ -1,6 +1,6 @@
 import { assertCleanable, clean, holdsApp } from '../src/commands/_inspect.ts';
 import { tempDir } from './temp.ts';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, parse, posix, resolve, win32 } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -114,3 +114,55 @@ describe('the clean guard', () => {
     ).not.toThrow();
   });
 });
+
+// SIG-560: the guard is asked before the bundle, outside what `escaped()` covers,
+// so a file system error it threw would print its path as it stands. Every call
+// it makes on the file system is one that cannot throw -- `existsSync()`, and
+// `landsAt()` and `statOf()`, which each catch what Node raises -- and this is
+// what says so for the three kinds of path that make a call fail
+describe.skipIf(process.platform === 'win32')(
+  'the clean guard over a path the file system refuses',
+  () => {
+    /** Asks the guard both ways, which are different paths through it. */
+    function asked(out: string, root: string): void {
+      for (const clean of [true, false]) {
+        expect(
+          () => assertCleanable(out, { clean, reads: [root], root }),
+          String(clean)
+        ).not.toThrow();
+      }
+    }
+
+    it('should not throw for a path under a file, which is ENOTDIR', () => {
+      const root = tempDir('sigil-guard-enotdir-');
+      const file = join(root, 'afile');
+      writeFileSync(file, '');
+
+      asked(join(file, 'out'), root);
+    });
+
+    it('should not throw for a path through a link loop, which is ELOOP', () => {
+      const root = tempDir('sigil-guard-eloop-');
+      symlinkSync('two', join(root, 'one'));
+      symlinkSync('one', join(root, 'two'));
+
+      asked(join(root, 'one', 'out'), root);
+    });
+
+    it.skipIf(process.getuid?.() === 0)(
+      'should not throw for one inside a directory it cannot search, which is EACCES',
+      () => {
+        const root = tempDir('sigil-guard-eacces-');
+        const locked = join(root, 'locked');
+        mkdirSync(locked);
+        chmodSync(locked, 0o000);
+
+        try {
+          asked(join(locked, 'out'), root);
+        } finally {
+          chmodSync(locked, 0o755);
+        }
+      }
+    );
+  }
+);

@@ -136,7 +136,9 @@ export function scanJsonc(text: string, what: string): JsoncScan {
         i++;
       }
       if (!closed) {
-        throw new Error(__`Unterminated string in ${what} on line ${lineOf(start)}`);
+        throw new Error(
+          __`Unterminated string in ${escapeControls(what)} on line ${lineOf(start)}`
+        );
       }
       // a `\\` at the very end walked the cursor past the source, and `slice()`
       // clamps -- so the copy below would hand `JSON.parse` a string that ends
@@ -157,7 +159,9 @@ export function scanJsonc(text: string, what: string): JsoncScan {
       if (block) {
         const close = source.indexOf('*/', i + 2);
         if (close === -1) {
-          throw new Error(__`Unterminated comment in ${what} on line ${lineOf(start)}`);
+          throw new Error(
+            __`Unterminated comment in ${escapeControls(what)} on line ${lineOf(start)}`
+          );
         }
         end = close + 2;
       } else {
@@ -196,7 +200,7 @@ export function scanJsonc(text: string, what: string): JsoncScan {
     if (c === '\u2028' || c === '\u2029') {
       const code = c === '\u2028' ? 'U+2028' : 'U+2029';
       throw new Error(
-        __`Unexpected ${code} in ${what} on line ${lineOf(i)}: JSON allows it only inside a string`
+        __`Unexpected ${code} in ${escapeControls(what)} on line ${lineOf(i)}: JSON allows it only inside a string`
       );
     }
 
@@ -260,6 +264,8 @@ export function parseJsonc(
     // the split `Invalid JSON: {0}` already takes: a translator gets the
     // sentence and the engine's message arrives as data. Escaped, because that
     // message quotes the text it failed on, which is the file's rather than ours
-    throw new Error(__`Failed to parse ${what}: ${escapeControls((e as Error).message)}`);
+    throw new Error(
+      __`Failed to parse ${escapeControls(what)}: ${escapeControls((e as Error).message)}`
+    );
   }
 }
