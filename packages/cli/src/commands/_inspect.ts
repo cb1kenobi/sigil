@@ -32,6 +32,7 @@ import {
   discoverApp,
   displayPath,
   escapeMessage,
+  findSchema,
   forgetParsedModules,
   isFatal,
   isInside,
@@ -41,6 +42,7 @@ import {
   readAppCatalogs,
   readAppCommands,
   resolveCommandTree,
+  schemaModule,
   TemplateCompileError,
   templateDiagnostics,
   typeCheck,
@@ -135,6 +137,18 @@ export function inspect(options: InspectOptions): Inspection {
 
   const catalogs = readAppCatalogs(app);
   diagnostics.push(...checkTranslations(app, catalogs, diagnostics));
+
+  // a schema reached through the entry's own `main()` call is read like any other,
+  // but a built app imports the entry for an export and finds none
+  if (findSchema(app.entry).viaMain) {
+    diagnostics.push({
+      file: app.entry,
+      message:
+        'this entry calls main() with a schema it imports and exports none, which a built app ' +
+        'needs: export the schema as the default and call main() from a runner of its own',
+      severity: 'error',
+    });
+  }
 
   // a `settings` passed to the app's own `main()` is lost in the built app, which
   // calls `main({ schema })` itself -- so say so, where the app has not moved it
@@ -236,7 +250,8 @@ function checkTranslations(
 
   return checkCatalogs({
     catalogs: read.catalogs,
-    file: app.entry,
+    // the schema's `locales` is what the catalogs were read from
+    file: schemaModule(app.entry),
     framework: SIGIL_KEYS,
     keys: appKeys(app.root),
   });
@@ -375,7 +390,7 @@ function findCommands(
     // `sigil new --layout single` scaffolds cannot be built at all.
     if (!declared.found && !declared.root) {
       diagnostics.push({
-        file: app.entry,
+        file: schemaModule(app.entry),
         message:
           'no "commands" found in this module; pass --entry to name the one declaring the schema, or --commands to name a command directory',
         severity: 'error',
@@ -977,6 +992,8 @@ export function buildReads(found: Inspection, bin?: string): readonly string[] {
   const { root } = found.app;
   const files = [
     found.app.entry,
+    // read for the schema, and a file the build reads is one it must not clean
+    schemaModule(found.app.entry),
     ...modulesOf(found.commands),
     ...found.catalogFiles,
     join(root, 'package.json'),

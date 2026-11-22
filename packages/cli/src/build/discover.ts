@@ -35,7 +35,8 @@
  *
  * An app's `commands` is either a path -- the filesystem router, which
  * `resolveCommandTree()` already walks -- or an object written out. Both are
- * read off the entry's source, because running it would run the app.
+ * read off source -- the entry's, or the module the entry imports its schema
+ * from (`schemaModule()`) -- because running it would run the app.
  */
 
 import { type Diagnostic, displayPath } from './diagnostic.ts';
@@ -60,6 +61,7 @@ import {
   unwrapShallow,
 } from './literals.ts';
 import { locate, parseModule, type ParsedModule } from './parse-module.ts';
+import { schemaModule } from './schema-module.ts';
 import type { ResolvedCommand } from './tree.ts';
 import { physicalPath } from '@ttylabs/sigil/config';
 import { errorMessage, escapeControls } from '@ttylabs/sigil/error-handler';
@@ -131,7 +133,12 @@ export interface AppManifest {
 
 /** An app, found. */
 export interface DiscoveredApp {
-  /** The module its schema was read from. */
+  /**
+   * The module the generated entry imports its schema from.
+   *
+   * Not always the file the schema is written in: an entry that exports a schema it
+   * imported leaves that to `schemaModule()`, which the readers ask.
+   */
   readonly entry: string;
   /** What its manifest said. */
   readonly manifest: AppManifest;
@@ -499,7 +506,11 @@ export function readAppCommands(app: DiscoveredApp): {
    */
   root: boolean;
 } {
-  const parsed = parseModule(app.entry, readFileSync(app.entry, 'utf-8'));
+  // the module the schema is written in, which is the entry unless the entry
+  // imports it -- and what its paths, its positions and its `baseDir` are
+  // relative to either way
+  const file = schemaModule(app.entry);
+  const parsed = parseModule(file, readFileSync(file, 'utf-8'));
   const diagnostics: Diagnostic[] = [];
 
   const schemas = outermostWith(parsed.program as never, 'commands');
@@ -532,7 +543,7 @@ export function readAppCommands(app: DiscoveredApp): {
   }
 
   const declared = plainProperty(schemas[0]!, 'commands')!;
-  const entryDir = dirname(app.entry);
+  const schemaDir = dirname(file);
 
   const asPath = literalString(declared.value);
   if (asPath !== undefined) {
@@ -552,14 +563,14 @@ export function readAppCommands(app: DiscoveredApp): {
         ...locate(parsed, declared.value.start),
         message:
           `"commands" is a relative path and the schema sets no "baseDir", so this resolves it ` +
-          `against ${displayPath(entryDir)} while the runtime resolves it against the working ` +
+          `against ${displayPath(schemaDir)} while the runtime resolves it against the working ` +
           `directory. Add \`baseDir: import.meta.dirname\` to the schema.`,
         severity: 'warning',
       });
     }
 
     return {
-      commands: { dir: resolve(entryDir, asPath), kind: 'directory' },
+      commands: { dir: resolve(schemaDir, asPath), kind: 'directory' },
       diagnostics,
       found: true,
       root: false,
@@ -578,7 +589,7 @@ export function readAppCommands(app: DiscoveredApp): {
   }
 
   return {
-    commands: { commands: readInline(written, entryDir, parsed, diagnostics), kind: 'inline' },
+    commands: { commands: readInline(written, schemaDir, parsed, diagnostics), kind: 'inline' },
     diagnostics,
     found: true,
     root: false,

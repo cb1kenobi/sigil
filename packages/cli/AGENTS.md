@@ -3083,6 +3083,77 @@ other is refused with numbers.
   the Node 22.19 floor. The debug logger's escape is the one left alone on
   purpose: it skips `*`, which is a `DEBUG` wildcard.
 
+- **A schema the entry imports is read where it is written, by one function
+  every reader asks (SIG-566).** `schemaModule()` in `src/build/schema-module.ts`
+  says which file holds the schema, and `readAppCommands()`, `readAppCatalogs()`,
+  `readSchemaUpdateCheck()`, `schemaWantsUpdateCheck()`, `checkSchemaUpdateCheck()`
+  and `schemaSettingsKeys()` open that file instead of the entry. Before it each
+  opened the entry, so an app with `export { default } from './schema.js'` was an
+  app with no schema, and **what that meant differed by reader, which is the
+  measurement the ticket asked for**: the update-check readers stayed **silent**
+  (`readSchemaUpdateCheck` `undefined`, `checkSchemaUpdateCheck` no diagnostics, so
+  a binary that asked and declared nothing was never refused and a hand-written
+  checker `check()` refuses was never reported); the command tree gave a loud
+  **error**, `no "commands" found in this module`, with the app's `--commands`
+  escape the only way to build it; the catalogs read `declared: false` and checked
+  nothing, **silently**; and the settings warning fell back to its **general**
+  sentence. Nothing fell back to a wrong answer, and nothing said it was looking at
+  the wrong file.
+
+  **What it follows is what the generated entry reads, so the answer is the
+  schema the built app has.** `generateBin()` spreads `import * as app` of the
+  entry and takes `default ?? schema`, so those two exports are asked, in that
+  order: an `export default name` or `export { x as default }` whose name is an
+  import, an `export { default } from './schema.js'`, and the same for `schema`.
+  A re-export in the file reached is followed in turn, so a barrel costs nothing,
+  and a `.js` specifier answers to the `.ts` beside it as it does everywhere
+  (`resolveSpecifier()`). An entry with **neither** export is an app that starts
+  itself, and the object its `main()` call is given is the schema: `main({ schema })`,
+  `main({ schema: x })` and, as the ticket wrote it, a bare `main(x)` where the name
+  is an import. The export is asked first because it is what a build bakes in,
+  and an entry with both is read as a built app would read it.
+
+  **Anything not readable for certain is the entry, which is what every reader did
+  before.** A package import, a specifier nothing answers to, a namespace import,
+  a file that is not a script or does not parse, a re-export cycle, an
+  `export *` that may supply the name, a call or a spread in place of the schema, a
+  local binding, and a `main()` whose schemas are in two files or one in a file and
+  one written in the call. A schema written in the entry is the entry. The
+  direction is the one this file records everywhere: a missed schema is a check
+  that does not run and a wrong one is a check run over the wrong file. It
+  decides which **file** a reader opens and nothing else, so the readers' own
+  heuristics (the outermost literal with the key) are unchanged, and `generateBin()`
+  still imports the entry, which is why the bundle and the generated entry are the
+  same bytes as before for every app that built.
+
+  Positions and paths are the schema's file's: a diagnostic names it with its own
+  line and column, `commands: './commands'` and the `baseDir` warning resolve against
+  its directory, and a `locales` loader's specifier does too -- which is what the
+  runtime does for a schema that sets `baseDir: import.meta.dirname`. The import
+  resolution is `bindings.ts`'s (`importedAs()` is the inverse of `importBindings()`,
+  with the same giving up on a name the module binds again) and `resolveSpecifier()`,
+  so there is no second resolver.
+
+  **Two things a followed schema makes true that a read entry did not.** The
+  settings warning's "a built app uses ..." claim needs the schema known whole, and
+  an entry that imports the schema and then assigns to it
+  (`schema.settings.errorHandler = false`) changes it where the schema's own
+  file cannot see, so that sentence is given only when the entry **does nothing
+  but forward**: imports, re-exports and `export default name`. And an entry that
+  reaches its schema **only** through `main()` is checked like any other app, but it
+  is an **error** in `inspect()`: a built app imports the entry for an export, so
+  it would build and then stop at start with `This app's entry exports no schema`.
+  That app was already refused, with `no "commands" found`, so the verdict is the
+  same and the message is now the true one; it is not extended to an entry whose
+  `main()` is given a literal, which has always built that way. The schema module
+  is also in `buildReads()`, so a clean never removes it.
+
+  **Not followed, and recorded rather than guessed:** the `ui` templates in a
+  schema file (the bundler's transform finds those and `checkTemplates()` reads
+  the entry and the commands, as it always has), the `dev.*` runner's own `main()`
+  (that call is what `main-settings` warns about and not where a schema is), and
+  any other file the entry imports.
+
 ### Writing the CLI in sigil
 
 - **The toolchain routes its own commands, and that is what the acceptance test
@@ -6811,10 +6882,12 @@ measurements are in
   it, rather than a fixture per declaration -- and inside the repository
   rather than in a temp directory, because the app imports `@ttylabs/sigil` by
   name and node resolves that by walking up from the file. A re-export was
-  tried first and cannot work: the build **reads** an app's entry rather than
-  importing it, so `export { default } from '../../updates/src/index.js'` has
-  no object literal for `outermostDeclaring()` to find and the build refuses
-  it with `no "commands" found in this module`.
+  tried first and could not work: the build **reads** an app's entry rather than
+  importing it, so `export { default } from '../../updates/src/index.js'` had
+  no object literal for `outermostDeclaring()` to find and the build refused
+  it with `no "commands" found in this module`. It is read now, since the schema
+  is followed to the file that writes it (SIG-566, below), and the copy is kept
+  because the fixture's own `package.json` and `src/` are what a variant varies.
 
 - **Every one of those tests is offline, and the first version of one was
   not.** The app is pointed at a port nothing is listening on, so the failure
@@ -6840,8 +6913,8 @@ measurements are in
   (computed, an accessor, a method), a value that is literally `false`, and a
   value that names its own checker all read as nothing to say: that last one
   beats whatever `sigil.json` declares, so the app has already said where to
-  look. A schema defined in another module is invisible to it, which is the same
-  boundary the command tree has.
+  look. A schema the entry imports is read where it is written, by the
+  same function the command tree is (SIG-566, below).
 
   **Naming a checker has three spellings, and the bare one is the reason the
   import half of the refusal had to learn about the schema.** `{ checker }`,
@@ -6895,8 +6968,8 @@ measurements are in
   refusing it with a message about a notice that would have shown, by npm).
 
   Two limits are the price of reading rather than running, and neither is new.
-  Only the **entry** module is read, so a schema exported from another file is
-  not seen (the same boundary the command tree has), and the schema object is
+  A schema the entry imports is read where it is written (SIG-566, below) and one
+  reached any other way is not seen, and the schema object is
   found the way `readSchemaUpdateCheck()` finds it (its `updateCheck` key is then
   read last-wins, which that function's is not): the outermost object literal holding an
   `updateCheck` key. A fixture object in the entry that happens to carry one is

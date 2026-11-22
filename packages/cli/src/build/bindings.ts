@@ -98,6 +98,61 @@ export function importBindings(parsed: ParsedModule, from: string, name: string)
   return { direct: keep(direct), name, namespaces: keep(namespaces) };
 }
 
+/** Where an imported local name came from. */
+export interface ImportedFrom {
+  /**
+   * The export it is, or `*` for the whole module, which is a namespace and is
+   * not any one export.
+   */
+  readonly name: string;
+  /** The module specifier it was imported from, as written. */
+  readonly specifier: string;
+}
+
+/**
+ * What a local name was imported as: the inverse of `importBindings()`.
+ *
+ * `importBindings()` asks which locals are a **known** export of a **known**
+ * module. A pass following a binding to the file that holds it asks the other
+ * way round -- it has a local and wants to know where it came from -- and the
+ * two have to agree about shadowing, so it is the same record read the same way
+ * and the same names are given up: a local the module binds again somewhere is
+ * not answered, because there is no scope tree here to say which use site is
+ * the import's.
+ *
+ * @param parsed - The module.
+ * @param local - The local name.
+ * @returns Where it came from, or `undefined` when it is not an import (or is
+ *   not one that can be told from a name the module binds again).
+ */
+export function importedAs(parsed: ParsedModule, local: string): ImportedFrom | undefined {
+  for (const imported of parsed.module.staticImports) {
+    for (const entry of imported.entries) {
+      if (entry.isType || entry.localName.value !== local) {
+        continue;
+      }
+
+      const specifier = imported.moduleRequest.value;
+      if (reboundNames(parsed).has(local)) {
+        return undefined;
+      }
+
+      switch (entry.importName.kind) {
+        case 'NamespaceObject':
+          return { name: '*', specifier };
+        case 'Default':
+          return { name: 'default', specifier };
+        case 'Name':
+          return { name: entry.importName.name!, specifier };
+        default:
+          return undefined;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Every name the module binds somewhere other than by importing it.
  *

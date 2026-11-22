@@ -224,7 +224,9 @@ the entry it belongs to.
         runtime's own. Its reach, and what it leaves silent, are under "A checker
         the schema writes out" in `packages/cli/AGENTS.md`: only what the source
         writes down, so a checker held in a variable, built from the
-        environment or declared in a schema module other than the entry is still a log line.
+        environment or declared in a schema module the entry
+        reaches by a route that cannot be read for certain (a package, a call, a computed value) is
+        still a log line.
       - **Refused: a one-time line on stderr from `beginUpdateCheck()`.** It
         needs "this is the author and not the end user", and nothing in the
         process says so. `bakedConfig()` is set by a build, which says "built"
