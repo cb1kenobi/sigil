@@ -158,6 +158,22 @@ the `ui` tag run by plain `node`.
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
+- **A `--mouse` flag is tested at the entry, by what the entry writes to the
+  terminal (SIG-522).** Every example's own tests mount `App` under `runApp()`
+  and pass `mouse` by hand, so the one line that reads `argv.mouse` into
+  `runApp()` was run by nothing: deleting it left the suite green over an app with
+  no mouse, and so did making it `true`. `test/entry.test.ts` in the git client and
+  the log browser spawns the built `bin` and `src/ui.ts` -- two schemas that spell
+  the flag separately -- over a terminal on stdin, presses `q` after the first
+  frame, and reads the bytes: with `--mouse`, `?1002h` and `?1006h` are written and
+  `?1002l` and `?1006l` come after them; without it, neither enable is. Bytes
+  rather than a spy on `runApp()`, because a spy passes for an entry that handed
+  the option to something else. Sabotaged for both, in both entries: the line
+  removed fails the `--mouse` test and the line made `true` fails the other, four
+  one failure per entry each time and none from the neighbouring tests. The `bin` test needs
+  the example built, and says which command makes it. An example that adds the
+  flag adds the file.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
