@@ -40,10 +40,12 @@
 
 import { analyze, compile, renderImports } from '../src/template/index.js';
 import { CORPUS, type CorpusEntry, REFUSALS } from './template-corpus.js';
+import { createCanvas } from '@ttylabs/sigil/canvas';
 import { box, type Element, HANDLER_PROPS, renderToString, text } from '@ttylabs/sigil/element';
-import { createRoot, For, Show } from '@ttylabs/sigil/renderer';
-import { flush, State } from '@ttylabs/sigil/signals';
+import { createRoot, For, render, Show } from '@ttylabs/sigil/renderer';
+import { createEffects, flush, State } from '@ttylabs/sigil/signals';
 import { emit, Expr, type IRNode, parse, ui } from '@ttylabs/sigil/template';
+import type { Terminal } from '@ttylabs/sigil/terminal';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -281,6 +283,55 @@ function styles(element: Element): string[] {
   return [JSON.stringify(element.style), ...element.children.flatMap((child) => styles(child))];
 }
 
+/**
+ * What a frame drew, after a write to one signal and nothing else.
+ *
+ * `renderToString()` paints every raw it is given whether or not anything told
+ * it to, so it cannot say whether an element is tracked. A frame can: it paints
+ * what was marked, and a plain `raw` whose paint read a signal was never marked.
+ *
+ * @param build - What to build, given the scope its expressions read.
+ * @returns The picture before the write and the one after it.
+ */
+function repaint(build: (scope: Scope) => Element): { after: string; before: string } {
+  const canvas = createCanvas({ height: 1, width: 10 });
+  const terminal = {
+    height: 24,
+    onResize: () => () => {},
+    restore() {},
+    width: 10,
+  } as unknown as Terminal;
+  const backend = {
+    active: true,
+    canvas,
+    done() {},
+    height: 1,
+    isLive: true,
+    present() {},
+    render(draw: (painter: never) => void) {
+      canvas.paint(draw as never);
+    },
+    resize() {},
+    stop() {},
+    terminal,
+    width: 10,
+    write() {},
+  };
+  const picture = () => canvas.toString().trimEnd();
+  const scope = makeScope();
+  const view = render(() => build(scope), {
+    backend: backend as never,
+    effects: createEffects(),
+    terminal,
+  });
+  const before = picture();
+  scope.count.set(3);
+  view.frame();
+  const after = picture();
+  view.dispose();
+  return { after, before };
+}
+
 /** One frame: the tree, its styles, and what it painted. */
 interface Frame {
   /** What the refs wrote while the tree was built, which no handler has run for. */
@@ -409,6 +460,26 @@ describe('the runtime emitter and the build emitter', () => {
       expect(other.after.styles).toEqual(one.after.styles);
       expect(other.after.render).toBe(one.after.render);
     });
+  });
+
+  describe.each([
+    ['a tracked raw, bare, whose paint reads a signal', true],
+    ['a tracked raw, written as a value, with static props beside it', true],
+    ['a raw whose tracked is false, which is a plain one', false],
+  ] as const)('%s', (name, tracked) => {
+    // SIG-485: only a signal the paint reads changes, and the next frame says
+    // whether the element was built with `trackedRaw()`. All three paths, because
+    // a compiler that printed `raw(...)` for a `tracked` would build the same
+    // tree and render the same string -- the one thing the corpus above cannot see
+    it.each(['interpreted', 'analyzed', 'compiled'] as const)(
+      `should ${tracked ? 'repaint' : 'leave the picture alone'} when only that signal changes: %s`,
+      (path) => {
+        const builders = { analyzed, compiled, interpreted };
+        const { after, before } = repaint((scope) => builders[path][name]!(scope));
+        expect(before).toBe('n=1');
+        expect(after).toBe(tracked ? 'n=3' : 'n=1');
+      }
+    );
   });
 
   it('should have rendered something worth comparing', () => {
@@ -625,6 +696,21 @@ describe('what the build emitter writes', () => {
       /a value rather than an expression/
     );
     expect(() => build(['<raw paint=', ' />'], '() => {}')).toThrow(/its measure is missing/);
+  });
+
+  it('should print a plain raw as it always was, and a tracked one with the flag after its props', () => {
+    // a plain raw's call is unchanged, so an app that never writes `tracked`
+    // compiles to the bytes it did before; a tracked one fills the props slot
+    // so that the flag is the fifth argument wherever it sits
+    const plain = build(['<raw measure=', ' paint=', ' />'], 'm', 'p').source;
+    expect(plain).toMatch(/\$rawElement\(\(m\), \(p\), \{[^}]*\}\)$/);
+    const bare = build(['<raw tracked measure=', ' paint=', ' />'], 'm', 'p').source;
+    expect(bare).toMatch(/, \{\}, true\)$/);
+    const written = build(['<raw measure=', ' paint=', ' tracked=', ' />'], 'm', 'p', 'on').source;
+    expect(written).toMatch(/, \{\}, \(on\)\)$/);
+    expect(
+      build(['<raw tracked=', ' measure=', ' paint=', ' />'], 'false', 'm', 'p').source
+    ).toMatch(/, \{\}, \(false\)\)$/);
   });
 
   it('should refuse a handler written as a value, which could only be a mistake', () => {

@@ -341,6 +341,8 @@ habits that break here come from React and Ink:
 - **Cells you paint yourself** go in a `trackedRaw()` from
   `@ttylabs/sigil/renderer`, built inside a component, so it repaints when a
   signal it read changes. A plain `raw` element does not.
+  In a template, write `<raw tracked measure={...} paint={...} />`; a `<raw>`
+  without `tracked` is a plain one.
 
 ## State and effects
 

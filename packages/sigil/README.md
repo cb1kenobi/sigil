@@ -2742,7 +2742,7 @@ hand-written component that spreads `props` into its host and sets a hook there.
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
 `applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
 `appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
-`rawParts()` and `textPart()` -- which
+`rawParts()`, `trackedFlag()` and `textPart()` -- which
 `sigil build`'s template compiler calls rather than restating, so a compiled
 template and an interpreted one cannot come to disagree about what a prop, a
 child or a `<raw>` means.
@@ -2762,6 +2762,25 @@ let list;
 <box onKey={(event) => event.key.name === 'q' && app.exit()} ref={(el) => (list = el)}>
   <text>press q</text>
 </box>;
+```
+
+A `<raw>` takes `measure` and `paint` as props, and builds a plain `raw()`: a
+signal its paint reads is not a reason to paint again. Write `tracked` on it to
+build it with `trackedRaw()` instead, so the element repaints when a signal its
+paint read changes and lays out again when one its measure read does -- in the
+`ui` tag, in JSX and in what `sigil build` compiles, with no effect beside it.
+`tracked` is a flag read once, when the element is built: bare is `true`,
+`tracked={false}` is plain, and a string or a function is a template error. Build
+it in a component, so the listening is let go with the owner.
+
+```jsx
+const level = new State(3);
+<raw
+  tracked
+  measure={() => ({ height: 1, width: 10 })}
+  paint={(painter, at) => painter.text(at.x, at.y, '#'.repeat(level.get()))}
+/>;
+// level.set(5) repaints it on the next frame, and nothing else has to change
 ```
 
 `ref` is a callback and nothing else, `ref={(el) => ...}`. It is called once with
