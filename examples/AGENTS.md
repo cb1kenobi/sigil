@@ -456,10 +456,11 @@ was tested, and the sabotage pass, are in
 - **What is worked around, each with a ticket.** The login dialog's Sign in and
   Cancel are in its body with `actions: []`, because an action cannot be disabled
   and a dialog with actions opens on a button rather than on the first field
-  (SIG-337). And the dialog borrows an owner: it is opened from `onPress`, which
-  has none, so its body is built under a branch of the Account section's owner and
-  disposed when `result` settles -- without that, the effect following the focus
-  runs for the rest of the app, which was measured (SIG-335).
+  (SIG-337). The dialog used to borrow an owner as well -- it is opened from
+  `onPress`, which has none, so its body was built under a branch of the Account
+  section's owner and disposed when `result` settled, because the effect following
+  the focus otherwise ran for the rest of the app, which was measured. It is
+  `body: () => Element` now (SIG-335), and the form is built inside that function.
 
 - **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
   in and the Account section's two buttons each take one --
@@ -657,15 +658,16 @@ commit message in a text area. What it settled:
   colour level 0, and a list taking the focus is what the diff pane shows from then
   on.
 
-- **A dialog's body is built under a branch of the component's owner.** The
-  commit dialog's `TextArea` is over the app's draft and the new-branch dialog's
-  `TextField` is a field, and both are built in a key handler, which has no owner
-  -- so their effects would outlive the dialog and go on following the draft.
-  `owned()` builds them under `runWithOwner(owner, createBranch)` and disposes the
-  branch when `result` settles, which is the settings example's answer to the same
-  hole; SIG-335 is the ticket for `openModal()` doing it, and SIG-337 for opening
-  on the field rather than on a button, which the client does by focusing it
-  straight after `openModal()`. Enter is a newline in the commit message, so the
+- **A dialog's body is a function.** The commit dialog's `TextArea` is over the
+  app's draft and the new-branch dialog's `TextField` is a field, and both are
+  opened from a key handler, which has no owner -- so their effects would outlive
+  the dialog and go on following the draft. `openModal()` takes `body: () =>
+  Element` and builds it under an owner of its own that it disposes on close
+  (SIG-335), which replaced the client's own `owned()` helper
+  (`runWithOwner(owner, createBranch)`, disposed when `result` settled). The
+  commit dialog's key listing is an `onCleanup()` inside that function for the same
+  reason. SIG-337 is the ticket for opening on the field rather than on a button,
+  which the client does by focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
   commit is Ctrl-S, an `onKey` on a box around the area, which the dialog's key
   walk reaches because the area leaves the chord alone. Escape keeps the draft.
 
@@ -952,9 +954,8 @@ in half blocks from the start.
   no more than its own pixels and no more than the pane, inside `contain`.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
-  log browser's workaround for SIG-384. The rename dialog's field is built under
-  a branch of the component's owner and focused once the dialog is open (SIG-335,
-  SIG-337), the git client's `owned()`.
+  log browser's workaround for SIG-384. The rename dialog's field is a `body`
+  function and is focused once the dialog is open (SIG-337), the git client's way.
 
 - **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
   client's rule since SIG-372, and with nothing in the model: the column a key
@@ -1155,8 +1156,9 @@ below with the measurements.
 - **One text area per open file, hidden rather than rebuilt.** `Tabs`' rule for
   its panels, applied by hand: each keeps its caret, selection and scroll while
   another file shows. Each is built under a branch of the component's owner,
-  because it is built from a key handler (SIG-335), and disposed when its tab
-  closes. Showing one paints a frame before the next key, the log browser's
+  because it is built from a key handler, and disposed when its tab closes -- a
+  text area is not a dialog's body, so `openModal()`'s `body` function (SIG-335) is
+  not the answer here. Showing one paints a frame before the next key, the log browser's
   `redraw()` for SIG-384.
 
 - **A file opens at its first line, and the status line says where the caret

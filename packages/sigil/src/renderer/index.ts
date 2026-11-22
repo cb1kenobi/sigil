@@ -481,6 +481,19 @@ export interface Renderer {
   onFrame(handler: FrameHandler): () => void;
   /** Whether this renderer is still mounted. */
   readonly mounted: boolean;
+  /**
+   * The root owner the component ran under, which is what disposes everything the
+   * tree built.
+   *
+   * For something that has to build under an owner from a place that has none -- a
+   * key handler, a promise settling -- and has only the renderer: a branch of this
+   * one is disposed with the renderer even if nothing else disposes it, and runs
+   * its effects through this renderer's own factory, so a signal it reads asks for
+   * a frame. `openModal()` builds a `body` function under one. Hand it to
+   * `runWithOwner()`; a caller that disposes what it built disposes the branch,
+   * and never this owner itself.
+   */
+  readonly owner: Owner;
   /** What the component built. Hand this to `createInput()` for keys and focus. */
   readonly root: Element;
   /**
@@ -1580,6 +1593,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     invalidate: requestFrame,
     get mounted() {
       return !disposed && !failed;
+    },
+
+    // set by the time `render()` hands anything back: `createRoot()` runs the
+    // component, and so the assignment, synchronously
+    get owner() {
+      return owner as Owner;
     },
 
     onDispose(handler: () => void): () => void {
