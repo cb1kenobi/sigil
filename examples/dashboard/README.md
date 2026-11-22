@@ -65,9 +65,8 @@ a row to tick or a button, and a double click on a row opens its menu.
   the colour of each role the framework draws with, and fill the menus, the
   dialog and the toasts, so a light dashboard on a dark terminal is light all
   over. Each also tells the renderer which scheme it is with
-  `view.setColorScheme()`, so the framework's own `prefers-color-scheme` rules
-  and every component that reads the scheme follow the theme rather than the
-  terminal; System hands the choice back.
+  `view.setColorScheme()`, so every `prefers-color-scheme` rule follows the theme
+  rather than the terminal; System hands the choice back.
 - **It fits the terminal it is given.** The sidebar starts collapsed under 100
   columns. On a short terminal the sparklines go first, then the chart, then the
   line under each figure, and the table keeps its rows; on a narrow one a column

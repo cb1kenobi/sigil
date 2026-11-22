@@ -1037,13 +1037,19 @@ dark -- built from sigil's own components, with its own data, names and colours.
 - **System, Light and Dark, and the two named ones paint their own background.**
   `System` is no theme sheet: the framework's roles over the terminal's colours,
   light or dark as it reports. `Light` and `Dark` are the app saying which it is,
-  which `prefers-color-scheme` cannot say -- it asks what the _terminal_ is, and the
-  renderer fixes that at start -- so each sheet fills `.sigil-app`, sets every role
-  (one left out would fall back to a default chosen for the terminal's scheme, a
-  dim grey meant for black drawn on white), and fills the menu, the dialog, the
+  which the renderer's detection cannot say -- it knows what the _terminal_ is -- so
+  each sheet fills `.sigil-app`, sets the colour of every role (the framework's are
+  palette indices chosen for the terminal's background, which a page that paints its
+  own is the case they are wrong for), and fills the menu, the dialog, the
   toast and the tooltip, which are drawn on the root in the terminal's own colours
   otherwise and would punch a black hole in a white screen. Truecolor, since an
-  app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
+  app's own theme may use it. Each also names a `scheme` and an effect hands it to
+  `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
+  follows the theme rather than the terminal; it waits on a `mounted` State because
+  `app.view` is not there while the body runs, and an effect created inside
+  `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
+  What it does not reach is a component that reads the scheme from its own options,
+  `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
   The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
   (SIG-523): the menu draws the `●` and opens on the theme in use because it is a

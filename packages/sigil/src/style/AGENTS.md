@@ -134,8 +134,9 @@ is proved.
 - **An app can change the scheme at runtime, and the choice sits above every
   detected source (SIG-461).** A theme that paints a light page over a dark terminal
   is a light scheme whatever the terminal is, and the renderer read the scheme once,
-  so the framework's `prefers-color-scheme` rules and every component that reads
-  the scheme were answering for the terminal while the screen was the theme's.
+  so every `prefers-color-scheme` rule was answering for the terminal while the
+  screen was the theme's. A component that reads the scheme from its own options
+  rather than from the media context -- `qrcode()`'s polarity -- is not reached.
   `Renderer.setColorScheme(scheme | undefined)` is the whole API: the top of the
   chain, above `RenderOptions.colorScheme`, because it is the app's decision taken
   after the option, and `undefined` takes it back to what the chain below says --
@@ -150,6 +151,10 @@ is proved.
   `view` for everything about the renderer. Pinned by `changing the scheme at
   runtime` in `test/renderer/renderer.test.ts`, which restyles an element through a
   `prefers-color-scheme` rule and sees the next frame differ.
+  It cannot be called before the renderer exists, so an app that _starts_ on a
+  non-terminal scheme paints its first frame in the terminal's: it passes
+  `colorScheme` to `runApp()` as well. The dashboard starts on System, so it is not
+  affected.
   What it does not do is make a palette index right on a page the app painted: the
   framework's roles are the terminal's own colours, chosen for the terminal's
   background, so a theme that paints its own page still states its role colours.

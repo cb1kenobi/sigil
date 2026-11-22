@@ -3733,6 +3733,10 @@ describe('learning the background', () => {
 });
 
 describe('changing the scheme at runtime', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const SHEET = `
     box { color: gray }
     @media (prefers-color-scheme: light) { box { color: blue } }
@@ -3740,8 +3744,13 @@ describe('changing the scheme at runtime', () => {
   /** Gray for dark, blue for light: the colour that says which half applied. */
   const COLOR = { dark: 8, light: 4 } as const;
 
-  /** Mounts with the scheme named, so no variable on this machine decides the start. */
+  /**
+   * Mounts with the scheme named, or with neither variable set when it is not: no
+   * variable on this machine decides the start or what clearing a choice returns to.
+   */
   function mount(colorScheme: 'dark' | 'light' | undefined) {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+    vi.stubEnv('COLORFGBG', '');
     const h = harness(20, 4);
     let root: Element | undefined;
     const view = render(
@@ -3832,6 +3841,21 @@ describe('changing the scheme at runtime', () => {
     m.view.setColorScheme(undefined);
     m.view.frame();
     expect(m.h.painted, 'a scheme that changed nothing repainted').to.equal(painted);
+    m.view.dispose();
+  });
+
+  // the order the JSDoc and AGENTS.md state, and the one pair "where the scheme comes
+  // from" cannot walk: the user's variable is above everything detected, and the
+  // app's own later choice is above the user
+  it('should beat the user’s SIGIL_COLOR_SCHEME, and give it back when cleared', () => {
+    const m = mount(undefined);
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    m.view.setColorScheme('light');
+    m.view.frame();
+    expect(m.root()?.style.color, 'the variable outranked the app').toBe(COLOR.light);
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.root()?.style.color, 'the variable was lost').toBe(COLOR.dark);
     m.view.dispose();
   });
 

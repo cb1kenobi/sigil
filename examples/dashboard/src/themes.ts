@@ -11,9 +11,9 @@
  * `view.setColorScheme()` when the theme changes. What the renderer detected is
  * what the *terminal* is, and a page painted white over a black terminal is a
  * light scheme whatever the terminal says: the framework's own `@media
- * (prefers-color-scheme: light)` rules -- the debug pane's fill -- and every
- * component that reads the scheme for itself are right only when the renderer is
- * told. `System` has none, which is `setColorScheme(undefined)`: back to what the
+ * (prefers-color-scheme: light)` rules -- the debug pane's fill -- are right only
+ * when the renderer is told. (A component that reads the scheme from its own
+ * options, `qrcode()`'s polarity, is not reached by this.) `System` has none, which is `setColorScheme(undefined)`: back to what the
  * terminal reported.
  *
  * What is left in a sheet is what is the theme's own: the paper and the ink, the
