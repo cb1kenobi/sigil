@@ -12518,7 +12518,6 @@ exception per widget. This is the one answer, and every widget below follows it.
   and Escape still closing it; catching it would be the menu deciding what an app
   bug means.
 
-<<<<<<< HEAD
 **That claim was measured rather than assumed (SIG-600), for a throwing `initial`
 and a throwing check or radio mark alike.** Both are read before the submenu is
 added to the chain -- `descend()` asks `initial` before it touches a level, and
@@ -12542,8 +12541,6 @@ menu that was open has been truncated, with no level left for Escape to close --
 swallows every key. The sentences above saying a menubar asks a function "before
 a session takes the input" are true of `initial` and of a radio group, not of a
 check mark.
-
-=======
 
 > > > > > > > origin/main
 
