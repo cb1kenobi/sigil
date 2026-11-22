@@ -5015,6 +5015,49 @@ The module imports nothing at run time, so `@ttylabs/sigil/components/highlight`
 costs its own 14 kB and no component behind it -- a pager or a log viewer that only
 wants spans pays for spans.
 
+#### A code view
+
+```js
+import { codeView } from '@ttylabs/sigil/components/code-view';
+import { highlightCode } from '@ttylabs/sigil/components/highlight';
+
+const view = codeView(source, {
+  gutter: true, // line numbers
+  highlight: highlightCode,
+  lang: 'ts',
+  width: 80,
+  wrap: 'cut', // or 'fold'
+});
+```
+
+Code as a column of rows, a row a line, in the runs of cells that share a token --
+the lines `markdown()` draws in a fenced block, `diff()` draws a change with, and a
+file preview draws behind its line numbers, written once and published. It returns
+an element, so it goes in a `ScrollBox` or beside a list like anything else, and it
+is built for the `width` it is told.
+
+- **The gutter is optional, and gives way before the code does.** `gutter: true`
+  numbers each line, right-aligned to the last number, from `firstLine` for an
+  excerpt. A width with no room for a gutter and a cell of code draws the code
+  alone. A line that wraps is numbered on its first row.
+- **A long line is cut or folded.** `wrap: 'cut'`, the default, ends it at the edge
+  as a pager does; `'fold'` carries it onto the next row at a grapheme boundary and
+  never splits a wide character. A tab goes to the next multiple of `tabSize` (4) and
+  is drawn as spaces.
+- **The highlighter is the one every seam takes.** `highlight` is called once with
+  the whole text and `lang`, so a comment over three lines is one span; or hand over
+  `tokens`, a token per code unit, if you have them. A language it does not know is
+  drawn plain. `plain` is a role class for the code with no token, for an app that
+  wants one.
+- **Classes name the parts.** `sigil-code-view`, `sigil-code-row`, `sigil-code` and
+  `sigil-code-gutter`, and `class` renames the lot -- `markdown()` is
+  `sigil-markdown-code`. A token carries `sigil-token-<token>` and its role, as it
+  does in `diff()`.
+
+`codeRun(text, token, { class, role })` is the one run of cells on its own, for a
+view that arranges its rows differently and wants the same classes: it is what
+`diff()` draws an edited line's stretches with.
+
 #### Outline
 
 ```js

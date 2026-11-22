@@ -85,6 +85,10 @@
       "types": "./dist/components/clock.d.mts",
       "default": "./dist/components/clock.mjs"
     },
+    "./components/code-view": {
+      "types": "./dist/components/code-view.d.mts",
+      "default": "./dist/components/code-view.mjs"
+    },
     "./components/collapsible": {
       "types": "./dist/components/collapsible.d.mts",
       "default": "./dist/components/collapsible.mjs"

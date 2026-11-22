@@ -14063,6 +14063,73 @@ measurements, the review findings and the sabotage pass are in
   first three against 24 and 509 times for the last against 192, while the guarded
   lexers grow at most 8.6 times.
 
+### A code view: highlighted lines with a gutter, defined once (SIG-465)
+
+`src/components/code-view.ts`, published as `@ttylabs/sigil/components/code-view`:
+`codeView(code, opts)`, which returns a column of rows, and `codeRun()`, the one
+run of cells. It exists because "highlighted lines behind a gutter, as runs of
+cells that share a token" had been written three times -- markdown's private
+`codeRow()`, `diff()`'s highlighted line and the file manager example's
+`codeRows()`, which recorded itself as a known duplicate (SIG-294) -- and the
+root file's rule is one definition per helper, across a package boundary too.
+
+- **A function returning an element, not a component with a layout of its own.**
+  It is built for the `width` it is told, like `markdownView()` and `imageView()`
+  and for the same reason: the cut and the fold are decided in cells, and an
+  element that learned its width from the layout would need the pane's resize
+  round trip the file manager already pays for markdown. An app that wants one
+  that follows its box puts it in a `ScrollBox` and rebuilds on `onResize`, as the
+  preview pane does. It owns no hook, so its `props` are plain `ElementProps` and
+  it is not on the `owned-hooks` table.
+- **What `diff()` shares is the run, and no more.** `codeRun()` builds one text
+  with the token's classes and role, and `diff()`'s `flush()` calls it with its
+  own base classes and the role it works out (a keyword among context lines is
+  not louder than the lines that changed). Everything around that is the diff's:
+  its cells carry an edited range beside the token, it folds at words as well as
+  columns, it scrolls sideways under an ellipsis, and a gutter is two numbers and
+  a marker. Folding that into `codeView()` would have made `codeView()` the diff.
+  A part of a decision that three callers share is the run; the rows are two
+  different decisions about what a row is. Class order on a diff run changed
+  (token classes now after the base ones and before the role), which no rule reads.
+- **`text-area.ts` and `prompt.ts` spell `sigil-token sigil-token-<token>` too,
+  and are left alone.** They draw an absolute layer per token over a field, not a
+  run in a row, with a role beside the token. That is the same class list built a
+  different way, and `should define the classes of a run of code in a token in one
+  place` counts only the row form.
+- **The gutter is a column of numbers and gives way before the code does.** It is as
+  wide as the last number, `firstLine` for an excerpt, and left out when the width
+  has no room for it and a cell of code -- the file manager's rule, taken over
+  whole: a pane that cannot show both shows the code. A line that folds is numbered
+  on its first row and the rest have a blank gutter, as `diff()`'s do.
+- **`cut` and `fold` are the two answers the callers gave.** A pager shows a line
+  to its edge and stops (`cut`), and a document carries it on (`fold`): markdown's
+  reason is that a string is laid out as wide as its widest line, and a terminal
+  that wrapped it would start the rest at column zero. A cluster wider than the
+  whole room is dropped by `cut` and alone on a row in `fold`, the latter being
+  `diff()`'s rule for the same case.
+- **A tab is spaces to the next stop, measured from the start of the row it is
+  on, and a control character is measured as a `text` draws it.** Markdown did
+  neither: a tab in a fenced block measured nothing and drew a space, the
+  disagreement `toDisplayText()` is written about. It is `tabSize` (4) now, which
+  is the file manager's and `diff()`'s, so a fenced block with a tab in it is
+  wider than it was. A nonsense `tabSize` is four.
+- **Markdown's two code paths are one.** A block the hook marked nothing in used
+  to be one accent text joined with `\n`; it is the same rows with `plain:
+  'sigil-accent'` on each run, which draws identically (no transcript moved) and
+  leaves `markdown.ts` with no fold of its own. What stays markdown's is the
+  decision, recorded under "Markdown code blocks take the app's highlighter":
+  asked once, and "marked nothing" being the unhighlighted path.
+- **Lines are split at `\n` and nothing else, so a trailing newline is an empty
+  last line with a number of its own.** That is what the file manager drew and what
+  markdown's blocks (whose parser strips it) never had; a caller showing a file
+  trims it. Not changed here, because a caller that wants the empty line -- an
+  editor -- needs it.
+- **It is not on by default anywhere, and costs what `markdown()` costs.** It
+  imports `tokensOf()`, which lives in `prompt.ts` with `PromptError`, so its
+  graph is the prompt stack's, 263,687 B as it landed, against `highlight`'s
+  14 kB. Moving the validator out of the prompt module would lighten four
+  components and is a change of its own.
+
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 
 `src/components/button.ts`, `checkbox.ts`, `radio-set.ts`, `switch.ts`, and

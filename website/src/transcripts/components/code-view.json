@@ -1,0 +1,93 @@
+{
+  "api": {
+    "interface": "CodeViewOptions",
+    "options": [
+      {
+        "description": "The columns the view is drawn in, the gutter included.",
+        "name": "width",
+        "optional": false,
+        "type": "number"
+      },
+      {
+        "description": "The class every part is named from: `<class>` on a run, `<class>-row` on a row, `<class>-gutter` on a gutter and `<class>-view` on the whole. Defaults to `sigil-code`.",
+        "default": "`sigil-code`",
+        "name": "class",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The number of the first line, for an excerpt. Defaults to 1. Only read where there is a gutter.",
+        "default": "1",
+        "name": "firstLine",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "Whether each line is numbered, in a gutter that is as wide as the last number. Defaults to `false`.",
+        "default": "`false`",
+        "name": "gutter",
+        "optional": true,
+        "type": "boolean"
+      },
+      {
+        "description": "Says which stretches of the code are which tokens: `highlightCode()` from `@ttylabs/sigil/components/highlight` is one. Called once, with the whole text, so a block comment that begins on one line and ends on another is one span. A hook that throws throws out of `codeView()`, a span out of range is clipped, and a token no class can carry is refused with a `PromptError` -- `diff()`'s three answers.",
+        "name": "highlight",
+        "optional": true,
+        "type": "Highlighter"
+      },
+      {
+        "description": "The language, handed to `highlight` as its second argument.",
+        "name": "lang",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "The class a run with no token carries beside `class`, for an app that wants the code it did not highlight drawn in a role. Defaults to none: the plain foreground.",
+        "default": "none: the plain foreground",
+        "name": "plain",
+        "optional": true,
+        "type": "string"
+      },
+      {
+        "description": "Properties for the box the rows are in.",
+        "name": "props",
+        "optional": true,
+        "type": "ElementProps"
+      },
+      {
+        "description": "How many columns a tab goes to the next multiple of. Defaults to 4. A tab is drawn as spaces, since a terminal has no tab stops of its own to count on.",
+        "default": "4",
+        "name": "tabSize",
+        "optional": true,
+        "type": "number"
+      },
+      {
+        "description": "The token of each code unit of the text, where the caller already has them. Takes the place of `highlight`.",
+        "name": "tokens",
+        "optional": true,
+        "type": "readonly (string | undefined)[]"
+      },
+      {
+        "description": "What a line too long for the width does. `'cut'` ends it at the edge, as a pager shows code; `'fold'` carries it onto the next row at a grapheme boundary. Defaults to `'cut'`.",
+        "default": "`'cut'`",
+        "name": "wrap",
+        "optional": true,
+        "type": "\"cut\" | \"fold\""
+      }
+    ],
+    "shared": [],
+    "signature": "function codeView(code: string, opts: CodeViewOptions): Element"
+  },
+  "registryDescription": "A code view: highlighted lines with an optional gutter of line numbers, cut or folded to a width",
+  "source": "packages/sigil/src/components/code-view.ts",
+  "views": {
+    "narrow": {
+      "columns": 40,
+      "output": "\u001b[2m 1\u001b[0m \u001b[36mexport\u001b[0m \u001b[36mfunction\u001b[0m \u001b[1mretry\u001b[0m(run) {\n\u001b[2m 2\u001b[0m   \u001b[2m// try again, a few times\u001b[0m\n\u001b[2m 3\u001b[0m   \u001b[36mfor\u001b[0m (\u001b[36mlet\u001b[0m attempt = \u001b[34m1\u001b[0m; attempt <= \u001b[34m3\u001b[0m;\n\u001b[2m 4\u001b[0m     \u001b[36mtry\u001b[0m {\n\u001b[2m 5\u001b[0m       \u001b[36mreturn\u001b[0m \u001b[1mrun\u001b[0m();\n\u001b[2m 6\u001b[0m     } \u001b[36mcatch\u001b[0m (err) {\n\u001b[2m 7\u001b[0m       console.\u001b[1merror\u001b[0m(\u001b[32m`attempt ${\u001b[0mattemp\n\u001b[2m 8\u001b[0m     }\n\u001b[2m 9\u001b[0m   }\n\u001b[2m10\u001b[0m   \u001b[36mthrow\u001b[0m \u001b[36mnew\u001b[0m \u001b[33mError\u001b[0m(\u001b[32m'gave up'\u001b[0m);\n\u001b[2m11\u001b[0m }"
+    },
+    "rendered": {
+      "columns": 80,
+      "output": "\u001b[2m 1\u001b[0m \u001b[36mexport\u001b[0m \u001b[36mfunction\u001b[0m \u001b[1mretry\u001b[0m(run) {\n\u001b[2m 2\u001b[0m   \u001b[2m// try again, a few times\u001b[0m\n\u001b[2m 3\u001b[0m   \u001b[36mfor\u001b[0m (\u001b[36mlet\u001b[0m attempt = \u001b[34m1\u001b[0m; attempt <= \u001b[34m3\u001b[0m; attempt++) {\n\u001b[2m 4\u001b[0m     \u001b[36mtry\u001b[0m {\n\u001b[2m 5\u001b[0m       \u001b[36mreturn\u001b[0m \u001b[1mrun\u001b[0m();\n\u001b[2m 6\u001b[0m     } \u001b[36mcatch\u001b[0m (err) {\n\u001b[2m 7\u001b[0m       console.\u001b[1merror\u001b[0m(\u001b[32m`attempt ${\u001b[0mattempt\u001b[32m} failed`\u001b[0m);\n\u001b[2m 8\u001b[0m     }\n\u001b[2m 9\u001b[0m   }\n\u001b[2m10\u001b[0m   \u001b[36mthrow\u001b[0m \u001b[36mnew\u001b[0m \u001b[33mError\u001b[0m(\u001b[32m'gave up'\u001b[0m);\n\u001b[2m11\u001b[0m }"
+    }
+  }
+}

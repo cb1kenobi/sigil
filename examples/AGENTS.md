@@ -926,14 +926,20 @@ in half blocks from the start.
   the cursor overtook is done again for wherever it is when the first ends, so
   holding `j` reads two files rather than one per row.
 
-- **Text is cut, not folded, and drawn by `codeRows()`.** A line is cut at the
+- **Text is cut, not folded, and drawn by `codeView()`.** A line is cut at the
   pane's edge behind a gutter of line numbers, the way a pager shows code, and
-  drawn as runs of cells that share a token -- which is markdown's private
-  `codeRow()` and `diff()`'s highlighted line written a third time, here. That is
-  a duplicate of a decision and is recorded as one: a published code view, lines
-  with a gutter over `highlightCode()`, is the gap. Markdown and the picture are
-  built for the size `onResize` reports, the diff pane's way; the picture asks for
-  no more than its own pixels and no more than the pane, inside `contain`.
+  drawn as runs of cells that share a token -- which is `codeView()` from
+  `@ttylabs/sigil/components/code-view` with `gutter: true`, `highlight:
+  highlightCode` and the default `wrap: 'cut'`. It was written here first, as a
+  third copy of markdown's private `codeRow()` and `diff()`'s highlighted line,
+  recorded as a known duplicate while the package had no published code view
+  (SIG-294); SIG-465 published it, and the three now read one definition. A pane
+  too narrow for the gutter and a cell of text draws the text alone, and a tab is
+  spaces to the next stop of four -- both the view's rules rather than this
+  pane's, so their tests are `test/components/code-view.test.ts`'s. Markdown and
+  the picture are built for the size `onResize` reports, the diff pane's way; the
+  picture asks for no more than its own pixels and no more than the pane, inside
+  `contain`.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
   log browser's workaround for SIG-384. The rename dialog's field is built under

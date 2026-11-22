@@ -9,6 +9,7 @@ import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { ELLIPSIS, isBreakSpace, terminalWidth } from '../wrap/index.js';
+import { codeRun } from './code-view.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
 import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
@@ -1088,17 +1089,11 @@ function lineRows(
       // the line's where it is context: context is the background of a diff, and a
       // keyword in full colour among it is louder than the lines that changed
       const role = (line.kind !== 'context' && token && TOKEN_ROLE.get(token)) || kind.role;
-      const classes = ['sigil-diff-text', kind.class, role];
-      if (token) {
-        classes.push('sigil-token', `sigil-token-${token}`);
-      }
-      if (changed) {
-        // bold, from the heading role: an edited stretch needs an attribute beyond
-        // the line's colour, and the sheet already has one that no role of colour
-        // contradicts
-        classes.push('sigil-diff-change', 'sigil-heading');
-      }
-      out.push(piece(run.map((cell) => cell.text).join(''), classes.join(' ')));
+      // bold on an edited stretch, from the heading role: it needs an attribute
+      // beyond the line's colour, and the sheet already has one that no role of
+      // colour contradicts
+      const classes = `sigil-diff-text ${kind.class}${changed ? ' sigil-diff-change sigil-heading' : ''}`;
+      out.push(codeRun(run.map((cell) => cell.text).join(''), token, { class: classes, role }));
       run = [];
     };
     for (const cell of row) {
