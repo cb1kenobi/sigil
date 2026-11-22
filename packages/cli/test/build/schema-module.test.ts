@@ -6,13 +6,14 @@ import {
   readAppCommands,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
+  walkTree,
 } from '../../src/build/index.ts';
 import { checkMainSettings } from '../../src/build/main-settings.ts';
 import { findSchema, schemaModule } from '../../src/build/schema-module.ts';
 import { buildReads, inspect } from '../../src/commands/_inspect.ts';
 import { tempDir } from '../temp.ts';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -623,5 +624,62 @@ describe('an entry that calls main() with a schema it imports', () => {
     });
 
     expect(diagnostics.some((d) => d.message.includes('exports none'))).toBe(false);
+  });
+});
+
+describe('a ui template in a schema imported from another file', () => {
+  /** A template whose interpolation sits inside a quoted value, which cannot be compiled. */
+  const BROKEN = 'export const banner = () => ui`<text class="a ${\'b\'} c">x</text>`;\n';
+  const TEMPLATE = "import { ui } from '@ttylabs/sigil/template';\n";
+
+  /** The template diagnostics of an app, which are the only ones with this wording. */
+  function templateErrors(root: string) {
+    return inspect({ cwd: root }).diagnostics.filter((d) =>
+      d.message.includes('An interpolation inside a quoted value')
+    );
+  }
+
+  it('should be reported with the schema file, line and column, as one in the entry is', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './config/schema.js';\n",
+      'src/config/schema.js': `${TEMPLATE}\n${BROKEN}\nexport default { name: 'x' };\n`,
+    });
+
+    const [error, ...rest] = templateErrors(root);
+
+    expect(rest).toEqual([]);
+    expect(error).toMatchObject({
+      column: 29,
+      file: join(root, 'src', 'config', 'schema.js'),
+      line: 3,
+      severity: 'error',
+    });
+  });
+
+  it('should be reported where the schema is reached through the entry`s main() call', () => {
+    const root = appOf({
+      'src/index.js': `${RUNTIME}import schema from './schema.js';\nawait main({ schema });\n`,
+      'src/schema.js': `${TEMPLATE}${BROKEN}${ASKS}`,
+    });
+
+    expect(templateErrors(root).map((d) => basename(d.file ?? ''))).toEqual(['schema.js']);
+  });
+
+  it('should be reported once when the schema file is also a command module', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './schema.js';\n",
+      'src/schema.js': `${TEMPLATE}${BROKEN}export default { commands: { again: { load: () => import('./schema.js') } } };\n`,
+    });
+    const modules = [...walkTree(inspect({ cwd: root }).commands)].map((c) => c.command.module);
+
+    // the fixture is only meaningful if the schema file really is a command's module
+    expect(modules).toContain(join(root, 'src', 'schema.js'));
+    expect(templateErrors(root)).toHaveLength(1);
+  });
+
+  it('should be reported once when the schema is written in the entry', () => {
+    const root = appOf({ 'src/index.js': `${TEMPLATE}${BROKEN}${ASKS}` });
+
+    expect(templateErrors(root)).toHaveLength(1);
   });
 });
