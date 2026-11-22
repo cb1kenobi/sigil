@@ -2828,7 +2828,7 @@ other is refused with numbers.
   rules are dropped now, and they are rules nothing could match. It is the
   same tightening a splice already made for the flat spelling, so the chain and
   the flat form agree. Measured over every `shake.test.ts` case, every fixture
-  and 26 shapes of nested chains, templates, `+=`, calls and wrappers: all
+  and 25 shapes of nested chains, templates, `+=`, calls and wrappers: all
   identical but three, and no rule is ever added. A string literal is still
   read on its own as well as in its run, which keeps its closed reading and
   costs one read per literal. The cost is pinned by a **count** in
