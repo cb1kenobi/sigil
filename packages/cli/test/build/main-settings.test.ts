@@ -453,3 +453,19 @@ describe('what the built app uses instead', () => {
     expect(checkMainSettings(app)).toEqual([]);
   });
 });
+
+// SIG-579: `bindingName()` takes the parentheses off a callee and nothing else, so a
+// `main` written through a type assertion was a call to something it could not name,
+// and the warning about its settings went silent
+describe.each([
+  ['<T>', (callee: string) => `<Type>${callee}`],
+  ['as', (callee: string) => `${callee} as Type`],
+  ['satisfies', (callee: string) => `${callee} satisfies Type`],
+  ['!', (callee: string) => `${callee}!`],
+])('a main() written under %s', (_wrapper, wrap) => {
+  it('should still have its settings found', () => {
+    expect(
+      found(`${RUNTIME}await (${wrap('main')})({ schema, settings: { a: 1 } });`)
+    ).toHaveLength(1);
+  });
+});

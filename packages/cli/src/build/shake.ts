@@ -750,7 +750,7 @@ export function shakeStyles(
     if (
       node.type === 'CallExpression' &&
       node.arguments.length === 0 &&
-      bindingName(node.callee as Parameters<typeof bindingName>[0], bindings) !== undefined
+      bindingName(unwrapShallow(node.callee as Expression), bindings) !== undefined
     ) {
       calls.push(node);
     }

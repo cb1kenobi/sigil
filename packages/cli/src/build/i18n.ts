@@ -25,6 +25,7 @@ import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { displayPath } from './diagnostic.ts';
 import { type DiscoveredApp, resolveSpecifier } from './discover.ts';
+import { unwrapShallow } from './literals.ts';
 import {
   literalString,
   loaderSpecifier,
@@ -198,7 +199,10 @@ export function keysIn(parsed: ParsedModule, options: KeysOptions = {}): readonl
       return true;
     }
 
-    if (node.type === 'CallExpression' && bindingName(node.callee as Expression, plurals)) {
+    if (
+      node.type === 'CallExpression' &&
+      bindingName(unwrapShallow(node.callee as Expression), plurals)
+    ) {
       // read the way the static `desc` lift reads a string, which is one rule
       // for "a string somebody wrote" -- type syntax around a literal included
       const [, singular, plural] = node.arguments as (Expression | undefined)[];

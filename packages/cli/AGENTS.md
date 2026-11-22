@@ -983,6 +983,21 @@ makes it testable with a fixture directory and no bundler at all.
   needs something one parse of one module has not got: another file, or a value
   flow. Enumerated rather than summarised, because the summary is what went
   stale, and because the count cannot see any of them.
+- **A _callee_ is read through the wrappers that erase, and a _tag_ is not, and
+  the two are different on purpose** (SIG-579). `bindingName()` takes
+  parentheses off and stops there, which is right for a template tag -- the list
+  above records `(ui as any)` as a miss because rewriting a stranger's template
+  is the louder failure. A call is the other way round: `(<T>githubChecker)(...)`,
+  `(main as Main)(schema)` and `(utilitySheet!)()` are the same call at run time
+  and a miss is silent, so the update-check reader, `main()` in the schema
+  finder and the settings check, the utility-sheet rewrite and the plural key
+  reader each pass the callee through `unwrapShallow()` first. The tag readers
+  (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are left as the list
+  above says.
+  What stays missed, because it needs `unwrapShallow()` or the bindings to learn
+  something new: a wrapper on the _namespace_ (`(t as any).main(...)`,
+  `t!.main(...)`), and an instantiation expression, `(main<T>)(...)`, which
+  `unwrapShallow()` does not strip.
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag

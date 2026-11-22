@@ -101,7 +101,9 @@ export function mainSettingsIn(parsed: ParsedModule): readonly MainSettingsCall[
       return true;
     }
 
-    if (!reach.some((bindings) => bindingName(node.callee, bindings) !== undefined)) {
+    if (
+      !reach.some((bindings) => bindingName(unwrapShallow(node.callee), bindings) !== undefined)
+    ) {
       return true;
     }
 

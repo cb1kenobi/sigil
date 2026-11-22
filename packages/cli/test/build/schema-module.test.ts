@@ -751,3 +751,22 @@ describe('a ui template in a schema imported from another file', () => {
     expect(templateErrors(root)).toHaveLength(1);
   });
 });
+
+// SIG-579: `bindingName()` takes the parentheses off a callee and nothing else, so a
+// `main` written through a type assertion was a call it could not name -- and the
+// schema it was handed stayed unfollowed, which reads as the entry being the schema
+describe.each([
+  ['<T>', (callee: string) => `<Type>${callee}`],
+  ['as', (callee: string) => `${callee} as Type`],
+  ['satisfies', (callee: string) => `${callee} satisfies Type`],
+  ['!', (callee: string) => `${callee}!`],
+])('an entry that calls a main() written under %s', (_wrapper, wrap) => {
+  it('should be followed to the schema it passes', () => {
+    const root = appOf({
+      'src/index.ts': `${RUNTIME}import schema from './schema.ts';\nawait (${wrap('main')})(schema);\n`,
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+});

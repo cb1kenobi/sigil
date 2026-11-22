@@ -193,7 +193,10 @@ function forwardsOnly(
         if (call.type === 'AwaitExpression') {
           call = unwrapShallow(call.argument as Expression);
         }
-        return call.type === 'CallExpression' && bindingName(call.callee, mains) !== undefined;
+        return (
+          call.type === 'CallExpression' &&
+          bindingName(unwrapShallow(call.callee), mains) !== undefined
+        );
       }
       default:
         return false;
@@ -291,7 +294,10 @@ function mainSchemas(parsed: ParsedModule): (string | undefined)[] {
 
   const names: (string | undefined)[] = [];
   walk(parsed.program, (node) => {
-    if (node.type !== 'CallExpression' || bindingName(node.callee, mains) === undefined) {
+    if (
+      node.type !== 'CallExpression' ||
+      bindingName(unwrapShallow(node.callee), mains) === undefined
+    ) {
       return true;
     }
 
