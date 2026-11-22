@@ -226,7 +226,7 @@ describe('which module holds the schema', () => {
   describe('a wrapper around anything but a bare name does not forward it', () => {
     const wrapped: Record<string, string> = {
       'satisfies on a spread': 'export default { ...base } satisfies Schema;\n',
-      'as on a call': 'export default build(base) as Schema;\n',
+      'as on a call': 'export default Object.freeze(base) as Schema;\n',
       'an assertion on a literal': "export default <Schema>{ ...base, name: 'x' };\n",
       'satisfies on a member': 'export default base.schema satisfies Schema;\n',
     };
@@ -234,13 +234,29 @@ describe('which module holds the schema', () => {
     for (const [label, statement] of Object.entries(wrapped)) {
       it(`should be the entry for ${label}`, () => {
         const root = appOf({
-          'src/index.ts': `import base from './schema.js';\nimport type { Schema } from './types.js';\nconst build = (x: unknown) => x;\n${statement}`,
+          'src/index.ts': `import base from './schema.js';\nimport type { Schema } from './types.js';\n${statement}`,
           'src/schema.ts': ASKS,
         });
 
         expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
       });
     }
+
+    it('should follow a name under parentheses, `!` and stacked assertions, which erase the same way', () => {
+      for (const statement of [
+        'export default (schema);',
+        'export default schema!;',
+        'export default schema as unknown as Schema;',
+        'export default (<Schema>schema)! satisfies Schema;',
+      ]) {
+        const root = appOf({
+          'src/index.ts': `import schema from './schema.js';\nimport type { Schema } from './types.js';\n${statement}\n`,
+          'src/schema.ts': ASKS,
+        });
+
+        expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+      }
+    });
 
     it('should be the entry when a wrapped name is not all the module does', () => {
       const root = appOf({

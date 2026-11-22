@@ -29,7 +29,8 @@
  * schema, { commands })` in the entry -- has written part of the schema itself, and
  * the file it came from is no longer all of it. Such an app builds and runs
  * today, so every module the walk passes through has to be imports, re-exports,
- * `export default name` and type declarations (and, for the entry, the `main()`
+ * `export default name` (through `satisfies`, `as` or `<T>`) and type declarations
+ * (and, for the entry, the `main()`
  * call), and one that is anything else is where the walk stops and answers the
  * entry.
  *
@@ -135,7 +136,7 @@ function defaultName(statement: Statement): string | undefined {
 /**
  * Whether a module does nothing but hand on what it imports.
  *
- * Imports, re-exports, `export default name`, type declarations and -- where the
+ * Imports, re-exports, `export default name` (see `defaultName()`), type declarations and -- where the
  * caller is following a `main()` call -- the call itself. None of those can
  * assign to the schema or write a second one, so the schema the module forwards
  * is the schema the file it came from wrote. Anything else can: `Object.assign(
