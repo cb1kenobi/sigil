@@ -62,7 +62,7 @@ import {
   readCapabilities,
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
-import { measureNode } from '../layout/index.js';
+import { measureSubtree } from '../layout/index.js';
 import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
@@ -508,6 +508,19 @@ export interface Renderer {
   onFrame(handler: FrameHandler): () => void;
   /** Whether this renderer is still mounted. */
   readonly mounted: boolean;
+  /**
+   * The root owner the component ran under, which is what disposes everything the
+   * tree built.
+   *
+   * For something that has to build under an owner from a place that has none -- a
+   * key handler, a promise settling -- and has only the renderer: a branch of this
+   * one is disposed with the renderer even if nothing else disposes it, and runs
+   * its effects through this renderer's own factory, so a signal it reads asks for
+   * a frame. `openModal()` builds a `body` function under one. Hand it to
+   * `runWithOwner()`; a caller that disposes what it built disposes the branch,
+   * and never this owner itself.
+   */
+  readonly owner: Owner;
   /** What the component built. Hand this to `createInput()` for keys and focus. */
   readonly root: Element;
   /**
@@ -1009,13 +1022,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // was wrong in the way that matters: a root with no declared height fills
     // whatever it is given, so `box.height` after a pass at the screen's height
     // is the screen's height -- two rows of content reserved twenty-three rows
-    // of terminal. `measureNode()` is what a node would ask for if it could
+    // of terminal. `measureSubtree()` is what a node would ask for if it could
     // have whatever it wanted, which is the question being asked here
     const room = Math.max(1, terminal.height);
     // a canvas that follows its content is measured at the screen, since that is
     // the most it may have; one whose width is settled is measured at that
     const offered = autoWidth ? Math.max(1, terminal.width) : backend.width;
-    const measured = measureNode(root, offered);
+    const measured = measureSubtree(root, offered);
     const width = autoWidth ? Math.min(offered, Math.max(1, measured.width)) : backend.width;
 
     // and the height is asked again at the width the canvas is about to be,
@@ -1024,7 +1037,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // the height of a wrap that never happens is the wrong number of rows to
     // reserve. One measure where the width did not move, since then the answer
     // above already is the answer
-    const content = width === offered ? measured : measureNode(root, width);
+    const content = width === offered ? measured : measureSubtree(root, width);
     const height = autoHeight ? Math.min(room, Math.max(1, content.height)) : backend.height;
 
     if (width !== backend.width || height !== backend.height) {
@@ -1636,6 +1649,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     invalidate: requestFrame,
     get mounted() {
       return !disposed && !failed;
+    },
+
+    // set by the time `render()` hands anything back: `createRoot()` runs the
+    // component, and so the assignment, synchronously
+    get owner() {
+      return owner as Owner;
     },
 
     onDispose(handler: () => void): () => void {

@@ -509,7 +509,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'line-chart',
     name: 'lineChart()',
     family: 'output',
-    exports: ['lineChart', 'lineChartView', 'LineChart'],
+    exports: ['lineChart', 'lineChartView', 'LineChart', 'describeLineChart'],
     registry: 'chart',
     description: 'Series drawn in braille dots, with an axis and a legend, printed or live.',
   },
@@ -634,6 +634,17 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     registry: 'diff-view',
     example: { steps: ['tab', { text: ']' }] },
     related: ['diff', 'scroll-box'],
+  },
+  {
+    slug: 'code-view',
+    name: 'codeView()',
+    family: 'fullscreen',
+    exports: ['codeView'],
+    registry: 'code-view',
+    // nothing in it takes a key: it is lines to draw, and a scroll box beside it
+    // is what moves them
+    example: { probe: false },
+    related: ['diff-view', 'markdown', 'scroll-box'],
   },
   {
     slug: 'treemap',
@@ -947,6 +958,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
   'Syntax highlighting, for the highlight seams': [
     'CODE_LANGUAGES',
     'codeLanguage',
+    'codeRun',
     'highlightCode',
   ],
   'Reading and encoding what a component draws': [

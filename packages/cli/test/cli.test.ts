@@ -1,6 +1,6 @@
 import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
-import { readRoutes } from '@ttylabs/sigil/routes';
+import { readRoutes } from '@ttylabs/sigil/internal/routes';
 import { spawnSync } from 'node:child_process';
 import {
   existsSync,

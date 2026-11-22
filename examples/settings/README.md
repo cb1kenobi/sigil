@@ -87,9 +87,5 @@ Each is marked in the source and has a ticket.
 - **The login dialog's buttons are in its body**, with `actions: []`, because a
   modal's actions cannot be disabled and the dialog would open on a button
   rather than on the user name (SIG-337).
-- **The login dialog borrows an owner.** It is opened from a button's
-  `onPress`, which has no owner, so its body is built under a branch of the
-  Account section's owner and disposed when the dialog settles; otherwise the
-  effect that follows the focus would go on running after it closed (SIG-335).
 - **`createForm()` is the example's own.** Whether it becomes a published module
   waits for a second app that wants one (SIG-338).

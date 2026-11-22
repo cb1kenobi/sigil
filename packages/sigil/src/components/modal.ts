@@ -36,6 +36,8 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/index.js';
+import { createBranch, createRoot, type Owner, runWithOwner } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 import { Button } from './button.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { labelLine, unicodeSupported } from './note.js';
@@ -58,7 +60,15 @@ export interface ModalAction<T = unknown> {
  */
 export type ModalHost =
   | Element
-  | { onDispose?(handler: () => void): () => void; readonly root: Element };
+  | {
+      onDispose?(handler: () => void): () => void;
+      /**
+       * What a `body` function is built under when nothing is running: a renderer's
+       * root owner, which every renderer has. A bare element has none.
+       */
+      readonly owner?: Owner;
+      readonly root: Element;
+    };
 
 export interface ModalOptions<T = undefined> {
   /**
@@ -74,12 +84,31 @@ export interface ModalOptions<T = undefined> {
    */
   ascii?: boolean;
   /**
-   * What is said: a string, which wraps, or an element for anything else.
+   * What is said: a string, which wraps, an element for anything else, or a
+   * function that builds one.
    *
    * An element is adopted, so it can be in one place only -- and what is in it
    * that is focusable joins the trap.
+   *
+   * **A function is the form to reach for when the body has anything reactive in
+   * it** -- a field over a `State`, a `disabled` that reads one, a text that
+   * follows a signal. It is called once, as the modal opens, under an owner of its
+   * own that is disposed when the modal closes, the way `Show` owns what it
+   * mounts. An element the caller built first was built wherever the caller was,
+   * and a dialog is nearly always opened from a key handler or an `onPress`, which
+   * run with no owner: every effect in such a body was then never disposed, and one
+   * that read the app's state went on running -- and keeping the dialog's elements
+   * alive -- long after the dialog had gone.
+   *
+   * The owner is a branch of the renderer's root owner, wherever `openModal()` was
+   * called from -- a body, a handler or a promise -- so the dialog does not go when
+   * the component that opened it does. That owner is the root's, so a context a
+   * component provided lower down is not one the function can read; one provided at
+   * the root is. A bare element as `host` has no owner, and the body is then built
+   * under a root of its own. What the function returns has to be
+   * an element, and a function that throws leaves nothing open.
    */
-  body?: Element | string;
+  body?: Element | string | (() => Element);
   /**
    * Whether a click on the screen outside the panel dismisses it. Defaults to
    * `false`: a click that lands on nothing is more often a slip than a request.
@@ -140,6 +169,89 @@ const Z_INDEX = 900;
 /** The room a panel gets when nobody says. */
 const WIDTH = 50;
 
+/** A body a function built, and the owner that built it. */
+interface OwnedBody {
+  /** Disposes the owner, and with it every effect and cleanup the body made. */
+  dispose(): void;
+  readonly element: Element;
+}
+
+/**
+ * Runs a `body` function under an owner that is the modal's to dispose.
+ *
+ * The parent is the host's own owner, which a renderer always has: the dialog is
+ * the screen's and not the component's that happened to open it, so it is not
+ * disposed when that component goes while the dialog is still up -- which would
+ * leave it trapping the keys over a body whose effects had stopped. A bare element
+ * has no owner, and then the body gets a root of its own: its effects run through
+ * the default factory, which is all a host with no renderer behind it could mean.
+ *
+ * Untracked, because the function is the dialog's and not the caller's: one that
+ * read a signal while an effect was opening the modal would otherwise make that
+ * effect a sink of it. `runWithOwner()` puts the effect parentage aside and not the
+ * consumer, which is why `createRoot()` untracks as well.
+ *
+ * @param host - What `openModal()` was given.
+ * @param build - The body function.
+ * @returns The element and what disposes its owner.
+ * @throws What `build` threw, or a `TypeError` for an answer that is not an element;
+ *   the owner is disposed first, so a call that failed here leaves nothing running.
+ */
+function buildOwned(host: ModalHost, build: () => Element): OwnedBody {
+  const parent = host instanceof Element ? undefined : host.owner;
+  let dispose: () => void;
+  let element: Element;
+  const make = (): Element => {
+    const made = untrack(build);
+    if (!(made instanceof Element)) {
+      throw new TypeError(__`Expected a modal body function to return an element`);
+    }
+    return made;
+  };
+  if (parent === undefined) {
+    // `createRoot()` is what a fixture owns a handful of effects with, and its
+    // disposer raises what a cleanup threw. The body is built through it so that
+    // a throw from `build` is the one thing left to give back by hand
+    let off: (() => void) | undefined;
+    try {
+      element = createRoot((done) => {
+        off = done;
+        return make();
+      });
+    } catch (error) {
+      off?.();
+      throw error;
+    }
+    dispose = off as () => void;
+  } else {
+    const branch = runWithOwner(parent, createBranch);
+    try {
+      element = runWithOwner(branch.owner, make);
+    } catch (error) {
+      branch.dispose();
+      throw error;
+    }
+    dispose = branch.dispose;
+  }
+  return { dispose, element };
+}
+
+/**
+ * Disposes a body's owner, holding on to what that threw.
+ *
+ * @param owned - The body, if it was built by a function.
+ * @returns The error, boxed so that a thrown `undefined` is still one; `undefined`
+ *   when nothing was thrown.
+ */
+function disposeBody(owned: OwnedBody | undefined): { readonly error: unknown } | undefined {
+  try {
+    owned?.dispose();
+  } catch (error) {
+    return { error };
+  }
+  return undefined;
+}
+
 /**
  * Opens a modal over the screen.
  *
@@ -165,8 +277,13 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   if (opts.title !== undefined && typeof opts.title !== 'string') {
     throw new TypeError(__`Expected a modal title to be a string`);
   }
-  if (opts.body !== undefined && typeof opts.body !== 'string' && !(opts.body instanceof Element)) {
-    throw new TypeError(__`Expected a modal body to be a string or an element`);
+  if (
+    opts.body !== undefined &&
+    typeof opts.body !== 'string' &&
+    typeof opts.body !== 'function' &&
+    !(opts.body instanceof Element)
+  ) {
+    throw new TypeError(__`Expected a modal body to be a string, an element or a function`);
   }
 
   const actions: readonly ModalAction<T>[] = opts.actions ?? [{ label: __`OK` }];
@@ -230,11 +347,21 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   if (opts.title !== undefined) {
     panel.append(textNode(opts.title, { class: 'sigil-modal-title sigil-heading' }));
   }
+  // built here rather than with the validation above, after the checks that can
+  // refuse the call have run: a body function has made an owner and effects by the
+  // time it returns, so a call refused for a bad option should not have run it
+  let owned: OwnedBody | undefined;
+  if (typeof opts.body === 'function') {
+    owned = buildOwned(host, opts.body);
+  }
   if (opts.body !== undefined) {
     const body =
       typeof opts.body === 'string'
         ? textNode(opts.body, { class: 'sigil-modal-body' })
-        : box({ class: 'sigil-modal-body', 'flex-direction': 'column' }, opts.body);
+        : box(
+            { class: 'sigil-modal-body', 'flex-direction': 'column' },
+            owned?.element ?? (opts.body as Element)
+          );
     panel.append(body);
   }
   if (buttons.length > 0) {
@@ -309,6 +436,14 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     layer.release();
     offDispose?.();
     offKey();
+    // the body's owner goes with the dialog, and before the panel leaves the tree
+    // and the focus moves: a cleanup in the body has the elements it set up still to
+    // take itself out of, and an effect over the focus does not hear the dialog's own
+    // hand-back. What a cleanup threw goes to the renderer's `onError`, as any
+    // unmount's does; on a bare element there is no sink, and it is raised once the
+    // dialog has settled, since a throw from here would leave `result` pending and
+    // the focus where it was
+    const failure = disposeBody(owned);
     // the tree the dialog was in, taken before it leaves it: an element that took
     // the focus without being in the ring -- a pane's edge, which a click focused --
     // is not in `pool`, and "is it still mounted" has to be asked of the tree
@@ -340,6 +475,9 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     }
 
     settle(value);
+    if (failure !== undefined) {
+      throw failure.error;
+    }
   }
 
   // -- the mouse ------------------------------------------------------------

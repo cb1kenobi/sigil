@@ -4,7 +4,7 @@
  *
  * In a module of its own rather than inside `initCommand()` because `sigil
  * build` asks the same questions of a placeholder it reads out of source, and
- * reaches them through `@ttylabs/sigil/routes` (SIG-421). A build that refuses
+ * reaches them through `@ttylabs/sigil/internal/routes` (SIG-421). A build that refuses
  * what the runtime refuses has to say it in the runtime's words and name the
  * command the way the runtime does, and a second copy of either is a copy that
  * drifts -- which is what happened to the description messages, whose build

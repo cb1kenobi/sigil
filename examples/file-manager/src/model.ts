@@ -32,15 +32,7 @@ import {
 } from '@ttylabs/sigil/components';
 import { type Element, printable } from '@ttylabs/sigil/element';
 import type { InputRouter, KeyEvent } from '@ttylabs/sigil/input';
-import {
-  createBranch,
-  createEffect,
-  getOwner,
-  onCleanup,
-  onMount,
-  runWithOwner,
-  useContext,
-} from '@ttylabs/sigil/renderer';
+import { createEffect, onCleanup, onMount, useContext } from '@ttylabs/sigil/renderer';
 import { Computed, State, untrack } from '@ttylabs/sigil/signals';
 import { basename, dirname } from 'node:path';
 
@@ -177,17 +169,6 @@ export function createModel(): Model {
   onCleanup(() => {
     disposed = true;
   });
-
-  // a dialog is opened from a key, and a key handler runs with no owner, so the
-  // effects of a field built there would never be disposed. So its body is built
-  // under a branch of the component's owner, which the dialog disposes when it
-  // settles -- the git client's answer, and SIG-335 is the ticket for
-  // `openModal()` doing it itself
-  const owner = getOwner();
-  const owned = <T>(build: () => T): { dispose: () => void; value: T } => {
-    const branch = runWithOwner(owner, createBranch);
-    return { dispose: branch.dispose, value: runWithOwner(branch.owner, build) };
-  };
 
   // -- what the app says ------------------------------------------------------
   const toast = (message: string, variant: NoteVariant = 'success'): void => {
@@ -438,26 +419,24 @@ export function createModel(): Model {
     action: string
   ): Promise<string | undefined> => {
     const value = new State(initial);
-    let close: (yes: boolean) => void = () => {};
-    const { dispose, value: field } = owned(() =>
-      TextField({ onSubmit: () => close(true), value })
-    );
+    let field: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: action, value: true },
         { label: 'Cancel', value: false },
       ],
-      body: field,
+      body: () => {
+        field = TextField({ onSubmit: () => dialog.close(true), value });
+        return field;
+      },
       input,
       title,
       width: 52,
     });
-    close = (yes) => dialog.close(yes);
     // `initial` names a button, so the field is focused once the dialog is open:
     // SIG-337 is the ticket for a dialog that opens on a field in its body
     input.focus.focus(field);
     const answer = await dialog.result;
-    dispose();
     return answer ? value.get() : undefined;
   };
 
