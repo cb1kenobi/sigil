@@ -45,6 +45,9 @@ const HOSTILE = '\u001b]0;T\u0007\nforged: error';
 /** What `escapeControls()` makes of it, inside a message. */
 const ESCAPED = '\\x1B]0;T\\x07\\x0Aforged: error';
 
+/** U+202E, the right-to-left override, which reverses the line it is printed on. */
+const BIDI = String.fromCodePoint(0x202e);
+
 const POSIX = process.platform !== 'win32';
 
 const FAKE_HOME = join(tmpdir(), `sigil-completion-escape-home-${process.pid}`);
@@ -285,11 +288,11 @@ describe.skipIf(!POSIX)('the command, under a directory with a control character
     // a format character survives `programOf()`, which only strips what is a
     // control character: it is what is left to make a line read differently
     const out = await stderrOf(async () => {
-      await runInstaller(await state('my‮cli'), { uninstall: false });
+      await runInstaller(await state(`my${BIDI}cli`), { uninstall: false });
     });
 
     expect(out).toContain('my\\u{202E}cli');
-    expect(out).not.toContain('‮');
+    expect(out).not.toContain(BIDI);
   });
 });
 
