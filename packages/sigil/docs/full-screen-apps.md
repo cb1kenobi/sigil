@@ -428,6 +428,11 @@ a signal its last paint read changes, and lays it out again whenever a signal it
 measure read changes. Build it inside a component, so that it stops listening when the
 component goes away.
 
+In a template, write `tracked` on the `<raw>`: `<raw tracked measure={...} paint={...} />`
+in JSX, and the same inside a `ui` tag. It builds the same element, so nothing else
+has to listen for the signals the paint reads. A `<raw>` without it stays a plain
+one.
+
 ## Names and files from outside the app
 
 **Show a name as it is.** File names, log lines and the output of other

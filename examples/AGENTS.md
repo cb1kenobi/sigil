@@ -158,6 +158,22 @@ the `ui` tag run by plain `node`.
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
+- **A `--mouse` flag is tested at the entry, by what the entry writes to the
+  terminal (SIG-522).** Every example's own tests mount `App` under `runApp()`
+  and pass `mouse` by hand, so the one line that reads `argv.mouse` into
+  `runApp()` was run by nothing: deleting it left the suite green over an app with
+  no mouse, and so did making it `true`. `test/entry.test.ts` in the git client and
+  the log browser spawns the built `bin` and `src/ui.ts` -- two schemas that spell
+  the flag separately -- over a terminal on stdin, presses `q` after the first
+  frame, and reads the bytes: with `--mouse`, `?1002h` and `?1006h` are written and
+  `?1002l` and `?1006l` come after them; without it, neither enable is. Bytes
+  rather than a spy on `runApp()`, because a spy passes for an entry that handed
+  the option to something else. Sabotaged for both, in both entries: the line
+  removed fails the `--mouse` test and the line made `true` fails the other, one
+  failure per entry each time and none from the neighbouring tests. The `bin` test needs
+  the example built, and says which command makes it. An example that adds the
+  flag adds the file.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
@@ -440,10 +456,11 @@ was tested, and the sabotage pass, are in
 - **What is worked around, each with a ticket.** The login dialog's Sign in and
   Cancel are in its body with `actions: []`, because an action cannot be disabled
   and a dialog with actions opens on a button rather than on the first field
-  (SIG-337). And the dialog borrows an owner: it is opened from `onPress`, which
-  has none, so its body is built under a branch of the Account section's owner and
-  disposed when `result` settles -- without that, the effect following the focus
-  runs for the rest of the app, which was measured (SIG-335).
+  (SIG-337). The dialog used to borrow an owner as well -- it is opened from
+  `onPress`, which has none, so its body was built under a branch of the Account
+  section's owner and disposed when `result` settled, because the effect following
+  the focus otherwise ran for the rest of the app, which was measured. It is
+  `body: () => Element` now (SIG-335), and the form is built inside that function.
 
 - **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
   in and the Account section's two buttons each take one --
@@ -652,15 +669,16 @@ commit message in a text area. What it settled:
   colour level 0, and a list taking the focus is what the diff pane shows from then
   on.
 
-- **A dialog's body is built under a branch of the component's owner.** The
-  commit dialog's `TextArea` is over the app's draft and the new-branch dialog's
-  `TextField` is a field, and both are built in a key handler, which has no owner
-  -- so their effects would outlive the dialog and go on following the draft.
-  `owned()` builds them under `runWithOwner(owner, createBranch)` and disposes the
-  branch when `result` settles, which is the settings example's answer to the same
-  hole; SIG-335 is the ticket for `openModal()` doing it, and SIG-337 for opening
-  on the field rather than on a button, which the client does by focusing it
-  straight after `openModal()`. Enter is a newline in the commit message, so the
+- **A dialog's body is a function.** The commit dialog's `TextArea` is over the
+  app's draft and the new-branch dialog's `TextField` is a field, and both are
+  opened from a key handler, which has no owner -- so their effects would outlive
+  the dialog and go on following the draft. `openModal()` takes `body: () =>
+  Element` and builds it under an owner of its own that it disposes on close
+  (SIG-335), which replaced the client's own `owned()` helper
+  (`runWithOwner(owner, createBranch)`, disposed when `result` settled). The
+  commit dialog's key listing is an `onCleanup()` inside that function for the same
+  reason. SIG-337 is the ticket for opening on the field rather than on a button,
+  which the client does by focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
   commit is Ctrl-S, an `onKey` on a box around the area, which the dialog's key
   walk reaches because the area leaves the chord alone. Escape keeps the draft.
 
@@ -953,9 +971,8 @@ in half blocks from the start.
   `contain`.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
-  log browser's workaround for SIG-384. The rename dialog's field is built under
-  a branch of the component's owner and focused once the dialog is open (SIG-335,
-  SIG-337), the git client's `owned()`.
+  log browser's workaround for SIG-384. The rename dialog's field is a `body`
+  function and is focused once the dialog is open (SIG-337), the git client's way.
 
 - **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
   client's rule since SIG-372, and with nothing in the model: the column a key
@@ -1067,22 +1084,24 @@ dark -- built from sigil's own components, with its own data, names and colours.
   builds the menu's entries afresh each time it opens, so the position is read
   then anyway.
 
-- **The row menu opens under the row's right end, found by its classes.** Enter or
-  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+- **The row menu opens under the row's right end, found by asking the table.** Enter
+  or a double click is the table's `onActivate`, and the menu is `openMenu()` beside
   the current row's last cell, an element rather than a point, so it right-aligns
   under the row -- or above it, where the row is too low for it -- and leaves the
-  row in view, where a web table's row menu is. Nothing hands out the element a
-  row was built as, so `currentRow()` walks the table for the `sigil-list-row`
-  that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
-  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
-  because a letter two items share only steps the highlight between them; the
-  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
-  pauses the row the menu is about. A double click moves the cursor and activates
-  in one handler, before the effect that moves `is-current` has run, so the menu
-  settles a frame with `app.view.frame()` before it looks for the row --
-  `flush()` from the signals is not enough, since the renderer runs its own
-  effects. Both clicks have to arrive in one read for the gap to show, which is
-  how the test sends them.
+  row in view, where a web table's row menu is. The row is
+  `dataTableControl(table).rowElement(id)` (SIG-459), which replaced a walk for the
+  `sigil-list-row` that was `is-current`, structure `ListView` documents only as
+  hooks for a stylesheet. Each entry's mnemonic is distinct at its level
+  (`R&edeploy` beside `&Delete...`), because a letter two items share only steps
+  the highlight between them; the ticked rows' actions are a `Ticked` submenu for
+  the same reason, so `p` still pauses the row the menu is about. A move and Enter
+  arriving in one read -- End and Enter, or a double click -- activate before the
+  frame that scrolls the table to the row has run, so that row may not be built
+  yet: the menu settles a frame with `app.view.frame()` before it asks, which
+  scrolls and lays the row out -- `flush()` from the signals is not enough, since
+  the renderer runs its own effects. Both keys have to arrive in one read for the
+  gap to show, which is how the tests send them, and removing the frame fails
+  `should open the menu beside a row the same read scrolled to`.
 
 - **A card's badge follows its figure, and is written to in place.** `Badge` takes
   its label and variant as functions over one `Computed` (SIG-460); it used to be a
@@ -1129,6 +1148,15 @@ dark -- built from sigil's own components, with its own data, names and colours.
   for it. `should follow the pointer with a rule and that day's figures` aims at the
   last day by the axis it draws, not by a fixed cell.
 
+- **The chart takes the focus, and Left and Right read a day (SIG-516).** The
+  crosshair was the pointer's alone. The chart is a Tab stop after the range row --
+  the search, the menu, the range, the chart, then the table, so `toTable()` in the
+  smoke test is five Tabs -- and while it has the focus the rule stands on the last
+  day, the arrows step it, and the footer says `←/→ move` through
+  `describeLineChart()`, which `root.tsx` describes beside the range row's keys.
+  `buildTraffic()` hands the chart back for it. At the 16 rows of the spawned run
+  the chart is not drawn, so it is no stop and the Tab counts there are unchanged.
+
 - **Not done:** the pages other than the overview, which say they are not drawn;
   re-collapsing the sidebar on a resize; and a `ui`-tag twin.
 
@@ -1156,8 +1184,9 @@ below with the measurements.
 - **One text area per open file, hidden rather than rebuilt.** `Tabs`' rule for
   its panels, applied by hand: each keeps its caret, selection and scroll while
   another file shows. Each is built under a branch of the component's owner,
-  because it is built from a key handler (SIG-335), and disposed when its tab
-  closes. Showing one paints a frame before the next key, the log browser's
+  because it is built from a key handler, and disposed when its tab closes -- a
+  text area is not a dialog's body, so `openModal()`'s `body` function (SIG-335) is
+  not the answer here. Showing one paints a frame before the next key, the log browser's
   `redraw()` for SIG-384.
 
 - **A file opens at its first line, and the status line says where the caret

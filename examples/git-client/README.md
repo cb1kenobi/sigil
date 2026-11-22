@@ -130,5 +130,5 @@ line that ends the file -- the client says that instead of staging something els
 - Stashes, rebases, remotes, and resolving a
   conflict (Space marks a file resolved, which is `git add`).
 - Refreshing on its own: `r` reads the repository again, and every action does.
-- What the library does not do yet, and this does by hand: a dialog that builds
-  its own body and opens on a field (SIG-335, SIG-337).
+- What the library does not do yet, and this does by hand: a dialog that opens
+  on a field in its own body (SIG-337).

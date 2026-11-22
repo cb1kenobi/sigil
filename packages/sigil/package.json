@@ -393,6 +393,10 @@
       "types": "./dist/input.d.mts",
       "default": "./dist/input.mjs"
     },
+    "./internal/routes": {
+      "types": "./dist/internal/routes.d.mts",
+      "default": "./dist/internal/routes.mjs"
+    },
     "./jsx-dev-runtime": {
       "types": "./dist/jsx-dev-runtime.d.mts",
       "default": "./dist/jsx-dev-runtime.mjs"
@@ -420,10 +424,6 @@
     "./renderer": {
       "types": "./dist/renderer.d.mts",
       "default": "./dist/renderer.mjs"
-    },
-    "./routes": {
-      "types": "./dist/routes.d.mts",
-      "default": "./dist/routes.mjs"
     },
     "./signals": {
       "types": "./dist/signals.d.mts",
