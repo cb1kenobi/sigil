@@ -1,3 +1,4 @@
+import { forbiddenControl } from './wellformed.js';
 import { atPath, isPlainObject } from '@ttylabs/sigil/config';
 
 /**
@@ -66,9 +67,10 @@ import { atPath, isPlainObject } from '@ttylabs/sigil/config';
  * Two sets in one predicate, because what a caller can do about either is the
  * same thing. Measured character by character rather than read off the spec,
  * and the first set is the one that matters: `@xmldom/xmldom` writes a C0
- * control **raw** and then parses it back, so the file round-trips here and is
- * rejected by every conforming tool -- a store writing a file nobody else can
- * read, with nothing saying so.
+ * control **raw** and would parse it back, so the file would round-trip through
+ * the parser and be rejected by every conforming tool -- a store writing a file
+ * nobody else can read, with nothing saying so. The store's own read refuses one
+ * now (SIG-581), which is the other half of the same rule.
  *
  * - **Forbidden by XML 1.0's `Char` production**: C0 except tab, newline and
  *   carriage return; a lone surrogate; U+FFFE and U+FFFF. `Char` is
@@ -95,13 +97,13 @@ import { atPath, isPlainObject } from '@ttylabs/sigil/config';
  * escaped or otherwise and leaves nothing to keep in place.
  */
 function badChar(code: number): boolean {
-  // C0, except the three XML's own `Char` production keeps
-  if (code < 0x20) {
-    return code !== 0x09 && code !== 0x0a;
+  // C0, except the three XML's own `Char` production keeps. One definition,
+  // which the read asks as well: it refuses a document holding one (SIG-581)
+  if (forbiddenControl(code)) {
+    return true;
   }
   // a carriage return is legal and is normalized to a newline, so it is in the
-  // second set rather than the first -- which the branch above would have said
-  // too, and is split out so the reason is readable
+  // second set rather than the first
   return code === 0x0d || code === 0x85 || code === 0xfffe || code === 0xffff;
 }
 
