@@ -1035,7 +1035,8 @@ makes it testable with a fixture directory and no bundler at all.
   is allowed to be wrong in. (It also suppresses the `import` signal for that
   app, as the plain `wrap({ checker })` already does: a nullish `wrap` plus a
   hand-written `check()` with no checker ships a binary whose check does
-  nothing. Recorded rather than fixed here.) The default stays off because every other caller of
+  nothing. Said at build time since SIG-593, under the entry on the import half
+  of the refusal.) The default stays off because every other caller of
   `objectLiteral()` would be wrong the other way, and each was checked rather
   than assumed: `extract.ts`'s `literalOf()` and `discover.ts`'s inline command,
   `commands` and unbaked-key readers bake a `desc`, a `hidden` or a subcommand tree out of
@@ -7233,6 +7234,41 @@ measurements are in
   `sigil package` therefore lets `readSchemaUpdateCheck() === 'names'` satisfy
   the import signal too. What stays refused is the app that imports a builder and
   never gives it to `updateCheck`, which is pinned.
+
+  **A checker named through a call is warned about rather than refused, and the
+  warning is narrower than the refusal would be (SIG-593).** `wrap({ checker })`
+  and `wrap?.({ checker })` read as `'names'` and so lifted the import signal,
+  though the call may hand back something else or, with a nullish `wrap`,
+  nothing. An app that then calls `check()` itself with no checker ships a binary
+  whose check does nothing -- reproduced with `sigil package --runtime bun`: it
+  succeeded, said nothing, and the binary printed `{"current":"1.0.0"}` with no
+  `latest`. `readSchemaUpdateCheck()` now answers `'wrapped'` for a literal that
+  only a call hands over (`options !== expression`, so a builder call or a
+  literal written out stays `'names'`), and `wrappedCheckWarning()` is what
+  `sigil package` writes when the bundle reached the check, the schema is
+  `'wrapped'` and `sigil.json` declares no `updateCheck`. Declaring one is the
+  fix and the silence: it bakes the checker the hand-called `check()` reads.
+
+  Warning was chosen over keeping the import signal, which would refuse, because
+  the shape the signal was lifted for -- importing the builder to write
+  `updateCheck: wrap({ checker: githubChecker(...) })` -- is correct far more
+  often than it is empty, and this file's rule is that a false refusal stops a
+  correct build where a missed one costs a notice that never appears. A note on
+  stderr costs a correct app one line and a `sigil.json` entry. It is `package`
+  only: `sigil build` leaves a runtime to fall back on, and `check()`'s own
+  default there is npm. The warning cannot say whether `check()` is called --
+  the bundler's watch sees the specifier and not what was imported from it -- so
+  it fires for every wrapped schema that imports a builder, which is the limit.
+
+  **What stays missed, and is the larger hole: a confirmed `'names'` has it too.**
+  `updateCheck: githubChecker({ repo })` plus a hand-called `check()` with no
+  checker packages without a word and answers `{"current": ...}` just the same,
+  because the schema's checker is for the automatic check and `check()` reads only
+  its own `checker` option or the baked one. Closing it needs the import signal
+  to tell an import of `check` from an import of a builder, which is a read of
+  what each module imports from the specifier -- filed rather than done here,
+  since warning on every confirmed `names` would put a warning on the documented
+  path.
 
 - **A checker the schema writes out is asked of `checkedChecker()` at build time,
   so the author is told where they are already looking (SIG-564).**

@@ -220,7 +220,12 @@ export type SchemaUpdateCheck =
   /** It switches the check on and says nothing about where to look. */
   | 'asks'
   /** It switches the check on and names the checker itself. */
-  | 'names';
+  | 'names'
+  /**
+   * It names a checker through a call of the app's own, `wrap({ checker })`, which
+   * the build cannot read the result of -- so what it names is not confirmed.
+   */
+  | 'wrapped';
 
 /** The checker builders an app may call in its schema. */
 const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
@@ -238,13 +243,20 @@ const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
  * The call is asked first, and the order is load-bearing:
  * `objectLiteral()` looks through a call with one object-literal argument, so
  * `githubChecker({ repo })` would otherwise be read as the options `{ repo }`.
+ *
+ * What it answers is **how sure** the build is. `'names'` is a builder call or a
+ * literal, which is the app saying where to look; `'wrapped'` is a literal that
+ * only a call of the app's own hands over, which that call may not (SIG-593).
  */
-function namesChecker(value: Expression, builders: readonly ImportBindings[]): boolean {
+function namesChecker(
+  value: Expression,
+  builders: readonly ImportBindings[]
+): 'names' | 'wrapped' | false {
   // `importCall()` rather than a `CallExpression` check, so that
   // `githubChecker?.({ ... })` is the call it is: oxc puts a `ChainExpression`
   // around it, which is not a wrapper `unwrapShallow()` takes off
   if (importCall(value, builders)) {
-    return true;
+    return 'names';
   }
 
   const expression = unwrapShallow(value);
@@ -259,10 +271,17 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
     return false;
   }
 
-  return (
-    plainProperty(options, 'checker') !== undefined ||
-    (plainProperty(options, 'type') !== undefined && plainProperty(options, 'url') !== undefined)
-  );
+  if (
+    plainProperty(options, 'checker') === undefined &&
+    (plainProperty(options, 'type') === undefined || plainProperty(options, 'url') === undefined)
+  ) {
+    return false;
+  }
+
+  // the literal itself is the app saying where to look. One reached **through a
+  // call** is the call's to return, and the build does not know what it returns
+  // (SIG-593): `wrap?.({ checker })` is `undefined` when `wrap` is nullish
+  return options === expression ? 'names' : 'wrapped';
 }
 
 /**
@@ -284,8 +303,9 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
  * @param entry - The app's entry module. The schema is read from the module that holds it,
  *   which is this one unless it imports its schema (`schemaModule()`).
  * @returns `'asks'` when some schema asks for a check that nothing says where
- *   to run, `'names'` when every schema that asks says where itself, and
- *   `undefined` when none asks.
+ *   to run, `'wrapped'` when one says where through a call of the app's own,
+ *   `'names'` when every schema that asks says where itself, and `undefined`
+ *   when none asks.
  */
 export function readSchemaUpdateCheck(entry: string): SchemaUpdateCheck | undefined {
   const file = schemaModule(entry);
@@ -306,8 +326,11 @@ export function readSchemaUpdateCheck(entry: string): SchemaUpdateCheck | undefi
       continue;
     }
 
-    if (namesChecker(value, builders)) {
-      result = 'names';
+    const names = namesChecker(value, builders);
+    if (names) {
+      // the weaker answer wins: one schema that names through a call is a schema
+      // the build has not confirmed
+      result = names === 'wrapped' ? 'wrapped' : (result ?? 'names');
       continue;
     }
 
@@ -383,6 +406,38 @@ export function assertUpdateCheckDeclared(
       'or "none" to say it checks nothing here.\n' +
       "A `checker` passed to check() in the app's own source still beats whatever is declared, " +
       'so "none" is also how an app that does that says so.'
+  );
+}
+
+/**
+ * What `sigil package` says when a schema names its checker through a call it cannot read.
+ *
+ * `assertUpdateCheckDeclared()` is not asked of such an app, because the usual
+ * one only imports a builder to write `updateCheck: githubChecker(...)` and a
+ * refusal there stops a correct build. But `wrap({ checker })` may hand back
+ * something else, or nothing at all when `wrap` is nullish, and then an app that
+ * also calls `check()` with no checker of its own ships a binary whose update
+ * check does nothing. The build cannot tell the two apart, so it says so and
+ * leaves the decision with the build's author (SIG-593).
+ *
+ * @param config - The app's `sigil.json`.
+ * @param imported - Whether the bundle reached `@ttylabs/sigil/updates`.
+ * @param schema - What `readSchemaUpdateCheck()` made of the schema.
+ * @returns The warning, or `undefined` when there is nothing to say.
+ */
+export function wrappedCheckWarning(
+  config: SigilConfig,
+  imported: boolean,
+  schema: SchemaUpdateCheck | undefined
+): string | undefined {
+  if (!imported || schema !== 'wrapped' || config.updateCheck) {
+    return undefined;
+  }
+
+  return (
+    "This app's updateCheck names its checker through a call, and the build cannot see what that call returns. " +
+    `It imports ${UPDATE_CHECK_SPECIFIER}, so if it also calls check() with no checker of its own, the binary's update check does nothing. ` +
+    'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look, or "none" -- to settle it.'
   );
 }
 
