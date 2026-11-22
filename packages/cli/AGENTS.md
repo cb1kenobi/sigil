@@ -5041,7 +5041,10 @@ about what a valid app is would be the worse half of the feature.
   which leaves an empty directory behind a build that then fails, where rolldown's
   own failure left whatever it had made. `test/bundle-escape.test.ts` drives each
   of the six, spawned and skipped on Windows, which cannot make the names; the two
-  that rely on a mode are skipped as root. Removing the call fails all six.
+  that rely on a mode are skipped as root. Removing the call fails all six when
+  the write was rolldown's; with a Node write only the `which is a directory` one
+  and the assertion that nothing was written before a refusal still do, because
+  Node's own write raises the same `ENOTDIR`, `EEXIST` and `EACCES`.
 
   **The write is Node's now, which is the first of the two options SIG-573 was
   filed with, and the second is refused (SIG-573).** `bundleApp()` asks rolldown
@@ -5068,8 +5071,9 @@ about what a valid app is would be the worse half of the feature.
   root, is a preloaded `writeFileSync()` that makes the target a directory just
   before the real call -- a file made between the check and the write, and an
   `EISDIR` from Node quoting the path as it stands. Putting `write()` back fails
-  it, because rolldown writes without going through Node and the preload is never
-  reached. Measured the other way too, with the check removed: a directory at an
+  it, because rolldown writes without going through Node, so the preload is not
+  reached at the write and the build does not fail with an `EISDIR` of Node's
+  (a later pass that rewrites a chunk reaches it, with a different error). Measured the other way too, with the check removed: a directory at an
   output file under `--no-clean` printed `forged.ts:1:1: error: pwned-` at the
   start of a line through rolldown's write, and printed `EISDIR: ... open
   '...\x0Aforged.ts...'` through Node's.

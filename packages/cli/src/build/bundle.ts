@@ -789,7 +789,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     },
   });
 
-  // there is one leak and it is a `write()` that rejects: `close()` used to be
+  // there is one leak and it is a write that rejects: `close()` used to be
   // the statement immediately after the write, so the unresolved gate,
   // `undo()`, `escapeChunks()` and the `chmod` below all ran with the bundle
   // already closed. A `finally` around the write alone would have closed the
@@ -867,8 +867,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     // so both see nothing. `generate()` first and `write()` after is the other
     // shape and is worse -- measured, the transform hook runs again for the
     // second call, which would double `templates` and compile every template
-    // twice. So one write, and what it wrote is unwound: exactly the files
-    // rolldown reported, which is where the `.map`s are too.
+    // twice. So one bundling call, and what was written is unwound: exactly the
+    // files rolldown reported, which is where the `.map`s are too. That call is
+    // `generate()` and the write after it is Node's (`writeOutput()`, SIG-573),
+    // which is not a second call into rolldown and runs no hook again.
     //
     // Reported as diagnostics rather than as rolldown's own messages, which
     // quote the module's path and the specifier exactly as they are and so
@@ -1135,7 +1137,7 @@ export function prepareOutput(dir: string, fileNames: readonly string[]): void {
  * Exported for the reason `undo()` is: one shape it has to survive -- a plugin's
  * error carrying `loc: null` -- is not one this build's own plugins produce.
  *
- * @param error - What `write()` rejected with.
+ * @param error - What `generate()` rejected with.
  * @returns The error to throw.
  */
 export function bundleError(error: unknown): Error {

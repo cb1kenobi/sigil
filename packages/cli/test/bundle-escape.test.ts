@@ -11,6 +11,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -330,6 +331,10 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
     writeFileSync(join(out, 'chunks'), '');
 
     await refused(app, out, 'EEXIST', '--no-clean');
+    // refused by the check, which asks before a byte is written: a Node write
+    // would have made the entry before it reached `chunks`, and a build that
+    // fails should not leave half of a bundle behind
+    expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
   }, 60_000);
 
   it.skipIf(process.getuid?.() === 0)(
@@ -454,8 +459,14 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
     const { code, stderr } = await build(app, '0', '--out', out);
 
     expect(code, stderr).toBe(0);
-    expect(existsSync(join(out, 'buildable.mjs'))).toBe(true);
-    expect(existsSync(join(out, 'buildable.mjs.map'))).toBe(true);
+    // what rolldown generated, as it generated it: the entry names its map, and
+    // the map is the entry's
+    const entry = readFileSync(join(out, 'buildable.mjs'), 'utf8');
+    expect(entry.startsWith('#!/usr/bin/env node\n')).toBe(true);
+    expect(entry.trimEnd().endsWith('//# sourceMappingURL=buildable.mjs.map')).toBe(true);
+    expect(JSON.parse(readFileSync(join(out, 'buildable.mjs.map'), 'utf8')).file).toBe(
+      'buildable.mjs'
+    );
     expect(readdirSync(join(out, 'chunks')).length).toBeGreaterThan(0);
     // a mode bit does not exist on Windows, which is skipped above
     expect(statSync(join(out, 'buildable.mjs')).mode & 0o111).toBe(0o111);
