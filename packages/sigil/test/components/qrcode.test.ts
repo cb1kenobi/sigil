@@ -7,7 +7,7 @@ import {
   qrcodeView,
   qrLines,
 } from '../../src/components/qrcode.js';
-import { renderToString } from '../../src/element/index.js';
+import { box, renderToString, text as textNode } from '../../src/element/index.js';
 import { render } from '../../src/renderer/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -894,7 +894,7 @@ describe('the scheme a tree follows', () => {
     vi.stubEnv('SIGIL_COLOR_SCHEME', '');
     vi.stubEnv('COLORFGBG', '');
     const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
-    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const { element } = qrcodeView('x', { colorLevel: 0 });
     const view = render(() => element, {
       cascade: themedCascade(),
       colorLevel: 0,
@@ -903,7 +903,7 @@ describe('the scheme a tree follows', () => {
       ...opts,
     });
     const code = encodeQr('x');
-    const shown = () => drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    const shown = () => drawn(ui.viewport.filter(Boolean));
     return {
       onDark: drawn(qrLines(code, { invert: true })),
       onLight: drawn(qrLines(code, { invert: false })),
@@ -934,7 +934,7 @@ describe('the scheme a tree follows', () => {
     // environment would draw the wrong one on the first frame
     vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
     const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
-    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const { element } = qrcodeView('x', { colorLevel: 0 });
     const view = render(() => element, {
       cascade: themedCascade(),
       colorLevel: 0,
@@ -942,7 +942,7 @@ describe('the scheme a tree follows', () => {
       frameMs: 0,
       terminal: ui.terminal,
     });
-    const shown = drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    const shown = drawn(ui.viewport.filter(Boolean));
     expect(shown).to.deep.equal(drawn(qrLines(encodeQr('x'), { invert: false })));
     view.dispose();
   });
@@ -956,11 +956,43 @@ describe('the scheme a tree follows', () => {
     }
   });
 
+  // the other body is display: none, so it takes no row: whatever follows the code is
+  // on the same row in both schemes, and neither polarity leaves a gap
+  it('should take the same rows in either scheme, so what follows it does not move', () => {
+    const rowOf = (scheme: 'dark' | 'light') => {
+      vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+      vi.stubEnv('COLORFGBG', '');
+      const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
+      const { element } = qrcodeView('x', { colorLevel: 0 });
+      const view = render(() => box({ 'flex-direction': 'column' }, element, textNode('AFTER')), {
+        cascade: themedCascade(),
+        colorLevel: 0,
+        colorScheme: scheme,
+        frameMs: 0,
+        terminal: ui.terminal,
+      });
+      const row = ui.viewport.findIndex((line) => line.includes('AFTER'));
+      view.dispose();
+      return row;
+    };
+    expect(rowOf('dark')).to.be.greaterThan(0);
+    expect(rowOf('light')).to.equal(rowOf('dark'));
+  });
+
+  // a limit, pinned so that it is a decision: with no framework sheet nothing hides
+  // either body, and the answer is both codes rather than a guess at one
+  it('should draw both polarities where the cascade has no sheet to hide one', () => {
+    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const out = renderToString(element, { colorLevel: 0, width: width * 2 });
+    const [first] = out.split('\n');
+    expect(first!.length).to.be.greaterThan(width);
+  });
+
   it('should leave a scheme the caller named alone when the renderer changes its own', () => {
     vi.stubEnv('SIGIL_COLOR_SCHEME', '');
     vi.stubEnv('COLORFGBG', '');
     const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
-    const { element, width } = qrcodeView('x', { colorLevel: 0, colorScheme: 'dark' });
+    const { element } = qrcodeView('x', { colorLevel: 0, colorScheme: 'dark' });
     const view = render(() => element, {
       cascade: themedCascade(),
       colorLevel: 0,
@@ -969,7 +1001,7 @@ describe('the scheme a tree follows', () => {
     });
     view.setColorScheme('light');
     view.frame();
-    const shown = drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    const shown = drawn(ui.viewport.filter(Boolean));
     expect(shown, 'a pinned code followed the renderer').to.deep.equal(
       drawn(qrLines(encodeQr('x'), { invert: true }))
     );

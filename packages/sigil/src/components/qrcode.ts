@@ -131,7 +131,9 @@
  * border of drawn blocks there, which is what makes it light on screen.
  *
  * `invert` overrides it, for a caller who knows something about the destination
- * that the level and the scheme do not say.
+ * that the level and the scheme do not say. Where nobody names a scheme, the string
+ * facade reads `schemeFromEnv()`, and `qrcodeView()` leaves it to the media context
+ * of whatever draws the tree, so it follows `Renderer.setColorScheme()`.
  *
  * ## What only a phone can settle
  *
@@ -165,7 +167,8 @@
  *
  * **A mounted form.** A QR code does not animate: it is a thing printed into a
  * log beside everything else, which is why the facade is a string the way
- * `table()` and `largeText()` are.
+ * `table()` and `largeText()` are. A tree that wants one uses `qrcodeView()`,
+ * which follows the scheme of the renderer it is in.
  */
 
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';

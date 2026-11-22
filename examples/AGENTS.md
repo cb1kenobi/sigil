@@ -1071,8 +1071,8 @@ dark -- built from sigil's own components, with its own data, names and colours.
   follows the theme rather than the terminal; it waits on a `mounted` State because
   `app.view` is not there while the body runs, and an effect created inside
   `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
-  What it does not reach is a component that reads the scheme from its own options,
-  `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
+  What it does not reach is a component that reads the scheme from its own options;
+  `qrcode()` the string is one, while `qrcodeView()` in a tree follows it (SIG-604). Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
   The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
   (SIG-523): the menu draws the `●` and opens on the theme in use because it is a
