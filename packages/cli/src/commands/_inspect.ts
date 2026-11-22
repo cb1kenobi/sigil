@@ -26,6 +26,7 @@ import {
   bakedUpdateCheck,
   checkCatalogs,
   checkMainSettings,
+  checkSchemaUpdateCheck,
   compileTemplates,
   DiagnosticError,
   discoverApp,
@@ -138,6 +139,10 @@ export function inspect(options: InspectOptions): Inspection {
   // a `settings` passed to the app's own `main()` is lost in the built app, which
   // calls `main({ schema })` itself -- so say so, where the app has not moved it
   diagnostics.push(...checkMainSettings(app));
+
+  // a checker the update check will refuse when the app runs, which `check()`
+  // reports only under `DEBUG`: the toolchain is where an author is looking
+  diagnostics.push(...checkSchemaUpdateCheck(app.entry));
 
   diagnostics.push(...checkTemplates(app, found.commands));
 

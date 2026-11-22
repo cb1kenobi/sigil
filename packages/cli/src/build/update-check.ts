@@ -19,15 +19,24 @@
 import type { SigilConfig, UpdateCheckConfig } from '../config.ts';
 import { quote } from '../template/emit.ts';
 import { bindingName, importBindings, type ImportBindings } from './bindings.ts';
+import type { Diagnostic } from './diagnostic.ts';
 import {
+  flatten,
+  lastReplacing,
   literalBoolean,
+  literalString,
+  literalType,
   objectLiteral,
   outermostDeclaring,
   plainProperty,
+  propertyKey,
+  stringList,
   unwrapShallow,
+  type Member,
 } from './literals.ts';
-import { parseModule } from './parse-module.ts';
+import { locate, parseModule } from './parse-module.ts';
 import {
+  checkedChecker,
   customChecker,
   githubChecker,
   npmChecker,
@@ -35,7 +44,7 @@ import {
   type UpdateChecker,
 } from '@ttylabs/sigil/updates';
 import { readFileSync } from 'node:fs';
-import type { Expression } from 'oxc-parser';
+import type { Expression, ObjectExpression, ObjectProperty } from 'oxc-parser';
 
 /** The identifier `check()` reads the baked config out of. */
 export const UPDATE_CHECK_DEFINE = '__SIGIL_UPDATE_CHECK__';
@@ -366,4 +375,242 @@ export function assertUpdateCheckDeclared(
       "A `checker` passed to check() in the app's own source still beats whatever is declared, " +
       'so "none" is also how an app that does that says so.'
   );
+}
+
+/** What a source read of one checker field came to. */
+type Field =
+  /** The checker does not spell it, and nothing may carry it. */
+  | { readonly kind: 'absent' }
+  /** Spelled, and the source is the value's. */
+  | { readonly kind: 'written'; readonly node: Expression }
+  /** A spread, a computed key or an accessor may say what it is. */
+  | { readonly kind: 'unknown' };
+
+/**
+ * What an object literal says about one key, as the object it evaluates to would.
+ *
+ * The same question `lastReplacing()` answers for the module lift: the spelling
+ * that runs is the last one, so a spread or computed key after it may have
+ * replaced it.
+ */
+function fieldOf(members: readonly Member[], key: string): Field {
+  const spelled = members.findLastIndex(
+    (member) => member.type !== 'SpreadElement' && propertyKey(member) === key
+  );
+
+  if (lastReplacing(members, key) > spelled) {
+    return { kind: 'unknown' };
+  }
+
+  if (spelled === -1) {
+    return { kind: 'absent' };
+  }
+
+  const property = members[spelled] as ObjectProperty;
+  return property.kind === 'init' && !property.method
+    ? { kind: 'written', node: property.value as Expression }
+    : { kind: 'unknown' };
+}
+
+/** A URL and a path `checkedChecker()` accepts, for the field the source does not settle. */
+const READABLE_URL = 'https://example.com/latest';
+const READABLE_PATH = ['version'];
+
+/** A value of a type a header may not have, for a header whose source says its type. */
+const JUNK: Record<string, unknown> = {
+  bigint: 1n,
+  function: () => undefined,
+  object: {},
+  symbol: Symbol('header'),
+};
+
+/**
+ * The headers an object literal spells, as far as their names and types go.
+ *
+ * A value that is a string is read; any other value is read as a harmless
+ * string unless its type is written down as one a header may not have, because
+ * the value of `Bearer ${token}` is not in the source and a refusal has to be
+ * about what is. A spread or a computed key in the literal makes all of it
+ * unreadable rather than some of it.
+ */
+function readHeaders(node: Expression): unknown {
+  const value = unwrapShallow(node);
+  if (value.type === 'ArrayExpression') {
+    return [];
+  }
+
+  if (value.type !== 'ObjectExpression') {
+    return literalString(value);
+  }
+
+  const headers: Record<string, unknown> = {};
+  for (const member of flatten(value)) {
+    const name = member.type === 'SpreadElement' ? undefined : propertyKey(member);
+    if (member.type === 'SpreadElement' || name === undefined) {
+      return undefined;
+    }
+
+    // an accessor's value is whatever its getter answers, so it is not read
+    const written = unwrapShallow(member.value as Expression);
+    const type = member.kind === 'init' ? literalType(written) : undefined;
+    // a list is a value Node sends, one header line per element: it is `'object'`
+    // to `literalType()` and not the junk a plain object is
+    headers[name] =
+      type !== undefined && type in JUNK && written.type !== 'ArrayExpression'
+        ? JUNK[type]
+        : (literalString(written) ?? 'x');
+  }
+
+  return headers;
+}
+
+/**
+ * What a checker written as an object literal says, with what the source does
+ * not settle replaced by something `checkedChecker()` accepts.
+ *
+ * "Not settle" is a name, a call or a template with a substitution, and it is
+ * read as valid, as is a literal of the wrong type (`url: 42`, a list holding a
+ * list as a header value) which the runtime refuses: only a `url` string, a
+ * `path` list or string, and a header value written as a function, an object, a
+ * bigint or a symbol are judged. It errs towards not refusing, for the reason
+ * `readSchemaUpdateCheck()` does: a false refusal stops a correct build and a
+ * missed one is what there was before this existed.
+ */
+function readChecker(object: ObjectExpression): Record<string, unknown> {
+  const members = flatten(object);
+  const checker: Record<string, unknown> = { path: READABLE_PATH, url: READABLE_URL };
+
+  const url = fieldOf(members, 'url');
+  if (url.kind === 'absent') {
+    delete checker.url;
+  } else if (url.kind === 'written') {
+    checker.url = literalString(url.node) ?? READABLE_URL;
+  }
+
+  const path = fieldOf(members, 'path');
+  if (path.kind === 'absent') {
+    delete checker.path;
+  } else if (path.kind === 'written') {
+    const node = unwrapShallow(path.node);
+    const strings = node.type === 'ArrayExpression' ? stringList(node) : undefined;
+    const bare = literalString(node);
+    checker.path = bare ?? (strings?.kind === 'strings' ? strings.values : READABLE_PATH);
+  }
+
+  const headers = fieldOf(members, 'headers');
+  if (headers.kind === 'written') {
+    const read = readHeaders(headers.node);
+    if (read !== undefined) {
+      checker.headers = read;
+    }
+  }
+
+  return checker;
+}
+
+/**
+ * Whether an object literal given as the whole `updateCheck` is a checker written
+ * bare, which at run time is `isChecker()`: a `type` and a `url` that are strings
+ * and a `path` that is a list.
+ *
+ * Asked of what the source says, so a field whose type is written down as another
+ * one is options -- `{ type, url, path: 'version' }` is read by the runtime as
+ * options, which check npm and refuse nothing -- and a name, whose type is not in
+ * the source, is read as the type it needs. A `path` that is not written is not a
+ * list either.
+ */
+function isWrittenChecker(members: readonly Member[]): boolean {
+  const wanted = [
+    ['type', 'string'],
+    ['url', 'string'],
+    ['path', 'object'],
+  ] as const;
+
+  return wanted.every(([key, type]) => {
+    const field = fieldOf(members, key);
+    if (field.kind !== 'written') {
+      return false;
+    }
+    const written = literalType(field.node);
+    if (written === undefined) {
+      return true;
+    }
+    // an object or a regular expression is `'object'` to `literalType()` and is
+    // not a list, which `isChecker()` asks with `Array.isArray()`
+    return key === 'path' ? unwrapShallow(field.node).type === 'ArrayExpression' : written === type;
+  });
+}
+
+/**
+ * Refuses, while building, a hand-written checker the update check would
+ * refuse when the app runs (SIG-564).
+ *
+ * `check()` asks `checkedChecker()` of every checker it is handed, and a
+ * schema's `updateCheck` reaches it through `beginUpdateCheck()`, which catches
+ * everything because a notice may not fail a command -- so a checker it refuses
+ * is an update notice that never appears, said under `DEBUG=sigil:updates` and
+ * nowhere else. `sigil.json` has no such gap: it is built through
+ * `customChecker()` and refused here. This is the same question asked of the
+ * schema, answered by the same function, so the rules are the runtime's own.
+ *
+ * The schema is read and not run, as every pass here reads, so only what the
+ * source writes down is judged: a `url`, a `path` and `headers` written as
+ * literals, in `updateCheck: { checker: { ... } }` or in the bare form. A call
+ * to `npmChecker()`, `githubChecker()` or `customChecker()` is left alone,
+ * because a builder refuses where it is called and the app does not start. A
+ * value that is a name, a call or a template with a substitution is read as
+ * valid; a checker held in a variable is not read at all.
+ *
+ * @param entry - The app's entry module.
+ * @returns One error per schema whose checker is refused.
+ */
+export function checkSchemaUpdateCheck(entry: string): Diagnostic[] {
+  let parsed: ReturnType<typeof parseModule>;
+  try {
+    parsed = parseModule(entry, readFileSync(entry, 'utf-8'));
+  } catch {
+    // an entry that does not read has been reported by what read it first
+    return [];
+  }
+
+  const found: Diagnostic[] = [];
+  for (const schema of outermostDeclaring(parsed.program as never, 'updateCheck')) {
+    // the spelling that runs, as a checker's own fields are read: a spread after
+    // it may have replaced it
+    const declared = fieldOf(flatten(schema), 'updateCheck');
+    const value = declared.kind === 'written' ? unwrapShallow(declared.node) : undefined;
+    if (value?.type !== 'ObjectExpression') {
+      continue;
+    }
+
+    // the same two spellings `updateCheckOptions()` tells apart, in its order: a
+    // checker written bare is asked first and a `checker` beside one is never
+    // looked at, then the options with a `checker` in them
+    const members = flatten(value);
+    let checker: ObjectExpression | undefined;
+    if (isWrittenChecker(members)) {
+      checker = value;
+    } else {
+      const named = fieldOf(members, 'checker');
+      const node = named.kind === 'written' ? unwrapShallow(named.node) : undefined;
+      checker = node?.type === 'ObjectExpression' ? node : undefined;
+    }
+    if (!checker) {
+      continue;
+    }
+
+    try {
+      checkedChecker(readChecker(checker));
+    } catch (err) {
+      found.push({
+        ...locate(parsed, checker.start),
+        message:
+          'this updateCheck checker is refused when the app runs, so the app never shows an ' +
+          `update notice: ${(err as Error).message}`,
+        severity: 'error',
+      });
+    }
+  }
+
+  return found;
 }

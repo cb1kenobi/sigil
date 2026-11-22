@@ -164,6 +164,7 @@ export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typech
 export {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
+  checkSchemaUpdateCheck,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
   updateCheckDefine,

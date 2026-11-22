@@ -2,6 +2,7 @@ import {
   assertUpdateCheckDeclared,
   bakedUpdateCheck,
   bundleApp,
+  checkSchemaUpdateCheck,
   discoverApp,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
@@ -13,6 +14,7 @@ import { binaryName, hostTarget } from '../src/build/index.ts';
 import { readSigilConfig, type SigilConfig } from '../src/config.ts';
 import { run } from '../src/index.ts';
 import { tempDir } from './temp.js';
+import { checkedChecker } from '@ttylabs/sigil/updates';
 import { whichSync } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -785,6 +787,268 @@ describe('whether the schema names its own checker', () => {
   it('should say nothing for a schema that does not ask', () => {
     expect(reads('')).toBe(undefined);
     expect(reads('updateCheck: false')).toBe(undefined);
+  });
+});
+
+// SIG-564: `check()` refuses a hand-written checker that could never work, and a
+// schema's `updateCheck` reaches it through `beginUpdateCheck()`, which swallows the
+// refusal -- so the notice went silent and nothing told the author. The toolchain
+// asks the same function of the source, and it is an error, because the app would
+// never show an update notice
+describe('a schema checker the update check would refuse', () => {
+  const written = (url: string, path = "['version']", extra = ''): string =>
+    `{ type: 'custom', url: ${url}, path: ${path}${extra} }`;
+
+  function refused(schemaBody: string, preamble = ''): string[] {
+    return checkSchemaUpdateCheck(entryOf(schemaBody, preamble)).map((d) => d.message);
+  }
+
+  it.each([
+    ['a URL that is not https', `updateCheck: { checker: ${written("'http://e.com/v'")} }`, /url/],
+    ['the same given bare', `updateCheck: ${written("'ftp://e.com/v'")}`, /url/],
+    [
+      'a URL with credentials, which is never quoted',
+      `updateCheck: { checker: ${written("'https://user:hunter2@e.com/v'")} }`,
+      /^(?!.*hunter2)/s,
+    ],
+    ['an empty path', `updateCheck: { checker: ${written("'https://e.com/v'", '[]')} }`, /path/],
+    [
+      'a path that is not a list',
+      `updateCheck: { checker: ${written("'https://e.com/v'", "'version'")} }`,
+      /path/,
+    ],
+    [
+      'a header holding a newline',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { Accept: 'a\\nb' }") +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a header name that is not a token',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { 'Bad Name': 'x' }") +
+        ' }',
+      /header name/,
+    ],
+    [
+      'a header whose value is written as an object',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Accept: {} }') +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a header whose value is written as a function',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Accept: () => 1 }') +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a header whose value is written as a bigint',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Accept: 1n }') +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a url that a spread before it does not replace',
+      `updateCheck: { checker: { ...base, ...${written("'http://e.com/v'")} } }`,
+      /url/,
+    ],
+    [
+      'a url whose key is a computed string',
+      `updateCheck: { checker: { ['url']: 'http://e.com/v', type: 'custom', path: ['v'] } }`,
+      /url/,
+    ],
+    [
+      'the last of two urls',
+      `updateCheck: { checker: { url: 'https://e.com/v', url: 'http://e.com/v', path: ['v'] } }`,
+      /url/,
+    ],
+    [
+      'a checker in parentheses',
+      `updateCheck: { checker: (${written("'http://e.com/v'")}) }`,
+      /url/,
+    ],
+    [
+      'headers written as a list of pairs',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: [['a', 'b']]") +
+        ' }',
+      /headers must be an object/,
+    ],
+    // a name is read as the type it needs, so these are still checkers written bare
+    [
+      'a bare literal whose path is a name',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: keys }",
+      /url/,
+    ],
+    [
+      'a bare literal whose url is a name',
+      "updateCheck: { type: 'custom', url: base, path: [] }",
+      /path/,
+    ],
+    [
+      'a bare literal beside a valid checker key, which the runtime never reads',
+      `updateCheck: { ...${written("'http://e.com/v'")}, checker: ${written("'https://e.com/v'")} }`,
+      /url/,
+    ],
+    [
+      'a bare literal after a spread that may carry a checker key',
+      `updateCheck: { ...opts, ${written("'http://e.com/v'").slice(2)}`,
+      /url/,
+    ],
+    [
+      'a checker with no url at all',
+      "updateCheck: { checker: { type: 'custom', path: ['v'] } }",
+      /url/,
+    ],
+  ])('should refuse %s', (_what, body, message) => {
+    const found = refused(body);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatch(/never shows an update notice/);
+    expect(found[0]).toMatch(message);
+  });
+
+  it('should say what the runtime says, from the one definition of the rules', () => {
+    const [message] = refused(`updateCheck: { checker: ${written("'http://e.com/v'")} }`);
+    let said = '';
+    try {
+      checkedChecker({ path: ['version'], type: 'custom', url: 'http://e.com/v' });
+    } catch (err) {
+      said = (err as Error).message;
+    }
+    expect(said).not.toBe('');
+    expect(message).toContain(said);
+  });
+
+  it('should point at the checker', () => {
+    const [diagnostic] = checkSchemaUpdateCheck(
+      entryOf(`updateCheck: { checker: ${written("'http://e.com/v'")} }`)
+    );
+    expect(diagnostic?.severity).toBe('error');
+    expect(diagnostic?.line).toBe(2);
+    expect(diagnostic?.column).toBeGreaterThan(1);
+  });
+
+  // what the source does not settle is read as valid, for the reason the schema's
+  // other readers err towards not refusing: a false refusal stops a correct build
+  it.each([
+    ['a good literal', `updateCheck: { checker: ${written("'https://e.com/v'")} }`],
+    ['a good literal given bare', `updateCheck: ${written("'https://e.com/v?c=stable'")}`],
+    ['a URL that is a name', `updateCheck: { checker: ${written('base')} }`],
+    ['a URL with a substitution', `updateCheck: { checker: ${written('`${base}/v`')} }`],
+    ['a path that is a name', `updateCheck: { checker: ${written("'https://e.com/v'", 'keys')} }`],
+    [
+      'a header whose value is a template',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Authorization: `Bearer ${token}` }') +
+        ' }',
+    ],
+    [
+      'headers that are a name',
+      `updateCheck: { checker: ${written("'https://e.com/v'", "['v']", ', headers')} }`,
+    ],
+    [
+      'a spread that may carry the url',
+      `updateCheck: { checker: { ...base, type: 'custom', path: ['v'] } }`,
+    ],
+    // a list is a header value Node sends
+    [
+      'a header whose value is a list',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { Accept: ['a', 'b'] }") +
+        ' }',
+    ],
+    [
+      'a header that is an accessor',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { get Accept() { return 'x'; } }") +
+        ' }',
+    ],
+    // a spread after the url may have replaced it
+    [
+      'a url a later spread may replace',
+      `updateCheck: { checker: { url: 'http://e.com/v', ...base, type: 'custom', path: ['v'] } }`,
+    ],
+    // what the runtime reads as options, which check npm and refuse nothing
+    [
+      'a bare literal whose path is a string',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: 'version' }",
+    ],
+    ['a bare literal with no path', "updateCheck: { type: 'custom', url: 'http://e.com/v' }"],
+    ['a bare literal with no type', "updateCheck: { url: 'http://e.com/v', path: ['v'] }"],
+    [
+      'an updateCheck a later spread may replace',
+      `updateCheck: { checker: ${written("'http://e.com/v'")} }, ...overrides`,
+    ],
+    // `isChecker()` is asked first at run time: not a list, or a name, or a type
+    // that is not a string, is not a checker written bare
+    [
+      'a bare literal whose path is an object',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: {} }",
+    ],
+    [
+      'a bare literal whose path is a pattern',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: /v/ }",
+    ],
+    [
+      'a bare literal whose type is a number',
+      "updateCheck: { type: 1, url: 'http://e.com/v', path: ['v'] }",
+    ],
+    [
+      'a bare literal whose url is a number',
+      "updateCheck: { type: 'custom', url: 42, path: ['v'] }",
+    ],
+    // the bare form wins over a `checker` beside it, and the refusal is of the bare one
+    [
+      'a valid bare literal beside a refused checker key',
+      `updateCheck: { ...${written("'https://e.com/v'")}, checker: ${written("'http://e.com/v'")} }`,
+    ],
+    ['a checker held in a variable', 'updateCheck: { checker }'],
+    ['a function call that builds it', 'updateCheck: { checker: build() }'],
+    ['true', 'updateCheck: true'],
+    ['options with no checker', "updateCheck: { distTag: 'next' }"],
+    ['false', 'updateCheck: false'],
+    ['nothing', ''],
+    // a builder refuses where it is called, which is the app failing to start
+    ['a builder, whatever it is given', "updateCheck: customChecker({ url: 'http://e.com' })"],
+  ])('should leave %s alone', (_what, body) => {
+    expect(refused(body)).toEqual([]);
+  });
+
+  it('should reach `sigil check`, `sigil build` and `sigil package` and fail each', async () => {
+    const root = variant(
+      'schema-refused',
+      undefined,
+      [
+        'export default {',
+        "  name: 'fixture-refused',",
+        "  version: '1.0.0',",
+        "  updateCheck: { checker: { type: 'custom', url: 'http://e.com/v', path: ['v'] } },",
+        '  run() {},',
+        '};',
+        '',
+      ].join('\n')
+    );
+
+    const checked = await sigil('check', root);
+    expect(checked.code).toBeTruthy();
+    expect(checked.err).toContain('never shows an update notice');
+
+    const out = tempDir('sigil-upd-');
+    const built = await sigil('build', root, '--out', out);
+    expect(built.code).toBeTruthy();
+    expect(built.err).toContain('never shows an update notice');
+    expect(readdirSync(out)).toEqual([]);
+
+    // before any runtime is chosen or fetched, so this needs neither bun nor a network
+    const packaged = await sigil('package', root, '--out', out);
+    expect(packaged.code).toBeTruthy();
+    expect(packaged.err).toContain('never shows an update notice');
+    expect(readdirSync(out)).toEqual([]);
   });
 });
 

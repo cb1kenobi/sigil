@@ -6863,6 +6863,48 @@ measurements are in
   the import signal too. What stays refused is the app that imports a builder and
   never gives it to `updateCheck`, which is pinned.
 
+- **A checker the schema writes out is asked of `checkedChecker()` at build time,
+  so the author is told where they are already looking (SIG-564).**
+  `checkSchemaUpdateCheck()` in `src/build/update-check.ts` is a diagnostic pass
+  in `inspect()`, so `sigil check`, `build` and `package` all report it, as an
+  **error**: the app would never show an update notice, which is the same verdict
+  `sigil.json`'s `custom` check already gets from `customChecker()`. The rules are
+  `@ttylabs/sigil/updates`'s own `checkedChecker()` -- exported for this -- called
+  on a value read off the source, and its message is the refusal's, so there is
+  no second copy to drift. Where the runtime says it is under "A refusal for a
+  schema's `updateCheck`" in `packages/sigil/src/updates/AGENTS.md`.
+
+  What it reads is the two spellings `updateCheckOptions()` tells apart, as
+  object **literals**: `updateCheck: { checker: { ... } }` and the bare
+  `updateCheck: { type, url, path }`. A field is judged only where the source
+  writes it down: a `url` string, a `path` that is a list or a string, `headers`
+  as an object whose values are strings or whose type is written as one a header
+  may not have. A name, a call, a template with a substitution, and a spread or
+  computed key that may carry the field are read as **valid**, which is this
+  file's own rule for the schema -- a false refusal stops a correct build and a
+  missed one is what there was before. A call to a builder is not read at all:
+  it refuses where it is called, which is the app failing to start. So a checker
+  held in a variable, built by a function, or whose `url` comes from the
+  environment is still silent at run time, and `DEBUG=sigil:updates` is how it
+  is found. A bare literal is read as a checker by
+  `isWrittenChecker()`, which is the runtime's `isChecker()` asked of the
+  source: a `type` and a `url` that are strings and a `path` that is a list, a
+  name read as the type it needs and a field written as another type making it
+  **options** -- so `{ type, url, path: 'version' }` refuses nothing, because the
+  runtime does not read it as a checker either (round 1 found the first draft
+  refusing it with a message about a notice that would have shown, by npm).
+
+  Two limits are the price of reading rather than running, and neither is new.
+  Only the **entry** module is read, so a schema exported from another file is
+  not seen (the same boundary the command tree has), and the schema object is
+  found the way `readSchemaUpdateCheck()` finds it (its `updateCheck` key is then
+  read last-wins, which that function's is not): the outermost object literal holding an
+  `updateCheck` key. A fixture object in the entry that happens to carry one is
+  judged too, and as an error, with no way to silence it short of renaming the key
+  -- the heuristic was chosen for a pass that errs towards silence and this one
+  does not, which is why the refusal is a literal's `url`, `path` and `headers` and
+  nothing wider.
+
 - **The manifest's package name goes across whether or not anything was
   declared.** `bakedUpdateCheck()` used to write only `{ compiled }` for an app
   that declared nothing. An automatic check has the program's name in hand and

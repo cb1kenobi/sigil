@@ -8632,8 +8632,12 @@ belongs in a header. The message never quotes a header value or the credentials.
 `customChecker()` is stricter and is how to have the rest refused too: a
 fragment, whitespace in the `url`, an empty key in `path`, a `prefix` of `''` or
 one starting with whitespace, and a control character in a header value. For a
-schema's `updateCheck` the refusal is logged and not shown, since an update
-check never fails the command; turn on `DEBUG=sigil:updates` to see it.
+schema's `updateCheck` the refusal is logged and not shown when the app runs,
+since an update check never fails the command; `sigil check`, `sigil build` and
+`sigil package` ask the same question of a checker the schema writes out as an
+object literal and fail with the same message, and `DEBUG=sigil:updates` shows
+one they cannot read, such as a checker held in a variable or a schema defined outside the entry module. `checkedChecker()`
+is exported for a tool that wants to ask it itself.
 
 An endpoint that wants a header, or answers `v1.2.3` where the app's version is
 `1.2.3`, says so with `headers` and `prefix`:
