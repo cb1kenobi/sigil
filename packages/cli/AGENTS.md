@@ -1364,11 +1364,9 @@ makes it testable with a fixture directory and no bundler at all.
   in the path is the path's -- where `escaped()` keeps line breaks for a message
   with structure of its own and would let a forged line start. What `tar` said is
   written a line at a time and indented, as `said()` writes a compiler's. Not
-  done, and shared with `build` where it is not `package`'s alone: the runtime
-  picker's labels, built from a `PATH` runtime's `--version` and cache directory
-  names, which the canvas garbles but does not act on; and the bundle stage's
-  `escaped()`, which no longer lets a newline in a root start a line for a
-  system error (SIG-552, at the end of SIG-447's entry). `test/package-escape.test.ts` drives each one through a stub
+  done, and shared with `build` where it is not `package`'s alone: the bundle
+  stage's `escaped()`, which no longer lets a newline in a root start a line
+  for a system error (SIG-552, at the end of SIG-447's entry). `test/package-escape.test.ts` drives each one through a stub
   compiler or signer, skipped on Windows, which cannot make the names; the `tar`
   one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
   `test/package-command.test.ts`, and the `repo` in `test/updates.test.ts`.
@@ -5102,6 +5100,39 @@ about what a valid app is would be the worse half of the feature.
   below the `--build-sea` floor, because a row nobody can pick should not be
   there; naming such a version explicitly still explains itself in
   `parseSpec()`, which points at `bun@1.3` being node-compat 24.
+
+  **Every versioned row has passed `isVersion()`, and a `PATH` runtime that is
+  not a release is one bare row (SIG-553).** `isVersion()` calls itself the one
+  test every source of a version goes through, and three sources went around it:
+  what the runtime on `PATH` printed for `--version`, the directory names in
+  sigil's own cache, and the ones in Bun's. A row is `<runtime>@<version>`, which
+  `parseSpec()` refuses for anything else, such as a Node `v27.0.0-rc.1` or a
+  wrapper printing its own banner, and its label is drawn, so a control
+  character in it is garbled by the canvas. (A Bun canary prints its release
+  number for `--version` and only `--revision` says `-canary`, so it reaches the
+  picker as an ordinary row.) The registry's LTS codename is escaped in its label
+  for the same reason. The cache names
+  are left out of `local()`: nothing legitimate is named otherwise, and a
+  directory name is a string somebody else chose. `choices()` asks again of
+  every version it is handed, since it is a pure function of lists and a row's
+  value has to survive `parseSpec()` whoever built the list.
+
+  The `PATH` runtime is **not** filtered in `installed()`, because `resolveExec()`
+  resolves a versionless spec to it, canary or not, and filtering there would make
+  `--runtime bun` with a canary installed download a release instead -- a change
+  to what the flag means in order to tidy a menu. It is offered as one row whose
+  value is the bare name, `bun`, which is what that spec already resolves to, and
+  whose label is `bun <version, escaped>  (installed, not a release)`, cut at 40
+  characters before it is escaped because it is whatever the executable printed.
+  `local()` answers it last and apart from the sorted releases, since it has no
+  place in an order and `compare()` of a canary is `NaN`. A `PATH` runtime that
+  _is_ a release keeps its ordinary `bun@1.4.4  (installed)` row and no second
+  one. A non-release **Node** gets the row only when `canBuildSea()` accepts it,
+  which is the test `resolveExec()` applies to that same executable: one it
+  refuses is downloaded over, so a row saying "the one on `PATH`" would be untrue
+  of it, and is left out. Covered by `test/runtimes-picker.test.ts`, and the
+  bare row building with the `PATH` executable and fetching nothing by
+  `a bun on PATH that is not a release` in `test/package-command.test.ts`.
 
 - **A version is a path, so it is exactly `<major>.<minor>.<patch>` wherever it
   came from, and where it lands is checked as well (SIG-251).** The version
