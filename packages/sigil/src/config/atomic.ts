@@ -1,3 +1,4 @@
+import { escapeControls } from '../util/escape-controls.js';
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import {
   chmodSync,
@@ -446,7 +447,7 @@ export function realPathOf(path: string): string {
   // and it is English rather than a catalog key for the same reason: what it
   // stands in for is the `ELOOP` the file system itself would have raised, and
   // node's own errors on this path are not translated either
-  throw new Error(`Too many levels of symbolic links: ${path}`);
+  throw new Error(`Too many levels of symbolic links: ${escapeControls(path)}`);
 }
 
 /**

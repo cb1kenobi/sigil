@@ -1691,6 +1691,72 @@ failed to close.
   Measured by dropping the option: five tests fail across the three stores, two
   of which were already there.
 
+#### A store escapes the path it quotes, where it builds the message (SIG-551)
+
+- **A config file's path is an app's root as it is on disk, and a control
+  character in it reached stderr raw.** `readSigilConfig()` reads an app's
+  `sigil.json` through `json()`, and every message a store built named the file by
+  `${source}` -- so a root holding `ESC ] 0 ; T BEL` retitled the terminal of
+  whoever read `Failed to read <root>/sigil.json: ...`, from `build`, `check`,
+  `package` and `reference` alike. The rule is the one the parser already keeps,
+  that a value an error echoes is escaped where it is thrown, and the thrower here
+  is the store: so `escapeControls()` goes inside the placeholder, where the
+  message is built, and every app reading a config file gets it. Nothing wraps it
+  in `readSigilConfig()`, which was the other place it could have gone and is
+  refused for being a second place for one rule -- an app calling `createConfig()`
+  on its own `json(path)` would have been left with the hole.
+
+- **Every message that names the file, which is more than the four the ticket
+  listed.** `Failed to read` in `readText()`, `readTextSync()` and `decode()`'s two
+  UTF-8 refusals; `must hold an object` and `Cannot write` in `file.ts`;
+  `Failed to parse` and the three scanner refusals in `jsonc.ts`, which already
+  escaped V8's half and not `what`; and `claim()`, which hands the file to
+  `overlay()` as the `where` of `is not an object` and `Unsafe config key`. The
+  tripwire `Too many levels of symbolic links` in `atomic.ts` is escaped too, for
+  the same reason though nothing reaches it. Two in `config.ts` name a store's
+  `source` rather than a file the store read: the read-only `delete()` sentence,
+  which names the file a value is set in and the one to set it in, and the
+  "source that is not a file path" report. **What the operating system said is
+  the other half of `Failed to read`**: Node's `EACCES` and `ENOENT` quote the
+  path they failed on, so `(e as Error).message` is escaped as well. A fixture for it
+  has to be one Node quotes a path for: `EISDIR` does not, which is why a
+  directory proves nothing about that second escape and a path **under a regular
+  file** (`ENOTDIR: not a directory, open '<path>'`) is the test.
+
+- **A store outside this package does the same, through the published subpath.**
+  `@ttylabs/config-xml` and `@ttylabs/config-yaml` build their own messages and
+  import `escapeControls()` from `@ttylabs/sigil/error-handler`, which is where
+  it already was for the XML and YAML parser messages -- never a copy. Both carry
+  the path as a `what` in their read shape, used by nothing but messages, so it is
+  escaped **once where the shape is built** and the twenty-odd messages that use
+  it need not each remember; the messages that name `source` directly escape it
+  where they throw. The two reads still go through core's `readText()`, which is
+  why the UTF-8 and unreadable-file cases need nothing of their own.
+
+- **What is not done.** A write that fails inside `atomic.ts` rethrows Node's own
+  error, whose message quotes the path it failed on, unescaped; the write half of
+  an app's root is never the toolchain's to quote, and wrapping every `catch` is
+  a change to what every store throws. A message that names a **layer** is
+  the app's own string: `config.ts` and `schema.ts` print `layer.name` raw, and
+  the toolchain's is `sigil.json`, but an app that names a layer after its path
+  has chosen what it prints. The text a message quotes **from inside** a
+  file -- a YAML tag, an XML element name -- is the file's content rather than its
+  path, and is escaped where that is already the case and left where it is not.
+
+- **Tested at three heights**, since the defect lived at the bottom and was
+  reported at the top: `test/config/path-escape.test.ts` for core's store,
+  `test/path-escape.test.ts` in each of the two stores, and
+  `packages/cli/test/config-escape.test.ts` through `sigil build`, `check`,
+  `package` and `reference` over a root with the sequence in its name. Each is skipped on
+  Windows, which cannot create the name. Sabotaged by reverting every source
+  change and leaving the tests: all four files fail, and the cases in the
+  toolchain's file fail for each of the four kinds of failure.
+
+  Four of the escapes have no test that fails without them, because nothing
+  reaches the message: the symlink-loop tripwire in `atomic.ts`, the XML store's
+  `it has no root element` and its collected-errors `Failed to parse` (the parser
+  throws first), and the first line of what the YAML `toJS()` threw.
+
 #### What the write half costs
 
 - **The config module's graph was 32,625 B over seven modules**, against 20,649 B

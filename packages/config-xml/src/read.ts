@@ -79,7 +79,11 @@ export interface ReadShape {
    * every other such decision in this repository takes.
    */
   readonly multiple: ReadonlySet<string>;
-  /** The file, for a message that can name it. */
+  /**
+   * The file, for a message that can name it, **already escaped**: it is the
+   * path as it is on disk, and a message must not echo a control character in it
+   * raw. Built where the shape is, so no message below has to remember.
+   */
   readonly what: string;
 }
 
