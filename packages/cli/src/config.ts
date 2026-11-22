@@ -75,6 +75,11 @@ export interface BuildConfig {
    * appear as literals in the source -- read from a config file, joined out of
    * an array that came from somewhere else -- leaves nothing behind and its
    * rule is dropped. This is how to say it anyway.
+   *
+   * That includes `.concat()` and `.join()`, a `?:` with a branch that is not a
+   * literal, and a literal on the right of `||` or `??`; the shake reads a `?:`
+   * of literals and a literal on the left of `||` or `??`. The list is in the
+   * README under "What the shake reads".
    */
   readonly safelist?: readonly string[];
   /**
