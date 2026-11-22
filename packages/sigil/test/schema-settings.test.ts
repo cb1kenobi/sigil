@@ -32,7 +32,7 @@ describe('settings on the schema', () => {
     });
 
     expect(ran.err).toContain('Unknown option "--typo"');
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
   });
 
   it('should apply to parse() called on its own', async () => {

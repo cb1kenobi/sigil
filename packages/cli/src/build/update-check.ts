@@ -254,6 +254,7 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
   // reading it as naming costs a declaration the build did not demand, and a
   // reader that errs towards not refusing may afford that. The shared reader does
   // not do it by default because the module lift and the command tree could not
+  // afford it: they would bake a description of a command that is not there.
   const options = objectLiteral(expression, { optional: true });
   if (!options) {
     return false;

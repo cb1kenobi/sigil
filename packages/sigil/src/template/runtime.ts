@@ -181,6 +181,11 @@ export declare namespace JSX {
     raw: HostProps & {
       measure: (availableWidth: number) => Measurement;
       paint: (...args: never[]) => void;
+      /**
+       * Builds it with `trackedRaw()`, so a signal its paint or its measure read repaints
+       * or relays it out. Read once, when the element is built.
+       */
+      tracked?: boolean;
     };
     text: HostProps;
   }

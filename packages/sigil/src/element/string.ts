@@ -32,7 +32,7 @@ import {
   StyleTable,
   transition,
 } from '../canvas/index.js';
-import { measureNode } from '../layout/index.js';
+import { measureSubtree } from '../layout/index.js';
 import { Cascade, type ColorScheme, Restyler } from '../style/index.js';
 import type { Element } from './index.js';
 import { arrange, arrangedExtent, paint, settleResized, settleStyles } from './paint.js';
@@ -83,7 +83,7 @@ export interface RenderStringOptions {
    * How many rows to lay out in. Defaults to what the tree measures.
    *
    * A string is not bounded by a screen, so the default is the height the
-   * content asked for -- which is what `measureNode()` answers and what a fixed
+   * content asked for -- which is what `measureSubtree()` answers and what a fixed
    * height would refuse.
    */
   height?: number;
@@ -120,7 +120,7 @@ export function renderToLines(root: Element, opts: RenderStringOptions): string[
   try {
     settleStyles(root, new Restyler(cascade));
 
-    height = Math.max(1, Math.floor(opts.height ?? measureNode(root, width).height));
+    height = Math.max(1, Math.floor(opts.height ?? measureSubtree(root, width).height));
 
     // what the last layout gave a size nothing has been told about, which is what a
     // windowed list is told so that it can rebuild a window the viewport's height

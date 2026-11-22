@@ -37,7 +37,10 @@ which provides the `sigil` command.
   that help shows, list the commands in the schema instead of a directory:
   `commands: { 'hello, hi': './commands/hello.ts' }`.
 - To fail, throw an `Error`. `main()` from `@ttylabs/sigil` prints its message
-  without a stack and exits with 1, or with the error's integer `exitCode`.
+  without a stack and exits with 1, or with the error's integer `exitCode`. The
+  parser's own complaints about argv are `UsageError`s and exit with 2; throw one
+  yourself (`new UsageError(message, 'invalid-value')`) for a bad invocation your
+  own code finds.
 - For output a script can read, return data from `run()` and set
   `format: true` on the command; `--json` then prints it. Don't add a `--json`
   option by hand.

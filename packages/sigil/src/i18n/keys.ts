@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 457 keys, which is what a catalog has to carry to translate sigil's own
+ * 458 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -102,7 +102,8 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a menubar input to be a router',
   'Expected a menubar menu to have a label',
   'Expected a modal action to have a label',
-  'Expected a modal body to be a string or an element',
+  'Expected a modal body function to return an element',
+  'Expected a modal body to be a string, an element or a function',
   'Expected a modal host to be an element or a renderer',
   'Expected a modal input to be a router',
   'Expected a modal title to be a string',
@@ -156,6 +157,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Collapsible() returned',
   'Expected an element that DataTable() returned',
   'Expected an element that DiffView() returned',
+  'Expected an element that LineChart() returned with a crosshair',
   'Expected an element that ListView() returned',
   'Expected an element that RadioSet() returned',
   'Expected an element that Slider() returned',
@@ -326,6 +328,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Suppress progress, not results',
   'The "{0}" command presents no output formats, so "{1}" cannot be asked for.',
   'The command to describe',
+  'The helper could not be loaded: {0}',
   'The shell to generate for',
   'Then restart your shell.',
   'Truncated PNG: the file ends before its IEND chunk',

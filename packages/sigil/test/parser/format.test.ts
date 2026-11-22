@@ -419,7 +419,7 @@ describe('selecting a format', () => {
       expect(ran.err).toContain(
         'The "dashboard" command presents no output formats, so "json" cannot be asked for.'
       );
-      expect(ran.code).toBe(1);
+      expect(ran.code).toBe(2);
       expect(ran.out).toBe('');
     }
   });
@@ -552,7 +552,7 @@ describe('selecting a format', () => {
 describe('the format registry', () => {
   it('should ship json and nothing else', async () => {
     expect((await run(['list', '--format', 'json'], app())).code).toBe(0);
-    expect((await run(['list', '--format', 'yaml'], app())).code).toBe(1);
+    expect((await run(['list', '--format', 'yaml'], app())).code).toBe(2);
   });
 
   it('should let an app register its own', async () => {
@@ -1432,7 +1432,11 @@ describe('a serialized error', () => {
     } as never;
 
     expect(JSON.parse((await run(['list', '--json'], schema)).err)).toEqual({
-      error: { message: 'Missing required options: --req', name: 'Error' },
+      error: {
+        code: 'missing-option',
+        message: 'Missing required options: --req',
+        name: 'UsageError',
+      },
     });
   });
 
@@ -1607,7 +1611,7 @@ describe('what a format does not reach', () => {
     } as never;
     const ran = await run(argv, schema);
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(ran.err.startsWith('{')).toBe(serialized);
     // either way the message is the same one the plain form prints, which is
     // what `errorPayload()` is built from -- and the exit code is the half a

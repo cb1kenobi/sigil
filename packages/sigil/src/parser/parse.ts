@@ -20,6 +20,7 @@ import { envValue } from '../util/env-value.js';
 import { escapeControls } from '../util/escape-controls.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
 import { assertChoices, transformValue } from '../util/transform.js';
+import { asUsageError, UsageError } from '../util/usage-error.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
 import { resolveTopic } from './command/topic.js';
@@ -38,6 +39,27 @@ const optionLikeRE = /^--?\w/;
 const optionNoSpaceRE = /^([^'"]*)(['"])(.*)\2$/;
 const negatedRE = /^--no-/;
 const unknownOptionRE = /^(?:--(\w[\w-]*)|-(\w))$/;
+
+/**
+ * Runs a coercion or a `choices` check over something the user supplied, and
+ * says so if it fails.
+ *
+ * Those functions are shared with config files and the prompts, where a bad
+ * value is not a mistake in how the program was invoked, so they throw plain
+ * errors. Here the value came from argv or the environment, and a refusal is a
+ * `UsageError` -- the same message, the kind that exits `2`.
+ *
+ * @param fn - What to run.
+ * @returns What it returned.
+ * @throws A `UsageError` of kind `invalid-value`, wrapping what `fn` threw.
+ */
+function fromArgv<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw asUsageError(err, 'invalid-value');
+  }
+}
 
 /**
  * Parses argv against a schema.
@@ -622,12 +644,16 @@ function validates(
  * @param value - The fallback value, if there is one.
  * @param negated - Whether a string value was spelled through a negated flag's
  * name, and so means the opposite of what it coerces to.
+ * @param fromEnv - Whether the value is somebody's environment variable, which
+ * a value the type rejects is a mistake of theirs. A `default` the type rejects
+ * is the app's own, and stays the plain error it has always been.
  */
 function applyFallback(
   state: ParseState,
   it: InternalOption | InternalArgument,
   value: unknown,
-  negated = false
+  negated = false,
+  fromEnv = false
 ): void {
   const { dest } = it[Internal];
   const { multiple, type } = it;
@@ -643,7 +669,8 @@ function applyFallback(
   const one = !Array.isArray(value);
 
   if (typeof value === 'string') {
-    value = transformValue(value, type);
+    const text = value;
+    value = fromEnv ? fromArgv(() => transformValue(text, type)) : transformValue(text, type);
     if (negated) {
       value = !value;
     }
@@ -940,12 +967,12 @@ async function parseArgv(state: ParseState): Promise<void> {
           // `-v=2` threw `Invalid boolean: "2"` -- or accepted and then thrown
           // away, because the counting path increments and never looks at the
           // value, so `-v=false` counted up to 1
-          value = transformValue(`${inputs[1]}`, 'count');
+          value = fromArgv(() => transformValue(`${inputs[1]}`, 'count'));
         } else if (isFlag) {
           // `--foo` is true and `--no-foo` is false, but an explicit
           // `--foo=false` beats the name it was reached by
           const explicit = inputs.length > 1;
-          const bool = explicit ? transformValue(`${inputs[1]}`, 'bool') : true;
+          const bool = explicit ? fromArgv(() => transformValue(`${inputs[1]}`, 'bool')) : true;
           value = readsInverted(option, `${subject}`, explicit) ? !bool : bool;
         } else {
           const next = peek();
@@ -964,7 +991,7 @@ async function parseArgv(state: ParseState): Promise<void> {
             // must appear, `[value]` means it need not -- and neither says the
             // value may be left out. `--port=` is the way to give an empty one,
             // and then the data type decides whether empty is a value it has
-            throw new Error(__`Missing value for option ${label}`);
+            throw new UsageError(__`Missing value for option ${label}`, 'missing-value');
           }
         }
 
@@ -976,7 +1003,8 @@ async function parseArgv(state: ParseState): Promise<void> {
         }
 
         if (typeof value === 'string') {
-          value = transformValue(value, type);
+          const typed = value;
+          value = fromArgv(() => transformValue(typed, type));
         }
 
         emit({
@@ -1040,7 +1068,10 @@ function parseUnknownOptions(state: ParseState): void {
       }
 
       if (!allowed) {
-        throw new Error(unknownOption(subject, state.contexts, state.settings));
+        throw new UsageError(
+          unknownOption(subject, state.contexts, state.settings),
+          'unknown-option'
+        );
       }
 
       log(`Found unknown option "${subject}"`);
@@ -1110,7 +1141,10 @@ export async function processArgs(state: ParseState): Promise<void> {
       inputs = [...whole(parsed)];
 
       if (!state.settings?.allowUnexpectedArguments && !arg) {
-        throw new Error(unexpectedArgument(inputs[0], ctx, state.settings));
+        throw new UsageError(
+          unexpectedArgument(inputs[0], ctx, state.settings),
+          'unexpected-argument'
+        );
       }
 
       if (arg) {
@@ -1144,7 +1178,7 @@ export async function processArgs(state: ParseState): Promise<void> {
 
         // into a new array: what a `transform` returned is the caller's
         inputs = inputs.map((input) =>
-          typeof input === 'string' ? transformValue(input, type) : input
+          typeof input === 'string' ? fromArgv(() => transformValue(input, type)) : input
         );
 
         state.argv[dest] = multiple || !Array.isArray(inputs) ? inputs : inputs[0];
@@ -1156,8 +1190,9 @@ export async function processArgs(state: ParseState): Promise<void> {
       if (state.settings?.allowExtraArguments) {
         append(state._, inputs);
       } else {
-        throw new Error(
-          __`Extra arguments are not allowed: ${inputs.map(escapeControls).join(' ')}`
+        throw new UsageError(
+          __`Extra arguments are not allowed: ${inputs.map(escapeControls).join(' ')}`,
+          'extra-arguments'
         );
       }
     } else if (parsedType === 'Option') {
@@ -1220,7 +1255,8 @@ export async function processArgs(state: ParseState): Promise<void> {
   for (let i = internal.args.length - 1; i >= argIdx; i--) {
     const arg = internal.args[i];
     const { envs } = arg[Internal];
-    applyFallback(state, arg, envValue(state.env, envs) ?? arg.default);
+    const fromEnv = envValue(state.env, envs);
+    applyFallback(state, arg, fromEnv ?? arg.default, false, fromEnv !== undefined);
   }
 }
 
@@ -1278,7 +1314,10 @@ export function validateArgs(state: ParseState): void {
   }
 
   if (missingArguments.length && !asked(state)) {
-    throw new Error(__`Missing required arguments: ${missingArguments.join(' ')}`);
+    throw new UsageError(
+      __`Missing required arguments: ${missingArguments.join(' ')}`,
+      'missing-argument'
+    );
   }
 
   // only what this argument produced: an option can share the destination, and its
@@ -1287,7 +1326,9 @@ export function validateArgs(state: ParseState): void {
 
   for (const arg of internal.args) {
     if (validates(state, arg, live)) {
-      assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`);
+      fromArgv(() =>
+        assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`)
+      );
     }
   }
 }
@@ -1309,7 +1350,7 @@ export async function processOptions(state: ParseState): Promise<void> {
   for (const opt of all) {
     const { envs, label, parserOwned } = opt[Internal];
     if (!parserOwned) {
-      applyFallback(state, opt, envValue(state.env, envs), readsInverted(opt, label, true));
+      applyFallback(state, opt, envValue(state.env, envs), readsInverted(opt, label, true), true);
     }
   }
 
@@ -1357,11 +1398,14 @@ export function validateOptions(state: ParseState): void {
     // nearer context's option of the same destination -- and each of them has
     // its own `choices`, so a value belongs to whichever one wrote it
     if (validates(state, opt, live)) {
-      assertChoices(choices, value, __`option ${label}`);
+      fromArgv(() => assertChoices(choices, value, __`option ${label}`));
     }
   }
 
   if (missingOptions.length && !asked(state)) {
-    throw new Error(__`Missing required options: ${missingOptions.join(' ')}`);
+    throw new UsageError(
+      __`Missing required options: ${missingOptions.join(' ')}`,
+      'missing-option'
+    );
   }
 }

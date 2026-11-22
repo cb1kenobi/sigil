@@ -138,6 +138,15 @@ const refState = <box ref={held} />;
 // @ts-expect-error -- a value is not a callback
 const refValue = <box ref="x" />;
 
+// --- a raw may be tracked, and only by a flag ---
+
+const rawMeasure = () => ({ height: 1, width: 1 });
+const rawPaint = () => {};
+const trackedRawFlag = <raw tracked measure={rawMeasure} paint={rawPaint} />;
+const trackedRawOff = <raw tracked={false} measure={rawMeasure} paint={rawPaint} />;
+// @ts-expect-error -- a flag is read once, so a function would only look reactive
+const trackedByThunk = <raw tracked={() => true} measure={rawMeasure} paint={rawPaint} />;
+
 export type Checked = typeof unknownElement &
   typeof misspelledLonghand &
   typeof misspelledShorthand &
@@ -164,6 +173,9 @@ export type Checked = typeof unknownElement &
   typeof refToState &
   typeof refState &
   typeof refValue &
+  typeof trackedRawFlag &
+  typeof trackedRawOff &
+  typeof trackedByThunk &
   typeof disabledByThunk &
   typeof disabledByComputed &
   typeof disabledByString &
