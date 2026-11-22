@@ -10,9 +10,9 @@ import {
   type TestTerminal,
 } from '@ttylabs/sigil/testing';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * Every example under `examples/`, run the two ways a person runs it.
@@ -189,6 +189,42 @@ const COLUMNS = 60;
 const ROWS = 16;
 
 /**
+ * What a root module's first `import()` may take, and what a test may not be
+ * charged for. The first import of an example's root is a cold one -- vite
+ * transforms its JSX and loads `@ttylabs/sigil` from `dist/` -- and it is
+ * usually 0.3 to 1 s, was 4.9 s on a Windows runner of a passing main run, and
+ * ran past the package's 10 s `testTimeout` four times on one branch (SIG-565).
+ * It is paid once per example in a `beforeAll()`, which is the one place that
+ * can say so: a test's own timeout cannot be raised for one test without being
+ * a number nobody reads, and the package's cannot be raised for every test
+ * without hiding real slowness everywhere else. A hang is still a failure, and
+ * it fails here in this long, naming the example and the file.
+ */
+const COLD_IMPORT_MS = 30_000;
+
+/** The roots already asked for, so the first `import()` is the only one anybody waits on. */
+const loaded = new Map<string, Promise<RootModule>>();
+
+/**
+ * A root module, imported once. The module runner caches an `import()` by its
+ * URL already, so a second one is cheap either way -- measured, `mount()` after
+ * the export test took 16 ms behind a 5 s import -- and what this adds is that
+ * every caller waits on the one promise, which is what the `beforeAll()` below
+ * has finished by the time a test asks.
+ *
+ * @param file - The root module.
+ * @returns What it exports.
+ */
+function load(file: string): Promise<RootModule> {
+  let module = loaded.get(file);
+  if (module === undefined) {
+    module = import(pathToFileURL(file).href) as Promise<RootModule>;
+    loaded.set(file, module);
+  }
+  return module;
+}
+
+/**
  * Runs one root component the way its entry does, over a test terminal, and
  * hands back what it drew and the exit code to come.
  *
@@ -201,7 +237,7 @@ const ROWS = 16;
 async function mount(
   file: string
 ): Promise<{ app: App; done: Promise<number>; screen: string[]; term: TestTerminal }> {
-  const rootModule = (await import(pathToFileURL(file).href)) as RootModule;
+  const rootModule = await load(file);
 
   const term = createTestTerminal({ columns: COLUMNS, rows: ROWS });
   const app = runApp(rootModule.App, {
@@ -245,6 +281,25 @@ describe('the examples', () => {
 
   for (const example of found) {
     describe(example.name, () => {
+      // the cold import, paid here and not inside whichever test happens to be
+      // first. `within()` is what names the hang -- the hook's own timeout is a
+      // few seconds behind it, so that this message is the one that is read
+      beforeAll(async () => {
+        // every root is asked and every failure is named, so a broken root
+        // does not hide the one beside it
+        const settled = await Promise.allSettled(
+          example.roots.map((file) =>
+            within(load(file), `importing ${relative(root, file)}`, COLD_IMPORT_MS)
+          )
+        );
+        const failures = settled.flatMap((result) =>
+          result.status === 'rejected' ? [String((result.reason as Error).message)] : []
+        );
+        if (failures.length > 0) {
+          throw new Error(failures.join('; '));
+        }
+      }, COLD_IMPORT_MS + 5000);
+
       it('should follow the example contract', () => {
         const { manifest } = example;
         expect(manifest.name, 'the package name').toBe(`@ttylabs/example-${example.name}`);
@@ -296,7 +351,8 @@ describe('the examples', () => {
           // the app is reached through `useApp()`, so a root that still takes
           // props is one somebody has to remember to wire, and `runApp()` will
           // not
-          const rootModule = (await import(pathToFileURL(file).href)) as RootModule;
+          expect(loaded.has(file), 'the beforeAll() imported the root, not this test').toBe(true);
+          const rootModule = await load(file);
           expect(typeof rootModule.App, 'App').toBe('function');
           expect(rootModule.App.length, 'App takes no props').toBe(0);
           expect(typeof rootModule.stylesheet, 'stylesheet').toBe('string');
