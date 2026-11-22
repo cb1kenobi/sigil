@@ -91,11 +91,13 @@ function codeLines(text: string): string[] {
 }
 
 /** A step's label: its `name:`, else its first line, trimmed. */
-function labelOf(lines: string[], itemIndent: number): string {
+function labelOf(lines: string[]): string {
+  // the column the step's keys sit at: past the dash, however many spaces follow it
+  const keyColumn = /^\s*-\s+/.exec(lines[0] ?? '')?.[0].length;
   for (const line of lines) {
     const name = /^(\s*)(-\s+)?name:\s*(.*)$/.exec(line);
     // only the step's own key, not a `name:` under its `with:`
-    if (name && (name[1] as string).length + (name[2]?.length ?? 0) === itemIndent + 2) {
+    if (name && (name[1] as string).length + (name[2]?.length ?? 0) === keyColumn) {
       return name[3] as string;
     }
   }
@@ -104,7 +106,9 @@ function labelOf(lines: string[], itemIndent: number): string {
 
 /** Splits a job's lines at its `steps:` into what is before, the steps, and what is after. */
 function readJob(name: string, lines: string[], jobIndent: number): Job {
-  const at = lines.findIndex((line) => new RegExp(`^ {${jobIndent + 2}}steps:\\s*$`).test(line));
+  const at = lines.findIndex((line) =>
+    new RegExp(`^ {${jobIndent + 2}}steps:\\s*(?:#.*)?$`).test(line)
+  );
   if (at < 0) return { after: [], head: lines, lines, name, steps: [] };
 
   const stepsIndent = jobIndent + 2;
@@ -130,7 +134,7 @@ function readJob(name: string, lines: string[], jobIndent: number): Job {
     }
     current?.push(line);
   }
-  for (const step of steps) step.name = labelOf(step.lines, itemIndent ?? 0);
+  for (const step of steps) step.name = labelOf(step.lines);
 
   return { after: lines.slice(end), head: lines.slice(0, at), lines, name, steps };
 }
@@ -238,6 +242,18 @@ export function outsideSteps(workflow: Workflow, pattern: RegExp): string[] {
   ];
 }
 
+/** Lines without any `defaults:` block, whose `run:` is a map of settings and no script. */
+function withoutDefaults(lines: string[]): string[] {
+  const kept: string[] = [];
+  let skipping: number | undefined;
+  for (const line of lines) {
+    if (skipping !== undefined && (isBlank(line) || indentOf(line) > skipping)) continue;
+    skipping = /^\s*defaults:\s*$/.test(line) ? indentOf(line) : undefined;
+    if (skipping === undefined) kept.push(line);
+  }
+  return kept;
+}
+
 /**
  * The steps whose `run:` holds an expression.
  *
@@ -258,7 +274,10 @@ export function expressionsInRun(workflow: Workflow): string[] {
   // and every `run:` the file has, whether or not the reader placed it in a
   // step -- a `steps:` line the reader does not recognize parses as no steps,
   // and the per-step answer above would then be empty over a file full of them
-  const all = runBlocks(allLines(workflow)).filter((block) => block.includes('${{'));
+  // (`defaults: run:` is a map of settings, where an expression is fine)
+  const all = runBlocks(withoutDefaults(allLines(workflow))).filter((block) =>
+    block.includes('${{')
+  );
   if (all.length > found.length) found.push('a run block outside any step');
   return found;
 }

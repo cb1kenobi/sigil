@@ -6,13 +6,9 @@ const job = (steps: string, header = '  check:', stepsKey = '    steps:') =>
   `name: T\non: push\njobs:\n${header}\n    runs-on: ubuntu-latest\n${stepsKey}\n${steps}\n`;
 
 describe('the workflow reader', () => {
-  it('should find an expression in a run block when `steps:` carries a comment', () => {
+  it('should find an expression in a run block when `steps:` is a shape it cannot read', () => {
     // read as no steps at all, so the per-step answer was empty over a file full of them
-    const text = job(
-      '      - run: echo ${{ github.head_ref }}',
-      '  check:',
-      '    steps: # the steps'
-    );
+    const text = job('      - run: echo ${{ github.head_ref }}', '  check:', '    steps: &steps');
     expect(expressionsInRun(readWorkflow(text))).toStrictEqual(['a run block outside any step']);
   });
 
@@ -45,9 +41,43 @@ describe('the workflow reader', () => {
     }
   );
 
+  it('should read a `steps:` line that carries a comment as the steps', () => {
+    const wf = readWorkflow(
+      job('      - run: echo ${{ x }}', '  check:', '    steps: # the steps')
+    );
+    expect(wf.jobs.get('check')?.steps).toHaveLength(1);
+  });
+
   it('should read a `- run:` step with more than one space after the dash', () => {
     const wf = readWorkflow(job('      -   run: echo ${{ github.ref_name }}'));
     expect(expressionsInRun(wf)).toHaveLength(1);
+  });
+
+  it('should keep the script of a `-   run: |` step, `#` lines and what follows it', () => {
+    const wf = readWorkflow(
+      job(
+        '      -   run: |\n            # ${{ secrets.X }}\n            echo hi\n          env:\n            A: b'
+      )
+    );
+    const [block] = runBlocks(allLines(wf));
+    expect(block).toContain('secrets.X');
+    // the sibling key at the step's own column ends the block
+    expect(block).not.toContain('A: b');
+  });
+
+  it('should name a step by a `name:` that is not its first key, or follows a wide dash', () => {
+    const wf = readWorkflow(
+      job('      -   name: Wide\n          run: true\n      - run: true\n        name: Late')
+    );
+    expect(wf.jobs.get('check')?.steps.map((step) => step.name)).toStrictEqual(['Wide', 'Late']);
+  });
+
+  it('should not read a `defaults: run:` setting as a script', () => {
+    const text = job('      - run: echo hi').replace(
+      '    runs-on: ubuntu-latest\n',
+      '    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: ${{ matrix.dir }}\n'
+    );
+    expect(expressionsInRun(readWorkflow(text))).toStrictEqual([]);
   });
 
   it('should end the steps at a job-level key, and name an unnamed step by its first line', () => {
