@@ -432,6 +432,22 @@ describe('the themes', () => {
     expect(background(s.app)).toStrictEqual(system);
   });
 
+  // the defect: the scheme was read once at start, so a Light theme on a dark
+  // terminal could not say it was light and restated what the framework's light half
+  // would have drawn. The scheme the cascade is asked about follows the theme now
+  it('should resolve against the scheme of the theme in use, and the terminal’s for System', async () => {
+    const s = mount({ colorLevel: 3 });
+    await s.settle();
+    const scheme = (): string => s.app.cascade.media.colorScheme;
+    const terminals = scheme();
+    await s.press('t');
+    expect(scheme()).toBe('light');
+    await s.press('t');
+    expect(scheme()).toBe('dark');
+    await s.press('t');
+    expect(scheme(), 'System did not give the choice back').toBe(terminals);
+  });
+
   it('should switch theme from the account menu', async () => {
     const s = mount({ colorLevel: 3 });
     await s.settle();

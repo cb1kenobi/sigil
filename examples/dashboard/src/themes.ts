@@ -5,16 +5,26 @@
  * terminal draws with, light or dark as it reports. `Light` and `Dark` are the
  * app saying which it is, so they paint their own background rather than
  * trusting the terminal's -- a light theme over a black terminal is what the
- * user asked for, and the only way to get it is to fill the screen. Painting a
- * background is what makes the choice the app's to state, which is the reason
- * `@media (prefers-color-scheme)` is not used here: that asks what the
- * *terminal* is, and these sheets are an answer that does not depend on it.
+ * user asked for, and the only way to get it is to fill the screen.
  *
- * Each sheet sets every role, because a role it left out would fall back to the
- * framework's default for whatever scheme the terminal reported -- a dim grey
- * meant for a black background, drawn on a white one. And each fills the
- * overlays: a menu, a toast or a dialog is drawn on the root with blank cells in
- * the terminal's own colours, which would punch a black hole in a white screen.
+ * Which is also why each names a `scheme`, and the app hands it to
+ * `view.setColorScheme()` when the theme changes. What the renderer detected is
+ * what the *terminal* is, and a page painted white over a black terminal is a
+ * light scheme whatever the terminal says: the framework's own `@media
+ * (prefers-color-scheme: light)` rules -- the debug pane's fill -- and every
+ * component that reads the scheme for itself are right only when the renderer is
+ * told. `System` has none, which is `setColorScheme(undefined)`: back to what the
+ * terminal reported.
+ *
+ * What is left in a sheet is what is the theme's own: the paper and the ink, the
+ * colour of each role, and the one colour behind every overlay. A role the
+ * framework already draws as the sheet would -- a heading is bold in the
+ * foreground, which it inherits from the root -- is not restated, and the
+ * overlays are one rule rather than four because they are one fact about the
+ * theme. The roles themselves stay here in full, and that is not the old
+ * limitation surviving: the framework's roles are palette indices, which are
+ * the terminal's colours chosen for the terminal's background, and a page that
+ * paints its own is exactly the case where those are the wrong ones.
  *
  * Truecolor throughout, since an app's own theme may use it and a terminal with
  * fewer colours gets the nearest the degradation finds. Swapped with
@@ -27,6 +37,8 @@ export interface ThemeChoice {
   readonly css: string | undefined;
   readonly id: 'dark' | 'light' | 'system';
   readonly label: string;
+  /** What the sheets resolve against, or `undefined` for what the terminal reported. */
+  readonly scheme: 'dark' | 'light' | undefined;
 }
 
 /** One palette, as the rules a theme sheet needs. */
@@ -60,20 +72,14 @@ function sheet(p: Palette): string {
 .sigil-app { background-color: ${p.background}; color: ${p.foreground} }
 .sigil-accent { color: ${p.accent} }
 .sigil-muted { color: ${p.muted}; dim: false }
-.sigil-heading { color: ${p.foreground}; font-weight: bold }
 .sigil-success { color: ${p.success}; border-color: ${p.success} }
 .sigil-error { color: ${p.error}; border-color: ${p.error} }
 .sigil-warn { color: ${p.warn}; border-color: ${p.warn} }
 .sigil-info { color: ${p.info}; border-color: ${p.info} }
-.sigil-panel { border-color: ${p.border} }
+.sigil-panel, .sigil-menu, .sigil-modal { border-color: ${p.border} }
 .sigil-text-field { background-color: ${p.field} }
 .sigil-scroll-track { color: ${p.border} }
-.sigil-menu-fill { background-color: ${p.raised} }
-.sigil-modal-fill { background-color: ${p.raised} }
-.sigil-toast-fill { background-color: ${p.raised} }
-.sigil-tooltip-fill { background-color: ${p.raised} }
-.sigil-menu { border-color: ${p.border} }
-.sigil-modal { border-color: ${p.border} }
+.sigil-menu-fill, .sigil-modal-fill, .sigil-toast-fill, .sigil-tooltip-fill { background-color: ${p.raised} }
 `;
 }
 
@@ -109,7 +115,7 @@ export const DARK: string = sheet({
 
 /** What `t` cycles through and the menu lists, in that order. */
 export const THEMES: readonly ThemeChoice[] = [
-  { css: undefined, id: 'system', label: 'System' },
-  { css: LIGHT, id: 'light', label: 'Light' },
-  { css: DARK, id: 'dark', label: 'Dark' },
+  { css: undefined, id: 'system', label: 'System', scheme: undefined },
+  { css: LIGHT, id: 'light', label: 'Light', scheme: 'light' },
+  { css: DARK, id: 'dark', label: 'Dark', scheme: 'dark' },
 ];
