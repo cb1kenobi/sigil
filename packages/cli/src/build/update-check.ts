@@ -249,7 +249,12 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
 
   const expression = unwrapShallow(value);
 
-  const options = objectLiteral(expression);
+  // `optional`: `wrap?.({ checker })` names its checker as `wrap({ checker })` does
+  // (SIG-591). When `wrap` is nullish the schema has no `updateCheck` at all, so
+  // reading it as naming costs a declaration the build did not demand, and a
+  // reader that errs towards not refusing may afford that. The shared reader does
+  // not do it by default because the module lift and the command tree could not
+  const options = objectLiteral(expression, { optional: true });
   if (!options) {
     return false;
   }

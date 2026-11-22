@@ -1018,12 +1018,29 @@ makes it testable with a fixture directory and no bundler at all.
   The other three _walk_ to a `CallExpression` and reach the one inside the chain
   on their own; their tests pin that rather than test a fix.
 
-  What stays missed, each silently: `(t?.main)(...)`, where the chain is inside
-  the parentheses around the callee rather than around the call, so neither
-  helper looks into it; and `updateCheck: wrap?.({ checker })`, an optional call
-  to something that is _not_ a builder, which `objectLiteral()`'s look through a
-  one-argument call does not reach, so it reads as asking where the plain
-  `wrap({ checker })` reads as naming.
+  What stays missed, silently: `(t?.main)(...)`, where the chain is inside the
+  parentheses around the callee rather than around the call, so neither helper
+  looks into it.
+
+  `updateCheck: wrap?.({ checker })` was missed too and is read now (SIG-591): an
+  optional call to something that is _not_ a builder read as asking where the
+  plain `wrap({ checker })` reads as naming. The argument above does not carry
+  over -- `wrap` may be nullish, and then the value is `undefined` rather than
+  the object -- so the answer is a different one. `objectLiteral()` takes
+  `{ optional: true }` and looks through the chain **only for a caller that
+  asks**, and `namesChecker()` is the one that does. It is safe there for a
+  reason particular to that reader: a nullish `wrap` leaves the schema with no
+  `updateCheck` at all, so reading it as naming costs a declaration the build
+  did not demand, which is the direction a reader that errs towards not refusing
+  is allowed to be wrong in. The default stays off because every other caller of
+  `objectLiteral()` would be wrong the other way, and each was checked rather
+  than assumed: `extract.ts`'s `literalOf()` and `discover.ts`'s inline command
+  and `commands` readers bake a `desc`, a `hidden` or a subcommand tree out of
+  the literal, and `command?.({ desc })` with a nullish `command` is no command
+  when it runs, so the build would describe something that is not there;
+  `i18n.ts`'s `locales` would bake catalogs for a schema that declares none. A
+  chain past the call, `wrap?.({ checker })?.x`, is a member read and not the
+  object, so it still reads as asking.
 
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
