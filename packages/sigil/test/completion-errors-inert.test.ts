@@ -10,10 +10,12 @@ import { describe, expect, it } from 'vitest';
  *
  * SIG-576 made the installer's messages inert and left these two: the program
  * name in "is not a name a shell can register for" and the shell name in
- * "Unknown shell". Both arrive on stderr through `errorHandler()`, which prints
- * a message as it finds it, so a control character in either reached the
- * terminal. Written as escapes and never as raw bytes, for the reason
- * `sources.test.ts` exists.
+ * "Unknown shell". The first reaches stderr through `errorHandler()`, which
+ * prints a message as it finds it; the second is reached only by a caller of
+ * `completionScript()`, since the parse refuses an unknown shell first through
+ * the argument's own `choices`. Either way a control character in the value
+ * reached the terminal. Written as escapes and never as raw bytes, for the
+ * reason `sources.test.ts` exists.
  */
 
 /** U+202E, the right-to-left override, which reverses the line it is printed on. */
