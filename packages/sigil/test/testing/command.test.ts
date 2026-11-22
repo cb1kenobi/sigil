@@ -96,7 +96,7 @@ describe('runCommand()', () => {
       schema: app({ args: [{ name: '<who>' }] }),
     });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(ran.err).toContain('<who>');
     expect(ran.error).toBeInstanceOf(Error);
     expect((ran.error as Error).message).toContain('Missing required arguments');
@@ -116,7 +116,7 @@ describe('runCommand()', () => {
       }),
     });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(ran.argv.port).toBe(5);
     expect((ran.error as Error).message).toContain('<who>');
   });
@@ -130,7 +130,7 @@ describe('runCommand()', () => {
       schema: app({ options: { '--port [n]': { type: 'int' } } }),
     });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect((ran.error as Error).message).toContain('Invalid integer');
     expect(ran.state).toBeDefined();
     // and `argv` is honestly empty: nothing had been written when it threw
@@ -143,7 +143,7 @@ describe('runCommand()', () => {
     // above is this said once for every test in the file
     const ran = await runCommand({ argv: [], schema: app({ args: [{ name: '<who>' }] }) });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(process.exitCode).toBeUndefined();
   });
 
@@ -458,7 +458,7 @@ describe('runCommand() and the app the caller handed it', () => {
       ),
     });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect((ran.error as Error).message).toContain('Missing required arguments');
     expect(ran.state).toBeDefined();
   });

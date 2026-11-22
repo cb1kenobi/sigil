@@ -181,6 +181,10 @@ not "fix" them. The full list is
   with no stack, sets the exit code to 1 and resolves rather than rejecting.
   Give the error an integer `exitCode` from 0 to 255 for another code:
   `throw Object.assign(new Error('There is no version 0'), { exitCode: 2 })`.
+  What the parser rejects about argv is a `UsageError` (from `@ttylabs/sigil`)
+  with a `code` such as `missing-option`, and exits 2; throw one yourself for a
+  bad invocation your own code finds. Test for it with `instanceof`, not the
+  message.
 - **Never call `process.exit()`.** sigil sets `process.exitCode` so buffered
   output still flushes; do the same.
 - **Write messages for the person running the CLI.** They are all the user
@@ -203,7 +207,7 @@ not "fix" them. The full list is
 - **Return data and set `format: true`; do not add a `--json` option.** The
   command then accepts `--json` and `--format json`, and `main()` serializes
   what `run()` returned to stdout. An error leaves the same way, as
-  `{ "error": { "message", "name" } }` on stderr, with the exit code unchanged.
+  `{ "error": { "message", "name" } }` on stderr (plus `code` for a usage error), with the exit code unchanged.
 - **Without a format, a return value is not printed.** Write the human form
   yourself, and skip it when a format was asked for:
 
