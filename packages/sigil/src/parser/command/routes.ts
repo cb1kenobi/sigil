@@ -25,7 +25,7 @@
  * ask about a tree it is compiling and the runtime ask about a level it is
  * about to match.
  *
- * This file is also the entry `@ttylabs/sigil/routes` is built from, which is
+ * This file is also the entry `@ttylabs/sigil/internal/routes` is built from, which is
  * the subpath `sigil build` reads the runtime's rules through -- so the other
  * rules the build has to apply exactly as the runtime does are re-exported
  * below rather than given a subpath each: how a name string is read, and the

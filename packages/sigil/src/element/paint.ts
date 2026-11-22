@@ -15,11 +15,11 @@
 import { intersect } from '../canvas/buffer.js';
 import { ATTR, DEFAULT_COLOR, type Painter, type Style as CellStyle } from '../canvas/index.js';
 import {
-  borderWidth,
+  borderCells,
   type Box,
   type LayoutOptions,
   type LayoutResult,
-  layout,
+  layoutTree,
 } from '../layout/index.js';
 import type { Style, Update } from '../style/index.js';
 import { Cascade, Restyler } from '../style/index.js';
@@ -101,7 +101,7 @@ export function cellStyle(style: Style): CellStyle {
  * @returns The padding box.
  */
 function paddingBox(area: Box, style: Style): Box {
-  const border = borderWidth(style);
+  const border = borderCells(style);
   return {
     height: Math.max(0, area.height - border * 2),
     width: Math.max(0, area.width - border * 2),
@@ -201,7 +201,7 @@ function scrollableRegion(
  * @returns The laid-out tree, for anything that wants it directly.
  */
 export function arrange(root: Element, opts: LayoutOptions, resized?: Set<Element>): LayoutResult {
-  const result = layout(root, opts);
+  const result = layoutTree(root, opts);
 
   const walk = (element: Element, node: LayoutResult, clip: Box | undefined): Box => {
     // an `onLayout` is asked after every layout, so it is collected whatever moved:
@@ -369,7 +369,7 @@ export function settleResized(resized: ReadonlySet<Element>, again: () => void):
 /**
  * How far an arranged tree actually reached, in both directions.
  *
- * `measureNode()` answers what a tree would ask for, and it is a guess in two
+ * `measureSubtree()` answers what a tree would ask for, and it is a guess in two
  * ways. A row whose children flex is measured with each child offered the whole
  * content box while placement hands each one a share, so a description that
  * wraps to three lines in its share measures two lines tall in the room it was
@@ -404,7 +404,7 @@ export function settleResized(resized: ReadonlySet<Element>, again: () => void):
  * @returns The last row and the last column any box reaches, as counts.
  */
 export function arrangedExtent(result: LayoutResult): { height: number; width: number } {
-  // the root's own far edges, which is `y + height` and not `height`: `layout()`
+  // the root's own far edges, which is `y + height` and not `height`: `layoutTree()`
   // applies the root's relative offset itself, since every other node's is
   // applied by the parent that places it and the root has no parent -- so a
   // `position: relative` root with `top: 2` is drawn two rows down and reading

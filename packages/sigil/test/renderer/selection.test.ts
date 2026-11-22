@@ -265,7 +265,7 @@ describe('the selection overlay', () => {
     // settled on for the same reason.
     //
     // A `raw`'s `measure` is the seam: measurements are cached for the length of
-    // one `layout()` call, so it runs when a layout pass runs and not at all on a
+    // one `layoutTree()` call, so it runs when a layout pass runs and not at all on a
     // frame that skipped the layout.
     //
     // How many times it runs per layout is deliberately **not** asserted, and the

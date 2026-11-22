@@ -1,7 +1,7 @@
 import { displayPath } from '../src/build/index.ts';
 import { run, schema } from '../src/index.js';
 import { linkedFixture } from './copy-fixture.ts';
-import { readRoutes } from '@ttylabs/sigil/routes';
+import { readRoutes } from '@ttylabs/sigil/internal/routes';
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';

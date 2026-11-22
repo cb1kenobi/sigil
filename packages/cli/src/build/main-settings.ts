@@ -51,7 +51,7 @@
  * did before this existed.
  */
 
-import { bindingName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
+import { calleeName, importBindings, reachable, unwrap, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import { EXTENSIONS, isFile, RUNTIME, type DiscoveredApp } from './discover.ts';
 import { defaultObject } from './extract.ts';
@@ -101,9 +101,7 @@ export function mainSettingsIn(parsed: ParsedModule): readonly MainSettingsCall[
       return true;
     }
 
-    if (
-      !reach.some((bindings) => bindingName(unwrapShallow(node.callee), bindings) !== undefined)
-    ) {
+    if (!reach.some((bindings) => calleeName(node.callee, bindings) !== undefined)) {
       return true;
     }
 

@@ -30,6 +30,8 @@ import {
   renderToString,
   text as textNode,
 } from '../element/index.js';
+import { __ } from '../i18n/index.js';
+import type { DescribeOptions, KeyEvent } from '../input/index.js';
 import type { Box } from '../layout/index.js';
 import { createEffect, onCleanup } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
@@ -197,6 +199,20 @@ interface Drawing {
   readonly crosshair?: CrosshairAt;
   readonly kind: string;
   readonly rows: readonly Row[];
+  /**
+   * The samples a line chart drew, whether or not a crosshair stands on one: how
+   * many the longest series has, and the oldest the plot shows, which a scrolling
+   * chart's left edge may leave after the first. `undefined` with no samples.
+   */
+  readonly samples?: SamplesDrawn;
+}
+
+/** What a key needs to know about the samples to step between them. */
+interface SamplesDrawn {
+  /** How many samples the longest series has. */
+  readonly count: number;
+  /** The oldest sample drawn. */
+  readonly first: number;
 }
 
 /** The sample a line chart's crosshair stands on. */
@@ -873,6 +889,13 @@ interface PlotSeries {
 interface LineLayout extends ScaleOptions {
   readonly ascii: boolean;
   readonly axis: boolean;
+  /**
+   * How many samples before the newest the keyboard stands on, for the crosshair
+   * where there is no pointer; `undefined` draws none.
+   */
+  readonly back?: number;
+  /** Whether the chart has the focus, which the rule says by its colour. */
+  readonly focused?: boolean;
   readonly format: (value: number) => string;
   /** How tall the plot is, in rows, with the axis and the legend not counted. */
   readonly height: number;
@@ -937,6 +960,12 @@ function plotSeries(
 
 /** The classes a cell of the crosshair takes: its hook, and the muted role. */
 const CROSSHAIR_CLASSES = 'sigil-chart-crosshair sigil-muted';
+
+/**
+ * The same while the chart has the focus: the accent role in place of the muted
+ * one, and a hook of its own.
+ */
+const CROSSHAIR_FOCUS_CLASSES = 'sigil-chart-crosshair sigil-chart-crosshair-focus sigil-accent';
 
 /**
  * Which dots of a braille cell are set, as the bits `Dots` keeps them in.
@@ -1165,10 +1194,21 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
   });
 
   const plotLeft = axis ? gutter + 2 : 0;
+  // the oldest sample the plot draws: all of them under `fit`, and under a step
+  // the ones whose dot column is not before the left edge
+  const oldest =
+    step === 'fit' ? 0 : Math.max(0, longest - 1 - Math.floor((union.dotWidth - 1) / step));
+  // the pointer is the crosshair's where it is over the chart, and the keyboard's
+  // sample is where it is not; a keyboard sample past the oldest drawn is the oldest
+  // a pointer over the chart where there is no sample -- the axis labels, the
+  // legend, a scrolling chart's empty left -- leaves the keyboard's where it was
   const crosshair =
-    layout.pointer === undefined
+    (layout.pointer === undefined
       ? undefined
-      : sampleUnder(layout.pointer - plotLeft, plotWidth, longest, step, across);
+      : sampleUnder(layout.pointer - plotLeft, plotWidth, longest, step, across)) ??
+    (layout.back === undefined || longest === 0
+      ? undefined
+      : Math.max(oldest, longest - 1 - layout.back));
   const cross = new Dots(plotWidth, height);
   if (crosshair !== undefined) {
     for (let y = 0; y < cross.dotHeight; y++) {
@@ -1234,7 +1274,10 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     }
     const rule = maskAt(cross, x, y);
     if (rule !== 0) {
-      return { classes: CROSSHAIR_CLASSES, glyph: plain ? '|' : braille(rule) };
+      return {
+        classes: layout.focused === true ? CROSSHAIR_FOCUS_CLASSES : CROSSHAIR_CLASSES,
+        glyph: plain ? '|' : braille(rule),
+      };
     }
     for (let s = areas.length - 1; s >= 0; s--) {
       const shade = maskAt(areas[s], x, y);
@@ -1292,6 +1335,7 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
           },
     kind: 'line',
     rows,
+    samples: longest === 0 ? undefined : { count: longest, first: oldest },
   };
 }
 
@@ -1725,6 +1769,12 @@ export interface LineChartProps extends ChartElementProps, ScaleOptions {
    * without it nothing knows where the pointer is; the readout is `attachTooltip()`
    * pointed at the rule, so it shows at once unless `delay` says otherwise, flips
    * where there is no room, and goes with the component. Defaults to none.
+   *
+   * A chart with one takes the focus, so it is not left to a pointer: while it
+   * has the focus the rule stands at the newest sample, Left and Right step it to
+   * the sample before and after, and the readout says what it says for the
+   * pointer. It owns `onKey`, so `props` may not carry one, and
+   * `describeLineChart()` lists the keys for a footer.
    */
   crosshair?: LineChartCrosshair;
   /** One series' samples, where there is one. `series` is the way to give several. */
@@ -2055,6 +2105,9 @@ export function LineChart(props: LineChartProps): Element {
   if (crosshair?.text !== undefined && typeof crosshair.text !== 'function') {
     throw new TypeError('Expected line chart crosshair text to be a function');
   }
+  if (crosshair !== undefined) {
+    refuseOwnedHooks('LineChart', props.props, ['onKey']);
+  }
   const list: readonly LineChartSeries[] = props.series ?? [
     { data: props.data as ChartSource<readonly number[]> },
   ];
@@ -2067,11 +2120,28 @@ export function LineChart(props: LineChartProps): Element {
   const pointer = crosshair === undefined ? undefined : new State<number | undefined>(undefined);
   /** The crosshair's cells, relative to the host's box, for the tooltip to point at. */
   const pointed = crosshair === undefined ? undefined : new State<Box | undefined>(undefined);
+  /**
+   * How many samples before the newest the keyboard stands on while the chart has
+   * the focus, or `undefined` for the newest. Counted from the newest so that a
+   * live chart keeps it where it is on the screen as samples arrive, as the
+   * pointer's column is.
+   */
+  const back = crosshair === undefined ? undefined : new State<number | undefined>(undefined);
   let tip: TooltipHandle | undefined;
   let host: Element | undefined;
   let body: Element | undefined;
   /** What the readout last said, so a crosshair that did not move does not set it again. */
   let said = '';
+  /** The sample the crosshair was last drawn on, which a pointer's key steps from. */
+  let shown: number | undefined;
+  /** The samples the chart last drew, which a key steps between. */
+  let samples: SamplesDrawn | undefined;
+
+  /** Whether the keys go to the chart: a signal, so a drawing that read it is redone when it moves. */
+  const focused = (): boolean => {
+    const at = crosshair?.input.focus.current.get();
+    return at !== undefined && host !== undefined && host.contains(at);
+  };
 
   /** The default readout: each series with a value there, by its label. */
   const readout = (_index: number, values: readonly (number | undefined)[]): string =>
@@ -2089,10 +2159,13 @@ export function LineChart(props: LineChartProps): Element {
    * Says what is under the crosshair, and where it is, after a drawing: the words
    * first, so the bubble that moves is the one that says them.
    */
-  const follow = (at: CrosshairAt | undefined): void => {
+  const follow = (drawing: Drawing): void => {
     if (crosshair === undefined || pointed === undefined) {
       return;
     }
+    const at = drawing.crosshair;
+    shown = at?.index;
+    samples = drawing.samples;
     const words = at === undefined ? '' : (crosshair.text ?? readout)(at.index, at.values);
     if (typeof words !== 'string') {
       throw new TypeError('Expected line chart crosshair text to return a string');
@@ -2125,19 +2198,24 @@ export function LineChart(props: LineChartProps): Element {
     (axis && xLabels !== undefined && (xLabels[0] !== '' || xLabels[1] !== '') ? 1 : 0) +
     (legend ? 1 : 0);
 
-  return liveChart(
+  const chart = liveChart(
     'LineChart',
     'line',
-    props,
+    // focusable with a crosshair, and `focusable: false` in the caller's props
+    // takes it back, as a treemap's does
+    crosshair === undefined ? props : { ...props, props: { focusable: true, ...props.props } },
     () => ({
       height: (props.height ?? DEFAULT_HEIGHT) + extra(read(props.xLabels)),
       width: props.width ?? DEFAULT_WIDTH,
     }),
     (size) => {
       const xLabels = read(props.xLabels);
+      const hasFocus = crosshair !== undefined && focused();
       const drawing = lineDrawing(plotSeries(list, props.role, props.fill), {
         ascii,
         axis,
+        back: hasFocus ? (back?.get() ?? 0) : undefined,
+        focused: hasFocus,
         format,
         height: Math.max(1, size.height - extra(xLabels)),
         legend,
@@ -2148,7 +2226,7 @@ export function LineChart(props: LineChartProps): Element {
         width: size.width,
         xLabels,
       });
-      follow(drawing.crosshair);
+      follow(drawing);
       return drawing;
     },
     crosshair === undefined
@@ -2193,8 +2271,94 @@ export function LineChart(props: LineChartProps): Element {
             }
           });
           onCleanup(off);
+
+          // Left and Right step the rule one sample, from where it is drawn --
+          // the pointer's or the keyboard's -- and it is the keyboard's from
+          // then on, until the pointer moves again. Claimed even at the end of
+          // the series, a list's rule for Down on its last row; Shift, Ctrl and
+          // Alt are left for what is around the chart, and with nothing drawn no
+          // key is the chart's
+          outer.onKey = (event: KeyEvent): void => {
+            const k = event.key;
+            if (event.paste || k.ctrl || k.meta || samples === undefined) {
+              return;
+            }
+            const way = k.name === 'left' ? -1 : k.name === 'right' ? 1 : 0;
+            if (way === 0 || k.shift) {
+              return;
+            }
+            event.stop();
+            const { count, first } = samples;
+            // From the sample the pointer's rule is on where the pointer has
+            // moved since the last key, and otherwise from the keyboard's own,
+            // since keys can arrive faster than frames and the drawing is one
+            // behind them; from the newest where nothing was pressed yet. Held to
+            // the samples there are, which data shrinking under a large `back`
+            // would otherwise leave beyond the first.
+            const held = untrack(() => back?.get());
+            const from =
+              untrack(() => pointer?.get()) !== undefined && shown !== undefined
+                ? shown
+                : count - 1 - (held ?? 0);
+            const at = Math.min(count - 1, Math.max(first, from));
+            const index = Math.min(count - 1, Math.max(first, at + way));
+            back?.set(count - 1 - index);
+            pointer?.set(undefined);
+          };
+          // the keyboard's sample is forgotten with the focus, so the next one
+          // starts at the newest again
+          createEffect(() => {
+            if (!focused() && untrack(() => back?.get()) !== undefined) {
+              back?.set(undefined);
+            }
+          });
         }
   );
+  if (crosshair !== undefined) {
+    CHARTS.add(chart);
+  }
+  return chart;
+}
+
+/** Each line chart `LineChart()` built with a crosshair: what `describeLineChart()` accepts. */
+const CHARTS = new WeakSet<Element>();
+
+/** Where a line chart's keys are described, which is the whole of what is asked of a router. */
+export interface LineChartDescriber {
+  describe(keys: string, opts: DescribeOptions): () => void;
+}
+
+/**
+ * Describes a line chart's keys to a router, for a key-help footer.
+ *
+ * Scoped to the chart, which is the element whose focus makes the keys apply:
+ * Left and Right, as `move`.
+ *
+ * @param router - What to describe the keys to.
+ * @param charts - Hosts that `LineChart()` returned with a `crosshair`.
+ * @returns Takes every description back off.
+ */
+export function describeLineChart(
+  router: LineChartDescriber,
+  ...charts: readonly Element[]
+): () => void {
+  for (const chart of charts) {
+    if (!CHARTS.has(chart)) {
+      throw new TypeError(__`Expected an element that LineChart() returned with a crosshair`);
+    }
+  }
+  const off: Array<() => void> = [];
+  for (const scope of charts) {
+    off.push(
+      router.describe('left', { description: __`move`, priority: 1, scope }),
+      router.describe('right', { description: __`move`, priority: 1, scope })
+    );
+  }
+  return () => {
+    for (const fn of off) {
+      fn();
+    }
+  };
 }
 
 /**

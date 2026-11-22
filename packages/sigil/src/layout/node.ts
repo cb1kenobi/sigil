@@ -80,7 +80,7 @@ export interface LayoutResult {
 }
 
 /** How many cells a border takes on each edge. Always one, or none. */
-export function borderWidth(style: Style): number {
+export function borderCells(style: Style): number {
   return style.borderStyle === 'none' ? 0 : 1;
 }
 
@@ -94,18 +94,18 @@ export function borderWidth(style: Style): number {
  * @param available - The containing size, or `undefined` when it is not known.
  * @returns The number of cells, or `undefined` for `auto`.
  */
-export function resolve(length: Length, available: number | undefined): number | undefined {
+export function resolveLength(length: Length, available: number | undefined): number | undefined {
   if (length.type === 'cells') {
     return length.value;
   }
   if (length.type === 'percent') {
     // rounded rather than truncated, and rounded one box at a time: `33%` of 100
     // is 33 either way, but `50%` of 5 is 2.5, and the nearest cell to what was
-    // asked for is 3. It is not `distribute()` and cannot be -- siblings'
+    // asked for is 3. It is not `distributeCells()` and cannot be -- siblings'
     // percentages need not partition anything, and this is read once while
     // measuring and again while placing, where there is no line to divide. So
     // two boxes at 50% of five ask for three each: the shrink pass, which *is*
-    // `distribute()`, gives back 3 and 2, and where they cannot flex they
+    // `distributeCells()`, gives back 3 and 2, and where they cannot flex they
     // overflow. Truncating instead trades that for a guaranteed hole and rounds
     // `10%` of five away entirely
     return available === undefined ? undefined : Math.round((available * length.value) / 100);
@@ -122,7 +122,7 @@ export function resolve(length: Length, available: number | undefined): number |
  * @param max - The maximum, if any.
  * @returns The clamped size, never negative.
  */
-export function clamp(value: number, min: number | undefined, max: number | undefined): number {
+export function clampSize(value: number, min: number | undefined, max: number | undefined): number {
   let out = value;
   if (max !== undefined) {
     out = Math.min(out, max);
@@ -147,7 +147,7 @@ export function clamp(value: number, min: number | undefined, max: number | unde
  * @param weights - How much each part asks for. Zero gets nothing.
  * @returns One whole number per weight, summing to `total`.
  */
-export function distribute(total: number, weights: number[]): number[] {
+export function distributeCells(total: number, weights: number[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);
   const out = Array.from({ length: weights.length }, () => 0);
 

@@ -65,6 +65,8 @@ describe('what PowerShell is handed', () => {
     expect(env.SIGIL_TRASH_PATH).toBe('C:\\a "b".txt');
     expect(env.SIGIL_TRASH_CACHE).toBe(join('c', 'trash.bin'));
     expect(env.SIGIL_TRASH_KEY).toBe('k'.repeat(64));
+    // set, and empty, so that one inherited from the environment cannot ask for the compile
+    expect(env.SIGIL_TRASH_MODE).toBe('');
     expect(env.SIGIL_TRASH_SOURCE).toContain('namespace SigilTrash');
     // and one environment variable is held to 32,767 characters too
     expect(env.SIGIL_TRASH_SOURCE.length).toBeLessThan(32_767);
@@ -138,5 +140,92 @@ describe('what PowerShell answers', () => {
     await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow(
       'PowerShell answered "nope"'
     );
+  });
+});
+
+describe('a load that is refused', () => {
+  /** What the script answers when `Assembly.Load()` refuses the helper's bytes. */
+  const REFUSED = reply('none', {
+    loadRefused: 'Operation did not complete successfully because the file contains a virus',
+  });
+
+  it('should ask again, in a mode that compiles the helper itself, and still recycle the item', async () => {
+    ran.mockResolvedValueOnce(REFUSED);
+    ran.mockResolvedValueOnce(reply('compiled', { path: 'C:\\bin\\$R1.txt' }));
+
+    const out = await recycle('C:\\a.txt', join('c', 'trash.bin'), 'k');
+
+    expect(out).toEqual({ cache: 'compiled', path: 'C:\\bin\\$R1.txt' });
+    expect(ran).toHaveBeenCalledTimes(2);
+    const [first, second] = ran.mock.calls.map(([, , env]) => env!);
+    expect(first.SIGIL_TRASH_MODE).toBe('');
+    expect(second.SIGIL_TRASH_MODE).toBe('compile');
+    // the same item, and the same source, the second time
+    expect(second.SIGIL_TRASH_PATH).toBe('C:\\a.txt');
+    expect(second.SIGIL_TRASH_SOURCE).toBe(first.SIGIL_TRASH_SOURCE);
+  });
+
+  it('should hold the compiled script to the same answers: an error, and a refusal to delete', async () => {
+    ran.mockResolvedValueOnce(REFUSED);
+    ran.mockResolvedValueOnce(reply('compiled', { error: 'Access is denied.' }));
+    await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow('Access is denied.');
+
+    ran.mockResolvedValueOnce(REFUSED);
+    ran.mockResolvedValueOnce(reply('compiled', { refused: '' }));
+    await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow(/for good/);
+  });
+
+  it('should ask for the compile once, and throw rather than loop when that is refused too', async () => {
+    ran.mockResolvedValue(REFUSED);
+
+    await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow(
+      /The helper could not be loaded: .*contains a virus/
+    );
+
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('should not ask a second time when the first answered anything else', async () => {
+    ran.mockResolvedValue(reply('saved', { path: 'C:\\bin\\$R1.txt' }));
+
+    await recycle('C:\\a.txt', undefined, 'k');
+
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('should have a script that answers a refusal, and a mode that loads from a file', async () => {
+    ran.mockResolvedValue(reply('hit', { path: 'x' }));
+    await recycle('C:\\a.txt', undefined, 'k');
+
+    const script = Buffer.from(lastCall().args.at(-1)!, 'base64').toString('utf16le');
+    // run for real on the Windows jobs; here only what a macOS or Linux run can see
+    expect(script).toContain('loadRefused');
+    // the refusal is caught, and everything that keeps the helper is behind a
+    // check that there was none, so a helper whose bytes cannot be loaded is
+    // never sealed and kept
+    const caught = script.indexOf('$refused = [string]');
+    const guard = script.indexOf('if ($null -eq $refused) {');
+    expect(caught).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(caught);
+    expect(script.indexOf('ProtectedData]::Protect(')).toBeGreaterThan(guard);
+
+    // the compile mode loads from a file: `Add-Type` would load the bytes it
+    // compiled, which is the call that was refused
+    const start = script.indexOf("$env:SIGIL_TRASH_MODE -eq 'compile'");
+    const compile = script.slice(start, script.indexOf('} else {', start));
+    expect(start).toBeGreaterThan(-1);
+    expect(compile).toContain('Assembly]::LoadFrom(');
+    expect(compile).not.toContain('Load(');
+    expect(compile).not.toContain('ReadAllBytes');
+    // and what it compiles with does not load what it built: CodeDom does that,
+    // with `Assembly.Load(byte[])`, when it is asked to compile in memory
+    expect(script).toContain('$params.GenerateInMemory = $false');
+    expect(script).not.toContain('GenerateInMemory = $true');
+    // a load that is refused is answered, not raised as PowerShell's own error
+    expect(compile.indexOf('catch {')).toBeGreaterThan(compile.indexOf('LoadFrom('));
+    expect(compile).toContain('$refused = ');
+    expect(compile).not.toContain('Add-Type -TypeDefinition');
+    expect(compile).not.toContain('SIGIL_TRASH_CACHE');
+    expect(compile).not.toContain('Protect(');
   });
 });
