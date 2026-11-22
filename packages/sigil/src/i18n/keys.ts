@@ -328,7 +328,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Suppress progress, not results',
   'The "{0}" command presents no output formats, so "{1}" cannot be asked for.',
   'The command to describe',
-  'The default {0} for {1} is not one of its choices',
+  'The default "{0}" for {1} is not one of its choices',
   'The helper could not be loaded: {0}',
   'The shell to generate for',
   'Then restart your shell.',

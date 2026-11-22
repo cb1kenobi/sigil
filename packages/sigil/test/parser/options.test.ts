@@ -866,7 +866,7 @@ describe('options', () => {
         // its own and is not the flag's exemption. Having a twin used to excuse it,
         // which made one declaration fine or an error depending on the pairing.
         await expect(parse({ argv: [], schema: { options } })).rejects.toThrow(
-          'The default false for option --cheese is not one of its choices'
+          'The default "false" for option --cheese is not one of its choices'
         );
       }
     );

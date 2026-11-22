@@ -527,9 +527,6 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
     producers.set(state, (map = new Map()));
   }
   map.set(dest, by);
-
-  // a later writer replaces whatever the default put there
-  defaults.get(state)?.delete(dest);
 }
 
 /**
@@ -585,7 +582,7 @@ function checkChoices(
     const [outside] = outsideChoices(it.choices, value);
     if (outside) {
       throw new Error(
-        __`The default ${escapeControls(outside.value)} for ${label} is not one of its choices`
+        __`The default "${escapeControls(outside.value)}" for ${label} is not one of its choices`
       );
     }
     return;

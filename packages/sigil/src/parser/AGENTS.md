@@ -1332,7 +1332,7 @@ stays 1.
   sets the variable, so it is as much theirs as a flag is, and a default declared
   beside it changes nothing about whose the value is (`APP_MODE=nope` with
   `default: 'a'` exits 2). A `default` outside its `choices` is a plain `Error`,
-  exit 1: `The default z for option --mode is not one of its choices`, naming the
+  exit 1: `The default "z" for option --mode is not one of its choices`, naming the
   first member that is outside, and **not a new class** -- whether "the schema is
   wrong" earns one is SIG-602's question, and a plain `Error` is what every other
   schema mistake already throws. It is raised only when the default is what is on
@@ -1340,7 +1340,10 @@ stays 1.
   What is kept is the value by identity rather than a flag, so a value an
   `afterParse` hook writes over a default is no longer the schema's and is judged
   as a usage error, like every value with no known source; a list a hook edits in
-  place is the same object and stays the schema's, which is the limit. Config
+  place is the same object and stays the schema's, which is the limit -- and the
+  message then names a value the schema never declared. A hook that writes the
+  very same primitive the default was is not told apart either, and the answer
+  there is right by accident. Config
   files are separate and unchanged: `createConfig()` throws its own plain
   `Invalid value` for a default outside its choices.
 - **A string a `transform` returns is still judged by the type.** The wrap is on

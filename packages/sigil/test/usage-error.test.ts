@@ -116,7 +116,7 @@ describe('a usage error, which is what the user got wrong', () => {
 
       expect(err).not.toBeInstanceOf(UsageError);
       expect((err as Error).message).toBe(
-        'The default z for option --mode is not one of its choices'
+        'The default "z" for option --mode is not one of its choices'
       );
       expect(errorExitCode(err)).toBe(1);
     });
@@ -129,7 +129,7 @@ describe('a usage error, which is what the user got wrong', () => {
 
       expect(err).not.toBeInstanceOf(UsageError);
       expect((err as Error).message).toBe(
-        'The default never for argument <when> is not one of its choices'
+        'The default "never" for argument <when> is not one of its choices'
       );
     });
 
@@ -141,7 +141,7 @@ describe('a usage error, which is what the user got wrong', () => {
 
       expect(err).not.toBeInstanceOf(UsageError);
       expect((err as Error).message).toBe(
-        'The default z for option --mode is not one of its choices'
+        'The default "z" for option --mode is not one of its choices'
       );
     });
 
@@ -177,6 +177,25 @@ describe('a usage error, which is what the user got wrong', () => {
 
       expect(err).toBeInstanceOf(UsageError);
       expect((err as UsageError).code).toBe('invalid-value');
+    });
+
+    it('should name a scalar default on a multiple option', async () => {
+      // the default is wrapped into a list on its way to the destination, so the
+      // value that is recorded has to be the wrapped one
+      const err = await thrown(['x'], schema({ choices: ['a'], default: 'z', multiple: true }));
+
+      expect(err).not.toBeInstanceOf(UsageError);
+      expect((err as Error).message).toBe(
+        'The default "z" for option --mode is not one of its choices'
+      );
+    });
+
+    it('should show an empty default as empty rather than as nothing', async () => {
+      const err = await thrown(['x'], schema({ choices: ['a'], default: '' }));
+
+      expect((err as Error).message).toBe(
+        'The default "" for option --mode is not one of its choices'
+      );
     });
 
     it('should escape the default it echoes', async () => {
