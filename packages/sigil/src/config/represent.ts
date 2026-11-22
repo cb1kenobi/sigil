@@ -1,3 +1,4 @@
+import { escapeControls } from '../util/escape-controls.js';
 import { isPlainObject } from './dotted.js';
 
 /**
@@ -87,7 +88,7 @@ export function jsonCanHold(value: unknown, path: string): true | string {
  * @returns The refusal.
  */
 export function atPath(answer: string, where: string): string {
-  return where === '' ? answer : `${answer} (at "${where}")`;
+  return where === '' ? answer : `${answer} (at "${escapeControls(where)}")`;
 }
 
 /** The walk, with the objects it is inside. */
@@ -134,7 +135,7 @@ function look(value: unknown, where: string, seen: WeakSet<object>): string | un
         const label = where === '' ? `${i}` : `${where}.${i}`;
 
         if (!(i in value)) {
-          return `JSON has no hole in an array; it writes one as null (at "${label}")`;
+          return `JSON has no hole in an array; it writes one as null (at "${escapeControls(label)}")`;
         }
 
         const inner = look(value[i], label, seen);

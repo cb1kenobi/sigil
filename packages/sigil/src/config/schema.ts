@@ -1,5 +1,6 @@
 import { __ } from '../i18n/index.js';
 import { envValue } from '../util/env-value.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { assertChoices, checkValue, DATA_TYPES, transformValue } from '../util/transform.js';
 import { readPath, segments, writePath } from './dotted.js';
 import { copyValue } from './merge.js';
@@ -40,7 +41,7 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
     const setting = (schema as ConfigSchema)[path] as ConfigSetting;
 
     if (!setting || typeof setting !== 'object' || Array.isArray(setting)) {
-      throw new Error(`Setting "${path}" must be an object`);
+      throw new Error(`Setting "${escapeControls(path)}" must be an object`);
     }
 
     // the same guard a dotted path gets, asked where the schema is read: a
@@ -50,7 +51,7 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
     try {
       parts = segments(path);
     } catch {
-      throw new Error(`Setting "${path}" is not a usable config path`);
+      throw new Error(`Setting "${escapeControls(path)}" is not a usable config path`);
     }
 
     if (parts.length === 0) {
@@ -58,15 +59,17 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
     }
 
     if (setting.type !== undefined && !DATA_TYPES.has(setting.type)) {
-      throw new Error(`Setting "${path}" has unsupported data type "${setting.type}"`);
+      throw new Error(
+        `Setting "${escapeControls(path)}" has unsupported data type "${escapeControls(setting.type)}"`
+      );
     }
 
     if (setting.choices !== undefined && !Array.isArray(setting.choices)) {
-      throw new Error(`Setting "${path}" choices must be an array`);
+      throw new Error(`Setting "${escapeControls(path)}" choices must be an array`);
     }
 
     if (setting.merge !== undefined && setting.merge !== 'concat' && setting.merge !== 'replace') {
-      throw new Error(`Setting "${path}" merge must be "concat" or "replace"`);
+      throw new Error(`Setting "${escapeControls(path)}" merge must be "concat" or "replace"`);
     }
 
     // `settingEnvNames()` spreads it, so a non-iterable reached `envOf()` as a
@@ -76,7 +79,9 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
     if (setting.env !== undefined) {
       const names = typeof setting.env === 'string' ? [setting.env] : setting.env;
       if (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || !name)) {
-        throw new Error(`Setting "${path}" env must be a variable name or an array of them`);
+        throw new Error(
+          `Setting "${escapeControls(path)}" env must be a variable name or an array of them`
+        );
       }
     }
 
@@ -91,7 +96,9 @@ export function readSchema(schema: ConfigSchema | undefined): Setting[] {
   for (const outer of paths) {
     for (const inner of paths) {
       if (inner !== outer && inner.startsWith(`${outer}.`)) {
-        throw new Error(`Setting "${inner}" is inside setting "${outer}"`);
+        throw new Error(
+          `Setting "${escapeControls(inner)}" is inside setting "${escapeControls(outer)}"`
+        );
       }
     }
   }
@@ -113,6 +120,16 @@ function settingEnvNames(setting: ConfigSetting): string[] {
     return [];
   }
   return typeof env === 'string' ? [env] : [...env];
+}
+
+/**
+ * What a setting is called in a message that is not about one layer: its path,
+ * escaped, because the path is what a schema's author wrote and a message that
+ * echoes it raw is the hole SIG-558 closed. One function, so that the six sites
+ * that name a setting this way cannot disagree.
+ */
+function settingLabel(path: string): string {
+  return __`setting "${escapeControls(path)}"`;
 }
 
 /** A setting's data type, defaulting the way the parser's own declarations do. */
@@ -163,16 +180,18 @@ function coerceSetting(value: Record<string, unknown>, it: Setting, where: strin
       // own `__proto__` in it entered as a string with no keys to refuse. See
       // `copyValue()` for what that came to
       const items = at.map((item) => checkValue(item, type));
-      assertChoices(it.setting.choices, items, __`setting "${it.path}"`);
+      assertChoices(it.setting.choices, items, settingLabel(it.path));
       writePath(value, it.parts, copyValue(items, where));
       return;
     }
 
     const one = checkValue(at, type);
-    assertChoices(it.setting.choices, one, __`setting "${it.path}"`);
+    assertChoices(it.setting.choices, one, settingLabel(it.path));
     writePath(value, it.parts, copyValue(one, where));
   } catch (e: unknown) {
-    throw new Error(__`Invalid value for "${it.path}" in ${where}: ${(e as Error).message}`);
+    throw new Error(
+      __`Invalid value for "${escapeControls(it.path)}" in ${escapeControls(where)}: ${(e as Error).message}`
+    );
   }
 }
 
@@ -249,10 +268,10 @@ export function defaultsOf(settings: readonly Setting[]): Record<string, unknown
     const coerced = typeof raw === 'string' ? transformValue(raw, typeOf(it.setting)) : raw;
     const value = it.setting.multiple && !Array.isArray(coerced) ? [coerced] : coerced;
 
-    assertChoices(it.setting.choices, value, __`setting "${it.path}"`);
+    assertChoices(it.setting.choices, value, settingLabel(it.path));
     // and again: a `default` is the app's own object, which may have come out of
     // a `JSON.parse` of something it read
-    writePath(out, it.parts, copyValue(value, __`setting "${it.path}"`));
+    writePath(out, it.parts, copyValue(value, settingLabel(it.path)));
   }
 
   return out;
@@ -296,10 +315,10 @@ export function envOf(
     // variable can only hand over one value at a time, so one value is the list
     const value = transformValue(raw, type);
     const one = it.setting.multiple ? [value] : value;
-    assertChoices(it.setting.choices, one, __`setting "${it.path}"`);
+    assertChoices(it.setting.choices, one, settingLabel(it.path));
     // the same third door: `DATA='{"__proto__":{...}}'` on a `json` setting is
     // a string that becomes an object here
-    writePath(out, it.parts, copyValue(one, __`setting "${it.path}"`));
+    writePath(out, it.parts, copyValue(one, settingLabel(it.path)));
   }
 
   return out;

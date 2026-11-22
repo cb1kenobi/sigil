@@ -108,7 +108,7 @@ function fileStore(path: string): WritableConfigStore {
     // touches it
     const ok = jsonCanHold(held, '');
     if (ok !== true) {
-      throw new Error(`Cannot write ${escapeControls(source)}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${escapeControls(ok)}`);
     }
 
     if (fresh) {
