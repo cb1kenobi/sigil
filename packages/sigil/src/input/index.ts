@@ -44,9 +44,9 @@
 import {
   type DecodeOptions,
   decodeKeys,
+  hasStringEnd,
   type Key,
-  pendingIsString,
-  pendingLength,
+  pendingTail,
 } from '../components/keys.js';
 // `element/hit.js` rather than the element barrel, which is the same precision
 // the renderer takes over this module: `Element` is a type and erases, while these
@@ -2144,6 +2144,17 @@ export function createInput(opts: InputOptions = {}): InputRouter {
 
   /** Reads a chunk, holding a partial sequence or a partial paste. */
   let held = '';
+  /**
+   * The last few characters of `held`, which is all a paste marker or a string
+   * terminator can straddle. Kept beside it so that neither has to read `held`
+   * to find them, which for a long held tail is the cost this exists to avoid.
+   */
+  let heldEdge = '';
+  /**
+   * Whether `held` is a control string with no end yet, and how it was read: the
+   * `strings` option it was read with, since a different one is a different reading.
+   */
+  let heldString: { strings: boolean } | undefined;
   /** The paste being held, as the reads it arrived in, joined once at the end. */
   let pasting: string[] | undefined;
   /** The last few characters of `pasting`, which is all an end marker can straddle. */
@@ -2349,11 +2360,19 @@ export function createInput(opts: InputOptions = {}): InputRouter {
       // the paste after it, which is what bracketing exists to prevent. Taken
       // out of `held` only when a marker really is there, so a tail that starts
       // nothing goes back through `keys()` exactly as it would have
-      const joined = held + rest;
-      const start = joined.indexOf(PASTE_START);
-      if (start === -1) {
+      //
+      // Looked for in the last few characters of `held` and the chunk, rather than
+      // in all of them: a marker that was whole inside `held` was found by the read
+      // that brought it, so only one that straddles the join is new. Searching the
+      // lot flattened the held string and read it again on every read, which for a
+      // control string that never ends is the square of its length (SIG-550)
+      const lead = held === '' ? '' : heldEdge;
+      const found = (lead + rest).indexOf(PASTE_START);
+      if (found === -1) {
         break;
       }
+      const joined = held + rest;
+      const start = held.length - lead.length + found;
 
       held = '';
       // and read as final: an unfinished tail before the marker is not the start
@@ -2413,7 +2432,28 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // bytes before a start marker, which the marker proves complete, made `ESC`
     // and a fed `A` into Alt-A, and `ESC [` and a fed `200~` into a paste nobody
     // bracketed (review round 3)
-    let length = final ? 0 : pendingLength(joined, opts);
+    let length = 0;
+    let isString = false;
+    if (final) {
+      // nothing is held, so there is nothing to measure
+    } else if (
+      heldString !== undefined &&
+      held !== '' &&
+      heldString.strings === (opts.strings === true) &&
+      !hasStringEnd(heldEdge.slice(-1) + input, 0)
+    ) {
+      // a control string that was unterminated and still is. Measured again from
+      // its start, a payload that never ends costs the square of its length, so
+      // only what arrived since is asked about -- with the last byte of what was
+      // held in front, because an `ESC \` can split between reads. The reading is
+      // the one `pendingTail()` would give: the walk over a held string is one
+      // pending read from its first byte to its last, so the same bytes under the
+      // same `strings` read the same, and the answer is the whole of `joined`
+      length = joined.length;
+      isString = true;
+    } else {
+      ({ length, string: isString } = pendingTail(joined, opts));
+    }
     // and a tail longer than `HELD_LIMIT` is not held. Every read measures what
     // is held again from its start, so one that never finishes costs the square
     // of its length. It is read as final, which is the reading `expire()` gives
@@ -2422,14 +2462,22 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // Not a control string, though: a reply to a query can be long -- an OSC 52
     // clipboard read is the size of the clipboard -- and cutting one types its
     // payload into the focused field, which is the route `armExpiry()` refuses
-    // to give a held reply. Those are left held, and re-read, as they were
-    if (length > HELD_LIMIT && !pendingIsString(joined, opts)) {
+    // to give a held reply. Those are left held, and the search for their end
+    // resumes where it stopped rather than starting again (SIG-550)
+    if (length > HELD_LIMIT && !isString) {
       length = 0;
       opts = { ...decoding(), final: true };
     }
     const ready = length === 0 ? joined : joined.slice(0, joined.length - length);
     const tail = length === 0 ? '' : joined.slice(joined.length - length);
+    // the end of what is held, taken from the end of the old edge and the chunk
+    // rather than from `tail`, which would read the whole of a long one
+    heldEdge =
+      length === 0
+        ? ''
+        : ((held === '' ? '' : heldEdge) + input).slice(-Math.min(length, PASTE_START.length - 1));
     held = tail;
+    heldString = length > 0 && isString ? { strings: opts.strings === true } : undefined;
 
     for (const key of decodeKeys(ready, opts)) {
       // asked between keys as well as at the entry, because one of them may be
@@ -2454,7 +2502,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // `armExpiry()` exists to refuse. Where the two differ the inner call has
     // already armed for what is really held, or correctly declined to
     if (held !== '' && held === tail) {
-      armExpiry(joined, opts);
+      armExpiry(isString);
     }
     settleSatisfied();
   }
@@ -2474,8 +2522,11 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * So a held control string with a query outstanding is not put on a timer at
    * all, and `settle()` flushes whatever is left when the last query goes. A held
    * *key* is untouched, which is what keeps that Ctrl-C at fifty milliseconds.
+   *
+   * @param isString - Whether what is held is a control string, which `keys()`
+   *   already knows from the read that held it.
    */
-  function armExpiry(joined: string, opts: DecodeOptions): void {
+  function armExpiry(isString: boolean): void {
     // there is never a timer already armed to clear here, and the three things
     // that make that true are the deferred settle, `keys()` clearing on the way
     // in, and `settle()` arming only where nothing is armed. The fourth was a
@@ -2488,7 +2539,7 @@ export function createInput(opts: InputOptions = {}): InputRouter {
     // armed a timer that this one then assigned over, orphaning it -- and it is
     // gone because nothing can reach it, which is a thing to know before somebody
     // moves the settle back
-    if (pending.size > 0 && pendingIsString(joined, opts)) {
+    if (pending.size > 0 && isString) {
       return;
     }
     timer = setTimeout(expire, ESCAPE_TIMEOUT);

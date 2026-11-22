@@ -328,20 +328,60 @@ the entry it belongs to.
   the bound is on the cost _per read_ (what is held plus what the read brought),
   so a stream of any length is linear in its size.
 
-  **A held control string is exempt, and stays quadratic.** A reply to a query is
-  not a key and can be long: an OSC 52 clipboard read is the size of the
-  clipboard, and 40,000 base64 characters held with a query outstanding was
-  delivered whole before this and typed into the focused field, one `unknown` and
-  22,600 characters, by the first version of the cut -- the route `armExpiry()`
-  refuses a held reply, reopened (review round 1). So the cut asks
-  `pendingIsString()` and leaves a string held. What that leaves is an
-  unterminated OSC or DCS payload, which still costs the square of its length
-  (1,000,000 units in 1 KiB reads was about a second), bounded in time by the
-  query's deadline or the key timer rather than in size. Making that linear is a
-  resumable `stringEnd()` search, which is one state and not the four above, and
-  is a ticket of its own. The cost per byte of the rest is the limit over the
-  read size: 16-byte reads of 200,000 `ESC` bytes took 870ms where 1 KiB reads
-  took 86ms, against 11s without the cut.
+  **A held control string is exempt from the cap, and its search resumes
+  (SIG-550).** A reply to a query is not a key and can be long: an OSC 52
+  clipboard read is the size of the clipboard, and 40,000 base64 characters held
+  with a query outstanding was delivered whole before this and typed into the
+  focused field, one `unknown` and 22,600 characters, by the first version of the
+  cut -- the route `armExpiry()` refuses a held reply, reopened (review round 1).
+  So the cut asks whether the tail is a control string and leaves one held. What
+  that left was an unterminated OSC or DCS payload costing the square of its
+  length: 1,000,000 units in 1 KiB reads was about a second, measured at 1.4s
+  once the paste search below is counted, and `pendingLength()` alone read 489
+  million characters for it. It is linear now, and the one state it needed is
+  the one the paragraph above called cheaper than the other three: where the
+  search for the string's end stopped.
+
+  `keys()` remembers that `held` is an unterminated string (`heldString`, with the
+  `strings` option it was read under) and, while a later read leaves it so, asks
+  `hasStringEnd()` only about what arrived since, with the last byte of what was
+  held in front because an `ST` that is `ESC \` can split between reads. Nothing
+  walks the held tail again: the answer is that the whole of `joined` is still the
+  one pending read it was, which is what `pendingTail()` would say over the same
+  bytes under the same `strings`. A read that does end it, or one made under a
+  different `strings` -- a query settled between the two, when `ESC ] ;` stops
+  being a string at all -- goes through `pendingTail()` from the start, once, and
+  a payload that finds its end costs one walk of its length rather than one per
+  read. `hasStringEnd()` is `stringEnd()` with a name, so there is still one
+  definition of where a control string ends; `pendingLength()` and
+  `pendingIsString()` keep their signatures, since each is now a half of
+  `pendingTail()`, which `keys()` asks once rather than walking twice.
+
+  What makes it linear and not merely cheaper is that nothing reads `held` to ask.
+  A search over a concatenation flattens it first, and so does indexing it or
+  taking the end of it, so the same square was in `consume()`'s `indexOf` for a
+  paste's start marker -- over `held + rest` on every read, 82ms for the same
+  million where the walk had been a second -- and in the byte of the held tail the
+  resumed search needs. `heldEdge` is the last five characters of `held`, which is
+  all a marker or a terminator can straddle, kept beside it and extended from the
+  read rather than cut from the join. The paste search therefore looks at the
+  edge and the read and not at all of `held`: a marker that was whole inside
+  `held` was found by the read that brought it, so only one across the join is
+  new. The one case that differs is a marker inside a held tail from before the
+  terminal began bracketing, which is a marker inside an OSC payload and was never
+  a paste a terminal wrote. Measured end to end, 1,000,000 units in 1 KiB reads
+  went from 1.4s to 2ms, and 4,000,000 from 23s to 9ms.
+
+  **It is still unbounded in size, and that is not decided here.** A string held
+  with a query outstanding has no limit: `HELD_LIMIT` exempts it and nothing else
+  replaced it, as was true before SIG-439, and this made it cheap to hold rather
+  than bounded. It is held until a terminator arrives, the query's own deadline
+  settles it, or the key timer flushes it where no query is outstanding, so the
+  memory is whatever the terminal sends inside that window. A cap would have to
+  say what a string past it is -- released as an `unknown` key as the other
+  sequences are, which types its payload into the focused field, or dropped --
+  and neither is free, which is the reason it is a decision for somebody rather
+  than a comparison to add.
 
   **At the cap the tail is released as keys, not dropped and not made text.** A
   tail longer than `HELD_LIMIT` is read as final, the reading `expire()` gives a
@@ -358,13 +398,25 @@ the entry it belongs to.
   that crosses it, so a run arriving in one read larger than the limit is
   released at once instead of waiting fifty milliseconds.
 
-  Pinned by counting the characters `pendingLength()` is asked to read, summed
+  Pinned by counting the characters `pendingTail()` is asked to read, summed
   over every read, in `test/input/held-limit.test.ts`: a count rather than a
   clock, because a threshold in milliseconds flakes under the load the suite runs
   in. It asserts the per-read bound, that twice the run costs about twice the work
   for both a held `ESC` run and a held CSI parameter run, and that the cut
   changes nothing at the limit and releases one key past it. Sabotaged by
   removing the cut: five of the eight fail, the key-stream ones among them.
+
+  The held string is pinned the same way, under "an unterminated control string"
+  in that file: the characters `pendingTail()` and `hasStringEnd()` are asked to
+  read, for an OSC, a DCS, an OSC under Alt and one under a run of `ESC`
+  (1,000,983 for a million units where the walk was 489,218,631), the characters
+  `indexOf()` is asked to read for the paste marker, and the same keys and replies
+  as the whole stream at every one or two places the reads could split --
+  `ESC` and `\` included. Sabotaged four ways, each failing what it should and
+  nothing else: no resume, the whole string searched, `consume()` searching all of
+  `held`, and no byte of overlap; and a fifth, ignoring the `strings` the string
+  was held under, which only the test of a query that settles between two reads
+  catches.
 
 - **A paste is offered to the tree before the router's own handlers, which is
   the mouse's order and not the keys'.** `Element.onPaste` on the focused element
