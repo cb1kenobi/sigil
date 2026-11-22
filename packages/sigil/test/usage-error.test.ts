@@ -77,6 +77,115 @@ describe('a usage error, which is what the user got wrong', () => {
     expect((bad as Error).message).toBe('Invalid integer: eight');
   });
 
+  describe('a value outside its choices, by where it came from', () => {
+    const schema = (option: object, arg?: object): Schema =>
+      ({
+        commands: {
+          x: { args: arg ? [arg] : [], options: { '--mode [name]': option }, run() {} },
+        },
+        name: 'mycli',
+      }) as never;
+
+    it('should be a usage error when argv supplied it', async () => {
+      const err = await thrown(
+        ['x', '--mode', 'nope'],
+        schema({ choices: ['a', 'b'], default: 'a' })
+      );
+
+      expect(err).toBeInstanceOf(UsageError);
+      expect((err as UsageError).code).toBe('invalid-value');
+      expect((err as Error).message).toBe('Invalid value "nope" for option --mode');
+    });
+
+    it('should be a usage error when the environment supplied it, though a default exists', async () => {
+      // the user sets it, so it is as much theirs as a flag is, and the default
+      // beside it does not change whose the value is
+      vi.stubEnv('APP_MODE', 'nope');
+      const err = await thrown(
+        ['x'],
+        schema({ choices: ['a', 'b'], default: 'a', env: 'APP_MODE' })
+      );
+
+      expect(err).toBeInstanceOf(UsageError);
+      expect((err as UsageError).code).toBe('invalid-value');
+      expect(errorExitCode(err)).toBe(2);
+    });
+
+    it('should be a plain error naming the option when the default is what is outside', async () => {
+      const err = await thrown(['x'], schema({ choices: ['a', 'b'], default: 'z' }));
+
+      expect(err).not.toBeInstanceOf(UsageError);
+      expect((err as Error).message).toBe(
+        'The default z for option --mode is not one of its choices'
+      );
+      expect(errorExitCode(err)).toBe(1);
+    });
+
+    it('should be a plain error for an argument whose default is outside', async () => {
+      const err = await thrown(
+        ['x'],
+        schema({}, { choices: ['now', 'later'], default: 'never', name: '[when]' })
+      );
+
+      expect(err).not.toBeInstanceOf(UsageError);
+      expect((err as Error).message).toBe(
+        'The default never for argument <when> is not one of its choices'
+      );
+    });
+
+    it('should name the member of a list default that is outside', async () => {
+      const err = await thrown(
+        ['x'],
+        schema({ choices: ['a', 'b'], default: ['a', 'z'], multiple: true })
+      );
+
+      expect(err).not.toBeInstanceOf(UsageError);
+      expect((err as Error).message).toBe(
+        'The default z for option --mode is not one of its choices'
+      );
+    });
+
+    it('should not call the default wrong once argv has replaced it', async () => {
+      // the default is outside its choices, but nobody asked for it: argv gave a
+      // good value, and the schema's mistake is not what this parse touched
+      const result = await parse({
+        argv: ['x', '--mode', 'a'],
+        env: {},
+        schema: schema({ choices: ['a', 'b'], default: 'z' }),
+      });
+
+      expect(result.argv.mode).toBe('a');
+    });
+
+    it('should stay a usage error when a hook replaced the default with a bad value', async () => {
+      // what is on the destination is no longer what the schema declared
+      const bad: Schema = {
+        commands: {
+          x: {
+            options: { '--mode [name]': { choices: ['a', 'b'], default: 'a' } },
+            run() {},
+          },
+        },
+        hooks: {
+          afterParse: (state) => {
+            state.argv.mode = 'nope';
+          },
+        },
+        name: 'mycli',
+      } as never;
+      const err = await thrown(['x'], bad);
+
+      expect(err).toBeInstanceOf(UsageError);
+      expect((err as UsageError).code).toBe('invalid-value');
+    });
+
+    it('should escape the default it echoes', async () => {
+      const err = await thrown(['x'], schema({ choices: ['a'], default: '\u001b[2J' }));
+
+      expect((err as Error).message).not.toContain('\u001b');
+    });
+  });
+
   it('should cover a positional argument as it does an option', async () => {
     const schema: Schema = {
       commands: {
