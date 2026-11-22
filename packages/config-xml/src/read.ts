@@ -1,4 +1,5 @@
 import { elementChildren, nameOf, ownText, settingAttrs, type XmlNode } from './names.js';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { __ } from '@ttylabs/sigil/i18n';
 
 /**
@@ -156,7 +157,7 @@ export function readElement(el: XmlNode, path: string, shape: ReadShape): unknow
   // element rather than whichever name happened to collide inside it
   if (text.trim() !== '' && (attrs.length > 0 || children.length > 0)) {
     throw new Error(
-      __`${at(el, shape.what)}: <${nameOf(el)}> has text beside its attributes or children, which has no config path`
+      __`${at(el, shape.what)}: <${escapeControls(nameOf(el))}> has text beside its attributes or children, which has no config path`
     );
   }
 
@@ -197,7 +198,7 @@ export function readElement(el: XmlNode, path: string, shape: ReadShape): unknow
     // a prefix, which `nameOf()` has the argument for
     if (Object.hasOwn(from, name)) {
       throw new Error(
-        __`${at(el, shape.what)}: <${nameOf(el)}> has two attributes called "${name}" under different namespace prefixes`
+        __`${at(el, shape.what)}: <${escapeControls(nameOf(el))}> has two attributes called "${escapeControls(name)}" under different namespace prefixes`
       );
     }
     from[name] = 'attribute';
@@ -239,12 +240,12 @@ export function readElement(el: XmlNode, path: string, shape: ReadShape): unknow
     // i18n work already refuses
     if (from[name] === 'attribute') {
       throw new Error(
-        __`${at(el, shape.what)}: <${nameOf(el)}> sets "${name}" both as an attribute and as a child element`
+        __`${at(el, shape.what)}: <${escapeControls(nameOf(el))}> sets "${escapeControls(name)}" both as an attribute and as a child element`
       );
     }
     if ((spellings.get(name) as Set<string>).size > 1) {
       throw new Error(
-        __`${at(el, shape.what)}: <${nameOf(el)}> has children called "${name}" under more than one namespace prefix`
+        __`${at(el, shape.what)}: <${escapeControls(nameOf(el))}> has children called "${escapeControls(name)}" under more than one namespace prefix`
       );
     }
     from[name] = 'element';

@@ -86,3 +86,68 @@ describe('a yaml write that cannot be held, for a key with a control character i
     expectInert(said(() => store.writeSync({ a: { [HOSTILE]: () => 1 } })));
   });
 });
+
+/**
+ * What a read refuses over text the document itself holds (SIG-570).
+ *
+ * None of these can fail without the escape being removed, which is the finding
+ * rather than an omission. A tag that survives resolution is one of the schema's
+ * own, a plain integer's source is held to `[0-9]` or a `0x`/`0o` prefix by the
+ * check that reaches the message, and a numeric key's source by `decimalOf()`'s
+ * pattern; every other tag is `yaml`'s `Unresolved tag`, which `assertReadable()`
+ * escapes where it throws it, whichever spelling reached it -- verbatim, through
+ * a `%TAG` directive, or with a `%`-escape. So these pin the property over what
+ * a file can put in each place, and the `escapeControls()` calls beside the
+ * message sites are the defence for a `yaml` that one day resolves more.
+ */
+
+/** The zero-width non-joiner, which a tag may hold and which prints as nothing. */
+const ZWNJ = '\u200C';
+
+/** What a message may hold: no control character, and no invisible one. */
+function expectPlain(message: string): void {
+  expect(message.replaceAll('\n', '')).not.toMatch(/[\p{Cc}\p{Cf}]/u);
+}
+
+/** The message of what a read of `text` throws. */
+function readSaid(text: string): string {
+  return said(() => yaml(file(text)).readSync());
+}
+
+describe('a yaml read refused for text the document holds', () => {
+  it('should hold no control character when a tag is outside the core schema', () => {
+    for (const text of [
+      `a: !<tag:x.com,2000:e${ZWNJ}x> 1\n`,
+      `a: !<tag:x.com,2000:e${HOSTILE.replaceAll('\n', '')}x> 1\n`,
+      `%TAG !e! tag:e${ZWNJ}.com,2000:\n---\na: !e!x 1\n`,
+      'a: !e%E2%80%8Cx 1\n',
+      'a: !e%1Bx 1\n',
+    ]) {
+      expectPlain(readSaid(text));
+    }
+  });
+
+  it('should name a tag the schema resolves, and hold nothing else', () => {
+    const refused = readSaid('a: !!set {x}\n');
+
+    expect(refused).toContain('the tag tag:yaml.org,2002:set is outside');
+    expectPlain(refused);
+  });
+
+  it('should hold no control character when an integer cannot be held', () => {
+    expect(readSaid('a: 99999999999999999999\n')).toContain(
+      'it would read back as 100000000000000000000'
+    );
+    expect(readSaid('a: 9007199254740993\n')).toContain('the integer 9007199254740993 is not');
+    expectPlain(readSaid('a: 9007199254740993\n'));
+  });
+
+  it('should hold no control character when a key is a different number or a collection', () => {
+    expect(readSaid('9007199254740993.0: a\n')).toContain(
+      'the mapping key 9007199254740993.0 names'
+    );
+    expect(readSaid('? [a]\n: 1\n')).toContain('a mapping key is a sequence');
+    expectPlain(readSaid('9007199254740993.0: a\n'));
+    expectPlain(readSaid('? [a]\n: 1\n'));
+  });
+});
