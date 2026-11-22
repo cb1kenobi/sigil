@@ -990,6 +990,34 @@ describe('check and radio items (SIG-523)', () => {
     expect(rows(s)[2]).not.toContain('❯');
   });
 
+  it('should open on the first radio item that is on, with a separator inside the group', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { label: 'a', radio: false, value: 'a' },
+        { separator: '' },
+        { label: 'b', radio: true, value: 'b' },
+        { label: 'c', radio: true, value: 'c' },
+      ],
+    });
+    const pointed = picture(s.root).filter((line) => line.includes('❯'));
+    expect(pointed).toHaveLength(1);
+    expect(pointed[0]).toContain('● b');
+  });
+
+  it('should count the mark column in the width, so a minWidth is the width it asks for', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { label: 'a', radio: true, value: 'a' },
+        { hint: 'h', label: 'b', radio: false, value: 'b' },
+      ],
+      minWidth: 30,
+    });
+    const border = picture(s.root)[2] as string;
+    expect(border.trim()).toHaveLength(30);
+  });
+
   it('should refuse a mark that is not a boolean, a state or a function, on both, or on a submenu', () => {
     const s = scene();
     const one = (item: Partial<MenuItem<string>>) => () =>

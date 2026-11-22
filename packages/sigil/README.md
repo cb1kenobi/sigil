@@ -6704,7 +6704,8 @@ Escape closes the menu and the next one the dialog.
   draws the mark -- `✔` for a check, `●` for a radio, `x` and `*` with `ascii` --
   in a column every row of that menu reserves, blank while the item is off. Each
   takes a boolean, a `State` (anything with a `get()`), or a function, read each
-  time the menu opens and not tracked, so the mark follows what the app holds. The
+  time the menu opens and not tracked (a radio function may be asked more than
+  once), so the mark follows what the app holds. The
   menu never writes it: a chosen item reaches `onSelect()` like any other, and
   flipping the state is the app's. A radio group is the radio items of one menu,
   and the app's own state is what makes exactly one of them on:

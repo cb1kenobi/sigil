@@ -12391,7 +12391,10 @@ exception per widget. This is the one answer, and every widget below follows it.
   would be deciding what a check means for an app that keeps it somewhere else.
   It is read each time a menu opens, **untracked**, because the rows are built per
   opening -- a menubar's items are built once and its menus' rows are not -- so a
-  function is current without anyone rewriting a label. What is **not** done is
+  function is current without anyone rewriting a label. A radio function is asked
+  twice per opening -- once to find the current item for the default, once to draw
+  its row -- which a pure function does not notice and is not worth a cache for.
+  What is **not** done is
   following the state while the menu is open: choosing closes it, and a mark
   redrawn under a reader who is looking at the list is the one case where it would
   show. A function that throws goes out through the key that opened the menu, as
