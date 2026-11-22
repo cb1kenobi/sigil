@@ -975,3 +975,21 @@ describe.each([
     expect(out?.code).toContain('export const v = $csss();\n');
   });
 });
+
+// SIG-588, SIG-589: `fn<T>` and a wrapped namespace object parse in a `.tsx` too,
+// where `<T>x` would be JSX -- the two that are not an angle-bracket assertion
+describe.each([
+  ['an instantiation', DIRECT, '(utilitySheet<Type>)()'],
+  ['a namespace under as', NAMESPACED, '(s as any).utilitySheet()'],
+  ['a namespace under !', NAMESPACED, 's!.utilitySheet()'],
+])('utilitySheet() called through %s in a .tsx', (_what, preamble, call) => {
+  it('should still be replaced', () => {
+    const out = shakeStyles(
+      '/app/src/view.tsx',
+      `${preamble}export const v = ${call};\n`,
+      () => sheet
+    );
+
+    expect(out?.sites).toBe(1);
+  });
+});

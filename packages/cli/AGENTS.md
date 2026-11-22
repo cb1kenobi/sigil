@@ -1018,6 +1018,13 @@ makes it testable with a fixture directory and no bundler at all.
   The other three _walk_ to a `CallExpression` and reach the one inside the chain
   on their own; their tests pin that rather than test a fix.
 
+  What stays missed, each silently: `(t?.main)(...)`, where the chain is inside
+  the parentheses around the callee rather than around the call, so neither
+  helper looks into it; and `updateCheck: wrap?.({ checker })`, an optional call
+  to something that is _not_ a builder, which `objectLiteral()`'s look through a
+  one-argument call does not reach, so it reads as asking where the plain
+  `wrap({ checker })` reads as naming.
+
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag

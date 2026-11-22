@@ -328,7 +328,10 @@ export function calleeName(node: Expression, bindings: ImportBindings): string |
  * puts a `ChainExpression` around a call with `?.` anywhere in its callee, and
  * the call is only returned when that callee is the import, so every optional
  * link the chain could short-circuit at is on the import itself -- `main?.(...)`
- * or `t?.main(...)` -- and an import binding is never `null` or `undefined`. A
+ * or `t?.main(...)` -- and an import binding is never `null` or `undefined`.
+ * That holds for what the callers pass, a named export of sigil's own modules or
+ * a namespace of one; a caller passing the default import of some other module
+ * would have to argue it again, since a default export may be anything. A
  * chain whose outermost node is not the call, `checker()?.x`, is not the call
  * and is not returned.
  *

@@ -495,3 +495,16 @@ describe.each([
     );
   });
 });
+
+// SIG-588, SIG-589: the same in a `.tsx`, where `<T>x` would be JSX
+describe.each([
+  ['an instantiation', RUNTIME, '(main<Type>)'],
+  ['a namespace under as', NAMESPACE, '(t as any).main'],
+  ['a namespace under !', NAMESPACE, 't!.main'],
+])('a main() called through %s in a .tsx', (_what, preamble, callee) => {
+  it('should still have its settings found', () => {
+    expect(
+      found(`${preamble}await ${callee}({ schema, settings: { a: 1 } });`, 'dev.tsx')
+    ).toHaveLength(1);
+  });
+});
