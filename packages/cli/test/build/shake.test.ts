@@ -90,7 +90,7 @@ describe('the class evidence', () => {
     // sits in the middle of. Flattened it is open on both sides, which is
     // what is true of it. This is the one shape where the two answers differ:
     // a chain whose literals are at its ends reads the same either way, which
-    // is why the obvious repro passes with `flatten()` deleted
+    // is why the obvious repro passes with the splicing deleted
     const evidence = evidenceOf(`const c = x + 'b-' + y;`);
 
     expect(evidence.mayName('ab-c')).toBe(true);
@@ -159,6 +159,79 @@ describe('the class evidence', () => {
     ]) {
       expect(evidenceOf(source).mayName('text-red'), source).toBe(true);
     }
+  });
+
+  it('should splice a concatenation nested as the right operand of +', () => {
+    // `colour + ('-red' + x)` is `colour + '-red' + x`, and only the left
+    // operand of a `+` was ever flattened. The inner `-red` was read as a
+    // closed chunk with an unknown on its right, so every `text-red`, `bg-red`
+    // and `border-red` rule was shaken out of a build that names one at run
+    // time -- 8 of 383 kept where the flat spelling keeps 13, measured with
+    // `sigil build` on a copy of the `styled` fixture
+    for (const source of [
+      `const c = colour + ('-red' + x);`,
+      `const c = colour + (('-r' + 'ed') + x);`,
+      `const c = colour + ('-r' + 'ed');`,
+      `const c = colour + (<string>'-red' + x);`,
+      `const c = a + (b + ('-red' + x));`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      // spliced, the chunk is open on both ends -- not on none -- and still
+      // says nothing about a name it is not in
+      expect(evidence.mayName('text-green'), source).toBe(false);
+    }
+  });
+
+  it('should splice what a += appends when it is more than a bare literal', () => {
+    // `c += '-red'` was read open on the left and nothing else, so appending a
+    // concatenation or a template left the accumulator's side unknown and the
+    // literal closed -- 8 of 383 kept where `c += '-red'` keeps 13
+    for (const source of [
+      `let c = ''; c += '-red' + x;`,
+      `let c = ''; c += '-r' + 'ed';`,
+      'let c = ""; c += `-red${x}`;',
+      'let c = ""; c += `-r${"ed"}`;',
+      `let c = ''; c += ('-red' + x) + y;`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('text-green'), source).toBe(false);
+    }
+  });
+
+  it('should splice an interpolating template used as an operand or nested in one', () => {
+    // a template with interpolations was an unknown part wherever it sat but at
+    // the top, and an interpolation was read only for being a plain string --
+    // so `` colour + `-red${x}` `` and `` `${a}${`-red${x}`}` `` left `-red`
+    // closed on its left. 8 of 383 kept where the flat spelling keeps 13
+    for (const source of [
+      'const c = colour + `-red${x}`;',
+      'const c = `${y}-red${x}` + colour;',
+      'const c = `${a}${`-red${x}`}`;',
+      "const c = `${a}${'-red' + x}`;",
+      'const c = `${a}${colour + `-red`}`;',
+      'const c = `${a}${`${b}${`-red${x}`}`}`;',
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('text-green'), source).toBe(false);
+    }
+  });
+
+  it('should not splice what a tag returns into the run around it', () => {
+    // a tagged template nested in a chain is one unknown part, for the reason
+    // its interpolations are never folded into its own quasis. The quasi is
+    // still read on its own, as a prefix, which is what keeps a `ui`
+    // template's class. Spliced, `-red` would be open on the left as well and
+    // `text-red` would be kept, on the strength of a function never seen
+    const evidence = evidenceOf('const c = colour + tag`-red${x}` + other;');
+
+    expect(evidence.mayName('-red-500')).toBe(true);
+    expect(evidence.mayName('text-red')).toBe(false);
   });
 
   it('should join a run of known parts rather than reading each alone', () => {

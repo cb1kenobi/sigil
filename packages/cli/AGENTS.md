@@ -2790,6 +2790,32 @@ other is refused with numbers.
   `<T>x` only parses in a `.ts` file; in `.tsx` it is JSX, so no fixture for it
   can be a `.tsx`.
 
+  **A nested concatenation or template is spliced into the run around it, by one
+  function** (SIG-577). `partsOf()` is what `flatten()` and `literalText()` were:
+  a string literal is one known part, a `+` is its operands' parts one after
+  another, an untagged template is its quasis with the parts of each
+  interpolation between them, and anything else is one unknown part. Before it,
+  only the **left** operand of a `+` was flattened and a `+=` took a bare literal
+  on its right, so `colour + ('-red' + x)`, `c += '-red' + x` and
+  `` colour + `-red${x}` `` each left `-red` a closed chunk with an unknown
+  beside it -- a dropped rule, in all three shapes. Measured with `sigil build`
+  on a copy of `test/fixtures/styled/` whose `text()` class was the only thing
+  changed: **8 of 383** utility rules kept for each nested spelling and **13**
+  for the flat one (`colour + '-red' + x`, `` `${colour}-red${x}` ``,
+  `c += '-red'`), and 13 for all of them now. The same went for
+  `` `${a}${`-red${x}`}` `` and `c += '-r' + 'ed'`. It can only ever keep
+  more: a spliced chunk is open on a side where the unspliced one was closed, and
+  an open reading matches a superset of the closed one. The walk still visits the
+  inner node and reads it on its own as well, which keeps what it kept before and
+  is redundant rather than wrong. A tagged template stays one unknown part and
+  its quasis are still read as chunks, for the reason above.
+
+  The place for `?:`, `||`, `??`, `.concat()` and `.join()` (SIG-578) is a case
+  in `partsOf()` and nowhere else, which is the point of there being one. They
+  differ in kind rather than in spelling: `a ? '-red' : '-blue'` is a **choice**
+  between two sequences rather than one, so it cannot return a single list of
+  parts, and the decision about what it should return is that ticket's.
+
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`
   call and never for an app that does not, which is most of them: **0.4 ms**
