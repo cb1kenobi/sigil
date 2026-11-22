@@ -554,7 +554,11 @@ commit message in a text area. What it settled:
   its roots once in a `beforeAll()` with a 30 s budget of its own, and the tests
   read the module from `load()`. A hang is still a failure and names itself:
   `within()` rejects with `importing examples/<name>/src/<root> did not happen
-  within 30000ms` before the hook's own timeout, which is 5 s behind it. The
+  within 30000ms` (with the platform's separators) before the hook's own timeout,
+  which is 5 s behind it, and every broken root of the example is named, not
+  only the first. What it costs is that a root that fails to import skips the
+  example's other tests too, the contract and spawned ones included: the suite
+  is red and named, with less to read under it. The
   `mount()` tests never paid a second import -- a module is cached by its URL, and
   `mount()` after the export test measured 16 ms behind a 5 s import -- but they
   did pay the first one whenever they ran without it (`-t "should draw"`), and

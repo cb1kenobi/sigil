@@ -285,11 +285,19 @@ describe('the examples', () => {
       // first. `within()` is what names the hang -- the hook's own timeout is a
       // few seconds behind it, so that this message is the one that is read
       beforeAll(async () => {
-        await Promise.all(
+        // every root is asked and every failure is named, so a broken root
+        // does not hide the one beside it
+        const settled = await Promise.allSettled(
           example.roots.map((file) =>
             within(load(file), `importing ${relative(root, file)}`, COLD_IMPORT_MS)
           )
         );
+        const failures = settled.flatMap((result) =>
+          result.status === 'rejected' ? [String((result.reason as Error).message)] : []
+        );
+        if (failures.length > 0) {
+          throw new Error(failures.join('; '));
+        }
       }, COLD_IMPORT_MS + 5000);
 
       it('should follow the example contract', () => {
@@ -343,6 +351,7 @@ describe('the examples', () => {
           // the app is reached through `useApp()`, so a root that still takes
           // props is one somebody has to remember to wire, and `runApp()` will
           // not
+          expect(loaded.has(file), 'the beforeAll() imported the root, not this test').toBe(true);
           const rootModule = await load(file);
           expect(typeof rootModule.App, 'App').toBe('function');
           expect(rootModule.App.length, 'App takes no props').toBe(0);
