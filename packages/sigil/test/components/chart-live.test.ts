@@ -5,6 +5,7 @@ import {
   Gauge,
   LineChart,
   lineChart,
+  type CrosshairLineChartProps,
   type LineChartProps,
   Series,
   Sparkline,
@@ -14,7 +15,7 @@ import { box, type Element, renderToLines, text } from '../../src/element/index.
 import type { DescribeOptions, InputRouter } from '../../src/input/index.js';
 import { runApp, useApp } from '../../src/renderer/app.js';
 import { effect, flush, State } from '../../src/signals/index.js';
-import { createTestTerminal, frame, KEYS } from '../../src/testing/index.js';
+import { createTestTerminal, ctrl, frame, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -505,7 +506,7 @@ describe('LineChart, with a crosshair (SIG-464)', () => {
    * the plot starts at column 3 and the samples are at columns 3, 12, 20 and 29.
    */
   async function mount(
-    chart: (input: InputRouter) => Partial<LineChartProps>,
+    chart: (input: InputRouter) => Partial<CrosshairLineChartProps>,
     opts: { motion?: boolean } = {}
   ) {
     const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
@@ -787,7 +788,7 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
    * columns 3, 12, 20 and 29, and the axis tick under the rule is on screen row 4.
    */
   async function mount(
-    chart: (input: InputRouter) => Partial<LineChartProps> = () => ({}),
+    chart: (input: InputRouter) => Partial<CrosshairLineChartProps> = () => ({}),
     colorLevel: 0 | 1 = 0
   ) {
     const term = createTestTerminal({ colorLevel, columns: 40, rows: 8 });
@@ -1120,10 +1121,176 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
   it('should refuse an onKey in its props, which the chart owns', () => {
     const input = {} as InputRouter;
     expect(() =>
+      // the type leaves it out, which is what this directive pins; the throw is for
+      // a caller the type does not reach
+      // @ts-expect-error a chart with a crosshair owns `onKey`
       LineChart({ crosshair: { input }, data: [1], props: { onKey: () => {} } })
     ).toThrow(/onKey/);
     // a chart without a crosshair owns no key
     expect(() => LineChart({ data: [1], props: { onKey: () => {} } })).not.toThrow();
+  });
+
+  it('should take h and l as Left and Right with vim, and no letter without it', async () => {
+    const plain = await mount();
+    await plain.key(KEYS.tab, 'h');
+    expect(tick(plain.screen())).toBe(29);
+
+    const m = await mount(() => ({ vim: true }));
+    await m.key(KEYS.tab, 'h');
+    expect(tick(m.screen())).toBe(20);
+    expect(m.screen().join('\n')).toContain('│ API 3 │');
+    await m.key('h', 'h', 'h');
+    expect(tick(m.screen())).toBe(3);
+    await m.key('l', 'l');
+    expect(tick(m.screen())).toBe(20);
+    // a capital is not the letter, and Ctrl with one is the app's
+    await m.key('L', ctrl('l'));
+    expect(tick(m.screen())).toBe(20);
+  });
+
+  it('should refuse vim that is not a boolean, or is given with no crosshair', () => {
+    const input = {} as InputRouter;
+    expect(() => LineChart({ crosshair: { input }, data: [1], vim: 'yes' as never })).toThrow(
+      /vim to be a boolean/
+    );
+    expect(() => LineChart({ data: [1], vim: true } as never)).toThrow(/vim to have a crosshair/);
+  });
+
+  it('should jump to the oldest sample with Home and the newest with End', async () => {
+    const m = await mount();
+    await m.key(KEYS.tab, KEYS.home);
+    expect(tick(m.screen())).toBe(3);
+    expect(m.screen().join('\n')).toContain('│ API 1 │');
+    await m.key(KEYS.end);
+    expect(tick(m.screen())).toBe(29);
+    expect(m.screen().join('\n')).toContain('API 8');
+    // Home from the pointer's sample is the oldest too
+    await m.move(12, 2);
+    expect(tick(m.screen())).toBe(12);
+    await m.key(KEYS.home);
+    expect(tick(m.screen())).toBe(3);
+  });
+
+  it('should take the oldest sample the plot draws for Home, where the history runs off the left', async () => {
+    const series = new Series(
+      100,
+      Array.from({ length: 100 }, (_, i) => i)
+    );
+    const m = await mount(() => ({ series: [{ data: series, label: 'API' }], step: 1 }));
+    await m.key(KEYS.tab, KEYS.home);
+    // 26 plot columns past a two-digit gutter hold 52 samples: the oldest drawn is
+    // the 49th, not the first
+    expect(tick(m.screen())).toBe(4);
+    expect(m.screen().join('\n')).toContain('API 48');
+    await m.key(KEYS.left);
+    expect(tick(m.screen())).toBe(4);
+    await m.key(KEYS.end);
+    expect(m.screen().join('\n')).toContain('API 99');
+  });
+
+  describe('pinning a sample', () => {
+    it('should keep the rule and its readout where Enter pinned it when the focus goes elsewhere', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.left, KEYS.enter);
+      expect(tick(m.screen())).toBe(20);
+      await m.blur();
+      expect(tick(m.screen())).toBe(20);
+      expect(m.screen().join('\n')).toContain('│ API 3 │');
+    });
+
+    it('should unpin on a second Enter at the same sample, and the blur then shows none', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.enter);
+      expect(tick(m.screen())).toBe(20);
+      await m.blur();
+      expect(tick(m.screen())).toBe(-1);
+      expect(m.screen().join('\n')).not.toContain('│ API');
+    });
+
+    it('should move a pin with an Enter at another sample', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.left, KEYS.enter);
+      await m.blur();
+      expect(tick(m.screen())).toBe(12);
+      expect(m.screen().join('\n')).toContain('│ API 5 │');
+    });
+
+    it('should start a refocus at the pinned sample rather than the newest', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.right);
+      expect(tick(m.screen())).toBe(12);
+      await m.blur();
+      await m.key(KEYS.tab);
+      expect(tick(m.screen())).toBe(3);
+      // and the pin is still where a step from it goes on from
+      await m.key(KEYS.right);
+      expect(tick(m.screen())).toBe(12);
+    });
+
+    it('should let the pointer have the rule while it is over the chart, and give the pin back', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.home, KEYS.enter);
+      await m.blur();
+      await m.move(29, 2);
+      expect(tick(m.screen())).toBe(29);
+      await m.move(39, 7);
+      expect(tick(m.screen())).toBe(3);
+    });
+
+    it('should keep a pin on the same place on the screen as samples are pushed', async () => {
+      const series = new Series(8, [1, 5, 3, 8]);
+      const m = await mount(() => ({ series: [{ data: series, label: 'API' }], step: 4 }));
+      await m.key(KEYS.tab, KEYS.left, KEYS.enter);
+      await m.blur();
+      const before = tick(m.screen());
+      expect(before).toBeGreaterThan(-1);
+      series.push(9);
+      await m.key();
+      expect(tick(m.screen())).toBe(before);
+    });
+
+    it('should claim Enter, Home and End while it has the focus', async () => {
+      const seen: string[] = [];
+      const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });
+      const app = runApp(
+        () => {
+          const input = useApp().input as InputRouter;
+          return box(
+            { onKey: (event) => void seen.push(event.key.name) },
+            LineChart({
+              ascii: false,
+              crosshair: { input },
+              props: { height: 6, width: 30 },
+              series: [{ data: [1, 5, 3, 8], label: 'API' }],
+              step: 'fit',
+            })
+          );
+        },
+        { detect: false, mouse: { motion: true }, terminal: term.terminal }
+      );
+      apps.push(app);
+      await frame(app);
+      await term.press(KEYS.tab);
+      await term.press(KEYS.enter);
+      await term.press(KEYS.home);
+      await term.press(KEYS.end);
+      await frame(app);
+      expect(seen).toStrictEqual([]);
+    });
+  });
+
+  it('should leave onKey out of the props type of a chart with a crosshair, and only of that one', () => {
+    const input = {} as InputRouter;
+    const plain: LineChartProps = { data: [1], props: { onKey: () => {} } };
+    expect(plain.props?.onKey).toBeTypeOf('function');
+    const owned: LineChartProps = { crosshair: { input }, data: [1], props: { focusable: false } };
+    expect(owned.props?.focusable).toBe(false);
+    // @ts-expect-error a chart with a crosshair owns `onKey`
+    const bad: LineChartProps = { crosshair: { input }, data: [1], props: { onKey: () => {} } };
+    expect(bad.props).toBeDefined();
+    // @ts-expect-error `vim` is the crosshair's letters, so a chart with none takes none
+    const letters: LineChartProps = { data: [1], vim: true };
+    expect(letters.vim).toBe(true);
   });
 
   describe('describeLineChart', () => {
@@ -1145,14 +1312,26 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       const { live, router, said } = recorder();
       const host = await chart();
       describeLineChart(router, host);
-      expect(said()).toStrictEqual(['left move', 'right move']);
+      expect(said()).toStrictEqual([
+        'left move',
+        'right move',
+        'home oldest',
+        'end newest',
+        'enter pin',
+      ]);
       expect(live.every((e) => e.opts.scope === host)).toBe(true);
+    });
+
+    it("should describe h and l on the arrows' line only for a chart that takes them", async () => {
+      const { router, said } = recorder();
+      describeLineChart(router, (await mount(() => ({ vim: true }))).chart);
+      expect(said().slice(0, 4)).toStrictEqual(['left move', 'right move', 'h move', 'l move']);
     });
 
     it('should take every description back off', async () => {
       const { live, router } = recorder();
       const off = describeLineChart(router, await chart(), await chart());
-      expect(live).toHaveLength(4);
+      expect(live).toHaveLength(10);
       off();
       expect(live).toHaveLength(0);
     });

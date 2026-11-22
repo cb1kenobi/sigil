@@ -487,6 +487,42 @@ describe('attachTooltip()', () => {
     });
   });
 
+  describe('hold (SIG-607)', () => {
+    it('should show while it returns true with no pointer and no focus, and hide when it stops', () => {
+      const s = scene();
+      const held = new State(false);
+      const tip = tipOn(s, { delay: 0, hold: () => held.get() });
+      flush();
+      expect(tip.shown).toBe(false);
+
+      held.set(true);
+      flush();
+      expect(tip.shown).toBe(true);
+      expect(s.input.focus.current.get()).toBeUndefined();
+
+      held.set(false);
+      flush();
+      expect(tip.shown).toBe(false);
+    });
+
+    it('should outlast the pointer and the focus leaving, while it is held', async () => {
+      const s = scene();
+      const tip = tipOn(s, { delay: 0, hold: () => true });
+      s.input.focus.focus(s.anchor);
+      flush();
+      s.input.focus.focus(s.other);
+      flush();
+      await hover(s);
+      await s.term.press(move(20, 10));
+      expect(tip.shown).toBe(true);
+    });
+
+    it('should refuse a hold that is not a function', () => {
+      const s = scene();
+      expect(() => tipOn(s, { hold: true as never })).toThrow('hold');
+    });
+  });
+
   describe('the quiet axis', () => {
     it('should not show under --quiet', async () => {
       const s = scene();

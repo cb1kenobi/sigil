@@ -79,6 +79,14 @@ export interface TooltipOptions {
    * bubble at every stop. `0` shows it at once.
    */
   delay?: number;
+  /**
+   * A third reason to show the bubble, beside the pointer and the focus: shown
+   * while it returns `true`, with neither. Asked in the effect that reads the
+   * focus, so a signal it reads shows or hides the bubble the moment it is set.
+   * `delay` still applies. That is how a line chart's pinned sample keeps its
+   * readout once the focus has gone. Defaults to none.
+   */
+  hold?: () => boolean;
   /** The router hover and focus come from. */
   input: InputRouter;
   /** The widest the bubble may be, border included, in cells. Defaults to 40. */
@@ -329,6 +337,10 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   if (area !== undefined && typeof area !== 'function') {
     throw new TypeError(__`Expected a tooltip area to be a function`);
   }
+  const hold = opts.hold;
+  if (hold !== undefined && typeof hold !== 'function') {
+    throw new TypeError(__`Expected a tooltip hold to be a function`);
+  }
   const maxWidth = opts.maxWidth ?? MAX_WIDTH;
   if (!Number.isInteger(maxWidth) || maxWidth < 4) {
     throw new TypeError(__`Expected a tooltip maxWidth of at least 4 cells`);
@@ -507,9 +519,14 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     return at !== undefined && anchor.contains(at);
   }
 
-  /** Brings the bubble in line with the two reasons for it. */
+  /** Whether the app asked for it to stay, with no pointer and no focus. */
+  function held(): boolean {
+    return hold?.() === true;
+  }
+
+  /** Brings the bubble in line with the three reasons for it. */
   function update(): void {
-    if (!hovered() && !focused()) {
+    if (!hovered() && !focused() && !held()) {
       dismissed = false;
       remove();
       return;
@@ -524,7 +541,7 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     timer = setTimeout(() => {
       timer = undefined;
       // asked again, because a hover can end in a report nothing passed on
-      if (hovered() || focused()) {
+      if (hovered() || focused() || held()) {
         show();
       }
     }, delay);

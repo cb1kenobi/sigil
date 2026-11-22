@@ -7666,10 +7666,70 @@ took the focus and the arrows in SIG-491.
 - **The dashboard's traffic chart has it,** a Tab stop after the range row: the
   search, the menu, the range, the chart, then the table, which is one more Tab
   than before and why that test helper counts five.
-- **Not done:** `h` and `l` with a `vim` option as the treemap has (SIG-499); Home
-  and End for the oldest and newest sample, which would need two more words in the
-  footer; and a way to pin a sample so the readout stays while the focus is
-  elsewhere.
+- **Not done here, and done by SIG-607 below:** `h` and `l` with a `vim` option as
+  the treemap has (SIG-499); Home and End for the oldest and newest sample; and a
+  way to pin a sample so the readout stays while the focus is elsewhere.
+
+### A line chart's letters, ends and pin: `vim`, Home and End, and Enter (SIG-607)
+
+SIG-516's four named gaps, closed in the shape the treemap and the list already
+have.
+
+- **`vim: true` takes `h` and `l` as Left and Right, and nothing else.** The
+  treemap's option under the treemap's name, off by default for its reason: a
+  letter a focused component claims outranks every binding the app has for it.
+  The treemap's `j` and `k` are not here because a chart has no up and down, and
+  no `g`/`G`: Home and End are always on, so the letters would be a second spelling
+  of keys nobody has to opt into. The letters are the arrows' in every other rule --
+  claimed at an end, `H` and `L` are not them (the decoder names a capital as
+  itself), Ctrl and Alt leave them to the app. Asked for with no `crosshair` the
+  chart throws, since it owns no key to take a letter with, as does a `vim` that
+  is not a boolean; the type is the first refusal, `vim?: undefined` on a plain chart.
+- **Home and End are the oldest sample the plot draws and the newest.** `first`
+  and `count - 1` of `Drawing.samples`, so on a scrolling chart Home is the left
+  edge of the plot rather than the start of the history, for the reason Left stops
+  there. Always on with a crosshair, as a list's are; claimed even where the rule
+  is already there. `lineDrawing()` is unchanged: they set `back` as the arrows do.
+- **A pin is one sample, set and cleared by Enter, and the rule rests on it.** The
+  smallest API that satisfies the ticket: no prop and no callback, just a state the
+  chart keeps, counted back from the newest like `back` and for the same reason (a
+  pushed series keeps it where it is on screen). Enter pins the sample the rule is
+  on, or unpins it where it is already pinned there -- compared after the clamp to
+  the oldest drawn, so a pin that scrolled off the left and is now drawn on the
+  oldest sample toggles off from there. Enter at another sample moves the pin; it
+  is not a list of them. Space was left unclaimed, since a chart has no selection
+  for it to mean and Enter is what a treemap and a list activate with.
+- **The pin is where the rule rests when the keyboard is not on the chart.** Drawn
+  with no focus and no pointer it is the muted rule, the pointer's colour, rather
+  than the accent the focus is shown in -- the accent still says "keys go here".
+  A refocus starts from the pin and not the newest, and blur forgets the
+  keyboard's sample and returns to the pin, so the effect that forgot it still does
+  and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
+  it does over the keyboard, and gives the rule back to the pin when it leaves.
+  A limit, recorded rather than fixed: while the chart is focused and the rule has
+  moved off the pin, nothing shows where the pin is; it is seen again on blur.
+- **The readout stands through the tooltip's new `hold`.** The bubble was shown by
+  the pointer or the focus and nothing else, so a pin had no readout once the focus
+  went. `TooltipOptions.hold` is a function that returns `true` for a third reason
+  to show, asked in the effect that already reads the focus so a signal it reads is
+  tracked, and `delay` still applies to it. It is the one change outside the chart;
+  the chart sets it (`LineChartCrosshair` omits it, as it omits `area`), and no
+  other component does.
+- **`props` leaves `onKey` out of a chart with a crosshair, in the type.** The
+  "props type leaves it out" convention SIG-516 recorded as its one departure is
+  followed now: `LineChartProps` is a union of `PlainLineChartProps` and
+  `CrosshairLineChartProps`, told apart by `crosshair` being absent or required,
+  and the second's `props` is `ElementPropsWithout<'onKey' | 'onResize'>`. A plain
+  chart owns no key and still takes an `onKey`, so nothing that compiled before
+  stops compiling unless it passed an `onKey` the chart refused at run time anyway.
+  `chart-live.test.ts` pins both halves with `@ts-expect-error`, one on `props`
+  and one on `vim`, which `packages/sigil`'s tsconfig includes `./test` for.
+- **`describeLineChart()` lists them:** `left`, `right`, `h` and `l` where the chart
+  is `vim`, `home` as `oldest`, `end` as `newest`, and `enter` as `pin`, three new
+  words in `SIGIL_KEYS`. The arrows are priority 1 as before, Home and End 1 and
+  Enter 2 as a list's Enter is, so a narrow footer drops the pin first. The
+  dashboard's chart footer is therefore longer by those words; its tests are
+  re-read for it rather than assumed.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
