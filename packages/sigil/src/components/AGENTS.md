@@ -12530,7 +12530,17 @@ exception per widget. This is the one answer, and every widget below follows it.
   terminal's stdin, a `PassThrough`, which does not recover, so every later key is
   lost and Escape included, whatever the menu did. A test that provokes a throwing
   callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
-  no guard was added to `descend()` because it has nothing to protect.
+  no guard was added to `descend()` because it has nothing to protect. Two limits,
+  stated rather than left to be found. From the pointer the hover has already moved
+  the highlight onto the row that threw, and every further move over it throws
+  again, which is moot under `runApp()` where the first one ends the app. And a
+  **root** menu is the other case: a menubar's menu whose mark throws is not asked
+  by `menuInitial()` when the menu is mixed, so it throws from `push()` after the
+  menu that was open has been truncated, with no level left for Escape to close --
+  `root()` then closes the whole session, bar and all, rather than leave one that
+  swallows every key. The sentences above saying a menubar asks a function "before
+  a session takes the input" are true of `initial` and of a radio group, not of a
+  check mark.
 
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The
