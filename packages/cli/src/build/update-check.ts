@@ -95,6 +95,7 @@ const DECLARED_KEYS: readonly (readonly [noun: string, key: string])[] = [
   ['repo', 'updateCheck.repo'],
   ['url', 'updateCheck.url'],
   ['path', 'updateCheck.path'],
+  ['prefix', 'updateCheck.prefix'],
 ];
 
 /**
@@ -174,7 +175,13 @@ function checkerFor(
       );
 
     case 'custom':
-      return asDeclared(() => customChecker({ path: declared.path!, url: declared.url! }));
+      return asDeclared(() =>
+        customChecker({
+          path: declared.path!,
+          ...(declared.prefix !== undefined && { prefix: declared.prefix }),
+          url: declared.url!,
+        })
+      );
 
     default: {
       const name = declared.package ?? packageName;

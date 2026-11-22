@@ -6621,7 +6621,15 @@ measurements are in
 
   `updateCheck.prefix` is the one name in the file not run through
   `readName()`, because `""` is a real answer there -- it is how a repository
-  whose tags are already versions says so.
+  whose tags are already versions says so. It belongs to `custom` as well as
+  `github` since SIG-555, where `""` is refused by `customChecker()` instead
+  (the default there is no prefix, so an empty one says nothing a missing one
+  does not) and the refusal names `updateCheck.prefix`. `headers` is deliberately
+  **not** a key of the file: a value is often a credential and `sigil.json` is
+  committed, so an endpoint that needs one is `customChecker({ headers })` in
+  the app's own source. A `headers` written there anyway is an unknown key and
+  is ignored like any other, which a test pins by asserting it never reaches
+  the baked checker.
 
   What a **value** may be is not this reader's to say twice: `repo`, `registry`
   and a `custom` `url` and `path` are asked of the runtime's own builders in

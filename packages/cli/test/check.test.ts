@@ -411,6 +411,41 @@ describe('sigil check', () => {
       expect(process.exitCode).toBe(1);
     });
 
+    it("should show a refused custom url's query by name and never by value (SIG-556)", async () => {
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: {
+            path: ['version'],
+            type: 'custom',
+            url: 'https://h/latest json?channel=stable&token=hunter2',
+          },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('got "https://h/latest json?channel=***&token=***"');
+      expect(err).not.toContain('hunter2');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should name updateCheck.prefix for a custom prefix that is empty (SIG-555)', async () => {
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: { path: ['version'], prefix: '', type: 'custom', url: 'https://h/x' },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Update check "updateCheck.prefix" must be a non-empty string');
+      expect(process.exitCode).toBe(1);
+    });
+
     it('should accept a custom url with a query', async () => {
       const dir = app();
       writeFileSync(
