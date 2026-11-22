@@ -138,6 +138,7 @@ describe('a yaml read refused for text the document holds', () => {
     expect(readSaid('a: 99999999999999999999\n')).toContain(
       'it would read back as 100000000000000000000'
     );
+    expect(readSaid(`a: ${'9'.repeat(400)}\n`)).toContain('is larger than this runtime can hold');
     expect(readSaid('a: 9007199254740993\n')).toContain('the integer 9007199254740993 is not');
     expectPlain(readSaid('a: 9007199254740993\n'));
   });

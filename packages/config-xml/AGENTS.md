@@ -580,8 +580,10 @@ five things core had deliberately not published, which is the entry below.
   the same string, and each is tested by `test/message-escape.test.ts` with a
   marker in the element and another in the name, so that removing either escape
   fails. Sabotaged placeholder by placeholder: all seven fail a test. What a name
-  cannot be is a control character -- `xmldom` refuses one as a parse error,
-  which `Failed to parse` already escapes.
+  cannot hold is a control character -- `xmldom` either refuses one as a parse
+  error, which `Failed to parse` already escapes, or reads it as whitespace that
+  ends the name rather than joining it (measured: `a`, ESC, `b="1"` is an element
+  `a` with an attribute `b`, which is a quirk of its own and left alone here).
 
   **Two escapes are defence.** The declared encoding in `it declares the encoding`
   is read by a lenient regex, but `xmldom` refuses a declaration whose encoding is

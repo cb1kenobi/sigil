@@ -46,9 +46,10 @@ describe('an xml write refused for a key with a control character in it', () => 
  * document holds were left. An XML name may hold U+200C and U+200D -- the `Name`
  * production allows them, and so does `xmldom`, which also takes U+FEFF, U+061C and
  * the tag characters -- so a name is the one value in these messages a file can
- * fill with something `escapeControls()` changes. `xmldom` refuses a control
- * character in a name, so the name is never an escape sequence, only an invisible
- * character.
+ * fill with something `escapeControls()` changes. A control
+ * character cannot be in a name -- `xmldom` refuses it or reads it as the end of
+ * the name -- so what a name holds is an invisible character, never an escape
+ * sequence.
  */
 
 /** The zero-width non-joiner, which a name may hold and which prints as nothing. */
