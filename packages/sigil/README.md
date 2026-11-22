@@ -8355,7 +8355,7 @@ network drive -- is refused, where Windows itself would delete it without
 asking. The few lines of C# that reach the shell are compiled on the first call
 and kept in the cache directory, sealed for the current user, so that a file another
 user puts there is rebuilt rather than run. (A process running as you can still
-seal one; that is not something a cache file can guard against.) Everywhere else it is the freedesktop.org trash, which
+seal one; that is not something a cache file can guard against.) Where security software refuses to load that compiled helper, it is compiled by PowerShell's `Add-Type` on every call instead, which costs a second PowerShell start but still moves the item. Everywhere else it is the freedesktop.org trash, which
 file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
 device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where

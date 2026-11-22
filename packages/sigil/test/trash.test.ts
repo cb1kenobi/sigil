@@ -473,12 +473,16 @@ describe('trash()', () => {
       const POWERSHELL = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
 
       /** Trashes a fresh file through `recycle()` with this cache, and takes it back out. */
-      async function once(file: string | undefined, hash = keyOf('sigil-trash-test')) {
+      async function once(
+        file: string | undefined,
+        hash = keyOf('sigil-trash-test'),
+        load?: 'bytes' | 'compile'
+      ) {
         const item = join(made('sigil-trash-cached-'), 'a.txt');
         writeFileSync(item, 'a');
         let where = '';
         try {
-          const out = await recycle(item, file, hash);
+          const out = await recycle(item, file, hash, load);
           where = out.path;
           expect(where).not.toBe('');
           expect(existsSync(item)).toBe(false);
@@ -647,6 +651,27 @@ describe('trash()', () => {
           expect(states.filter((state) => state === 'hit').length).toBeLessThan(2);
           expect(states).toContain('saved');
           expect(existsSync(file)).toBe(true);
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should still trash with Add-Type, and touch no cache, where the helper cannot be loaded from bytes',
+        async () => {
+          const file = join(made('sigil-trash-refused-'), 'sigil', 'trash.bin');
+
+          // what a refused `Assembly.Load(byte[])` falls back to, asked for directly:
+          // a refusal cannot be provoked from here, and this is the script that
+          // answers it. It must neither read nor write the cache
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
+          expect(existsSync(file)).toBe(false);
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
+
+          // and the way back is untouched: a call that may load bytes still caches
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
           expect(await once(file)).toBe('hit');
         },
         SLOW

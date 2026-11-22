@@ -187,7 +187,7 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
 - **The C# reaches PowerShell in an environment variable, not in the command.**
   The encoded command was 24,792 characters with the C# in it and Windows stops
   at 32,767; the script that caches would not have fitted beside it.
-- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`,
+- **`recycle()` reports what became of the helper** -- `hit`, `saved`, `built`, `compiled` (a refused load, below),
   or `none` when the call failed first -- because that is the whole difference
   between one call and the next, and the Windows tests in `test/trash.test.ts`
   pin each case with a cache they name: compiled once and loaded after; garbage,
@@ -201,10 +201,35 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   two calls racing on an empty cache; an unwritable cache
   compiling every call and still recycling. `test/trash-windows.test.ts` pins
   the key, the file name and what PowerShell is handed, on every platform.
-- `Assembly.Load(byte[])` from a script handed over `-EncodedCommand` is also
-  what a reflective loader looks like, and .NET 4.8 shows such a load to AMSI.
-  Defender on the runner lets it through; an endpoint product that blocks it
-  fails the call rather than falling back, which is not handled.
+- **A refused load falls back to `Add-Type`, in a second PowerShell, and the item
+  is still recycled** (SIG-517). `Assembly.Load(byte[])` from a script handed over
+  `-EncodedCommand` is also what a reflective loader looks like, and .NET 4.8 shows
+  such a load to AMSI; Defender on the runner lets it through, and an endpoint
+  product may refuse it. Compiling in memory is no way round that, because the
+  unwritable-cache path loads its freshly compiled bytes with the same call -- so
+  the fallback is the one thing that loads nothing from bytes: `Add-Type
+  -TypeDefinition`, which is what every call did before SIG-490, so a machine
+  where the load is refused is no worse off than it was. Only the load of the
+  bytes just compiled counts as a refusal. A failed load of a **cached** file is
+  indistinguishable from a file that is not ours and is a rebuild as it always was,
+  and a refusal there reaches the same load after the rebuild. The script answers
+  `loadRefused` and stops **before** `Recycle()` runs, so nothing has moved and
+  asking again cannot move the item twice, and before the cache is written, so a
+  helper that cannot be loaded is never sealed and kept. `recycle()` then asks
+  once more with `SIGIL_TRASH_MODE=compile`, which reads and writes no cache and
+  reports `compiled`; a refusal answered to that is thrown, never retried.
+
+  It is asked afresh on every call and not remembered for the process: an
+  environment that refuses pays a second PowerShell start (about 350 ms on the
+  runner) per trash, and a remembered refusal would be module state the tests
+  could not reset without reimporting the module. A second `trash()` per file in a
+  loop is the cost, and it is the cost of a machine that already forbids what the
+  fast path does. `trash-windows.test.ts` simulates the refusal by replacing
+  PowerShell and pins the second ask, its mode, its errors and that it stops
+  there; what it cannot show is that the script answers a refusal, which no runner
+  can provoke -- so the Windows jobs run the compile mode itself, asked for
+  directly, and check it recycles and neither reads nor writes the cache.
+
 - The real-trash tests on a Windows runner go through `trash()` and so leave one
   such file in the runner's own cache, which is what a cache is for.
 

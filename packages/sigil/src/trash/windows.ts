@@ -206,6 +206,13 @@ namespace SigilTrash {
  *   anything already at it, and every failure to save is swallowed: a cache that
  *   cannot be written costs the compile, as it always did, and never the trash.
  *
+ * - A load that is refused is not the end of the call. `Assembly.Load(byte[])` is
+ *   what an endpoint product may refuse, and compiling the helper by hand does
+ *   not help when its bytes cannot be loaded either, so a refusal of the freshly
+ *   built bytes is answered as `loadRefused` and `recycle()` asks again with
+ *   `SIGIL_TRASH_MODE=compile`: `Add-Type`, which is what every call did before
+ *   the cache, and which keeps and seals nothing.
+ *
  * The path, the cache file, the key and the C# itself all come from the
  * environment rather than being spliced into the script, so nothing in a name
  * can be read as code -- and keeping the C# out of the command line is what
@@ -214,89 +221,118 @@ namespace SigilTrash {
  */
 const SCRIPT = `$ErrorActionPreference = 'Stop'
 $state = 'none'
+function Escape([string]$m) {
+  ($m.ToCharArray() | ForEach-Object { if ([int]$_ -lt 32 -or [int]$_ -gt 126 -or $_ -eq '"' -or $_ -eq '\\') { '\\u{0:x4}' -f [int]$_ } else { [string]$_ } }) -join ''
+}
 try {
-  $cache = [string]$env:SIGIL_TRASH_CACHE
-  $entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:SIGIL_TRASH_KEY)
-  $assembly = $null
-  $sealer = $false
-  if ($cache) {
-    try {
-      Add-Type -AssemblyName System.Security
-      $sealer = $true
-      $sealed = $null
-      $file = New-Object IO.FileInfo $cache
-      if ($file.Exists -and $file.Length -lt 1048576) {
-        $sealed = [IO.File]::ReadAllBytes($cache)
-      }
-      if ($null -ne $sealed -and $sealed.Length -ge 44 -and ([BitConverter]::ToUInt32($sealed, 40) -band 4) -eq 0) {
-        $bytes = [Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')
-        $assembly = [Reflection.Assembly]::Load($bytes)
-        $state = 'hit'
-      }
-    } catch {
-      $assembly = $null
-    }
-  }
-  if (-not $assembly) {
-    $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
-    [void][IO.Directory]::CreateDirectory($dir)
-    try {
-      $params = New-Object CodeDom.Compiler.CompilerParameters
-      $params.GenerateInMemory = $false
-      $params.OutputAssembly = Join-Path $dir 'SigilTrash.dll'
-      $params.TempFiles = New-Object CodeDom.Compiler.TempFileCollection $dir, $false
-      $built = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($params, [string]$env:SIGIL_TRASH_SOURCE)
-      $failed = @($built.Errors | Where-Object { -not $_.IsWarning })
-      if ($failed.Count) {
-        throw [string]$failed[0]
-      }
-      $bytes = [IO.File]::ReadAllBytes($params.OutputAssembly)
-    } finally {
-      Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    $assembly = [Reflection.Assembly]::Load($bytes)
-    $state = 'built'
-    if ($sealer) {
-      $temp = $null
+  $bin = $null
+  $refused = $null
+  if ($env:SIGIL_TRASH_MODE -eq 'compile') {
+    $types = Add-Type -TypeDefinition ([string]$env:SIGIL_TRASH_SOURCE) -PassThru
+    $bin = $types | Where-Object { $_.FullName -eq 'SigilTrash.Bin' } | Select-Object -First 1
+    $state = 'compiled'
+  } else {
+    $cache = [string]$env:SIGIL_TRASH_CACHE
+    $entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:SIGIL_TRASH_KEY)
+    $assembly = $null
+    $sealer = $false
+    if ($cache) {
       try {
-        $sealed = [Security.Cryptography.ProtectedData]::Protect($bytes, $entropy, 'CurrentUser')
-        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($cache))
-        $temp = $cache + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
-        $stream = New-Object IO.FileStream $temp, 'CreateNew', 'Write'
-        try {
-          $stream.Write($sealed, 0, $sealed.Length)
-        } finally {
-          $stream.Dispose()
+        Add-Type -AssemblyName System.Security
+        $sealer = $true
+        $sealed = $null
+        $file = New-Object IO.FileInfo $cache
+        if ($file.Exists -and $file.Length -lt 1048576) {
+          $sealed = [IO.File]::ReadAllBytes($cache)
         }
-        if ([IO.File]::Exists($cache)) {
-          [IO.File]::Delete($cache)
+        if ($null -ne $sealed -and $sealed.Length -ge 44 -and ([BitConverter]::ToUInt32($sealed, 40) -band 4) -eq 0) {
+          $bytes = [Security.Cryptography.ProtectedData]::Unprotect($sealed, $entropy, 'CurrentUser')
+          $assembly = [Reflection.Assembly]::Load($bytes)
+          $state = 'hit'
         }
-        [IO.File]::Move($temp, $cache)
-        $temp = $null
-        $state = 'saved'
       } catch {
+        $assembly = $null
+      }
+    }
+    if (-not $assembly) {
+      $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
+      [void][IO.Directory]::CreateDirectory($dir)
+      try {
+        $params = New-Object CodeDom.Compiler.CompilerParameters
+        $params.GenerateInMemory = $false
+        $params.OutputAssembly = Join-Path $dir 'SigilTrash.dll'
+        $params.TempFiles = New-Object CodeDom.Compiler.TempFileCollection $dir, $false
+        $built = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($params, [string]$env:SIGIL_TRASH_SOURCE)
+        $failed = @($built.Errors | Where-Object { -not $_.IsWarning })
+        if ($failed.Count) {
+          throw [string]$failed[0]
+        }
+        $bytes = [IO.File]::ReadAllBytes($params.OutputAssembly)
       } finally {
-        if ($temp) {
-          Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+      }
+      try {
+        $assembly = [Reflection.Assembly]::Load($bytes)
+      } catch {
+        $refused = [string]$_.Exception.Message
+      }
+      if ($null -eq $refused) {
+        $state = 'built'
+        if ($sealer) {
+          $temp = $null
+          try {
+            $sealed = [Security.Cryptography.ProtectedData]::Protect($bytes, $entropy, 'CurrentUser')
+            [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($cache))
+            $temp = $cache + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+            $stream = New-Object IO.FileStream $temp, 'CreateNew', 'Write'
+            try {
+              $stream.Write($sealed, 0, $sealed.Length)
+            } finally {
+              $stream.Dispose()
+            }
+            if ([IO.File]::Exists($cache)) {
+              [IO.File]::Delete($cache)
+            }
+            [IO.File]::Move($temp, $cache)
+            $temp = $null
+            $state = 'saved'
+          } catch {
+          } finally {
+            if ($temp) {
+              Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+            }
+          }
         }
       }
     }
+    if ($null -eq $refused) {
+      $bin = $assembly.GetType('SigilTrash.Bin', $true)
+    }
   }
-  $bin = $assembly.GetType('SigilTrash.Bin', $true)
-  [Console]::Out.Write('{"cache":"' + $state + '","answer":' + $bin::Recycle([string]$env:SIGIL_TRASH_PATH) + '}')
+  if ($null -ne $refused) {
+    [Console]::Out.Write('{"cache":"' + $state + '","answer":{"loadRefused":"' + (Escape $refused) + '"}}')
+  } else {
+    [Console]::Out.Write('{"cache":"' + $state + '","answer":' + $bin::Recycle([string]$env:SIGIL_TRASH_PATH) + '}')
+  }
 } catch {
-  $m = [string]$_.Exception.Message
-  $e = ($m.ToCharArray() | ForEach-Object { if ([int]$_ -lt 32 -or [int]$_ -gt 126 -or $_ -eq '"' -or $_ -eq '\\') { '\\u{0:x4}' -f [int]$_ } else { [string]$_ } }) -join ''
-  [Console]::Out.Write('{"cache":"' + $state + '","answer":{"error":"' + $e + '"}}')
+  [Console]::Out.Write('{"cache":"' + $state + '","answer":{"error":"' + (Escape ([string]$_.Exception.Message)) + '"}}')
 }
 `;
 
 /**
  * What became of the compiled helper on one call: loaded from the cache (`hit`),
  * compiled and kept (`saved`), compiled and not kept because the cache could not
- * be written (`built`), or nothing yet because the call failed first (`none`).
+ * be written (`built`), compiled by `Add-Type` and not kept because loading the
+ * bytes was refused (`compiled`), or nothing yet because the call failed first
+ * (`none`).
  */
-export type CacheState = 'built' | 'hit' | 'none' | 'saved';
+export type CacheState = 'built' | 'compiled' | 'hit' | 'none' | 'saved';
+
+/**
+ * How the helper is loaded: from bytes, which is what the cache needs and the
+ * default, or by `Add-Type`, which is what a refused load falls back to.
+ */
+export type LoadMode = 'bytes' | 'compile';
 
 /** The C#'s own hash, computed once: what the cache file is named for and sealed to. */
 let key: string | undefined;
@@ -351,16 +387,26 @@ export async function trashWindows(path: string): Promise<string> {
  * of it -- the seam the tests use, since what is cached is the whole of the
  * difference between one call and the next.
  *
+ * When the helper's bytes cannot be loaded -- an endpoint product that refuses
+ * `Assembly.Load(byte[])` -- it asks PowerShell again to compile the helper
+ * itself, so the item is still recycled and the call costs a second PowerShell
+ * start. That is asked of every call in such an environment rather than
+ * remembered, since a remembered refusal is module state a later call could not
+ * see go away.
+ *
  * @param path - Absolute.
  * @param file - Where the compiled helper is kept; nothing to compile it every call.
  * @param hash - The key the helper is sealed to.
+ * @param load - `compile` to skip the bytes and the cache altogether, which is
+ *   what the second ask is.
  * @returns Where the item went, and what became of the helper.
  * @throws If the bin would not take it, which leaves it where it was.
  */
 export async function recycle(
   path: string,
   file: string | undefined,
-  hash: string
+  hash: string,
+  load: LoadMode = 'bytes'
 ): Promise<{ cache: CacheState; path: string }> {
   const out = await run(
     powershell(),
@@ -378,12 +424,13 @@ export async function recycle(
       // cannot name a cache this call was not given
       SIGIL_TRASH_CACHE: file ?? '',
       SIGIL_TRASH_KEY: hash,
+      SIGIL_TRASH_MODE: load === 'compile' ? 'compile' : '',
       SIGIL_TRASH_PATH: path,
       SIGIL_TRASH_SOURCE: CSHARP,
     }
   );
   let reply: {
-    answer?: { error?: string; path?: string | null; refused?: string };
+    answer?: { error?: string; loadRefused?: string; path?: string | null; refused?: string };
     cache?: CacheState;
   };
   try {
@@ -392,6 +439,14 @@ export async function recycle(
     throw new Error(__`PowerShell answered ${JSON.stringify(out.trim())}`);
   }
   const answer = reply.answer ?? {};
+  if (answer.loadRefused !== undefined) {
+    // nothing has run yet -- the load is before the move -- so asking again cannot
+    // move the item twice; and there is nothing past the compile to fall back to
+    if (load === 'bytes') {
+      return recycle(path, file, hash, 'compile');
+    }
+    throw new Error(answer.loadRefused);
+  }
   if (answer.refused !== undefined) {
     throw new Error(__`Windows would delete it for good rather than recycle it`);
   }
