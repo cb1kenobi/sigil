@@ -6,7 +6,8 @@ import {
   ENTER_ALT_SCREEN,
 } from '@ttylabs/sigil/terminal';
 import { runOnTerminal } from '@ttylabs/sigil/testing';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -43,8 +44,23 @@ afterAll(() => {
   rmSync(cwd, { force: true, maxRetries: 5, recursive: true });
 });
 
-/** What the entry wrote, from its start to its exit on `q`. */
-async function started(file: string, flags: string[]): Promise<string> {
+/** A repository with one untracked file, which is all the client needs to have something to show. */
+const repo = mkdtempSync(join(tmpdir(), 'sigil-git-client-entry-repo-'));
+execFileSync('git', ['init', '--quiet'], { cwd: repo });
+writeFileSync(join(repo, 'untracked-marker.txt'), 'x\n');
+afterAll(() => {
+  rmSync(repo, { force: true, maxRetries: 5, recursive: true });
+});
+
+/**
+ * What the entry wrote, from its start to its exit on `q`, once the screen shows
+ * `shows`. `dir` is the positional, and is the working directory unless said.
+ */
+async function started(
+  file: string,
+  flags: string[],
+  { dir = cwd, shows = /\S/ }: { dir?: string; shows?: RegExp } = {}
+): Promise<string> {
   if (file === bin) {
     expect(
       existsSync(file),
@@ -52,7 +68,7 @@ async function started(file: string, flags: string[]): Promise<string> {
     ).toBe(true);
   }
   const running = runOnTerminal({
-    argv: [cwd, ...flags],
+    argv: [dir, ...flags],
     columns: 80,
     cwd,
     rows: 24,
@@ -63,6 +79,7 @@ async function started(file: string, flags: string[]): Promise<string> {
     // the first frame, so that `q` is a key somebody has read. Longer than the
     // default: four cold node starts at once, on a runner that may be slow
     await running.waitFor(/\S/, { timeout: 20_000 });
+    await running.waitFor(shows, { timeout: 20_000 });
     await running.press('q');
     const ran = await running;
     expect(ran.err, 'nothing on stderr').toBe('');
@@ -90,6 +107,12 @@ describe('the entry', () => {
       expect(out, 'the app drew').toContain(ENTER_ALT_SCREEN);
       expect(out, 'no tracking mode').not.toContain(ENABLE_MOUSE_BUTTONS);
       expect(out, 'no mouse encoding').not.toContain(ENABLE_MOUSE_SGR);
+    }, 45_000);
+
+    it.concurrent(`should read the repository it was given rather than the working directory: ${label}`, async () => {
+      // `cwd` is not a repository and `repo` is, so the file only shows if `dir`
+      // reached `createGit()`
+      await started(file, [], { dir: repo, shows: /untracked-marker\.txt/ });
     }, 45_000);
   }
 });

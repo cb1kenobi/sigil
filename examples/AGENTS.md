@@ -174,6 +174,33 @@ the `ui` tag run by plain `node`.
   the example built, and says which command makes it. An example that adds the
   flag adds the file.
 
+  SIG-594 made that sentence a check and finished the set. `should test the mouse
+  from the entry, when the entry turns it on` in `packages/cli/test/examples.test.ts`
+  reads `src/index.ts` and `src/ui.*` and fails for an example whose entry declares
+  `--mouse` **or hands `runApp()` a `mouse` of its own** and has no
+  `test/entry.test.ts` naming `ENABLE_MOUSE_BUTTONS` or `ENABLE_MOUSE_MOTION` -- the
+  second half because the dashboard, the settings screen and the visualizer have no
+  flag and the same unrun line. Every example that turns the mouse on has one now:
+  the editor (the flag), and the three above (always on, so the test asserts the
+  mode as well as the fact: `true` is `?1002h` and not `?1003h`, `{ motion: true }`
+  is `?1003h`, and each is handed back). The same files check that the positional
+  reaches its provider, which was the other half of the entry nothing ran: `dir` for
+  the editor, the visualizer and the git client, `[file]` for the log browser, each
+  run from a directory that is not the one it is given, so the screen can only show
+  the argument. Sabotaged per line: each `mouse` option removed, made constant and
+  changed in mode, and each positional dropped, fails exactly the test written for it.
+
+  The harness around those tests -- spawn, first frame, `q`, read the bytes -- is
+  copied into each file rather than shared, which is a decision and not an
+  oversight. There is no place for it: `vitest.config.ts` reads every entry of
+  `examples/*` as a project, so a loose file in `examples/` is parsed as a config;
+  a directory with a manifest is an example and would owe the contract; and a file
+  anywhere outside an example resolves `@ttylabs/sigil` from where it sits, which is
+  a directory the workspace never linked. What would be one definition is a published
+  one -- the mouse modes a `runOnTerminal()` run turned on, read by `Screen` the way
+  `alternate` and `cursorHidden` are -- which is an addition to
+  `@ttylabs/sigil/testing` and its guide, not to an example.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
