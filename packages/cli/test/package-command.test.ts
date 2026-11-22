@@ -205,6 +205,16 @@ describe('sigil package', () => {
     vi.restoreAllMocks();
   });
 
+  it('should refuse an entry that exports no schema, before it asks which runtime', async () => {
+    // SIG-567. Refused by the same pass `build` runs, so no runtime is needed
+    // to see it and none is offered
+    const { err } = await sigil('package', join(fixtures, 'discover', 'inline-main'), '--out', out);
+
+    expect(err).toContain('this entry exports none');
+    expect(err).not.toContain('--runtime is required');
+    expect(process.exitCode).toBe(1);
+  }, 60_000);
+
   describe('choosing a runtime', () => {
     it('should refuse to pick one, naming both and what each costs', async () => {
       // the error *is* the feature: a runtime decides what the app runs on, so

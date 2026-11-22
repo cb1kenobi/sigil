@@ -161,7 +161,7 @@ export {
   type ResolvedTree,
   type ResolveOptions,
 } from './tree.ts';
-export { findSchema, schemaModule, type FoundSchema } from './schema-module.ts';
+export { exportsNoSchema, findSchema, schemaModule, type FoundSchema } from './schema-module.ts';
 export { typeCheck, type TypeCheckOptions, type TypeCheckResult } from './typecheck.ts';
 export {
   assertUpdateCheckDeclared,

@@ -430,11 +430,13 @@ describe('a pipe', () => {
       lines: 3,
     },
     {
-      // a computed `commands`, the note, then the error
+      // a computed `commands`, the warning that the entry exports no schema -- which
+      // names a file and no position, so it is not a located line -- the note, then
+      // the error
       code: 1,
       diagnostics: 1,
       dir: join(fixtures, 'ts-app'),
-      lines: 3,
+      lines: 4,
     },
   ] as const;
 

@@ -28,6 +28,7 @@
  * ```
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import { readSettings, resolveKeyword } from './declaration.js';
 import {
   initialStyle,
@@ -262,7 +263,7 @@ export function readDeclarations(
     for (const setting of readSettings(name, value)) {
       if (setting.keyword) {
         throw new StyleError(
-          `"${setting.keyword}" is a cascade keyword: it means nothing without a cascade to resolve it against`
+          `"${escapeControls(setting.keyword)}" is a cascade keyword: it means nothing without a cascade to resolve it against`
         );
       }
       out[setting.property] = setting.value;

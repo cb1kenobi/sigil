@@ -1,5 +1,6 @@
 import { hexChannels } from '../ansi/hex.js';
 import { type Color, DEFAULT_COLOR, palette, rgb } from '../canvas/style.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * The value types a declaration can hold, and how each is read from source.
@@ -146,7 +147,9 @@ export function parseBoolean(input: string, name: string): boolean {
   if (FALSE.test(text)) {
     return false;
   }
-  throw new StyleError(`Invalid ${name} "${input}": expected true or false`);
+  throw new StyleError(
+    `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected true or false`
+  );
 }
 
 /** Thrown when a declaration cannot be read. Carries what was wrong, for help. */
@@ -226,7 +229,9 @@ export function parseColor(input: string): Color {
   if (fn) {
     const parts = [fn[1], fn[2], fn[3]].map(Number);
     if (parts.some((n) => n < 0 || n > 255)) {
-      throw new StyleError(`Colour channel out of range in "${text}": each must be 0-255`);
+      throw new StyleError(
+        `Colour channel out of range in "${escapeControls(text)}": each must be 0-255`
+      );
     }
     return rgb(parts[0], parts[1], parts[2]);
   }
@@ -235,12 +240,14 @@ export function parseColor(input: string): Color {
   if (indexed) {
     const index = Number(indexed[1]);
     if (index > 255) {
-      throw new StyleError(`Palette index out of range in "${text}": must be 0-255`);
+      throw new StyleError(
+        `Palette index out of range in "${escapeControls(text)}": must be 0-255`
+      );
     }
     return palette(index);
   }
 
-  throw new StyleError(`Invalid colour "${text}"`);
+  throw new StyleError(`Invalid colour "${escapeControls(text)}"`);
 }
 
 /**
@@ -270,11 +277,11 @@ export function parseLength(input: string, opts: { none?: boolean } = {}): Lengt
     // not trimmed: `50 %` is two tokens in CSS, not a percentage
     const digits = text.slice(0, -1);
     if (digits !== digits.trimEnd()) {
-      throw new StyleError(`Invalid percentage "${input}"`);
+      throw new StyleError(`Invalid percentage "${escapeControls(input)}"`);
     }
     const share = blank(digits) ? undefined : readNumber(digits);
     if (share === undefined) {
-      throw new StyleError(`Invalid percentage "${input}"`);
+      throw new StyleError(`Invalid percentage "${escapeControls(input)}"`);
     }
     return percent(share);
   }
@@ -282,13 +289,13 @@ export function parseLength(input: string, opts: { none?: boolean } = {}): Lengt
   const bare = text.endsWith('ch') ? text.slice(0, -2) : text;
   const value = blank(bare) ? undefined : readNumber(bare);
   if (value === undefined) {
-    throw new StyleError(`Invalid length "${input}"`);
+    throw new StyleError(`Invalid length "${escapeControls(input)}"`);
   }
   if (!Number.isInteger(value)) {
     // refused rather than rounded: a terminal cannot draw half a cell, and
     // silently rounding is how a layout ends up a column out with nobody able
     // to say which declaration did it
-    throw new StyleError(`Length "${input}" is not a whole number of cells`);
+    throw new StyleError(`Length "${escapeControls(input)}" is not a whole number of cells`);
   }
 
   return cells(value);
@@ -304,7 +311,9 @@ export function parseLength(input: string, opts: { none?: boolean } = {}): Lengt
 export function parseCount(input: string, name: string): number {
   const value = blank(input) ? undefined : readNumber(input);
   if (value === undefined || !Number.isInteger(value) || value < 0) {
-    throw new StyleError(`Invalid ${name} "${input}": expected a whole number of 0 or more`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected a whole number of 0 or more`
+    );
   }
   return value;
 }
@@ -321,7 +330,9 @@ export function parseCount(input: string, name: string): number {
 export function parseFactor(input: string, name: string): number {
   const value = blank(input) ? undefined : readNumber(input);
   if (value === undefined || value < 0) {
-    throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected a number of 0 or more`
+    );
   }
   return value;
 }
@@ -336,7 +347,9 @@ export function parseFactor(input: string, name: string): number {
 export function parseInteger(input: string, name: string): number {
   const value = blank(input) ? undefined : readNumber(input);
   if (value === undefined || !Number.isInteger(value)) {
-    throw new StyleError(`Invalid ${name} "${input}": expected a whole number`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected a whole number`
+    );
   }
   return value;
 }
@@ -371,10 +384,14 @@ export function parseTime(input: string, name: string, opts: { negative?: boolea
   const value = blank(bare) ? undefined : readNumber(bare);
 
   if (value === undefined) {
-    throw new StyleError(`Invalid ${name} "${input}": expected a time in ms or s`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected a time in ms or s`
+    );
   }
   if (value < 0 && !opts.negative) {
-    throw new StyleError(`Invalid ${name} "${input}": a duration cannot be negative`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": a duration cannot be negative`
+    );
   }
 
   return value * scale;
@@ -398,7 +415,9 @@ export function parseIterations(input: string, name: string): number {
   }
   const value = blank(text) ? undefined : readNumber(text);
   if (value === undefined || value < 0) {
-    throw new StyleError(`Invalid ${name} "${input}": expected a number of 0 or more, or infinite`);
+    throw new StyleError(
+      `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected a number of 0 or more, or infinite`
+    );
   }
   return value;
 }
@@ -420,7 +439,9 @@ export function parseKeyword<T extends string>(
   if ((allowed as readonly string[]).includes(text)) {
     return text as T;
   }
-  throw new StyleError(`Invalid ${name} "${input}": expected one of ${allowed.join(', ')}`);
+  throw new StyleError(
+    `Invalid ${escapeControls(name)} "${escapeControls(input)}": expected one of ${allowed.join(', ')}`
+  );
 }
 
 /**
