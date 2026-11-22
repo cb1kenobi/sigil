@@ -2779,6 +2779,17 @@ other is refused with numbers.
   _drops_ a rule, so an unknown part simply ends the run and opens its
   neighbours, which is the safe answer for every operand there is.
 
+  **An operand is read through `unwrapShallow()`, and `shake.ts` keeps no list of
+  wrappers of its own** (SIG-574). It had a private `bare()` that stripped `as`,
+  `satisfies`, `!` and parentheses and did not know the angle-bracket assertion,
+  so `(<string>'text-') + colour` was a closed `text-` and a `.ts` app building a
+  class that way shipped **3 of 383** utility rules where the `as` spelling of
+  the same expression shipped **22** -- a dropped rule, measured with
+  `sigil build` on both. `literals.ts` had gained `TSTypeAssertion` (SIG-569)
+  while the second list went unchanged, which is the failure a second list is.
+  `<T>x` only parses in a `.ts` file; in `.tsx` it is JSX, so no fixture for it
+  can be a `.tsx`.
+
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`
   call and never for an app that does not, which is most of them: **0.4 ms**
@@ -3162,8 +3173,8 @@ other is refused with numbers.
   local name, so the module was read as writing its own schema, and every reader
   answered a file with no schema literal in it. `defaultName()` reads the name off
   the statement through `unwrapShallow()` -- `literals.ts`'s unwrapper, which gained
-  `TSTypeAssertion` for this (`shake.ts`'s `bare()` is its own matcher with its own
-  list and still lacks it, which is noted rather than changed here), so `main(<Schema>schema)` is followed too and every
+  `TSTypeAssertion` for this (`shake.ts`'s `bare()` had its own list and
+  lacked it, which SIG-574 fixed by deleting `bare()`), so `main(<Schema>schema)` is followed too and every
   other reader of it sees through `<T>{ ... }` as it already did `as`. A wrapper
   around anything that is not a bare name (a spread, a call, a member) is not a
   forward and still stops the walk, as the unwrapped one does, and the
