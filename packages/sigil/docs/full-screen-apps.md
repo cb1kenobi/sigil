@@ -388,7 +388,9 @@ line on one row instead, cut at the edge, and then Left and Right scroll every
 line sideways together. `diffStops()` and `hunkPatch()` from
 `@ttylabs/sigil/components/diff` find the hunk under the cursor and write it
 out as a patch of its own, which is how the
-[git client](../../../examples/git-client) stages a single hunk.
+[git client](../../../examples/git-client) stages a single hunk. With `lines`, Enter
+takes the cursor inside the hunk, `x` picks lines, and `hunkLinesPatch()` writes
+just those as a patch, which is how it stages part of one.
 
 **A treemap.** [`Treemap`](../src/components/treemap.ts) draws a tree of sizes
 as nested rectangles, each as big as its share, so the largest items stand out

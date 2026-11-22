@@ -977,6 +977,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'diffSequence',
     'diffStops',
     'encodeQr',
+    'hunkLinesPatch',
     'hunkPatch',
     'joinList',
     'markdownText',

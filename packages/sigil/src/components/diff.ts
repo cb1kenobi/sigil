@@ -751,6 +751,191 @@ export function hunkPatch(file: DiffFile, hunk: DiffHunk): string {
   return `${[...header, ...body].join('\n')}\n`;
 }
 
+/** What {@link hunkLinesPatch} is told beyond the lines. */
+export interface HunkLinesOptions {
+  /**
+   * Whether the patch is for `git apply --reverse`, which is how a staged change
+   * is unstaged. Then the file the patch is applied to is the hunk's new side, so
+   * the lines left out are the other kind: an unselected added line stays as it
+   * is -- it is context -- and an unselected removed line is dropped.
+   */
+  reverse?: boolean;
+}
+
+/** One row of a patch being written: its sign, the line as written and what follows it. */
+interface PatchRow {
+  /** The row, sign included. */
+  row: string;
+  sign: ' ' | '+' | '-';
+  /** What follows the row where its side ends there with no newline. */
+  trailer?: string;
+}
+
+/** The sentence a patch says a line has no newline after it with. */
+const NO_NEWLINE = '\\ No newline at end of file';
+
+/**
+ * The rows of a hunk's lines as its patch wrote them, one for each of `lines`:
+ * `\r` kept, and the `\` row under a line with it. Nothing where the hunk was not
+ * read from a patch, or its `lines` no longer agree with its `source`.
+ *
+ * @param hunk - The hunk.
+ * @returns The rows without their `\`, and each one's `\` row.
+ */
+function sourceRows(hunk: DiffHunk): { row: string; trailer?: string }[] | undefined {
+  if (hunk.source === undefined) {
+    return undefined;
+  }
+  const rows: { row: string; trailer?: string }[] = [];
+  for (const raw of hunk.source.slice(1)) {
+    if (raw.startsWith('\\')) {
+      if (rows.length > 0) {
+        rows.at(-1)!.trailer = raw;
+      }
+    } else {
+      rows.push({ row: raw });
+    }
+  }
+  return rows.length === hunk.lines.length ? rows : undefined;
+}
+
+/**
+ * Some of one hunk's lines as a patch of their own: what `git apply --cached`
+ * takes to stage those lines and leave the rest of the hunk where it is, which is
+ * what `git add -p` does after `e`, and `--reverse` takes to unstage them.
+ *
+ * `selected` names lines of `hunk.lines` by their position. A selected added or
+ * removed line is written as it is. A line that is not selected is left as the
+ * file the patch is applied to has it -- the index, when staging: an added line
+ * is not written at all, and a removed line is written as context, since it is
+ * still there. With `reverse` it is the other way round, for the new side is the
+ * one applied to. A selected context line changes nothing and is ignored.
+ *
+ * The hunk's counts are written again from the rows, and the position they are
+ * anchored at is the side that is applied to. The file's {@link DiffFile.header}
+ * and the hunk's {@link DiffHunk.source} are used as {@link hunkPatch} does, so a
+ * `\r` and `\ No newline at end of file` survive.
+ *
+ * A patch cannot say everything a selection might ask for, and two are refused
+ * with an `Error` rather than written as something else:
+ *
+ * - A line with no newline ends its side of the file, so nothing can follow it
+ *   there. Selecting a line added after one that is not selected -- `-a`, `+a`
+ *   and `+b` over a file that lacked its last newline, with only `+b` chosen --
+ *   would write one, and the selection has to take the line that ends it too.
+ * - A file the patch creates or deletes is staged whole or not at all where the
+ *   header says so: a deleted file with some lines left in it is not a deletion,
+ *   and the rewritten header it would need is not something to guess at. That is
+ *   `deleted file mode` when staging, and `new file mode` with `reverse`.
+ *
+ * A hunk with no context lines, or at the start or end of a file in a way its
+ * counts do not say, is as much a hunk `git apply` refuses here as it is in
+ * `hunkPatch()`: this adds no context.
+ *
+ * @param file - The file the hunk is in.
+ * @param hunk - The hunk.
+ * @param selected - The positions in `hunk.lines` of the lines to apply.
+ * @param opts - Whether the patch is for unstaging.
+ * @returns The patch, ending in a newline, or nothing where no added or removed
+ *   line is selected.
+ * @throws A `RangeError` for a position that is not one of the hunk's lines, and
+ *   an `Error` for a selection the patch cannot write, as above.
+ */
+export function hunkLinesPatch(
+  file: DiffFile,
+  hunk: DiffHunk,
+  selected: Iterable<number>,
+  opts: HunkLinesOptions = {}
+): string | undefined {
+  const reverse = opts.reverse === true;
+  const chosen = new Set<number>();
+  for (const at of selected) {
+    if (!Number.isInteger(at) || at < 0 || at >= hunk.lines.length) {
+      throw new RangeError(__`Expected a selected line to be a position in the hunk's lines`);
+    }
+    if (hunk.lines[at]!.kind !== 'context') {
+      chosen.add(at);
+    }
+  }
+  if (chosen.size === 0) {
+    return undefined;
+  }
+
+  // the kind of line that is applied to is left as it is when it is not selected,
+  // and the other is not there at all
+  const kept: DiffLineKind = reverse ? 'add' : 'remove';
+  const header =
+    file.header ??
+    (() => {
+      const oldName = file.oldName ?? file.newName;
+      const newName = file.newName ?? file.oldName;
+      return oldName === undefined || newName === undefined
+        ? []
+        : [`--- ${oldName}`, `+++ ${newName}`];
+    })();
+  const whole = reverse ? 'new file mode ' : 'deleted file mode ';
+  if (
+    header.some((row) => row.startsWith(whole)) &&
+    hunk.lines.some((line, at) => line.kind === kept && !chosen.has(at))
+  ) {
+    throw new Error(
+      reverse
+        ? __`Cannot unstage part of a new file: unstage all of it or none`
+        : __`Cannot stage part of a deleted file: stage all of it or none`
+    );
+  }
+
+  const written = sourceRows(hunk);
+  const rows: PatchRow[] = [];
+  for (const [at, line] of hunk.lines.entries()) {
+    const source = written?.[at];
+    // a blank context line may have lost its one space, and then it is all text
+    const text =
+      source === undefined
+        ? line.text
+        : line.kind === 'context' && !source.row.startsWith(' ')
+          ? source.row
+          : source.row.slice(1);
+    const trailer = line.noNewline ? (source?.trailer ?? NO_NEWLINE) : undefined;
+    if (line.kind === 'context') {
+      rows.push({ row: ` ${text}`, sign: ' ', trailer });
+    } else if (chosen.has(at)) {
+      const sign = SIGN[line.kind] as '+' | '-';
+      rows.push({ row: `${sign}${text}`, sign, trailer });
+    } else if (line.kind === kept) {
+      rows.push({ row: ` ${text}`, sign: ' ', trailer });
+    }
+  }
+
+  // a line with no newline is the last of its side, so nothing may follow it there
+  let closedOld = false;
+  let closedNew = false;
+  for (const { sign, trailer } of rows) {
+    if ((sign !== '+' && closedOld) || (sign !== '-' && closedNew)) {
+      throw new Error(
+        __`Cannot write a line after one with no newline: select the line that ends the file too`
+      );
+    }
+    if (trailer !== undefined) {
+      closedOld ||= sign !== '+';
+      closedNew ||= sign !== '-';
+    }
+  }
+
+  const oldLines = rows.filter(({ sign }) => sign !== '+').length;
+  const newLines = rows.filter(({ sign }) => sign !== '-').length;
+  // the file applied to keeps its place and the other is found from it, where an
+  // empty side is the line before
+  const other = (start: number, length: number, otherLength: number): number =>
+    length === 0 ? start + 1 : otherLength === 0 ? start - 1 : start;
+  const oldStart = reverse ? other(hunk.newStart, hunk.newLines, oldLines) : hunk.oldStart;
+  const newStart = reverse ? hunk.newStart : other(hunk.oldStart, hunk.oldLines, newLines);
+  const top = hunkHeader({ ...hunk, newLines, newStart, oldLines, oldStart });
+  const body = rows.flatMap(({ row, trailer }) => (trailer === undefined ? [row] : [row, trailer]));
+  const end = hunk.source?.[0]?.endsWith('\r') ? '\r' : '';
+  return `${[...header, `${top}${end}`, ...body].join('\n')}\n`;
+}
+
 const WORD = /[\p{L}\p{N}\p{M}_]+|\s+|[^\p{L}\p{N}\p{M}_\s]/gu;
 
 /**
@@ -1297,6 +1482,13 @@ export interface DiffTreeHunk {
   /** Its `@@` row, in the tree's `element.children`. */
   first: number;
   hunk: DiffHunk;
+  /**
+   * The rows of each of the hunk's `lines`, in the same order and in the tree's
+   * `element.children`: `first` is its first row and `end` one past its last, and
+   * a line folded onto more rows has all of them. Side by side a removed line and
+   * the added line it is paired with share their rows, so the ranges overlap there.
+   */
+  lines: { end: number; first: number }[];
 }
 
 /** The tree for a diff, the room it was built for, and the arrangement it ended up with. */
@@ -1474,7 +1666,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
     }
 
     for (const hunk of file.hunks) {
-      const placed: DiffTreeHunk = { end: 0, file, first: rows.length, hunk };
+      const placed: DiffTreeHunk = { end: 0, file, first: rows.length, hunk, lines: [] };
       hunks.push(placed);
       add(headerRow(hunkHeader(hunk), 'sigil-diff-hunk sigil-info', width));
       const drawing = drawingOf(hunk, opts, whole, file);
@@ -1488,6 +1680,7 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
             : '';
           const drawn = lineRows(line, drawing, lead, room, cutting);
           overflow = Math.max(overflow, drawn.overflow);
+          const first = rows.length;
           for (const children of drawn.rows) {
             add(
               box({ class: 'sigil-diff-row', 'flex-shrink': 0 }, ...children),
@@ -1495,13 +1688,17 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
               drawn.width
             );
           }
+          placed.lines.push({ end: rows.length, first });
         }
         placed.end = rows.length;
         continue;
       }
 
       const gutter = numbered ? digits + 1 : 0;
+      /** Each line's row range, filled in as its pair is placed. */
+      const spans = new Map<DiffLine, { end: number; first: number }>();
       for (const pair of pairLines(hunk.lines)) {
+        const pairFirst = rows.length;
         let runs = 0;
         let wide = 0;
         const drawn = [pair.left, pair.right].map((line, side) => {
@@ -1519,6 +1716,11 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
           );
           runs = Math.max(runs, half.overflow);
           wide = Math.max(wide, half.width);
+          const had = spans.get(line);
+          spans.set(line, {
+            end: Math.max(had?.end ?? 0, pairFirst + half.rows.length),
+            first: pairFirst,
+          });
           return half.rows;
         });
         overflow = Math.max(overflow, runs);
@@ -1541,6 +1743,9 @@ export function diffView(input: DiffInput, opts: DiffOptions = {}): DiffTree {
           );
         }
       }
+      placed.lines = hunk.lines.map(
+        (line) => spans.get(line) ?? { end: rows.length, first: rows.length }
+      );
       placed.end = rows.length;
     }
   }

@@ -26,7 +26,13 @@ import { __ } from '../i18n/index.js';
 import type { DescribeOptions, KeyEvent, MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
-import { diffBlocks, type DiffLayout, type DiffViewContent, diffView } from './diff.js';
+import {
+  diffBlocks,
+  type DiffLayout,
+  type DiffLineKind,
+  type DiffViewContent,
+  diffView,
+} from './diff.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import type { Highlighter } from './prompt.js';
@@ -63,10 +69,31 @@ export interface DiffViewProps<T = unknown> {
   intraline?: boolean;
   /** `diffView()`'s `lang`. */
   lang?: string;
-  /** `diffView()`'s `layout`: side by side where the width allows it. */
+  /**
+   * `diffView()`'s `layout`: side by side where the width allows it. A view with
+   * `lines` is always drawn unified, since a removed line and the added line beside
+   * it share a row side by side, and a cursor is on one line.
+   */
   layout?: DiffLayout;
   /** `diffView()`'s `lineNumbers`. */
   lineNumbers?: boolean;
+  /**
+   * A line cursor inside the current hunk, and the lines picked with it, for an
+   * app that acts on part of a hunk -- staging some of its lines. Without it there
+   * is only the cursor on hunks, and the keys below are left alone.
+   *
+   * Enter puts the cursor on the first added or removed line of the current hunk,
+   * which is then marked in a second column beside the hunk's own: `▶` on the
+   * line, `●` on a line picked, `◉` on both, and `>`, `*` and `@` in ASCII. Up and
+   * down step the cursor over the added and removed lines and scroll to keep it in
+   * view, `x` picks the line, `a` all of the hunk's, and Enter or Escape leaves
+   * the lines and drops the picks. `]` and `[` leave them too, as any move to
+   * another hunk does. A click on a line of the current hunk moves the cursor to
+   * it while it is on the lines.
+   *
+   * A context line is never a stop of the cursor: it has nothing to pick.
+   */
+  lines?: DiffViewLines;
   /**
    * A `State` the view writes where it is scrolled to, for a status line or a
    * border to show. Written when it changes, never read.
@@ -86,6 +113,30 @@ export interface DiffViewProps<T = unknown> {
    * state itself, which `w` writes and an app writes to switch it.
    */
   wrap?: boolean | State<boolean>;
+}
+
+/**
+ * The states a diff view keeps a line cursor and a selection of lines in, which it
+ * writes and an app reads: what to stage is `hunkLinesPatch()` over the stop at
+ * `current` and these.
+ */
+export interface DiffViewLines {
+  /**
+   * The line the cursor is on, as its position in the current hunk's `lines`, or
+   * `undefined` while the cursor is on the hunk as a whole. Enter writes the first
+   * added or removed line and Escape or Enter writes `undefined` again; up and
+   * down step over the added and removed lines; an app writes it to move the
+   * cursor. A position that is not an added or removed line of the current hunk
+   * is brought to the nearest that is, or to `undefined` where it has none.
+   */
+  readonly cursor: State<number | undefined>;
+  /**
+   * The lines picked, as positions in the current hunk's `lines`: `x` picks or
+   * unpicks the one under the cursor and `a` picks all of them, or none where all
+   * are. Emptied whenever the current hunk changes, the content changes or the
+   * cursor leaves the lines, since a position means nothing in another hunk.
+   */
+  readonly selected: State<ReadonlySet<number>>;
 }
 
 /** Where a diff view is scrolled to, which it writes to its `position`. */
@@ -125,6 +176,15 @@ interface Drawn {
    */
   readonly lead: number;
   readonly marks: readonly Element[];
+  /**
+   * For a hunk of a view with `lines`: each of its lines' kind and rows, in the
+   * order of the hunk's `lines`. `first` and `last` are rows of the view.
+   */
+  readonly lines?: readonly {
+    readonly first: number;
+    readonly kind: DiffLineKind;
+    readonly last: number;
+  }[];
 }
 
 /**
@@ -136,6 +196,9 @@ const SIDEWAYS_STEP = 8;
 
 /** The hosts `DiffView()` built, so `describeDiffView()` can refuse anything else. */
 const HOSTS = new WeakSet<Element>();
+
+/** Nothing picked, which a state of lines is emptied to. */
+const NONE: ReadonlySet<number> = new Set();
 
 /**
  * Reads what to draw, through a `get()` or a call where it is one.
@@ -184,6 +247,16 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     throw new TypeError(__`Expected diff view position to be a State`);
   }
   if (
+    props.lines !== undefined &&
+    !(props.lines.cursor instanceof State && props.lines.selected instanceof State)
+  ) {
+    throw new TypeError(__`Expected diff view lines to hold a cursor and a selected State`);
+  }
+  const picking = props.lines;
+  /** How many cells the marks take: the hunk's, and the line's where there are lines. */
+  const markCells = picking ? 2 : 1;
+  const lineGlyphs = (props.ascii ?? !unicodeSupported()) ? ['>', '*', '@'] : ['▶', '●', '◉'];
+  if (
     props.wrap !== undefined &&
     !(props.wrap instanceof State) &&
     typeof props.wrap !== 'boolean'
@@ -201,6 +274,16 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let drawn: Drawn[] = [];
   /** The stop whose marks are lit, or -1. */
   let lit = -1;
+  /** The second column of marks, one a row beside `lines`, where there are `lines`. */
+  let lineMarks: Element[] = [];
+  /** The marks of that column that carry something, so they can be cleared. */
+  let painted: Element[] = [];
+  /** The line cursor as last drawn, to tell a move from a redraw. */
+  let paintedCursor: number | undefined;
+  /** The content as last drawn, since a new one makes a position mean something else. */
+  let lastContent: unknown;
+  /** The stop the cursor was last on, since the line state belongs to one hunk. */
+  let lastStop = untrack(() => current.get());
   /** A reveal asked for before there was a layout to measure it against. */
   let pending = false;
   /**
@@ -311,14 +394,19 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
    *   reader scrolled away from it to read something is reading it still.
    */
   const draw = (content: DiffViewContent<T>, sideways = false): void => {
-    const room = Math.max(1, width - 1);
+    const room = Math.max(1, width - markCells);
     const wrapped = untrack(() => wrapping.get());
     let widest = 0;
     const rows: Element[] = [];
     const marks: Element[] = [];
+    const lineColumn: Element[] = [];
     const reaches: number[] = [];
     const wides: number[] = [];
-    const stops: { first: number; last: number }[] = [];
+    const stops: {
+      first: number;
+      last: number;
+      lines?: NonNullable<Drawn['lines']>;
+    }[] = [];
     const push = (row: Element, reach = 0, wide = 0): void => {
       reaches.push(reach);
       wides.push(wide);
@@ -328,10 +416,20 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         width: 1,
       });
       marks.push(mark);
+      const cells: Element[] = [mark];
+      if (picking) {
+        const second = text(' ', {
+          class: 'sigil-diff-view-line-mark sigil-accent',
+          'flex-shrink': 0,
+          width: 1,
+        });
+        lineColumn.push(second);
+        cells.push(second);
+      }
       rows.push(
         box(
           { class: 'sigil-diff-view-line', 'flex-direction': 'row', 'flex-shrink': 0, height: 1 },
-          mark,
+          ...cells,
           row
         )
       );
@@ -360,7 +458,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         highlight: props.highlight,
         intraline: props.intraline,
         lang: props.lang,
-        layout: props.layout,
+        // a line cursor is on one line, and side by side two share a row
+        layout: picking ? 'unified' : props.layout,
         lineNumbers: props.lineNumbers,
         offset,
         width: room,
@@ -373,7 +472,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         push(row, tree.rowOverflow[at], tree.rowWidth[at]);
       }
       for (const hunk of tree.hunks) {
-        stops.push({ first: base + hunk.first, last: base + hunk.end - 1 });
+        stops.push({
+          first: base + hunk.first,
+          last: base + hunk.end - 1,
+          lines: picking
+            ? hunk.lines.map((span, at) => ({
+                first: base + span.first,
+                kind: hunk.hunk.lines[at]!.kind,
+                last: base + span.end - 1,
+              }))
+            : undefined,
+        });
       }
     }
 
@@ -381,6 +490,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     lines = rows;
     runs = reaches;
     widths = wides;
+    lineMarks = lineColumn;
+    painted = [];
     if (!sideways) {
       // new content, a new width or wrapped: what was seen was other lines, or the
       // same lines in another room, so it is seen again from the rows now in view
@@ -393,6 +504,14 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       const onMouse = (event: MouseEvent): void => clicked(event, at);
       for (let row = stop.first; row <= stop.last; row++) {
         (rows[row] as Element).onMouse = onMouse;
+      }
+      // a line's rows know which line they are, which is how a click moves the
+      // line cursor: one handler a line, in place of the stop's
+      for (const [line, span] of (stop.lines ?? []).entries()) {
+        const onLine = (event: MouseEvent): void => clicked(event, at, line);
+        for (let row = span.first; row <= span.last; row++) {
+          (rows[row] as Element).onMouse = onLine;
+        }
       }
     }
     drawn = stops.map((stop, at) => ({
@@ -409,6 +528,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       current.set(nearest(at));
     }
     light(untrack(() => current.get()));
+    paint();
     if (!sideways) {
       if (drawn.length === 0) {
         // nothing to keep in view, so what is drawn is shown from its start
@@ -439,7 +559,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
    * @param event - The report.
    * @param at - The stop the row was drawn in.
    */
-  const clicked = (event: MouseEvent, at: number): void => {
+  const clicked = (event: MouseEvent, at: number, line?: number): void => {
     if (event.kind !== 'click' || event.button !== 'left') {
       return;
     }
@@ -447,6 +567,18 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     if (untrack(() => current.get()) !== at) {
       pointed = at;
       current.set(at);
+      return;
+    }
+    // on the lines of the current hunk the click is the cursor's, and the line is
+    // on screen already
+    if (
+      picking &&
+      line !== undefined &&
+      untrack(() => picking.cursor.get()) !== undefined &&
+      drawn[at]?.lines?.[line]?.kind !== 'context' &&
+      untrack(() => picking.cursor.get()) !== line
+    ) {
+      picking.cursor.set(line);
     }
   };
 
@@ -468,6 +600,153 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       mark.setText(glyph);
       mark.addClass('is-current');
     }
+  };
+
+  /**
+   * Empties the line cursor and the picks, which belong to the hunk they were made
+   * in: another hunk, new content or the cursor leaving the lines is a new subject.
+   */
+  const resetLines = (): void => {
+    if (!picking) {
+      return;
+    }
+    untrack(() => {
+      if (picking.cursor.get() !== undefined) {
+        picking.cursor.set(undefined);
+      }
+      if (picking.selected.get().size > 0) {
+        picking.selected.set(NONE);
+      }
+    });
+  };
+
+  /**
+   * Brings the line cursor to a line it can be on: an added or removed line of the
+   * current hunk, the nearest to where it was put, or none where there is no such
+   * line. Nothing is asked before the first drawing, which is what says which
+   * hunk is current.
+   */
+  const settle = (): void => {
+    if (!picking || width === 0) {
+      return;
+    }
+    const at = untrack(() => picking.cursor.get());
+    if (at === undefined) {
+      return;
+    }
+    const spans = drawn[lit]?.lines ?? [];
+    if (Number.isInteger(at) && spans[at] !== undefined && spans[at].kind !== 'context') {
+      return;
+    }
+    let best: number | undefined;
+    for (const [line, span] of spans.entries()) {
+      if (
+        span.kind !== 'context' &&
+        (best === undefined ||
+          Math.abs(line - (Number.isFinite(at) ? at : 0)) <
+            Math.abs(best - (Number.isFinite(at) ? at : 0)))
+      ) {
+        best = line;
+      }
+    }
+    picking.cursor.set(best);
+  };
+
+  /** Draws the line cursor and the picks of the current hunk in the second column. */
+  const paint = (): void => {
+    for (const mark of painted) {
+      mark.setText(' ');
+      mark.removeClass('is-cursor');
+      mark.removeClass('is-picked');
+    }
+    painted = [];
+    const spans = drawn[lit]?.lines;
+    if (!picking || spans === undefined) {
+      return;
+    }
+    const at = untrack(() => picking.cursor.get());
+    const picked = untrack(() => picking.selected.get());
+    for (const [line, span] of spans.entries()) {
+      const here = line === at;
+      const chosen = picked.has(line);
+      if (span.kind === 'context' || !(here || chosen)) {
+        continue;
+      }
+      for (let row = span.first; row <= span.last; row++) {
+        const mark = lineMarks[row] as Element;
+        mark.setText(lineGlyphs[chosen ? (here ? 2 : 1) : 0] as string);
+        mark.toggleClass('is-cursor', here);
+        mark.toggleClass('is-picked', chosen);
+        painted.push(mark);
+      }
+    }
+    paintedCursor = at;
+  };
+
+  /**
+   * Scrolls a line of the current hunk into view, by as little as shows it.
+   *
+   * @param at - The line's position in the hunk's lines.
+   */
+  const revealLine = (at: number): void => {
+    const span = drawn[lit]?.lines?.[at];
+    const height = viewHeight();
+    if (span === undefined || height <= 0) {
+      return;
+    }
+    const top = viewport.scroll?.y ?? 0;
+    if (span.first < top) {
+      viewport.scrollTo(0, span.first);
+    } else if (span.last >= top + height) {
+      viewport.scrollTo(0, Math.min(span.first, span.last - height + 1));
+    }
+  };
+
+  /**
+   * The keys of the line cursor: Enter to start, then up and down, `x`, `a`, and
+   * Enter or Escape to leave.
+   *
+   * @param event - The key.
+   * @returns Whether it was the cursor's, and is stopped.
+   */
+  const lineKey = (event: KeyEvent): boolean => {
+    if (!picking || event.paste || event.key.ctrl || event.key.meta || event.key.shift) {
+      return false;
+    }
+    const name = event.key.name;
+    const at = untrack(() => picking.cursor.get());
+    const spans = drawn[lit]?.lines ?? [];
+    const changes = [...spans.keys()].filter((line) => spans[line]!.kind !== 'context');
+    if (at === undefined) {
+      if (name !== 'enter' || changes.length === 0) {
+        return false;
+      }
+      picking.cursor.set(changes[0]);
+      event.stop();
+      return true;
+    }
+    if (name === 'enter' || name === 'escape') {
+      resetLines();
+    } else if (name === 'up' || name === 'down') {
+      const next =
+        name === 'down' ? changes.find((line) => line > at) : changes.findLast((line) => line < at);
+      if (next !== undefined) {
+        picking.cursor.set(next);
+      }
+    } else if (name === 'x') {
+      const picked = new Set(untrack(() => picking.selected.get()));
+      if (!picked.delete(at)) {
+        picked.add(at);
+      }
+      picking.selected.set(picked);
+    } else if (name === 'a') {
+      const picked = untrack(() => picking.selected.get());
+      picking.selected.set(changes.every((line) => picked.has(line)) ? NONE : new Set(changes));
+    } else {
+      return false;
+    }
+    event.stop();
+    return true;
   };
 
   /**
@@ -553,6 +832,9 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
   host.onKey = (event: KeyEvent): void => {
     const k = event.key;
+    if (lineKey(event)) {
+      return;
+    }
     if (!event.paste && !k.ctrl && !k.meta && k.name === 'w') {
       wrapping.set(!untrack(() => wrapping.get()));
       event.stop();
@@ -620,6 +902,13 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
   createEffect(() => {
     const content = read(props.content);
+    if (content !== lastContent) {
+      // new content renumbers the hunks, and what was picked in one is nothing in it
+      if (lastContent !== undefined) {
+        resetLines();
+      }
+      lastContent = content;
+    }
     // read for the redraw a switch asks for; draw() reads it again. Wrapped,
     // nothing runs past the edge, so the clamp there puts a sideways scroll back
     // to the start, and lines unwrapped again start from their beginning
@@ -637,7 +926,12 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         current.set(nearest(at));
         return;
       }
+      if (at !== lastStop) {
+        lastStop = at;
+        resetLines();
+      }
       light(at);
+      paint();
       // a stop a click made current is on screen already, and scrolling a hunk
       // taller than the view to its first row would move the line clicked away
       if (pointed !== at) {
@@ -646,6 +940,25 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       pointed = undefined;
     });
   });
+
+  if (picking) {
+    createEffect(() => {
+      const at = picking.cursor.get();
+      picking.selected.get();
+      untrack(() => {
+        settle();
+        if (picking.cursor.get() !== at) {
+          // brought to a line it can be on, which runs this again
+          return;
+        }
+        const moved = at !== paintedCursor;
+        paint();
+        if (moved && at !== undefined) {
+          revealLine(at);
+        }
+      });
+    });
+  }
 
   return host;
 }

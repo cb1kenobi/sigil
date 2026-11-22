@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 457 keys, which is what a catalog has to carry to translate sigil's own
+ * 462 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -47,6 +47,9 @@ export const SIGIL_KEYS: readonly string[] = [
   'Cannot delete "{0}": it is set in {1}, which is read-only.\n  Set it in {2} to override the value, or\n  remove it from {3}.',
   'Cannot open an editor for "{0}": set $VISUAL or $EDITOR',
   'Cannot prompt for "{0}" because the input is not a terminal',
+  'Cannot stage part of a deleted file: stage all of it or none',
+  'Cannot unstage part of a new file: unstage all of it or none',
+  'Cannot write a line after one with no newline: select the line that ends the file too',
   'Choose a key',
   'Choose a number from 1 to {0}',
   'Choose at least one',
@@ -115,6 +118,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a radio set value to be a value or a State, not a Computed, since the set writes it',
   'Expected a radio set value to be a value or a State, not a function no option holds, since a function is taken as the value and never called',
   'Expected a retry delay in milliseconds',
+  "Expected a selected line to be a position in the hunk's lines",
   'Expected a slider format to be a function',
   'Expected a slider min and max to be finite numbers, min below max',
   'Expected a slider page to be a positive number',
@@ -178,6 +182,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected data table sort to name a column: {0} is not one',
   'Expected data table {0} to be a function',
   'Expected diff view current to be a whole number or a State',
+  'Expected diff view lines to hold a cursor and a selected State',
   'Expected diff view position to be a State',
   'Expected diff view wrap to be a boolean or a State',
   'Expected diff wrap to be columns, words or none',

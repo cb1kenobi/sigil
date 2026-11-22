@@ -225,6 +225,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-diff-separator  .sigil-diff-add  .sigil-diff-remove  .sigil-diff-context
  *   .sigil-diff-more, the ellipsis on a line cut at the edge
  *   .sigil-diff-view  .sigil-diff-view-scroll  .sigil-diff-view-line  .sigil-diff-view-mark
+ *   .sigil-diff-view-line-mark, the second column of marks, with lines
  *   .sigil-code-view  .sigil-code-row  .sigil-code  .sigil-code-gutter
  *   .sigil-modal  .sigil-modal-backdrop  .sigil-modal-fill  .sigil-modal-title
  *   .sigil-modal-body  .sigil-modal-actions  .sigil-modal-action
