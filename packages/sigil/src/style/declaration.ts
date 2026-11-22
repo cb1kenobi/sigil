@@ -7,6 +7,7 @@
  * reading".
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import {
   INHERITED,
   parseDeclaration,
@@ -66,7 +67,7 @@ export function wideKeyword(value: string): WideKeyword | undefined {
 export function longhandsFor(name: string): readonly PropertyName[] {
   const longhands = shorthandLonghands(name) ?? propertyLonghands(name);
   if (!longhands) {
-    throw new StyleError(`Unknown property "${name}"`);
+    throw new StyleError(`Unknown property "${escapeControls(name)}"`);
   }
   return longhands;
 }

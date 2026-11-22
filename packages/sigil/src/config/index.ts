@@ -125,10 +125,14 @@
  * `..` read the way the kernel reads it, for a path that need not exist yet --
  * before it empties or writes an output directory, and a second climb in the
  * toolchain was a second answer to the question `writeAtomic()` already asks
- * of its own target (SIG-350).
+ * of its own target (SIG-350). `realPathOf()` is the other half of that
+ * question -- where the chain of links at a path **ends**, for a path whose
+ * target is not there yet -- and `sigil build` asks it of each output file for
+ * the same reason, rather than following the first link and copying the bound
+ * the rest needs (SIG-573).
  */
 
-export { isMissing, physicalPath, writeAtomic, writeAtomicSync } from './atomic.js';
+export { isMissing, physicalPath, realPathOf, writeAtomic, writeAtomicSync } from './atomic.js';
 export { Config, createConfig, createConfigSync, isWritableStore } from './config.js';
 export { isPlainObject, segments } from './dotted.js';
 export { overlay } from './merge.js';

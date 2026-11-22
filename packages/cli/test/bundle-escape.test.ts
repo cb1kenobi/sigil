@@ -1,4 +1,4 @@
-import { bundleError } from '../src/build/bundle.ts';
+import { bundleError, prepareOutput } from '../src/build/bundle.ts';
 import { DiagnosticError, displayPath } from '../src/build/diagnostic.ts';
 import { escaped } from '../src/commands/_inspect.ts';
 import { linkedFixture } from './copy-fixture.ts';
@@ -6,9 +6,19 @@ import { run, STACK } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -321,6 +331,10 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
     writeFileSync(join(out, 'chunks'), '');
 
     await refused(app, out, 'EEXIST', '--no-clean');
+    // refused by the check, which asks before a byte is written: a Node write
+    // would have made the entry before it reached `chunks`, and a build that
+    // fails should not leave half of a bundle behind
+    expect(existsSync(join(out, 'buildable.mjs'))).toBe(false);
   }, 60_000);
 
   it.skipIf(process.getuid?.() === 0)(
@@ -380,6 +394,150 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
     60_000
   );
 });
+
+// SIG-573: the write is Node's too. `prepareOutput()` asks what is true when it
+// asks, and a failure only the write finds -- a full disk, an I/O error, a file
+// made between the question and the write -- was rolldown's, with the path inside
+// its own multi-line text
+describe.skipIf(process.platform === 'win32')('a write that fails after the check', () => {
+  /**
+   * A module that makes the first file written under `$SIGIL_FAIL_WRITE_UNDER` a
+   * directory just before the write, which is a file made between the check and
+   * the write -- and an `EISDIR` from the real `writeFileSync()`, quoting the
+   * path as it is. Not a permission, so it holds as root.
+   *
+   * @returns The `NODE_OPTIONS` that loads it.
+   */
+  function failingWrite(): string {
+    const preload = join(tempDir('sigil-fail-write-'), 'preload.mjs');
+    writeFileSync(
+      preload,
+      [
+        "import fs from 'node:fs';",
+        "import { syncBuiltinESMExports } from 'node:module';",
+        "import { resolve, sep } from 'node:path';",
+        'const real = fs.writeFileSync;',
+        'let done = false;',
+        'fs.writeFileSync = function (path, ...rest) {',
+        '  const under = process.env.SIGIL_FAIL_WRITE_UNDER;',
+        '  if (!done && under && typeof path === "string" && resolve(path).startsWith(resolve(under) + sep)) {',
+        '    done = true;',
+        '    fs.mkdirSync(path, { recursive: true });',
+        '  }',
+        '  return real.call(this, path, ...rest);',
+        '};',
+        'syncBuiltinESMExports();',
+      ].join('\n')
+    );
+    return `--import=${pathToFileURL(preload).href}`;
+  }
+
+  it('should not forge a line when the write finds what the check could not', async () => {
+    const app = linkedFixture(buildable, 'sigil-write-after-check-');
+    const out = join(app, FORGED);
+
+    const { code, stderr, stdout } = await run(cli, app, ['build', app, '--out', out], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('EISDIR');
+    expect(stderr).toContain('forge\\x0Aforged.ts');
+    for (const stream of [stderr, stdout]) {
+      expect(forgedLines(stream), stream).toEqual([]);
+    }
+    expect(stderr).not.toContain('UNHANDLEABLE_ERROR');
+    expect(STACK.test(stderr), stderr).toBe(false);
+  }, 60_000);
+
+  it('should write the bytes rolldown generated, and make the entry executable', async () => {
+    const app = linkedFixture(buildable, 'sigil-write-bytes-');
+    const out = join(app, 'dist');
+
+    const { code, stderr } = await build(app, '0', '--out', out);
+
+    expect(code, stderr).toBe(0);
+    // what rolldown generated, as it generated it: the entry names its map, and
+    // the map is the entry's
+    const entry = readFileSync(join(out, 'buildable.mjs'), 'utf8');
+    expect(entry.startsWith('#!/usr/bin/env node\n')).toBe(true);
+    expect(entry.trimEnd().endsWith('//# sourceMappingURL=buildable.mjs.map')).toBe(true);
+    expect(JSON.parse(readFileSync(join(out, 'buildable.mjs.map'), 'utf8')).file).toBe(
+      'buildable.mjs'
+    );
+    expect(readdirSync(join(out, 'chunks')).length).toBeGreaterThan(0);
+    // a mode bit does not exist on Windows, which is skipped above
+    expect(statSync(join(out, 'buildable.mjs')).mode & 0o111).toBe(0o111);
+  }, 60_000);
+});
+
+// SIG-573: the check followed the first link of a chain to nothing and no more
+describe.skipIf(process.platform === 'win32')(
+  'a chain of links to nothing at an output file',
+  () => {
+    /**
+     * An output directory holding `file`, a chain of `links` links ending at a
+     * file in a directory that is not there.
+     *
+     * @param links - How many links the chain has.
+     * @returns The output directory, and the directory the chain ends in.
+     */
+    function chain(links: number): { missing: string; out: string } {
+      const root = tempDir('sigil-link-chain-');
+      const out = join(root, FORGED);
+      const missing = join(root, `gone${FORGED}`);
+      mkdirSync(out, { recursive: true });
+      let target = join(missing, 'x.mjs');
+      for (let i = links; i > 1; i--) {
+        const next = join(root, `hop-${i}`);
+        symlinkSync(target, next);
+        target = next;
+      }
+      symlinkSync(target, join(out, 'buildable.mjs'));
+      return { missing, out };
+    }
+
+    it('should be refused by the check, whichever link it is that is last', () => {
+      for (const links of [1, 2, 3, 12]) {
+        const { missing, out } = chain(links);
+
+        expect(() => prepareOutput(out, ['buildable.mjs']), String(links)).toThrow(/ENOENT/);
+        // refused rather than made: the target's directory is the one thing the
+        // write would not have made for itself
+        expect(existsSync(missing)).toBe(false);
+      }
+    });
+
+    it('should pass where the chain ends in a directory that can be written', () => {
+      const { missing, out } = chain(3);
+      mkdirSync(missing, { recursive: true });
+
+      expect(() => prepareOutput(out, ['buildable.mjs'])).not.toThrow();
+    });
+
+    it('should not forge a line when a build meets one', async () => {
+      const root = tempDir('sigil-link-chain-build-');
+      const app = linkedFixture(buildable, 'sigil-link-chain-app-');
+      const out = join(root, FORGED);
+      const gone = join(root, `gone${FORGED}`);
+      mkdirSync(out, { recursive: true });
+      symlinkSync(join(gone, 'x.mjs'), join(root, 'hop'));
+      symlinkSync(join(root, 'hop'), join(out, 'buildable.mjs'));
+
+      const { code, stderr, stdout } = await build(app, '0', '--out', out, '--no-clean');
+
+      expect(code, stderr).toBe(1);
+      expect(stderr).toContain('ENOENT');
+      expect(stderr).toContain('forge\\x0Aforged.ts');
+      for (const stream of [stderr, stdout]) {
+        expect(forgedLines(stream), stream).toEqual([]);
+      }
+      expect(STACK.test(stderr), stderr).toBe(false);
+    }, 60_000);
+  }
+);
 
 // SIG-560: `assertCleanable()` runs outside the bundle stage's error handling,
 // so an error it threw would reach `main()` as it stands. None can, and `check`

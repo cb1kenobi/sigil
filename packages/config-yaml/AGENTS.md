@@ -149,7 +149,27 @@ reimplemented.
   anchor` reads the same field and is escaped with it, but was not measured. All
   four sites use `escapeControls()` from `@ttylabs/sigil/error-handler`. The other
   read-time messages quote an integer that matched a number pattern, or a tag
-  that resolved, so they need nothing.
+  that resolved, so they needed nothing -- and are escaped anyway now (SIG-570),
+  below.
+
+- **Every value a read refusal quotes goes through `escapeControls()`, and none
+  of the seven that were added is reachable (SIG-570).** The tag, an integer's
+  `source` and the value it reads back as, a numeric key's `source` and the path
+  it lands on, and the key's `kind` were echoed raw on the reading above, and a
+  probe over what a file can put in each place found nothing that
+  `escapeControls()` changes. A tag that reaches `tagged()` has already resolved,
+  so it is the schema's own ASCII -- a verbatim tag, a `%TAG` directive and a
+  `%`-escape (`!!s%65t`, which decodes to `set`) all end at the same ASCII name,
+  and every tag `yaml` cannot resolve is `Unresolved tag`, which
+  `assertReadable()` escapes where it throws it. An integer's source is held to
+  digits or a `0x` or `0o` prefix by `INTEGER_SOURCE` and a key's by
+  `decimalOf()`'s anchored pattern, and `kind` is one of three fixed phrases.
+  `!!int` and `!!float` with an odd spelling were tried and are `Unresolved tag`
+  under the pinned `core` schema. So they are **defence**, for the rule in
+  `packages/sigil/src/config/AGENTS.md` that a config message escapes every value
+  it echoes, and no test can fail them: sabotaged one at a time, all seven pass.
+  `test/message-escape.test.ts` pins the property over what a file can put in
+  each place instead, which holds by way of whichever escape is first.
 
 #### `toJS()` shares an anchored value with its aliases, which was a real defect
 

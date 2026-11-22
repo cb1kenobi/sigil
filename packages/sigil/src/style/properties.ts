@@ -1,4 +1,5 @@
 import { type Color, DEFAULT_COLOR } from '../canvas/style.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { type Easing, LINEAR, parseEasing } from './easing.js';
 import {
   AUTO,
@@ -290,7 +291,9 @@ function parseTransitionProperty(input: string): TransitionProperty {
   for (const piece of text.split(',')) {
     const part = piece.trim();
     if (part === '') {
-      throw new StyleError(`Invalid transition-property "${input}": an empty name in the list`);
+      throw new StyleError(
+        `Invalid transition-property "${escapeControls(input)}": an empty name in the list`
+      );
     }
     // every longhand the name covers, so `transition-property: padding` watches
     // all four edges and `font-weight` watches `bold` and `dim`. A shorthand is
@@ -298,12 +301,14 @@ function parseTransitionProperty(input: string): TransitionProperty {
     // that can know what it covers
     const longhands = propertyLonghands(part) ?? shorthandLonghandsOf(part);
     if (!longhands) {
-      throw new StyleError(`Invalid transition-property "${part}": no such property`);
+      throw new StyleError(
+        `Invalid transition-property "${escapeControls(part)}": no such property`
+      );
     }
     for (const name of longhands) {
       if (INTERPOLATION.get(name) === 'none') {
         throw new StyleError(
-          `Invalid transition-property "${part}": "${kebab(name)}" is not a property that animates`
+          `Invalid transition-property "${escapeControls(part)}": "${kebab(name)}" is not a property that animates`
         );
       }
       if (!names.includes(name)) {
@@ -363,7 +368,7 @@ function parseAnimationName(input: string): string {
   }
   if (!NAME_RE.test(text)) {
     throw new StyleError(
-      `Invalid animation-name "${input}": expected an identifier, or none for no animation`
+      `Invalid animation-name "${escapeControls(input)}": expected an identifier, or none for no animation`
     );
   }
   return text;
@@ -814,7 +819,7 @@ const ALIASES = {
     const flagName = Object.hasOwn(WEIGHT_TO_FLAG, key) ? WEIGHT_TO_FLAG[key] : undefined;
     if (!flagName) {
       throw new StyleError(
-        `Invalid font-weight "${value}": a terminal has bold, dim, and normal, and no axis between them`
+        `Invalid font-weight "${escapeControls(value)}": a terminal has bold, dim, and normal, and no axis between them`
       );
     }
     // one CSS property over two longhands, so it has to reset the other -- the
@@ -838,7 +843,9 @@ const ALIASES = {
     if (key === 'italic' || key === 'oblique') {
       return [['italic', 'true']];
     }
-    throw new StyleError(`Invalid font-style "${value}": expected normal or italic`);
+    throw new StyleError(
+      `Invalid font-style "${escapeControls(value)}": expected normal or italic`
+    );
   }),
   'text-decoration': alias(['underline', 'strikethrough', 'overline'], (value: string) => {
     const wanted = new Set(value.trim().toLowerCase().split(/\s+/));
@@ -849,7 +856,7 @@ const ALIASES = {
     ];
     for (const word of wanted) {
       if (!['none', 'underline', 'line-through', 'strikethrough', 'overline'].includes(word)) {
-        throw new StyleError(`Invalid text-decoration "${value}"`);
+        throw new StyleError(`Invalid text-decoration "${escapeControls(value)}"`);
       }
     }
     return known;
@@ -992,7 +999,7 @@ export function parseDeclaration(name: string, value: string): [PropertyName, un
   // `Font-Weight` were both fine
   const key = resolveName(name);
   if (!key) {
-    throw new StyleError(`Unknown property "${name}"`);
+    throw new StyleError(`Unknown property "${escapeControls(name)}"`);
   }
 
   return [[key, PROPERTIES[key].parse(value)]];

@@ -15,6 +15,7 @@
  * ```
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import { parseCount, readNumber, StyleError } from './value.js';
 
 /** Where a step function jumps, in CSS Easing 1's vocabulary. */
@@ -181,13 +182,13 @@ export function parseEasing(input: string): Easing {
     // finished for the whole of the duration
     if (count < 1) {
       throw new StyleError(
-        `Invalid steps() count "${steps[1].trim()}": expected a whole number of 1 or more`
+        `Invalid steps() count "${escapeControls(steps[1].trim())}": expected a whole number of 1 or more`
       );
     }
     const name = steps[2] ?? 'jump-end';
     if (!Object.hasOwn(POSITIONS, name)) {
       throw new StyleError(
-        `Invalid steps() position "${name}": expected start, end, jump-start, jump-end, jump-none or jump-both`
+        `Invalid steps() position "${escapeControls(name)}": expected start, end, jump-start, jump-end, jump-none or jump-both`
       );
     }
     const position = POSITIONS[name];
@@ -216,14 +217,16 @@ export function parseEasing(input: string): Easing {
     const parts = cubic[1].split(',');
     const numbers = parts.map((part) => readNumber(part)).filter((n) => n !== undefined);
     if (parts.length !== 4 || numbers.length !== 4) {
-      throw new StyleError(`Invalid cubic-bezier "${input}": expected four numbers`);
+      throw new StyleError(
+        `Invalid cubic-bezier "${escapeControls(input)}": expected four numbers`
+      );
     }
     // the control points' x coordinates have to stay in [0, 1] or the curve is
     // not a function of time: CSS says so, and a curve that doubles back has no
     // single answer for "where are we at t"
     if (numbers[0] < 0 || numbers[0] > 1 || numbers[2] < 0 || numbers[2] > 1) {
       throw new StyleError(
-        `Invalid cubic-bezier "${input}": the first and third numbers are x coordinates and must be 0-1`
+        `Invalid cubic-bezier "${escapeControls(input)}": the first and third numbers are x coordinates and must be 0-1`
       );
     }
     // and the y coordinates are held to the same range here, which CSS does
@@ -236,7 +239,7 @@ export function parseEasing(input: string): Easing {
     // box, which is not worth a value the property itself refuses
     if (numbers[1] < 0 || numbers[1] > 1 || numbers[3] < 0 || numbers[3] > 1) {
       throw new StyleError(
-        `Invalid cubic-bezier "${input}": an overshoot is refused here -- the y coordinates must be 0-1, because a value outside the range a property accepts is not one a declaration could have written`
+        `Invalid cubic-bezier "${escapeControls(input)}": an overshoot is refused here -- the y coordinates must be 0-1, because a value outside the range a property accepts is not one a declaration could have written`
       );
     }
     return intern({
@@ -252,7 +255,7 @@ export function parseEasing(input: string): Easing {
   }
 
   throw new StyleError(
-    `Invalid timing function "${input}": expected linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, steps(...) or cubic-bezier(...)`
+    `Invalid timing function "${escapeControls(input)}": expected linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, steps(...) or cubic-bezier(...)`
   );
 }
 

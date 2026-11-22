@@ -176,6 +176,33 @@ describe('extracting a command module', () => {
       ).to.equal('as');
     });
 
+    // SIG-575: `unwrapShallow()` gained the angle-bracket assertion in SIG-569 and
+    // only `schema-module.ts` had a test, so a lift that stopped seeing through
+    // `<T>{ ... }` went back to "help will list this command by name alone" with
+    // nothing failing. `.ts` and never `.tsx`, where `<T>x` is JSX
+    it.each([
+      ['<T>', "<Command>{ desc: 'x', hidden: true }"],
+      ['as', "{ desc: 'x', hidden: true } as Command"],
+      ['satisfies', "{ desc: 'x', hidden: true } satisfies Command"],
+    ])('should read a literal under %s as it reads the bare one', (_wrapper, written) => {
+      const bare = extractCommand('a.ts', `export default { desc: 'x', hidden: true };`);
+      const wrapped = extractCommand('a.ts', `export default ${written};`);
+      expect(wrapped.facts).to.deep.equal({ desc: 'x', hidden: true });
+      expect(wrapped.facts).to.deep.equal(bare.facts);
+      expect(wrapped.diagnostics).to.deep.equal(bare.diagnostics);
+      expect(wrapped.diagnostics).to.deep.equal([]);
+    });
+
+    it('should read a literal under `<T>` inside command() as well', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.ts',
+        `import { command } from '@ttylabs/sigil';
+         export default command(<Command>{ desc: 'inner' });`
+      );
+      expect(facts.desc).to.equal('inner');
+      expect(diagnostics).to.deep.equal([]);
+    });
+
     it('should look through parentheses', () => {
       expect(extractCommand('a.js', `export default ({ desc: 'paren' });`).facts.desc).to.equal(
         'paren'
@@ -287,7 +314,7 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.have.lengthOf(0);
     });
 
-    it.each(['cmd as Command', 'cmd satisfies Command', '(cmd)', 'cmd!'])(
+    it.each(['cmd as Command', 'cmd satisfies Command', '<Command>cmd', '(cmd)', 'cmd!'])(
       'should follow `export default %s`, which is the same statement with syntax on it',
       (written) => {
         // the reference was checked raw, so a type assertion on it declined a

@@ -828,6 +828,72 @@ toolchain's one reader.
   is what puts `absolute` in the utility set. The insets are a length rather than
   a count because pushing a box back the way it came is the ordinary use and a
   negative value is how CSS says it.
+- **A style error escapes the text it echoes at each throw site, and no
+  `StyleError` or `#fail()` does it for them** (SIG-572). A style is normally the
+  app's own code, but an app that builds one from data -- a theme colour read from
+  a config file -- puts someone else's text in it, and `Invalid colour "..."`
+  carried a control character to the terminal as it was: the gap SIG-412 closed for
+  argv and SIG-558 for config. Every `${...}` in a `StyleError` message that came
+  from the style being read is `escapeControls()` (`src/util/escape-controls.ts`,
+  never a copy) -- the colour, length, time and keyword parsers in `value.ts`, the
+  stylesheet's at-rule, keyframe, layer and media messages, the selector cursor's
+  `Invalid selector "..." at "..."` and its pseudo-class messages, the shorthand
+  and property parsers, `easing.ts`'s timing function, `cubic-bezier` and `steps()` messages, and `declaration.ts`'s unknown property -- plus the
+  four `TypeError`s `gradient.ts` raises over a stop, a length, a padding and a
+  border name, which are the same fault, and `readDeclarations()`'s cascade-keyword refusal in
+  `index.ts`. The ticket counted 47 from one grep pattern; the sites were found
+  by reading every `throw` in the directory.
+
+  _Why not once, in `StyleError`'s constructor or in `#fail()`._ It would be one
+  place instead of fifty and it would work, and it is refused for the reasons the
+  parser's entry gives: `StyleError` is exported, so an app that throws one with
+  an SGR of its own would find its colours turned into `\x1B[31m`; and a choke
+  point cannot tell the value from the words around it, so a fixed message that
+  someday carries a character on purpose is rewritten with no site to point at.
+  `#fail()` is the sharper case. It is also what `#guard()` hands an inner
+  parser's message to, so the message arrives already escaped and `#fail()` would
+  be its second pass. That pass happens to change nothing, because
+  `escapeControls()` leaves a backslash alone and a second run over `\x1B` finds no
+  control character -- but a rule that is correct only because a second pass
+  is a no-op is one edit from a double-escaped message, so the sites own it
+  and `#fail()` and `StyleError` take their message as given. The `(line N)`
+  prefix is `#fail()`'s own text and is untouched.
+
+  _Two helpers take a message built by their caller._ `bareTime(part, prefix)` is
+  handed a `prefix` its caller already escaped (it holds `v.join(' ')`) and escapes
+  only `part`; `Cursor.fail(why)` is handed a `why` that is fixed words with any
+  echoed name escaped where it is written. Neither escapes its argument, so a
+  value that reaches either is escaped once, at the line that has it in hand.
+
+  _Two ways in that look closed, and are not._ A message that quotes the text a
+  parser was handed **before it trimmed it** can hold a character `trim()` strips
+  -- U+2028 is whitespace to it and a line end to a terminal -- so `-1s` followed
+  by one is a duration that is negative and carries a hostile character, and the
+  messages for a percentage, a length, a factor, an integer, a time and a
+  `cubic-bezier` are reached that way. And an identifier may hold any character a
+  backslash escapes, with its name coming back unescaped, so a pseudo-class name is
+  as hostile as the text around it. Both were found by sabotage rather than by
+  reading: the first version of the test passed with those sites unescaped.
+
+  _What is escaped without being able to be hostile, as a defence._ These sites
+  echo a value a pattern or a table has already limited, so no input reaches them
+  with a hostile character and sabotaging the escape goes unnoticed by the test:
+  the at-rule keyword (`[-a-zA-Z]+`) in two messages, a keyframes name that has
+  already passed `KEYFRAMES_NAME` in three, a keyframe percentage past 100, a
+  cascade keyword (a member of a fixed list) in the stylesheet and in
+  `readDeclarations()`, a colour channel or palette index in a function form the
+  colour patterns matched, the `:not` and `:nth-child` names that are fixed
+  words in the two `expected ... for :name()` messages, a property a table
+  resolved in a transition-property refusal, a `steps()` count and position, the `v.join(' ')` of a `border` that
+  holds two valid colours, a shorthand's own name, and a gradient stop that is a
+  number. They are escaped anyway: the pattern is another function's and can be
+  loosened without anyone looking here, which is the position SIG-558 recorded for
+  a layer name. A media query or a selector list that parsed and is quoted as a
+  whole is **not** on this list: it is reachable, through text a later part of the
+  query leaves hostile and through a backslash-escaped identifier, and has cases.
+  `test/style/error-escape.test.ts` holds every site a hostile value can reach,
+  which the per-site sabotage the review ran is what checks; it is not
+  a count to keep, because the list above moves whenever a message is added.
 
 ### Stylesheets and the cascade
 

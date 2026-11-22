@@ -3182,15 +3182,12 @@ other is refused with numbers.
   is the entry whether or not its `export default` is wrapped.
 
   **An entry that reaches its schema only through `main()` is checked like any
-  other app, and is an `inspect()` error unless `--commands` was given.** A built
-  app imports the entry for an export, so it would build and then stop at start with
+  other app, and is an `inspect()` error** -- under `--commands` and for a schema
+  written in the call as well, which SIG-567 added (below). A built app imports the
+  entry for an export, so it would build and then stop at start with
   `This app's entry exports no schema`. That app was refused before, with
   `no "commands" found`, so the verdict is the same and the message is the true
-  one. `--commands` says where the commands are and an app that passed
-  `check --commands` before still does, so the error is not raised there. It is not
-  extended to an entry whose `main()` is given a literal, which has always built
-  that way. The schema module is also in `buildReads()`, so a clean never removes
-  it.
+  one. The schema module is also in `buildReads()`, so a clean never removes it.
 
   **The `ui` templates in the schema file are checked (SIG-568).** `checkTemplates()`
   read the entry and the command modules, so a template that cannot be compiled in
@@ -3206,6 +3203,50 @@ other is refused with numbers.
   **Not followed, and recorded rather than guessed:** the `dev.*` runner's own
   `main()` (that call is what `main-settings` warns about and not where a schema
   is), and any other file the entry imports.
+
+- **An entry that exports no schema is refused by `build` and `package` however it
+  reaches `main()`, `--commands` does not excuse it, and `check` says it as a
+  warning (SIG-567).** The generated entry takes `default ?? schema` from the
+  entry's namespace, so the question is whether the entry exports one of those two
+  names and has nothing to do with where `main()` finds its schema. SIG-566 asked
+  it only of an entry whose `main()` is given an imported schema and only without
+  `--commands`, so two forms built and then died at start, `--help` included, with
+  the same message: a schema written in the call,
+  `main({ schema: { commands: './commands' } })`, and anything under `--commands`.
+  `exportsNoSchema()` in `src/build/schema-module.ts` asks it of the same two names
+  with the same reader `findSchema()` uses (`exportedFrom()`), so what counts as an
+  export is one rule. Measured: building the `unbaked` fixture, whose entry was
+  exactly this, wrote an app whose every run, `--help` too, printed `This app's
+  entry exports no schema` and exited 1.
+
+  **Why `--commands` stops being an exemption: it says where the commands are, and
+  the export is about where the schema is.** The SIG-566 reason was that
+  `check --commands` passed for those apps before. It did, and what it passed is
+  an app a build produces and a start refuses; "it passed before" is the verdict
+  being wrong rather than a reason to keep it. So no flag moves it.
+
+  **Why `check` warns and does not fail, which is the one place the three differ.**
+  `build` and `package` produce an app, and an app with no schema export cannot
+  start, so there is nothing to be lenient about: an error. `check` is "check an app
+  without building it", and an app that is only ever run from source by its own
+  `main()` call is one it is asked about -- `test/fixtures/ts-app` is that app, and
+  `typescript.test.ts` runs it -- so failing it would turn a check of an app that
+  runs correctly into a failure over a build it will never make. A warning says what
+  a build would say, leaves the exit code to what else is wrong, and is the severity
+  the readers use for a thing that is wrong only for some caller. `inspect()` takes
+  `checkOnly` for it, and the default is the strict answer, so a caller that forgets
+  the option refuses rather than waves through. The alternative, error everywhere,
+  was the simpler one and is the one to move to if source-run apps turn out not to
+  want `check`.
+
+  **Only when it is certain.** A module with no ES module syntax is CommonJS, whose
+  `module.exports` is the namespace's `default`, and so is one that has an `import`
+  and also names `module` or `exports` -- the bundler still treats it as CommonJS,
+  and round 1 found `import { sep } from 'node:path'; module.exports = { ... }`
+  building and running on main -- and `export =` is the same in TypeScript; a module that cannot be read or does not parse and an `export *` that
+  may supply `schema` are ones this cannot see into. Each of them is not refused,
+  the direction this file records everywhere. Covered by `an entry that exports no
+  schema, however it reaches main()` in `test/build/schema-module.test.ts`.
 
 ### Writing the CLI in sigil
 
@@ -5066,18 +5107,67 @@ about what a valid app is would be the worse half of the feature.
   Node's is `Cannot write <file>, which is a directory.`, because no call raises
   it, and its path is escaped where it is built.
 
-  What is **not** closed, and is rolldown's still: a failure only the write can
-  discover -- a full disk, an I/O error, a file removed or made between the check
-  and the write -- and a chain of links to nothing, of which only the first is
-  followed. A hashed chunk name that is a directory **is** caught, since
-  `outputBundle` already holds the final names. None is a newline problem by
-  itself: each needs a path with a newline in it **and** a failure no check can
-  see coming. A side effect is
+  What the check could not close, and SIG-573 did: **a failure only the write can
+  discover** -- a full disk, an I/O error, a file removed or made between the
+  check and the write -- and **a chain of links to nothing**, of which only the
+  first was followed. A hashed chunk name that is a directory was always caught,
+  since `outputBundle` already holds the final names, and so are the `.map`s. None
+  is a newline problem by itself: each needs a path with a newline in it **and** a
+  failure no check can see coming. A side effect is
   that `--out` and `chunks/` are made a moment earlier than rolldown would have,
   which leaves an empty directory behind a build that then fails, where rolldown's
   own failure left whatever it had made. `test/bundle-escape.test.ts` drives each
   of the six, spawned and skipped on Windows, which cannot make the names; the two
-  that rely on a mode are skipped as root. Removing the call fails all six.
+  that rely on a mode are skipped as root. Removing the call fails all six when
+  the write was rolldown's; with a Node write only the `which is a directory` one
+  and the assertion that nothing was written before a refusal still do, because
+  Node's own write raises the same `ENOTDIR`, `EEXIST` and `EACCES`.
+
+  **The write is Node's now, which is the first of the two options SIG-573 was
+  filed with, and the second is refused (SIG-573).** `bundleApp()` asks rolldown
+  to `generate()` and `writeOutput()` writes what came back with `mkdirSync()` and
+  `writeFileSync()`, so every failure of the write is an error with a `code` and a
+  `syscall` and `escaped()` escapes it whole. **Recognising rolldown's write
+  failure** and escaping its message was the other option, and it is the parse
+  SIG-559 already refused: it depends on wording and a shape the next rolldown may
+  change, and a path can hold what the parse looks for. Nor was this the invasive
+  option the ticket feared, which was measured rather than assumed: the output is
+  **byte for byte** what `write()` made, on an app with commands and a sourcemap
+  -- the one difference is the random per-build directory a sourcemap's `sources`
+  names, which differs between any two builds. What `write()` did and `generate()`
+  does not is only the writing: the `sourceMappingURL` comment and each `.map` are
+  in the returned output, the passes that follow (`escapeChunks()`, the JSX gate,
+  `undo()`) read the files from disk exactly as before, `outputBundle` hooks and
+  the control-character escape pass are untouched, and the executable's `chmod` is
+  still its own. `generate()` runs `generateBundle` as `write()` does, so
+  `prepareOutput()` is asked at the same moment. It stays, and this does not make
+  it redundant: it refuses **before** a byte is written, where a Node write that
+  fails on its third file leaves two behind, and it is the only thing that says
+  `Cannot write <file>, which is a directory.`. The mode is the default one, as
+  rolldown's was. The provocation that is not a permission, so that it holds as
+  root, is a preloaded `writeFileSync()` that makes the target a directory just
+  before the real call -- a file made between the check and the write, and an
+  `EISDIR` from Node quoting the path as it stands. Putting `write()` back fails
+  it, because rolldown writes without going through Node, so the preload is not
+  reached at the write and the build does not fail with an `EISDIR` of Node's
+  (a later pass that rewrites a chunk reaches it, with a different error). Measured the other way too, with the check removed: a directory at an
+  output file under `--no-clean` printed `forged.ts:1:1: error: pwned-` at the
+  start of a line through rolldown's write, and printed `EISDIR: ... open
+  '...\x0Aforged.ts...'` through Node's.
+
+  The chain is followed by `realPathOf()`, which `writeAtomic()` already asks the
+  same question with and which is exported from `@ttylabs/sigil/config` beside
+  `physicalPath()` rather than copied (SIG-573): it walks the links to a bound of
+  32 and resolves each relative target against the directory that holds the link.
+  A chain that ends where the directory is missing or cannot be written is
+  `ENOENT` or `EACCES` from `accessSync()`, naming the path the write would have
+  landed on. `prepareOutput()` is exported so a test can ask it directly: with a
+  Node write a chain nothing checked is still a Node error, so what a build
+  prints cannot tell the check from the write, and the unit test is what fails
+  when the walk goes back to the first link. A **cycle**, and a chain of 31 or
+  more, answer `ELOOP` from the `statSync()` before the walk is reached, so the
+  bound is a tripwire, as it is in `atomic.ts`.
+
   `bundle-close.test.ts` and `build-command.test.ts` named rolldown's `Could not
   create directory` as the proof the write rejected, and name Node's `EEXIST`
   now.

@@ -184,7 +184,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
   // refuses it as `NAMESPACE_ERR` and the store then reports its own output as
   // unparseable. Found by review round 1
   if (typeof root !== 'string' || !nameable(root)) {
-    throw new Error(`"${String(root)}" is not a usable XML root element name`);
+    throw new Error(`"${escapeControls(String(root))}" is not a usable XML root element name`);
   }
 
   const source = expand(path);
@@ -259,7 +259,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     const encoding = declaredEncoding(doc);
     if (encoding !== undefined && encoding.toLowerCase() !== 'utf-8') {
       throw new Error(
-        __`Failed to read ${escapeControls(source)}: it declares the encoding "${encoding}", and only UTF-8 is read`
+        __`Failed to read ${escapeControls(source)}: it declares the encoding "${escapeControls(encoding)}", and only UTF-8 is read`
       );
     }
 
