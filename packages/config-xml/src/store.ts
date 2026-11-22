@@ -3,6 +3,7 @@ import { PROCESSING_INSTRUCTION_NODE, type XmlNode } from './names.js';
 import { readDocument, type ReadShape } from './read.js';
 import { nameable, xmlCanHold } from './represent.js';
 import { FRESH, reshape, type Shape, shapeOf } from './shape.js';
+import { firstControl } from './wellformed.js';
 import { applyInto, writeShape, type XmlEl } from './write.js';
 import {
   claim,
@@ -203,6 +204,17 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * would be silently kept or silently dropped either way.
    */
   const parse = (xmlText: string): XmlDocument => {
+    // before the parser, because the parser has nothing to say: a C0 control
+    // character is not XML 1.0, and `@xmldom/xmldom` reads one as whitespace
+    // between an element name and an attribute, or as text, without reporting
+    // anything (SIG-581). Every read and every write goes through here
+    const control = firstControl(xmlText);
+    if (control) {
+      throw new Error(
+        __`Failed to parse ${escapeControls(source)}: line ${control.line}, column ${control.column}: the character ${escapeControls(control.char)} is not allowed in XML`
+      );
+    }
+
     const errors: string[] = [];
     const onError = (level: string, message: unknown): void => {
       if (level === 'error' || level === 'fatalError') {

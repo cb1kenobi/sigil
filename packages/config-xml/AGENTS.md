@@ -534,8 +534,11 @@ five things core had deliberately not published, which is the entry below.
   recorded reason -- so a file that already holds a character XML cannot carry
   refuses **every** write to it, naming the character and the key. The alternative
   is the store deliberately emitting a document no conforming tool can read.
-  Reading such a file is fine, and `wouldLose` reports nothing about it, which is
-  honest: nothing is lost, the file was illegal before and after.
+  Reading such a file is fine **for a character the parser takes and the store
+  can hold** -- a lone surrogate, U+FFFE -- and `wouldLose` reports nothing about
+  it, which is honest: nothing is lost, the file was illegal before and after. A
+  **C0 control** is no longer one of them: it is refused at the read, which is
+  the entry below.
 
 > Moved: _What review round 1 found, and it reviewed a source it had invented_, _What review round 2 found, and what reading its findings cost_, _What the pass over round 2's own fixes found_, _Round 3 never answered, and what was done in its place_, _What the PR review round found: an errno and a code unit_, _What the second PR review round found: the same number, three more times_, _The sabotage pass, counted in one run against the final tree_, _What the packaging claims come to, measured_ — see [docs/history/an-xml-config-store-in-a-package-of-its-own.md](../../docs/history/an-xml-config-store-in-a-package-of-its-own.md).
 
@@ -583,7 +586,8 @@ five things core had deliberately not published, which is the entry below.
   cannot hold is a control character -- `xmldom` either refuses one as a parse
   error, which `Failed to parse` already escapes, or reads it as whitespace that
   ends the name rather than joining it (measured: `a`, ESC, `b="1"` is an element
-  `a` with an attribute `b`, which is a quirk of its own and left alone here).
+  `a` with an attribute `b`). That second half was recorded here as a quirk left
+  alone, and SIG-581 is the entry below that stops leaving it.
 
   **Two escapes are defence.** The declared encoding in `it declares the encoding`
   is read by a lenient regex, but `xmldom` refuses a declaration whose encoding is
@@ -593,6 +597,80 @@ five things core had deliberately not published, which is the entry below.
   the test pins the property rather than the call. The `root` option is the
   app's own string and a control character there is reachable and tested, but it
   is not file content; it is escaped so that the rule has no exception.
+
+#### A C0 control character anywhere in a document refuses the read (SIG-581)
+
+- **`@xmldom/xmldom` reads one as whitespace, so a malformed document was read as
+  a config nobody wrote.** Measured against 0.9.12 over every place one can sit:
+  between an element name and an attribute, between two attributes and before
+  the `/>` it reads as whitespace -- `<server`, ESC, `port="1"/>` is an element
+  `server` with an attribute `port`, which this mapping puts at `server.port` --
+  and in text and in an attribute value it keeps the character. Nothing is
+  reported in any of the four: `onError` is never called. XML 1.0's `Char`
+  production allows tab, newline and carriage return and nothing else below
+  U+0020, so every one of those documents is not well-formed, and refusing is the
+  spec's own answer rather than a rule of this package's. A comment and a CDATA
+  section were already refused by the parser with a message of its own; they
+  get this one, which names the character and the place, because the check
+  looks at the whole source and does not care which production it is in.
+  **U+007F and the C1 range are legal** and are left alone.
+
+- **The check is a scan of the source before the parser, and that is not a taste
+  call.** The alternative was an `xmldom` option, and there is none: the parser
+  has no strict mode for `Char`, and a check made from `onError` has nothing to
+  listen to because the parser never says anything. A walk of the parsed DOM
+  would miss the two places the parser **discards** the character -- the
+  whitespace between a name and an attribute is not in the tree at all -- which
+  are the two that change what the document means. The scan is also what gives
+  the message a position, which text the parser never flagged has none of. It
+  sits in the store's one `parse()`, so every read and every write goes through
+  it and a refused file is never written over.
+
+- **The message is `Failed to parse <file>: line L, column C: the character \x1B is
+  not allowed in XML`**, with the file and the character through
+  `escapeControls()`, imported from `@ttylabs/sigil/error-handler` and not copied.
+  A line ends at a newline, a carriage return or both together -- XML's own
+  line-end normalization -- and the column counts characters rather than code
+  units, with the byte order mark already off: `shapeOf()` strips it before the
+  parse, so it is not a column. The message is translated, so it is one more
+  orphan for `sigil check`, which the entry below records for every message
+  here.
+
+- **One definition of a forbidden control.** `forbiddenControl()` in
+  `src/wellformed.ts` is asked by the scan and by `badChar()`, which is what
+  `canRepresent()` refuses a value or a key with: the read and the write answer
+  "is this a character XML 1.0 forbids" from one function rather than two lists
+  that agree today.
+
+- **The write path cannot produce a document the read then refuses**, which the
+  ticket asked to have checked and which holds by two doors. A value holding one
+  is refused at `set()` and again by `render()` over the merged document, by
+  `canRepresent()` -- measured for every C0 code. A key and a path segment cannot
+  hold one because `nameable()` is XML's `Name` production, which excludes them;
+  and the `root` option goes through the same function. The comments, CDATA and
+  declaration the DOM carries across a write are the document's own, so a file
+  that already held a control character in one of them was refused at the read
+  before it got that far. `should read back whatever it did write, for every C0
+  character in every place` is the test, and it sabotages: with `badChar()`
+  taught to allow C0 it fails.
+
+- **What is left alone, recorded rather than silently missed.** A numeric
+  character reference to a control character, `&#1;`, is not well-formed either
+  (the `Legal Character` constraint) and `xmldom` reads it as the character; the
+  scan reads the source, where it is five ordinary characters, so it is not
+  refused. It is a different mechanism -- the document **says** the character
+  rather than containing it, and the value would then be refused at the next
+  write by `canRepresent()` -- and widening this check to references is a
+  decision for its own ticket. A lone surrogate, U+FFFE and U+FFFF are outside
+  `Char` too and are not refused at the read for the same reason: the ticket
+  names C0, and the write side already refuses them.
+
+- **`SIG-412`'s test moved to characters this check lets through.** It used `ESC`
+  and `BEL` in an end tag to prove the parser's quoted text is escaped, and a C0
+  character is now refused before the parser quotes anything, so the test stopped
+  testing what it names. `DEL` and the C1 string terminator are legal XML, are
+  quoted by the parser, and are what `escapeControls()` still has to escape
+  there.
 
 #### A declared encoding is refused unless it is UTF-8, even over ASCII
 

@@ -1,3 +1,4 @@
+import { forbiddenControl } from './wellformed.js';
 import { atPath, isPlainObject } from '@ttylabs/sigil/config';
 
 /**
@@ -95,13 +96,13 @@ import { atPath, isPlainObject } from '@ttylabs/sigil/config';
  * escaped or otherwise and leaves nothing to keep in place.
  */
 function badChar(code: number): boolean {
-  // C0, except the three XML's own `Char` production keeps
-  if (code < 0x20) {
-    return code !== 0x09 && code !== 0x0a;
+  // C0, except the three XML's own `Char` production keeps. One definition,
+  // which the read asks as well: it refuses a document holding one (SIG-581)
+  if (forbiddenControl(code)) {
+    return true;
   }
   // a carriage return is legal and is normalized to a newline, so it is in the
-  // second set rather than the first -- which the branch above would have said
-  // too, and is split out so the reason is readable
+  // second set rather than the first
   return code === 0x0d || code === 0x85 || code === 0xfffe || code === 0xffff;
 }
 

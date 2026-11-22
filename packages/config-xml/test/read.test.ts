@@ -322,12 +322,21 @@ describe('the mapping', () => {
      * SIG-412: xmldom quotes the text it failed on, so a raw control character
      * in a config file reached stderr live through `Failed to parse`. Both
      * shapes measured, the one that throws and the one that only reports.
+     *
+     * `DEL` and the C1 string terminator rather than `ESC` and `BEL`, because a C0
+     * character is refused before the parser sees it (SIG-581) and so never
+     * reaches a message the parser builds -- while both of these are legal XML
+     * 1.0, are quoted by the parser, and are exactly what `escapeControls()` is
+     * still for. `test/control.test.ts` holds the C0 half.
      */
+    const DEL = String.fromCharCode(0x7f);
+    const ST = String.fromCharCode(0x9c);
+
     it.each([
-      ['an end tag', `<config><a>1</b\u001b]0;PWNED\u0007></config>`],
-      ['content outside the root', `\u001b]0;PWNED\u0007<config/>`],
+      ['an end tag', `<config><a>1</b${DEL}]0;PWNED${ST}></config>`],
+      ['content outside the root', `${DEL}]0;PWNED${ST}<config/>`],
     ])('should escape a control character the parser quotes from %s', (_shape, text) => {
-      expect(() => value(text)).toThrow(/Failed to parse .*\\x1B\]0;PWNED\\x07/);
+      expect(() => value(text)).toThrow(/Failed to parse .*\\x7F\]0;PWNED\\x9C/);
       expect(() => value(text)).not.toThrow(/\p{Cc}/u);
     });
   });

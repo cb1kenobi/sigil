@@ -236,6 +236,13 @@ a row matching there would send you to a line with nothing wrong with it. NEL is
 the exception and is matched against the raw bytes, because that one is
 normalized everywhere a parser finds it, a comment included.
 
+A **C0 control character anywhere in the document** is refused at read, because XML
+1.0 allows nothing below U+0020 but tab, newline and carriage return and
+`@xmldom/xmldom` would otherwise read one between an element name and an attribute
+as whitespace -- `<server`, ESC, `port="1"/>` as the setting `server.port`. The
+error is `Failed to parse`, naming the file, the line and the column, with the
+character escaped. U+007F and the C1 range are legal and are read.
+
 An **internal DTD entity reference** is refused at read rather than reported here:
 `@xmldom/xmldom` cannot expand one, so the value would be the four characters
 `&e;` where the document says `hi`. A wrong value is not something to write down
