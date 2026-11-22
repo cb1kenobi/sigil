@@ -1167,7 +1167,8 @@ makes it testable with a fixture directory and no bundler at all.
   file system did, and because nothing here is styled: a framework error is
   escaped at its throw site since the handler may be printing an app's own SGR,
   and a diagnostic is the toolchain's text.
-  The message keeps `\n` and `\t` and escapes every other control character. A
+  The message keeps `\n` and `\t` and runs everything else through
+  `escapeControls()`, which is where the rule for what is escaped lives. A
   newline is how a message carries a type checker's whole output; a tab moves
   the cursor and acts on nothing, which is why the build's own escape pass spares
   it, and TypeScript 7's compiler is a native binary whose Go panic indents each
