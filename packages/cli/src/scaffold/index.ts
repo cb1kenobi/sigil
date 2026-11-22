@@ -111,6 +111,80 @@ export type Manager = (typeof MANAGERS)[number];
 export const PNPM_MAJOR = 12;
 
 /**
+ * Whether `text` names one exact version, which is the only thing a
+ * `packageManager` field takes: `pnpm@12` is not a version pnpm will switch to.
+ *
+ * Prereleases are let through, because a developer on a release candidate has a
+ * `pnpm --version` that says so and a CI on the same candidate is the point.
+ * Build metadata is not, since it is not part of what a registry resolves.
+ *
+ * @param text - What `pnpm --version` printed, trimmed.
+ * @returns Whether it is `MAJOR.MINOR.PATCH` with an optional prerelease.
+ */
+export function isExactVersion(text: string): boolean {
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(text);
+}
+
+/**
+ * The actions the release workflow uses, each pinned to the commit its release
+ * tag pointed at when this was written.
+ *
+ * A tag is mutable -- whoever holds the action's repository can move `v7` -- and
+ * the release job runs the app's own `devDependencies` beside it, so a moved tag
+ * is code the author never reviewed running where a release is made. A SHA is
+ * what the tag resolved to, and the `# v` comment is how a person (and
+ * Dependabot, which rewrites both together) reads it. The shared two are the
+ * ones this repository's own workflows pin, and `.github/dependabot.yml` is
+ * written beside the workflow because a pin is only safe if something moves it:
+ * left alone, an app's release would age from the day it was scaffolded.
+ *
+ * Resolved with `gh api repos/<repo>/git/ref/tags/<tag>`, and a tag that points
+ * at an annotated tag object would need dereferencing -- all three are commits.
+ */
+export const ACTIONS = {
+  bun: {
+    repo: 'oven-sh/setup-bun',
+    sha: '0c5077e51419868618aeaa5fe8019c62421857d6',
+    version: 'v2.2.0',
+  },
+  checkout: {
+    repo: 'actions/checkout',
+    sha: '3d3c42e5aac5ba805825da76410c181273ba90b1',
+    version: 'v7.0.1',
+  },
+  node: {
+    repo: 'actions/setup-node',
+    sha: '949feb2413d6458794dcd2491c4babbbce0c15c1',
+    version: 'v7.1.0',
+  },
+} as const;
+
+/**
+ * The exact pnpm a scaffold writes, when it is a pnpm app and one was given.
+ *
+ * Asked in one place because two files read it -- the manifest's
+ * `packageManager` and the workflow's install step -- and two readers of one
+ * option disagreeing is how a CI comes to install one pnpm while the manifest
+ * names another.
+ */
+function pnpmVersionOf(opts: ScaffoldOptions): string | undefined {
+  if (opts.manager !== 'pnpm' || opts.pnpmVersion === undefined) {
+    return undefined;
+  }
+  if (!isExactVersion(opts.pnpmVersion)) {
+    throw new Error(
+      `Expected an exact pnpm version such as 12.21.0 for packageManager, got "${opts.pnpmVersion}"`
+    );
+  }
+  return opts.pnpmVersion;
+}
+
+/** The `uses:` value for a pinned action: the SHA, and the release it is. */
+function uses(action: (typeof ACTIONS)[keyof typeof ACTIONS]): string {
+  return `${action.repo}@${action.sha} # ${action.version}`;
+}
+
+/**
  * The command that runs one of the app's scripts with arguments, spelled the way
  * `manager` takes them.
  *
@@ -153,6 +227,18 @@ export interface ScaffoldOptions {
   readonly manager: Manager;
   /** The app's name, which is also its bin. */
   readonly name: string;
+  /**
+   * The exact pnpm the developer has, which is what a pnpm app's CI installs.
+   *
+   * Written as the manifest's `packageManager` and into the workflow's install
+   * step, so a release runs the pnpm that wrote `pnpm-lock.yaml` rather than
+   * this repository's. Read by `new.ts` off `pnpm --version`; left out, because
+   * there is no pnpm to ask or it did not answer with a version, the manifest
+   * says nothing and the workflow falls back to `PNPM_MAJOR`. Ignored for a
+   * manager that is not pnpm, and a value that is not an exact version is
+   * refused rather than written into a field pnpm would then fail on.
+   */
+  readonly pnpmVersion?: string;
   /**
    * The version to ask for of `@ttylabs/sigil` and `@ttylabs/cli`.
    *
@@ -268,6 +354,7 @@ function ext(language: Language): string {
 /** The app's manifest. */
 function manifest(opts: ScaffoldOptions): string {
   const { language, linter, name, version, versions } = opts;
+  const exactPnpm = pnpmVersionOf(opts);
 
   const scripts: Record<string, string> = {
     build: 'sigil build',
@@ -325,6 +412,7 @@ function manifest(opts: ScaffoldOptions): string {
       devDependencies: sorted(devDependencies),
       engines: { node: '>=22.19.0' },
       name,
+      ...(exactPnpm === undefined ? {} : { packageManager: `pnpm@${exactPnpm}` }),
       private: true,
       scripts: sorted(scripts),
       type: 'module',
@@ -568,8 +656,20 @@ export default [
  * @param name - The app's name, which is also its bin.
  * @returns The workflow.
  */
-function releaseWorkflow(name: string, manager: Manager): string {
-  const install = manager === 'npm' ? 'npm ci' : `${manager} install --frozen-lockfile`;
+function releaseWorkflow(opts: ScaffoldOptions): string {
+  const { manager, name } = opts;
+  // `--ignore-scripts` on the install: the job runs the app's own
+  // devDependencies, so a dependency's `postinstall` would otherwise run beside
+  // a token that can write to the repository. vlt has no such flag because it
+  // has nothing to turn off -- `vlt install` leaves a package's lifecycle
+  // scripts unrun and says `run "vlt build" to complete the install`, measured
+  // on 1.1.1 with a dependency whose `postinstall` writes a file.
+  const install =
+    manager === 'npm'
+      ? 'npm ci --ignore-scripts'
+      : manager === 'pnpm'
+        ? 'pnpm install --frozen-lockfile --ignore-scripts'
+        : 'vlt install --frozen-lockfile';
 
   // npm ships with Node, and that is the only one of the three a runner has:
   // the macOS images list npm and Yarn under Package Management and neither
@@ -579,15 +679,24 @@ function releaseWorkflow(name: string, manager: Manager): string {
   // "Install dependencies" on its first tag, and for pnpm that is the default
   // path. Spelled as a step rather than left to the reader, because this file
   // is what a scaffold is for.
+  const exactPnpm = pnpmVersionOf(opts);
+  const pnpmWhy =
+    exactPnpm === undefined
+      ? `      # pinned to a major so that a release cannot change pnpm under you; move it
+      # when you move the pnpm that writes pnpm-lock.yaml`
+      : `      # the pnpm that wrote pnpm-lock.yaml when this was scaffolded, and the one
+      # \`packageManager\` in package.json names, so a release cannot change pnpm
+      # under you; move both when you move your pnpm`;
   const step =
     manager === 'vlt'
       ? `      - name: Install vlt
         run: npm install --global vlt`
       : manager === 'pnpm'
-        ? `      # pinned to a major so that a release cannot change pnpm under you;
-      # move it when you move the pnpm that writes pnpm-lock.yaml
+        ? `${pnpmWhy}
+      # \`--allow-scripts\` is what npm 11 wants to be told before it will run
+      # pnpm's own install script
       - name: Install pnpm
-        run: npm install --global pnpm@${PNPM_MAJOR}`
+        run: npm install --global --allow-scripts=pnpm pnpm@${exactPnpm ?? PNPM_MAJOR}`
         : undefined;
   const setup = step === undefined ? '' : `\n${step}\n`;
   const test = `${manager} run test`;
@@ -614,6 +723,13 @@ function releaseWorkflow(name: string, manager: Manager): string {
 # the runner has not got it, which is what makes a release reproducible. Left
 # unpinned it uses whatever \`setup-bun\` installed.
 #
+# Every action is pinned to a commit SHA, with the release it is in a comment,
+# because a tag can be moved and this job runs your devDependencies beside a
+# token that can write to the repository. \`.github/dependabot.yml\` bumps the
+# SHAs and the comments together. For the same reason the install skips
+# lifecycle scripts, the checkout leaves no credentials in \`.git\`, and the
+# token is handed to the one step that uses it rather than to the job.
+#
 # What is deliberately not here: notarization. An unsigned macOS binary that
 # somebody downloads is blocked by Gatekeeper whatever this workflow does, and
 # getting past it needs an Apple Developer ID and a \`notarytool\` step with
@@ -636,15 +752,17 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: ${uses(ACTIONS.checkout)}
+        with:
+          persist-credentials: false
 
       - name: Use Node.js
-        uses: actions/setup-node@v7
+        uses: ${uses(ACTIONS.node)}
         with:
           node-version: 26
 
       - name: Use Bun
-        uses: oven-sh/setup-bun@v2
+        uses: ${uses(ACTIONS.bun)}
 ${setup}
       - name: Install dependencies
         run: ${install}
@@ -670,6 +788,30 @@ ${setup}
                   ` \\\n            release/${name}-${target}${target.startsWith('windows') ? '.exe' : ''}`
               )
               .join('')}
+`;
+}
+
+/**
+ * The Dependabot config that keeps the release workflow's pins current.
+ *
+ * Written because the pins are: a commit SHA is frozen at the moment it is
+ * scaffolded, so without something moving it the workflow ages from its first
+ * day -- and an action that is never updated is its own exposure. Dependabot
+ * reads the `# v` comment beside a SHA and rewrites both. Only
+ * `github-actions` is listed: the app's own dependencies are the author's
+ * policy, and this file is not the place to set one for them.
+ *
+ * @returns The file.
+ */
+function dependabotConfig(): string {
+  return `# Keeps the actions in .github/workflows pinned to a commit SHA current: each
+# pull request moves a SHA and the version comment beside it together.
+version: 2
+updates:
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
 `;
 }
 
@@ -973,9 +1115,10 @@ export function scaffold(opts: ScaffoldOptions): ScaffoldFile[] {
     { contents: vitestConfig(opts), path: `vitest.config.${e}` },
     { contents: appTest(opts), path: `test/app.test.${e}` },
     {
-      contents: releaseWorkflow(opts.name, opts.manager),
+      contents: releaseWorkflow(opts),
       path: '.github/workflows/release.yml',
     },
+    { contents: dependabotConfig(), path: '.github/dependabot.yml' },
   ];
 
   // a JSX app has nothing for a dev runner to do: Node cannot load the component
