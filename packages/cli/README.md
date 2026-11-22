@@ -365,8 +365,27 @@ source names it, and counted after the base rules — `25 of 383 utility rules,
 plus 2 variant rules` — so a variant costs one rule and not the thousands the
 whole set would. Two limits come with that. An app run from source, or built with
 `--no-shake`, has the base set only, so a variant matches nothing there. And a
-variant and its utility in two separate literals (`` `${wide ? 'md:' : ''}flex-row` ``)
-leave no evidence for `md:flex-row`, so name it in `safelist`.
+variant and its utility in two separate literals joined where the shake cannot
+see it (`['md', 'flex-row'].join(':')`) leave no evidence for `md:flex-row`, so
+name it in `safelist`.
+
+**What the shake reads, and what it leaves to `safelist`.** A string your source
+builds is read where it is written out. Besides a literal and a template, the
+shake reads a `+` chain, a `+=`, a `?:` whose branches are all literals
+(`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule, and
+`'p-' + (wide ? '2' : '4') + x` keeps `p-2*` and `p-4*` rather than every `p-*`),
+and a `||` or `??` whose left side is a literal (`('text-' || x) + colour`).
+It does **not** read, and these need `safelist` or `--no-shake`:
+
+- a `?:` with a branch that is not a literal: `(dark ? 'text-' : theme) + colour`
+- a literal on the right of `||` or `??`: `(x || 'text-') + colour`, or on the
+  left of `||` when it is empty: `('' || 'text-') + colour`
+- `&&`: `(dark && 'text-') + colour`
+- `.concat()`: `'text-'.concat(colour)`
+- `.join()`: `['text', colour].join('-')`
+- a call to your own helper: `cx('text-', colour)`
+- a class held in a variable and joined later, or read from JSON, a file or the
+  environment
 
 ## Building this package
 

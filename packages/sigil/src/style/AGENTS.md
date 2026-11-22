@@ -1581,11 +1581,14 @@ dependency. Regenerate with `node scripts/generate-utilities.mjs` from inside
   nothing; that is SIG-528's.
 
   **That tightening resolves towards dropping in one shape, and it is the
-  documented limit.** A variant in one literal and its utility in another --
-  `` `${wide ? 'md:' : ''}flex-row` ``, `['focus', 'border-green'].join(':')` --
-  leaves `md:` and `flex-row` as two tokens and no evidence for `md:flex-row`, so
-  the rule is dropped, where the base set's `` `${x}flex-row` `` is kept by its
-  open suffix. Counting the pieces apart would keep a whole variant (383 rules)
+  documented limit.** A variant in one literal and its utility in another,
+  joined where the shake cannot see it -- `['focus', 'border-green'].join(':')`
+  -- leaves `focus:` and `border-green` as two tokens and no evidence for
+  `focus:border-green`, so the rule is dropped, where the base set's
+  `` `${x}flex-row` `` is kept by its open suffix. (`` `${wide ? 'md:' : ''}flex-row` ``
+  was the other example until SIG-578: a `?:` of literals is read as the strings
+  it is, so that one is `md:flex-row` or `flex-row` and is evidence for both.
+  See "Shaking an app's stylesheets" in `packages/cli/AGENTS.md`.) Counting the pieces apart would keep a whole variant (383 rules)
   for every `last:` or `checked:` that is only a key prefix, or `border-green`
   for every variant at once, to rescue a spelling nobody has been seen to write;
   `build.safelist` takes `md:flex-row` as written. Pinned by `should not

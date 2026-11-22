@@ -2878,11 +2878,78 @@ other is refused with numbers.
   the terms, for the reason `shake-walk.test.ts` gives: a clock flakes under the
   suite's parallel load and a count does not.
 
-  The place for `?:`, `||`, `??`, `.concat()` and `.join()` (SIG-578) is a case
-  in `partsOf()` and nowhere else, which is the point of there being one. They
-  differ in kind rather than in spelling: `a ? '-red' : '-blue'` is a **choice**
-  between two sequences rather than one, so it cannot return a single list of
-  parts, and the decision about what it should return is that ticket's.
+  **`?:`, `||` and `??` are read when they are certain, and `.concat()` and
+  `.join()` are the safelist's** (SIG-578, decided by Chris). The ticket offered
+  three answers -- read the cheap ones, read all of them, read none -- and the
+  first is taken. It is one case in `partsOf()` and `knownParts()` is where it
+  lives. Measured with `sigil build` on a copy of `test/fixtures/styled/` whose
+  `text()` class was the only thing changed, `` `text-${label}` `` keeps **25 of
+  383** utility rules and every shape below kept **8**, which is what the
+  fixture keeps for no `text-*` evidence at all:
+
+  | shape                                                 | before | after  |
+  | ----------------------------------------------------- | ------ | ------ |
+  | `(dark ? 'text-' : 'bg-') + label`                    | 8      | **41** |
+  | `(dark ? 'text-' : dark ? 'bg-' : 'p-') + label`      | 8      | **49** |
+  | `('text-' \|\| label) + label`                        | 8      | **25** |
+  | `('text-' ?? label) + label`                          | 8      | **25** |
+  | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | 8      |
+  | `(label \|\| 'text-') + label` (literal on the right) | 8      | 8      |
+  | `'text-'.concat(label)`                               | 8      | 8      |
+  | `['text', label].join('-')`                           | 8      | 8      |
+  - **A `?:` whose every branch is a literal is a choice between those texts**,
+    and a choice is a part holding several of them. A run containing one is read
+    once per text, each open and closed where the run is, so `'p-' + (w ? '2' :
+    '4') + x` is the prefixes `p-2` and `p-4`. A branch that is itself a `?:` of
+    literals counts, which is how `a ? 'x' : b ? 'y' : 'z'` is written, and a
+    template with no interpolation is a literal. One branch that is anything
+    else makes the whole `?:` an unknown part, as it always was.
+  - **A choice multiplies the run around it, so the product is capped at 16
+    texts** (`MAX_RUN_TEXTS`). Forty `(a ? ' ' : ',') + ...` in a row is 2^40
+    strings uncapped. Past the cap the choice is read as an unknown part, with
+    each of its texts read on its own open on both ends: the neighbours it would
+    have been joined to are read separately, which keeps every base class the
+    product would have, and costs a handful of reads rather than a doubling. It
+    is **not** a superset for a variant assembled across the choice:
+    `'md' + (w ? ':' : '-') + 'flex-row'` is evidence for `md:flex-row` under the
+    cap and none past it, because none of the pieces is half of a qualified name.
+    That is the safelist's, as the same pieces joined by a call always were, and
+    it is pinned only as far as the cap itself is.
+  - **`&&` is not read, and neither is a call to the app's own helper.**
+    `'a' && x` is `x`, so reading its left would close the literal beside it and
+    drop `aflex` from `('a' && x) + 'flex'`; `cx('text-', colour)` is whatever
+    `cx` returns. Both are in the README's list, and `should not read an empty
+    left of || or any left of &&` pins the first.
+  - **`'x' || y` and `'x' ?? y` are `'x'`**, because a non-empty literal is
+    always truthy and a string is never nullish, so the right side is never the
+    value. An **empty** literal on the left of `||` is falsy and the value _is_
+    the right side, which is not known, so it is left alone; `'' ?? y` is `''`
+    and is read. A literal on the **right** (`y || 'x'`) is not read: the value
+    is `y` whenever `y` is truthy, and what it is then is not known.
+  - **`.concat()` and `.join()` stay the safelist's.** A method's value is
+    whatever the method returns, and the receiver here is a value this pass has
+    not typed: `a.concat(b)` is a string for a string `a` and an array for an
+    array one, and `.join()` has a separator to read besides. Reading the
+    spelling of a literal receiver would be a rule for `'text-'.concat(x)` and
+    none for `prefix.concat(x)`, which is the half-reading this file declines
+    elsewhere -- a shape that works for the one spelling and silently drops the
+    next.
+  - **The shapes that are not read are listed where an author will find them**,
+    which is `packages/cli/README.md` under "What the shake reads", the
+    `build.safelist` JSDoc in `src/config.ts`, and `skills/sigil-cli/SKILL.md`.
+    The message `warnEmptyShake()` writes is unchanged: it is only printed when
+    _everything_ was dropped, and naming the shapes there would say nothing to an
+    app that dropped some.
+
+  It changes one documented limit, in `packages/sigil/src/style/AGENTS.md`:
+  `` `${wide ? 'md:' : ''}flex-row` `` used to leave no evidence for
+  `md:flex-row` -- the `?:` was an unknown part, so `md:` and `flex-row` were
+  two tokens -- and is now read as the two strings it is, `md:flex-row` and
+  `flex-row`. That is the same trade a splice already made (a known neighbour is
+  joined to it) and it is tighter _and_ correct; the half that stays the
+  safelist's is a variant and a utility joined by `.join(':')`, which is what
+  `should not assemble a variant out of two literals` pins now, beside
+  `should assemble a variant out of a ?: of literals beside the utility`.
 
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`

@@ -214,7 +214,9 @@ examples is in the README's [Configuration](../../README.md#configuration).
   declares any cannot be packaged.
 - `build.sourcemap` writes the `.map` files (on by default). `build.shake`
   trims the utility stylesheet to the classes the source names (on by default),
-  and `build.safelist` keeps classes the source builds dynamically.
+  and `build.safelist` keeps classes the source builds dynamically -- a `?:` of
+  literals and a literal on the left of `||` or `??` are read, but `.concat()`,
+  `.join()`, `&&`, a helper call and any other computed class need the safelist.
 - `package.runtime` is the one field with no default. `package.out` defaults
   to `release` and does not follow `build.out`.
 - `components` is where `sigil add` writes. `reference.out` and

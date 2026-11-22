@@ -443,6 +443,14 @@ function readFile(path: string, into: Evidence): void {
  * ends the run and opens its neighbours, which is the safe answer for every
  * operand there is.
  *
+ * Two more shapes are known, because each is certain and each only keeps more
+ * (SIG-578). A `?:` whose branches are all literals is a **choice**, read as one
+ * run per branch. A `||` or `??` whose left side is a literal is that literal,
+ * since the right side can never be the value. Every other shape of the kind --
+ * a `?:` with a branch that is not a literal, a literal on the *right* of `||`,
+ * `.concat()`, `.join()` -- is an unknown part and the safelist's, and the list
+ * an author can read without this file is in `packages/cli/README.md`.
+ *
  * ## A tagged template is not a concatenation
  *
  * Its value is whatever the tag returns, so folding an interpolation into the
@@ -533,19 +541,14 @@ function collectLiterals(program: Node, into: Evidence): void {
  * @param spliced - Collects every node spliced in on the way.
  * @returns One entry per part, `undefined` where the text is not known.
  */
-function templateParts(node: Node, isTagged: boolean, spliced: Set<Node>): (string | undefined)[] {
-  const parts: (string | undefined)[] = [];
+function templateParts(node: Node, isTagged: boolean, spliced: Set<Node>): Part[] {
+  const parts: Part[] = [];
   addTemplateParts(node, isTagged, spliced, parts);
   return parts;
 }
 
 /** `templateParts()`, appending to a list instead of making one. */
-function addTemplateParts(
-  node: Node,
-  isTagged: boolean,
-  spliced: Set<Node>,
-  parts: (string | undefined)[]
-): void {
+function addTemplateParts(node: Node, isTagged: boolean, spliced: Set<Node>, parts: Part[]): void {
   const template = node as unknown as {
     expressions: Node[];
     quasis: { value: { cooked?: string | null; raw: string } }[];
@@ -566,22 +569,62 @@ function addTemplateParts(
 }
 
 /**
+ * One part of a string an app builds: the text it is, a choice between two or
+ * more texts it is one of, or `undefined` where it is not known at all.
+ */
+type Part = string | readonly string[] | undefined;
+
+/**
+ * The most texts one run may stand for at once.
+ *
+ * A choice multiplies the run around it -- `(a ? 'x' : 'y') + (b ? 'p' : 'q')`
+ * is four strings -- so a chain of n of them is 2^n unless something says
+ * stop. Past this, a choice is read as an unknown part with each of its texts
+ * read on its own, open on both ends, which keeps every base class the product
+ * would have and costs a handful of reads rather than a doubling. It is not a
+ * superset for a *variant* assembled across the choice -- `'md' + (w ? ':' : '-')
+ * + 'flex-row'` is `md:flex-row` under the cap and not past it -- which is the
+ * safelist's, as the same pieces joined by a call always were.
+ */
+const MAX_RUN_TEXTS = 16;
+
+/**
  * Reads a sequence of parts, joining the runs of known ones.
+ *
+ * A choice is part of a run like any other known part, and what it does is make
+ * the run more than one text: `(dark ? 'text-' : 'bg-') + colour` is the two
+ * runs `text-` and `bg-`, each open on the right, and is read as both.
  *
  * @param parts - The parts, `undefined` where the text is not known.
  * @param into - Where the evidence goes.
  */
-function readRuns(parts: readonly (string | undefined)[], into: Evidence): void {
-  let run: string[] = [];
+function readRuns(parts: readonly Part[], into: Evidence): void {
+  // the texts the run so far can be: one, until a choice multiplies it
+  let texts = [''];
+  // consecutive known text, joined once rather than appended to every text
+  let pending: string[] = [];
+  let touched = false;
   // the first run starts at the start of the expression, where there is
   // nothing to be open towards
   let openLeft = false;
 
-  const flush = (openRight: boolean): void => {
-    if (run.length) {
-      into.read({ openLeft, openRight, text: run.join('') });
+  const settle = (): void => {
+    if (pending.length) {
+      const text = pending.join('');
+      texts = texts.map((t) => t + text);
+      pending = [];
     }
-    run = [];
+  };
+
+  const flush = (openRight: boolean): void => {
+    settle();
+    if (touched) {
+      for (const text of texts) {
+        into.read({ openLeft, openRight, text });
+      }
+    }
+    texts = [''];
+    touched = false;
   };
 
   for (const part of parts) {
@@ -590,7 +633,25 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
       openLeft = true;
       continue;
     }
-    run.push(part);
+
+    if (typeof part === 'string') {
+      pending.push(part);
+      touched = true;
+      continue;
+    }
+
+    if (texts.length * part.length > MAX_RUN_TEXTS) {
+      flush(true);
+      for (const text of part) {
+        into.read({ openLeft: true, openRight: true, text });
+      }
+      openLeft = true;
+      continue;
+    }
+
+    settle();
+    texts = texts.flatMap((t) => part.map((alternative) => t + alternative));
+    touched = true;
   }
 
   flush(false);
@@ -619,6 +680,9 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
  * A tagged template is a `TaggedTemplateExpression` and so is one unknown
  * part: its value is whatever the tag returns.
  *
+ * A `?:` of literals is one part holding every text it can be, and a `||` or
+ * `??` over a literal is that literal, for the reason `knownParts()` gives.
+ *
  * `+` is read as concatenation whatever its operands are. Where they are
  * numbers it is not, and the parts it yields are unknown ones, which only ever
  * open a neighbour.
@@ -629,8 +693,8 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
  *   as runs of their own.
  * @returns Its parts, in source order, `undefined` where the text is not known.
  */
-function partsOf(node: Node, spliced: Set<Node>): (string | undefined)[] {
-  const parts: (string | undefined)[] = [];
+function partsOf(node: Node, spliced: Set<Node>): Part[] {
+  const parts: Part[] = [];
   addParts(node, spliced, parts);
   return parts;
 }
@@ -640,11 +704,20 @@ function partsOf(node: Node, spliced: Set<Node>): (string | undefined)[] {
  * terms is n pushes rather than a copy of every prefix of it. Every `+` and
  * untagged template it reads into is recorded in `spliced`.
  */
-function addParts(node: Node, spliced: Set<Node>, parts: (string | undefined)[]): void {
+function addParts(node: Node, spliced: Set<Node>, parts: Part[]): void {
   const inner = unwrapShallow(node as Expression);
 
   if (isStringLiteral(inner)) {
     parts.push(String(inner.value));
+    return;
+  }
+
+  // a `?:` of literals is a choice between them, and a `||` or `??` over a
+  // literal is that literal. Neither is spliced: its operands are not part of
+  // the sequence, so the walk reads them as it always has
+  const known = knownParts(inner);
+  if (known !== undefined) {
+    parts.push(known);
     return;
   }
 
@@ -668,6 +741,91 @@ function addParts(node: Node, spliced: Set<Node>, parts: (string | undefined)[])
   }
 
   parts.push(undefined);
+}
+
+/**
+ * The text an expression is when it is one string written out: a string
+ * literal, or a template with nothing interpolated.
+ *
+ * @param node - The expression, wrappers already taken off.
+ * @returns The text, or `undefined` when it is anything else.
+ */
+function literalText(node: Node): string | undefined {
+  if (isStringLiteral(node)) {
+    return String(node.value);
+  }
+
+  if (node.type === 'TemplateLiteral') {
+    const template = node as unknown as {
+      expressions: Node[];
+      quasis: { value: { cooked?: string | null; raw: string } }[];
+    };
+    const [quasi] = template.quasis;
+    if (template.expressions.length === 0 && quasi) {
+      return quasi.value.cooked ?? quasi.value.raw;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Every text a `?:` can be, when each of its branches is a literal -- or itself
+ * a `?:` of them, which is how `a ? 'x' : b ? 'y' : 'z'` is written.
+ *
+ * @param node - The expression, wrappers already taken off.
+ * @returns The texts without repeats, or `undefined` when a branch is not one.
+ */
+function choiceTexts(node: Node): string[] | undefined {
+  const texts = new Set<string>();
+  return addChoiceTexts(node, texts) ? [...texts] : undefined;
+}
+
+/** `choiceTexts()`, adding to one set rather than copying a tail per level. */
+function addChoiceTexts(node: Node, into: Set<string>): boolean {
+  const inner = unwrapShallow(node as Expression);
+  const text = literalText(inner);
+  if (text !== undefined) {
+    into.add(text);
+    return true;
+  }
+
+  return (
+    inner.type === 'ConditionalExpression' &&
+    addChoiceTexts(inner.consequent, into) &&
+    addChoiceTexts(inner.alternate, into)
+  );
+}
+
+/**
+ * The part a `?:`, `||` or `??` is, when what it needs to be one is a literal.
+ *
+ * `a ? 'x' : 'y'` is a choice between two known texts. `'x' || y` is `'x'`,
+ * since a literal that is not empty is always truthy, and `'x' ?? y` is `'x'`
+ * whatever it is, since a string is never nullish -- so the right side is never
+ * the value and only the left is read. An empty literal on the left of `||` is
+ * falsy and the right side *is* the value, which is not known, so it is left
+ * alone. The right-hand literal of `y || 'x'` is not read either: the value is
+ * `y` whenever `y` is truthy, and what it is then is not known.
+ *
+ * @param node - The expression, wrappers already taken off.
+ * @returns The part, or `undefined` when this is not a shape that is read.
+ */
+function knownParts(node: Node): string | readonly string[] | undefined {
+  if (node.type === 'ConditionalExpression') {
+    const texts = choiceTexts(node);
+    return texts?.length === 1 ? texts[0] : texts;
+  }
+
+  if (node.type === 'LogicalExpression') {
+    const logical = node as unknown as { left: Node; operator: string };
+    if (logical.operator === '||' || logical.operator === '??') {
+      const text = literalText(unwrapShallow(logical.left as Expression));
+      return logical.operator === '||' && text === '' ? undefined : text;
+    }
+  }
+
+  return undefined;
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
