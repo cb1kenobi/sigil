@@ -505,12 +505,12 @@ describe('the themes', () => {
     // Dark, two presses on from System
     await s.press('t', 't');
     await s.press(KEYS.tab, KEYS.tab, KEYS.enter, KEYS.right);
-    expect(s.line('❯ Dark')).toContain('●');
+    expect(s.line('❯ ● Dark')).toBeDefined();
     expect(s.screen()).not.toContain('❯ System');
     // Enter keeps it rather than going back to the first, and the focus is
     // still on the button, so Enter opens the menu again
     await s.press(KEYS.enter);
     await s.press(KEYS.enter, KEYS.right);
-    expect(s.line('❯ Dark')).toContain('●');
+    expect(s.line('❯ ● Dark')).toBeDefined();
   });
 });
