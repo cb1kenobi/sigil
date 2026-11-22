@@ -4598,6 +4598,58 @@ people's software and will move.
   language, and one command versus several have no defensible default for a
   project that does not exist; a linter is a preference and a config file nobody
   enjoys writing twice. Git is just done.
+- **The release workflow keeps the repository token away from code nobody
+  reviewed, and it does it without a second job (SIG-418).** It used `@v7`-style
+  tags and one job that installs the app's devDependencies and runs them, so a
+  moved tag on any action, or any dependency's `postinstall`, ran beside a
+  `contents: write` token -- the exposure SIG-356 closed in this repository's own
+  workflows. Four decisions, all Chris's, recorded so they are not re-litigated:
+  - **Actions are pinned to a commit SHA with a `# vN.N.N` comment**, from the
+    `ACTIONS` table in `src/scaffold/index.ts` -- one definition, which the
+    workflow's `uses:` lines are built from and the test reads back. The table is
+    frozen at scaffold time, so the scaffold **also writes
+    `.github/dependabot.yml`** with a `github-actions` entry (weekly, and only
+    that: the app's own dependencies are the author's policy). A pin with nothing
+    to move it is an app that ages from its first day. The checkout and
+    setup-node pins are the ones this repository's workflows use, and the test
+    does **not** assert they stay equal: Dependabot moves this repository's and
+    nobody else's, so equality would fail every automerged bump.
+  - **One job, not two.** SIG-356's build/publish split costs a second job, an
+    artifact hand-off and a tar filter, which is too much ceremony for a starter
+    workflow. What it buys here is bought in place: the install runs
+    `--ignore-scripts` (`npm ci`, `pnpm install --frozen-lockfile`), the checkout
+    sets `persist-credentials: false` so the token is not left in `.git/config`
+    for a test to read, and `github.token` is passed to the **one** step that
+    uses it, in `env`, never in a `run` block and never at job level. vlt takes
+    no flag because there is none to take: `vlt install` leaves a dependency's
+    lifecycle scripts unrun until `vlt build`, measured on 1.1.1 and again
+    on 1.8.2 (what `npm install --global vlt` installs) with a dependency whose
+    `postinstall` writes a file. There is **no `NPM_TOKEN`** in
+    this workflow -- the ticket was written about the token the release is made
+    with, which is the GitHub one; an app that adds an npm publish step should
+    give that step the same treatment. What `--ignore-scripts` does not do is
+    stop `vitest` and `sigil package`, which are the app's devDependencies
+    running as intended: the install is the part that runs _other people's_
+    code unasked.
+  - **pnpm is the developer's pnpm, exactly.** `sigil new` reads
+    `pnpm --version` (from the temp directory, since pnpm reads the
+    `packageManager` of the project it is run in and a repository pinned to
+    another pnpm answers with that one -- 11.9.0 against 12.21.0, seen on the
+    machine this was written on) and writes it as the manifest's
+    `"packageManager": "pnpm@<exact>"` and into the install step, so CI runs the
+    pnpm that wrote `pnpm-lock.yaml`. SIG-351's major pin followed _this
+    repository's_ pnpm, so a developer on 9 or 10 got CI on 12, which holds a
+    lockfile to a minimum release age 9 and 10 never checked. Anything that is not
+    a plain `MAJOR.MINOR.PATCH` (a failed spawn, a banner, a range) is treated as
+    no answer: no `packageManager`, and the install falls back to `PNPM_MAJOR`,
+    which is what it did before. `scaffold()` refuses a non-exact `pnpmVersion`
+    rather than write a field pnpm cannot switch to; `isExactVersion()` is the one
+    definition. The install is `npm install --global --allow-scripts=pnpm pnpm@...`
+    to silence npm 11's `allowScripts` warning. vlt's install line is untouched.
+    Pinned by `what runs with the repository token`, `which pnpm the workflow
+    installs`, `the pnpm sigil new reads off the machine` and `the Dependabot
+    config` in `new.test.ts`, each sabotaged: an unpinned action, a dropped
+    `--ignore-scripts` and a dropped `persist-credentials` each fail one.
 - **Which package manager is a question about the machine, and it used to be
   answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
   argument that a question whose answer is already on the table is not worth
@@ -6439,8 +6491,9 @@ about what a valid app is would be the worse half of the feature.
   pnpm and no corepack, and the macOS 15 arm64 and x64 images say the same.
   Corepack is not the way round it either: the workflow's `setup-node` installs
   Node 26, which carries no corepack (measured on 26.10.0: no `corepack` bin
-  and none under `lib/node_modules`). The scaffold writes no
-  `packageManager` field, so nothing else would have fetched one. pnpm is the
+  and none under `lib/node_modules`). The scaffold wrote no
+  `packageManager` field then, so nothing else would have fetched one (it writes
+  the developer's pnpm now, SIG-418, under `sigil new`). pnpm is the
   default whenever it is installed, so the default app's release failed at
   "Install dependencies" on its first tag -- and the suite asserted the opposite,
   `not.toContain('--global')` for pnpm, because it encoded the sentence.

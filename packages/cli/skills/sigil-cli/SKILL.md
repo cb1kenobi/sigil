@@ -247,7 +247,9 @@ it embeds is staged under `node_modules/.sigil/`. Run `sigil build` as well if
   has. Distribution needs `--sign` with a Developer ID and notarization, which
   you do yourself. Windows binaries are not signed.
 - `sigil new` scaffolds `.github/workflows/release.yml`, which packages every
-  Bun target on a version tag. It runs on macOS for that reason.
+  Bun target on a version tag. It runs on macOS for that reason. Its actions are
+  pinned to commit SHAs (`.github/dependabot.yml` moves them), the install skips
+  lifecycle scripts, and the release token reaches only the step that uses it.
 
 ## `sigil add`
 
