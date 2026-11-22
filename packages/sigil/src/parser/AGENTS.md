@@ -1089,8 +1089,12 @@ messages.
   carry SGR it chose, and escaping at the sink would turn its colors into
   `\x1B[31m` text. The cost is that an app quoting argv in a message of its own
   has to escape it itself, which is why the helper is published and documented.
-- **The set is `\p{Cc}` and, since SIG-543, more -- see the next entry. `\p{Cc}` is C0, `DEL` and C1, and it includes `\t`, `\n`
-  and `\r`.** It is the set the build's escape pass names, written the way that
+- **The set is `escapeControls()`'s `UNSAFE` class, which began as `\p{Cc}` and
+  has been widened three times (SIG-543, SIG-548, SIG-557) -- see the next three
+  entries for what was added.** Anything that needs to say what is escaped points at that
+  function rather than listing the classes, so the next widening does not leave
+  a comment stale. `\p{Cc}` is C0, `DEL` and C1, and it includes `\t`, `\n`
+  and `\r`. It is the set the build's escape pass names, written the way that
   pass writes it: `\xNN`, two upper-case hex digits, which is also how
   `util.inspect` prints them. Every `\p{Cc}` is below U+0100, so two digits
   always suffice, and U+009B, the one-character CSI, is `\x9B`. The build pass
@@ -1126,6 +1130,56 @@ messages.
   The build's escape pass in `tsdown.config.ts` and the toolchain's copy are about
   raw bytes in shipped files and are a separate rule, deliberately unchanged.
   Covered by `test/util/escape-controls.test.ts`.
+- **The default-ignorable characters that are not format characters are escaped
+  too, and so is U+FE0F** (SIG-548). SIG-543's class still left some characters
+  raw that a renderer draws as nothing: U+3164 HANGUL FILLER and U+115F HANGUL
+  CHOSEONG FILLER are letters (`Lo`) drawn blank, U+034F COMBINING GRAPHEME
+  JOINER is a mark, and the variation selectors, U+FE00 to U+FE0F and
+  U+E0100 to U+E01EF, are marks with no glyph of their own -- so two echoed
+  values could print alike and differ, which is the property SIG-543 escapes the
+  rest of the class for. The class gains `\p{Default_Ignorable_Code_Point}`, the
+  name the source check already uses (SIG-511), so the two refuse the same
+  characters apart from the spaces: the check's `\p{Zs}` half is still not here,
+  for SIG-543's reason. U+2800 was not here either, since it is not
+  default-ignorable, and was added after (SIG-557, the entry below).
+  Measured over every code point rather than read: the new class escapes exactly
+  what SIG-543's did plus 4,036 more, and the spelling of everything already
+  escaped is unchanged. The additions are `\u{NNNN}`, with one exception that is
+  not one -- the only default-ignorable character below U+0100 is U+00AD, which
+  is `\p{Cf}` already and stays `\xAD`. Beyond the four the ticket named they
+  are the Mongolian variation selectors (U+180B to U+180D, U+180F), the other
+  Hangul fillers (U+1160, U+FFA0), the Khmer inherent vowels, and the unassigned
+  points `Default_Ignorable_Code_Point` holds inside its blocks (U+2065, U+FFF0
+  to U+FFF8, and `U+E0000` to `U+E0FFF` beyond the tag characters), which are as
+  invisible as the ones assigned beside them.
+  **U+FE0F is escaped, which is the cost.** It follows an emoji to choose its
+  picture, so a heart followed by it echoes as the heart and then `\u{FE0F}`,
+  the same decision SIG-543 took for the zero-width joiner and for the same
+  reason: an echoed value is not prose, and the glyph never says whether the
+  selector is there. Decided with the ticket rather than found; exempting it
+  would make an emoji that carries one print the same as one that does not.
+  The cost reaches further than an echoed value where a sink escapes a whole
+  message: `escapeMessage()` runs it over the type checker's output, so a string
+  literal `'<heart><VS16>'` in a `tsc` diagnostic prints with `\u{FE0F}` too, as the
+  joiner already did. Covered by `test/util/escape-controls.test.ts`, which walks
+  every code point.
+- **U+2800 BRAILLE PATTERN BLANK is escaped too, which leaves `\p{Zs}` the one
+  difference from the source check** (SIG-557). SIG-548 took the source check's
+  class minus its spaces and missed the one character that check names beside the
+  properties: `FORMAT` in `test/sources.test.ts` lists U+2800 explicitly because no
+  Unicode property covers it. It draws as a space but is a symbol (`So`), neither a
+  space nor default-ignorable, so a value holding it was echoed raw and printed
+  like one holding U+0020. The class gains `\u{2800}`, spelled as an escape like
+  everything above U+00FF, and it is written `\u{2800}` in the output as well. The
+  rest of the braille block is drawn and stays raw. Measured over every code point
+  against `FORMAT` plus `\p{Cc}`: the only characters the check refuses that
+  `escapeControls()` does not are the sixteen `\p{Zs}` ones other than U+0020
+  (U+00A0, U+1680, U+2000 to U+200A, U+202F, U+205F, U+3000), which is SIG-543's
+  decision and still stands, and nothing in the other direction. So that is now the
+  one deliberate difference, and the code point walk in
+  `test/util/escape-controls.test.ts` pins the expected set with U+2800 in it.
+  Nothing else changes spelling. Covered by that file and by
+  `test/parser/echoed-control-characters.test.ts`.
 - **The backslash is not escaped.** So a value holding the literal text `\x1B`
   reads the same as one holding `ESC`. Doubling every backslash would make a
   mistyped Windows path harder to read, and what reaches the terminal is inert

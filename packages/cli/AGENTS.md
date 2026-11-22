@@ -1167,7 +1167,8 @@ makes it testable with a fixture directory and no bundler at all.
   file system did, and because nothing here is styled: a framework error is
   escaped at its throw site since the handler may be printing an app's own SGR,
   and a diagnostic is the toolchain's text.
-  The message keeps `\n` and `\t` and escapes every other control character. A
+  The message keeps `\n` and `\t` and runs everything else through
+  `escapeControls()`, which is where the rule for what is escaped lives. A
   newline is how a message carries a type checker's whole output; a tab moves
   the cursor and acts on nothing, which is why the build's own escape pass spares
   it, and TypeScript 7's compiler is a native binary whose Go panic indents each
@@ -6712,7 +6713,22 @@ measurements are in
 
   `updateCheck.prefix` is the one name in the file not run through
   `readName()`, because `""` is a real answer there -- it is how a repository
-  whose tags are already versions says so.
+  whose tags are already versions says so. It belongs to `custom` as well as
+  `github` since SIG-555, where `""` is refused by `customChecker()` instead
+  (the default there is no prefix, so an empty one says nothing a missing one
+  does not) and the refusal names `updateCheck.prefix`. `headers` is deliberately
+  **not** a key of the file: a value is often a credential and `sigil.json` is
+  committed, so an endpoint that needs one is `customChecker({ headers })` in
+  the app's own source. A `headers` written there anyway is an unknown key and
+  is ignored like any other, which a test pins by asserting it never reaches
+  the baked checker.
+
+  What a **value** may be is not this reader's to say twice: `repo`, `registry`
+  and a `custom` `url` and `path` are asked of the runtime's own builders in
+  `checkerFor()` and refused there, so `check`, `build` and `package` agree. A
+  refusal is re-worded to name the file's key -- `updateCheck.registry`, not
+  `npmChecker()`'s `registryURL` -- by `asDeclared()`; the record is under "A
+  `custom` check's `url`" in `packages/sigil/src/updates` (SIG-546, SIG-547).
 
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is

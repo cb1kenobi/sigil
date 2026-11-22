@@ -564,8 +564,8 @@ export function bundleFailure(
 }
 
 /**
- * A failed bundle's error, with no control character in its message but a
- * newline and a tab.
+ * A failed bundle's error, with its message escaped by `escapeControls()` but
+ * for a newline and a tab.
  *
  * The sentences the bundle step builds itself escape what they quote where they
  * are built, but not everything that leaves `bundleApp()` is one of them: a

@@ -1121,6 +1121,34 @@ describe('sigil build', () => {
     expect(statSync(file).isFile()).toBe(true);
   }, 60_000);
 
+  it('should refuse a custom update check url that the worker could not fetch (SIG-546)', async () => {
+    const app = linkedFixture(join(fixtures, 'buildable'), 'sigil-build-custom-url-');
+    writeFileSync(
+      join(app, 'sigil.json'),
+      JSON.stringify({ updateCheck: { path: ['v'], type: 'custom', url: 'ftp://h/latest.json' } })
+    );
+
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).toContain('Update check "updateCheck.url" must be an absolute https:// URL');
+    expect(process.exitCode).toBe(1);
+  }, 60_000);
+
+  it('should bake a custom update check url that carries a query (SIG-546)', async () => {
+    const app = linkedFixture(join(fixtures, 'buildable'), 'sigil-build-custom-query-');
+    writeFileSync(
+      join(app, 'sigil.json'),
+      JSON.stringify({
+        updateCheck: { path: ['v'], type: 'custom', url: 'https://h/api/latest?channel=stable' },
+      })
+    );
+
+    const { err } = await sigil('build', app, '--out', out, '--no-sourcemap');
+
+    expect(err).not.toContain('updateCheck.url');
+    expect(process.exitCode).not.toBe(1);
+  }, 60_000);
+
   it('should bake the locale `sigil.json` named into the app it builds', async () => {
     // the wiring the command owns: `bundle.test.ts` calls `bundleApp()` with
     // the locale already read, so without this the one line that gets it out of
