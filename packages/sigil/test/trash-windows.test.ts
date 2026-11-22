@@ -4,8 +4,8 @@ import { run } from '../src/trash/spawn.js';
 import { cacheFile, keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -301,6 +301,19 @@ describe('a first run that prints nothing', () => {
 
     expect(ran).toHaveBeenCalledTimes(1);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'should ask about a link itself, so one pointing at nothing is still there',
+    async () => {
+      const link = join(tempDir('sigil-trash-win-'), 'dangling');
+      symlinkSync(join(dirname(link), 'nothing'), link);
+      ran.mockRejectedValueOnce(KILLED);
+      ran.mockResolvedValueOnce(reply('compiled', { path: 'x' }));
+
+      expect(await recycle(link, undefined, 'k')).toEqual({ cache: 'compiled', path: 'x' });
+      expect(ran).toHaveBeenCalledTimes(2);
+    }
+  );
 
   it('should not ask for a failure the script reported, which is every ordinary one', async () => {
     const file = item();
