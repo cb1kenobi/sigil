@@ -2811,10 +2811,30 @@ other is refused with numbers.
   `p-4`. That is tighter and correct, the string really does start `p-2`, and it
   is the same trade `'a' + 'b' + c` makes; it is measured in
   `should join a spliced run to its known neighbours`, and it is not a rule the
-  build can lose that something could produce. The walk still visits the inner
-  node and reads it on its own as well, which keeps what it kept before and is
-  redundant rather than wrong. A tagged template stays one unknown part and
-  its quasis are still read as chunks, for the reason above.
+  build can lose that something could produce. A tagged template stays one
+  unknown part and its quasis are still read as chunks, for the reason above.
+
+  **Each spliced node is read once** (SIG-584). `collectLiterals()` records the
+  `+` chains and untagged templates `partsOf()` has read into, and the walk
+  still descends into them -- a call in an operand holds literals of its own --
+  but does not read one as a run again. The walk used to, so a chain of n terms
+  was read about n times over, each read O(n) parts: **2,000 terms took 1.2 s
+  and 4,000 took 8.2 s**, and **3 ms** now. Those re-reads were not only slow.
+  A nested `+` read alone is a whole string, so `a + '-red'` inside
+  `a + '-red' + 'x' + b` was a string that ends in `-red` and kept `text-red`,
+  `bg-red` and `border-red`, and no string that expression builds can end
+  there: it holds `-redx`. The same went for `` `x${`dim ${y}`}` `` keeping
+  `dim`, and for `a + 'p-3' + 'p-4' + b` keeping `gap-3` and `top-3`. Those
+  rules are dropped now, and they are rules nothing could match. It is the
+  same tightening a splice already made for the flat spelling, so the chain and
+  the flat form agree. Measured over every `shake.test.ts` case, every fixture
+  and 26 shapes of nested chains, templates, `+=`, calls and wrappers: all
+  identical but three, and no rule is ever added. A string literal is still
+  read on its own as well as in its run, which keeps its closed reading and
+  costs one read per literal. The cost is pinned by a **count** in
+  `test/build/shake-cost.test.ts`, operands unwrapped at twice the terms over
+  the terms, for the reason `shake-walk.test.ts` gives: a clock flakes under the
+  suite's parallel load and a count does not.
 
   The place for `?:`, `||`, `??`, `.concat()` and `.join()` (SIG-578) is a case
   in `partsOf()` and nowhere else, which is the point of there being one. They
