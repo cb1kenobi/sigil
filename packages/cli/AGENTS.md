@@ -1167,7 +1167,8 @@ makes it testable with a fixture directory and no bundler at all.
   file system did, and because nothing here is styled: a framework error is
   escaped at its throw site since the handler may be printing an app's own SGR,
   and a diagnostic is the toolchain's text.
-  The message keeps `\n` and `\t` and escapes every other control character. A
+  The message keeps `\n` and `\t` and runs everything else through
+  `escapeControls()`, which is where the rule for what is escaped lives. A
   newline is how a message carries a type checker's whole output; a tab moves
   the cursor and acts on nothing, which is why the build's own escape pass spares
   it, and TypeScript 7's compiler is a native binary whose Go panic indents each
@@ -1266,8 +1267,38 @@ makes it testable with a fixture directory and no bundler at all.
   `ENOTDIR: ... mkdir '.../h<ESC>]0;PWN<BEL>d/...'` raw (review round 2). It
   runs `escapeMessage()` over the message and keeps the error itself, so its
   class, `code` and `exitCode` survive; a sentence already escaped passes
-  through unchanged. A newline inside such a path is the residual the rule
-  cannot tell from a line break, as above.
+  through unchanged. A newline inside such a path was the residual the rule
+  could not tell from a line break, as above, and `escaped()` closes it for the
+  errors it can tell (SIG-552).
+
+  **A system error is one line, so `escaped()` escapes it whole (SIG-552).**
+  `escapeMessage()` keeps line breaks for rolldown's own messages, which have
+  structure of their own, and so a root called `h<LF>src/forged.ts:1:1: error: x`
+  with a `node_modules/.sigil` that was a file printed `ENOTDIR: ... mkdir '/h`
+  and then a line starting `src/forged.ts:1:1: error:` -- the shape an editor's
+  problem matcher and a CI log parser read as a diagnostic. Node is the producer
+  of that message and `escaped()` acts on its behalf, as `package`'s `quoting()`
+  already does for the file system errors it catches: an error carrying a string
+  `code` **and** a string `syscall` goes through `escapeControls()`, which writes
+  the newline as `\x0A`, and anything else keeps `escapeMessage()`. Both
+  properties, where `quoting()` asks for a `code` alone, because `escaped()` is
+  also handed rolldown's errors and a `code` is not enough to say whose a message
+  is: rolldown's own error has no `code`, the logs inside it carry one
+  (`PARSE_ERROR`, `UNRESOLVED_IMPORT`) and none carries a `syscall`, measured
+  against a failed write, a parse error and an unresolvable entry. A `syscall`
+  with no `code` is not Node's either, and keeps line breaks. What is **not**
+  closed is a file system failure rolldown met itself -- a `write()` into an
+  `--out` under a file -- which arrives as rolldown's `UNHANDLEABLE_ERROR` with
+  the path inside its own multi-line text and is rebuilt by `bundleError()` as an
+  `Error` with neither `code` nor `syscall`; nothing in it tells the path's
+  newline from rolldown's. The one that did lose its shape was `clean()`'s, which
+  runs inside a rolldown hook: the hook kept `e.message` and `bundleApp()` threw
+  `new Error(refused)`, so an `rmSync` failure reached `escaped()` with no
+  `syscall` and printed the forged line (found by review). It keeps the error
+  itself now, and a `chmod 555` directory under `dist/` provokes it unprivileged.
+  Guarded by `escaped()` in
+  `test/bundle-escape.test.ts` in both directions, and by a spawned build whose
+  root holds a newline and a diagnostic-shaped line.
 
   The audit of everything else a failed bundle prints, each escaped where its
   sentence is built: the build's own refusal to write over a module the bundle
@@ -1335,8 +1366,8 @@ makes it testable with a fixture directory and no bundler at all.
   done, and shared with `build` where it is not `package`'s alone: the runtime
   picker's labels, built from a `PATH` runtime's `--version` and cache directory
   names, which the canvas garbles but does not act on; and the bundle stage's
-  `escaped()`, which keeps line breaks and so lets a newline in a root start a
-  line. `clean(out)`'s wrap has no test, because the one error that reaches it
+  `escaped()`, which no longer lets a newline in a root start a line for a
+  system error (SIG-552, at the end of SIG-447's entry). `clean(out)`'s wrap has no test, because the one error that reaches it
   needs a directory the process cannot empty, which a root-run CI job can. `test/package-escape.test.ts` drives each one through a stub
   compiler or signer, skipped on Windows, which cannot make the names; the `tar`
   one is in `test/runtimes-integrity.test.ts`, the version a `node` printed in
@@ -6590,6 +6621,13 @@ measurements are in
   `updateCheck.prefix` is the one name in the file not run through
   `readName()`, because `""` is a real answer there -- it is how a repository
   whose tags are already versions says so.
+
+  What a **value** may be is not this reader's to say twice: `repo`, `registry`
+  and a `custom` `url` and `path` are asked of the runtime's own builders in
+  `checkerFor()` and refused there, so `check`, `build` and `package` agree. A
+  refusal is re-worded to name the file's key -- `updateCheck.registry`, not
+  `npmChecker()`'s `registryURL` -- by `asDeclared()`; the record is under "A
+  `custom` check's `url`" in `packages/sigil/src/updates` (SIG-546, SIG-547).
 
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is

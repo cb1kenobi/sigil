@@ -96,7 +96,8 @@ stdout; diagnostics go to stderr.
 
 The config is read in full, whichever command will use each section, through
 the reader `build` uses: a bad value, a section that is not an object, an
-`updateCheck` that cannot be baked (a `repo` that is not `owner/name`), a
+`updateCheck` that cannot be baked (a `repo` that is not `owner/name`, a
+`registry` or a custom `url` that is not an absolute `https://` URL), a
 `package.runtime` or `package.target` that is not one, or both `sigil.json` and
 `sigil.jsonc` at once is an error from `check`, in the words the command that
 reads it gives.

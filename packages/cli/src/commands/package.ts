@@ -850,8 +850,10 @@ function compileAll(
  * not a directory, mkdir '<out>/o'` -- so the whole line is the value's and a
  * newline in it is the value's too: `escapeControls()`, which writes it as
  * `\x0A`, where `escaped()` keeps line breaks for a message with structure of
- * its own and so lets `forged: error: ...` start a line. Anything else is a
- * message this tool built, whose values were escaped where it built it.
+ * its own and so lets `forged: error: ...` start a line -- and since SIG-552
+ * escapes a system error whole as well, which this asks for by a `code` alone
+ * because only Node's errors are caught here. Anything else is a message this
+ * tool built, whose values were escaped where it built it.
  *
  * @param error - What was thrown.
  * @returns The error to throw instead, with the same class and `code`.
