@@ -243,7 +243,7 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
     }
     // asked before a session takes the input, so a function that throws takes nothing
     const initial =
-      menuInitial(menu.initial, menu.items.length) ??
+      menuInitial(menu.initial, menu.items.length, menu.items) ??
       (how === 'keys'
         ? menu.items.findIndex(
             (entry) => !('separator' in entry) && (entry.disabled ?? false) === false

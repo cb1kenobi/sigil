@@ -21,7 +21,7 @@
         "type": "readonly MenuEntry<T>[]"
       },
       {
-        "description": "Draw the border, the pointer and the arrows with ASCII only. Defaults to what `unicodeSupported()` says, the rule the modal and the tooltip keep.",
+        "description": "Draw the border, the pointer, the arrows and the marks with ASCII only. Defaults to what `unicodeSupported()` says, the rule the modal and the tooltip keep.",
         "default": "what `unicodeSupported()` says",
         "name": "ascii",
         "optional": true,
