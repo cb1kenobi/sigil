@@ -16,7 +16,9 @@
  * what the file means, and what these rules ask is where a line sits. The
  * shapes understood are the ones the two workflows use -- a `jobs:` map, a
  * `steps:` sequence, block scalars under `run:` -- and a workflow outside them
- * is a reason to extend this rather than to trust what it says.
+ * is a reason to extend this rather than to trust what it says. A flow-style
+ * step (`- { run: ... }`), a quoted key (`- "run": ...`) and an anchor are not
+ * read, and nothing here refuses them.
  */
 
 /** One step of a job. */
@@ -81,8 +83,9 @@ function codeLines(text: string): string[] {
     }
     if (isComment(line)) continue;
     kept.push(line);
-    const open = /^(\s*)(- )?[\w.-]+:\s*[|>][+-]?\d*\s*$/.exec(line);
-    if (open) scalar = (open[1] as string).length + (open[2] ? 2 : 0);
+    // `|`, `>`, and an indent digit and a chomp sign in either order, then maybe a comment
+    const open = /^(\s*)(-\s+)?[\w.-]+:\s*[|>](?:[+-]?\d*|\d*[+-])\s*(?:#.*)?$/.exec(line);
+    if (open) scalar = (open[1] as string).length + (open[2]?.length ?? 0);
   }
   return kept;
 }
@@ -90,9 +93,9 @@ function codeLines(text: string): string[] {
 /** A step's label: its `name:`, else its first line, trimmed. */
 function labelOf(lines: string[], itemIndent: number): string {
   for (const line of lines) {
-    const name = /^(\s*)(- )?name:\s*(.*)$/.exec(line);
+    const name = /^(\s*)(-\s+)?name:\s*(.*)$/.exec(line);
     // only the step's own key, not a `name:` under its `with:`
-    if (name && (name[1] as string).length + (name[2] ? 2 : 0) === itemIndent + 2) {
+    if (name && (name[1] as string).length + (name[2]?.length ?? 0) === itemIndent + 2) {
       return name[3] as string;
     }
   }
@@ -162,9 +165,14 @@ export function readWorkflow(text: string): Workflow {
       continue;
     }
     jobIndent ??= indentOf(line);
-    const name = indentOf(line) === jobIndent ? /^\s*([\w-]+):\s*$/.exec(line)?.[1] : undefined;
-    if (name !== undefined) raw.set(name, (current = []));
-    else current?.push(line);
+    if (indentOf(line) === jobIndent) {
+      // a header may be quoted or carry a comment; one that is neither read is
+      // refused, because its lines would otherwise belong to no job and no check
+      const name = /^\s*(["']?)([\w-]+)\1:\s*(?:#.*)?$/.exec(line)?.[2];
+      if (name === undefined) throw new Error(`Unrecognized job header: ${line.trim()}`);
+      raw.set(name, (current = []));
+    } else if (current) current.push(line);
+    else outside.push(line);
   }
 
   const jobs = new Map<string, Job>();
@@ -186,9 +194,9 @@ export function readWorkflow(text: string): Workflow {
 export function runBlocks(lines: string[]): string[] {
   const blocks: string[] = [];
   lines.forEach((line, i) => {
-    const match = /^(\s*)(- )?run:(.*)$/.exec(line);
+    const match = /^(\s*)(-\s+)?run:(.*)$/.exec(line);
     if (!match) return;
-    const key = (match[1] as string).length + (match[2] ? 2 : 0);
+    const key = (match[1] as string).length + (match[2]?.length ?? 0);
     const block = [match[3] as string];
     for (let j = i + 1; j < lines.length; j++) {
       const next = lines[j] as string;
@@ -200,7 +208,7 @@ export function runBlocks(lines: string[]): string[] {
   return blocks;
 }
 
-/** Every line of a workflow, jobs and all. */
+/** Every line of a workflow, jobs and all, but the job headers themselves. */
 export function allLines(workflow: Workflow): string[] {
   return [...workflow.outside, ...[...workflow.jobs.values()].flatMap((job) => job.lines)];
 }
@@ -242,11 +250,17 @@ export function outsideSteps(workflow: Workflow, pattern: RegExp): string[] {
  * @returns One description per step, empty when none does.
  */
 export function expressionsInRun(workflow: Workflow): string[] {
-  return [...workflow.jobs.values()].flatMap((job) =>
+  const found = [...workflow.jobs.values()].flatMap((job) =>
     job.steps
       .filter((step) => runBlocks(step.lines).some((block) => block.includes('${{')))
       .map((step) => `job ${job.name}, step ${step.name}`)
   );
+  // and every `run:` the file has, whether or not the reader placed it in a
+  // step -- a `steps:` line the reader does not recognize parses as no steps,
+  // and the per-step answer above would then be empty over a file full of them
+  const all = runBlocks(allLines(workflow)).filter((block) => block.includes('${{'));
+  if (all.length > found.length) found.push('a run block outside any step');
+  return found;
 }
 
 /**
