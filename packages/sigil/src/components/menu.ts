@@ -46,6 +46,16 @@ import { placeTooltip, type TooltipSide } from './tooltip.js';
 /** One thing a menu offers. */
 export interface MenuItem<T = unknown> {
   /**
+   * Makes it a check item: a thing that is on or off, drawn with a mark at the
+   * left of its label while it is on. A boolean, a `State` or anything else with a
+   * `get()`, or a function, read each time the menu opens -- so the mark follows
+   * what the app holds without the app rewriting the label. The menu never writes
+   * it: choosing the item hands it to `onSelect()` like any other, and flipping
+   * the state is the app's. An item with `items` cannot have one, and an item has
+   * one of `check` and `radio`, not both.
+   */
+  check?: MenuMark;
+  /**
    * Whether it is on offer. A string is the reason, shown where the hint would be.
    *
    * A disabled item is drawn muted, the highlight steps over it, and neither a
@@ -73,6 +83,19 @@ export interface MenuItem<T = unknown> {
    * arrow at its right.
    */
   items?: readonly MenuEntry<T>[];
+  /**
+   * Makes it a radio item: one of a group, of which the one that is on is current.
+   * It takes what `check` takes and is drawn with a mark of its own. The group is
+   * the run of radio items in one menu -- the menu does not turn the others off,
+   * since the app holds the choice and `radio: () => sort.get() === 'size'` is
+   * on for exactly one of them by construction.
+   *
+   * A menu whose entries are all radio items, with separators between, opens with
+   * the current one highlighted unless it has an `initial` of its own, so the
+   * choice is stated once. See {@link menuInitial}. An item with `items` cannot
+   * have one, and an item has one of `check` and `radio`, not both.
+   */
+  radio?: MenuMark;
   /**
    * What it says. An `&` marks the next character as its mnemonic -- `Save &As`
    * is chosen with `a` -- and `&&` is an ampersand. Without one, the first
@@ -108,6 +131,13 @@ export type MenuEntry<T = unknown> = MenuItem<T> | Separator;
  */
 export type MenuInitial = number | (() => number | undefined);
 
+/**
+ * Whether a check or radio item is on: the value, anything with a `get()` -- a
+ * `State` or a `Computed`, which is enough because a menu only reads it -- or a
+ * function, read each time the menu opens and not tracked.
+ */
+export type MenuMark = boolean | { get(): boolean } | (() => boolean);
+
 /** Where a menu is put: the renderer, or any element that is the router's root. */
 export type MenuHost = ModalHost;
 
@@ -121,7 +151,7 @@ export type MenuAnchor = Element | { readonly x: number; readonly y: number };
 
 export interface MenuOptions<T = unknown> {
   /**
-   * Draw the border, the pointer and the arrows with ASCII only. Defaults to what
+   * Draw the border, the pointer, the arrows and the marks with ASCII only. Defaults to what
    * `unicodeSupported()` says, the rule the modal and the tooltip keep.
    */
   ascii?: boolean;
@@ -186,8 +216,8 @@ const Z_INDEX = 960;
 
 /** What a menu draws with, in each of the two glyph sets. */
 const GLYPHS = {
-  ascii: { arrow: '>', border: 'ascii', line: '-', pointer: '>' },
-  unicode: { arrow: '▸', border: 'round', line: '─', pointer: '❯' },
+  ascii: { arrow: '>', border: 'ascii', check: 'x', line: '-', pointer: '>', radio: '*' },
+  unicode: { arrow: '▸', border: 'round', check: '✔', line: '─', pointer: '❯', radio: '●' },
 } as const;
 
 /** A separator label that is only a line, which `separator()`'s default is. */
@@ -278,6 +308,19 @@ export function checkMenuEntries(items: unknown): void {
     if (item.items !== undefined) {
       checkMenuEntries(item.items);
     }
+    if (item.check !== undefined || item.radio !== undefined) {
+      if (item.check !== undefined && item.radio !== undefined) {
+        throw new TypeError(__`Expected a menu item to be a check or a radio, not both`);
+      }
+      if (item.items !== undefined) {
+        throw new TypeError(__`Expected a menu item with a submenu not to be a check or a radio`);
+      }
+      if (!isMark(item.check ?? item.radio)) {
+        throw new TypeError(
+          __`Expected a menu item check or radio to be a boolean, a state or a function`
+        );
+      }
+    }
     if (item.initial !== undefined) {
       if (item.items === undefined) {
         throw new TypeError(__`Expected a menu item with an initial to have a submenu`);
@@ -309,13 +352,73 @@ export function checkMenuInitial(initial: unknown, count: number): void {
  * The position an `initial` names now: a function asked, untracked, and an answer
  * that is not the position of one of `count` entries read as none.
  *
+ * With no `initial` at all and the menu's `entries` passed, a menu that is a radio
+ * group -- every entry a radio item or a separator, and at least one radio item --
+ * names the first radio item that is on and on offer, so the app states its choice
+ * once. An `initial` that was given always wins, and so does its answer of none: a
+ * function that says nothing is current is not overruled by a radio item.
+ *
  * @param initial - The option, already checked by `checkMenuInitial()`.
  * @param count - How many entries the menu has.
+ * @param entries - The menu's entries, for the radio group's default.
  * @returns The position, or `undefined` for the menu's own default.
  */
-export function menuInitial(initial: MenuInitial | undefined, count: number): number | undefined {
+export function menuInitial(
+  initial: MenuInitial | undefined,
+  count: number,
+  entries?: readonly MenuEntry[]
+): number | undefined {
+  if (initial === undefined) {
+    return entries === undefined ? undefined : currentRadio(entries);
+  }
   const at = typeof initial === 'function' ? untrack(initial) : initial;
   return typeof at === 'number' && Number.isInteger(at) && at >= 0 && at < count ? at : undefined;
+}
+
+/** Whether a value is what `check` and `radio` take. */
+function isMark(value: unknown): value is MenuMark {
+  return (
+    typeof value === 'boolean' ||
+    typeof value === 'function' ||
+    (typeof value === 'object' &&
+      value !== null &&
+      typeof (value as { get?: unknown }).get === 'function')
+  );
+}
+
+/** Whether a check or radio item is on now, read without being tracked. */
+function markOn(mark: MenuMark): boolean {
+  if (typeof mark === 'boolean') {
+    return mark;
+  }
+  return Boolean(untrack(() => (typeof mark === 'function' ? mark() : mark.get())));
+}
+
+/** Whether an item has a mark: it is a check item or a radio item. */
+function isMarked(entry: MenuEntry): boolean {
+  return !isSeparator(entry) && (entry.check !== undefined || entry.radio !== undefined);
+}
+
+/**
+ * The position of the radio item that is on, in a menu that is a radio group, or
+ * `undefined`. Every entry is a radio item or a separator -- a menu that mixes in
+ * anything else is a menu with a radio group in it, which has no one current item
+ * to open on -- and a current item that is disabled is not on offer to highlight.
+ */
+function currentRadio(entries: readonly MenuEntry[]): number | undefined {
+  let found: number | undefined;
+  for (const [i, entry] of entries.entries()) {
+    if (isSeparator(entry)) {
+      continue;
+    }
+    if (entry.radio === undefined) {
+      return undefined;
+    }
+    if (found === undefined && markOn(entry.radio) && (entry.disabled ?? false) === false) {
+      found = i;
+    }
+  }
+  return found;
 }
 
 /**
@@ -377,11 +480,11 @@ function separatorWords(entry: Separator): string {
 }
 
 /**
- * The columns a row needs inside the border: the pointer and its space, the label,
- * two spaces and the hint, a space and the arrow, and a space at the end. A
+ * The columns a row needs inside the border: the pointer and its space, the mark
+ * and its space when the menu has any marks, the label, two spaces and the hint, a space and the arrow, and a space at the end. A
  * separator needs its words and a cell of line either side.
  */
-function rowWidth<T>(entry: MenuEntry<T>): number {
+function rowWidth<T>(entry: MenuEntry<T>, marked: boolean): number {
   if (isSeparator(entry)) {
     const words = separatorWords(entry);
     return words === '' ? 0 : stringWidth(words) + 2;
@@ -389,6 +492,7 @@ function rowWidth<T>(entry: MenuEntry<T>): number {
   const hint = hintOf(entry);
   return (
     2 +
+    (marked ? 2 : 0) +
     stringWidth(parseMnemonic(entry.label).text) +
     (hint ? 2 + stringWidth(hint) : 0) +
     (entry.items ? 2 : 0) +
@@ -539,7 +643,7 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
   }
 
   /** Builds a row of a menu. */
-  function buildRow(entry: MenuEntry<T>, width: number): Row<T> {
+  function buildRow(entry: MenuEntry<T>, width: number, marked: boolean): Row<T> {
     if (isSeparator(entry)) {
       const words = separatorWords(entry);
       const element = raw(
@@ -562,14 +666,27 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
     const enabled = item.disabled === undefined || item.disabled === false;
     const hint = hintOf(item);
     const { parts } = labelParts(item.label, 'sigil-menu-label');
-    const used = rowWidth(item);
+    const used = rowWidth(item, marked);
     const pointer = textNode(glyphs.pointer, {
       class: 'sigil-menu-pointer',
       visibility: 'hidden',
       'white-space': 'nowrap',
     });
     const tail = `${' '.repeat(Math.max(0, width - used) + (hint ? 2 : 0))}`;
-    const children: Element[] = [pointer, textNode(' ', { 'white-space': 'pre' }), ...parts];
+    const children: Element[] = [pointer, textNode(' ', { 'white-space': 'pre' })];
+    if (marked) {
+      // a column every row of the menu reserves, so the labels line up whether or
+      // not this one is on
+      const on = isMarked(item) && markOn((item.check ?? item.radio) as MenuMark);
+      children.push(
+        textNode(on ? (item.check === undefined ? glyphs.radio : glyphs.check) : ' ', {
+          class: 'sigil-menu-mark',
+          'white-space': 'pre',
+        }),
+        textNode(' ', { 'white-space': 'pre' })
+      );
+    }
+    children.push(...parts);
     children.push(textNode(tail, { 'white-space': 'pre' }));
     if (hint) {
       children.push(
@@ -594,9 +711,9 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
   }
 
   /** The width a list of entries needs inside its border. */
-  function widthOf(items: readonly MenuEntry<T>[]): number {
+  function widthOf(items: readonly MenuEntry<T>[], marked: boolean): number {
     return maxOf(
-      items.map((entry) => rowWidth(entry)),
+      items.map((entry) => rowWidth(entry, marked)),
       4
     );
   }
@@ -609,8 +726,9 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
     minWidth: number,
     initial: number
   ): Level<T> {
-    const width = Math.max(widthOf(items), minWidth - 2);
-    const rows = items.map((entry) => buildRow(entry, width));
+    const marked = items.some((entry) => isMarked(entry));
+    const width = Math.max(widthOf(items, marked), minWidth - 2);
+    const rows = items.map((entry) => buildRow(entry, width, marked));
     const list = box(
       {
         class: 'sigil-menu-list',
@@ -762,7 +880,7 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
     // a function that throws goes out through the key or the pointer that got
     // here, as any app callback would; the session is still open, so Escape still
     // closes it
-    const given = menuInitial(row.item?.initial, sub.length);
+    const given = menuInitial(row.item?.initial, sub.length, sub);
     truncate(depth);
     rowAnchors.add(row.element);
     const child = push(sub, row.element, 'right', 0, -1);
@@ -1109,7 +1227,7 @@ export function openMenu<T = unknown>(host: MenuHost, opts: MenuOptions<T>): Men
 
   // asked before the session takes the input, so a function that throws takes nothing
   const initial =
-    menuInitial(opts.initial, opts.items.length) ??
+    menuInitial(opts.initial, opts.items.length, opts.items) ??
     opts.items.findIndex((entry) => !isSeparator(entry) && (entry.disabled ?? false) === false);
 
   let settle!: (item: MenuItem<T> | undefined) => void;
