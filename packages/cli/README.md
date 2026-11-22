@@ -372,15 +372,18 @@ name it in `safelist`.
 **What the shake reads, and what it leaves to `safelist`.** A string your source
 builds is read where it is written out. Besides a literal and a template, the
 shake reads a `+` chain, a `+=`, a `?:` whose branches are all literals
-(`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule),
+(`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule, and
+`'p-' + (wide ? '2' : '4') + x` keeps `p-2*` and `p-4*` rather than every `p-*`),
 and a `||` or `??` whose left side is a literal (`('text-' || x) + colour`).
 It does **not** read, and these need `safelist` or `--no-shake`:
 
 - a `?:` with a branch that is not a literal: `(dark ? 'text-' : theme) + colour`
 - a literal on the right of `||` or `??`: `(x || 'text-') + colour`, or on the
   left of `||` when it is empty: `('' || 'text-') + colour`
+- `&&`: `(dark && 'text-') + colour`
 - `.concat()`: `'text-'.concat(colour)`
 - `.join()`: `['text', colour].join('-')`
+- a call to your own helper: `cx('text-', colour)`
 - a class held in a variable and joined later, or read from JSON, a file or the
   environment
 

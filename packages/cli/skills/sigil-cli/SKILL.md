@@ -216,7 +216,7 @@ examples is in the README's [Configuration](../../README.md#configuration).
   trims the utility stylesheet to the classes the source names (on by default),
   and `build.safelist` keeps classes the source builds dynamically -- a `?:` of
   literals and a literal on the left of `||` or `??` are read, but `.concat()`,
-  `.join()` and any other computed class need the safelist.
+  `.join()`, `&&`, a helper call and any other computed class need the safelist.
 - `package.runtime` is the one field with no default. `package.out` defaults
   to `release` and does not follow `build.out`.
 - `components` is where `sigil add` writes. `reference.out` and

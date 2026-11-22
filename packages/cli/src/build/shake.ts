@@ -580,8 +580,11 @@ type Part = string | readonly string[] | undefined;
  * A choice multiplies the run around it -- `(a ? 'x' : 'y') + (b ? 'p' : 'q')`
  * is four strings -- so a chain of n of them is 2^n unless something says
  * stop. Past this, a choice is read as an unknown part with each of its texts
- * read on its own, open on both ends, which keeps a superset of what the product
- * would have and costs a handful of reads rather than a doubling.
+ * read on its own, open on both ends, which keeps every base class the product
+ * would have and costs a handful of reads rather than a doubling. It is not a
+ * superset for a *variant* assembled across the choice -- `'md' + (w ? ':' : '-')
+ * + 'flex-row'` is `md:flex-row` under the cap and not past it -- which is the
+ * safelist's, as the same pieces joined by a call always were.
  */
 const MAX_RUN_TEXTS = 16;
 
@@ -774,19 +777,24 @@ function literalText(node: Node): string | undefined {
  * @returns The texts without repeats, or `undefined` when a branch is not one.
  */
 function choiceTexts(node: Node): string[] | undefined {
+  const texts = new Set<string>();
+  return addChoiceTexts(node, texts) ? [...texts] : undefined;
+}
+
+/** `choiceTexts()`, adding to one set rather than copying a tail per level. */
+function addChoiceTexts(node: Node, into: Set<string>): boolean {
   const inner = unwrapShallow(node as Expression);
   const text = literalText(inner);
   if (text !== undefined) {
-    return [text];
+    into.add(text);
+    return true;
   }
 
-  if (inner.type !== 'ConditionalExpression') {
-    return undefined;
-  }
-
-  const consequent = choiceTexts(inner.consequent);
-  const alternate = choiceTexts(inner.alternate);
-  return consequent && alternate ? [...new Set([...consequent, ...alternate])] : undefined;
+  return (
+    inner.type === 'ConditionalExpression' &&
+    addChoiceTexts(inner.consequent, into) &&
+    addChoiceTexts(inner.alternate, into)
+  );
 }
 
 /**

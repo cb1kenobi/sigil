@@ -2881,8 +2881,18 @@ other is refused with numbers.
     texts** (`MAX_RUN_TEXTS`). Forty `(a ? ' ' : ',') + ...` in a row is 2^40
     strings uncapped. Past the cap the choice is read as an unknown part, with
     each of its texts read on its own open on both ends: the neighbours it would
-    have been joined to are read separately, which keeps a superset of what the
-    product would have, and costs a handful of reads rather than a doubling.
+    have been joined to are read separately, which keeps every base class the
+    product would have, and costs a handful of reads rather than a doubling. It
+    is **not** a superset for a variant assembled across the choice:
+    `'md' + (w ? ':' : '-') + 'flex-row'` is evidence for `md:flex-row` under the
+    cap and none past it, because none of the pieces is half of a qualified name.
+    That is the safelist's, as the same pieces joined by a call always were, and
+    it is pinned only as far as the cap itself is.
+  - **`&&` is not read, and neither is a call to the app's own helper.**
+    `'a' && x` is `x`, so reading its left would close the literal beside it and
+    drop `aflex` from `('a' && x) + 'flex'`; `cx('text-', colour)` is whatever
+    `cx` returns. Both are in the README's list, and `should not read an empty
+    left of || or any left of &&` pins the first.
   - **`'x' || y` and `'x' ?? y` are `'x'`**, because a non-empty literal is
     always truthy and a string is never nullish, so the right side is never the
     value. An **empty** literal on the left of `||` is falsy and the value _is_

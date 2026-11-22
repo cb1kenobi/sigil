@@ -406,6 +406,36 @@ describe('the class evidence', () => {
     expect(evidence.mayName('border-red')).toBe(false);
   });
 
+  it('should keep a choice past the cap open on both ends, and what follows it open on the left', () => {
+    // four binary choices make 16 texts, so the fifth multiplies past the cap
+    // and is read as an unknown part with each of its texts open on both ends.
+    // Closed, or dropped, `text-red` and `bg-red` go with it
+    const spacers = Array.from({ length: 4 }, () => `(a ? ' ' : ',')`).join(' + ');
+
+    const prefixes = evidenceOf(`const c = ${spacers} + (dark ? 'text-' : 'bg-') + colour;`);
+    expect(prefixes.mayName('text-red')).toBe(true);
+    expect(prefixes.mayName('bg-red')).toBe(true);
+    expect(prefixes.mayName('border-red')).toBe(false);
+
+    // what follows the fallback is open on the left: the choice is unknown
+    // text, so `:flex-row` can be the end of a class that began inside it
+    const suffix = evidenceOf(`const c = ${spacers} + (w ? 'sm' : 'md') + ':flex-row';`);
+    expect(suffix.mayName('md:flex-row')).toBe(true);
+  });
+
+  it('should not read an empty left of || or any left of &&, whose value is the right', () => {
+    // `'' || x` and `'a' && x` are both `x`, so reading the left would close the
+    // literal beside them: `x + 'flex'` is a suffix, and a closed `flex` drops
+    // `aflex`
+    for (const source of [
+      `const c = ('' || x) + 'flex';`,
+      `const c = ('a' && x) + 'flex';`,
+      `const c = ('' && x) + 'flex';`,
+    ]) {
+      expect(evidenceOf(source).mayName('zflex'), source).toBe(true);
+    }
+  });
+
   it('should not fold an interpolation into a tagged template', () => {
     // a tagged template's value is whatever the tag returns, so folding the
     // interpolation in would assert something about a function this has never
