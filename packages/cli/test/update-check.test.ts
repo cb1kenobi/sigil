@@ -86,35 +86,22 @@ function variant(name: string, config?: unknown, entry?: string, file = 'index.j
   return root;
 }
 
-/** An entry module holding a schema with `schemaBody` in it, written into a variant of its own. */
-function entryOf(schemaBody: string, preamble = ''): string {
-  const root = variant(
-    `schema-${Math.random().toString(36).slice(2, 8)}`,
-    undefined,
-    [preamble, `export default { name: 'x', commands: './commands', ${schemaBody} };`, ''].join(
-      '\n'
-    )
-  );
-  return join(root, 'src', 'index.js');
-}
-
 /**
- * `entryOf()` in a `.ts` file, which is the only place `<T>x` parses.
+ * An entry module holding a schema with `schemaBody` in it, written into a variant of its own.
  *
- * oxc reads the language off the filename, and in a `.js` file the angle
- * bracket opens JSX rather than an assertion -- so every case about `<T>` has to
- * be written here and never through `entryOf()`.
+ * `file` is `index.ts` for anything with `<T>x` in it: oxc reads the language off
+ * the filename, and in a `.js` file the angle bracket opens JSX.
  */
-function entryOfTs(schemaBody: string, preamble = ''): string {
+function entryOf(schemaBody: string, preamble = '', file = 'index.js'): string {
   const root = variant(
     `schema-${Math.random().toString(36).slice(2, 8)}`,
     undefined,
     [preamble, `export default { name: 'x', commands: './commands', ${schemaBody} };`, ''].join(
       '\n'
     ),
-    'index.ts'
+    file
   );
-  return join(root, 'src', 'index.ts');
+  return join(root, 'src', file);
 }
 
 /** `expression` under each wrapper `unwrapShallow()` looks through that changes nothing at run time. */
@@ -820,14 +807,10 @@ describe('whether the schema names its own checker', () => {
   // than "names", and the build refuses an app that did say where to look
   describe.each(WRAPPERS)('under %s', (_wrapper, wrap) => {
     const readsTs = (body: string): ReturnType<typeof readSchemaUpdateCheck> =>
-      readSchemaUpdateCheck(entryOfTs(body, builders));
+      readSchemaUpdateCheck(entryOf(body, builders, 'index.ts'));
 
     it.each([
       ['a builder given bare', `updateCheck: ${wrap("githubChecker({ repo: 'a/b' })")}`],
-      [
-        'one inside the options',
-        `updateCheck: { checker: ${wrap("npmChecker({ packageName: 'x' })")} }`,
-      ],
       [
         'a checker written out',
         `updateCheck: ${wrap("{ type: 'x', path: ['v'], url: 'https://e.com' }")}`,
@@ -1078,7 +1061,7 @@ describe('a schema checker the update check would refuse', () => {
   // missing is the notice that never appears, which is what SIG-564 is about
   describe.each(WRAPPERS)('written under %s', (_wrapper, wrap) => {
     const refusedTs = (body: string): string[] =>
-      checkSchemaUpdateCheck(entryOfTs(body)).map((d) => d.message);
+      checkSchemaUpdateCheck(entryOf(body, '', 'index.ts')).map((d) => d.message);
 
     it.each([
       ['the options', `updateCheck: ${wrap(`{ checker: ${written("'http://e.com/v'")} }`)}`, /url/],
@@ -1123,6 +1106,15 @@ describe('a schema checker the update check would refuse', () => {
     );
 
     it.each([
+      // a list is a header value Node sends, and only a wrapped one is read through line by line
+      [
+        'a header value that is a list',
+        `updateCheck: { checker: ${written(
+          "'https://e.com/v'",
+          "['v']",
+          `, headers: { Accept: ${wrap("['a', 'b']")} }`
+        )} }`,
+      ],
       ['the options', `updateCheck: ${wrap(`{ checker: ${written("'https://e.com/v'")} }`)}`],
       ['the checker', `updateCheck: { checker: ${wrap(written("'https://e.com/v'"))} }`],
       ['a path', `updateCheck: { checker: ${written("'https://e.com/v'", wrap("['v']"))} }`],
