@@ -20,6 +20,7 @@
  */
 
 import { ESC } from '../ansi/codes.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { graphemes } from '../width/index.js';
 import type { Terminal } from './index.js';
 
@@ -123,7 +124,7 @@ function targetOf(target: ClipboardTarget): string {
   const found = TARGETS[target];
   if (found === undefined) {
     throw new TypeError(
-      `Invalid clipboard target ${String(target)}: expected "clipboard" or "primary"`
+      `Invalid clipboard target ${escapeControls(target)}: expected "clipboard" or "primary"`
     );
   }
   return found;
