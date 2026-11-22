@@ -1058,6 +1058,85 @@ describe('DiffView lines', () => {
     expect(cursor.get()).toBe(2);
   });
 
+  it('should pick a range of added and removed lines with v and the arrows', () => {
+    const { cursor, host, root, selected } = mountLines();
+    press(host, 'enter');
+
+    // the range is the line it began on to begin with
+    expect(press(host, 'v')).toBe(true);
+    expect([...selected.get()]).toEqual([1]);
+    press(host, 'down');
+    expect([...selected.get()].sort()).toEqual([1, 2]);
+    expect(picture(root, 30, 14).slice(4, 6)).toEqual(['▌●-two', '▌◉+TWO']);
+
+    // back up past the end of it, which takes the line off again
+    press(host, 'up');
+    expect([...selected.get()]).toEqual([1]);
+    expect(cursor.get()).toBe(1);
+  });
+
+  it('should pick a range across an unchanged line, without picking the line', () => {
+    const { cursor, host, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'v');
+    for (const _ of [1, 2, 3, 4]) {
+      press(host, 'down');
+    }
+
+    // `three` is line 3 of the hunk and has nothing to pick
+    expect(cursor.get()).toBe(5);
+    expect([...selected.get()].sort()).toEqual([1, 2, 4, 5]);
+
+    // and upward from an anchor below the cursor, the same range the other way
+    const up = mountLines();
+    press(up.host, 'enter');
+    for (const _ of [1, 2, 3]) {
+      press(up.host, 'down');
+    }
+    press(up.host, 'v');
+    press(up.host, 'up');
+    press(up.host, 'up');
+    press(up.host, 'up');
+    expect([...up.selected.get()].sort()).toEqual([1, 2, 4, 5]);
+    expect(up.cursor.get()).toBe(1);
+  });
+
+  it('should keep what was picked before a range, and what a closed range picked', () => {
+    const { cursor, host, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'x');
+    press(host, 'down');
+    press(host, 'down');
+    expect(cursor.get()).toBe(4);
+    // a range from the line after, over the line already picked
+    press(host, 'v');
+    press(host, 'down');
+    expect([...selected.get()].sort()).toEqual([1, 4, 5]);
+
+    // v again closes it: moving no longer picks, and the picks stay
+    press(host, 'v');
+    press(host, 'up');
+    expect(cursor.get()).toBe(4);
+    expect([...selected.get()].sort()).toEqual([1, 4, 5]);
+  });
+
+  it('should end a range with x, a or leaving the lines, and extend nothing after', () => {
+    for (const end of ['x', 'a', 'escape']) {
+      const { cursor, host, selected } = mountLines();
+      press(host, 'enter');
+      press(host, 'v');
+      press(host, 'down');
+      press(host, end);
+      if (end === 'escape') {
+        press(host, 'enter');
+      }
+      const before = [...selected.get()].sort();
+      press(host, 'down');
+      expect(cursor.get()).toBe(end === 'escape' ? 2 : 4);
+      expect([...selected.get()].sort()).toEqual(before);
+    }
+  });
+
   it('should leave the lines with Enter or Escape, dropping the picks', () => {
     for (const name of ['enter', 'escape']) {
       const { cursor, host, root, selected } = mountLines();

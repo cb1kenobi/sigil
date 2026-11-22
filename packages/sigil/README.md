@@ -4918,7 +4918,9 @@ inside the current hunk, which is how part of one is staged. Enter puts it on th
 first added or removed line, and a second column of marks shows it: `▶` on the line,
 `●` on a line picked, `◉` on both (`>`, `*` and `@` in ASCII). Up and down step it over
 the added and removed lines, scrolling to keep it in view; `x` picks the line and `a`
-picks every line of the hunk, or none where all are; Enter or Escape leaves the lines
+picks every line of the hunk, or none where all are; `v` begins a range, and up and
+down then pick every added and removed line from where it began to the cursor, over
+what was picked before, until `v`, `x` or `a` ends it; Enter or Escape leaves the lines
 and drops the picks, as moving to another hunk or new content does; a click on a line
 of the current hunk moves the cursor to it. The view is drawn unified whatever
 `layout` says, since side by side a removed line and the added line beside it share a
