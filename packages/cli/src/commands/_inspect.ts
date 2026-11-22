@@ -177,8 +177,9 @@ export function inspect(options: InspectOptions): Inspection {
  * The `ui` templates in the modules this pass already reads that cannot be
  * compiled.
  *
- * The entry and every command module, which is what `check` has always read --
- * not every module in the app, which only the bundler knows: a template in a
+ * The entry, the file the schema is written in when that is another one
+ * (`schemaModule()`, which every other schema reader asks), and every command
+ * module, which is what `check` has always read -- not every module in the app, which only the bundler knows: a template in a
  * helper the commands import is found by `bundleApp()`'s transform instead,
  * through the same `templateDiagnostics()`, so `build` and `package` say the
  * same line about it that `check` says about one here. Walking the app's tree
@@ -194,7 +195,10 @@ export function inspect(options: InspectOptions): Inspection {
  * @returns An error per template that cannot be compiled.
  */
 function checkTemplates(app: DiscoveredApp, commands: readonly ResolvedCommand[]): Diagnostic[] {
-  const modules = new Set([app.entry]);
+  // the schema's own file is one this pass reads whether or not the entry is it
+  // (SIG-566), and a Set is what keeps it from being compiled twice when it is also
+  // the entry or a command module
+  const modules = new Set([app.entry, schemaModule(app.entry)]);
   for (const { command } of walkTree(commands)) {
     if (command.module) {
       modules.add(command.module);

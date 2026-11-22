@@ -3165,11 +3165,20 @@ other is refused with numbers.
   that way. The schema module is also in `buildReads()`, so a clean never removes
   it.
 
-  **Not followed, and recorded rather than guessed:** the `ui` templates in a
-  schema file (the bundler's transform finds those and `checkTemplates()` reads
-  the entry and the commands, as it always has), the `dev.*` runner's own `main()`
-  (that call is what `main-settings` warns about and not where a schema is), and
-  any other file the entry imports.
+  **The `ui` templates in the schema file are checked (SIG-568).** `checkTemplates()`
+  read the entry and the command modules, so a template that cannot be compiled in
+  an imported schema file passed `sigil check` -- measured: exit 0, `no problems
+  found` -- and was found only by `build`'s bundler transform, which compiles every
+  module it bundles, as the same located line and `1 error in <app>`, exit 1. It
+  asks `schemaModule(app.entry)` for the file rather than finding it again, and the
+  files are a `Set`, so a schema file that is also the entry or a command module
+  (a `load` of itself) is compiled once. The rest of the app's modules are still
+  the bundler's, for the reason under "A template that cannot be compiled is a
+  diagnostic".
+
+  **Not followed, and recorded rather than guessed:** the `dev.*` runner's own
+  `main()` (that call is what `main-settings` warns about and not where a schema
+  is), and any other file the entry imports.
 
 ### Writing the CLI in sigil
 
