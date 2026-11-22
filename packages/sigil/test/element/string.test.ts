@@ -108,7 +108,7 @@ describe('renderToString()', () => {
   });
 
   // the same read is what a childless root's own relative offset needs, and it
-  // was wrong here on `main` too: `layout()` applies that offset itself, since
+  // was wrong here on `main` too: `layoutTree()` applies that offset itself, since
   // every other node's is applied by the parent that places it, so reading the
   // root's *size* back drew the one row at row two of a one-row grid -- which is
   // to say nowhere. Found by review round 2 on the clipping root beside it
@@ -120,7 +120,7 @@ describe('renderToString()', () => {
 
   // the same rule for a root with nothing in it, which is the one case where the
   // extent is read off the root's own box -- and a *declared* width is the only
-  // thing that puts that box past the room it was offered, since `layout()`
+  // thing that puts that box past the room it was offered, since `layoutTree()`
   // honours the root's own size and an undeclared root simply fills what it was
   // given. Pre-existing and uncovered: with the extent read off the walk instead
   // the grid comes out six columns and `text-overflow` cuts the rest off

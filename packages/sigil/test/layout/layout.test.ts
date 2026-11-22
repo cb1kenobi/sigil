@@ -1,22 +1,27 @@
-import { distribute, layout, type LayoutNode, measureNode } from '../../src/layout/index.js';
+import {
+  distributeCells,
+  layoutTree,
+  type LayoutNode,
+  measureSubtree,
+} from '../../src/layout/index.js';
 import { declare } from '../../src/style/index.js';
 import { box, boxes, checkInvariants, picture, text } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
-describe('distribute', () => {
+describe('distributeCells', () => {
   it('should hand out whole cells that add up to the total', () => {
     // the spare cell moves forward, so it lands on the last column rather than
     // in the middle of the row
-    expect(distribute(7, [1, 1, 1])).toEqual([2, 2, 3]);
-    expect(distribute(10, [1, 1])).toEqual([5, 5]);
+    expect(distributeCells(7, [1, 1, 1])).toEqual([2, 2, 3]);
+    expect(distributeCells(10, [1, 1])).toEqual([5, 5]);
     // exactly 7.5 and 2.5: the half carried forward is what makes it 7 and 3
-    expect(distribute(10, [3, 1])).toEqual([7, 3]);
+    expect(distributeCells(10, [3, 1])).toEqual([7, 3]);
   });
 
   it('should always add up, whatever the weights', () => {
     for (const total of [0, 1, 7, 13, 100]) {
       for (const weights of [[1], [1, 1], [1, 2, 3], [5, 1, 1, 1], [0, 1, 0, 1]]) {
-        const parts = distribute(total, weights);
+        const parts = distributeCells(total, weights);
         expect(
           parts.reduce((a, b) => a + b, 0),
           `${total} across ${weights.join(',')}`
@@ -27,19 +32,19 @@ describe('distribute', () => {
   });
 
   it('should give nothing to a zero weight', () => {
-    expect(distribute(10, [0, 1, 0])).toEqual([0, 10, 0]);
+    expect(distributeCells(10, [0, 1, 0])).toEqual([0, 10, 0]);
   });
 
   it('should be stable, so a layout does not shimmer between frames', () => {
-    const first = distribute(7, [1, 1, 1]);
-    const again = distribute(7, [1, 1, 1]);
+    const first = distributeCells(7, [1, 1, 1]);
+    const again = distributeCells(7, [1, 1, 1]);
     expect(first).toEqual(again);
   });
 
   it('should hand out nothing when there is nothing to hand out', () => {
-    expect(distribute(0, [1, 2])).toEqual([0, 0]);
-    expect(distribute(10, [])).toEqual([]);
-    expect(distribute(10, [0, 0])).toEqual([0, 0]);
+    expect(distributeCells(0, [1, 2])).toEqual([0, 0]);
+    expect(distributeCells(10, [])).toEqual([]);
+    expect(distributeCells(10, [0, 0])).toEqual([0, 0]);
   });
 });
 
@@ -128,7 +133,7 @@ describe('a row', () => {
       box({ width: '8', height: '1' })
     );
 
-    const [, first] = boxes(layout(tree, { height: 1, width: 10 }));
+    const [, first] = boxes(layoutTree(tree, { height: 1, width: 10 }));
     expect(first.width).toBeGreaterThanOrEqual(6);
   });
 
@@ -138,7 +143,7 @@ describe('a row', () => {
       box({ 'flex-grow': '1', 'max-width': '4', height: '1' })
     );
 
-    const [, first] = boxes(layout(tree, { height: 1, width: 10 }));
+    const [, first] = boxes(layoutTree(tree, { height: 1, width: 10 }));
     expect(first.width).toBe(4);
   });
 });
@@ -298,7 +303,7 @@ describe('display: none', () => {
 
     // everything above this matches a box back to its element by index, and a
     // gap in that correspondence is a caveat nobody will remember
-    const result = layout(tree, { height: 1, width: 6 });
+    const result = layoutTree(tree, { height: 1, width: 6 });
     expect(result.children).toHaveLength(2);
     expect(result.children[0].node).toBe(hidden);
     expect(result.children[0].box).toMatchObject({ height: 0, width: 0 });
@@ -309,13 +314,13 @@ describe('display: none', () => {
 describe('text', () => {
   it('should take the width of its content', () => {
     const tree = box({ 'flex-direction': 'row' }, text('hello'));
-    const [, content] = boxes(layout(tree, { height: 1, width: 20 }));
+    const [, content] = boxes(layoutTree(tree, { height: 1, width: 20 }));
     expect(content.width).toBe(5);
   });
 
   it('should grow taller when it has to wrap', () => {
     const tree = box({ 'flex-direction': 'column' }, text('one two three four five'));
-    const result = layout(tree, { width: 10 });
+    const result = layoutTree(tree, { width: 10 });
     expect(result.children[0].box.height).toBeGreaterThan(1);
   });
 
@@ -326,7 +331,7 @@ describe('text', () => {
       box({ width: '20', height: '1' })
     );
 
-    const [, content] = boxes(layout(tree, { height: 1, width: 10 }));
+    const [, content] = boxes(layoutTree(tree, { height: 1, width: 10 }));
     // shrinking text past its longest word only makes it taller, and in a row
     // that has no height to give
     expect(content.width).toBeGreaterThan(0);
@@ -334,7 +339,7 @@ describe('text', () => {
 
   it('should measure a wide character as two columns', () => {
     const tree = box({ 'flex-direction': 'row' }, text('漢字'));
-    const [, content] = boxes(layout(tree, { height: 1, width: 20 }));
+    const [, content] = boxes(layoutTree(tree, { height: 1, width: 20 }));
     expect(content.width).toBe(4);
   });
 });
@@ -402,7 +407,7 @@ describe('wrapping', () => {
       box({ width: '7', height: '1' })
     );
 
-    const result = layout(tree, { height: 10, width: 7 });
+    const result = layoutTree(tree, { height: 10, width: 7 });
     expect(result.children[0].box).toMatchObject({ height: 3 });
     expect(result.children[1].box).toMatchObject({ y: 3 });
   });
@@ -421,7 +426,7 @@ describe('wrapping', () => {
       box({ width: '5', height: '1' })
     );
 
-    const result = layout(tree, { height: 10, width: 50 });
+    const result = layoutTree(tree, { height: 10, width: 50 });
     expect(result.children[0].box).toMatchObject({ height: 2 });
     expect(result.children[1].box).toMatchObject({ y: 2 });
   });
@@ -440,7 +445,7 @@ describe('wrapping', () => {
       box({ width: '5', height: '1' })
     );
 
-    const result = layout(tree, { height: 10, width: 12 });
+    const result = layoutTree(tree, { height: 10, width: 12 });
     expect(result.children[0].box).toMatchObject({ height: 3 });
     expect(result.children[1].box).toMatchObject({ y: 3 });
   });
@@ -460,7 +465,7 @@ describe('wrapping', () => {
       box({ width: '5', height: '1' })
     );
 
-    const result = layout(tree, { height: 10, width: 25 });
+    const result = layoutTree(tree, { height: 10, width: 25 });
     expect(result.children[0].box).toMatchObject({ height: 1 });
     expect(result.children[1].box).toMatchObject({ y: 1 });
   });
@@ -506,7 +511,7 @@ describe('order', () => {
 
     // `result.children[i]` still answers for `node.children[i]`, whatever the
     // placement did -- otherwise nothing above can match a box to its element
-    const result = layout(tree, { height: 1, width: 4 });
+    const result = layoutTree(tree, { height: 1, width: 4 });
     expect(result.children[0].node).toBe(tree.children?.[0]);
     expect(result.children[0].box.x).toBe(2);
     expect(result.children[1].box.x).toBe(0);
@@ -546,7 +551,7 @@ describe('align-content', () => {
     );
 
   it('should stretch the lines to fill the cross space by default', () => {
-    const result = layout(wrapped({}), { height: 4, width: 4 });
+    const result = layoutTree(wrapped({}), { height: 4, width: 4 });
     // the *lines* share the four rows, two each, so the second starts halfway
     // down. The items keep their declared height -- stretching a line is not
     // stretching what is on it
@@ -561,23 +566,23 @@ describe('align-content', () => {
       box({ width: '3' }),
       box({ width: '3' })
     );
-    const result = layout(tall, { height: 4, width: 4 });
+    const result = layoutTree(tall, { height: 4, width: 4 });
     expect(result.children.map((child) => child.box.height)).toEqual([2, 2]);
   });
 
   it('should pack the lines at the start', () => {
-    const result = layout(wrapped({ 'align-content': 'flex-start' }), { height: 4, width: 4 });
+    const result = layoutTree(wrapped({ 'align-content': 'flex-start' }), { height: 4, width: 4 });
     expect(result.children[0].box.y).toBe(0);
     expect(result.children[1].box.y).toBe(1);
   });
 
   it('should pack the lines at the end', () => {
-    const result = layout(wrapped({ 'align-content': 'flex-end' }), { height: 4, width: 4 });
+    const result = layoutTree(wrapped({ 'align-content': 'flex-end' }), { height: 4, width: 4 });
     expect(result.children[1].box.y).toBe(3);
   });
 
   it('should center the lines', () => {
-    const result = layout(wrapped({ 'align-content': 'center' }), { height: 4, width: 4 });
+    const result = layoutTree(wrapped({ 'align-content': 'center' }), { height: 4, width: 4 });
     expect(result.children[0].box.y).toBe(1);
   });
 });
@@ -585,7 +590,7 @@ describe('align-content', () => {
 describe('box-sizing', () => {
   it('should take a declared width as the outer box by default', () => {
     const tree = box({ 'flex-direction': 'row' }, box({ width: '6', padding: '1', height: '3' }));
-    const result = layout(tree, { height: 3, width: 10 });
+    const result = layoutTree(tree, { height: 3, width: 10 });
     // six columns on screen, which is what `width: 6` means in a terminal
     expect(result.children[0].box.width).toBe(6);
     expect(result.children[0].content.width).toBe(4);
@@ -596,7 +601,7 @@ describe('box-sizing', () => {
       { 'flex-direction': 'row' },
       box({ width: '6', padding: '1', height: '3', 'box-sizing': 'content-box' })
     );
-    const result = layout(tree, { height: 3, width: 10 });
+    const result = layoutTree(tree, { height: 3, width: 10 });
     expect(result.children[0].box.width).toBe(8);
     expect(result.children[0].content.width).toBe(6);
   });
@@ -618,7 +623,7 @@ describe('nesting', () => {
 
   it('should give a child the space its parent padding left', () => {
     const tree = box({ padding: '2' }, box({ 'flex-grow': '1' }));
-    const result = layout(tree, { height: 6, width: 10 });
+    const result = layoutTree(tree, { height: 6, width: 10 });
     expect(result.children[0].box).toEqual({ height: 2, width: 6, x: 2, y: 2 });
   });
 });
@@ -626,18 +631,18 @@ describe('nesting', () => {
 describe('degenerate sizes', () => {
   it('should survive a canvas with no room', () => {
     const tree = box({ 'flex-direction': 'row' }, box({ width: '3', height: '1' }));
-    expect(() => layout(tree, { height: 0, width: 0 })).not.toThrow();
+    expect(() => layoutTree(tree, { height: 0, width: 0 })).not.toThrow();
   });
 
   it('should survive a box larger than the space it was given', () => {
     const tree = box({ 'flex-direction': 'row' }, box({ width: '100', height: '100' }));
-    const result = layout(tree, { height: 2, width: 4 });
+    const result = layoutTree(tree, { height: 2, width: 4 });
     expect(result.box).toEqual({ height: 2, width: 4, x: 0, y: 0 });
   });
 
   it('should never produce a negative size', () => {
     const tree = box({ padding: '5' }, box({ 'flex-grow': '1' }));
-    for (const region of boxes(layout(tree, { height: 2, width: 2 }))) {
+    for (const region of boxes(layoutTree(tree, { height: 2, width: 2 }))) {
       expect(region.width).toBeGreaterThanOrEqual(0);
       expect(region.height).toBeGreaterThanOrEqual(0);
     }
@@ -656,7 +661,7 @@ describe('invariants', () => {
       box({ 'min-width': '4', 'flex-grow': '0', height: '1' })
     );
 
-    const result = layout(tree, { height: 1, width: 10 });
+    const result = layoutTree(tree, { height: 1, width: 10 });
     expect(result.children.map((child) => child.box.width)).toEqual([6, 4]);
     checkInvariants(result);
   });
@@ -673,7 +678,7 @@ describe('invariants', () => {
       )
     );
 
-    const result = layout(tree, { height: 1, width: 40 });
+    const result = layoutTree(tree, { height: 1, width: 40 });
     expect(result.children[0].box.width).toBeGreaterThanOrEqual(6);
     checkInvariants(result);
   });
@@ -683,16 +688,16 @@ describe('invariants', () => {
     // one, so text in a column was crushed to a single row while the same text
     // in a row was correctly held at its longest word
     const tree = box({ 'flex-direction': 'column', width: '3' }, text('one two three'));
-    const result = layout(tree, { height: 1, width: 3 });
+    const result = layoutTree(tree, { height: 1, width: 3 });
     expect(result.children[0].box.height).toBeGreaterThan(1);
   });
 
   it('should honor a declared size on the node it was handed', () => {
     // every other node's declared size is resolved by its parent, and the root
-    // has no parent -- so `layout(panel, { width: 80 })` gave the panel eighty
+    // has no parent -- so `layoutTree(panel, { width: 80 })` gave the panel eighty
     // columns however wide it said it was
     const panel = box({ width: '5', height: '2', 'flex-direction': 'row' });
-    expect(layout(panel, { height: 10, width: 20 }).box).toEqual({
+    expect(layoutTree(panel, { height: 10, width: 20 }).box).toEqual({
       height: 2,
       width: 5,
       x: 0,
@@ -730,7 +735,7 @@ describe('invariants', () => {
         [10, 3],
         [40, 8],
       ]) {
-        const result = layout(tree, { height, width });
+        const result = layoutTree(tree, { height, width });
         expect(() => checkInvariants(result), `tree ${index} at ${width}x${height}`).not.toThrow();
       }
     }
@@ -744,8 +749,8 @@ describe('invariants', () => {
       box({ 'flex-grow': '2' })
     );
 
-    expect(boxes(layout(tree, { height: 3, width: 17 }))).toEqual(
-      boxes(layout(tree, { height: 3, width: 17 }))
+    expect(boxes(layoutTree(tree, { height: 3, width: 17 }))).toEqual(
+      boxes(layoutTree(tree, { height: 3, width: 17 }))
     );
   });
 });
@@ -762,7 +767,7 @@ describe('justify-content shares its remainder', () => {
   it('should keep space-evenly gaps within a cell of each other', () => {
     // seven cells over four slots used to give three gaps of one and a trailing
     // gap of four, because a constant `Math.floor()` cannot hold a remainder
-    const result = layout(three('space-evenly'), { height: 1, width: 10 });
+    const result = layoutTree(three('space-evenly'), { height: 1, width: 10 });
     const xs = result.children.map((child) => child.box.x);
     const gaps = [xs[0], xs[1] - xs[0] - 1, xs[2] - xs[1] - 1, 10 - xs[2] - 1];
     expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThanOrEqual(1);
@@ -778,7 +783,7 @@ describe('justify-content shares its remainder', () => {
       box({ width: '1', height: '1' }),
       box({ width: '1', height: '1' })
     );
-    const result = layout(tree, { height: 1, width: 14 });
+    const result = layoutTree(tree, { height: 1, width: 14 });
     const last = result.children[3].box;
     expect(last.x + last.width).toBe(14);
   });
@@ -817,7 +822,7 @@ describe('flexing from the basis', () => {
       box({ flex: '1', 'min-width': '6', height: '1' })
     );
 
-    expect(layout(tree, { height: 1, width: 20 }).children.map((c) => c.box.width)).toEqual([
+    expect(layoutTree(tree, { height: 1, width: 20 }).children.map((c) => c.box.width)).toEqual([
       10, 10,
     ]);
   });
@@ -830,7 +835,7 @@ describe('flexing from the basis', () => {
       box({ 'min-width': '4', 'flex-grow': '0', height: '1' })
     );
 
-    const result = layout(tree, { height: 1, width: 10 });
+    const result = layoutTree(tree, { height: 1, width: 10 });
     expect(result.children.map((c) => c.box.width)).toEqual([6, 4]);
     checkInvariants(result);
   });
@@ -845,7 +850,7 @@ describe('flexing from the basis', () => {
       box({ width: '8', height: '1' }, box({ width: '1', height: '1' }))
     );
 
-    const result = layout(tree, { height: 1, width: 10 });
+    const result = layoutTree(tree, { height: 1, width: 10 });
     expect(result.children.map((c) => c.box.width)).toEqual([5, 5]);
     checkInvariants(result);
   });
@@ -880,7 +885,7 @@ describe('reversed directions', () => {
       box({ width: '3', height: '1' })
     );
 
-    const result = layout(tree, { height: 4, width: 4 });
+    const result = layoutTree(tree, { height: 4, width: 4 });
     const ys = result.children.map((c) => c.box.y).sort((a, b) => a - b);
     expect(ys[1]).toBe(3);
   });
@@ -895,7 +900,7 @@ describe('align-content shares its remainder', () => {
       box({ width: '3', height: '1' })
     );
 
-    const result = layout(tree, { height: 8, width: 4 });
+    const result = layoutTree(tree, { height: 8, width: 4 });
     const last = result.children[2].box;
     expect(last.y + last.height).toBe(8);
   });
@@ -905,7 +910,7 @@ describe('measurement', () => {
   it('should not count a border twice when measuring an empty box', () => {
     // `declaredWidth` is already the border box, and the empty branch added the
     // insets again -- so a bordered `width: 17` measured nineteen
-    expect(measureNode(box({ width: '17', border: 'single', height: '3' }), 40)).toMatchObject({
+    expect(measureSubtree(box({ width: '17', border: 'single', height: '3' }), 40)).toMatchObject({
       height: 3,
       width: 17,
     });
@@ -913,7 +918,10 @@ describe('measurement', () => {
 
   it('should measure a content-box declaration as its outer size', () => {
     expect(
-      measureNode(box({ width: '10', height: '3', padding: '2', 'box-sizing': 'content-box' }), 40)
+      measureSubtree(
+        box({ width: '10', height: '3', padding: '2', 'box-sizing': 'content-box' }),
+        40
+      )
     ).toMatchObject({ height: 7, width: 14 });
   });
 
@@ -924,7 +932,7 @@ describe('measurement', () => {
       { 'flex-direction': 'row', 'align-items': 'flex-start' },
       box({ width: '6', height: '1', 'padding-left': '2', 'box-sizing': 'content-box' })
     );
-    expect(layout(tree, { height: 5, width: 20 }).children[0].box).toMatchObject({
+    expect(layoutTree(tree, { height: 5, width: 20 }).children[0].box).toMatchObject({
       height: 1,
       width: 8,
     });
@@ -940,7 +948,7 @@ describe('measurement', () => {
       text('eeee ffff gggg hhhh')
     );
 
-    const result = layout(tree, { height: 5, width: 20 });
+    const result = layoutTree(tree, { height: 5, width: 20 });
     expect(result.children.map((c) => c.box.height)).toEqual([2, 2]);
   });
 
@@ -954,7 +962,7 @@ describe('measurement', () => {
       text('one two three four five six', { 'max-width': '6' })
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].box).toMatchObject({ height: 6, width: 6 });
     checkInvariants(result);
   });
@@ -968,7 +976,7 @@ describe('measurement', () => {
       box({ 'flex-direction': 'column' }, text('one two three four five six', { 'max-width': '6' }))
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].box.height).toBe(6);
     checkInvariants(result);
   });
@@ -986,7 +994,7 @@ describe('measurement', () => {
       text('one two three four five six', { 'max-width': '6', width: '10' })
     );
 
-    expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+    expect(layoutTree(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
       height: 6,
       width: 6,
     });
@@ -1003,7 +1011,7 @@ describe('measurement', () => {
       text('aa bb cc', { 'margin-left': '4', width: '50%' })
     );
 
-    expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+    expect(layoutTree(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
       height: 1,
       width: 10,
     });
@@ -1030,7 +1038,7 @@ describe('measurement', () => {
       )
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].box).toMatchObject({ height: 4, width: 18 });
     expect(result.children[0].children[0].box).toMatchObject({ height: 4, width: 9 });
     checkInvariants(result);
@@ -1046,7 +1054,7 @@ describe('measurement', () => {
       box({ 'flex-direction': 'column' }, text('aa bb', { width: '10' }))
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].box.width).toBe(10);
     checkInvariants(result);
   });
@@ -1061,7 +1069,7 @@ describe('measurement', () => {
       text('one two three four five six', { 'max-width': '6' })
     );
 
-    expect(layout(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
+    expect(layoutTree(tree, { height: 10, width: 20 }).children[0].box).toMatchObject({
       height: 6,
       width: 6,
     });
@@ -1076,7 +1084,7 @@ describe('wrapping counts margins', () => {
       box({ width: '5', height: '1', 'margin-left': '2', 'flex-shrink': '0' })
     );
 
-    const result = layout(tree, { height: 4, width: 10 });
+    const result = layoutTree(tree, { height: 4, width: 10 });
     // on a second line, wherever `align-content` put it -- the point is that
     // seven and seven do not share a ten-wide line
     expect(result.children[1].box.y).toBeGreaterThan(0);
@@ -1094,7 +1102,7 @@ describe('a line is as tall as its items can be', () => {
       box({ width: '6', height: '2' })
     );
 
-    checkInvariants(layout(tree, { height: 10, width: 6 }));
+    checkInvariants(layoutTree(tree, { height: 10, width: 6 }));
   });
 });
 
@@ -1105,7 +1113,7 @@ describe('the same node used twice', () => {
     const shared = box({ width: '2', height: '1' });
     const tree = box({ 'flex-direction': 'row' }, shared, box({ width: '1', height: '1' }), shared);
 
-    const result = layout(tree, { height: 1, width: 8 });
+    const result = layoutTree(tree, { height: 1, width: 8 });
     expect(result.children).toHaveLength(3);
     expect(result.children.map((c) => c.box.x)).toEqual([0, 2, 3]);
   });
@@ -1134,7 +1142,7 @@ describe('the measure cache is keyed on everything that changes an answer', () =
       box({ 'flex-direction': 'column' }, shared)
     );
 
-    const result = layout(tree, { height: 10, width: 40 });
+    const result = layoutTree(tree, { height: 10, width: 40 });
     expect(result.children[0].box).toMatchObject({ height: 6, width: 6 });
     expect(result.children[1].box).toMatchObject({ height: 6, width: 5 });
   });
@@ -1155,7 +1163,7 @@ describe('the measure cache is keyed on everything that changes an answer', () =
       )
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].box).toMatchObject({ height: 3, width: 20 });
     expect(result.children[0].children[0].box).toMatchObject({ height: 3, width: 10 });
     checkInvariants(result);
@@ -1180,7 +1188,7 @@ describe('the measure cache is keyed on everything that changes an answer', () =
       )
     );
 
-    const result = layout(tree, { height: 10, width: 40 });
+    const result = layoutTree(tree, { height: 10, width: 40 });
     const [wide, fixed] = result.children[0].children;
     expect(wide.box).toMatchObject({ height: 2, width: 20, x: 0 });
     expect(fixed.box).toMatchObject({ height: 1, width: 20, x: 20 });
@@ -1203,7 +1211,7 @@ describe('the measure cache is keyed on everything that changes an answer', () =
       box({ 'flex-direction': 'row', width: '20' }, shared)
     );
 
-    const result = layout(tree, { height: 10, width: 20 });
+    const result = layoutTree(tree, { height: 10, width: 20 });
     expect(result.children[0].children[0].box).toMatchObject({ height: 2, width: 10 });
     expect(result.children[1].children[0].box).toMatchObject({ height: 1, width: 18 });
     expect(result.children[1].box.height).toBe(1);
@@ -1212,18 +1220,18 @@ describe('the measure cache is keyed on everything that changes an answer', () =
 
 describe('percentage sizes round per box', () => {
   it('should round each box on its own, so two 50% siblings ask for more than there is', () => {
-    // `resolve()` rounds a percentage rather than truncating it, and it rounds
+    // `resolveLength()` rounds a percentage rather than truncating it, and it rounds
     // one box at a time: 50% of five is 2.5 twice, and each answers 3. Nothing
-    // here is a partition to hand out, so `distribute()` is not what this is --
+    // here is a partition to hand out, so `distributeCells()` is not what this is --
     // the row is put back to exactly full by the shrink pass, which *is*
-    // `distribute()`, and 3 + 3 becomes 3 + 2
+    // `distributeCells()`, and 3 + 3 becomes 3 + 2
     const tree = box(
       { 'flex-direction': 'row' },
       box({ height: '1', width: '50%' }),
       box({ height: '1', width: '50%' })
     );
 
-    const result = layout(tree, { height: 1, width: 5 });
+    const result = layoutTree(tree, { height: 1, width: 5 });
     expect(result.children.map((c) => c.box.width)).toEqual([3, 2]);
     checkInvariants(result);
   });
@@ -1238,7 +1246,7 @@ describe('percentage sizes round per box', () => {
       box({ 'flex-shrink': '0', height: '1', width: '50%' })
     );
 
-    const result = layout(tree, { height: 1, width: 5 });
+    const result = layoutTree(tree, { height: 1, width: 5 });
     expect(result.children.map((c) => c.box.width)).toEqual([3, 3]);
     expect(() => checkInvariants(result)).toThrow(/escapes content/);
   });
@@ -1255,8 +1263,8 @@ describe('percentage sizes round per box', () => {
       box({ 'flex-shrink': '0', height: '1', width: '10%' })
     );
 
-    expect(layout(half, { height: 1, width: 5 }).children[0].box.width).toBe(3);
-    expect(layout(tenth, { height: 1, width: 5 }).children[0].box.width).toBe(1);
+    expect(layoutTree(half, { height: 1, width: 5 }).children[0].box.width).toBe(3);
+    expect(layoutTree(tenth, { height: 1, width: 5 }).children[0].box.width).toBe(1);
   });
 });
 
@@ -1270,7 +1278,7 @@ describe('percentage margins', () => {
       box({ height: '2', 'margin-top': '50%' })
     );
 
-    expect(layout(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
+    expect(layoutTree(tree, { height: 20, width: 10 }).children[0].box.y).toBe(5);
   });
 });
 
@@ -1297,7 +1305,7 @@ describe('position: relative', () => {
       box({ width: '2', height: '1' })
     );
 
-    const result = layout(tree, { height: 3, width: 10 });
+    const result = layoutTree(tree, { height: 3, width: 10 });
     expect(result.children[0].box).toMatchObject({ x: 3, y: 1 });
     expect(result.children[1].box).toMatchObject({ x: 2, y: 0 });
   });
@@ -1310,8 +1318,8 @@ describe('position: relative', () => {
     // box somewhere else rather than to the same place by arithmetic accident
     const child = { height: '1', left: '1', position: 'relative', top: '2', width: '2' };
     const at = (direction: string) =>
-      layout(box({ 'flex-direction': direction }, box(child)), { height: 3, width: 10 }).children[0]
-        .box;
+      layoutTree(box({ 'flex-direction': direction }, box(child)), { height: 3, width: 10 })
+        .children[0].box;
 
     // the flow puts each of these somewhere different, and every one of them
     // then moves one cell right and two cells down from wherever that was
@@ -1325,7 +1333,7 @@ describe('position: relative', () => {
     // what CSS does, and the reason `position` starts at `static`: a stray
     // `top` in a stylesheet moves nothing until something says it may
     const tree = box({ 'flex-direction': 'row' }, box({ top: '2', left: '2', width: '3' }));
-    expect(layout(tree, { height: 3, width: 10 }).children[0].box).toEqual({
+    expect(layoutTree(tree, { height: 3, width: 10 }).children[0].box).toEqual({
       height: 3,
       width: 3,
       x: 0,
@@ -1341,7 +1349,7 @@ describe('position: relative', () => {
       box({ position: 'relative', bottom: '1', right: '1', width: '2', height: '1' })
     );
 
-    expect(layout(tree, { height: 6, width: 8 }).children[0].box).toEqual({
+    expect(layoutTree(tree, { height: 6, width: 8 }).children[0].box).toEqual({
       height: 1,
       width: 2,
       x: 1,
@@ -1357,7 +1365,7 @@ describe('position: relative', () => {
       box({ position: 'relative', top: '2', bottom: '1', left: '2', right: '1', width: '2' })
     );
 
-    const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+    const { box: placed } = layoutTree(tree, { height: 4, width: 10 }).children[0];
     expect(placed.x).toBe(2);
     expect(placed.y).toBe(2);
   });
@@ -1370,7 +1378,7 @@ describe('position: relative', () => {
       box({ position: 'relative', top: '0', bottom: '2', left: '0', right: '2', height: '1' })
     );
 
-    const { box: placed } = layout(tree, { height: 6, width: 8 }).children[0];
+    const { box: placed } = layoutTree(tree, { height: 6, width: 8 }).children[0];
     expect(placed.x).toBe(2);
     expect(placed.y).toBe(2);
   });
@@ -1383,7 +1391,7 @@ describe('position: relative', () => {
       box({ position: 'relative', top: '50%', left: '50%', width: '2', height: '1' })
     );
 
-    const { box: placed } = layout(tree, { height: 4, width: 10 }).children[0];
+    const { box: placed } = layoutTree(tree, { height: 4, width: 10 }).children[0];
     expect(placed.x).toBe(5);
     expect(placed.y).toBe(2);
   });
@@ -1398,7 +1406,7 @@ describe('position: relative', () => {
 
     // twelve wide, four of that border and padding, so the containing block is
     // eight and half of it is four -- against the border box it would be six
-    const { box: placed } = layout(tree, { height: 5, width: 12 }).children[0];
+    const { box: placed } = layoutTree(tree, { height: 5, width: 12 }).children[0];
     expect(placed.x).toBe(2 + 4);
   });
 
@@ -1413,7 +1421,7 @@ describe('position: relative', () => {
       )
     );
 
-    const result = layout(tree, { height: 5, width: 10 });
+    const result = layoutTree(tree, { height: 5, width: 10 });
     expect(result.children[0].box).toMatchObject({ x: 1, y: 1 });
     // one for the offset and one for the padding, where an unmoved box would
     // have put it at (1, 1)
@@ -1424,7 +1432,7 @@ describe('position: relative', () => {
     // every other node's offset is applied by the parent that places it, and
     // the root has no parent -- the same gap its declared size had
     const root = box({ position: 'relative', top: '1', left: '1', width: '2', height: '1' });
-    expect(layout(root, { height: 4, width: 10 }).box).toEqual({
+    expect(layoutTree(root, { height: 4, width: 10 }).box).toEqual({
       height: 1,
       width: 2,
       x: 1,
@@ -1442,7 +1450,7 @@ describe('position: relative', () => {
       box({ position: 'relative', left: '-4', top: '1', width: '4', height: '2' })
     );
 
-    const result = layout(tree, { height: 4, width: 10 });
+    const result = layoutTree(tree, { height: 4, width: 10 });
     // the overlap is asserted rather than assumed: an exemption that is never
     // exercised would pass this test with the offset never applied at all
     expect(result.children[1].box).toEqual({ height: 2, width: 4, x: 0, y: 1 });
@@ -1462,7 +1470,7 @@ describe('position: relative', () => {
       );
 
       expect(
-        () => checkInvariants(layout(tree, { height: 1, width: 10 })),
+        () => checkInvariants(layoutTree(tree, { height: 1, width: 10 })),
         JSON.stringify(declared)
       ).toThrow(/escapes/);
     }
@@ -1483,7 +1491,7 @@ describe('min and max are applied once, by whoever sized the node', () => {
     );
 
     expect(picture(tree, 10, 2)).toBe(['bbbbbccccc', 'bbbbbccccc'].join('\n'));
-    checkInvariants(layout(tree, { height: 2, width: 10 }));
+    checkInvariants(layoutTree(tree, { height: 2, width: 10 }));
   });
 
   it('should resolve a cross-axis maximum against the containing block', () => {
@@ -1509,7 +1517,7 @@ describe('min and max are applied once, by whoever sized the node', () => {
     expect(picture(tree, 3, 8)).toBe(
       ['bbb', 'bbb', 'bbb', 'bbb', 'ccc', 'ccc', 'ccc', 'ccc'].join('\n')
     );
-    checkInvariants(layout(tree, { height: 8, width: 3 }));
+    checkInvariants(layoutTree(tree, { height: 8, width: 3 }));
   });
 
   it('should resolve the root against the space it was given', () => {
@@ -1517,7 +1525,7 @@ describe('min and max are applied once, by whoever sized the node', () => {
     // its own declaration asked for, which is what the second resolution read
     const panel = box({ width: '20', 'max-width': '50%', height: '2' });
 
-    expect(layout(panel, { height: 4, width: 40 }).box.width).toBe(20);
+    expect(layoutTree(panel, { height: 4, width: 40 }).box.width).toBe(20);
   });
 
   it('should resolve a nested percentage against its own parent', () => {
@@ -1530,20 +1538,20 @@ describe('min and max are applied once, by whoever sized the node', () => {
       )
     );
 
-    const result = layout(tree, { height: 1, width: 40 });
+    const result = layoutTree(tree, { height: 1, width: 40 });
     expect(result.children[0].box.width).toBe(20);
     expect(result.children[0].children[0].box.width).toBe(10);
   });
 
   it('should not measure the root at the width its own limits clamped it to', () => {
-    // moving the root's clamp into `layout()` made it tempting to measure at the
+    // moving the root's clamp into `layoutTree()` made it tempting to measure at the
     // clamped width, and `measure()` reads the node's own `width` back off that
     // argument: `50%` of the eight the `max-width` left it is four, so the text
     // wrapped six rows deep inside a box eight columns wide. Two rows is what it
     // needs at eight, and what measuring at the declared twenty also gives
     const root = text('aa bb cc dd ee ff', { width: '50%', 'max-width': '8' });
 
-    expect(layout(root, { width: 40 }).box).toEqual({ height: 2, width: 8, x: 0, y: 0 });
+    expect(layoutTree(root, { width: 40 }).box).toEqual({ height: 2, width: 8, x: 0, y: 0 });
   });
 
   it('should not re-clamp a size against an automatic minimum it cannot see', () => {
@@ -1561,7 +1569,7 @@ describe('min and max are applied once, by whoever sized the node', () => {
     expect(picture(tree, 5, 6)).toBe(
       ['bbbbb', 'bbbbb', 'bbbbb', 'ccccc', 'aaaaa', 'aaaaa'].join('\n')
     );
-    checkInvariants(layout(tree, { height: 6, width: 5 }));
+    checkInvariants(layoutTree(tree, { height: 6, width: 5 }));
   });
 });
 
@@ -1582,7 +1590,7 @@ describe('a wrapped line is as tall as its text turned out to be', () => {
     expect(picture(tree, 11, 4)).toBe(
       ['bbbbbbaaaaa', 'bbbbbbaaaaa', 'ccccccaaaaa', 'aaaaaaaaaaa'].join('\n')
     );
-    checkInvariants(layout(tree, { height: 4, width: 11 }));
+    checkInvariants(layoutTree(tree, { height: 4, width: 11 }));
   });
 
   it('should still let a stretched line grow a text to fill it', () => {
@@ -1595,8 +1603,8 @@ describe('a wrapped line is as tall as its text turned out to be', () => {
       text('hello there world', { 'flex-basis': '5' })
     );
 
-    expect(layout(tree, { height: 6, width: 11 }).children[0].box.height).toBe(6);
-    expect(layout(tree, { height: 1, width: 11 }).children[0].box.height).toBe(3);
+    expect(layoutTree(tree, { height: 6, width: 11 }).children[0].box.height).toBe(6);
+    expect(layoutTree(tree, { height: 1, width: 11 }).children[0].box.height).toBe(3);
   });
 });
 
@@ -1616,8 +1624,8 @@ describe('a row is as tall as the widths flexing hands out', () => {
   it('should measure the row at the height its own placement comes to', () => {
     // the claim in one line: what the measure says and what the layout does are
     // the same number. It said two
-    expect(measureNode(labelAndDescription(), 20).height).toBe(3);
-    expect(layout(labelAndDescription(), { width: 20 }).children[1].box.height).toBe(3);
+    expect(measureSubtree(labelAndDescription(), 20).height).toBe(3);
+    expect(layoutTree(labelAndDescription(), { width: 20 }).children[1].box.height).toBe(3);
   });
 
   it('should give the block after it the rows it was promised', () => {
@@ -1634,7 +1642,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
         'eeeeeeeeeeeeeeeeeee',
       ].join('\n')
     );
-    checkInvariants(layout(tree, { height: 4, width: 19 }));
+    checkInvariants(layoutTree(tree, { height: 4, width: 19 }));
   });
 
   it('should not draw through a border it is inside', () => {
@@ -1642,8 +1650,8 @@ describe('a row is as tall as the widths flexing hands out', () => {
     // this measure, so the third line was drawn over the bottom border
     const tree = box({ border: 'single' }, labelAndDescription());
 
-    expect(layout(tree, { width: 24 }).box.height).toBe(5);
-    checkInvariants(layout(tree, { height: 5, width: 24 }));
+    expect(layoutTree(tree, { width: 24 }).box.height).toBe(5);
+    checkInvariants(layoutTree(tree, { height: 5, width: 24 }));
   });
 
   it('should re-measure an item whose basis was its own content', () => {
@@ -1660,15 +1668,15 @@ describe('a row is as tall as the widths flexing hands out', () => {
 
     // each text is one line at twenty and two lines at the ten flexing gives it, so
     // the row is two rows and `after` starts on the third
-    expect(measureNode(tree, 20).height).toBe(3);
+    expect(measureSubtree(tree, 20).height).toBe(3);
     // and the row itself reports two rows as its *minimum* as well as its height.
     // It reported one: the minimum was read at the pre-flex width, where each text
     // is a single line, so a column parent -- which clamps a child's basis up to
     // its automatic minimum and no further -- squeezed the row to one row around
     // two rows of text
-    expect(measureNode(inner(), 20)).toMatchObject({ height: 2, minHeight: 2 });
+    expect(measureSubtree(inner(), 20)).toMatchObject({ height: 2, minHeight: 2 });
     expect(
-      layout(box({ 'flex-direction': 'column', height: '1', width: '20' }, inner()), {
+      layoutTree(box({ 'flex-direction': 'column', height: '1', width: '20' }, inner()), {
         height: 1,
         width: 20,
       }).children[0].box.height
@@ -1676,7 +1684,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
     expect(picture(tree, 19, 3)).toBe(
       ['ccccccccccddddddddd', 'ccccccccccddddddddd', 'eeeeeeeeeeeeeeeeeee'].join('\n')
     );
-    checkInvariants(layout(tree, { height: 3, width: 19 }));
+    checkInvariants(layoutTree(tree, { height: 3, width: 19 }));
   });
 
   it('should re-measure every item on a line, not just the first two', () => {
@@ -1697,8 +1705,8 @@ describe('a row is as tall as the widths flexing hands out', () => {
 
     // the middle text gets eighteen of twenty-two and wraps to three rows there,
     // where the whole content box would have been two
-    expect(measureNode(tree(), 22)).toMatchObject({ height: 3, minHeight: 3 });
-    expect(layout(tree(), { width: 22 }).children[1].box.height).toBe(3);
+    expect(measureSubtree(tree(), 22)).toMatchObject({ height: 3, minHeight: 3 });
+    expect(layoutTree(tree(), { width: 22 }).children[1].box.height).toBe(3);
   });
 
   it('should keep a one-line wrapping row squeezable', () => {
@@ -1715,7 +1723,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
       text('c')
     );
 
-    expect(measureNode(tree, 20)).toMatchObject({ height: 5, minHeight: 2 });
+    expect(measureSubtree(tree, 20)).toMatchObject({ height: 5, minHeight: 2 });
   });
 
   it('should not let a multi-line wrapping row claim it can be one line tall', () => {
@@ -1732,8 +1740,8 @@ describe('a row is as tall as the widths flexing hands out', () => {
       text('cc', { 'flex-basis': '5' })
     );
 
-    expect(measureNode(tree, 11)).toMatchObject({ height: 2, minHeight: 2 });
-    expect(measureNode(tree, 5)).toMatchObject({ height: 3, minHeight: 3 });
+    expect(measureSubtree(tree, 11)).toMatchObject({ height: 2, minHeight: 2 });
+    expect(measureSubtree(tree, 5)).toMatchObject({ height: 3, minHeight: 3 });
   });
 
   it('should size a wrapping row from the lines it really packs into', () => {
@@ -1743,7 +1751,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
     // after it started inside it.
     //
     // The height is asserted as a number rather than against
-    // `layout(...).box.height`, which would say nothing: `layout()` takes the
+    // `layoutTree(...).box.height`, which would say nothing: `layoutTree()` takes the
     // root's height from this very measure when the caller names none, so the two
     // are equal by construction whatever the measure said. The picture is what
     // shows the second line landing below the first rather than on it
@@ -1757,9 +1765,9 @@ describe('a row is as tall as the widths flexing hands out', () => {
 
     // the first two items grow to five and six and wrap to two rows each; the
     // third takes a line of its own
-    expect(measureNode(tree(), 11).height).toBe(3);
+    expect(measureSubtree(tree(), 11).height).toBe(3);
     expect(picture(tree(), 11, 3)).toBe(['bbbbbcccccc', 'bbbbbcccccc', 'ddddddddddd'].join('\n'));
-    checkInvariants(layout(tree(), { width: 11 }));
+    checkInvariants(layoutTree(tree(), { width: 11 }));
   });
 
   it('should honour a max-height the placement honours rather than measuring past it', () => {
@@ -1770,7 +1778,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
     const tree = () =>
       box({ 'flex-direction': 'row' }, text('one two three four five six', { 'max-height': '1' }));
 
-    expect(measureNode(tree(), 6)).toMatchObject({ height: 1, minHeight: 1 });
+    expect(measureSubtree(tree(), 6)).toMatchObject({ height: 1, minHeight: 1 });
 
     // and the minimum is asserted beside the height rather than left implicit,
     // because the height alone is not the answer anything downstream reads: a
@@ -1779,7 +1787,7 @@ describe('a row is as tall as the widths flexing hands out', () => {
     // said one. That is the defect this whole block is about, reintroduced one
     // number along
     const column = box({ 'flex-direction': 'column', width: '6' }, tree(), text('after'));
-    const placed = layout(column, { width: 6 });
+    const placed = layoutTree(column, { width: 6 });
     expect(placed.children[0].box.height).toBe(1);
     expect(placed.children[1].box.y).toBe(1);
   });
@@ -1796,11 +1804,12 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
   it('should read a flex-basis the placement will read', () => {
     // zero, because an empty box measures nothing and the basis was never asked
     // about. The placement gives that child forty
-    expect(measureNode(row({ 'flex-basis': '40' }), 100).width).toBe(40);
+    expect(measureSubtree(row({ 'flex-basis': '40' }), 100).width).toBe(40);
     // and the same with content in it, which is the shape that says the loop is
     // reading the content rather than merely missing an empty child: it said two
     expect(
-      measureNode(row({ 'flex-basis': '40' }, text('hi', { 'white-space': 'nowrap' })), 100).width
+      measureSubtree(row({ 'flex-basis': '40' }, text('hi', { 'white-space': 'nowrap' })), 100)
+        .width
     ).toBe(40);
   });
 
@@ -1813,7 +1822,7 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
       { 'align-items': 'flex-start', 'flex-direction': 'column' },
       row({ 'flex-basis': '40', height: '1' })
     );
-    const placed = layout(tree, { height: 3, width: 100 });
+    const placed = layoutTree(tree, { height: 3, width: 100 });
 
     expect(placed.children[0].box.width).toBe(40);
     expect(placed.children[0].children[0].box.width).toBe(40);
@@ -1828,8 +1837,8 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
       row({ 'flex-basis': '40', 'flex-shrink': '0', height: '1' })
     );
 
-    expect(layout(tree, { height: 3, width: 100 }).children[0].box.width).toBe(40);
-    checkInvariants(layout(tree, { height: 3, width: 100 }));
+    expect(layoutTree(tree, { height: 3, width: 100 }).children[0].box.width).toBe(40);
+    checkInvariants(layoutTree(tree, { height: 3, width: 100 }));
   });
 
   it('should floor a frozen child in the minimum as well as in the width', () => {
@@ -1841,9 +1850,9 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     // minimum is read
     const inner = () => row({ 'flex-basis': '40', 'flex-shrink': '0', height: '1' });
 
-    expect(measureNode(inner(), 100)).toMatchObject({ minWidth: 40, width: 40 });
+    expect(measureSubtree(inner(), 100)).toMatchObject({ minWidth: 40, width: 40 });
 
-    const squeezed = layout(
+    const squeezed = layoutTree(
       box({ 'flex-direction': 'row', 'flex-wrap': 'nowrap', width: '10' }, inner()),
       { height: 3, width: 10 }
     );
@@ -1858,15 +1867,15 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     // does not get a say in
     const inner = () => row({ 'min-width': '0' }, text('supercalifragilistic'));
 
-    expect(measureNode(inner(), 100)).toMatchObject({ minWidth: 0, width: 20 });
+    expect(measureSubtree(inner(), 100)).toMatchObject({ minWidth: 0, width: 20 });
 
     // what the lie cost: the row reported a minimum of twenty, so a ten-wide
     // parent placed it twenty wide rather than at the ten its child had said it
     // could take
     const tree = box({ 'flex-direction': 'row', 'flex-wrap': 'nowrap', width: '10' }, inner());
-    const placed = layout(tree, { height: 6, width: 10 });
+    const placed = layoutTree(tree, { height: 6, width: 10 });
     expect(placed.children[0].box.width).toBe(10);
-    checkInvariants(layout(tree, { height: 6, width: 10 }), { overflow: true });
+    checkInvariants(layoutTree(tree, { height: 6, width: 10 }), { overflow: true });
   });
 
   it('should floor a growable item under its own basis', () => {
@@ -1877,9 +1886,9 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     // two ways to reach one bug
     const tree = () => row({ 'flex-basis': '40', 'flex-grow': '1', height: '1' });
 
-    expect(measureNode(tree(), 100).width).toBe(40);
+    expect(measureSubtree(tree(), 100).width).toBe(40);
 
-    const placed = layout(
+    const placed = layoutTree(
       box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
       { height: 3, width: 100 }
     );
@@ -1900,9 +1909,9 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
         text('supercalifragilistic', { 'white-space': 'nowrap' })
       );
 
-    expect(measureNode(tree(), 100).width).toBe(5);
+    expect(measureSubtree(tree(), 100).width).toBe(5);
 
-    const placed = layout(
+    const placed = layoutTree(
       box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
       { height: 3, width: 100 }
     );
@@ -1923,9 +1932,9 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
         text('supercalifragilistic', { 'white-space': 'nowrap' })
       );
 
-    expect(measureNode(tree(), 100).width).toBe(10);
+    expect(measureSubtree(tree(), 100).width).toBe(10);
 
-    const placed = layout(
+    const placed = layoutTree(
       box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()),
       { height: 3, width: 100 }
     );
@@ -1934,7 +1943,7 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     // string in the ten columns `max-width` clamps its box to is what
     // `text-overflow` is for, and the box being ten is the assertion above
     checkInvariants(
-      layout(box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()), {
+      layoutTree(box({ 'align-items': 'flex-start', 'flex-direction': 'column' }, tree()), {
         height: 3,
         width: 100,
       }),
@@ -1948,11 +1957,11 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
     // the width its own limits clamp it to, so the measured width is already
     // inside the max; and where the content cannot shrink that far -- a long word
     // -- `min` beats `max`, which is CSS. Both spellings measure what they place
-    expect(measureNode(row({ 'max-width': '10' }, text('aa bb cc dd ee ff gg')), 100).width).toBe(
-      8
-    );
     expect(
-      measureNode(
+      measureSubtree(row({ 'max-width': '10' }, text('aa bb cc dd ee ff gg')), 100).width
+    ).toBe(8);
+    expect(
+      measureSubtree(
         row({ 'max-width': '10' }, text('supercalifragilistic', { 'white-space': 'nowrap' })),
         100
       ).width
@@ -1968,7 +1977,7 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
       box({ 'flex-basis': '10' })
     );
 
-    expect(measureNode(tree, 100).width).toBe(23);
+    expect(measureSubtree(tree, 100).width).toBe(23);
   });
 
   it('should count a margin the way the line does', () => {
@@ -1980,7 +1989,7 @@ describe('a nowrap row is as wide as the basis its children flex from', () => {
       box({ 'flex-basis': '10', margin: '0 2' })
     );
 
-    expect(measureNode(tree, 100).width).toBe(14);
+    expect(measureSubtree(tree, 100).width).toBe(14);
   });
 });
 
@@ -1996,10 +2005,12 @@ describe('an auto-height column is as tall as the basis its children flex from',
 
   it('should read a flex-basis the placement will read', () => {
     expect(
-      measureNode(column({ 'flex-basis': '3', 'flex-shrink': '0' }, text('a')), 10).height
+      measureSubtree(column({ 'flex-basis': '3', 'flex-shrink': '0' }, text('a')), 10).height
     ).toBe(3);
     // the same size said as a height, which is what the measure already knew
-    expect(measureNode(column({ height: '3', 'flex-shrink': '0' }, text('a')), 10).height).toBe(3);
+    expect(measureSubtree(column({ height: '3', 'flex-shrink': '0' }, text('a')), 10).height).toBe(
+      3
+    );
   });
 
   it('should draw the column the height its child is placed at', () => {
@@ -2014,7 +2025,7 @@ describe('an auto-height column is as tall as the basis its children flex from',
         box({ 'flex-grow': '1', width: '4' }, text('b'))
       )
     );
-    const placed = layout(tree, { height: 8, width: 8 });
+    const placed = layoutTree(tree, { height: 8, width: 8 });
 
     const column = placed.children[0];
 
@@ -2027,7 +2038,7 @@ describe('an auto-height column is as tall as the basis its children flex from',
 
   it('should floor a growable item under its own basis', () => {
     expect(
-      measureNode(
+      measureSubtree(
         column({ 'flex-basis': '3', 'flex-grow': '1', 'flex-shrink': '0' }, text('a')),
         10
       ).height
@@ -2041,7 +2052,7 @@ describe('an auto-height column is as tall as the basis its children flex from',
       text('a\nb\nc')
     );
 
-    expect(measureNode(tree, 10).height).toBe(1);
+    expect(measureSubtree(tree, 10).height).toBe(1);
   });
 
   it('should honour a max-height the placement honours rather than measuring past it', () => {
@@ -2052,9 +2063,9 @@ describe('an auto-height column is as tall as the basis its children flex from',
     // old arithmetic and this one agree on every box
     const tree = column({ height: '13', 'max-height': '2', 'flex-shrink': '0' });
 
-    expect(measureNode(tree, 10).height).toBe(2);
+    expect(measureSubtree(tree, 10).height).toBe(2);
     expect(
-      layout(box({}, tree), { height: 20, width: 10 }).children[0].children[0].box.height
+      layoutTree(box({}, tree), { height: 20, width: 10 }).children[0].children[0].box.height
     ).toBe(2);
   });
 
@@ -2065,6 +2076,6 @@ describe('an auto-height column is as tall as the basis its children flex from',
       box({ 'flex-basis': '4', 'flex-shrink': '0' })
     );
 
-    expect(measureNode(tree, 10).height).toBe(9);
+    expect(measureSubtree(tree, 10).height).toBe(9);
   });
 });

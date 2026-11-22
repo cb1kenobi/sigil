@@ -1092,15 +1092,15 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   help: [360, 184_164],
   i18n: [8, 3_979],
   'i18n-keys': [18, 9_446],
+  // SIG-324: a `commands.json` is read with the config module's JSONC reader,
+  // which brings `__` and the debug logger with it -- 2,604 B over two before
+  'internal/routes': [22, 10_979],
   'jsx-dev-runtime': [336, 170_545],
   'jsx-runtime': [336, 170_311],
   layout: [26, 13_269],
   paths: [4, 1_855],
   reference: [82, 41_961],
   renderer: [328, 166_513],
-  // SIG-324: a `commands.json` is read with the config module's JSONC reader,
-  // which brings `__` and the debug logger with it -- 2,604 B over two before
-  routes: [22, 10_979],
   signals: [14, 6_776],
   style: [148, 75_603],
   template: [340, 174_120],

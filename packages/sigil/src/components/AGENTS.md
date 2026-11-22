@@ -3076,7 +3076,7 @@ it is a component rather than the frame effect SIG-103 is.
   the right answer for the caller, since what it rendered really did change, and
   it means such a caller runs again on every tick while the text resolves. Nothing
   in the library is one: `mountLive()` goes through `render()`, and the pane's
-  `measureNode()` is called from its handlers. The one-element view called `setText()`,
+  `measureSubtree()` is called from its handlers. The one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a
@@ -5483,7 +5483,7 @@ owns its own edge. `paneControl(host)` is its handle.
   `flex-grow: 1; flex-shrink: 0` box beside a 10-cell pane in 40 columns was drawn at
   30, the pane could not get past 10, and every shrink was one it could not undo.
   Such a box claims `basisOf()` instead -- a `flex-basis` in cells, else what
-  `measureNode()` reports -- and not nothing, which was the other fix on offer: it
+  `measureSubtree()` reports -- and not nothing, which was the other fix on offer: it
   cannot shrink below that, so claiming nothing let a size the app set push it off
   the screen. Review of #350 found it.
 - **The size state is the app's and is not clamped in place.** `min` and `max` clamp
@@ -5553,7 +5553,7 @@ owns its own edge. `paneControl(host)` is its handle.
   neighbour a drag cannot satisfy leaves the pane where it was.
 
   That least is `minimumOf()`: a declared `min-width` or `min-height`, else the
-  automatic minimum `measureNode()` reports for its content. Assuming it could give up
+  automatic minimum `measureSubtree()` reports for its content. Assuming it could give up
   everything -- the first version -- let a pane take cells from a box holding a
   `nowrap` word until the word pushed every later sibling off the screen. And what it
   has to give is worked out from the pair: the cells the two shared when the layout

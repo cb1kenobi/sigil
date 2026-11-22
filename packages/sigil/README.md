@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`, `layout`
 
 ---
 
@@ -2783,6 +2783,49 @@ A name that nearly spells a hook is refused rather than treated as a style
 property: `on-key`, `onkey` and the like say which name to write, and any other
 `on`-prefixed name given a function (`onClick=${fn}`) is "not an event this
 element has". No style property starts with `on`.
+
+### `sigil/layout`
+
+The flexbox subset the renderer lays a tree out with, over whole cells, on its own.
+It takes a `LayoutNode` -- a `style`, optional `children`, and an optional `measure`
+for content that is not made of children, text almost always -- and not an element,
+so it runs with no terminal, no renderer and no signals: lay a tree out, read the
+boxes back. The element tree satisfies `LayoutNode`, and so does an object literal.
+
+```js
+import { layoutTree } from '@ttylabs/sigil/layout';
+import { declare } from '@ttylabs/sigil/style';
+
+const tree = {
+  style: declare({ 'flex-direction': 'row', gap: '1' }),
+  children: [{ style: declare({ width: '10' }) }, { style: declare({ 'flex-grow': '1' }) }],
+};
+
+const result = layoutTree(tree, { width: 40, height: 3 });
+result.children[1].box; // { x: 11, y: 0, width: 29, height: 3 }
+```
+
+| Export                                 | What it does                                                                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `layoutTree(root, { width, height? })` | Lays the tree out and returns a `LayoutResult`: for each node its border `box`, the `content` area inside padding and border, and its `children`. Omit `height` to let the tree be as tall as it needs |
+| `measureSubtree(node, availableWidth)` | What a subtree would ask for if it could have whatever it wanted -- `{ width, height }`, plus `minWidth` and `minHeight`, the narrowest and shortest it can be without overflowing. Nothing is placed  |
+| `distributeCells(total, weights)`      | Splits `total` cells across `weights` into whole numbers that add up to exactly `total`. The same weights give the same integers every time, so a layout does not shimmer between frames               |
+| `resolveLength(length, available)`     | A style `Length` as a number of cells: `cells` as they are, `percent` of `available` rounded to the nearest cell, `auto` -- and a percentage of an unknown size -- as `undefined`                      |
+| `clampSize(value, min, max)`           | A size held between its minimum and maximum, the minimum winning where they conflict, as in CSS, and never negative                                                                                    |
+| `borderCells(style)`                   | How many cells a border takes on each edge: one, or none                                                                                                                                               |
+
+`Box`, `LayoutNode`, `LayoutOptions`, `LayoutResult` and `Measurement` are the types.
+
+A `measure` is called with the width on offer and returns `{ width, height }`, with
+`minWidth` and `minHeight` for the narrowest and shortest the content can be without
+overflowing -- the longest word, for text. Wrapping makes height a function of width,
+which is why it is asked a width. Measuring is the most repeated work in a pass, so
+keep it cheap: one call to `layoutTree()` measures each node a handful of times at most
+and remembers the answers for the length of that call only.
+
+Everything is an integer. Seven spare columns across three children cannot be split
+evenly, and the rule for who gets the extra one is the stable one `distributeCells()`
+keeps: the remainder moves forward, so `[2, 2, 3]`, always.
 
 ### `sigil/help`
 
