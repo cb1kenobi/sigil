@@ -592,9 +592,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
   /**
    * The renderer from the moment `render()` has made it until it has returned it,
    * which is what the first frame's `onMount()` callbacks read `App.view` through.
-   * Kept apart from `view` on purpose: `view` being set is what `reportError()` and
-   * `hold()` read as "the backend is there to write through", and during that
-   * first frame it is not yet something a report may be held by.
+   * Kept apart from `view` so that every other reader of `view` -- `reportError()`,
+   * `hold()`, `finish()`, the mouse surface -- sees exactly what it saw before: a
+   * first-frame callback is the only thing that wants the renderer early, and it
+   * asks through the getter. Nothing measured a difference from assigning `view`
+   * early, so this is the conservative reading and not a fix for an observed fault.
    */
   let building: Renderer | undefined;
   let input: InputRouter | undefined;
@@ -1242,6 +1244,8 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     throw error;
   } finally {
     rendering = false;
+    // by now `view` is the answer, or `render()` threw and there is none; this is
+    // tidiness rather than a fix, as nothing was seen to read it afterwards
     building = undefined;
   }
 

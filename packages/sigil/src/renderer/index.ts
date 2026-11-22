@@ -334,7 +334,8 @@ export interface RenderOptions {
    * `view` the caller assigns from the return value is not there yet. The
    * renderer is complete when this is called -- it is the object `render()` goes
    * on to return -- but nothing has been drawn, so it is a handle to keep and not
-   * a screen to read.
+   * a screen to read. It must not throw: a throw here leaves `render()` with
+   * nothing torn down, which a throw from the component's body does not.
    */
   onReady?: (renderer: Renderer) => void;
   /** The terminal. Defaults to the process's. */

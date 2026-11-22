@@ -1246,10 +1246,10 @@ it.
   the one place it threw, and an effect created there that read it died on its first
   run and never ran again. `render()` hands the renderer to `RenderOptions.onReady`
   before it paints, and the runner keeps it in `building`, which the `view` getter
-  falls back to. A separate variable rather than assigning `view` early, because
-  `reportError()` and `hold()` read `view` as "the backend is there to write
-  through", and an error from a first-frame callback has to keep waiting in `early`
-  for the screen to be back rather than being written mid-frame. See `test/renderer/app.test.ts`.
+  falls back to. A separate variable rather than assigning `view` early, so that every other reader
+  of `view` -- `reportError()`, `hold()`, `finish()` -- sees what it saw before; no
+  difference from assigning it early was observed (round 1 compared full-screen and
+  inline apps), so this is the conservative choice and not a fix for a fault. See `test/renderer/app.test.ts`.
 - **The mouse surface is late-bound, because the router asks where the canvas is
   the moment it is built.** That is before `render()` has made the backend, so the
   first ask finds nothing and answers the way a terminal that said nothing does --
