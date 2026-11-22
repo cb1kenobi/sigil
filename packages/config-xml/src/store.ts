@@ -3,7 +3,7 @@ import { PROCESSING_INSTRUCTION_NODE, type XmlNode } from './names.js';
 import { readDocument, type ReadShape } from './read.js';
 import { nameable, xmlCanHold } from './represent.js';
 import { FRESH, reshape, type Shape, shapeOf } from './shape.js';
-import { firstControl } from './wellformed.js';
+import { firstForbidden } from './wellformed.js';
 import { applyInto, writeShape, type XmlEl } from './write.js';
 import {
   claim,
@@ -45,7 +45,7 @@ interface ParsedDocument {
  * character is not blank: it goes on to `parse()`, which says so.
  */
 function isBlank(raw: string): boolean {
-  return !raw.trim() && firstControl(raw) === undefined;
+  return !raw.trim() && firstForbidden(raw) === undefined;
 }
 
 /**
@@ -217,14 +217,18 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * would be silently kept or silently dropped either way.
    */
   const parse = (xmlText: string): XmlDocument => {
-    // before the parser, because the parser has nothing to say: a C0 control
-    // character is not XML 1.0, and `@xmldom/xmldom` reads one as whitespace
-    // between an element name and an attribute, or as text, without reporting
-    // anything (SIG-581). Every read and every write goes through here
-    const control = firstControl(xmlText);
-    if (control) {
+    // before the parser, because the parser has nothing to say: a character
+    // outside XML 1.0's `Char` is not well-formed, and `@xmldom/xmldom` reads a
+    // C0 one as whitespace between an element name and an attribute, or as text,
+    // without reporting anything (SIG-581) -- and resolves a numeric reference
+    // to one, or to a lone surrogate, to the character (SIG-586, SIG-587). Every
+    // read and every write goes through here
+    const forbidden = firstForbidden(xmlText);
+    if (forbidden) {
       throw new Error(
-        __`Failed to parse ${escapeControls(source)}: line ${control.line}, column ${control.column}: the character ${escapeControls(control.char)} is not allowed in XML`
+        forbidden.via === 'reference'
+          ? __`Failed to parse ${escapeControls(source)}: line ${forbidden.line}, column ${forbidden.column}: the character reference to ${forbidden.name} is not allowed in XML`
+          : __`Failed to parse ${escapeControls(source)}: line ${forbidden.line}, column ${forbidden.column}: the character ${forbidden.name} is not allowed in XML`
       );
     }
 

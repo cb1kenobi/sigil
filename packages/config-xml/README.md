@@ -236,12 +236,19 @@ a row matching there would send you to a line with nothing wrong with it. NEL is
 the exception and is matched against the raw bytes, because that one is
 normalized everywhere a parser finds it, a comment included.
 
-A **C0 control character anywhere in the document** is refused at read, because XML
-1.0 allows nothing below U+0020 but tab, newline and carriage return and
-`@xmldom/xmldom` would otherwise read one between an element name and an attribute
-as whitespace -- `<server`, ESC, `port="1"/>` as the setting `server.port`. The
-error is `Failed to parse`, naming the file, the line and the column, with the
-character escaped. U+007F and the C1 range are legal and are read.
+A **character outside XML 1.0's `Char` anywhere in the document** is refused at
+read: a C0 control character other than tab, newline and carriage return, a
+surrogate that is not half of a pair, U+FFFE and U+FFFF -- written raw, or as a
+numeric character reference such as `&#1;`, `&#x1B;` or `&#xD800;`. Without it
+`@xmldom/xmldom` would read a C0 one between an element name and an attribute as
+whitespace -- `<server`, ESC, `port="1"/>` as the setting `server.port` -- and
+resolve a reference to the character. The error is `Failed to parse`, naming the
+file, the line and the column (in characters, a pair counting once), with the
+character escaped or given as `U+XXXX`. A reference in a comment, a CDATA
+section or a processing instruction is not a reference and is read, and so is a
+reference to an allowed character: `&#9;`, `&#x41;`, `&#x1F600;`. U+007F and the
+C1 range are legal and are read. (A lone surrogate cannot arrive raw: it is not
+UTF-8, and the file is refused as that.)
 
 An **internal DTD entity reference** is refused at read rather than reported here:
 `@xmldom/xmldom` cannot expand one, so the value would be the four characters
@@ -298,12 +305,8 @@ rather than this store, and it is what `type` is for.
 
 The check is asked of the **merged document** rather than of what you passed, so
 that a key your write is not claiming cannot refuse a write that never touches
-it. Which means a file that already holds something XML cannot carry — a lone
-surrogate, or a `&#27;` reference to a control character — refuses **every** write
-to that file, naming the character and the key. That is conservative on purpose: the alternative is
-the store deliberately writing a document no conforming tool can read. Reading
-such a file is fine; only writing it back is refused. (A raw control character
-somebody pasted is not one of these: the read refuses it, as above.)
+it. A file holding a character XML cannot carry is not one of these any more: the
+read refuses it, as above, so it never reaches a write.
 
 ## Options
 
