@@ -1010,7 +1010,12 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
     await frame(m.app);
     const screen = m.screen();
     expect(tick(screen)).toBeGreaterThanOrEqual(0);
-    expect(screen.join('\n')).toMatch(/API 2[1-3]/);
+    const at = Number(/API (\d+)/.exec(screen.join('\n'))?.[1]);
+    expect(at).toBeGreaterThanOrEqual(21);
+    // and the first Right after it moves on from there, rather than from a sample
+    // the narrower plot no longer draws
+    await m.key(KEYS.right);
+    expect(m.screen().join('\n')).toContain(`API ${at + 1}`);
   });
 
   it('should start at the newest sample again after the focus has gone and come back', async () => {

@@ -7627,8 +7627,8 @@ took the focus and the arrows in SIG-491.
   otherwise from the keyboard's own `back`, which a key sets at once. Review round 1
   found three ways the first version stepped from the wrong place: `back` checked
   before the pointer, so a key after the pointer had moved stepped from a sample no
-  longer drawn; a pointer over the chart where there is no sample -- the axis labels,
-  the legend, a scrolling chart's empty left -- drawing no rule at all, which lost
+  longer drawn; a pointer over the chart where there is no sample -- the y-axis
+  gutter, a scrolling chart's empty left -- drawing no rule at all, which lost
   the drawn focus and every key with it, where the keyboard's sample now stands
   until the pointer is over one; and the keys gated on a crosshair having been
   drawn, so an arrow typed before the first frame of the focus bubbled out. What a
@@ -7636,7 +7636,12 @@ took the focus and the arrows in SIG-491.
   drawn whether or not a rule is, and the baseline is held to it, since data
   shrinking under a large `back` left the first Right a no-op. `should step on from
   the oldest sample when the data shrinks under a rule far back` and `should keep the
-  rule on a sample the plot draws when a resize narrows it` pin the two clamps.
+  rule on a sample the plot draws when a resize narrows it` pin the two clamps. One
+  limit is left, and is recorded rather than fixed: `shown` and `samples` are the last
+  drawing's, so a pointer report and a key inside one frame step from the pointer's
+  rule as it was drawn (a key just after the data shrank under a pointer likewise),
+  where the keyboard's own `back` is always current. The drawing clamps whatever comes
+  out, so nothing lands outside the plot; the next frame puts the rule right.
 - **Every sample is a stop, where the pointer's cell holds several.** Under `fit`
   with more samples than dot columns, the pointer takes the newest in its cell and
   the older ones are unreachable. An arrow steps by sample, so the readout changes
