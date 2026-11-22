@@ -600,7 +600,7 @@ describe('sigil build', () => {
     expect(help.stdout).not.toContain('Alias');
 
     const routed = spawnSync(process.execPath, [exe, 'ls'], { encoding: 'utf-8' });
-    expect(routed.status).toBe(1);
+    expect(routed.status).toBe(2);
     expect(routed.stderr).toContain('Unexpected argument "ls"');
   }, 60_000);
 
@@ -631,7 +631,7 @@ describe('sigil build', () => {
     expect(help).not.toContain('open');
 
     const stale = run('g');
-    expect(stale.status).toBe(1);
+    expect(stale.status).toBe(2);
     expect(stale.stderr).toContain('Unexpected argument "g"');
   }, 60_000);
 
@@ -674,7 +674,7 @@ describe('sigil build', () => {
     expect(built('pk').stdout).toBe('lazy\n');
     expect(built('bare-pkg').stdout).toBe('bare\n');
     expect(built('foo').stderr).toContain('Unexpected argument "foo"');
-    expect(built('bar').status).toBe(1);
+    expect(built('bar').status).toBe(2);
 
     // help lists the package's name string, described before anything loads
     const help = built('--help').stdout;

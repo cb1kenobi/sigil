@@ -1279,6 +1279,92 @@ copied. The entry names and descriptions in the listing, and the notes, are
 drawn by `table()` and `writeNote()` on a canvas, which already strips control
 characters.
 
+### A usage error is a class, and a crash is whatever was thrown (SIG-397)
+
+`UsageError` in `src/util/usage-error.ts`, exported from `@ttylabs/sigil` and
+`@ttylabs/sigil/error-handler`. The ticket's complaint was that `--nope`, a
+missing argument and a null dereference in `run()` were the same `Error` with the
+same exit code, so a `beforeError` hook, a custom `errorHandler` and a script had
+no public way to tell "the user typed a bad flag" from "the command has a bug".
+Chris settled it in the ticket's comments: exported classes rather than an
+`isUsageError()` helper, a `code` for the kind, usage errors exit 2, a crash
+stays 1.
+
+- **One class, not two.** The comment said "such as `UsageError` / `ParseError`",
+  and there is nothing for a second class to be: every argv problem is the same
+  fact -- the user ran the program wrongly -- and `code` is what says which. A
+  `ParseError` would be a subtype with no behaviour of its own, and a hook that
+  wants "any argv problem" would have to ask for both. `UsageErrorCode` is a closed
+  union, which is the point of it: a script branching on `code` gets a compile error
+  when one is added.
+- **Which sites, and why that is a handful of the eighty-nine.** The ticket counted
+  every `throw` under `src/parser`, and nearly all of them are an invalid
+  _declaration_: `Expected option format to be a non-empty string`, a command
+  module that will not load, two siblings both `default`. Those are mistakes in the
+  app, found when the schema is built, and are the thing a plain `Error` or
+  `TypeError` is right for -- exit 1, and a developer's problem. The ones that are
+  about **argv** are the nine codes: `unknown-option`, `unknown-command`,
+  `unexpected-argument`, `extra-arguments`, `missing-value`, `missing-argument`,
+  `missing-option`, `invalid-value` and `unsupported-format` (the `--format` a
+  command does not present; the _other_ format error, a command declaring one the
+  schema lacks, is the app's and stays plain).
+- **`transformValue()` and `assertChoices()` still throw plain errors, and the
+  parser says what they mean.** They are shared with the config schema and the
+  prompts, where a rejected value is not a mistake in how the program was invoked
+  -- a bad value in `config.json` is a different failure from `--port eight`, and
+  exits differently. So `fromArgv()` in `parse.ts` wraps the calls whose input came
+  from argv or the environment, and `asUsageError()` keeps the message and the
+  original as `cause`. Wrapping at the call site rather than in `util/transform.ts`
+  is what keeps the config store's errors plain without a flag threaded through.
+- **An environment variable is usage; a `default` is not.** `PORT=eight mycli` is
+  somebody's typo, so it is `invalid-value` and exits 2 like `--port eight`. A
+  `default: 'eight'` on an `int` is the schema's own mistake and stays the plain
+  error it was -- `applyFallback()` is told which it is filling from, because the
+  message is identical and nothing else distinguishes them.
+- **A `transform` that throws is not guessed at.** It is the app's code and the
+  parser cannot tell a transform rejecting a bad value from one with a bug in it,
+  so a plain `Error` there stays plain and exits 1. The class being exported is the
+  answer: throw a `UsageError` from a `transform` or a `run()` to be reported the
+  way the parser's own are. That is also the one way an app asks for "message, no
+  stack, exit 2" for a failure of its own.
+- **The exit code is a property of the error, which is the mechanism that was
+  already there.** `errorExitCode()` has always honored an integer `exitCode`, and
+  `UsageError` carries `exitCode = 2` as an ordinary writable property, so there is
+  no second path from "this error" to "this exit code" and a hook can change one
+  error's. `helpExitCode` is unrelated: it is what a successful `--help` exits with.
+- **`name` is `'UsageError'`, and the serialized payload gains `code`.** A script
+  keyed on `error.name === 'Error'` for a usage error stops matching, which is the
+  ticket working: a name is what a script branches on because a message is
+  translated. `code` is present only for a usage error and is never translated.
+  `exitCode` is still not in the payload, for the reason the payload's own docs give.
+- **What this changes for every app, deliberately.** A bad invocation exits 2
+  where it exited 1. The tests that asserted `1` for a usage error were changed on
+  purpose and are listed in the PR: `sigil.test.ts`, `testing/command.test.ts`,
+  `schema-settings.test.ts` and the `format` and `default-command` files in this
+  package, `closed-pipe`, `bundle` and `build-command` in `@ttylabs/cli`, and the
+  two documentation examples that `guides.test.ts` runs. A script that tests for
+  non-zero is unaffected.
+
+**What is not done, and why it is a ticket of its own.** The same comment asks
+that a crash print differently by how the app runs: from source, the real error with
+its name and a styled stack; built, a generic message with no stack; and an optional
+`sigil.json` key to override it for built apps. It was written -- a
+`Settings.crashes` of `'stack' | 'message'`, a styler over `err.stack` that dims the
+frames in `node:` and `node_modules`, a `crashes` key in `sigil.json`, and the
+generated entry baking `'message'` into `settings` beneath the schema's own -- and
+then **not landed**, because the default it needs is the part that does not fit in
+this change. Printing a stack for any non-`UsageError` from source made 111 tests
+fail, and not only ones asserting `Error: build failed\n`: the framework's own
+deliberate refusals are plain `Error`s too -- `runApp()` without a terminal ("one
+line and 1"), every message the toolchain prints when a build or a `sigil.json` is
+refused -- and from source each of them gets a stack. They are not crashes and are
+not usage errors either, which is the finding: **"usage or crash" is two cases and
+the code has three**, the third being a failure the program reports on purpose.
+Settling it means deciding what that third kind is called (a `UsageError` with
+`exitCode: 1`, or a sibling class) before a default can be chosen, and that is a
+decision about every error the framework throws rather than a rendering detail.
+The prototype is kept off-tree; the class and the exit code do not need it.
+
 ### `:` as a topic separator, a tokenizer alias and nothing more
 
 oclif's default is `my:awesome:command`, and Heroku, Salesforce and dokku all

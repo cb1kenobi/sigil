@@ -86,6 +86,7 @@ import {
   renderError, // an error as the string that would be printed
   errorExitCode, // the exit code an error implies
   errorMessage, // what a thrown value says, as one line
+  UsageError, // what the parser throws for a mistake in how the program was run
 } from '@ttylabs/sigil';
 ```
 
@@ -144,9 +145,40 @@ try {
   });
 } catch (err) {
   renderError(err); // 'Error: Unknown option "--nope"'
-  errorExitCode(err); // 1
+  errorExitCode(err); // 2
 }
 ```
+
+### `UsageError`
+
+Two things go wrong and they are not the same: the user ran the program wrongly,
+or the program is broken. Everything the parser rejects about argv is a
+`UsageError` — an `Error` subclass, so `instanceof` tells the two apart in a
+`beforeError` hook, a custom `errorHandler` or a `catch`. It exits with **2**,
+where anything else exits with **1**, and neither is printed with a stack.
+
+```js
+import { UsageError } from '@ttylabs/sigil';
+
+if (err instanceof UsageError) {
+  err.code; // 'unknown-option', 'missing-argument', 'invalid-value', ...
+  err.exitCode; // 2
+}
+```
+
+`err.code` is not translated, so it is what to branch on where the message is
+not. The kinds are `unknown-option`, `unknown-command`, `unexpected-argument`,
+`extra-arguments`, `missing-value`, `missing-argument`, `missing-option`,
+`invalid-value` and `unsupported-format`, and `UsageErrorCode` is the type. Throw
+one from a `transform` or a `run()` of your own to have a check you wrote
+reported the way the parser's are: `new UsageError('Port 80 is reserved',
+'invalid-value')`. A `transform` that throws a plain `Error` is **not** guessed
+at — the parser cannot tell a rejected value from a bug — and exits with 1.
+[docs/parser.md](docs/parser.md#usage-errors) has the whole table.
+
+`exitCode` is an ordinary property, so a hook can change what a particular usage
+error exits with. An exit code of `2` for a bad invocation is new; a script that
+tests for non-zero is unaffected.
 
 `errorMessage()` is the message on its own, without the `Error: ` prefix, from
 `@ttylabs/sigil` or `@ttylabs/sigil/error-handler`. It takes anything that can be
@@ -1056,6 +1088,10 @@ $ mycli list --json; echo "exit $?"
 }
 exit 1
 ```
+
+A usage error adds a `code`, which like `name` is not translated:
+`{ "error": { "message": "Missing required options: --target", "name": "UsageError", "code": "missing-option" } }`
+and exits `2`.
 
 `name` is the half a script can branch on, and that is why it is there: a
 **message is translated and a name is not**, so a script keyed on the message

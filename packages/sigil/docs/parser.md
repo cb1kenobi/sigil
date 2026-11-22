@@ -1621,24 +1621,104 @@ place an error becomes output:
 $ mycli build
 Error: Missing required options: --target
 $ echo $?
-1
+2
 ```
 
-The message and nothing else. Parser errors are plain `Error`s whose messages
-are written for the person running the CLI, so a stack trace would only bury
-them. The whole error is logged through the debug logger, so
-`DEBUG=sigil:error` brings the stack back when you want it.
+The message and nothing else. A parser error's message is written for the person
+running the CLI, so a stack trace would only bury it. The whole error is logged
+through the debug logger, so `DEBUG=sigil:error` brings the stack back when you
+want it.
 
 `errorHandler()` sets `process.exitCode` rather than calling `process.exit()`,
 so buffered stdout still flushes. The code is `1`, unless the thrown value
 carries an `exitCode` that is an integer from 0 to 255 — an explicit `0`
-included, which is how a future `--help` short-circuit will exit cleanly.
+included, which is how a future `--help` short-circuit will exit cleanly. A
+`UsageError` carries an `exitCode` of `2`, which is why the run above exits
+with it.
 Anything that is not an `Error` renders too: a thrown string, an object with a
 `message`, even `null`.
 
 After an error is handled, `main()` resolves with `undefined`. It does not
 reject: its caller is a bin script, and an unhandled rejection printing a
 stack is exactly what the handler exists to avoid.
+
+### Usage errors
+
+Two kinds of thing go wrong, and they are not the same to the person reading
+the terminal, to a script, or to a hook. **The user ran the program wrongly**:
+a flag nothing declares, a missing argument, a value that is not a number. Or
+**the program is broken**: a `TypeError` out of `run()`, an invalid schema, a
+command module that will not load. The first is `UsageError`, exported from
+`@ttylabs/sigil` and from `@ttylabs/sigil/error-handler`, so a caller can
+branch with `instanceof`; the second is whatever was thrown.
+
+```js
+import { UsageError } from '@ttylabs/sigil';
+
+hooks: {
+  beforeError(err) {
+    if (err instanceof UsageError && err.code === 'missing-option') {
+      // the user left something out: not worth paging anybody
+    }
+  },
+},
+```
+
+A `UsageError` exits with **2** — the code `sysexits`-minded tools and Commander
+use for "you ran me wrong" — and everything else exits with **1**. Both are
+still `Error`s with a message written for the person running the CLI, and
+neither is printed with a stack.
+
+`err.code` says which kind of usage error it is. It is not translated, so unlike
+the message it is safe to branch on:
+
+| `code`                | What the user did                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| `unknown-option`      | Typed an option nothing declares, with `allowUnknownOptions: false`                  |
+| `unknown-command`     | Asked `help` about a command that does not exist                                     |
+| `unexpected-argument` | Gave a positional argument with nothing to take it                                   |
+| `extra-arguments`     | Put something after `--` where `allowExtraArguments` is off                          |
+| `missing-value`       | Gave an option that takes a value none                                               |
+| `missing-argument`    | Left out a required argument                                                         |
+| `missing-option`      | Left out a required option                                                           |
+| `invalid-value`       | Gave a value its type rejects (`--port eight` on an `int`), or one outside `choices` |
+| `unsupported-format`  | Asked for an output format the command does not present                              |
+
+`invalid-value` covers a value from the environment as well as from argv, since
+a variable somebody exported is something somebody typed. A `default` the type
+rejects is a mistake in the schema rather than in the invocation, and stays a
+plain `Error`, as does everything an invalid schema throws.
+
+What `transform` and `run()` throw is yours: the parser cannot tell a
+`transform` rejecting a bad value from a `transform` with a bug in it, so it
+does not guess. Throw a `UsageError` there to have your own check reported the
+way the parser's are:
+
+```js
+import { UsageError } from '@ttylabs/sigil';
+
+options: {
+  '--port <n>': {
+    type: 'int',
+    transform(port) {
+      if (port < 1024) {
+        throw new UsageError(`Port ${port} is reserved`, 'invalid-value');
+      }
+    },
+  },
+},
+```
+
+With `--format json`, the serialized error carries the same facts:
+`{ "error": { "message": "...", "name": "UsageError", "code": "missing-option" } }`.
+`code` is absent for anything that is not a usage error, and `exitCode` is
+deliberately not in the payload because the process already carries it.
+
+**Upgrading.** Exit code `2` for a bad invocation is a change for anything that
+checked for `1`. A script that only tests for non-zero is unaffected, and a test
+that asserts `ran.code` for a usage error now reads `2`. `err.name` is
+`'UsageError'` rather than `'Error'`, so a check against the name changes with
+it. The messages are unchanged.
 
 ### The `beforeError` hook
 

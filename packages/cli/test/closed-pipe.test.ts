@@ -123,7 +123,7 @@ describe('a toolchain command whose reader has gone away', () => {
       // "stop writing" and not "exit zero because nobody is listening"
       const ran = await runClosed(bin, ['nope'], 'stderr');
 
-      expect(ran.code).toBe(1);
+      expect(ran.code).toBe(2);
     });
   });
 });
