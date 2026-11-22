@@ -1824,3 +1824,76 @@ describe('a dialog that is a form', () => {
     });
   });
 });
+
+/**
+ * An effect that opens a modal is the usual way to open one from state, and
+ * `openModal()` read the router's focus and then wrote it, both inside the scope it
+ * was called from: the effect depended on the focus and set it, so it ran again
+ * until the signals' run guard stopped it. The call is untracked as a whole.
+ */
+describe('an effect that opens a modal', () => {
+  /** An effect that opens a modal when `show` is true, counting how often it runs. */
+  function opener(
+    host: Parameters<typeof openModal>[0],
+    s: ReturnType<typeof scene>,
+    body: ModalOptions['body']
+  ) {
+    const show = new State(false);
+    const handles: Array<{ close(): void }> = [];
+    let runs = 0;
+    const open = (): void => {
+      runs++;
+      if (show.get()) {
+        handles.push(openModal(host, { body, input: s.input }));
+      }
+    };
+    return { handles, open, runs: () => runs, show };
+  }
+
+  it('should run once when it opens a modal with an element body', () => {
+    const s = scene();
+    const o = opener(s.root, s, text('body'));
+    handles.push({ dispose: () => s.input.stop() });
+    createRoot(() => createEffect(o.open));
+    expect(o.runs()).toBe(1);
+    o.show.set(true);
+    flush();
+    expect(o.runs()).toBe(2);
+    expect(o.handles).toHaveLength(1);
+    flush();
+    expect(o.runs()).toBe(2);
+    o.handles[0].close();
+  });
+
+  it('should run once when it opens a modal with a function body, on a renderer', () => {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+    const o = opener(view, s, () => text('body'));
+    runWithOwner(view.owner, () => createEffect(o.open));
+    expect(o.runs()).toBe(1);
+    o.show.set(true);
+    view.frame();
+    expect(o.runs()).toBe(2);
+    expect(o.handles).toHaveLength(1);
+    view.frame();
+    expect(o.runs()).toBe(2);
+    o.handles[0].close();
+  });
+
+  it('should not depend on the focus it reads and writes as it opens', () => {
+    const s = scene();
+    const o = opener(s.root, s, text('body'));
+    handles.push({ dispose: () => s.input.stop() });
+    createRoot(() => createEffect(o.open));
+    o.show.set(true);
+    flush();
+    // the focus moves on its own: a key the dialog answers, and a close that hands it back
+    s.input.focus.focus(s.one);
+    flush();
+    s.input.focus.focus(s.two);
+    flush();
+    expect(o.runs()).toBe(2);
+    o.handles[0].close();
+  });
+});

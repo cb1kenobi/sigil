@@ -10419,6 +10419,24 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   client's and the file manager's `ask()` dialogs and the commit dialog dropped
   their `input.focus.focus(field)` after `openModal()` for `initial: 'body'`.
 
+- **`openModal()` is called untracked as a whole, because it reads the router's
+  focus and then writes it.** SIG-596. It reads `input.focus.current` to remember
+  what to give back, and `claimFocus()` then moves the focus, so an effect like
+  `if (show.get()) openModal(...)` depended on a signal it had just set and ran
+  again until the run guard stopped it: measured as 101 runs on an element host
+  and 301 over three focus moves, where 1 per `show` change belongs -- for a
+  function body and an element body alike. The body function and the buttons were
+  already built untracked (SIG-335), which is why that entry's own test could only
+  see the sinks of what the body read and not this. The public function is now a
+  one-line `untrack()` over the real one rather than an `untrack()` on each read,
+  since every read in it (the focus, a `disabled` condition's first answer, the
+  ring) is the dialog's own and none is something the opener should follow. A
+  write inside an untracked call is still a write: the focus moves as before.
+  `openMenu()`, `showToast()` and `attachTooltip()` were probed with the same
+  effect and run twice (the `show` change and nothing more), so the loop is the
+  modal's alone. Covered by `an effect that opens a modal` in
+  `test/components/modal.test.ts`, which fails without the `untrack()`.
+
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a
