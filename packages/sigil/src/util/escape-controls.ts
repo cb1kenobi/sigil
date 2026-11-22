@@ -92,3 +92,61 @@ export function escapeControls(value: unknown): string {
     return code < 0x100 ? `\\x${hex.padStart(2, '0')}` : `\\u{${hex.padStart(4, '0')}}`;
   });
 }
+
+/**
+ * An error Node raised, with its message made inert and nothing else about it
+ * changed (SIG-571).
+ *
+ * Node's own errors quote the path they failed on -- `EACCES: permission denied,
+ * open '<path>'` -- and the path is the app's, as the file system holds it, so a
+ * control character in a directory name reached the terminal raw wherever the
+ * message was printed. The message is rewritten **on the error that was thrown**
+ * rather than on a new one made to wrap it: a caller reads `code`, `errno`,
+ * `syscall`, `path` and `dest` off what it caught, `instanceof` and identity
+ * still hold, and every one of them stays the real value -- `path` in
+ * particular, which code uses to find the file again. A wrapping error with a
+ * `cause` would have to copy each of those across and would still be a different
+ * object to anything that kept the first one.
+ *
+ * The old message is replaced in the `stack` too, because
+ * V8 builds that header once, when the error is made, and a message edited
+ * afterwards leaves the raw one in the stack that `DEBUG=sigil:error` and an
+ * uncaught throw both print. Escaping is idempotent -- a backslash is not
+ * escaped, so `\x1B` stays `\x1B` -- which is what lets this be applied at more
+ * than one level of a call without the second pass changing the first.
+ *
+ * A value that is not an error, or whose `message` cannot be written, is
+ * returned as it came: the rule is for what Node raises, and refusing to throw
+ * what was thrown would be a worse failure than the one it prevents.
+ *
+ * @param error - What was caught.
+ * @returns The same value, its message escaped where it is an error.
+ */
+export function inertError<T>(error: T): T {
+  if (typeof error !== 'object' || error === null) {
+    return error;
+  }
+
+  const it = error as { message?: unknown; stack?: unknown };
+  const raw = it.message;
+  if (typeof raw !== 'string') {
+    return error;
+  }
+
+  const safe = escapeControls(raw);
+  if (safe === raw) {
+    return error;
+  }
+
+  try {
+    const stack = it.stack;
+    it.message = safe;
+    if (typeof stack === 'string' && stack.includes(raw)) {
+      it.stack = stack.replace(raw, () => safe);
+    }
+  } catch {
+    // a frozen error keeps what it said, and is still thrown
+  }
+
+  return error;
+}
