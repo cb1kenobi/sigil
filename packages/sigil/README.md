@@ -5232,7 +5232,8 @@ and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are t
 theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
 `.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
 `.sigil-chart-area` beside its series' classes, and a crosshair
-`.sigil-chart-crosshair`. A bar takes
+`.sigil-chart-crosshair`, with `.sigil-chart-crosshair-focus` and `.sigil-accent`
+beside it while the chart has the focus. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts
@@ -5302,6 +5303,16 @@ picture.
   needs `mouse: { motion: true }`, since without motion nothing knows where the
   pointer is. There is no horizontal line, because the value is not where the
   pointer is: what the readout names is each line's value at that sample.
+- **A chart with a `crosshair` takes the focus, and reads from the keyboard.**
+  While it has the focus the rule stands at the newest sample, in the accent role,
+  and Left and Right step it to the sample before and after -- every sample, even
+  where `fit` puts several in one cell, which a pointer cannot tell apart. The
+  readout is the one the pointer gets, the pointer takes the rule back while it
+  moves over the chart, and the next arrow steps from where the rule is. Up, Down
+  and an arrow with Shift, Ctrl or Alt are left to what is around the chart.
+  `describeLineChart(input, chart)` describes the keys to a router for
+  `keyHelp()`, scoped to the chart; `focusable: false` in `props` takes the focus
+  and the keys back, and `props` may not carry an `onKey`, which the chart owns.
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
   and take the rows the values and the labels leave.

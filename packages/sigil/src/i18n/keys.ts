@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 457 keys, which is what a catalog has to carry to translate sigil's own
+ * 458 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -156,6 +156,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Collapsible() returned',
   'Expected an element that DataTable() returned',
   'Expected an element that DiffView() returned',
+  'Expected an element that LineChart() returned with a crosshair',
   'Expected an element that ListView() returned',
   'Expected an element that RadioSet() returned',
   'Expected an element that Slider() returned',

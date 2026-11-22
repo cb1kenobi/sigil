@@ -509,7 +509,7 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     slug: 'line-chart',
     name: 'lineChart()',
     family: 'output',
-    exports: ['lineChart', 'lineChartView', 'LineChart'],
+    exports: ['lineChart', 'lineChartView', 'LineChart', 'describeLineChart'],
     registry: 'chart',
     description: 'Series drawn in braille dots, with an axis and a legend, printed or live.',
   },

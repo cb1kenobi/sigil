@@ -82,8 +82,8 @@ function mount({
     await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 30));
     await settle();
   };
-  /** Tabs from the sidebar to the table: the search, the menu, the range, the table. */
-  const toTable = async () => press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+  /** Tabs from the sidebar to the table: the search, the menu, the range, the chart, the table. */
+  const toTable = async () => press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
 
   return { app, escape, line, press, rows: rows_, screen, settle, term, toTable, type };
 }
@@ -238,6 +238,42 @@ describe('the chart', () => {
     await s.press(`\u001b[<35;${x + 1};${labels + 6}M`);
     expect(s.term.viewport[labels - 1]).not.toContain('┴');
     expect(s.screen()).not.toContain(`API ${compact(last.api)}`);
+  });
+});
+
+describe('the chart, from the keyboard (SIG-516)', () => {
+  it("should take the focus, and step the rule between days with Left and Right, saying that day's figures", async () => {
+    const s = mount();
+    await s.press('r', 'r');
+    const days = traffic();
+    const last = days.at(-1) as Day;
+    const before = days.at(-2) as Day;
+    // the chart is the fourth stop from the sidebar: the search, the menu, the
+    // range, the chart
+    await s.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+    expect(s.screen()).toContain('│ Nov 16');
+    expect(s.screen()).toContain(`API ${compact(last.api)}`);
+
+    await s.press(KEYS.left);
+    expect(s.screen()).toContain('│ Nov 15');
+    expect(s.screen()).toContain(`API ${compact(before.api)}`);
+    expect(s.screen()).toContain(`Web ${compact(before.web)}`);
+
+    await s.press(KEYS.right);
+    expect(s.screen()).toContain('│ Nov 16');
+    // and the arrows did not change the range, which is the tab row's
+    expect(s.screen()).toContain('Requests a day for the last 7 days');
+  });
+
+  it('should list the keys in the footer while the chart has the focus, and not before', async () => {
+    const s = mount();
+    const footer = (): string => s.term.viewport.findLast((each) => /\bnext\b/.test(each)) ?? '';
+    await s.settle();
+    const unfocused = footer();
+    await s.press(KEYS.tab, KEYS.tab, KEYS.tab, KEYS.tab);
+    const focused = footer();
+    expect(unfocused).not.toContain('←/→ move');
+    expect(focused).toContain('tab next · ←/→ move · / search');
   });
 });
 
