@@ -3,6 +3,7 @@ import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -11,11 +12,14 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -652,6 +656,37 @@ describe('trash()', () => {
           expect(states).toContain('saved');
           expect(existsSync(file)).toBe(true);
           expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should sweep the directories an earlier compile left, and only those',
+        async () => {
+          const hex = () => randomBytes(16).toString('hex');
+          const old = join(tmpdir(), `sigil-trash-${hex()}`);
+          const fresh = join(tmpdir(), `sigil-trash-${hex()}`);
+          // old enough, and not a name the compile makes: someone else's directory
+          const other = join(tmpdir(), `sigil-trash-not-ours-${hex()}`);
+          const dirs = [old, fresh, other];
+          try {
+            for (const dir of dirs) {
+              mkdirSync(dir);
+            }
+            const then = new Date(Date.now() - 2 * 60 * 60 * 1000);
+            utimesSync(old, then, then);
+            utimesSync(other, then, then);
+
+            await once(undefined, undefined, 'compile');
+
+            expect(existsSync(old)).toBe(false);
+            expect(existsSync(fresh)).toBe(true);
+            expect(existsSync(other)).toBe(true);
+          } finally {
+            for (const dir of dirs) {
+              rmSync(dir, { force: true, recursive: true });
+            }
+          }
         },
         SLOW
       );

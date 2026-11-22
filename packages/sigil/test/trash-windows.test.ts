@@ -215,7 +215,15 @@ describe('a load that is refused', () => {
     const compile = script.slice(start, script.indexOf('} else {', start));
     expect(start).toBeGreaterThan(-1);
     expect(compile).toContain('Assembly]::LoadFrom(');
-    expect(compile).not.toContain('Assembly]::Load(');
+    expect(compile).not.toContain('Load(');
+    expect(compile).not.toContain('ReadAllBytes');
+    // and what it compiles with does not load what it built: CodeDom does that,
+    // with `Assembly.Load(byte[])`, when it is asked to compile in memory
+    expect(script).toContain('$params.GenerateInMemory = $false');
+    expect(script).not.toContain('GenerateInMemory = $true');
+    // a load that is refused is answered, not raised as PowerShell's own error
+    expect(compile.indexOf('catch {')).toBeGreaterThan(compile.indexOf('LoadFrom('));
+    expect(compile).toContain('$refused = ');
     expect(compile).not.toContain('Add-Type -TypeDefinition');
     expect(compile).not.toContain('SIGIL_TRASH_CACHE');
     expect(compile).not.toContain('Protect(');

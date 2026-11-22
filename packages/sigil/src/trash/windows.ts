@@ -248,9 +248,14 @@ try {
       Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
     [void][IO.Directory]::CreateDirectory($dir)
-    $assembly = [Reflection.Assembly]::LoadFrom((Compile $dir))
-    $bin = $assembly.GetType('SigilTrash.Bin', $true)
-    $state = 'compiled'
+    $library = Compile $dir
+    try {
+      $assembly = [Reflection.Assembly]::LoadFrom($library)
+      $bin = $assembly.GetType('SigilTrash.Bin', $true)
+      $state = 'compiled'
+    } catch {
+      $refused = [string]$_.Exception.Message
+    }
   } else {
     $cache = [string]$env:SIGIL_TRASH_CACHE
     $entropy = [Text.Encoding]::UTF8.GetBytes('sigil-trash ' + $env:SIGIL_TRASH_KEY)

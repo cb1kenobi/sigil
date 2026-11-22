@@ -243,6 +243,17 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
     such an environment pays a second PowerShell start (about 350 ms on the runner)
     per trash. A remembered refusal would be module state the tests could not reset
     without reimporting the module.
+  - **A refusal of the library's own load is answered the same way,** by the
+    compile mode's own `catch`, so that `recycle()` throws `The helper could not
+    be loaded` with the reason rather than PowerShell's `Exception calling
+    "LoadFrom"`. A compile that fails is still an `error`: it is not a refusal.
+  - **Directories can be left behind, and the sweep is the only thing that
+    removes them.** Only a compile-mode call sweeps, so if the refusal stops --
+    an exclusion is added -- the last ones stay until something else clears the
+    temp directory; a compile or load that fails leaves its own; and a loop
+    trashing N items leaves N for the hour. The sweep is pinned by a Windows test
+    with a backdated directory, a fresh one and one named like ours but not made
+    by us.
   - **What is not handled:** an endpoint product that blocks the script's text
     before it runs, or kills the process, gives no JSON, and `run()` rejects --
     that is not retried, because a process killed after the move would then be
