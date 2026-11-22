@@ -223,8 +223,8 @@ the entry it belongs to.
         `@ttylabs/sigil/updates` for it, so the rules and the message are the
         runtime's own. Its reach, and what it leaves silent, are under "A checker
         the schema writes out" in `packages/cli/AGENTS.md`: only what the source
-        writes down, so a checker held in a variable or built from the
-        environment is still a log line.
+        writes down, so a checker held in a variable, built from the
+        environment or declared in a schema module other than the entry is still a log line.
       - **Refused: a one-time line on stderr from `beginUpdateCheck()`.** It
         needs "this is the author and not the end user", and nothing in the
         process says so. `bakedConfig()` is set by a build, which says "built"

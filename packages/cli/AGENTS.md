@@ -6753,10 +6753,23 @@ measurements are in
   it refuses where it is called, which is the app failing to start. So a checker
   held in a variable, built by a function, or whose `url` comes from the
   environment is still silent at run time, and `DEBUG=sigil:updates` is how it
-  is found. A bare literal is read as a checker whenever it spells `type` and
-  `url`, which is `namesChecker()`'s test and is looser than the runtime's
-  `isChecker()` (a bare literal whose `path` is a string is options at run time
-  and a checker here), which refuses it for a reason that was true anyway.
+  is found. A bare literal is read as a checker by
+  `isWrittenChecker()`, which is the runtime's `isChecker()` asked of the
+  source: a `type` and a `url` that are strings and a `path` that is a list, a
+  name read as the type it needs and a field written as another type making it
+  **options** -- so `{ type, url, path: 'version' }` refuses nothing, because the
+  runtime does not read it as a checker either (round 1 found the first draft
+  refusing it with a message about a notice that would have shown, by npm).
+
+  Two limits are the price of reading rather than running, and neither is new.
+  Only the **entry** module is read, so a schema exported from another file is
+  not seen (the same boundary the command tree has), and the schema is found the
+  way `readSchemaUpdateCheck()` finds it: the outermost object literal holding an
+  `updateCheck` key. A fixture object in the entry that happens to carry one is
+  judged too, and as an error, with no way to silence it short of renaming the key
+  -- the heuristic was chosen for a pass that errs towards silence and this one
+  does not, which is why the refusal is a literal's `url`, `path` and `headers` and
+  nothing wider.
 
 - **The manifest's package name goes across whether or not anything was
   declared.** `bakedUpdateCheck()` used to write only `{ compiled }` for an app

@@ -450,11 +450,15 @@ function readHeaders(node: Expression): unknown {
       return undefined;
     }
 
-    const type = literalType(member.value as Expression);
+    // an accessor's value is whatever its getter answers, so it is not read
+    const written = unwrapShallow(member.value as Expression);
+    const type = member.kind === 'init' ? literalType(written) : undefined;
+    // a list is a value Node sends, one header line per element: it is `'object'`
+    // to `literalType()` and not the junk a plain object is
     headers[name] =
-      type !== undefined && type in JUNK
+      type !== undefined && type in JUNK && written.type !== 'ArrayExpression'
         ? JUNK[type]
-        : (literalString(member.value as Expression) ?? 'x');
+        : (literalString(written) ?? 'x');
   }
 
   return headers;
@@ -502,6 +506,34 @@ function readChecker(object: ObjectExpression): Record<string, unknown> {
 }
 
 /**
+ * Whether an object literal given as the whole `updateCheck` is a checker written
+ * bare, which at run time is `isChecker()`: a `type` and a `url` that are strings
+ * and a `path` that is a list.
+ *
+ * Asked of what the source says, so a field whose type is written down as another
+ * one is options -- `{ type, url, path: 'version' }` is read by the runtime as
+ * options, which check npm and refuse nothing -- and a name, whose type is not in
+ * the source, is read as the type it needs. A `path` that is not written is not a
+ * list either.
+ */
+function isWrittenChecker(members: readonly Member[]): boolean {
+  const wanted = [
+    ['type', 'string'],
+    ['url', 'string'],
+    ['path', 'object'],
+  ] as const;
+
+  return wanted.every(([key, type]) => {
+    const field = fieldOf(members, key);
+    if (field.kind !== 'written') {
+      return false;
+    }
+    const written = literalType(field.node);
+    return written === undefined || written === type;
+  });
+}
+
+/**
  * Refuses, while building, a hand-written checker the update check would
  * refuse when the app runs (SIG-564).
  *
@@ -535,8 +567,10 @@ export function checkSchemaUpdateCheck(entry: string): Diagnostic[] {
 
   const found: Diagnostic[] = [];
   for (const schema of outermostDeclaring(parsed.program as never, 'updateCheck')) {
-    const property = plainProperty(schema, 'updateCheck');
-    const value = property && unwrapShallow(property.value as Expression);
+    // the spelling that runs, as a checker's own fields are read: a spread after
+    // it may have replaced it
+    const declared = fieldOf(flatten(schema), 'updateCheck');
+    const value = declared.kind === 'written' ? unwrapShallow(declared.node) : undefined;
     if (value?.type !== 'ObjectExpression') {
       continue;
     }
@@ -549,11 +583,7 @@ export function checkSchemaUpdateCheck(entry: string): Diagnostic[] {
     if (named.kind === 'written') {
       const node = unwrapShallow(named.node);
       checker = node.type === 'ObjectExpression' ? node : undefined;
-    } else if (
-      named.kind === 'absent' &&
-      fieldOf(members, 'type').kind === 'written' &&
-      fieldOf(members, 'url').kind === 'written'
-    ) {
+    } else if (named.kind === 'absent' && isWrittenChecker(members)) {
       checker = value;
     }
     if (!checker) {

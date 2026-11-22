@@ -839,6 +839,47 @@ describe('a schema checker the update check would refuse', () => {
       /header "Accept"/,
     ],
     [
+      'a header whose value is written as a function',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Accept: () => 1 }') +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a header whose value is written as a bigint',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ', headers: { Accept: 1n }') +
+        ' }',
+      /header "Accept"/,
+    ],
+    [
+      'a url that a spread before it does not replace',
+      `updateCheck: { checker: { ...base, ...${written("'http://e.com/v'")} } }`,
+      /url/,
+    ],
+    [
+      'a url whose key is a computed string',
+      `updateCheck: { checker: { ['url']: 'http://e.com/v', type: 'custom', path: ['v'] } }`,
+      /url/,
+    ],
+    [
+      'the last of two urls',
+      `updateCheck: { checker: { url: 'https://e.com/v', url: 'http://e.com/v', path: ['v'] } }`,
+      /url/,
+    ],
+    [
+      'a checker in parentheses',
+      `updateCheck: { checker: (${written("'http://e.com/v'")}) }`,
+      /url/,
+    ],
+    [
+      'headers written as a list of pairs',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: [['a', 'b']]") +
+        ' }',
+      /headers must be an object/,
+    ],
+    [
       'a checker with no url at all',
       "updateCheck: { checker: { type: 'custom', path: ['v'] } }",
       /url/,
@@ -892,6 +933,35 @@ describe('a schema checker the update check would refuse', () => {
     [
       'a spread that may carry the url',
       `updateCheck: { checker: { ...base, type: 'custom', path: ['v'] } }`,
+    ],
+    // a list is a header value Node sends
+    [
+      'a header whose value is a list',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { Accept: ['a', 'b'] }") +
+        ' }',
+    ],
+    [
+      'a header that is an accessor',
+      'updateCheck: { checker: ' +
+        written("'https://e.com/v'", "['v']", ", headers: { get Accept() { return 'x'; } }") +
+        ' }',
+    ],
+    // a spread after the url may have replaced it
+    [
+      'a url a later spread may replace',
+      `updateCheck: { checker: { url: 'http://e.com/v', ...base, type: 'custom', path: ['v'] } }`,
+    ],
+    // what the runtime reads as options, which check npm and refuse nothing
+    [
+      'a bare literal whose path is a string',
+      "updateCheck: { type: 'custom', url: 'http://e.com/v', path: 'version' }",
+    ],
+    ['a bare literal with no path', "updateCheck: { type: 'custom', url: 'http://e.com/v' }"],
+    ['a bare literal with no type', "updateCheck: { url: 'http://e.com/v', path: ['v'] }"],
+    [
+      'an updateCheck a later spread may replace',
+      `updateCheck: { checker: ${written("'http://e.com/v'")} }, ...overrides`,
     ],
     ['a checker held in a variable', 'updateCheck: { checker }'],
     ['a function call that builds it', 'updateCheck: { checker: build() }'],

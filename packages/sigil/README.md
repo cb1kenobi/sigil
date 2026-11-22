@@ -8636,7 +8636,7 @@ schema's `updateCheck` the refusal is logged and not shown when the app runs,
 since an update check never fails the command; `sigil check`, `sigil build` and
 `sigil package` ask the same question of a checker the schema writes out as an
 object literal and fail with the same message, and `DEBUG=sigil:updates` shows
-one they cannot read, such as a checker held in a variable. `checkedChecker()`
+one they cannot read, such as a checker held in a variable or a schema defined outside the entry module. `checkedChecker()`
 is exported for a tool that wants to ask it itself.
 
 An endpoint that wants a header, or answers `v1.2.3` where the app's version is
