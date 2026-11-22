@@ -1135,6 +1135,15 @@ dark -- built from sigil's own components, with its own data, names and colours.
   for it. `should follow the pointer with a rule and that day's figures` aims at the
   last day by the axis it draws, not by a fixed cell.
 
+- **The chart takes the focus, and Left and Right read a day (SIG-516).** The
+  crosshair was the pointer's alone. The chart is a Tab stop after the range row --
+  the search, the menu, the range, the chart, then the table, so `toTable()` in the
+  smoke test is five Tabs -- and while it has the focus the rule stands on the last
+  day, the arrows step it, and the footer says `←/→ move` through
+  `describeLineChart()`, which `root.tsx` describes beside the range row's keys.
+  `buildTraffic()` hands the chart back for it. At the 16 rows of the spawned run
+  the chart is not drawn, so it is no stop and the Tab counts there are unchanged.
+
 - **Not done:** the pages other than the overview, which say they are not drawn;
   re-collapsing the sidebar on a resize; and a `ui`-tag twin.
 

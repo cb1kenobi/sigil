@@ -157,6 +157,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected an element that Collapsible() returned',
   'Expected an element that DataTable() returned',
   'Expected an element that DiffView() returned',
+  'Expected an element that LineChart() returned with a crosshair',
   'Expected an element that ListView() returned',
   'Expected an element that RadioSet() returned',
   'Expected an element that Slider() returned',

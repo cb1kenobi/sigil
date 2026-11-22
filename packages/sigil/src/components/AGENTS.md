@@ -7585,6 +7585,92 @@ under its lines and shows the values under the pointer.
   The dashboard asks for it, and `60-live-charts.js` now runs through `runApp()`
   inline so that it has a router to hand the chart.
 
+### A line chart's keys: the crosshair from the keyboard (SIG-516)
+
+SIG-464's crosshair followed the pointer only, so in a terminal that does not report
+motion, or with no mouse, the figures under a sample could not be read. A chart with
+a `crosshair` takes the focus now and Left and Right step the rule, as the treemap
+took the focus and the arrows in SIG-491.
+
+- **Focused with a crosshair, and `focusable: false` in `props` takes it back.**
+  Every component with keys of its own is focusable, the treemap's rule, and a
+  chart with no `crosshair` has none and stays out of the Tab ring. It owns `onKey`,
+  so `props` carrying one is refused where it is built, and only for a chart that
+  has a crosshair: `onKey` on a plain chart is still the app's. The props _type_
+  still allows it, which is the one place this departs from the "props type leaves
+  it out" convention -- narrowing it would break a chart that never owned a key.
+- **While it has the focus the rule is always drawn, and that is the drawn focus.**
+  At the newest sample until a key moves it, with the readout beside it, because a
+  focused chart that showed nothing until the first arrow would not say that arrows
+  were wanted. So the focus shows at colour level 0 too, as a shape rather than a
+  colour: unfocused with no pointer over it, the rule is not there. The rule is
+  also drawn in `.sigil-accent` with `.sigil-chart-crosshair-focus` beside the hook,
+  where a hovered one is `.sigil-muted`. Done by class from the drawing, not a
+  `:focus` rule in the framework sheet, so it adds no sheet declaration and so no
+  exception to the role rule (the treemap's `:focus` green is the sixteenth, and
+  this is not a seventeenth); a theme restyles it with either class. `focused()` is
+  the router's focus signal read in the drawing, so a drawing that read it is redone
+  when the focus moves, and nothing owns `onFocusChange`.
+- **The keyboard's sample is counted back from the newest, and the pointer wins
+  while it moves.** The state is `back`, samples before the newest, rather than an
+  index from the start: a pushed `Series` then keeps the rule at the same place on
+  the screen, as the pointer's column does, instead of sliding it one sample newer
+  each tick when the oldest drops off. `lineDrawing()` takes `back` beside `pointer`
+  and draws the pointer's sample when there is a pointer and the keyboard's when
+  there is not, so a pointer that leaves hands the rule back to the keyboard rather
+  than taking it away. A key clears the pointer, so a pointer that has not moved
+  since stops outvoting the key; the next report puts it back.
+- **A key steps from the rule that is drawn, and keys outrun frames.** Keys can
+  arrive faster than frames -- a held arrow -- and the drawing's `index` is one
+  behind them, so stepping from it turned forty Lefts into one. From the pointer's
+  sample where the pointer has moved since the last key (a key clears it), and
+  otherwise from the keyboard's own `back`, which a key sets at once. Review round 1
+  found three ways the first version stepped from the wrong place: `back` checked
+  before the pointer, so a key after the pointer had moved stepped from a sample no
+  longer drawn; a pointer over the chart where there is no sample -- the y-axis
+  gutter, a scrolling chart's empty left -- drawing no rule at all, which lost
+  the drawn focus and every key with it, where the keyboard's sample now stands
+  until the pointer is over one; and the keys gated on a crosshair having been
+  drawn, so an arrow typed before the first frame of the focus bubbled out. What a
+  key needs of the series -- `count` and the oldest drawn -- is `Drawing.samples`,
+  drawn whether or not a rule is, and the baseline is held to it, since data
+  shrinking under a large `back` left the first Right a no-op. `should step on from
+  the oldest sample when the data shrinks under a rule far back` and `should keep the
+  rule on a sample the plot draws when a resize narrows it` pin the two clamps. One
+  limit is left, and is recorded rather than fixed: `shown` and `samples` are the last
+  drawing's, so a pointer report and a key inside one frame step from the pointer's
+  rule as it was drawn (a key just after the data shrank under a pointer likewise),
+  where the keyboard's own `back` is always current. The drawing clamps whatever comes
+  out, so nothing lands outside the plot; the next frame puts the rule right.
+- **Every sample is a stop, where the pointer's cell holds several.** Under `fit`
+  with more samples than dot columns, the pointer takes the newest in its cell and
+  the older ones are unreachable. An arrow steps by sample, so the readout changes
+  while the rule may stay in its cell -- that is the only way to read them. At the
+  ends the oldest stop is the oldest the plot draws (`first`, which `lineDrawing()`
+  works out the way `sampleUnder()` does), not index 0: a scrolling chart's history
+  off the left edge is nowhere to put a rule.
+- **Claimed as the treemap's arrows are.** Left and Right are the chart's even at an
+  end, where they go nowhere; Shift with an arrow and Ctrl, Alt or a paste are left
+  for what is around the chart; Up and Down are not claimed, so a panel that scrolls
+  keeps them. Nothing drawn -- no samples -- and no key is the chart's. Blur forgets
+  the keyboard's sample, so a refocus starts at the newest again; it is an effect on
+  the focus signal rather than a handler, for the reason above.
+- **`describeLineChart(router, ...charts)`** describes `left` and `right` as `move`,
+  scoped to each chart, for `keyHelp()`. It refuses an element that is not a
+  `LineChart()` with a crosshair, naming what it expected -- one new key in
+  `SIGIL_KEYS`; `move` is the word the list and the treemap already use. It is
+  exported from the chart's own subpath and takes a structural router, as
+  `describeTreemap()` does. Enter has no meaning on a chart, so there is no
+  `activate` option and no `describedHosts()`, which kept the module graph of
+  `chart.ts` clear of the footer's.
+- **The dashboard's traffic chart has it,** a Tab stop after the range row: the
+  search, the menu, the range, the chart, then the table, which is one more Tab
+  than before and why that test helper counts five.
+- **Not done:** `h` and `l` with a `vim` option as the treemap has (SIG-499); Home
+  and End for the oldest and newest sample, which would need two more words in the
+  footer; and a way to pin a sample so the readout stays while the focus is
+  elsewhere.
+
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
 `src/components/image.ts` is `imageView()` and the `image()` facade over it.
