@@ -5142,7 +5142,7 @@ about what a valid app is would be the worse half of the feature.
   still its own. `generate()` runs `generateBundle` as `write()` does, so
   `prepareOutput()` is asked at the same moment. It stays, and this does not make
   it redundant: it refuses **before** a byte is written, where a Node write that
-  fails on its third file leaves two behind, and it is the only thing that says
+  fails on its third file used to leave two behind (SIG-582 removes them), and it is the only thing that says
   `Cannot write <file>, which is a directory.`. The mode is the default one, as
   rolldown's was. The provocation that is not a permission, so that it holds as
   root, is a preloaded `writeFileSync()` that makes the target a directory just
@@ -5171,6 +5171,44 @@ about what a valid app is would be the worse half of the feature.
   `bundle-close.test.ts` and `build-command.test.ts` named rolldown's `Could not
   create directory` as the proof the write rejected, and name Node's `EEXIST`
   now.
+
+  **A write that fails partway removes what it wrote, and the error is the one
+  Node raised (SIG-582).** `prepareOutput()` refuses before a byte is written,
+  but a failure only the write finds -- a full disk, a file that became a
+  directory -- on the third file left the first two in `--out`, a partial bundle
+  that read as a build. Every gate after the write already ended in
+  `undo(out, written.output)` and the write itself did not. `writeOutput()` now
+  catches, calls `undo()` and rethrows the same error object, so `escaped()`
+  escapes it whole as before. Three decisions, each a consequence of `undo()`'s
+  own rule rather than a new one:
+
+  - **What is handed to `undo()` is the files the write _began_, not
+    `written.output`.** Under `--no-clean`, `--out` may hold an earlier build's
+    file under a name this build had not reached yet, and `undo()` removes
+    whatever it is given -- `force` makes a missing file a no-op, which is why it
+    copes with an entry that was never written, but it cannot tell an absent file
+    from one somebody else left. The file that failed is in the list, because a
+    full disk leaves it truncated; one that failed in `mkdirSync()` is not, since
+    nothing of it was touched. A file this build rewrote is removed like any
+    other gate's `undo()` removes it: that is `undo()`'s rule and it is
+    unchanged.
+  - **Directories follow `undo()`: those a removed file sat in, while empty, and
+    never `out`.** A directory `prepareOutput()` made that held no file this
+    build began to write stays -- failing the first write leaves an empty
+    `chunks/` -- which is the empty directory behind a failed build this entry
+    already records, and removing it would mean a second rule about which
+    directories are the build's. `out` is never removed, as everywhere.
+  - **A cleanup that fails cannot replace the error.** `undo()` swallows each
+    removal's failure and moves on, so nothing is added around it; the test
+    makes `rmSync()` throw after the write has failed and asserts the report is
+    still the `EISDIR`.
+
+  `test/bundle-escape.test.ts` fails the Nth write with the same preload
+  SIG-573 uses (a directory made at the target just before the real call, so it
+  holds as root), and asserts the files before it are gone, that a stray file and
+  a previous build's file that was not reached survive `--no-clean`, and that a
+  throwing cleanup is not reported. Without the `undo()` call the first and
+  third fail; with `output` in place of the files begun the third fails.
 
 - **`assertCleanable()` cannot raise a file system error, and a test says so
   (SIG-560).** It runs before the bundle, outside what `escaped()` covers, so an
