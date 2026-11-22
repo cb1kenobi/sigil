@@ -230,6 +230,8 @@ describe('sigil package', () => {
     );
 
     expect(err).toContain('this entry exports none');
+    // the only error: a --commands that resolved wrongly would add one of its own
+    expect(err).toContain('1 error in inline-main');
     expect(err).not.toContain('--runtime is required');
     expect(process.exitCode).toBe(1);
   }, 60_000);
