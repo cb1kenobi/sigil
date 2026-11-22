@@ -636,6 +636,17 @@ export const COMPONENTS: readonly ComponentEntry[] = [
     related: ['diff', 'scroll-box'],
   },
   {
+    slug: 'code-view',
+    name: 'codeView()',
+    family: 'fullscreen',
+    exports: ['codeView'],
+    registry: 'code-view',
+    // nothing in it takes a key: it is lines to draw, and a scroll box beside it
+    // is what moves them
+    example: { probe: false },
+    related: ['diff-view', 'markdown', 'scroll-box'],
+  },
+  {
     slug: 'treemap',
     name: 'Treemap',
     family: 'fullscreen',
@@ -947,6 +958,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
   'Syntax highlighting, for the highlight seams': [
     'CODE_LANGUAGES',
     'codeLanguage',
+    'codeRun',
     'highlightCode',
   ],
   'Reading and encoding what a component draws': [
