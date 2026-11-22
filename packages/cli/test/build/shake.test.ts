@@ -256,6 +256,21 @@ describe('the class evidence', () => {
     expect(evidenceOf(`const c = a + '-red' + b;`).mayName('text-red')).toBe(true);
   });
 
+  it('should read a template in an interpolation once, so it is not a string of its own', () => {
+    // `x${`dim ${y}`}` is `xdim ` followed by something unknown. The inner
+    // template read alone began with `dim`, which this string never does
+    expect(evidenceOf('const c = `x${`dim ${y}`}`;').mayName('dim')).toBe(false);
+  });
+
+  it('should still read a literal in a call inside a chain it does not splice', () => {
+    // the walk descends into a spliced chain for what the splice did not read
+    const evidence = evidenceOf(`const c = a + f('p-2', 'bold') + g('m-' + z) + b;`);
+
+    expect(evidence.mayName('p-2')).toBe(true);
+    expect(evidence.mayName('bold')).toBe(true);
+    expect(evidence.mayName('m-4')).toBe(true);
+  });
+
   it('should not splice what a tag returns into the run around it', () => {
     // a tagged template nested in a chain is one unknown part, for the reason
     // its interpolations are never folded into its own quasis. The quasi is

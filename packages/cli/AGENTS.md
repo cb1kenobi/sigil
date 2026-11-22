@@ -2818,11 +2818,11 @@ other is refused with numbers.
   `+` chains and untagged templates `partsOf()` has read into, and the walk
   still descends into them -- a call in an operand holds literals of its own --
   but does not read one as a run again. The walk used to, so a chain of n terms
-  was read about n times over, each read O(n) parts: **2,000 terms took 1.2 s
-  and 4,000 took 8.2 s**, and **3 ms** now. Those re-reads were not only slow.
+  was read about n times over, each read O(n) parts: on SIG-577's tip **2,000
+  terms took 1.2 s and 4,000 took 8.2 s**, and **3 ms** now. Those re-reads were not only slow.
   A nested `+` read alone is a whole string, so `a + '-red'` inside
   `a + '-red' + 'x' + b` was a string that ends in `-red` and kept `text-red`,
-  `bg-red` and `border-red`, and no string that expression builds can end
+  `bg-red`, `border-red` and their `-bright-red` forms, and no string that expression builds can end
   there: it holds `-redx`. The same went for `` `x${`dim ${y}`}` `` keeping
   `dim`, and for `a + 'p-3' + 'p-4' + b` keeping `gap-3` and `top-3`. Those
   rules are dropped now, and they are rules nothing could match. It is the

@@ -82,6 +82,19 @@ describe('the cost of a long chain', () => {
     expect(growth(nested, 500)).toBeLessThan(3);
   });
 
+  it('should read a template inside a template once per level', () => {
+    // each level is an interpolation of the one above it, so a read of every
+    // level as a run of its own is a read of every level below it as well
+    const deep = (n: number): string => {
+      let source = 'v';
+      for (let i = 0; i < n; i++) {
+        source = `\`p-\${${source}}\``;
+      }
+      return `const c = ${source};`;
+    };
+    expect(growth(deep, 200)).toBeLessThan(3);
+  });
+
   it('should read each term about once, whatever the length', () => {
     // a chain of 1,000 terms unwraps each operand a handful of times at most,
     // where reading every prefix of it is half a million
