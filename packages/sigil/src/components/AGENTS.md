@@ -4060,6 +4060,37 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   the same destination. `invert` overrides both, for a caller who knows something
   the level and the scheme do not say.
 
+- **An unpinned code follows the scheme of whatever draws it, because the sheet
+  chooses between two bodies (SIG-604).** `Renderer.setColorScheme()` (SIG-461)
+  writes the media context, and the polarity was read from `opts.colorScheme ??
+  schemeFromEnv()` when the tree was built -- so after a scheme change a code kept
+  the polarity of the old one, which a scanner may not read. With no `invert`, no
+  painted level above 0 and no `colorScheme`, `qrcodeView()` now puts **both**
+  polarities in the box as two texts, `.sigil-qrcode-on-dark` and
+  `.sigil-qrcode-on-light`, and the framework sheet shows one by
+  `@media (prefers-color-scheme)`. Nothing listens for anything: the restyle a
+  scheme change already causes is what swaps them, so there is one answer to what
+  the scheme is and the code cannot disagree with the rest of the screen. The two
+  forms are the same size, which is what makes `display: none` on one of them safe.
+  Naming a scheme, an `invert` or `paint` above level 0 still pins one body and
+  nothing follows the renderer, which is what a caller who named one is asking for.
+  The reading is `display`, not `inverse`, for the reason above: which glyph is
+  drawn is content.
+
+  Three limits, all deliberate. **`qrcode()` the string is a snapshot**: it has no
+  renderer to ask and may be called where there is none, so it reads
+  `schemeFromEnv()` as it always did and pins what it found; a caller that has
+  changed the scheme passes it as `colorScheme`, and one that wants a code that
+  follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
+  draws both bodies**, there being no rule to hide either -- `themedCascade()` is
+  the cascade every built-in is styled by, and a caller who built their own names
+  the scheme. **The level is not live**: a painted code's level still comes from
+  `colorLevelOf()` at build, since the ticket is about the scheme. The two rules are
+  exceptions in `should declare on a role, bar fifteen exceptions that say why`:
+  they are which polarity takes space, not a look. Pinned by `the scheme a tree
+  follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
+  flips `setColorScheme()`.
+
 - **The right-hand quiet zone survives because of the background, and the two
   halves of that are different mechanisms.** `renderToString()` drops a trailing
   run of blanks that _show nothing_, and a blank with a background shows

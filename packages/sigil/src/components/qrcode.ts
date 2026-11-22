@@ -169,7 +169,7 @@
  */
 
 import { box, type Element, renderToString, text as textNode } from '../element/index.js';
-import { type ColorScheme, DEFAULT_MEDIA, schemeFromEnv } from '../style/index.js';
+import { DEFAULT_MEDIA, schemeFromEnv } from '../style/index.js';
 import { type StyledOptions, themedCascade } from '../theme/index.js';
 import { colorLevelOf } from './color-level.js';
 
@@ -1430,20 +1430,23 @@ export interface QrViewOptions
   extends StyledOptions, QrEncodeOptions, QrLinesOptions, QrPaintOptions {}
 
 /**
- * Whether the light modules are the ones to draw.
+ * Whether the caller or the level has already decided which modules to draw.
  *
- * One expression and one place that reads it: at any colour level above zero the
- * body paints its own black on white and the dark modules are drawn, and at level
- * zero there is nothing to paint with, so the drawn modules have to be the ones
- * whose colour the terminal's foreground already is. The scheme defaults the way
- * `themedCascade()` defaults it -- `SIGIL_COLOR_SCHEME`, then `COLORFGBG`, then
- * dark -- because the two are answering the same question about the same
- * destination and reading it twice is how they come to disagree.
+ * One expression and one place that reads it: at any colour level above zero a
+ * painted body has its own black on white and the dark modules are drawn, and at
+ * level zero there is nothing to paint with, so the drawn modules have to be the
+ * ones whose colour the terminal's foreground already is. That second case is a
+ * question about the scheme, and **it is only answered here when somebody named
+ * one** -- `invert`, a painted code above level 0, or a `colorScheme` option.
+ * Otherwise this answers `undefined` and `qrcodeView()` leaves the choice to the
+ * media context of whatever draws the tree, which is the one place that knows what
+ * the scheme is *now*: `Renderer.setColorScheme()` writes it, and a tree reading
+ * its own options was the one reader that never heard.
  *
  * @param opts - The level, the scheme, and an explicit override.
- * @returns Whether to invert.
+ * @returns Whether to invert, or `undefined` when the media context decides.
  */
-function polarity(opts: QrViewOptions): boolean {
+function pinnedPolarity(opts: QrViewOptions): boolean | undefined {
   if (opts.invert !== undefined) {
     return opts.invert;
   }
@@ -1459,8 +1462,7 @@ function polarity(opts: QrViewOptions): boolean {
     }
   }
 
-  const scheme: ColorScheme = opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme;
-  return scheme === 'dark';
+  return opts.colorScheme === undefined ? undefined : opts.colorScheme === 'dark';
 }
 
 /**
@@ -1474,9 +1476,16 @@ function polarity(opts: QrViewOptions): boolean {
  * it is on the body rather than on the box because `background-color` does not
  * inherit.
  *
- * A caller putting this in a tree of their own has to pass the colour scheme
- * their destination is against, because the scheme is what decides which modules
- * are drawn and this is not a mounted component with a media context to read.
+ * **Which modules are drawn follows the scheme of whatever draws the tree.** With
+ * no `colorScheme`, `invert` or painted level to say, the box holds both
+ * polarities as two bodies and the framework's sheet shows the one that matches
+ * `@media (prefers-color-scheme)` -- so a tree mounted in a renderer redraws the
+ * right one when `Renderer.setColorScheme()` moves it, with nothing here listening
+ * for anything, and the scheme is one answer rather than a second read of the
+ * environment. A cascade that does not carry the framework's sheet has no rule to
+ * hide either body and draws both; one that wants a single body names the scheme.
+ * The scheme a tree is drawn against is the media context's, and
+ * `renderToString()` fills that from `colorScheme` or else the cascade's own.
  *
  * @param value - The payload.
  * @param opts - The encoding, the form, and the theme.
@@ -1487,26 +1496,51 @@ export function qrcodeView(
   opts: QrViewOptions = {}
 ): { code: QrCode; element: Element; width: number } {
   const code = encodeQr(value, opts);
-  const lines = qrLines(code, { ...opts, invert: polarity(opts) });
+  const pinned = pinnedPolarity(opts);
 
+  // the paint class is what carries the two colours, so it is added rather than
+  // written into the body's: a code that borrows the terminal's two has no colour
+  // of its own to name, and a prop beats a sheet per property, so a colour here is
+  // one a theme could not reach
+  const body = (
+    lines: string[],
+    scheme?: 'sigil-qrcode-on-dark' | 'sigil-qrcode-on-light'
+  ): Element => {
+    const classes = ['sigil-qrcode-body'];
+    if (opts.paint === true) {
+      classes.push('sigil-qrcode-paint');
+    }
+    if (scheme !== undefined) {
+      classes.push(scheme);
+    }
+    return textNode(lines.join('\n'), { class: classes.join(' '), 'white-space': 'nowrap' });
+  };
+
+  // every line is the same length and every glyph is one column wide -- which is
+  // checked rather than assumed, since U+2588 is East Asian Width Ambiguous and a
+  // width table that read it as two would draw a code twice as wide as it
+  // measures. The two polarities are the same size as well: the pad moves from
+  // below the grid to above it and the line count is unchanged
+  if (pinned === undefined) {
+    // the inverted form is the one drawn on a dark scheme: the drawn modules are
+    // the light ones, whose colour the foreground already is
+    const onDark = qrLines(code, { ...opts, invert: true });
+    const onLight = qrLines(code, { ...opts, invert: false });
+    return {
+      code,
+      element: box(
+        { class: 'sigil-qrcode' },
+        body(onDark, 'sigil-qrcode-on-dark'),
+        body(onLight, 'sigil-qrcode-on-light')
+      ),
+      width: onDark[0]?.length ?? 1,
+    };
+  }
+
+  const lines = qrLines(code, { ...opts, invert: pinned });
   return {
     code,
-    element: box(
-      { class: 'sigil-qrcode' },
-      textNode(lines.join('\n'), {
-        // the paint class is what carries the two colours, so it is added
-        // rather than written into the body's: a code that borrows the
-        // terminal's two has no colour of its own to name, and a prop beats
-        // a sheet per property, so a colour here is one a theme could not
-        // reach
-        class: opts.paint === true ? 'sigil-qrcode-body sigil-qrcode-paint' : 'sigil-qrcode-body',
-        'white-space': 'nowrap',
-      })
-    ),
-    // every line is the same length and every glyph is one column wide -- which
-    // is checked rather than assumed, since U+2588 is East Asian Width Ambiguous
-    // and a width table that read it as two would draw a code twice as wide as
-    // it measures
+    element: box({ class: 'sigil-qrcode' }, body(lines)),
     width: lines[0]?.length ?? 1,
   };
 }
@@ -1520,18 +1554,27 @@ export interface QrcodeOptions extends QrViewOptions {}
  * theirs: the tree is laid out and painted onto a grid of its own, and what comes
  * back is the grid read as lines.
  *
+ * **It is a string, so it is the scheme at the moment it was asked.** With no
+ * `colorScheme` it reads `schemeFromEnv()` -- `SIGIL_COLOR_SCHEME`, then
+ * `COLORFGBG`, then dark -- because a string helper has no renderer to ask and
+ * may be called where there is none. It cannot follow `Renderer.setColorScheme()`
+ * after it returns; a code that has to is `qrcodeView()` in a tree, which leaves
+ * the polarity to the renderer's media context and redraws when that moves. An app
+ * that has changed the scheme passes it here as `colorScheme`.
+ *
  * @param value - The payload.
  * @param opts - The encoding, the form, and the theme.
  * @returns The code, with no trailing newline.
  * @throws Whatever `encodeQr()` throws.
  */
 export function qrcode(value: string, opts: QrcodeOptions = {}): string {
-  const { element, width } = qrcodeView(value, opts);
+  const colorScheme = opts.colorScheme ?? schemeFromEnv() ?? DEFAULT_MEDIA.colorScheme;
+  const { element, width } = qrcodeView(value, { ...opts, colorScheme });
 
   return renderToString(element, {
-    cascade: themedCascade(opts),
+    cascade: themedCascade({ ...opts, colorScheme }),
     colorLevel: colorLevelOf(opts),
-    colorScheme: opts.colorScheme,
+    colorScheme,
     width,
   });
 }

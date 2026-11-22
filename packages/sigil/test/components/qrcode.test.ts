@@ -8,10 +8,12 @@ import {
   qrLines,
 } from '../../src/components/qrcode.js';
 import { renderToString } from '../../src/element/index.js';
+import { render } from '../../src/renderer/index.js';
+import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { QR_SEGMENTS, QR_SIZES, QR_VECTORS } from './qrcode-vectors.js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /** A symbol as the reference vectors spell one, so a failure prints a picture. */
 function rowsOf(code: QrCode): string[] {
@@ -831,14 +833,14 @@ describe('the drawing', () => {
     // for a `raw` to carry. What it buys is that the code is selectable --
     // `selectable` defaults to false on a `raw`, which is right for a sparkline
     // and wrong for something somebody wants to paste
-    const { element } = qrcodeView('x', { colorLevel: 3 });
+    const { element } = qrcodeView('x', { colorLevel: 3, colorScheme: 'dark' });
     expect(element.type).to.equal('box');
     expect(element.children.length).to.equal(1);
     expect(element.children[0].type).to.equal('text');
   });
 
   it('should measure as one text rather than as a tree of cells', () => {
-    const { element, width } = qrcodeView('x', { colorLevel: 3 });
+    const { element, width } = qrcodeView('x', { colorLevel: 3, colorScheme: 'dark' });
     const body = element.children[0];
     expect(body?.props['white-space']).to.equal('nowrap');
     expect(width).to.equal(23);
@@ -850,15 +852,155 @@ describe('the drawing', () => {
     // the rule the framework sheet keeps for every built-in: a prop beats a
     // sheet per property, so a colour written into the tree is one a theme
     // cannot reach without an important
+    // unpinned, so both bodies are in it and both are checked
     const { element } = qrcodeView('x', { colorLevel: 3 });
-    for (const node of [element, element.children[0]]) {
+    expect(element.children.length).to.equal(2);
+    for (const node of [element, ...element.children]) {
       for (const key of Object.keys(node.props)) {
         expect(key, key).to.not.match(/colou?r/i);
       }
     }
     // and the colours really are reachable, which is what makes the absence
     // above worth asserting rather than a statement about an empty object
-    expect(element.children[0].classes).to.deep.equal(['sigil-qrcode-body']);
+    expect(element.children[0].classes).to.deep.equal([
+      'sigil-qrcode-body',
+      'sigil-qrcode-on-dark',
+    ]);
+  });
+});
+
+describe('the scheme a tree follows', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /**
+   * The lines a tree drew, with the blanks the renderer drops from a quiet zone gone
+   * -- and the rows that are nothing but, which a light terminal's last one is.
+   */
+  const drawn = (lines: string[]) => {
+    const kept = lines.map((line) => line.replace(/ +$/, ''));
+    while (kept.at(-1) === '') {
+      kept.pop();
+    }
+    return kept;
+  };
+
+  /**
+   * Mounts an unpinned code under a real renderer at level 0, where the polarity is
+   * the scheme's alone, and with neither variable set so that no machine decides it.
+   */
+  function mount(opts: { colorScheme?: 'dark' | 'light' } = {}) {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+    vi.stubEnv('COLORFGBG', '');
+    const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
+    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const view = render(() => element, {
+      cascade: themedCascade(),
+      colorLevel: 0,
+      frameMs: 0,
+      terminal: ui.terminal,
+      ...opts,
+    });
+    const code = encodeQr('x');
+    const shown = () => drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    return {
+      onDark: drawn(qrLines(code, { invert: true })),
+      onLight: drawn(qrLines(code, { invert: false })),
+      shown,
+      view,
+    };
+  }
+
+  // the defect: the polarity was read from the options and the environment when the
+  // tree was built, so an app that changed the scheme kept a code drawn for the old
+  // one -- inverted on a page that had gone light, which a scanner may not read
+  it('should flip polarity when the app changes the scheme at runtime', () => {
+    const m = mount({ colorScheme: 'dark' });
+    expect(m.shown(), 'dark').to.deep.equal(m.onDark);
+
+    m.view.setColorScheme('light');
+    m.view.frame();
+    expect(m.shown(), 'light').to.deep.equal(m.onLight);
+
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.shown(), 'back to the option').to.deep.equal(m.onDark);
+    m.view.dispose();
+  });
+
+  it('should start on the scheme the renderer resolved rather than the environment', () => {
+    // the environment says dark and the app says light, so a read of the
+    // environment would draw the wrong one on the first frame
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
+    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const view = render(() => element, {
+      cascade: themedCascade(),
+      colorLevel: 0,
+      colorScheme: 'light',
+      frameMs: 0,
+      terminal: ui.terminal,
+    });
+    const shown = drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    expect(shown).to.deep.equal(drawn(qrLines(encodeQr('x'), { invert: false })));
+    view.dispose();
+  });
+
+  it('should draw one polarity only, whichever scheme it is in', () => {
+    for (const scheme of ['dark', 'light'] as const) {
+      const m = mount({ colorScheme: scheme });
+      const lines = m.shown();
+      expect(lines, scheme).to.deep.equal(scheme === 'dark' ? m.onDark : m.onLight);
+      m.view.dispose();
+    }
+  });
+
+  it('should leave a scheme the caller named alone when the renderer changes its own', () => {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+    vi.stubEnv('COLORFGBG', '');
+    const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 30 });
+    const { element, width } = qrcodeView('x', { colorLevel: 0, colorScheme: 'dark' });
+    const view = render(() => element, {
+      cascade: themedCascade(),
+      colorLevel: 0,
+      frameMs: 0,
+      terminal: ui.terminal,
+    });
+    view.setColorScheme('light');
+    view.frame();
+    const shown = drawn(ui.viewport.map((line) => line.slice(0, width)).filter(Boolean));
+    expect(shown, 'a pinned code followed the renderer').to.deep.equal(
+      drawn(qrLines(encodeQr('x'), { invert: true }))
+    );
+    view.dispose();
+  });
+
+  it('should read the media context of a string render, from colorScheme or else the cascade', () => {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+    vi.stubEnv('COLORFGBG', '');
+    const { element, width } = qrcodeView('x', { colorLevel: 0 });
+    const code = encodeQr('x');
+    for (const scheme of ['dark', 'light'] as const) {
+      const out = renderToString(element, {
+        cascade: themedCascade({ colorScheme: scheme }),
+        colorLevel: 0,
+        width,
+      });
+      expect(drawn(out.split('\n')), scheme).to.deep.equal(
+        drawn(qrLines(code, { invert: scheme === 'dark' }))
+      );
+    }
+  });
+
+  it('should still read the environment for the string it returns, where nothing is mounted', () => {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'light');
+    const light = qrcode('x', { colorLevel: 0 });
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    const dark = qrcode('x', { colorLevel: 0 });
+    expect(light).to.equal(qrcode('x', { colorLevel: 0, colorScheme: 'light' }));
+    expect(dark).to.equal(qrcode('x', { colorLevel: 0, colorScheme: 'dark' }));
+    expect(light).to.not.equal(dark);
   });
 });
 
