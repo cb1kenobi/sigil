@@ -2779,6 +2779,17 @@ other is refused with numbers.
   _drops_ a rule, so an unknown part simply ends the run and opens its
   neighbours, which is the safe answer for every operand there is.
 
+  **An operand is read through `unwrapShallow()`, and `shake.ts` keeps no list of
+  wrappers of its own** (SIG-574). It had a private `bare()` that stripped `as`,
+  `satisfies`, `!` and parentheses and did not know the angle-bracket assertion,
+  so `(<string>'text-') + colour` was a closed `text-` and a `.ts` app building a
+  class that way shipped **3 of 383** utility rules where the `as` spelling of
+  the same expression shipped **22** -- a dropped rule, measured with
+  `sigil build` on both. `literals.ts` had gained `TSTypeAssertion` (SIG-569)
+  while the second list went unchanged, which is the failure a second list is.
+  `<T>x` only parses in a `.ts` file; in `.tsx` it is JSX, so no fixture for it
+  can be a `.tsx`.
+
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`
   call and never for an app that does not, which is most of them: **0.4 ms**
