@@ -7,6 +7,7 @@ import {
   parseColor,
   parseDeclaration,
   parseEasing,
+  parseInteger,
   parseIterations,
   parseLength,
   parseMediaQueryList,
@@ -25,6 +26,12 @@ import { describe, expect, it } from 'vitest';
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
 const RLO = String.fromCodePoint(0x202e);
+// U+2028 is whitespace to `trim()` and a line end to a terminal. Several messages
+// echo the text a parser was given before it trimmed it, so this is how a
+// character gets into one whose value had to be a number: it sits where the
+// number's own whitespace would.
+const LS = String.fromCodePoint(0x2028);
+const LS_SHOWN = String.raw`\u{2028}`;
 const HOSTILE = `${ESC}pwned${BEL}${RLO}`;
 const SHOWN = String.raw`\x1Bpwned\x07\u{202E}`;
 
@@ -36,6 +43,8 @@ interface Refusal {
   /** The fixed words of the message, so a case proves it reached the throw it names. */
   readonly says: string;
   readonly run: () => unknown;
+  /** What the escaped value reads as in the message, if it is not `SHOWN`. */
+  readonly shown?: string;
 }
 
 function messageOf(run: () => unknown): string {
@@ -53,7 +62,12 @@ function expectEscaped(refusal: Refusal): void {
   expect(message).toContain(refusal.says);
   expect(message).not.toMatch(UNSAFE);
   // the value is still there, and legible, in its escaped spelling
-  expect(message).toContain(SHOWN);
+  expect(message).toContain(refusal.shown ?? SHOWN);
+}
+
+/** A refusal whose only hostile character is a U+2028 where whitespace may sit. */
+function padded(says: string, run: () => unknown): Refusal {
+  return { says, run, shown: LS_SHOWN };
 }
 
 function sheet(source: string): () => unknown {
@@ -203,6 +217,34 @@ describe('a value refusal', () => {
     },
   });
 
+  each({
+    'a percentage with a space inside it': padded('Invalid percentage', () =>
+      parseLength(`50 ${LS}%`)
+    ),
+    'a length that is not a whole number': padded('not a whole number of cells', () =>
+      parseLength(`1.5${LS}`)
+    ),
+    'a factor that is negative': padded('expected a number of 0 or more', () =>
+      parseDeclaration('flex-grow', `-1${LS}`)
+    ),
+    'an integer that is not whole': padded('expected a whole number', () =>
+      parseInteger(`1.5${LS}`, 'z-index')
+    ),
+    'a duration that is negative': padded('a duration cannot be negative', () =>
+      parseTime(`-1s${LS}`, 'transition-duration')
+    ),
+    'a keyword that is not allowed': {
+      says: 'expected one of',
+      run: () => parseDeclaration('flex-direction', HOSTILE),
+    },
+    'a cubic-bezier with an x past 1': padded('x coordinates', () =>
+      parseEasing(`cubic-bezier(2, 0, 0, 0)${LS}`)
+    ),
+    'a cubic-bezier with a y past 1': padded('overshoot', () =>
+      parseEasing(`cubic-bezier(0, 2, 0, 0)${LS}`)
+    ),
+  });
+
   it('should be a StyleError, so a caller catching one still catches it', () => {
     expect(() => parseColor(HOSTILE)).toThrow(StyleError);
   });
@@ -234,6 +276,23 @@ describe('a selector refusal', () => {
       says: 'combinators are not allowed',
       run: () => parseSelectorList(`.a:not(.b ${HOSTILE})`),
     },
+  });
+});
+
+describe('a selector name written with backslash escapes', () => {
+  // an identifier may hold any character a backslash escapes, and its name comes
+  // back unescaped -- so these are the selector messages a hostile value reaches
+  // through the name rather than through the text around it
+  const NAME = [...HOSTILE].map((c) => `\\${c}`).join('');
+
+  each({
+    'an unknown pseudo-class': {
+      says: 'Unknown pseudo-class',
+      run: () => parseSelectorList(`.a:${NAME}`),
+    },
+    'a :not() with an empty alternative': padded('empty', () =>
+      parseSelectorList(`.a:not(.b,${LS})`)
+    ),
   });
 });
 

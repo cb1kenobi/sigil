@@ -865,16 +865,32 @@ toolchain's one reader.
   echoed name escaped where it is written. Neither escapes its argument, so a
   value that reaches either is escaped once, at the line that has it in hand.
 
-  _What is escaped without being able to be hostile, as a defence._ The at-rule
-  keyword (`[-a-zA-Z]+`), a pseudo-class name (an identifier), a keyframes name
-  that has already passed `KEYFRAMES_NAME` and is quoted by a later message, a cascade keyword (a member of a fixed list), a property
-  name that a table has already resolved, and the `v.join(' ')` of a `border`
-  that holds two valid colours are each limited by a pattern or a table before
-  the message is built, so a test cannot reach them with a hostile value. They
-  are escaped anyway: the pattern is another function's and can be loosened
-  without anyone looking here, which is the position SIG-558 recorded for a
-  layer name. `test/style/error-escape.test.ts` holds every site a hostile value
-  can reach, and sabotaging each file's escapes turns its cases red.
+  _Two ways in that look closed, and are not._ A message that quotes the text a
+  parser was handed **before it trimmed it** can hold a character `trim()` strips
+  -- U+2028 is whitespace to it and a line end to a terminal -- so `-1s` followed
+  by one is a duration that is negative and carries a hostile character, and the
+  messages for a percentage, a length, a factor, an integer, a time and a
+  `cubic-bezier` are reached that way. And an identifier may hold any character a
+  backslash escapes, with its name coming back unescaped, so a pseudo-class name is
+  as hostile as the text around it. Both were found by sabotage rather than by
+  reading: the first version of the test passed with those sites unescaped.
+
+  _What is escaped without being able to be hostile, as a defence._ Twenty-three
+  sites echo a value a pattern or a table has already limited, so no input
+  reaches them with a hostile character and sabotaging them goes unnoticed: the
+  at-rule keyword (`[-a-zA-Z]+`) in two messages, a keyframes name that has
+  already passed `KEYFRAMES_NAME` in three, a keyframe percentage past 100 and a
+  cascade keyword (a member of a fixed list) in the stylesheet and in
+  `readDeclarations()`, a media feature and its prefix once the feature pattern
+  has matched, a colour channel or palette index in a function form the colour
+  patterns matched, a media query or a selector list that parsed and is quoted as
+  a whole, the `:not` and `:nth-child` names that are fixed words, a property a
+  table resolved, a `steps()` count and a `cubic-bezier` whose numbers parsed, the
+  `v.join(' ')` of a `border` that holds two valid colours, a shorthand's own
+  name, and a gradient stop that is a number. They are escaped anyway: the
+  pattern is another function's and can be loosened without anyone looking here,
+  which is the position SIG-558 recorded for a layer name.
+  `test/style/error-escape.test.ts` holds every site a hostile value can reach.
 
 ### Stylesheets and the cascade
 
