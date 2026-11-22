@@ -10288,7 +10288,17 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   no `onSubmit`, a checkbox and the panel itself give it up. That is the web's
   default button, and it needs no knowledge of what is inside the body. A
   modifier makes it another key, as it does for a `Button`, and a paste is not a
-  keystroke, so a pasted newline presses nothing. Two defaults are refused where
+  keystroke, so a pasted newline presses nothing. A **disabled field that still has
+  the focus** hands Enter on like any control that is not using it, so a form that
+  disables its fields while a submit is on its way has to put the same condition in
+  the default's `disabled`, and `should press the default for a disabled field`
+  pins that this is what happens rather than something the dialog guesses at; the
+  settings login's Sign in reads `busy` for that reason. The `ctrl`, `meta`,
+  `shift` and paste guards in `pressDefault()` are reachable only by an event the
+  decoder cannot build -- the legacy encoding has no Ctrl-Enter or Shift-Enter, and
+  a paste ends at the panel before the binding -- so only the Alt case is pinned;
+  they are there because a `Button` ignores the same keys and a router with a
+  richer decoder would otherwise press the default on one. Two defaults are refused where
   the dialog is built, for the reason two `default` commands are: picking one is
   picking by registration order. The footer does not list Enter for it, since what
   Enter does depends on what has the focus and the listing is asked once.

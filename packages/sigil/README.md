@@ -6157,7 +6157,8 @@ with a `label` and a `value`; Enter, Space or a click presses the focused one an
 `result` settles with its value. An empty list is allowed, and then the panel
 holds the focus itself. `initial` is what starts focused: a number is a button, by
 position, `'body'` is the first thing in the body that takes the focus, and an
-element is that element, which has to be in the body. `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
+element is that element, which has to be in the body and to take the focus itself
+(a box around a field is not the field). `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
 `closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
 string, which wraps, an element, whose focusable parts join the trap, or **a
 function that builds one**. Use the function when the body has anything reactive
@@ -6177,7 +6178,9 @@ pressing the button runs it and the dialog stays open until the handler calls
 `default: true` marks the action Enter presses from a field that leaves Enter
 alone, only while it is enabled, the way a web page's default button works. A text
 field with an `onSubmit`, a text area, which keeps Enter as a newline, and a
-focused button take Enter for themselves. The buttons are built under the same
+focused button take Enter for themselves. A field that is disabled keeps the focus
+and hands Enter on, so a form that disables its fields while it submits puts the
+same condition in the default action's `disabled`, or Enter submits twice. The buttons are built under the same
 owner as a `body` function, so a `disabled` that follows the app's state stops
 following it when the dialog closes.
 

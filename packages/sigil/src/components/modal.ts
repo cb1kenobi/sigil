@@ -358,8 +358,19 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     }
   }
   const initial = opts.initial ?? 0;
-  if (initial instanceof Element || initial === 'body') {
-    // an element has to be in the body, which is known once the body is built
+  if (initial instanceof Element) {
+    // an element body is known now, and is checked before anything adopts it: the
+    // body box reparents it, and a call refused after that would have taken it out
+    // of wherever the caller had it. A function's tree does not exist yet, so that
+    // one is checked once it is built
+    if (
+      typeof opts.body !== 'function' &&
+      !(opts.body instanceof Element && opts.body.contains(initial))
+    ) {
+      throw new TypeError(__`Expected modal initial to be an element in the body`);
+    }
+  } else if (initial === 'body') {
+    // always something to ask for: a body with nothing focusable is the fallback
   } else if (
     typeof initial !== 'number' ||
     !Number.isInteger(initial) ||

@@ -1,6 +1,7 @@
 import { strip } from '../../src/ansi/index.js';
 import { CellBuffer, DEFAULT_COLOR, Painter, palette, StyleTable } from '../../src/canvas/index.js';
 import { confirmModal, type ModalOptions, openModal } from '../../src/components/modal.js';
+import { TextArea } from '../../src/components/text-area.js';
 import { TextField } from '../../src/components/text-field.js';
 import {
   arrange,
@@ -1542,13 +1543,35 @@ describe('a dialog that is a form', () => {
       expect(s.root.children.length).to.equal(children);
     });
 
-    it('should refuse an element when there is no body, and dispose what it built', () => {
+    it('should refuse an element body that does not hold it without taking the body out of the app', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      const { email, name } = fields();
+      const form = box({}, name);
+      s.root.append(form);
+      expect(() => openModal(s.root, { body: form, initial: email, input: s.input })).toThrow(
+        'Expected modal initial to be an element in the body'
+      );
+      // still where the app had it: the body box has not adopted it
+      expect(form.parent).to.equal(s.root);
+    });
+
+    it('should accept the body itself as the element', async () => {
+      const s = scene();
+      const { name } = fields();
+      modalOn(s, { body: name, initial: name });
+      await settle();
+      expect(s.input.focus.current.get()).to.equal(name);
+    });
+
+    it('should refuse an element a body function did not build, and dispose what it built', () => {
       const s = mounted();
       const app = new State(0);
       const reads: number[] = [];
       expect(() =>
         openModal(s.view, {
           actions: [{ disabled: () => reads.push(app.get()) === 0, label: 'Save' }],
+          body: () => text('body'),
           initial: text('elsewhere'),
           input: s.input,
         })
@@ -1654,6 +1677,80 @@ describe('a dialog that is a form', () => {
       await s.term.press(KEYS.enter, KEYS.enter);
       expect(pressed).to.deep.equal(['save', 'save']);
       expect(handle.open).to.equal(true);
+    });
+
+    it('should leave Enter to a text area, which makes it a newline', async () => {
+      const s = scene();
+      const value = new State('');
+      const handle = modalOn<string>(s, {
+        actions: [{ default: true, label: 'Save', value: 'saved' }],
+        body: TextArea({ value }),
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press('a', KEYS.enter, 'b');
+      expect(value.get()).to.equal('a\nb');
+      expect(handle.open).to.equal(true);
+    });
+
+    it('should not press once something on the way has closed the dialog', async () => {
+      const s = scene();
+      const { name } = fields();
+      const pressed: string[] = [];
+      let handle: ReturnType<typeof modalOn> | undefined;
+      // takes Enter without claiming it, and closes the dialog on the way
+      name.onKey = (event) => {
+        if (event.key.name === 'enter') {
+          handle?.close();
+        }
+      };
+      handle = modalOn(s, {
+        actions: [{ default: true, label: 'Save', onPress: () => pressed.push('save') }],
+        body: name,
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(handle.open).to.equal(false);
+      expect(pressed).to.deep.equal([]);
+    });
+
+    it('should press the default for a disabled field that left Enter alone, which is why the action reads busy too', async () => {
+      // a field disabled while a submit is on its way hands Enter on, so the
+      // default has to be disabled by the same condition or it presses twice
+      const s = scene();
+      const busy = new State(false);
+      const pressed: string[] = [];
+      const field = TextField({ disabled: busy, value: new State('') });
+      modalOn(s, {
+        actions: [
+          {
+            default: true,
+            disabled: () => busy.get(),
+            label: 'Save',
+            onPress: () => pressed.push('save'),
+          },
+        ],
+        body: field,
+        initial: 'body',
+      });
+      await settle();
+      await s.term.press(KEYS.enter);
+      busy.set(true);
+      await settle();
+      await s.term.press(KEYS.enter);
+      expect(pressed).to.deep.equal(['save']);
+    });
+
+    it('should refuse a default that is not a boolean', () => {
+      const s = scene();
+      handles.push({ dispose: () => s.input.stop() });
+      expect(() =>
+        openModal(s.root, {
+          actions: [{ default: 'yes' as unknown as boolean, label: 'A' }],
+          input: s.input,
+        })
+      ).toThrow('Expected a modal action default to be a boolean');
     });
 
     it('should refuse two defaults', () => {
