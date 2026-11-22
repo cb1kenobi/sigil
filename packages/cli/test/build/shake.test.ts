@@ -788,3 +788,22 @@ describe('telling the app apart from what it depends on', () => {
     );
   });
 });
+
+// SIG-579: the callee is read through the wrappers that erase, as the schema
+// reader's own values already are -- `(<T>utilitySheet)()` is the same call
+describe.each([
+  ['<T>', (callee: string) => `<Type>${callee}`],
+  ['as', (callee: string) => `${callee} as Type`],
+  ['satisfies', (callee: string) => `${callee} satisfies Type`],
+  ['!', (callee: string) => `${callee}!`],
+])('utilitySheet() written under %s', (_wrapper, wrap) => {
+  it('should still be replaced', () => {
+    const out = shakeStyles(
+      '/app/src/view.ts',
+      `import { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = (${wrap('utilitySheet')})();\n`,
+      () => sheet
+    );
+
+    expect(out?.sites).toBe(1);
+  });
+});

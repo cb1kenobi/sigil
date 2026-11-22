@@ -71,12 +71,13 @@ import { generateUtilities, utilities, VARIANT_NAMES } from '../utilities/index.
 import { bindingName, importBindings, reachable, unwrap } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
 import { landsAt } from './discover.ts';
+import { unwrapShallow } from './literals.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import MagicString from 'magic-string';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { CallExpression, Node } from 'oxc-parser';
+import type { CallExpression, Expression, Node } from 'oxc-parser';
 
 /** Where `utilitySheet` comes from. */
 export const STYLE_MODULE = '@ttylabs/sigil/style';
@@ -779,7 +780,7 @@ export function shakeStyles(
     if (
       node.type === 'CallExpression' &&
       node.arguments.length === 0 &&
-      bindingName(node.callee as Parameters<typeof bindingName>[0], bindings) !== undefined
+      bindingName(unwrapShallow(node.callee as Expression), bindings) !== undefined
     ) {
       calls.push(node);
     }

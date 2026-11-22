@@ -244,7 +244,9 @@ function namesChecker(value: Expression, builders: readonly ImportBindings[]): b
 
   if (
     expression.type === 'CallExpression' &&
-    builders.some((bindings) => bindingName(expression.callee, bindings) !== undefined)
+    builders.some(
+      (bindings) => bindingName(unwrapShallow(expression.callee), bindings) !== undefined
+    )
   ) {
     return true;
   }
