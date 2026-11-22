@@ -696,8 +696,16 @@ five things core had deliberately not published, which is the entry below.
   for the write-loss report: it blanks those four regions at the same offsets,
   so the reference scan runs over its output and the offsets are the source's.
   It moved to `src/content.ts` so that both readers share it rather than each
-  walking comments. What it can get wrong is a region opener inside an attribute
-  value, and the parser refuses a `<` there before it could matter (measured).
+  walking comments. A region opener inside an attribute value cannot matter,
+  because the parser refuses a `<` there (measured). Where a DOCTYPE ends is the
+  walk's one hard part and review round 1 found it wrong: it tracked quotes and
+  brackets but not the comments and processing instructions an internal subset
+  holds, so `<!-- it's -->` opened a quote nothing closed and blanked the rest
+  of the file -- every reference after it was read as the character, through a
+  check that exists to refuse that -- and `<!-- ]> &#1; -->` ended the DOCTYPE
+  inside the comment and refused a document that was fine. It steps over both
+  whole now, and a 55-document differential against the parser found nothing
+  else.
   A raw character is still checked against the **whole** source, comments and
   CDATA included, because there it is the character and not a reference to it.
   A DOCTYPE entity holding `&#1;` that nothing references is read, like any

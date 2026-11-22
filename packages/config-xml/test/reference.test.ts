@@ -1,6 +1,5 @@
 import { xml } from '../src/index.js';
 import { absent, file, read } from './helpers.js';
-import { basename } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -49,7 +48,7 @@ describe('a numeric character reference to a character outside Char', () => {
     const refused = said(text);
 
     expect(refused).toContain('Failed to parse ');
-    expect(refused).toContain(basename('config.xml'));
+    expect(refused).toContain('config.xml');
     expect(refused).toContain(`line 1, column ${column}`);
     expect(refused).toContain(`the character reference to ${name} is not allowed in XML`);
   });
@@ -160,6 +159,32 @@ describe('what only looks like a reference', () => {
     ],
   ])('should be read, in %s', (_where, text) => {
     expect(() => valueOf(text)).not.toThrow();
+  });
+
+  // a comment or a processing instruction in a DOCTYPE's internal subset holds an
+  // apostrophe, a quote or `]>` as text: the walk that finds the end of the
+  // DOCTYPE took each for markup, so a quote nothing closed blanked the rest of
+  // the document and a `]>` ended the DOCTYPE inside the comment
+  it.each([
+    ['an apostrophe', `<!-- it's -->`],
+    ['a double quote', `<!-- say "hi -->`],
+    ['a closing bracket and angle', `<!-- ]> -->`],
+    ['an apostrophe in a processing instruction', `<?pi it's ?>`],
+    ['a closing bracket and angle in a processing instruction', `<?pi ]> ?>`],
+  ])('should find a reference after a DOCTYPE comment holding %s', (_what, region) => {
+    expect(said(`<!DOCTYPE config [ ${region} ]><config><a>x&#1;y</a></config>`)).toContain(
+      'the character reference to U+0001'
+    );
+    expect(said(`<!DOCTYPE config [ ${region} ]><config><a>&#xFFFF;</a></config>`)).toContain(
+      'U+FFFF'
+    );
+  });
+
+  it.each([
+    ['a comment', `<!-- ]> &#1; it's -->`],
+    ['a processing instruction', `<?pi ]> &#1; it's ?>`],
+  ])('should not find one inside %s in a DOCTYPE', (_what, region) => {
+    expect(() => valueOf(`<!DOCTYPE config [ ${region} ]><config><a>1</a></config>`)).not.toThrow();
   });
 
   it('should still find one after a region that held one', () => {

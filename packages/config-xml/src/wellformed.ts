@@ -45,7 +45,9 @@ import { escapeControls } from '@ttylabs/sigil/error-handler';
  * write-loss report uses, at the same offsets, and a second walk for the same
  * question would come to disagree about where a comment ends. A `<` cannot be in
  * an attribute value (the parser refuses it), so a region opener never hides
- * inside one.
+ * inside one. Its one hard part is where a DOCTYPE ends, whose internal subset
+ * has comments and processing instructions of its own, and that was measured
+ * against the parser by reading a document through both.
  *
  * What a **raw** character is checked against is the whole source, comments and
  * CDATA included, because there it is the character itself and not a reference

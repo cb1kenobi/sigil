@@ -17,7 +17,11 @@
  * positive of the bare-`>` row in a document that also had a real loss, which
  * is the class `contentOf()` exists to close and this was one more member of.
  * So the walk tracks a quote and treats `[` as entering the subset, which ends
- * at the matching `]`.
+ * at the matching `]` -- and steps over a comment and a processing instruction
+ * in it whole, because an apostrophe or a `]>` in one is text rather than a quote
+ * or an end (SIG-586). Without that, `<!-- it's -->` opened a quote nothing
+ * closed and the rest of the document was blanked, which hid every numeric
+ * reference after it from the check that now depends on this walk.
  *
  * @param source - The document.
  * @param from - The offset of the `<` that opens the declaration.
@@ -34,6 +38,15 @@ function doctypeEnd(source: string, from: number): number {
       if (ch === quote) {
         quote = undefined;
       }
+      continue;
+    }
+    if (ch === '<' && (source.startsWith('<!--', i) || source.startsWith('<?', i))) {
+      const close = source.startsWith('<!--', i) ? '-->' : '?>';
+      const at = source.indexOf(close, i + 2);
+      if (at === -1) {
+        return source.length;
+      }
+      i = at + close.length - 1;
       continue;
     }
     if (ch === '"' || ch === "'") {
