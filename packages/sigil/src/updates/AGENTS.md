@@ -210,11 +210,36 @@ the entry it belongs to.
       throw for an app with a checker that was doing its job. `customChecker()` is
       still the way to have them refused, and `sigil.json`'s `custom` check
       still goes through it.
-    - **A refusal for a schema's `updateCheck` is a log line.** It reaches
-      `beginUpdateCheck()`, which catches everything because an update notice may
-      not fail a command, so the app sees nothing unless `DEBUG` is on. That is
-      the cost of keeping the notice unable to fail anything, and whether a
-      bad schema `updateCheck` should surface somewhere louder is open.
+    - **A refusal for a schema's `updateCheck` is a log line at run time, and an
+      error in the toolchain (SIG-564).** It reaches `beginUpdateCheck()`, which
+      catches everything because an update notice may not fail a command, so a
+      running app says nothing unless `DEBUG` is on -- and an author never
+      turned it on. The three ways to tell them were weighed and one was taken:
+
+      - **Taken: `sigil check`, `build` and `package` ask `checkedChecker()` of
+        the schema's literal.** The author is already looking there, it needs no
+        guess about who is running the app, and an end user can never see it
+        because it is not in what ships. `checkedChecker()` is exported from
+        `@ttylabs/sigil/updates` for it, so the rules and the message are the
+        runtime's own. Its reach, and what it leaves silent, are under "A checker
+        the schema writes out" in `packages/cli/AGENTS.md`: only what the source
+        writes down, so a checker held in a variable or built from the
+        environment is still a log line.
+      - **Refused: a one-time line on stderr from `beginUpdateCheck()`.** It
+        needs "this is the author and not the end user", and nothing in the
+        process says so. `bakedConfig()` is set by a build, which says "built"
+        and not "installed by somebody else": a CLI published as an unbundled
+        package is run from source by its users, and a line there is exactly the
+        refusal meant for the author reaching the one person who cannot act on
+        it. "Run from a checkout" (`.git` or a `src/` beside the entry) is a
+        heuristic that is wrong in both directions. The constraint that an end
+        user never sees it was the one to keep.
+      - **Refused: throwing, or surfacing it in the notice's place.** The check
+        cannot fail a command, and any text in the notice's place is a message
+        for the author on the user's terminal.
+
+      `beginUpdateCheck()` still writes it to the debug log and nothing else.
+
     - `check()` rejects with the `TypeError`, as it does for a bad `registryURL`.
 
   - **The re-wording is the toolchain's and is a table, not an option on the
@@ -716,7 +741,8 @@ and the pty runs are in
   ignored, so in plain JavaScript it checks npm, silently -- and the types are
   what catch it, since the options have no such properties and a literal with
   them is an excess-property error. Refusing it at run time was left alone: the
-  check cannot fail the command, so the refusal would be a log line.
+  check cannot fail the command, so the refusal would be a log line at run time
+  (and the toolchain reports a checker the schema writes out: SIG-564).
 
 - **The graph stays clean for an app that did not ask.** `auto.ts` is reached by
   one dynamic `import()`, inside `main()`, behind `schema.updateCheck`. The worker

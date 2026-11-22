@@ -18,7 +18,14 @@ export type {
   NpmCheckerOptions,
   UpdateChecker,
 } from './checker.js';
-export { customChecker, githubChecker, isNewer, npmChecker, versionFrom } from './checker.js';
+export {
+  checkedChecker,
+  customChecker,
+  githubChecker,
+  isNewer,
+  npmChecker,
+  versionFrom,
+} from './checker.js';
 export type { BakedUpdateConfig } from './host.js';
 export { isFreshStamp } from './stamp.js';
 
