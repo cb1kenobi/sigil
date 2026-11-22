@@ -763,7 +763,7 @@ describe('the release workflow', () => {
       for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
         for (const step of stepsOf(workflow({ manager }))) {
           const lines = code(step.lines.join('\n'));
-          const at = lines.findIndex((line) => /^\s+run:/.test(line));
+          const at = lines.findIndex((line) => /^\s*(?:- )?run:/.test(line));
           if (at < 0) continue;
           const block = lines.slice(at).filter((line) => !/^\s+(?:env|name):/.test(line));
           expect(block.join('\n'), step.name).not.toContain('${{');
@@ -816,16 +816,26 @@ describe('the release workflow', () => {
       rmSync(dir, { force: true, recursive: true });
     });
 
-    /** Scaffolds a pnpm app with a `pnpm` on `PATH` that prints `output`. */
+    /**
+     * Scaffolds a pnpm app with a `pnpm` on `PATH` that prints `output`.
+     *
+     * The directory the command is run from holds a `package.json`, and the
+     * stand-in answers `1.0.0` -- the pinned pnpm of a project -- wherever it
+     * finds one in its working directory. Real pnpm does the same with a
+     * `packageManager` field (11.9.0 outside and 12.21.0 inside this repository
+     * on the machine that found it), so a `pnpm --version` run from the wrong
+     * directory is a test failure rather than a quiet wrong answer.
+     */
     function scaffoldedWith(output: string, status = 0): Record<string, string> {
       const bin = join(dir, 'bin');
       mkdirSync(bin);
       const win = process.platform === 'win32';
+      writeFileSync(join(dir, 'package.json'), '{}\n');
       writeExecutable(
         join(bin, win ? 'pnpm.cmd' : 'pnpm'),
         win
-          ? `@echo ${output}\r\n@exit /b ${status}\r\n`
-          : `#!/bin/sh\necho '${output}'\nexit ${status}\n`
+          ? `@if exist package.json (echo 1.0.0) else (echo ${output})\r\n@exit /b ${status}\r\n`
+          : `#!/bin/sh\nif [ -f package.json ]; then echo 1.0.0; else echo '${output}'; fi\nexit ${status}\n`
       );
       const env = { ...process.env };
       for (const key of Object.keys(env)) {

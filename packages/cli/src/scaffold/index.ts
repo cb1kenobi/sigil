@@ -96,8 +96,8 @@ export const MANAGERS = ['pnpm', 'vlt', 'npm'] as const;
 export type Manager = (typeof MANAGERS)[number];
 
 /**
- * The pnpm major a pnpm app's release workflow installs, since no runner image
- * has one.
+ * The pnpm major a pnpm app's release workflow installs when the developer's own
+ * pnpm could not be read (`pnpmVersion`), since no runner image has one.
  *
  * A major rather than the latest, because the release is the one build nobody
  * gets to redo and a new major is where pnpm changes what a frozen install
@@ -653,7 +653,8 @@ export default [
  * Node, because a workflow that silently only works one way is worse than one
  * that explains itself.
  *
- * @param name - The app's name, which is also its bin.
+ * @param opts - What was chosen: the app's name, which is also its bin, and the
+ *   manager and pnpm version its commands are spelled with.
  * @returns The workflow.
  */
 function releaseWorkflow(opts: ScaffoldOptions): string {
@@ -663,7 +664,8 @@ function releaseWorkflow(opts: ScaffoldOptions): string {
   // a token that can write to the repository. vlt has no such flag because it
   // has nothing to turn off -- `vlt install` leaves a package's lifecycle
   // scripts unrun and says `run "vlt build" to complete the install`, measured
-  // on 1.1.1 with a dependency whose `postinstall` writes a file.
+  // on 1.1.1 and again on 1.8.2, the latest `npm install --global vlt` gets, with a
+  // dependency whose `postinstall` writes a file.
   const install =
     manager === 'npm'
       ? 'npm ci --ignore-scripts'

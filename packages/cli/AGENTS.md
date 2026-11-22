@@ -4528,8 +4528,9 @@ people's software and will move.
     for a test to read, and `github.token` is passed to the **one** step that
     uses it, in `env`, never in a `run` block and never at job level. vlt takes
     no flag because there is none to take: `vlt install` leaves a dependency's
-    lifecycle scripts unrun until `vlt build`, measured on 1.1.1 with a
-    dependency whose `postinstall` writes a file. There is **no `NPM_TOKEN`** in
+    lifecycle scripts unrun until `vlt build`, measured on 1.1.1 and again
+    on 1.8.2 (what `npm install --global vlt` installs) with a dependency whose
+    `postinstall` writes a file. There is **no `NPM_TOKEN`** in
     this workflow -- the ticket was written about the token the release is made
     with, which is the GitHub one; an app that adds an npm publish step should
     give that step the same treatment. What `--ignore-scripts` does not do is
