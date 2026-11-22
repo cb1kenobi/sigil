@@ -27,6 +27,11 @@ function lastCall(): { args: string[]; env: Record<string, string> } {
   return { args, env: env! };
 }
 
+/** The script PowerShell was handed on the nth call, decoded. */
+function scriptOf(call: number): string {
+  return Buffer.from(ran.mock.calls[call]![1].at(-1)!, 'base64').toString('utf16le');
+}
+
 /** What `run()` resolves with, as the script writes it. */
 function reply(cache: string, answer: object): string {
   return JSON.stringify({ answer, cache });
@@ -65,8 +70,6 @@ describe('what PowerShell is handed', () => {
     expect(env.SIGIL_TRASH_PATH).toBe('C:\\a "b".txt');
     expect(env.SIGIL_TRASH_CACHE).toBe(join('c', 'trash.bin'));
     expect(env.SIGIL_TRASH_KEY).toBe('k'.repeat(64));
-    // set, and empty, so that one inherited from the environment cannot ask for the compile
-    expect(env.SIGIL_TRASH_MODE).toBe('');
     expect(env.SIGIL_TRASH_SOURCE).toContain('namespace SigilTrash');
     // and one environment variable is held to 32,767 characters too
     expect(env.SIGIL_TRASH_SOURCE.length).toBeLessThan(32_767);
@@ -158,8 +161,10 @@ describe('a load that is refused', () => {
     expect(out).toEqual({ cache: 'compiled', path: 'C:\\bin\\$R1.txt' });
     expect(ran).toHaveBeenCalledTimes(2);
     const [first, second] = ran.mock.calls.map(([, , env]) => env!);
-    expect(first.SIGIL_TRASH_MODE).toBe('');
-    expect(second.SIGIL_TRASH_MODE).toBe('compile');
+    // the second is a different script, and neither reads a mode from the environment
+    expect(scriptOf(0)).not.toBe(scriptOf(1));
+    expect(first.SIGIL_TRASH_MODE).toBeUndefined();
+    expect(second.SIGIL_TRASH_MODE).toBeUndefined();
     // the same item, and the same source, the second time
     expect(second.SIGIL_TRASH_PATH).toBe('C:\\a.txt');
     expect(second.SIGIL_TRASH_SOURCE).toBe(first.SIGIL_TRASH_SOURCE);
@@ -209,23 +214,111 @@ describe('a load that is refused', () => {
     expect(guard).toBeGreaterThan(caught);
     expect(script.indexOf('ProtectedData]::Protect(')).toBeGreaterThan(guard);
 
-    // the compile mode loads from a file: `Add-Type` would load the bytes it
+    // the second script loads from a file: `Add-Type` would load the bytes it
     // compiled, which is the call that was refused
-    const start = script.indexOf("$env:SIGIL_TRASH_MODE -eq 'compile'");
-    const compile = script.slice(start, script.indexOf('} else {', start));
-    expect(start).toBeGreaterThan(-1);
+    ran.mockResolvedValue(reply('compiled', { path: 'x' }));
+    await recycle('C:\\a.txt', undefined, 'k', 'compile');
+    const compile = scriptOf(1);
     expect(compile).toContain('Assembly]::LoadFrom(');
     expect(compile).not.toContain('Load(');
     expect(compile).not.toContain('ReadAllBytes');
     // and what it compiles with does not load what it built: CodeDom does that,
     // with `Assembly.Load(byte[])`, when it is asked to compile in memory
     expect(script).toContain('$params.GenerateInMemory = $false');
+    expect(compile).toContain('$params.GenerateInMemory = $false');
     expect(script).not.toContain('GenerateInMemory = $true');
     // a load that is refused is answered, not raised as PowerShell's own error
     expect(compile.indexOf('catch {')).toBeGreaterThan(compile.indexOf('LoadFrom('));
     expect(compile).toContain('$refused = ');
-    expect(compile).not.toContain('Add-Type -TypeDefinition');
+    expect(compile).toContain('loadRefused');
+    expect(compile).not.toContain('Add-Type');
     expect(compile).not.toContain('SIGIL_TRASH_CACHE');
     expect(compile).not.toContain('Protect(');
+  });
+});
+
+describe('a first run that prints nothing', () => {
+  /** An item that is really there, since whether it is still there is what is asked. */
+  function item(): string {
+    const file = join(tempDir('sigil-trash-win-'), 'a.txt');
+    writeFileSync(file, '');
+    return file;
+  }
+
+  const KILLED = new Error('powershell.exe failed: exited with null');
+
+  it('should be asked again with a script that has no Assembly.Load text, and still recycle the item', async () => {
+    const file = item();
+    ran.mockRejectedValueOnce(KILLED);
+    ran.mockResolvedValueOnce(reply('compiled', { path: 'C:\\bin\\$R1.txt' }));
+
+    const out = await recycle(file, join('c', 'trash.bin'), 'k');
+
+    expect(out).toEqual({ cache: 'compiled', path: 'C:\\bin\\$R1.txt' });
+    expect(ran).toHaveBeenCalledTimes(2);
+    // the first script is the one that loads bytes, and it is why it was stopped
+    expect(scriptOf(0)).toContain('Reflection.Assembly]::Load(');
+    expect(scriptOf(1)).not.toContain('Assembly]::Load(');
+    expect(scriptOf(1)).not.toContain('Assembly.Load');
+    expect(ran.mock.calls[1]![2]!.SIGIL_TRASH_PATH).toBe(file);
+  });
+
+  it('should be asked again for output that is not JSON as well as for a failed run', async () => {
+    const file = item();
+    ran.mockResolvedValueOnce('');
+    ran.mockResolvedValueOnce(reply('compiled', { path: 'x' }));
+
+    expect(await recycle(file, undefined, 'k')).toEqual({ cache: 'compiled', path: 'x' });
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('should ask once, and throw what the second run said when it prints nothing too', async () => {
+    const file = item();
+    ran.mockRejectedValueOnce(KILLED);
+    ran.mockRejectedValueOnce(new Error('powershell.exe failed: blocked by policy'));
+
+    await expect(recycle(file, undefined, 'k')).rejects.toThrow('blocked by policy');
+
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('should throw what the second run answered when that is an error', async () => {
+    const file = item();
+    ran.mockRejectedValueOnce(KILLED);
+    ran.mockResolvedValueOnce(reply('compiled', { error: 'Access is denied.' }));
+
+    await expect(recycle(file, undefined, 'k')).rejects.toThrow('Access is denied.');
+
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('should not ask when the item is gone, because the run was stopped after the move', async () => {
+    ran.mockRejectedValueOnce(KILLED);
+
+    await expect(
+      recycle(join(tempDir('sigil-trash-win-'), 'gone.txt'), undefined, 'k')
+    ).rejects.toBe(KILLED);
+
+    expect(ran).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not ask for a failure the script reported, which is every ordinary one', async () => {
+    const file = item();
+    ran.mockResolvedValue(reply('hit', { error: 'Access is denied.' }));
+    await expect(recycle(file, undefined, 'k')).rejects.toThrow('Access is denied.');
+
+    ran.mockResolvedValue(reply('saved', { refused: '' }));
+    await expect(recycle(file, undefined, 'k')).rejects.toThrow(/for good/);
+
+    expect(ran).toHaveBeenCalledTimes(2);
+  });
+
+  it('should not ask when the compile script is what printed nothing', async () => {
+    const file = item();
+    ran.mockRejectedValue(KILLED);
+
+    await expect(recycle(file, undefined, 'k', 'compile')).rejects.toBe(KILLED);
+
+    expect(ran).toHaveBeenCalledTimes(1);
   });
 });
