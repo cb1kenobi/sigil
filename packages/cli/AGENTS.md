@@ -7392,7 +7392,7 @@ measurements are in
   because the schema's checker is for the automatic check and `check()` reads only
   its own `checker` option or the baked one. Closing it needs the import signal
   to tell an import of `check` from an import of a builder, which is a read of
-  what each module imports from the specifier -- filed rather than done here,
+  what each module imports from the specifier -- filed as SIG-609 rather than done here,
   since warning on every confirmed `names` would put a warning on the documented
   path.
 
