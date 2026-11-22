@@ -18,7 +18,7 @@
 
 import type { SigilConfig, UpdateCheckConfig } from '../config.ts';
 import { quote } from '../template/emit.ts';
-import { bindingName, importBindings, type ImportBindings } from './bindings.ts';
+import { importBindings, importCall, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import {
   flatten,
@@ -240,16 +240,14 @@ const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
  * `githubChecker({ repo })` would otherwise be read as the options `{ repo }`.
  */
 function namesChecker(value: Expression, builders: readonly ImportBindings[]): boolean {
-  const expression = unwrapShallow(value);
-
-  if (
-    expression.type === 'CallExpression' &&
-    builders.some(
-      (bindings) => bindingName(unwrapShallow(expression.callee), bindings) !== undefined
-    )
-  ) {
+  // `importCall()` rather than a `CallExpression` check, so that
+  // `githubChecker?.({ ... })` is the call it is: oxc puts a `ChainExpression`
+  // around it, which is not a wrapper `unwrapShallow()` takes off
+  if (importCall(value, builders)) {
     return true;
   }
+
+  const expression = unwrapShallow(value);
 
   const options = objectLiteral(expression);
   if (!options) {

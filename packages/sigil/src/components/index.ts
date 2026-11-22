@@ -45,6 +45,7 @@ export * from './subpaths/owned-hooks.js';
 export * from './subpaths/qrcode.js';
 export * from './subpaths/image.js';
 export * from './subpaths/treemap.js';
+export * from './subpaths/code-view.js';
 export * from './subpaths/console-capture.js';
 export * from './subpaths/debug-overlay.js';
 export * from './subpaths/editing.js';

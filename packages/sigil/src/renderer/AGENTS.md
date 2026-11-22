@@ -35,7 +35,7 @@ the entry it belongs to.
   every space, which turned one dim parenthetical into a sequence per word.
 - **It is laid out at the width it was given and painted into a grid as big as
   the layout came to.** `arrangedExtent()` walks the arranged tree, in both
-  directions, because `measureNode()` is a guess: a box with a declared width
+  directions, because `measureSubtree()` is a guess: a box with a declared width
   reports that width however far its content overflows it, and an item flexed
   against a width its own ancestor was still guessing at can be placed at another.
   It used to be a guess in a third and much commoner way -- a row whose children
@@ -135,7 +135,7 @@ the entry it belongs to.
 
   And it is the root's far **edges** rather than its size, which is the same read
   the walk already takes and is the one place the root differs from every other
-  node: `layout()` applies the root's own relative offset, because every other
+  node: `layoutTree()` applies the root's own relative offset, because every other
   node's is applied by the parent that places it and the root has no parent. So
   `result.box.height` is not where the root ends. Measured, that bordered pane at
   `position: relative; top: 2; left: 2` came back as `["", "", "  ┌─────"]` -- the
@@ -504,7 +504,7 @@ the entry it belongs to.
   first answer and it is wrong in the way that matters: a root with no declared
   height fills whatever it is given, so `box.height` after a pass at the screen's
   height _is_ the screen's height -- two rows of content reserved twenty-three
-  rows of terminal. `measureNode()` asks what a node would want if it could have
+  rows of terminal. `measureSubtree()` asks what a node would want if it could have
   whatever it wanted, which is the question, and it replaced a two-pass arrange
   that was both slower and wrong.
 - **`dispose()` finishes the region, which it had always claimed to do and did
@@ -940,7 +940,7 @@ the entry it belongs to.
   **The list is per width, not the last call's.** A layout asks a measure more
   than once and uses more than one answer: `flex.ts` asks at the width the
   element will be placed at for the height and at the room it was offered for the
-  basis, and the renderer asks `measureNode()` before `layout()`. A measure that
+  basis, and the renderer asks `measureSubtree()` before `layoutTree()`. A measure that
   read one signal at a narrow width and another at a wide one would lose the first
   under "last call wins", so a computed is kept per width asked, each replaced by
   the next measure at that width. Once anything moves, the next measure lets every
@@ -957,7 +957,7 @@ the entry it belongs to.
   that read no signal at all keeps nothing, so a constant one -- the treemap's --
   holds no edges, and pays only for building and letting go of its computed. Kept
   per width rather than tied to a layout pass because there is no pass to tie it
-  to: `measureNode()`, `layout()` and the pane's own `measureNode()` each ask, and
+  to: `measureSubtree()`, `layoutTree()` and the pane's own `measureSubtree()` each ask, and
   none of them tells the element it is starting.
 
   The rest is the paint's, said once more: watched before it is read and the one
@@ -1210,7 +1210,7 @@ it.
   prompt; folded into `input` it is the whole renderer
   on a router; folded into `components` it is a 455 KB graph to start an app built
   from `box` and `text`. The source sits in `src/renderer/` and the entry points at
-  it, which is the `coerce` and `routes` shape: a subpath named for what an app
+  it, which is the `coerce` shape: a subpath named for what an app
   imports, a file kept beside the code it composes. `dist.test.ts` pins the split
   with a router string, a framework-sheet selector and the runner's own message,
   each absent from `renderer.mjs`'s graph and present in `app.mjs`'s, so neither half

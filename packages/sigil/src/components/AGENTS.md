@@ -3076,7 +3076,7 @@ it is a component rather than the frame effect SIG-103 is.
   the right answer for the caller, since what it rendered really did change, and
   it means such a caller runs again on every tick while the text resolves. Nothing
   in the library is one: `mountLive()` goes through `render()`, and the pane's
-  `measureNode()` is called from its handlers. The one-element view called `setText()`,
+  `measureSubtree()` is called from its handlers. The one-element view called `setText()`,
   which marks **layout** for every value it did not already hold -- which while
   jumbling is every tick. So the old path marked layout per tick too, and the only
   new mark is the one for a frame that drew exactly what the last one drew, which a
@@ -5483,7 +5483,7 @@ owns its own edge. `paneControl(host)` is its handle.
   `flex-grow: 1; flex-shrink: 0` box beside a 10-cell pane in 40 columns was drawn at
   30, the pane could not get past 10, and every shrink was one it could not undo.
   Such a box claims `basisOf()` instead -- a `flex-basis` in cells, else what
-  `measureNode()` reports -- and not nothing, which was the other fix on offer: it
+  `measureSubtree()` reports -- and not nothing, which was the other fix on offer: it
   cannot shrink below that, so claiming nothing let a size the app set push it off
   the screen. Review of #350 found it.
 - **The size state is the app's and is not clamped in place.** `min` and `max` clamp
@@ -5553,7 +5553,7 @@ owns its own edge. `paneControl(host)` is its handle.
   neighbour a drag cannot satisfy leaves the pane where it was.
 
   That least is `minimumOf()`: a declared `min-width` or `min-height`, else the
-  automatic minimum `measureNode()` reports for its content. Assuming it could give up
+  automatic minimum `measureSubtree()` reports for its content. Assuming it could give up
   everything -- the first version -- let a pane take cells from a box holding a
   `nowrap` word until the word pushed every later sibling off the screen. And what it
   has to give is worked out from the pair: the cells the two shared when the layout
@@ -7584,6 +7584,92 @@ under its lines and shows the values under the pointer.
   and `:hover`'s reason: `1003` is a report per cell crossed, and the app decides.
   The dashboard asks for it, and `60-live-charts.js` now runs through `runApp()`
   inline so that it has a router to hand the chart.
+
+### A line chart's keys: the crosshair from the keyboard (SIG-516)
+
+SIG-464's crosshair followed the pointer only, so in a terminal that does not report
+motion, or with no mouse, the figures under a sample could not be read. A chart with
+a `crosshair` takes the focus now and Left and Right step the rule, as the treemap
+took the focus and the arrows in SIG-491.
+
+- **Focused with a crosshair, and `focusable: false` in `props` takes it back.**
+  Every component with keys of its own is focusable, the treemap's rule, and a
+  chart with no `crosshair` has none and stays out of the Tab ring. It owns `onKey`,
+  so `props` carrying one is refused where it is built, and only for a chart that
+  has a crosshair: `onKey` on a plain chart is still the app's. The props _type_
+  still allows it, which is the one place this departs from the "props type leaves
+  it out" convention -- narrowing it would break a chart that never owned a key.
+- **While it has the focus the rule is always drawn, and that is the drawn focus.**
+  At the newest sample until a key moves it, with the readout beside it, because a
+  focused chart that showed nothing until the first arrow would not say that arrows
+  were wanted. So the focus shows at colour level 0 too, as a shape rather than a
+  colour: unfocused with no pointer over it, the rule is not there. The rule is
+  also drawn in `.sigil-accent` with `.sigil-chart-crosshair-focus` beside the hook,
+  where a hovered one is `.sigil-muted`. Done by class from the drawing, not a
+  `:focus` rule in the framework sheet, so it adds no sheet declaration and so no
+  exception to the role rule (the treemap's `:focus` green is the sixteenth, and
+  this is not a seventeenth); a theme restyles it with either class. `focused()` is
+  the router's focus signal read in the drawing, so a drawing that read it is redone
+  when the focus moves, and nothing owns `onFocusChange`.
+- **The keyboard's sample is counted back from the newest, and the pointer wins
+  while it moves.** The state is `back`, samples before the newest, rather than an
+  index from the start: a pushed `Series` then keeps the rule at the same place on
+  the screen, as the pointer's column does, instead of sliding it one sample newer
+  each tick when the oldest drops off. `lineDrawing()` takes `back` beside `pointer`
+  and draws the pointer's sample when there is a pointer and the keyboard's when
+  there is not, so a pointer that leaves hands the rule back to the keyboard rather
+  than taking it away. A key clears the pointer, so a pointer that has not moved
+  since stops outvoting the key; the next report puts it back.
+- **A key steps from the rule that is drawn, and keys outrun frames.** Keys can
+  arrive faster than frames -- a held arrow -- and the drawing's `index` is one
+  behind them, so stepping from it turned forty Lefts into one. From the pointer's
+  sample where the pointer has moved since the last key (a key clears it), and
+  otherwise from the keyboard's own `back`, which a key sets at once. Review round 1
+  found three ways the first version stepped from the wrong place: `back` checked
+  before the pointer, so a key after the pointer had moved stepped from a sample no
+  longer drawn; a pointer over the chart where there is no sample -- the y-axis
+  gutter, a scrolling chart's empty left -- drawing no rule at all, which lost
+  the drawn focus and every key with it, where the keyboard's sample now stands
+  until the pointer is over one; and the keys gated on a crosshair having been
+  drawn, so an arrow typed before the first frame of the focus bubbled out. What a
+  key needs of the series -- `count` and the oldest drawn -- is `Drawing.samples`,
+  drawn whether or not a rule is, and the baseline is held to it, since data
+  shrinking under a large `back` left the first Right a no-op. `should step on from
+  the oldest sample when the data shrinks under a rule far back` and `should keep the
+  rule on a sample the plot draws when a resize narrows it` pin the two clamps. One
+  limit is left, and is recorded rather than fixed: `shown` and `samples` are the last
+  drawing's, so a pointer report and a key inside one frame step from the pointer's
+  rule as it was drawn (a key just after the data shrank under a pointer likewise),
+  where the keyboard's own `back` is always current. The drawing clamps whatever comes
+  out, so nothing lands outside the plot; the next frame puts the rule right.
+- **Every sample is a stop, where the pointer's cell holds several.** Under `fit`
+  with more samples than dot columns, the pointer takes the newest in its cell and
+  the older ones are unreachable. An arrow steps by sample, so the readout changes
+  while the rule may stay in its cell -- that is the only way to read them. At the
+  ends the oldest stop is the oldest the plot draws (`first`, which `lineDrawing()`
+  works out the way `sampleUnder()` does), not index 0: a scrolling chart's history
+  off the left edge is nowhere to put a rule.
+- **Claimed as the treemap's arrows are.** Left and Right are the chart's even at an
+  end, where they go nowhere; Shift with an arrow and Ctrl, Alt or a paste are left
+  for what is around the chart; Up and Down are not claimed, so a panel that scrolls
+  keeps them. Nothing drawn -- no samples -- and no key is the chart's. Blur forgets
+  the keyboard's sample, so a refocus starts at the newest again; it is an effect on
+  the focus signal rather than a handler, for the reason above.
+- **`describeLineChart(router, ...charts)`** describes `left` and `right` as `move`,
+  scoped to each chart, for `keyHelp()`. It refuses an element that is not a
+  `LineChart()` with a crosshair, naming what it expected -- one new key in
+  `SIGIL_KEYS`; `move` is the word the list and the treemap already use. It is
+  exported from the chart's own subpath and takes a structural router, as
+  `describeTreemap()` does. Enter has no meaning on a chart, so there is no
+  `activate` option and no `describedHosts()`, which kept the module graph of
+  `chart.ts` clear of the footer's.
+- **The dashboard's traffic chart has it,** a Tab stop after the range row: the
+  search, the menu, the range, the chart, then the table, which is one more Tab
+  than before and why that test helper counts five.
+- **Not done:** `h` and `l` with a `vim` option as the treemap has (SIG-499); Home
+  and End for the oldest and newest sample, which would need two more words in the
+  footer; and a way to pin a sample so the readout stays while the focus is
+  elsewhere.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
@@ -12654,6 +12740,28 @@ How each question was settled, the probes and the sabotage pass are in
   lists give (SIG-478, below). Type-to-find is not described, for the reason
   `describeTabs()` leaves the digits out.
 
+- **A row's element is asked for by key, and only a built row has one
+  (SIG-459).** `listControl(list).rowElement(key?)` -- the current row's with no
+  key, and `dataTableControl(table).rowElement(key?)`, which is the same call --
+  hands out the `.sigil-list-row` box the row was built as, for an app that anchors
+  a menu, a tooltip or a popover to a row. Before it the dashboard's row menu walked
+  the tree for the class `is-current`, which reads structure nothing promises. It
+  answers from the `live` map `buildRow()` already kept for restyling the cursor,
+  so there is no second registry to drift, and it takes the items as they are now
+  (`catchUp()`) like `reveal()` beside it. Three cases answer `undefined` and are
+  documented rather than worked around: a row the window has not built (there is no
+  overscan, so that is any row out of view, **and the current row after a move in
+  the same handler**, since the view follows the cursor from an effect -- `reveal(key)`
+  first and, for its layout, a frame), a key that is no row, and a list with no current row. Building
+  a row on demand for the rest was refused: it would leave an element no slot
+  holds, with no owner to dispose it and no layout, which is a worse thing to hand
+  an app than `undefined`. The element is **one build's**: a row built again for a
+  replaced item, by `refresh()`, or by scrolling out and back, is a new element and
+  the old one is detached, so the call is for the moment of need and not for
+  holding -- there is no reactive version, since a stale one cannot be told apart
+  from a current one by its holder. Pinned in `test/components/list-view.test.ts`
+  and `data-table.test.ts`.
+
 **The contract a table and a tree build on.** Either of two layers, and
 `ListView` itself is built on the lower one, which is the evidence it is enough:
 
@@ -14195,6 +14303,85 @@ measurements, the review findings and the sabotage pass are in
   per line, and a backtick search per run all fail it, at 34 to 66 times for the
   first three against 24 and 509 times for the last against 192, while the guarded
   lexers grow at most 8.6 times.
+
+### A code view: highlighted lines with a gutter, defined once (SIG-465)
+
+`src/components/code-view.ts`, published as `@ttylabs/sigil/components/code-view`:
+`codeView(code, opts)`, which returns a column of rows, and `codeRun()`, the one
+run of cells. It exists because "highlighted lines behind a gutter, as runs of
+cells that share a token" had been written three times -- markdown's private
+`codeRow()`, `diff()`'s highlighted line and the file manager example's
+`codeRows()`, which recorded itself as a known duplicate (SIG-294) -- and the
+root file's rule is one definition per helper, across a package boundary too.
+
+- **A function returning an element, not a component with a layout of its own.**
+  It is built for the `width` it is told, like `markdownView()` and `imageView()`
+  and for the same reason: the cut and the fold are decided in cells, and an
+  element that learned its width from the layout would need the pane's resize
+  round trip the file manager already pays for markdown. An app that wants one
+  that follows its box puts it in a `ScrollBox` and rebuilds on `onResize`, as the
+  preview pane does. It owns no hook, so its `props` are plain `ElementProps` and
+  it is not on the `owned-hooks` table.
+- **What `diff()` shares is the run, and no more.** `codeRun()` builds one text
+  with the token's classes and role, and `diff()`'s `flush()` calls it with its
+  own base classes and the role it works out (a keyword among context lines is
+  not louder than the lines that changed). Everything around that is the diff's:
+  its cells carry an edited range beside the token, it folds at words as well as
+  columns, it scrolls sideways under an ellipsis, and a gutter is two numbers and
+  a marker. Folding that into `codeView()` would have made `codeView()` the diff.
+  A part of a decision that three callers share is the run; the rows are two
+  different decisions about what a row is. Class order on a diff run changed
+  (token classes now after the base ones and before the role), which no rule reads.
+- **`text-area.ts` and `prompt.ts` spell `sigil-token sigil-token-<token>` too,
+  and are left alone.** They draw an absolute layer per token over a field, not a
+  run in a row, with a role beside the token. That is the same class list built a
+  different way, and `should define the classes of a run of code in a token in one
+  place` counts only the row form.
+- **The gutter is a column of numbers and gives way before the code does.** It is as
+  wide as the last number, `firstLine` for an excerpt, and left out when the width
+  has no room for it and a cell of code -- the file manager's rule, taken over
+  whole: a pane that cannot show both shows the code. A line that folds is numbered
+  on its first row and the rest have a blank gutter, as `diff()`'s do.
+- **`cut` and `fold` are the two answers the callers gave.** A pager shows a line
+  to its edge and stops (`cut`), and a document carries it on (`fold`): markdown's
+  reason is that a string is laid out as wide as its widest line, and a terminal
+  that wrapped it would start the rest at column zero. A cluster wider than the
+  whole room is dropped by `cut` and alone on a row in `fold`, the latter being
+  `diff()`'s rule for the same case.
+- **A tab is spaces to the next stop, measured from the start of the row it is
+  on, and a control character is measured as a `text` draws it.** `tabSize` is 4,
+  the file manager's and `diff()`'s. A string handed to `markdown()` is unchanged
+  by it, since `markdown-parse.ts`'s `detab()` already expands every tab before a
+  block reaches `codeBlock()`; the difference is for blocks handed to `markdown()`
+  already parsed, where a tab in a code block measured nothing and drew a space and
+  is now stops of four. A tab wider than the whole room is the room, so a folded
+  row is never wider than it was given. A nonsense `tabSize` is four.
+- **Rows cost what rows cost.** A block with no hook, or none that marked it, was
+  one text and is a row box and a text a line, which `markdown()` already paid for
+  a highlighted block and `diff()` for every line. Measured over a fenced block of
+  plain lines at width 80: 20,000 lines went from about 60 ms to about 220 ms,
+  nearly all of it the layout and the paint of 40,000 elements rather than 20,000
+  characters, which a line of printable ASCII that fits skips the cluster walk for
+  (building the view is about 20 ms of it). Still linear, and a reason for a
+  caller with a very long block to cut it, as the file manager does at 1,000 lines.
+  Not optimized into a single text, because that would be markdown's old second
+  path again.
+- **Markdown's two code paths are one.** A block the hook marked nothing in used
+  to be one accent text joined with `\n`; it is the same rows with `plain:
+  'sigil-accent'` on each run, which draws identically (no transcript moved) and
+  leaves `markdown.ts` with no fold of its own. What stays markdown's is the
+  decision, recorded under "Markdown code blocks take the app's highlighter":
+  asked once, and "marked nothing" being the unhighlighted path.
+- **Lines are split at `\n` and nothing else, so a trailing newline is an empty
+  last line with a number of its own.** That is what the file manager drew and what
+  markdown's blocks (whose parser strips it) never had; a caller showing a file
+  trims it. Not changed here, because a caller that wants the empty line -- an
+  editor -- needs it.
+- **It is not on by default anywhere, and costs what `markdown()` costs.** It
+  imports `tokensOf()`, which lives in `prompt.ts` with `PromptError`, so its
+  graph is the prompt stack's, 263,687 B as it landed, against `highlight`'s
+  14 kB. Moving the validator out of the prompt module would lighten four
+  components and is a change of its own.
 
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 

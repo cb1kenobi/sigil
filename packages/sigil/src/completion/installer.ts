@@ -58,6 +58,7 @@
 import { isMissing, realPathOf, writeAtomic } from '../config/atomic.js';
 import { __ } from '../i18n/index.js';
 import { baseDir, expand, home } from '../paths.js';
+import { escapeControls, inertError } from '../util/escape-controls.js';
 import {
   addedBy,
   blockEnd,
@@ -348,7 +349,7 @@ export function installTargets(
   // in their code rather than anything a user did
   if (program === '' || program !== basename(program) || program === '.' || program === '..') {
     throw new Error(
-      `Expected the program name to be one path segment, not "${program}": a completion script is a file named after it.`
+      `Expected the program name to be one path segment, not "${escapeControls(program)}": a completion script is a file named after it.`
     );
   }
 
@@ -360,7 +361,7 @@ export function installTargets(
   // second was asked in one place of two. Found by review
   if (!registerable(program)) {
     throw new Error(
-      `Expected the program name to be one word not beginning with a dash, not "${program}": a completion script names the command it completes for.`
+      `Expected the program name to be one word not beginning with a dash, not "${escapeControls(program)}": a completion script names the command it completes for.`
     );
   }
 
@@ -667,7 +668,13 @@ function readOr(path: string): string | undefined {
     // so this costs none -- and without it the one place that throws a file
     // system error from inside an otherwise fully translated interaction showed
     // translated prompts and then node's English
-    throw new Error(__`Failed to read ${path}: ${(e as Error).message}`);
+    //
+    // **escaped**, both halves of it: the path is the user's own directory, as
+    // the file system holds it, and Node's message quotes it again. A control
+    // character in either reached the terminal raw (SIG-576)
+    throw new Error(
+      __`Failed to read ${escapeControls(path)}: ${escapeControls((e as Error).message)}`
+    );
   }
 }
 
@@ -1019,7 +1026,7 @@ export async function applyInstall(
   // refusal was a property of the plan's age. Found by review
   if (!replaceable(plan, opts.replace === true)) {
     throw new Error(
-      `Refusing to replace ${plan.target.file}, which sigil did not write: ask first, then pass { replace: true }.`
+      `Refusing to replace ${escapeControls(plan.target.file)}, which sigil did not write: ask first, then pass { replace: true }.`
     );
   }
 
@@ -1100,7 +1107,9 @@ export function applyUninstall(plan: InstallPlan): boolean {
     return false;
   }
   if (!ours(held, plan.target.shell, plan.program)) {
-    throw new Error(`Refusing to remove ${plan.target.file}, which sigil did not write.`);
+    throw new Error(
+      `Refusing to remove ${escapeControls(plan.target.file)}, which sigil did not write.`
+    );
   }
 
   // the file the install wrote, which through a symlink is the link's target:
@@ -1109,15 +1118,26 @@ export function applyUninstall(plan: InstallPlan): boolean {
   // dotfiles repository -- where the dotfile manager's next run linked it back
   // in. `held` was read through the link too, so the file being removed is the
   // one `ours()` just judged
-  const linked = lstatSync(plan.target.file).isSymbolicLink();
-  unlinkSync(realPathOf(plan.target.file));
+  //
+  // **Node's own error, made inert where it is thrown** (SIG-576). `lstatSync()`
+  // and both `unlinkSync()`s raise `EACCES: permission denied, unlink '<path>'`
+  // with the path in it, and the path is the user's directory as the file system
+  // holds it. `inertError()` edits the message **on the error Node threw**, so
+  // `code`, `path` and `syscall` stay what Node set -- which is the rule
+  // `writeAtomic()` already follows for the same reason
+  try {
+    const linked = lstatSync(plan.target.file).isSymbolicLink();
+    unlinkSync(realPathOf(plan.target.file));
 
-  // and then the link, but only once it leads nowhere: a link to a file that is
-  // gone is not an arrangement worth keeping, and zsh's `compinit` reports one
-  // in `fpath` as `no such file or directory` when it next rebuilds its dump.
-  // One that still resolves -- something put a file back -- is left alone
-  if (linked && !existsSync(plan.target.file)) {
-    unlinkSync(plan.target.file);
+    // and then the link, but only once it leads nowhere: a link to a file that is
+    // gone is not an arrangement worth keeping, and zsh's `compinit` reports one
+    // in `fpath` as `no such file or directory` when it next rebuilds its dump.
+    // One that still resolves -- something put a file back -- is left alone
+    if (linked && !existsSync(plan.target.file)) {
+      unlinkSync(plan.target.file);
+    }
+  } catch (e: unknown) {
+    throw inertError(e);
   }
   return true;
 }
@@ -1264,7 +1284,12 @@ export async function removeRc(plan: InstallPlan): Promise<boolean> {
  */
 export function planLines(plan: InstallPlan, action: Action): string[] {
   const out: string[] = [];
-  const { file } = plan.target;
+  // escaped where it is put into a sentence, inside the placeholder, so the key
+  // each `__` looks up is the one it always was. These lines are written to
+  // stderr as they are rather than through a canvas, which is what would have
+  // stripped a control character, so a path holding one reached the terminal raw
+  // (SIG-576)
+  const file = escapeControls(plan.target.file);
 
   // `foreign` first, because it is the one state where the *verb* would lie:
   // "it will replace" over a file somebody wrote reads as a decision already
@@ -1288,20 +1313,21 @@ export function planLines(plan: InstallPlan, action: Action): string[] {
   // block, so anything else is a route that has one
   const { rc } = plan.target;
   if (rc !== undefined) {
+    const rcFile = escapeControls(rc.file);
     if (action === 'install') {
       if (plan.rc === 'absent') {
-        out.push(__`It will add a block to ${rc.file}`);
+        out.push(__`It will add a block to ${rcFile}`);
       } else if (plan.rc === 'ours') {
-        out.push(__`${rc.file} already has the block`);
+        out.push(__`${rcFile} already has the block`);
       } else if (plan.rc === 'theirs') {
-        out.push(__`${rc.file} already names it`);
+        out.push(__`${rcFile} already names it`);
       }
     } else if (plan.rc === 'ours') {
-      out.push(__`It will remove the block from ${rc.file}`);
+      out.push(__`It will remove the block from ${rcFile}`);
     } else if (plan.rc === 'theirs') {
       // named, and not by anything this wrote -- so it is reported here and
       // described rather than cut, which `removeRc()` is the other half of
-      out.push(__`${rc.file} names it, and sigil did not add that`);
+      out.push(__`${rcFile} names it, and sigil did not add that`);
     }
   }
 
@@ -1349,14 +1375,17 @@ export interface Done {
  */
 export function resultLines(plan: InstallPlan, action: Action, did: Done): string[] {
   const out: string[] = [];
-  const { file, rc } = plan.target;
+  const { rc } = plan.target;
+  // escaped for `planLines()`'s reason
+  const file = escapeControls(plan.target.file);
+  const rcFile = rc === undefined ? '' : escapeControls(rc.file);
 
   if (action === 'uninstall') {
     if (did.file) {
       out.push(__`Removed ${file}`);
     }
     if (did.rc && rc !== undefined) {
-      out.push(__`Removed the block from ${rc.file}`);
+      out.push(__`Removed the block from ${rcFile}`);
     }
     if (!did.file && !did.rc && !plan.changes) {
       out.push(__`Nothing to do.`);
@@ -1370,7 +1399,7 @@ export function resultLines(plan: InstallPlan, action: Action, did: Done): strin
     // is the thing they can search for -- printing a block they do not have
     // would be telling them to remove bytes that are not there
     if (rc !== undefined && plan.rc === 'theirs') {
-      out.push('', __`Remove the line naming ${file} from ${rc.file} yourself.`);
+      out.push('', __`Remove the line naming ${file} from ${rcFile} yourself.`);
     }
 
     return out;
@@ -1380,7 +1409,7 @@ export function resultLines(plan: InstallPlan, action: Action, did: Done): strin
     out.push(__`Wrote ${file}`);
   }
   if (did.rc && rc !== undefined) {
-    out.push(__`Added a block to ${rc.file}`);
+    out.push(__`Added a block to ${rcFile}`);
   }
   if (!did.file && !did.rc && !plan.changes) {
     // nothing at all outstanding, which is the re-run this has to say so for

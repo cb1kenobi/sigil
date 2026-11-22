@@ -158,6 +158,22 @@ the `ui` tag run by plain `node`.
   `demos.test.ts` into `packages/cli/test/spawned.ts`, one definition for both.
   It lives in `packages/cli` for `demos.test.ts`'s reason: it needs `dist/`.
 
+- **A `--mouse` flag is tested at the entry, by what the entry writes to the
+  terminal (SIG-522).** Every example's own tests mount `App` under `runApp()`
+  and pass `mouse` by hand, so the one line that reads `argv.mouse` into
+  `runApp()` was run by nothing: deleting it left the suite green over an app with
+  no mouse, and so did making it `true`. `test/entry.test.ts` in the git client and
+  the log browser spawns the built `bin` and `src/ui.ts` -- two schemas that spell
+  the flag separately -- over a terminal on stdin, presses `q` after the first
+  frame, and reads the bytes: with `--mouse`, `?1002h` and `?1006h` are written and
+  `?1002l` and `?1006l` come after them; without it, neither enable is. Bytes
+  rather than a spy on `runApp()`, because a spy passes for an entry that handed
+  the option to something else. Sabotaged for both, in both entries: the line
+  removed fails the `--mouse` test and the line made `true` fails the other, one
+  failure per entry each time and none from the neighbouring tests. The `bin` test needs
+  the example built, and says which command makes it. An example that adds the
+  flag adds the file.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
@@ -935,14 +951,20 @@ in half blocks from the start.
   the cursor overtook is done again for wherever it is when the first ends, so
   holding `j` reads two files rather than one per row.
 
-- **Text is cut, not folded, and drawn by `codeRows()`.** A line is cut at the
+- **Text is cut, not folded, and drawn by `codeView()`.** A line is cut at the
   pane's edge behind a gutter of line numbers, the way a pager shows code, and
-  drawn as runs of cells that share a token -- which is markdown's private
-  `codeRow()` and `diff()`'s highlighted line written a third time, here. That is
-  a duplicate of a decision and is recorded as one: a published code view, lines
-  with a gutter over `highlightCode()`, is the gap. Markdown and the picture are
-  built for the size `onResize` reports, the diff pane's way; the picture asks for
-  no more than its own pixels and no more than the pane, inside `contain`.
+  drawn as runs of cells that share a token -- which is `codeView()` from
+  `@ttylabs/sigil/components/code-view` with `gutter: true`, `highlight:
+  highlightCode` and the default `wrap: 'cut'`. It was written here first, as a
+  third copy of markdown's private `codeRow()` and `diff()`'s highlighted line,
+  recorded as a known duplicate while the package had no published code view
+  (SIG-294); SIG-465 published it, and the three now read one definition. A pane
+  too narrow for the gutter and a cell of text draws the text alone, and a tab is
+  spaces to the next stop of four -- both the view's rules rather than this
+  pane's, so their tests are `test/components/code-view.test.ts`'s. Markdown and
+  the picture are built for the size `onResize` reports, the diff pane's way; the
+  picture asks for no more than its own pixels and no more than the pane, inside
+  `contain`.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
   log browser's workaround for SIG-384. The rename dialog's field is a `body`
@@ -1058,22 +1080,24 @@ dark -- built from sigil's own components, with its own data, names and colours.
   builds the menu's entries afresh each time it opens, so the position is read
   then anyway.
 
-- **The row menu opens under the row's right end, found by its classes.** Enter or
-  a double click is the table's `onActivate`, and the menu is `openMenu()` beside
+- **The row menu opens under the row's right end, found by asking the table.** Enter
+  or a double click is the table's `onActivate`, and the menu is `openMenu()` beside
   the current row's last cell, an element rather than a point, so it right-aligns
   under the row -- or above it, where the row is too low for it -- and leaves the
-  row in view, where a web table's row menu is. Nothing hands out the element a
-  row was built as, so `currentRow()` walks the table for the `sigil-list-row`
-  that is `is-current`, which `ListView` documents as hooks for a stylesheet. Each
-  entry's mnemonic is distinct at its level (`R&edeploy` beside `&Delete...`),
-  because a letter two items share only steps the highlight between them; the
-  ticked rows' actions are a `Ticked` submenu for the same reason, so `p` still
-  pauses the row the menu is about. A double click moves the cursor and activates
-  in one handler, before the effect that moves `is-current` has run, so the menu
-  settles a frame with `app.view.frame()` before it looks for the row --
-  `flush()` from the signals is not enough, since the renderer runs its own
-  effects. Both clicks have to arrive in one read for the gap to show, which is
-  how the test sends them.
+  row in view, where a web table's row menu is. The row is
+  `dataTableControl(table).rowElement(id)` (SIG-459), which replaced a walk for the
+  `sigil-list-row` that was `is-current`, structure `ListView` documents only as
+  hooks for a stylesheet. Each entry's mnemonic is distinct at its level
+  (`R&edeploy` beside `&Delete...`), because a letter two items share only steps
+  the highlight between them; the ticked rows' actions are a `Ticked` submenu for
+  the same reason, so `p` still pauses the row the menu is about. A move and Enter
+  arriving in one read -- End and Enter, or a double click -- activate before the
+  frame that scrolls the table to the row has run, so that row may not be built
+  yet: the menu settles a frame with `app.view.frame()` before it asks, which
+  scrolls and lays the row out -- `flush()` from the signals is not enough, since
+  the renderer runs its own effects. Both keys have to arrive in one read for the
+  gap to show, which is how the tests send them, and removing the frame fails
+  `should open the menu beside a row the same read scrolled to`.
 
 - **A card's badge follows its figure, and is written to in place.** `Badge` takes
   its label and variant as functions over one `Computed` (SIG-460); it used to be a
@@ -1119,6 +1143,15 @@ dark -- built from sigil's own components, with its own data, names and colours.
   the smoke test's `mount()` does what it does; `buildTraffic()` takes the router
   for it. `should follow the pointer with a rule and that day's figures` aims at the
   last day by the axis it draws, not by a fixed cell.
+
+- **The chart takes the focus, and Left and Right read a day (SIG-516).** The
+  crosshair was the pointer's alone. The chart is a Tab stop after the range row --
+  the search, the menu, the range, the chart, then the table, so `toTable()` in the
+  smoke test is five Tabs -- and while it has the focus the rule stands on the last
+  day, the arrows step it, and the footer says `←/→ move` through
+  `describeLineChart()`, which `root.tsx` describes beside the range row's keys.
+  `buildTraffic()` hands the chart back for it. At the 16 rows of the spawned run
+  the chart is not drawn, so it is no stop and the Tab counts there are unchanged.
 
 - **Not done:** the pages other than the overview, which say they are not drawn;
   re-collapsing the sidebar on a resize; and a `ui`-tag twin.

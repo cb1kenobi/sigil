@@ -62,7 +62,7 @@ import {
   readCapabilities,
 } from '../input/capabilities.js';
 import type { InputRouter } from '../input/index.js';
-import { measureNode } from '../layout/index.js';
+import { measureSubtree } from '../layout/index.js';
 import { createEffects, type Effects, untrack } from '../signals/index.js';
 import {
   type AnimationFrame,
@@ -981,13 +981,13 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // was wrong in the way that matters: a root with no declared height fills
     // whatever it is given, so `box.height` after a pass at the screen's height
     // is the screen's height -- two rows of content reserved twenty-three rows
-    // of terminal. `measureNode()` is what a node would ask for if it could
+    // of terminal. `measureSubtree()` is what a node would ask for if it could
     // have whatever it wanted, which is the question being asked here
     const room = Math.max(1, terminal.height);
     // a canvas that follows its content is measured at the screen, since that is
     // the most it may have; one whose width is settled is measured at that
     const offered = autoWidth ? Math.max(1, terminal.width) : backend.width;
-    const measured = measureNode(root, offered);
+    const measured = measureSubtree(root, offered);
     const width = autoWidth ? Math.min(offered, Math.max(1, measured.width)) : backend.width;
 
     // and the height is asked again at the width the canvas is about to be,
@@ -996,7 +996,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     // the height of a wrap that never happens is the wrong number of rows to
     // reserve. One measure where the width did not move, since then the answer
     // above already is the answer
-    const content = width === offered ? measured : measureNode(root, width);
+    const content = width === offered ? measured : measureSubtree(root, width);
     const height = autoHeight ? Math.min(room, Math.max(1, content.height)) : backend.height;
 
     if (width !== backend.width || height !== backend.height) {

@@ -68,33 +68,6 @@ export function statusCell(status: Status, ascii: boolean): { element: Element; 
 }
 
 /**
- * The row under the table's cursor, as an element: where its menu opens.
- *
- * `DataTable` has no way to hand out the element a row was built as, so this
- * finds it by the classes `ListView` puts on it -- `sigil-list-row` and
- * `is-current` -- which are documented as hooks for a stylesheet. A gap, listed in
- * the README.
- *
- * @param host - The table.
- * @returns The current row, or `undefined` where there are no rows.
- */
-export function currentRow(host: Element): Element | undefined {
-  const walk = (at: Element): Element | undefined => {
-    if (at.classes.includes('sigil-list-row') && at.classes.includes('is-current')) {
-      return at;
-    }
-    for (const child of at.children) {
-      const found = walk(child);
-      if (found !== undefined) {
-        return found;
-      }
-    }
-    return undefined;
-  };
-  return walk(host);
-}
-
-/**
  * The last cell a row draws, which is where its right end is.
  *
  * @param row - A row of the table.
@@ -289,11 +262,12 @@ export function buildProjects(d: Dashboard, input: InputRouter): ProjectsView {
     // view. An element and not a point: below it the menu starts on the next
     // line, and flipped above it -- the last rows of a page, a short terminal --
     // it ends on the line before, where a point would have put it over the row.
-    // A double click moves the cursor and activates in one handler, before the
-    // effect that moves `is-current` has run, so a frame is settled first: it
-    // runs that effect, and lays the row out where it is now
+    // The table is asked for the row's element by its key. A frame is settled
+    // first, which lays the row out where it is now: a double click moves the
+    // cursor and activates in one handler, and the list may have scrolled to a
+    // row it built only just
     app.view.frame();
-    const row = currentRow(table);
+    const row = control.rowElement(p.id);
     openMenu<() => void>(app.view, {
       at: (row === undefined ? undefined : lastCell(row)) ?? row ?? table,
       input,

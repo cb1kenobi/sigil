@@ -763,6 +763,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
         relayout();
       },
       reveal: (key) => control.reveal(key as K | undefined),
+      rowElement: (key) => control.rowElement(key as K | undefined),
       scroll: control.scroll,
       selection: control.selection as ListControl<unknown>['selection'],
       shown: () => layout.shown.map((i) => (untrack(() => readSpecs())[i] as Spec<T>).id),
@@ -778,7 +779,7 @@ export function DataTable<T, K = T>(props: DataTableProps<T, K>): Element {
 
 /**
  * The control of a table: the list's -- `selection`, `scroll`, `reveal()`,
- * `activate()` -- and `list`, `sort`, `sortBy()`, `shown()` and `refresh()`.
+ * `rowElement()`, `activate()` -- and `list`, `sort`, `sortBy()`, `shown()` and `refresh()`.
  *
  * @param host - What `DataTable()` returned.
  * @returns The control, or `undefined` for an element no table built.

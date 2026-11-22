@@ -785,6 +785,12 @@ export interface SerializedError {
     message: string;
     /** The error's own `name`, where the thrown value has one at all. */
     name?: string;
+    /**
+     * Which kind of usage error it was, where it was one: `unknown-option`,
+     * `missing-argument`, `invalid-value` and the rest of `UsageErrorCode`.
+     * Like `name`, it is not translated, so it is what a script branches on.
+     */
+    code?: string;
   };
 }
 
