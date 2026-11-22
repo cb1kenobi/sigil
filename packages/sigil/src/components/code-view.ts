@@ -85,8 +85,8 @@ export interface CodeViewOptions {
    */
   class?: string;
   /**
-   * The number of the first line, for an excerpt. Defaults to 1. Only read where
-   * there is a gutter.
+   * The number of the first line, for an excerpt. Defaults to 1, and is never
+   * less: a number below 1 is 1. Only read where there is a gutter.
    */
   firstLine?: number;
   /**
@@ -115,7 +115,10 @@ export interface CodeViewOptions {
    * foreground.
    */
   plain?: string;
-  /** Properties for the box the rows are in. */
+  /**
+   * Properties for the box the rows are in. A `class` here takes the place of
+   * `<class>-view` rather than joining it.
+   */
   props?: ElementProps;
   /**
    * How many columns a tab goes to the next multiple of. Defaults to 4. A tab is
@@ -124,7 +127,9 @@ export interface CodeViewOptions {
   tabSize?: number;
   /**
    * The token of each code unit of the text, where the caller already has them.
-   * Takes the place of `highlight`.
+   * Takes the place of `highlight`. Each is spliced into a class name, so it is the
+   * caller's to keep to what a class can be called: `highlight`'s answer is checked
+   * and this is not.
    */
   tokens?: readonly (string | undefined)[];
   /** The columns the view is drawn in, the gutter included. */
@@ -136,6 +141,9 @@ export interface CodeViewOptions {
    */
   wrap?: 'cut' | 'fold';
 }
+
+/** A line with nothing in it that is a control character, a wide one or a tab. */
+const PLAIN = /^[ -~]*$/;
 
 /** A stretch of one row that is the same token. */
 interface Run {
@@ -169,7 +177,7 @@ export function codeView(code: string, opts: CodeViewOptions): Element {
   const fold = opts.wrap === 'fold';
   const width = Math.max(1, Math.floor(opts.width) || 1);
   const lines = code.split('\n');
-  const first = Math.floor(opts.firstLine ?? 1) || 1;
+  const first = Math.max(1, Math.floor(opts.firstLine ?? 1) || 1);
   const digits = String(first + lines.length - 1).length;
   const gutter = opts.gutter && width > digits + 1 ? digits : 0;
   const room = Math.max(1, width - (gutter > 0 ? gutter + 1 : 0));
@@ -180,11 +188,21 @@ export function codeView(code: string, opts: CodeViewOptions): Element {
     const lineRows: Run[][] = [[]];
     let column = 0;
     let at = offset;
-    for (const cluster of graphemes(line)) {
+    // a line of printable ASCII that fits is one run whatever it holds, so the
+    // common line of plain code is not walked a cluster at a time
+    const whole = !tokens && line.length <= room && PLAIN.test(line);
+    if (whole) {
+      lineRows[0]!.push({ text: line, token: undefined });
+    }
+    for (const cluster of whole ? [] : graphemes(line)) {
       const token = tokens?.[at];
       at += cluster.length;
+      // a tab wider than the whole room is as wide as the room, so a row of a
+      // narrow view is not wider than it was given
       const drawn = (): string =>
-        cluster === '\t' ? ' '.repeat(tab - (column % tab)) : toDisplayText(cluster);
+        cluster === '\t'
+          ? ' '.repeat(Math.min(tab - (column % tab), room))
+          : toDisplayText(cluster);
       let shown = drawn();
       if (column + stringWidth(shown) > room) {
         if (!fold) {

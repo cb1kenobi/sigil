@@ -16,7 +16,7 @@
         "type": "string"
       },
       {
-        "description": "The number of the first line, for an excerpt. Defaults to 1. Only read where there is a gutter.",
+        "description": "The number of the first line, for an excerpt. Defaults to 1, and is never less: a number below 1 is 1. Only read where there is a gutter.",
         "default": "1",
         "name": "firstLine",
         "optional": true,
@@ -49,7 +49,7 @@
         "type": "string"
       },
       {
-        "description": "Properties for the box the rows are in.",
+        "description": "Properties for the box the rows are in. A `class` here takes the place of `<class>-view` rather than joining it.",
         "name": "props",
         "optional": true,
         "type": "ElementProps"
@@ -62,7 +62,7 @@
         "type": "number"
       },
       {
-        "description": "The token of each code unit of the text, where the caller already has them. Takes the place of `highlight`.",
+        "description": "The token of each code unit of the text, where the caller already has them. Takes the place of `highlight`. Each is spliced into a class name, so it is the caller's to keep to what a class can be called: `highlight`'s answer is checked and this is not.",
         "name": "tokens",
         "optional": true,
         "type": "readonly (string | undefined)[]"

@@ -32,6 +32,11 @@ describe('codeView()', () => {
       expect(printed('a\nb', { firstLine: 98, gutter: true, width: 20 })).toEqual(['98 a', '99 b']);
     });
 
+    it('should read a first line under 1 as 1', () => {
+      expect(printed('a\nb', { firstLine: -3, gutter: true, width: 20 })).toEqual(['1 a', '2 b']);
+      expect(printed('a', { firstLine: 0, gutter: true, width: 20 })).toEqual(['1 a']);
+    });
+
     it('should leave the gutter out where it would leave no room for a cell of code', () => {
       const code = Array.from({ length: 1000 }, () => 'x').join('\n');
       // four digits and a space is five columns, and four leaves nothing for code
@@ -105,6 +110,11 @@ describe('codeView()', () => {
       expect(printed('abcde\tg', { width: 6, wrap: 'fold' })).toEqual(['abcde', '    g']);
     });
 
+    it('should clamp a tab wider than the whole room to the room when folding', () => {
+      const [row] = rowsOf(codeView('\tab', { width: 3, wrap: 'fold' }));
+      expect(row?.map((run) => run.text)).toEqual(['   ']);
+    });
+
     it('should read a size that is not a size as four', () => {
       expect(printed('\ta', { tabSize: Number.NaN, width: 10 })).toEqual(['    a']);
       expect(printed('\ta', { tabSize: 0, width: 10 })).toEqual(['    a']);
@@ -144,6 +154,42 @@ describe('codeView()', () => {
         expect.stringContaining('sigil-token-comment'),
         expect.stringContaining('sigil-token-comment'),
       ]);
+    });
+
+    it('should put a span that starts on a later line on that line', () => {
+      // an off-by-one in the offset of a line moves the token a column or a line
+      const rows = rowsOf(
+        codeView('ab\ncd\nef', {
+          highlight: () => [{ end: 7, start: 4, token: 'string' }],
+          width: 10,
+        })
+      );
+      expect(
+        rows.map((row) => row.map((run) => [run.text, run.classes.includes('string')]))
+      ).toEqual([
+        [['ab', false]],
+        [
+          ['c', false],
+          ['d', true],
+        ],
+        [
+          ['e', true],
+          ['f', false],
+        ],
+      ]);
+    });
+
+    it('should draw a line of plain ASCII as one run, the same as the cluster walk does', () => {
+      // a token array with nothing in it takes the walk, and a line with a
+      // control character or a wide one takes it too
+      const code = 'let a = 1;\n\n  x';
+      const quick = codeView(code, { gutter: true, width: 20 });
+      const walked = codeView(code, {
+        gutter: true,
+        tokens: Array.from({ length: code.length }),
+        width: 20,
+      });
+      expect(rowsOf(quick)).toEqual(rowsOf(walked));
     });
 
     it('should leave a language it does not know plain', () => {
@@ -243,6 +289,16 @@ describe('codeView()', () => {
       codeView(source, { gutter: true, width: 10 });
       expect(source).toBe('a\tb\nc');
     });
+  });
+});
+
+describe('what a run is drawn as', () => {
+  it('should keep its spaces, in a run and in a gutter', () => {
+    const view = codeView('  a\n  b', { gutter: true, width: 20 });
+    const row = view.children[0] as Element;
+    expect(row.children[0]?.props['white-space']).toBe('pre');
+    expect(row.children[1]?.props['white-space']).toBe('pre');
+    expect(codeRun(' a', undefined).props['white-space']).toBe('pre');
   });
 });
 

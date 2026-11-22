@@ -14108,11 +14108,23 @@ root file's rule is one definition per helper, across a package boundary too.
   whole room is dropped by `cut` and alone on a row in `fold`, the latter being
   `diff()`'s rule for the same case.
 - **A tab is spaces to the next stop, measured from the start of the row it is
-  on, and a control character is measured as a `text` draws it.** Markdown did
-  neither: a tab in a fenced block measured nothing and drew a space, the
-  disagreement `toDisplayText()` is written about. It is `tabSize` (4) now, which
-  is the file manager's and `diff()`'s, so a fenced block with a tab in it is
-  wider than it was. A nonsense `tabSize` is four.
+  on, and a control character is measured as a `text` draws it.** `tabSize` is 4,
+  the file manager's and `diff()`'s. A string handed to `markdown()` is unchanged
+  by it, since `markdown-parse.ts`'s `detab()` already expands every tab before a
+  block reaches `codeBlock()`; the difference is for blocks handed to `markdown()`
+  already parsed, where a tab in a code block measured nothing and drew a space and
+  is now stops of four. A tab wider than the whole room is the room, so a folded
+  row is never wider than it was given. A nonsense `tabSize` is four.
+- **Rows cost what rows cost.** A block with no hook, or none that marked it, was
+  one text and is a row box and a text a line, which `markdown()` already paid for
+  a highlighted block and `diff()` for every line. Measured over a fenced block of
+  plain lines at width 80: 20,000 lines went from about 60 ms to about 220 ms,
+  nearly all of it the layout and the paint of 40,000 elements rather than 20,000
+  characters, which a line of printable ASCII that fits skips the cluster walk for
+  (building the view is about 20 ms of it). Still linear, and a reason for a
+  caller with a very long block to cut it, as the file manager does at 1,000 lines.
+  Not optimized into a single text, because that would be markdown's old second
+  path again.
 - **Markdown's two code paths are one.** A block the hook marked nothing in used
   to be one accent text joined with `\n`; it is the same rows with `plain:
   'sigil-accent'` on each run, which draws identically (no transcript moved) and
