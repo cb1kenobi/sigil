@@ -52,6 +52,7 @@
 
 import {
   BUN_COMPILES_FROM,
+  canBuildSea,
   NODE_BUILD_SEA,
   RUNTIMES,
   said,
@@ -284,16 +285,30 @@ export function installed(runtime: Runtime): Found | undefined {
  * `--compile`, and a host-platform entry there is an ordinary runnable `bun`.
  * Finding it means a second request for the same version costs nothing.
  *
+ * Only a release version is sorted and listed as one, and that holds for every
+ * source: a cache directory whose name is not `<major>.<minor>.<patch>` is left
+ * out, since nothing legitimate is named otherwise and the name is offered as a
+ * version. The one exception is the runtime on `PATH`, which is answered whatever
+ * it printed -- a canary is what `--runtime bun` resolves to -- but it is last,
+ * after every release, because it has no place in an order.
+ *
  * @param runtime - Which runtime.
  * @param target - What is being built, which decides which Bun cache entries
  *   are runnable here.
- * @returns What is available locally, newest first.
+ * @returns What is available locally, newest first, then a `PATH` runtime that is
+ *   not a release.
  */
 export function local(runtime: Runtime, target: Target): Found[] {
   const found = new Map<string, Found>();
   const here = installed(runtime);
 
-  if (here) {
+  // a runtime on `PATH` that is not a release -- a canary, or something printing
+  // what is not a version at all -- is kept apart. It is not a version to sort or
+  // to offer as `<runtime>@<version>`, which `parseSpec()` would refuse; it is
+  // offered by `choices()` as the runtime on `PATH`, and goes last here
+  const unreleased = here && !isVersion(here.version) ? here : undefined;
+
+  if (here && !unreleased) {
     found.set(here.version, here);
   }
 
@@ -302,7 +317,9 @@ export function local(runtime: Runtime, target: Target): Found[] {
     for (const entry of readdirSync(own)) {
       const at = join(own, entry, executable(runtime));
 
-      if (!found.has(entry) && existsSync(at)) {
+      // a directory name is a string somebody else chose, and it is offered as a
+      // version, so it goes through the same test every other version does
+      if (isVersion(entry) && !found.has(entry) && existsSync(at)) {
         found.set(entry, { how: 'cache', path: at, version: entry });
       }
     }
@@ -316,7 +333,9 @@ export function local(runtime: Runtime, target: Target): Found[] {
     }
   }
 
-  return [...found.values()].sort((one, other) => compare(other.version, one.version));
+  const releases = [...found.values()].sort((one, other) => compare(other.version, one.version));
+
+  return unreleased ? [...releases, unreleased] : releases;
 }
 
 /**
@@ -345,7 +364,7 @@ function bunCached(target: Target): Found[] {
     const at = join(dir, entry);
     const version = entry.startsWith(`${host}-v`) ? entry.slice(`${host}-v`.length) : undefined;
 
-    if (version && existsSync(at)) {
+    if (isVersion(version) && existsSync(at)) {
       found.push({ how: 'cache', path: at, version });
     }
   }
@@ -1413,6 +1432,9 @@ export function parseSpec(text: string): Spec {
   return { runtime: runtime as Runtime, ...(version !== undefined && { version }) };
 }
 
+/** How much of what a non-release runtime on `PATH` printed its row's label shows. */
+const UNRELEASED_LABEL = 40;
+
 /** One row the runtime picker offers. */
 export interface Choice {
   /** What it says, already laid out. */
@@ -1436,6 +1458,18 @@ export interface Choice {
  * a row somebody cannot pick is a row that should not be there. Naming such a
  * version explicitly still explains itself, in `parseSpec()`.
  *
+ * **Every versioned row has passed `isVersion()`**, whatever source it came from,
+ * because the row's value is `<runtime>@<version>` and `parseSpec()` refuses
+ * anything else -- and its label is drawn, so a control character in it is
+ * garbled by the canvas. A runtime on `PATH` whose version is not a release (a
+ * Node `v27.0.0-rc.1`, or a wrapper printing something else) is therefore not a
+ * versioned row: it is one
+ * bare-name row, `bun`, which is what `--runtime bun` already resolves to --
+ * the one on `PATH` -- with the version shown escaped in its label. For Node it
+ * is offered only when `canBuildSea()` says it can package itself, which is the
+ * very test `resolveExec()` applies to the same executable, so the row is never
+ * one that would quietly resolve to a download instead.
+ *
  * @param local - What is on this machine, per runtime.
  * @param releases - What each registry offers, per runtime.
  * @returns The rows, Bun first and newest first within each runtime.
@@ -1457,7 +1491,12 @@ export function choices(
         ...local[runtime].map((one) => one.version),
         ...releases[runtime].slice(0, LINES).map((one) => one.version),
       ]),
-    ].sort((one, other) => compare(other, one));
+    ]
+      // a version nobody validated is not a row: `local()` already leaves a cache
+      // name that is not one out, and this is the same test again for a caller
+      // that builds its own list, since a row's value has to survive `parseSpec()`
+      .filter((version) => isVersion(version))
+      .sort((one, other) => compare(other, one));
 
     for (const version of offered) {
       if (runtime === 'node' && !canEmbed(version)) {
@@ -1467,7 +1506,7 @@ export function choices(
       const lts = releases[runtime].find((one) => one.version === version)?.lts;
       const how = here.get(version)?.how;
       const notes = [
-        lts ? `LTS ${lts}` : undefined,
+        lts ? `LTS ${escapeControls(String(lts))}` : undefined,
         how === 'path' ? 'installed' : how === 'cache' ? 'cached' : undefined,
       ].filter((one): one is string => one !== undefined);
 
@@ -1475,6 +1514,20 @@ export function choices(
         label: `${runtime} ${version}${notes.length ? `  (${notes.join(', ')})` : ''}`,
         value: `${runtime}@${version}`,
       });
+    }
+
+    // the runtime on `PATH`, when it is not a release: one row whose value is the
+    // bare name, which `resolveExec()` already answers with that same executable
+    const unreleased = local[runtime].find((one) => one.how === 'path' && !isVersion(one.version));
+
+    if (unreleased && (runtime === 'bun' || canBuildSea(unreleased.version))) {
+      // cut by character before it is escaped, so neither an escape nor a pair is
+      // split, and because it is whatever the executable printed: a whole page of
+      // it is not a label
+      const chars = [...unreleased.version];
+      const shown = `${escapeControls(chars.slice(0, UNRELEASED_LABEL).join(''))}${chars.length > UNRELEASED_LABEL ? '…' : ''}`;
+
+      rows.push({ label: `${runtime} ${shown}  (installed, not a release)`, value: runtime });
     }
   }
 

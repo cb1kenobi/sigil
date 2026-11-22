@@ -544,6 +544,29 @@ commit message in a text area. What it settled:
   `checkout`, a word the footer shows once `2` has focused the branches whether
   or not the directory is a repository at all.
 
+- **A root's cold import is paid in a `beforeAll()`, not inside a test**
+  (SIG-565). The first `import()` of an example's root has vite transform its
+  JSX and loads `@ttylabs/sigil` from `dist/`: 0.3 to 1 s usually, 4.9 s on a
+  Windows runner of a passing main run, and past the package's 10 s
+  `testTimeout` four times on one branch, in whichever test came first --
+  "should export App", which asserts three properties of a module and was
+  failing over the time taken to get it. Each example's `describe` now imports
+  its roots once in a `beforeAll()` with a 30 s budget of its own, and the tests
+  read the module from `load()`. A hang is still a failure and names itself:
+  `within()` rejects with `importing examples/<name>/src/<root> did not happen
+  within 30000ms` (with the platform's separators) before the hook's own timeout,
+  which is 5 s behind it, and every broken root of the example is named, not
+  only the first. What it costs is that a root that fails to import skips the
+  example's other tests too, the contract and spawned ones included: the suite
+  is red and named, with less to read under it. The
+  `mount()` tests never paid a second import -- a module is cached by its URL, and
+  `mount()` after the export test measured 16 ms behind a 5 s import -- but they
+  did pay the first one whenever they ran without it (`-t "should draw"`), and
+  now they do not. `testTimeout` is not raised: the cost is moved out of what
+  the timeout measures, not hidden under a larger number. Reproduced by a
+  temporary vite plugin sleeping in the first transform of each root: 12 s
+  failed all 13 export tests at 10 s each before, and passed them all after.
+
 - **One git at a time.** Every call goes through one promise chain: two Spaces
   pressed quickly are two `git add`s, and two gits writing one index is one of
   them failing on `index.lock`. An action reads the repository again after it,

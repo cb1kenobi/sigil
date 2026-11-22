@@ -1,4 +1,5 @@
 import { __ } from '../i18n/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { deletePath, isPlainObject, readPath, segments, writePath } from './dotted.js';
 import {
   copyDocument,
@@ -315,7 +316,9 @@ export class Config {
 
     if (!isPlainObject(value)) {
       // not translated: `apply()` is handed a value by the app
-      throw new Error(`Cannot apply a value that is not an object to layer "${name}"`);
+      throw new Error(
+        `Cannot apply a value that is not an object to layer "${escapeControls(name)}"`
+      );
     }
 
     // copied and validated **before** anything is assigned, which is the order
@@ -844,7 +847,9 @@ export class Config {
       if (URL_SOURCE.test(at)) {
         // not translated: a store's own source is the app's
         this.#onError(
-          new Error(`Config layer "${layer.name}" has a source that is not a file path: ${at}`)
+          new Error(
+            `Config layer "${escapeControls(layer.name)}" has a source that is not a file path: ${escapeControls(at)}`
+          )
         );
         continue;
       }
@@ -1052,19 +1057,21 @@ export class Config {
     const answer = store.canRepresent?.(value, path);
 
     if (answer !== undefined && answer !== true) {
-      throw new Error(__`${layer.name} cannot hold the value at "${path}": ${answer}`);
+      throw new Error(
+        __`${escapeControls(layer.name)} cannot hold the value at "${escapeControls(path)}": ${escapeControls(answer)}`
+      );
     }
   }
 
   /** The message a read-only `delete()` prints, which names both ways out. */
   #cannotDelete(path: string, owner: Layer, target: Layer): string {
-    const where = owner.declared.store.source ?? owner.name;
-    const here = target.declared.store.source ?? target.name;
+    const where = escapeControls(owner.declared.store.source ?? owner.name);
+    const here = escapeControls(target.declared.store.source ?? target.name);
 
     // one key rather than three, because the shape is the translator's: a
     // sentence per line would hand them three fragments and no way to reorder
     // them, which is what the i18n work already refuses for a suggestion
-    return __`Cannot delete "${path}": it is set in ${owner.name}, which is read-only.
+    return __`Cannot delete "${escapeControls(path)}": it is set in ${escapeControls(owner.name)}, which is read-only.
   Set it in ${here} to override the value, or
   remove it from ${where}.`;
   }
@@ -1077,10 +1084,10 @@ export class Config {
       // not translated: a layer name is the app's own, so naming one that is
       // not there is a bug in the app rather than anything a user did
       throw new Error(
-        `Unknown config layer "${name}". There is ${
+        `Unknown config layer "${escapeControls(name)}". There is ${
           this.#layers.length === 0
             ? 'no layer at all'
-            : `${this.#layers.map((it) => `"${it.name}"`).join(', ')}`
+            : `${this.#layers.map((it) => `"${escapeControls(it.name)}"`).join(', ')}`
         }.`
       );
     }
@@ -1153,11 +1160,13 @@ export class Config {
       const seen = shapes[i];
       const prefix = parts.slice(0, i + 1).join('.');
       if (at !== undefined && !isPlainObject(at)) {
-        throw new Error(__`"${prefix}" in ${layer.name} is not an object`);
+        throw new Error(
+          __`"${escapeControls(prefix)}" in ${escapeControls(layer.name)} is not an object`
+        );
       }
       if (at === undefined && Array.isArray(seen)) {
         throw new Error(
-          __`"${prefix}" is a list, and a dotted path does not reach into one; set the whole list, or use push, pop, shift or unshift`
+          __`"${escapeControls(prefix)}" is a list, and a dotted path does not reach into one; set the whole list, or use push, pop, shift or unshift`
         );
       }
     }
@@ -1200,7 +1209,7 @@ export class Config {
     // and it is right to: a translator meeting one has no way to tell a literal
     // brace from a slot somebody spelled with a name
     throw new Error(
-      __`Refusing to write ${layer.name}: ${describeLosses(losses)} would be lost.
+      __`Refusing to write ${escapeControls(layer.name)}: ${describeLosses(losses)} would be lost.
   Pass lossy: true to write anyway, or use a store that can keep what is there.`
     );
   }
@@ -1262,7 +1271,7 @@ export class Config {
     if (!isPlainObject(read)) {
       // not translated, for `layerOf()`'s reason: a store that answers with
       // something a layer cannot hold is a bug in that store's own source
-      throw new Error(`Layer "${layer.name}" read a value that is not an object`);
+      throw new Error(`Layer "${escapeControls(layer.name)}" read a value that is not an object`);
     }
 
     // `apply()` is replace rather than merge, so a layer it replaced is written
@@ -1311,11 +1320,11 @@ export class Config {
     // cannot be written is a bug in its source rather than anything a user did
     if (!isWritableStore(layer.declared.store)) {
       throw new Error(
-        `Cannot save layer "${layer.name}": its ${layer.declared.store.format} store cannot write.`
+        `Cannot save layer "${escapeControls(layer.name)}": its ${escapeControls(layer.declared.store.format)} store cannot write.`
       );
     }
     if (layer.readOnly) {
-      throw new Error(`Cannot save layer "${layer.name}": it is read-only.`);
+      throw new Error(`Cannot save layer "${escapeControls(layer.name)}": it is read-only.`);
     }
 
     return layer.touched.size > 0 ? [layer] : [];
@@ -1514,7 +1523,7 @@ export class Config {
     // Not translated: appending nothing is the app's own mistake, which is the
     // side `Cannot write` and `No writable config layer` are already on
     if (value === undefined) {
-      throw new Error(`Cannot ${what} nothing to "${path}"`);
+      throw new Error(`Cannot ${what} nothing to "${escapeControls(path)}"`);
     }
 
     const layer = this.#writable(name, path);
@@ -1526,7 +1535,7 @@ export class Config {
     // value somebody set, and turning it into a one-element list is not what
     // either method means
     if (at !== undefined && !Array.isArray(at)) {
-      throw new Error(__`"${path}" in ${layer.name} is not a list`);
+      throw new Error(__`"${escapeControls(path)}" in ${escapeControls(layer.name)} is not a list`);
     }
 
     this.#assertWritable(layer, parts);
@@ -1574,7 +1583,7 @@ export class Config {
     }
 
     if (!Array.isArray(at)) {
-      throw new Error(__`"${path}" in ${layer.name} is not a list`);
+      throw new Error(__`"${escapeControls(path)}" in ${escapeControls(layer.name)} is not a list`);
     }
 
     const list = [...(at as unknown[])];
@@ -1602,7 +1611,9 @@ export class Config {
       if (layer.readOnly) {
         // not translated: naming a layer is the app's own call, so naming a
         // read-only one is a bug in its source rather than anything a user did
-        throw new Error(`Cannot write "${path}": layer "${layer.name}" is read-only.`);
+        throw new Error(
+          `Cannot write "${escapeControls(path)}": layer "${escapeControls(layer.name)}" is read-only.`
+        );
       }
       return layer;
     }
@@ -1667,8 +1678,9 @@ function describeLosses(losses: readonly Loss[]): string {
   const shown = losses
     .slice(0, 10)
     .map((it) => {
-      const where = it.line === undefined ? it.kind : `${it.kind}:${it.line}`;
-      return it.detail === undefined ? where : `${where} (${it.detail})`;
+      const where =
+        it.line === undefined ? escapeControls(it.kind) : `${escapeControls(it.kind)}:${it.line}`;
+      return it.detail === undefined ? where : `${where} (${escapeControls(it.detail)})`;
     })
     .join(', ');
 
@@ -1734,7 +1746,7 @@ function valueOf(
   if (!isPlainObject(read)) {
     // not translated: a store that answers with something a layer cannot hold is
     // a bug in that store's own source
-    throw new Error(`Layer "${layer.name}" read a value that is not an object`);
+    throw new Error(`Layer "${escapeControls(layer.name)}" read a value that is not an object`);
   }
 
   const value = copyValue(read, layer.name) as Record<string, unknown>;
@@ -1831,13 +1843,15 @@ function assertLayers(declared: readonly ConfigLayer[]): void {
     if (names.has(layer.name)) {
       // two layers of one name makes `set(path, value, name)` ambiguous and
       // makes every message about one of them wrong about the other
-      throw new Error(`Duplicate config layer "${layer.name}"`);
+      throw new Error(`Duplicate config layer "${escapeControls(layer.name)}"`);
     }
     names.add(layer.name);
 
     const { store } = layer;
     if (!store || typeof store.read !== 'function' || typeof store.readSync !== 'function') {
-      throw new Error(`Config layer "${layer.name}" needs a store with read() and readSync()`);
+      throw new Error(
+        `Config layer "${escapeControls(layer.name)}" needs a store with read() and readSync()`
+      );
     }
   }
 }

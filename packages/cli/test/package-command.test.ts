@@ -9,6 +9,7 @@ import {
   type Target,
 } from '../src/build/compile.ts';
 import { bunTriple, displayPath } from '../src/build/index.ts';
+import { parseSpec } from '../src/build/runtimes.ts';
 import { CONFIG_FILE } from '../src/config.ts';
 import { run } from '../src/index.js';
 import { REVISIONS, runtimeFor, serveRuntimes, stubBun } from './bun-cross.ts';
@@ -52,7 +53,44 @@ vi.mock('@ttylabs/sigil/paths', async (original) => {
   const box = tempDir('sigil-pkg-cache-');
   return {
     ...(await original<typeof import('@ttylabs/sigil/paths')>()),
-    cache: (...paths: string[]) => joinPath(box, ...paths),
+    cache: (...paths: string[]) => joinPath(seams.cacheRoot ?? box, ...paths),
+  };
+});
+
+/**
+ * The two places a test of an error path reaches into the mocks, both unset
+ * unless a test sets them and put back by that block's `afterEach` (SIG-554).
+ *
+ * `cacheRoot` replaces the empty cache above with a path a test chose, which is
+ * how a cache that cannot be created is provoked without touching the
+ * environment: a runtime fetch that has no cache to write to is `mkdir`'s
+ * `ENOTDIR`, which quotes the path. `removing` names a directory whose removal
+ * fails, with a real `ENOTEMPTY` from the kernel rather than an error written
+ * by hand, which is the one way `clean()`'s `rmSync()` can be made to fail that
+ * does not depend on who is running the suite: a permission-based failure is
+ * not one under root, and a CI job can be root.
+ */
+const seams = vi.hoisted(() => ({
+  cacheRoot: undefined as string | undefined,
+  removing: undefined as string | undefined,
+}));
+
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>();
+
+  return {
+    ...actual,
+    rmSync: (
+      path: Parameters<typeof actual.rmSync>[0],
+      options?: Parameters<typeof actual.rmSync>[1]
+    ) => {
+      if (seams.removing !== undefined && String(path) === seams.removing) {
+        // a directory that holds something cannot be `rmdir`ed, as whoever asks
+        actual.rmdirSync(path);
+      }
+
+      return actual.rmSync(path, options);
+    },
   };
 });
 
@@ -417,6 +455,53 @@ describe('sigil package', () => {
     );
   });
 
+  describe.skipIf(process.platform === 'win32')('a bun on PATH that is not a release', () => {
+    it('should be what the picker\'s bare "bun" row builds with, and nothing is downloaded', async () => {
+      // SIG-553: the picker offers a canary on `PATH` as the row `bun`, and that
+      // value goes through `parseSpec()` and `resolveExec()` -- which is the path
+      // `--runtime bun` takes. A canary is not a release, so a spec naming one is
+      // refused; the bare name has to reach the executable instead of a registry
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-canary-'));
+      const ran = join(dir, 'ran');
+      const downloads: string[] = [];
+
+      try {
+        writeExecutable(
+          join(dir, 'bun'),
+          `#!/bin/sh\n[ "$1" = "--version" ] && { echo '1.3.0-canary.5+abc'; exit 0; }\nif [ "$1" = "build" ]; then\n  echo ran > '${ran}'\n  for a in "$@"; do [ "$prev" = "--outfile" ] && out="$a"; prev="$a"; done\n  echo PLACEHOLDER > "$out"; exit 0\nfi\nexit 1\n`
+        );
+        vi.stubGlobal('fetch', (url: string) => {
+          downloads.push(String(url));
+          return Promise.reject(new Error('offline'));
+        });
+
+        expect(parseSpec('bun')).toEqual({ runtime: 'bun' });
+        expect(() => parseSpec('bun@1.3.0-canary.5+abc')).toThrow(/is not a version/);
+
+        await withBun(dir, () =>
+          sigil(
+            'package',
+            join(fixtures, 'buildable'),
+            '--out',
+            out,
+            '--runtime',
+            parseSpec('bun').runtime,
+            '--target',
+            label(hostTarget())
+          )
+        );
+
+        // the stand-in cannot sign what it writes on macOS, so the run may fail
+        // late; what is asked is which executable was used and whether anything
+        // was fetched
+        expect(existsSync(ran)).toBe(true);
+        expect(downloads).toEqual([]);
+      } finally {
+        rmSync(dir, { force: true, maxRetries: 5, recursive: true });
+      }
+    }, 60_000);
+  });
+
   describe.skipIf(process.platform === 'win32')('a path a file system error names', () => {
     // `ENOTDIR` and `ENOENT` quote the path they failed on, `main()` prints an
     // error as it stands, and the path is the caller's (SIG-510)
@@ -429,6 +514,90 @@ describe('sigil package', () => {
       expect(err.split('\n').some((line) => line.startsWith('forged: error'))).toBe(false);
       expect(process.exitCode).toBeTruthy();
     }
+
+    afterEach(() => {
+      seams.cacheRoot = undefined;
+      seams.removing = undefined;
+    });
+
+    it('should escape the runtime cache it could not make, for the executable', async () => {
+      // a version nothing on this machine has, so `resolve()` goes to the cache
+      // and `download()` makes its directory before it reaches for the network.
+      // `bun@1.2.0` is the version that does not do this on a developer's
+      // machine: it is in Bun's own download cache, which `local()` reads, so it
+      // is resolved without the sigil cache being touched at all
+      const file = join(out, `cache-${hostile}`);
+      writeFileSync(file, 'not a directory');
+      seams.cacheRoot = file;
+      // nothing here may reach a registry; `withBun()` puts it back
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+
+      const { err } = await withBun(stubBun(), () =>
+        sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          join(out, 'bins'),
+          '--runtime',
+          'bun@9.8.7',
+          '--target',
+          label(hostTarget())
+        )
+      );
+
+      expect(err).toContain('ENOTDIR');
+      expectInert(err);
+    }, 60_000);
+
+    it('should escape the runtime cache it could not make, for another platform', async () => {
+      // the `bun` is on `PATH`, so `exec` needs no cache, and the target is not
+      // this machine's, so the runtime to embed is fetched into one
+      const file = join(out, `cache-${hostile}`);
+      writeFileSync(file, 'not a directory');
+      seams.cacheRoot = file;
+      // nothing here may reach a registry; `withBun()` puts it back
+      vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+
+      const { err } = await withBun(stubBun(), () =>
+        sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          join(out, 'bins'),
+          '--runtime',
+          'bun',
+          '--target',
+          label(CROSS[0] as Target)
+        )
+      );
+
+      expect(err).toContain('ENOTDIR');
+      expectInert(err);
+    }, 60_000);
+
+    it('should escape the output directory it could not empty', async () => {
+      // `ENOTEMPTY` from a real `rmdir`, whoever runs this -- see `seams`
+      const dirty = join(out, `bins-${hostile}`);
+      mkdirSync(dirty);
+      writeFileSync(join(dirty, 'stale'), 'left by a previous build');
+      seams.removing = resolve(dirty);
+
+      const { err } = await withBun(stubBun(), () =>
+        sigil(
+          'package',
+          join(fixtures, 'buildable'),
+          '--out',
+          dirty,
+          '--runtime',
+          'bun',
+          '--target',
+          label(hostTarget())
+        )
+      );
+
+      expect(err).toContain('ENOTEMPTY');
+      expectInert(err);
+    }, 60_000);
 
     it('should escape the output directory it could not make', async () => {
       const file = join(out, `file-${hostile}`);

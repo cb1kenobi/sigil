@@ -1,5 +1,6 @@
 import { escapeControls as published } from '../../src/error-handler.js';
 import { escapeControls } from '../../src/util/escape-controls.js';
+import { ESCAPED } from '../invisible.js';
 import { describe, expect, it } from 'vitest';
 
 describe('escapeControls()', () => {
@@ -95,16 +96,14 @@ describe('escapeControls()', () => {
   });
 
   it('should escape exactly what the source check refuses, bar the spaces, and spell each one the same way', () => {
-    // the class `FORMAT` in sources.test.ts names, without its `Zs` half -- which
-    // is the one deliberate difference -- and with U+2800 (SIG-557), which no
-    // property covers
-    const unsafe = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
+    // the class `FORMAT` in sources.test.ts is built from, which `invisible.ts`
+    // writes once: `ESCAPED` is it without the spaces, the one deliberate difference
     const wrong: string[] = [];
     for (let code = 0; code <= 0x10ffff; code++) {
       if (code >= 0xd800 && code <= 0xdfff) continue;
       const char = String.fromCodePoint(code);
       const hex = code.toString(16).toUpperCase();
-      const want = unsafe.test(char)
+      const want = ESCAPED.test(char)
         ? code < 0x100
           ? `\\x${hex.padStart(2, '0')}`
           : `\\u{${hex.padStart(4, '0')}}`
@@ -125,9 +124,7 @@ describe('escapeControls()', () => {
 
   it('should leave nothing of the format class in a hostile value', () => {
     const hostile = 'a\u202eb\u200bc\u2028d\u2029e\ufefff\u{e0041}g\u200d\u3164\u034f\ufe0f\u2800';
-    expect(escapeControls(hostile)).not.toMatch(
-      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u
-    );
+    expect(escapeControls(hostile)).not.toMatch(ESCAPED);
   });
 
   it('should leave every other space alone', () => {

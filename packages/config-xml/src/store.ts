@@ -188,7 +188,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
   }
 
   const source = expand(path);
-  const read: ReadShape = { multiple: multiplePaths(opts.schema), what: source };
+  const read: ReadShape = { multiple: multiplePaths(opts.schema), what: escapeControls(source) };
   const serializer = new XMLSerializer();
 
   /**
@@ -228,14 +228,14 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
       // same sentence, and a parser that reported before it threw has already
       // said the thing closest to the first offending byte
       const said = errors[0] ?? ((e as Error).message.split('\n')[0] as string);
-      throw new Error(__`Failed to parse ${source}: ${escapeControls(said)}`);
+      throw new Error(__`Failed to parse ${escapeControls(source)}: ${escapeControls(said)}`);
     }
 
     // escaped, because xmldom quotes the text it failed on -- `end tag name
     // contains invalid characters: "b<ESC>]0;…"` -- and that text is the
     // config file's rather than ours (SIG-412)
     if (errors.length > 0) {
-      throw new Error(__`Failed to parse ${source}: ${escapeControls(errors[0])}`);
+      throw new Error(__`Failed to parse ${escapeControls(source)}: ${escapeControls(errors[0])}`);
     }
 
     // a document with no root is only reachable where the parser neither threw
@@ -244,7 +244,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // stands against is a `documentElement` of `null` reaching the mapping,
     // where every read of it would be a `TypeError` three frames in
     if (!doc.documentElement) {
-      throw new Error(__`Failed to parse ${source}: it has no root element`);
+      throw new Error(__`Failed to parse ${escapeControls(source)}: it has no root element`);
     }
 
     // a declaration naming any encoding but UTF-8 is refused even over bytes
@@ -259,7 +259,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     const encoding = declaredEncoding(doc);
     if (encoding !== undefined && encoding.toLowerCase() !== 'utf-8') {
       throw new Error(
-        __`Failed to read ${source}: it declares the encoding "${encoding}", and only UTF-8 is read`
+        __`Failed to read ${escapeControls(source)}: it declares the encoding "${encoding}", and only UTF-8 is read`
       );
     }
 
@@ -343,7 +343,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // write that never touches it
     const ok = xmlCanHold(held, '', read.multiple);
     if (ok !== true) {
-      throw new Error(`Cannot write ${source}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${escapeControls(ok)}`);
     }
 
     // and the document's root has to be something a layer can merge, which is
@@ -354,7 +354,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
     // list check skips because the root is where a document may legitimately
     // be `{}`
     if (!isPlainObject(held)) {
-      throw new Error(__`${source} must hold an object`);
+      throw new Error(__`${escapeControls(source)} must hold an object`);
     }
 
     applyInto(el, current, held, '', writeShape(el, read, blank));

@@ -1691,6 +1691,138 @@ failed to close.
   Measured by dropping the option: five tests fail across the three stores, two
   of which were already there.
 
+#### A store escapes the path it quotes, where it builds the message (SIG-551)
+
+- **A config file's path is an app's root as it is on disk, and a control
+  character in it reached stderr raw.** `readSigilConfig()` reads an app's
+  `sigil.json` through `json()`, and every message a store built named the file by
+  `${source}` -- so a root holding `ESC ] 0 ; T BEL` retitled the terminal of
+  whoever read `Failed to read <root>/sigil.json: ...`, from `build`, `check`,
+  `package` and `reference` alike. The rule is the one the parser already keeps,
+  that a value an error echoes is escaped where it is thrown, and the thrower here
+  is the store: so `escapeControls()` goes inside the placeholder, where the
+  message is built, and every app reading a config file gets it. Nothing wraps it
+  in `readSigilConfig()`, which was the other place it could have gone and is
+  refused for being a second place for one rule -- an app calling `createConfig()`
+  on its own `json(path)` would have been left with the hole.
+
+- **Every message that names the file, which is more than the four the ticket
+  listed.** `Failed to read` in `readText()`, `readTextSync()` and `decode()`'s two
+  UTF-8 refusals; `must hold an object` and `Cannot write` in `file.ts`;
+  `Failed to parse` and the three scanner refusals in `jsonc.ts`, which already
+  escaped V8's half and not `what`; and `claim()`, which hands the file to
+  `overlay()` as the `where` of `is not an object` and `Unsafe config key`. The
+  tripwire `Too many levels of symbolic links` in `atomic.ts` is escaped too, for
+  the same reason though nothing reaches it. Two in `config.ts` name a store's
+  `source` rather than a file the store read: the read-only `delete()` sentence,
+  which names the file a value is set in and the one to set it in, and the
+  "source that is not a file path" report. **What the operating system said is
+  the other half of `Failed to read`**: Node's `EACCES` and `ENOENT` quote the
+  path they failed on, so `(e as Error).message` is escaped as well. A fixture for it
+  has to be one Node quotes a path for: `EISDIR` does not, which is why a
+  directory proves nothing about that second escape and a path **under a regular
+  file** (`ENOTDIR: not a directory, open '<path>'`) is the test.
+
+- **A store outside this package does the same, through the published subpath.**
+  `@ttylabs/config-xml` and `@ttylabs/config-yaml` build their own messages and
+  import `escapeControls()` from `@ttylabs/sigil/error-handler`, which is where
+  it already was for the XML and YAML parser messages -- never a copy. Both carry
+  the path as a `what` in their read shape, used by nothing but messages, so it is
+  escaped **once where the shape is built** and the twenty-odd messages that use
+  it need not each remember; the messages that name `source` directly escape it
+  where they throw. The two reads still go through core's `readText()`, which is
+  why the UTF-8 and unreadable-file cases need nothing of their own.
+
+- **What is not done.** A write that fails inside `atomic.ts` rethrows Node's own
+  error, whose message quotes the path it failed on, unescaped; the write half of
+  an app's root is never the toolchain's to quote, and wrapping every `catch` is
+  a change to what every store throws. The layer name and the key path were
+  left here as the app's own strings, and are closed by the entry below. The text a message quotes **from inside** a
+  file -- a YAML tag, an XML element name -- is the file's content rather than its
+  path, and is escaped where that is already the case and left where it is not.
+
+- **Tested at three heights**, since the defect lived at the bottom and was
+  reported at the top: `test/config/path-escape.test.ts` for core's store,
+  `test/path-escape.test.ts` in each of the two stores, and
+  `packages/cli/test/config-escape.test.ts` through `sigil build`, `check`,
+  `package` and `reference` over a root with the sequence in its name. Each is skipped on
+  Windows, which cannot create the name. Sabotaged by reverting every source
+  change and leaving the tests: all four files fail, and the cases in the
+  toolchain's file fail for each of the four kinds of failure.
+
+  Four of the escapes have no test that fails without them, because nothing
+  reaches the message: the symlink-loop tripwire in `atomic.ts`, the XML store's
+  `it has no root element` and its collected-errors `Failed to parse` (the parser
+  throws first), and the first line of what the YAML `toJS()` threw.
+
+#### A config message escapes every value it echoes (SIG-558)
+
+- **The key path and the layer name are not the app's own, so they are escaped
+  like the file path was.** SIG-551 left `layer.name` raw on the reading that an
+  app names its layers, and left the key path alone because nobody had asked about
+  it. Both are argv in the shape an app actually has: `config set <path> <value>`
+  hands what was typed to `set()`, and a layer named after its file or taken from
+  the command line is a string somebody else chose. So `"${path}" in ${layer.name}
+  is not a list` printed whatever the user wrote, which is the SIG-412 class
+  exactly. **The rule is one sentence: a config error message escapes every value
+  it echoes** -- a key path, a prefix of one, a layer name, a setting path, a
+  setting's declared type, the kind and detail of a loss, what a store's
+  `canRepresent()` answered -- with `escapeControls()` inside the placeholder where
+  the message is built, so a `__` key is the same string it was.
+
+- **Every site, in five files.** `config.ts` (the mutators' refusals, the layer
+  lookup and the names it lists, `save()`'s, `apply()`'s, the layer declaration
+  checks, the unrepresentable value and what the store answered, the read-only
+  `delete()` and the losses' `kind` and `detail`), `dotted.ts` (an invalid path,
+  which is what the mutators call first), `merge.ts` (`overlay()` and
+  `copyValue()` escape the `where` they are handed, so a caller hands over a raw
+  name and the escape is one place rather than each caller's), `schema.ts` (six
+  `Setting "${path}"` refusals, the type, and `settingLabel()`, the one spelling
+  of `setting "${path}"` that six sites used to write) and `represent.ts`
+  (`atPath()` and the hole label, built from a value's own keys). Escaping is
+  idempotent -- the output holds no character it escapes -- so a message that
+  passes through two of these is not doubled, and `claim()` no longer escapes
+  `source` itself because `overlay()` does.
+
+- **The stores escape the answer a refusal quotes, where they throw it.** A
+  store's `canRepresent()` answer is built from a value's own keys, and `apply()`
+  then `save()` reaches the store's `write()` with no early check in front of it,
+  so `Cannot write ${source}: ${ok}` escapes `ok` in all three stores -- core's
+  `json()`, `@ttylabs/config-xml` and `@ttylabs/config-yaml` -- rather than trusting
+  every `look()` in every store to have escaped its labels. `config-yaml`'s
+  `write.ts` names the key path in seven refusals (`Cannot write` and `Cannot
+  remove` over an alias, an anchor, a merge key and a tag) and escapes it, the
+  anchor's path, the tag and the value. Tested by a `message-escape.test.ts` in
+  each of the two packages, over an ordinary file name, so they run on Windows.
+
+- **Two escapes are defence rather than a fix, and no test can fail them.** The
+  segment in `Invalid config path ... is not a safe key` and the key in
+  `Unsafe config key` are only echoed when `isUnsafeKey()` is true, so the value
+  is one of three fixed identifiers. They are escaped so that the rule has no
+  exception to remember. Likewise `merge.ts` escapes a `where` that is sometimes
+  `settingLabel()`'s translated phrase: a catalog whose translation of `setting
+  "{0}"` holds a zero-width non-joiner would print `\u{200C}` there, in the one case
+  where a setting's `default` or environment value holds a cycle or an unsafe key.
+  Accepted rather than split into two code paths.
+
+- **What stays unescaped is not a value.** `Cannot ${what} without a path` is the
+  mutator's own name, and the message text that comes back from `checkValue()` in
+  `Invalid value for ...` is the parser's and escapes what it echoes where it is
+  thrown.
+
+- **Tested by `test/config/message-escape.test.ts`**, in memory with no file
+  system name in it, so it runs on every platform: a key path through `set()`,
+  `push()`, `unshift()`, `pop()`, `shift()`, `delete()`, `overlay()` and
+  `atPath()`; a layer name through a duplicate, an unknown layer and the names
+  listed beside it, `apply()`, `save()`, a read-only write and `delete()`, an
+  unrepresentable value, a loss, a cycle and an unsafe key; a setting path through
+  every `readSchema()` refusal and the value refusals. **Sabotaged site by site**:
+  each added `escapeControls(` call was replaced by `String(` in turn and the file
+  run, and every one fails a test but the two defence escapes above and SIG-551's
+  own `escapeControls(at)` on a non-file source, which this file now pins as well.
+  A whole-source revert alone is a weaker check than that, since one test can
+  fail for several sites at once.
+
 #### What the write half costs
 
 - **The config module's graph was 32,625 B over seven modules**, against 20,649 B

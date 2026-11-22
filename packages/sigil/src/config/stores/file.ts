@@ -1,5 +1,6 @@
 import { __ } from '../../i18n/index.js';
 import { expand } from '../../paths.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { DEFAULT_STEP, editJsonc } from '../jsonc-write.js';
 import { parseJsonc } from '../jsonc.js';
 import { jsonCanHold } from '../represent.js';
@@ -63,7 +64,7 @@ function fileStore(path: string): WritableConfigStore {
     // would make every key of every layer below it vanish -- so it is refused
     // where it was read rather than discovered as a missing setting later
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new Error(__`${source} must hold an object`);
+      throw new Error(__`${escapeControls(source)} must hold an object`);
     }
 
     // `wouldLose` is **absent** even over a comment-rich file -- the field is
@@ -107,7 +108,7 @@ function fileStore(path: string): WritableConfigStore {
     // touches it
     const ok = jsonCanHold(held, '');
     if (ok !== true) {
-      throw new Error(`Cannot write ${source}: ${ok}`);
+      throw new Error(`Cannot write ${escapeControls(source)}: ${escapeControls(ok)}`);
     }
 
     if (fresh) {

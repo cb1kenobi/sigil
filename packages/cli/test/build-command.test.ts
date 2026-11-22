@@ -1114,7 +1114,7 @@ describe('sigil build', () => {
 
     const { err } = await sigil('build', join(fixtures, 'buildable'), '--out', file, '--no-clean');
 
-    expect(err).toContain('Could not create directory');
+    expect(err).toContain('EEXIST');
     expect(err).toContain(file);
     expect(process.exitCode).toBe(1);
     // still a file, so nothing was written over it
