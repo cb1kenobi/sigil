@@ -745,6 +745,7 @@ describe('whether the schema asks for an update check', () => {
 // would take `{ repo }` for the options and refuse a correct build
 describe('whether the schema names its own checker', () => {
   const builders = "import { githubChecker, npmChecker } from '@ttylabs/sigil/updates';";
+  const UPDATES_NAMESPACE = "import * as updates from '@ttylabs/sigil/updates';";
 
   function reads(
     schemaBody: string,
@@ -877,6 +878,48 @@ describe('whether the schema names its own checker', () => {
         )
       )
     ).toBe('names');
+  });
+
+  // SIG-588: an instantiation expression, `fn<T>`, is type syntax that erases.
+  // SIG-589: so is a wrapper on the namespace object of `updates.githubChecker`.
+  // SIG-590: `?.` puts a `ChainExpression` around the call, which the reader did
+  // not look inside -- and an import is never nullish, so it never short-circuits.
+  // Each read as "asks", and a compiled build refused an app that said where to look
+  describe.each([
+    ['an instantiation', builders, '(githubChecker<Type>)'],
+    ['a namespace under as', UPDATES_NAMESPACE, '(updates as any).githubChecker'],
+    ['a namespace under !', UPDATES_NAMESPACE, 'updates!.githubChecker'],
+    ['a namespace under <T>', UPDATES_NAMESPACE, '(<any>updates).githubChecker'],
+    ['a namespace under satisfies', UPDATES_NAMESPACE, '(updates satisfies object).githubChecker'],
+    ['an optional call', builders, 'githubChecker?.'],
+    ['an optional namespace member', UPDATES_NAMESPACE, 'updates?.githubChecker'],
+    ['an optional call under as', builders, '(githubChecker as any)?.'],
+  ])('a builder called through %s', (_what, preamble, callee) => {
+    const readsTs = (body: string, extra = ''): ReturnType<typeof readSchemaUpdateCheck> =>
+      readSchemaUpdateCheck(entryOf(body, `${preamble}\n${extra}`, 'index.ts'));
+
+    it('should be seen as naming its checker', () => {
+      expect(readsTs(`updateCheck: ${callee}({ repo: 'a/b' })`)).toBe('names');
+    });
+
+    it('should not be taken for the builder when the module binds the name again', () => {
+      expect(
+        readsTs(
+          `updateCheck: ${callee}({ repo: 'a/b' })`,
+          'function f(githubChecker: unknown, updates: unknown) {}'
+        )
+      ).toBe('asks');
+    });
+  });
+
+  // SIG-590: only a chain whose outermost node is the call is the call. A member
+  // read off the result is some other value, whatever it holds
+  it('should not read a member of the builder call as the call', () => {
+    expect(
+      readSchemaUpdateCheck(
+        entryOf("updateCheck: githubChecker?.({ repo: 'a/b' })?.self", builders, 'index.ts')
+      )
+    ).toBe('asks');
   });
 
   it('should see a callee in parentheses alone, which bindingName() already took off', () => {

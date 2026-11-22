@@ -46,5 +46,6 @@ export {
   templateError,
   textPart,
   textValue,
+  trackedFlag,
 } from './ir.js';
 export { parse, ui } from './tag.js';

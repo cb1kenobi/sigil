@@ -1,6 +1,8 @@
 import { assertToolchain, label, outputName, parseTarget } from '../src/build/compile.ts';
 import { agentInstructionsSource, SITE_URL } from '../src/scaffold/agents.ts';
 import {
+  ACTIONS,
+  isExactVersion,
   nameProblem,
   PNPM_MAJOR,
   scaffold,
@@ -632,7 +634,7 @@ describe('the release workflow', () => {
 
   it.each([
     ['vlt', 'npm install --global vlt'],
-    ['pnpm', `npm install --global pnpm@${PNPM_MAJOR}`],
+    ['pnpm', `npm install --global --allow-scripts=pnpm pnpm@${PNPM_MAJOR}`],
   ] as const)('should install %s, which the runner does not have', (manager, step) => {
     // npm ships with Node and is the only one of the three a runner has. The
     // macOS images list npm and Yarn under Package Management and neither pnpm
@@ -670,6 +672,216 @@ describe('the release workflow', () => {
 
     expect(root.packageManager).toMatch(/^pnpm@/);
     expect(root.packageManager.split('@')[1]?.split('.')[0]).toBe(String(PNPM_MAJOR));
+  });
+
+  /** The release workflow's steps, each as its name and its lines. */
+  function stepsOf(text: string): { lines: string[]; name: string }[] {
+    const found: { lines: string[]; name: string }[] = [];
+    for (const line of text.split('\n')) {
+      if (/^ {6}- /.test(line)) found.push({ lines: [], name: '' });
+      const step = found.at(-1);
+      if (!step) continue;
+      step.lines.push(line);
+      const name = /^ {6}(?:- | {2})name:\s*(.*)$/.exec(line);
+      if (name && step.name === '') step.name = name[1] as string;
+    }
+    return found;
+  }
+
+  /** Uncommented lines only: a comment saying `persist-credentials` is not the setting. */
+  const code = (text: string) => text.split('\n').filter((line) => !/^\s*#/.test(line));
+
+  describe('what runs with the repository token (SIG-418)', () => {
+    it.each(['npm', 'pnpm', 'vlt'] as const)(
+      'should pin every action to a commit SHA and name its release, for %s',
+      (manager) => {
+        // the same shape `the workflows` in cli.test.ts holds this repository's
+        // own to: a tag can be moved, and this job runs the app's devDependencies
+        // beside a token that can write to the repository
+        const uses = code(workflow({ manager })).flatMap((line) => {
+          const value = /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1];
+          return value === undefined ? [] : [value];
+        });
+
+        expect(uses.length).toBe(3);
+        expect(
+          uses.filter((use) => !/^[\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(use))
+        ).toStrictEqual([]);
+        // and they are the table's, so the comment and the SHA cannot part
+        expect(uses.sort()).toStrictEqual(
+          Object.values(ACTIONS)
+            .map((action) => `${action.repo}@${action.sha} # ${action.version}`)
+            .sort()
+        );
+      }
+    );
+
+    it.each([
+      ['npm', 'npm ci --ignore-scripts'],
+      ['pnpm', 'pnpm install --frozen-lockfile --ignore-scripts'],
+    ] as const)('should install with %s without running a dependency script', (manager, cmd) => {
+      expect(code(workflow({ manager }))).toContain(`        run: ${cmd}`);
+    });
+
+    it('should install with vlt, which runs no dependency script and has no flag to say so', () => {
+      // `vlt install --help` has `--allow-scripts` and nothing that skips them:
+      // an install leaves lifecycle scripts unrun until `vlt build`
+      const lines = code(workflow({ manager: 'vlt' }));
+      expect(lines).toContain('        run: vlt install --frozen-lockfile');
+      expect(lines.join('\n')).not.toContain('vlt build');
+    });
+
+    it('should leave no credentials in the checkout', () => {
+      for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
+        const checkout = stepsOf(workflow({ manager })).find(
+          (step) => step.name === 'Checkout repository'
+        );
+        expect(checkout?.lines).toContain('          persist-credentials: false');
+      }
+    });
+
+    it('should hand the token to the release step alone', () => {
+      for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
+        const text = workflow({ manager });
+        const readers = stepsOf(text)
+          .filter((step) =>
+            code(step.lines.join('\n')).some((line) => /secrets\.|github\.token/.test(line))
+          )
+          .map((step) => step.name);
+
+        expect(readers).toStrictEqual(['Create the release']);
+        // nor at the job or the workflow, where every step would have it
+        const head = code(text.slice(0, text.indexOf('    steps:')));
+        expect(head.filter((line) => /secrets\.|github\.token|GH_TOKEN/.test(line))).toStrictEqual(
+          []
+        );
+      }
+    });
+
+    it('should put no expression inside a run block', () => {
+      // an expression is pasted into the script before the shell parses it
+      for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
+        for (const step of stepsOf(workflow({ manager }))) {
+          const lines = code(step.lines.join('\n'));
+          const at = lines.findIndex((line) => /^\s*(?:- )?run:/.test(line));
+          if (at < 0) continue;
+          const block = lines.slice(at).filter((line) => !/^\s+(?:env|name):/.test(line));
+          expect(block.join('\n'), step.name).not.toContain('${{');
+        }
+      }
+    });
+  });
+
+  describe('which pnpm the workflow installs (SIG-418)', () => {
+    it('should install the exact pnpm it was given, and say so in package.json', () => {
+      const given = { pnpmVersion: '9.15.4' };
+      expect(files(given).get('.github/workflows/release.yml')).toContain(
+        'npm install --global --allow-scripts=pnpm pnpm@9.15.4\n'
+      );
+      expect(json('package.json', given)).toHaveProperty('packageManager', 'pnpm@9.15.4');
+    });
+
+    it('should fall back to the major, and write no packageManager, when it was not given one', () => {
+      expect(json('package.json')).not.toHaveProperty('packageManager');
+      expect(workflow()).toContain(`pnpm@${PNPM_MAJOR}\n`);
+    });
+
+    it.each(['npm', 'vlt'] as const)('should ignore it for %s', (manager) => {
+      const given = { manager, pnpmVersion: '9.15.4' };
+      expect(json('package.json', given)).not.toHaveProperty('packageManager');
+      expect(files(given).get('.github/workflows/release.yml')).not.toContain('pnpm');
+    });
+
+    it.each(['12', '^12.1.0', 'latest', '12.1', 'pnpm@12.1.0', '12.1.0+sha512.abc', ''])(
+      'should refuse %j, which pnpm would not switch to',
+      (pnpmVersion) => {
+        expect(isExactVersion(pnpmVersion)).toBe(false);
+        expect(() => scaffold({ ...OPTIONS, pnpmVersion })).toThrow(/exact pnpm version/);
+      }
+    );
+
+    it.each(['12.21.0', '9.0.0', '12.0.0-rc.1'])('should take %s', (pnpmVersion) => {
+      expect(isExactVersion(pnpmVersion)).toBe(true);
+    });
+  });
+
+  describe('the pnpm `sigil new` reads off the machine (SIG-418)', () => {
+    let dir: string;
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'sigil-new-pnpm-'));
+    });
+
+    afterEach(() => {
+      rmSync(dir, { force: true, recursive: true });
+    });
+
+    /**
+     * Scaffolds a pnpm app with a `pnpm` on `PATH` that prints `output`.
+     *
+     * The directory the command is run from holds a `package.json`, and the
+     * stand-in answers `1.0.0` -- the pinned pnpm of a project -- wherever it
+     * finds one in its working directory. Real pnpm does the same with a
+     * `packageManager` field (11.9.0 outside and 12.21.0 inside this repository
+     * on the machine that found it), so a `pnpm --version` run from the wrong
+     * directory is a test failure rather than a quiet wrong answer.
+     */
+    function scaffoldedWith(output: string, status = 0): Record<string, string> {
+      const bin = join(dir, 'bin');
+      mkdirSync(bin);
+      const win = process.platform === 'win32';
+      writeFileSync(join(dir, 'package.json'), '{}\n');
+      writeExecutable(
+        join(bin, win ? 'pnpm.cmd' : 'pnpm'),
+        win
+          ? `@if exist package.json (echo 1.0.0) else (echo ${output})\r\n@exit /b ${status}\r\n`
+          : `#!/bin/sh\nif [ -f package.json ]; then echo 1.0.0; else echo '${output}'; fi\nexit ${status}\n`
+      );
+      const env = { ...process.env };
+      for (const key of Object.keys(env)) {
+        if (key.toLowerCase() === 'path') delete env[key];
+      }
+      spawnSync(
+        process.execPath,
+        [cli, 'new', 'demo', '--pm', 'pnpm', '--yes', '--no-install', '--no-git'],
+        { cwd: dir, encoding: 'utf-8', env: { ...env, PATH: bin } }
+      );
+      return JSON.parse(readFileSync(join(dir, 'demo', 'package.json'), 'utf-8')) as Record<
+        string,
+        string
+      >;
+    }
+
+    it('should write what pnpm --version printed', () => {
+      expect(scaffoldedWith('9.15.4').packageManager).toBe('pnpm@9.15.4');
+      expect(
+        readFileSync(join(dir, 'demo', '.github', 'workflows', 'release.yml'), 'utf-8')
+      ).toContain('pnpm@9.15.4\n');
+    });
+
+    it('should write nothing when pnpm answers with something that is not a version', () => {
+      expect(scaffoldedWith('Corepack is not enabled').packageManager).toBeUndefined();
+    });
+
+    it('should write nothing when pnpm fails', () => {
+      expect(scaffoldedWith('9.15.4', 1).packageManager).toBeUndefined();
+    });
+  });
+
+  describe('the Dependabot config (SIG-418)', () => {
+    it('should be written, and keep the workflow pins moving', () => {
+      const text = files().get('.github/dependabot.yml') as string;
+
+      expect(text).toContain("package-ecosystem: 'github-actions'");
+      expect(text).toContain("directory: '/'");
+      expect(text).toMatch(/interval: 'weekly'/);
+      // only the actions: the app's own dependencies are the author's policy
+      expect(text).not.toContain("'npm'");
+    });
+
+    it.each(['npm', 'pnpm', 'vlt'] as const)('should be written for %s', (manager) => {
+      expect(files({ manager }).has('.github/dependabot.yml')).toBe(true);
+    });
   });
 
   it('should name the runtime itself, and leave sigil.json out of it', () => {

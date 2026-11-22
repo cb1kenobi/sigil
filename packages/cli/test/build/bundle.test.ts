@@ -459,7 +459,7 @@ describe('bundling an app', () => {
   });
 
   it('should report a non-zero exit code from a command that failed', () => {
-    expect(run('nope').status).toBe(1);
+    expect(run('nope').status).toBe(2);
   });
 });
 

@@ -17,9 +17,13 @@ import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement 
 /**
  * Looks through the wrappers that do not change what a value is.
  *
- * `as`, `satisfies` and the angle-bracket assertion `<T>x` are type syntax and
- * erase to nothing; parentheses are nothing at all; `!` is an assertion about a
- * value rather than a change to it.
+ * `as`, `satisfies`, the angle-bracket assertion `<T>x` and an instantiation
+ * expression `fn<T>` are type syntax and erase to nothing; parentheses are
+ * nothing at all; `!` is an assertion about a value rather than a change to it.
+ *
+ * `?.` is deliberately not here: it can change a value, to `undefined`, so it is
+ * not a wrapper that changes nothing. `importCall()` in `bindings.ts` looks
+ * through it in the one place that is true, a call whose callee is an import.
  *
  * @param node - The expression.
  * @returns The expression under the type syntax.
@@ -30,6 +34,7 @@ export function unwrapShallow(node: Expression): Expression {
     current.type === 'TSAsExpression' ||
     current.type === 'TSSatisfiesExpression' ||
     current.type === 'TSTypeAssertion' ||
+    current.type === 'TSInstantiationExpression' ||
     current.type === 'ParenthesizedExpression' ||
     current.type === 'TSNonNullExpression'
   ) {

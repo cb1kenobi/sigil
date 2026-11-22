@@ -478,3 +478,26 @@ describe('a match started inside another one', () => {
     expect(cascade.match(plain).map((matched) => matched.rule)).toContain(added.rules[0]);
   });
 });
+
+describe('a result the cascade handed back', () => {
+  it('should stay what it was when the next resolve is of another element', () => {
+    // `Restyler` keeps one result per element, a thousand at once on the stress
+    // workload, and answers a prop write from the element's own later. So a result
+    // is the caller's for good, and a resolve that reused one object would hand
+    // every element the last element's style and locked set (SIG-513)
+    const cascade = new Cascade([
+      parseStylesheet('box { color: red !important } text { color: green }'),
+    ]);
+
+    const first = cascade.resolveSheets(node({ type: 'box' }));
+    const second = cascade.resolveSheets(node({ type: 'text' }));
+    const firstAgain = cascade.resolveSheets(node({ type: 'box' }));
+
+    expect(second).not.toBe(first);
+    expect(firstAgain).not.toBe(first);
+    expect(first.style.color).toEqual(palette(1));
+    expect([...first.locked]).toEqual(['color']);
+    expect(second.style.color).toEqual(palette(2));
+    expect([...second.locked]).toEqual([]);
+  });
+});

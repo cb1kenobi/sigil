@@ -168,7 +168,7 @@ describe('sum, given the wrong input', () => {
   it('refuses a value that is not a number', async () => {
     const ran = await runCommand({ argv: ['sum', '1', 'x'], schema });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(ran.out).toBe('');
     expect(ran.err).toBe('Error: Invalid number: x\n');
   });

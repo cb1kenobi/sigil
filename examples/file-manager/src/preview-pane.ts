@@ -17,6 +17,7 @@
 import { entryClass, entryLabel } from './common.ts';
 import type { PreviewFor } from './preview.ts';
 import {
+  codeView,
   highlightCode,
   imageView,
   markdownView,
@@ -28,16 +29,11 @@ import { box, type Element, printable, text } from '@ttylabs/sigil/element';
 import { createEffect } from '@ttylabs/sigil/renderer';
 import type { State } from '@ttylabs/sigil/signals';
 import { untrack } from '@ttylabs/sigil/signals';
-import { TOKEN_ROLE } from '@ttylabs/sigil/theme';
-import { graphemes, stringWidth } from '@ttylabs/sigil/width';
 
 export interface PreviewPaneProps {
   /** What to show. */
   readonly preview: State<PreviewFor>;
 }
-
-/** Where a tab goes to: the next multiple of this column. */
-const TAB = 4;
 
 /**
  * Builds the preview pane.
@@ -86,7 +82,14 @@ export function PreviewPane(props: PreviewPaneProps): Element {
         break;
       }
       case 'text': {
-        rows.push(...codeRows(shownNow.text, shownNow.lang, width));
+        rows.push(
+          codeView(shownNow.text, {
+            gutter: true,
+            highlight: highlightCode,
+            lang: shownNow.lang,
+            width,
+          })
+        );
         if (shownNow.cut) {
           rows.push(line('... the rest of the file is not shown', 'sigil-muted'));
         }
@@ -156,85 +159,4 @@ export function PreviewPane(props: PreviewPaneProps): Element {
   });
 
   return host;
-}
-
-/**
- * Highlighted text, a row a line behind a gutter of line numbers, each row cut at
- * the width and drawn as runs of cells that share a token -- one element resolves
- * one style, which is how markdown draws a code block and `diff()` a line.
- *
- * @param source - The text, with only `\n` and `\t` left of the control characters.
- * @param lang - What `highlightCode()` is told the language is: the extension.
- * @param width - The pane's width.
- * @returns The rows.
- */
-export function codeRows(source: string, lang: string | undefined, width: number): Element[] {
-  const tokens: (string | undefined)[] = Array.from({ length: source.length });
-  for (const span of highlightCode(source, lang)) {
-    for (let at = Math.max(0, span.start); at < Math.min(source.length, span.end); at++) {
-      tokens[at] = span.token;
-    }
-  }
-
-  const lines = source.split('\n');
-  // no gutter in a pane too narrow to hold one and a cell of text
-  const gutter = width > String(lines.length).length + 1 ? String(lines.length).length : 0;
-  const room = Math.max(1, width - (gutter ? gutter + 1 : 0));
-  const rows: Element[] = [];
-  let offset = 0;
-  lines.forEach((value, n) => {
-    const runs: { text: string; token: string | undefined }[] = [];
-    let at = offset;
-    let column = 0;
-    for (const cluster of graphemes(value)) {
-      const token = tokens[at];
-      at += cluster.length;
-      const drawn = cluster === '\t' ? ' '.repeat(TAB - (column % TAB)) : cluster;
-      const cells = stringWidth(drawn);
-      if (column + cells > room) {
-        break;
-      }
-      column += cells;
-      const last = runs.at(-1);
-      if (last && last.token === token) {
-        last.text += drawn;
-      } else {
-        runs.push({ text: drawn, token });
-      }
-    }
-    offset += value.length + 1;
-
-    rows.push(
-      box(
-        { class: 'code-row', 'flex-direction': 'row', 'flex-shrink': 0 },
-        ...(gutter
-          ? [
-              text(String(n + 1).padStart(gutter), {
-                class: 'gutter sigil-muted',
-                'flex-shrink': 0,
-                'margin-right': 1,
-                width: gutter,
-              }),
-            ]
-          : []),
-        ...runs.map(({ text: value, token }) => {
-          const role = token === undefined ? undefined : TOKEN_ROLE.get(token);
-          const classes = ['code'];
-          if (token !== undefined) {
-            classes.push('sigil-token', `sigil-token-${token}`);
-          }
-          if (role !== undefined) {
-            classes.push(role);
-          }
-          return text(value, {
-            class: classes.join(' '),
-            'flex-shrink': 0,
-            'white-space': 'pre',
-            width: stringWidth(value),
-          });
-        })
-      )
-    );
-  });
-  return rows;
 }

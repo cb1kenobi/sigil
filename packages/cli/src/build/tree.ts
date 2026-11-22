@@ -10,7 +10,7 @@
  * ## The two walks share their rules and nothing else
  *
  * Every decision about what is in a directory comes from `readRoutes()` in
- * `@ttylabs/sigil/routes`: the names, the extensions, the `.` and `_` prefixes,
+ * `@ttylabs/sigil/internal/routes`: the names, the extensions, the `.` and `_` prefixes,
  * the `index` module that is the directory itself, the package that renames
  * itself, and the collision between two routes claiming one name. This file
  * decides none of them. That is the whole point -- an app that routed
@@ -54,7 +54,7 @@ import {
   readRoutes,
   type Route,
   type RouteKind,
-} from '@ttylabs/sigil/routes';
+} from '@ttylabs/sigil/internal/routes';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
