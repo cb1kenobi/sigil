@@ -17,7 +17,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -401,10 +401,13 @@ describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be wri
 // its own multi-line text
 describe.skipIf(process.platform === 'win32')('a write that fails after the check', () => {
   /**
-   * A module that makes the first file written under `$SIGIL_FAIL_WRITE_UNDER` a
-   * directory just before the write, which is a file made between the check and
-   * the write -- and an `EISDIR` from the real `writeFileSync()`, quoting the
-   * path as it is. Not a permission, so it holds as root.
+   * A module that makes the `$SIGIL_FAIL_WRITE_NTH`th file (the first, unset)
+   * written under `$SIGIL_FAIL_WRITE_UNDER` a directory just before the write,
+   * which is a file made between the check and the write -- and an `EISDIR` from
+   * the real `writeFileSync()`, quoting the path as it is. With
+   * `$SIGIL_FAIL_WRITE_PARTIAL` it writes a few bytes and throws `ENOSPC`
+   * instead. With `$SIGIL_FAIL_REMOVE`, a removal fails once the write has.
+   * None is a permission, so each holds as root.
    *
    * @returns The `NODE_OPTIONS` that loads it.
    */
@@ -417,14 +420,37 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
         "import { syncBuiltinESMExports } from 'node:module';",
         "import { resolve, sep } from 'node:path';",
         'const real = fs.writeFileSync;',
-        'let done = false;',
+        'let count = 0;',
+        'let failed = false;',
         'fs.writeFileSync = function (path, ...rest) {',
         '  const under = process.env.SIGIL_FAIL_WRITE_UNDER;',
-        '  if (!done && under && typeof path === "string" && resolve(path).startsWith(resolve(under) + sep)) {',
-        '    done = true;',
-        '    fs.mkdirSync(path, { recursive: true });',
+        '  if (!failed && under && typeof path === "string" && resolve(path).startsWith(resolve(under) + sep)) {',
+        '    count += 1;',
+        '    if (count === Number(process.env.SIGIL_FAIL_WRITE_NTH ?? 1)) {',
+        // a disk that fills partway through a file: some of it is written and
+        // the call throws, which leaves a truncated file `undo()` can remove
+        '      if (process.env.SIGIL_FAIL_WRITE_PARTIAL) {',
+        '        failed = true;',
+        '        real.call(this, path, "partial");',
+        '        throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC", errno: -28, syscall: "write" });',
+        '      }',
+        // a file already there is replaced by the directory, which is what
+        // `--no-clean` over an earlier build needs
+        '      fs.rmSync(path, { force: true });',
+        '      fs.mkdirSync(path, { recursive: true });',
+        '      failed = true;',
+        '    }',
         '  }',
         '  return real.call(this, path, ...rest);',
+        '};',
+        // once the write has failed, a removal fails too, so that a cleanup that
+        // throws is what is being asked about
+        'const realRm = fs.rmSync;',
+        'fs.rmSync = function (...args) {',
+        '  if (failed && process.env.SIGIL_FAIL_REMOVE) {',
+        '    throw Object.assign(new Error("EBUSY: cleanup refused"), { code: "EBUSY" });',
+        '  }',
+        '  return realRm.apply(this, args);',
         '};',
         'syncBuiltinESMExports();',
       ].join('\n')
@@ -451,6 +477,104 @@ describe.skipIf(process.platform === 'win32')('a write that fails after the chec
     expect(stderr).not.toContain('UNHANDLEABLE_ERROR');
     expect(STACK.test(stderr), stderr).toBe(false);
   }, 60_000);
+
+  /** Every file under `dir`, relative to it, sorted; directories are not listed. */
+  function filesUnder(dir: string): string[] {
+    return readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(dir, join(entry.parentPath, entry.name)))
+      .toSorted();
+  }
+
+  // SIG-582: the files written before the one that failed stayed in `--out`, a
+  // partial bundle that looked like a build. Every gate after the write already
+  // unwound with `undo()`; the write itself did not
+  it('should remove what it wrote when a later write fails, and report the original error', async () => {
+    const app = linkedFixture(buildable, 'sigil-partial-write-');
+    const out = join(app, 'dist');
+
+    const { code, stderr } = await run(cli, app, ['build', app, '--out', out], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_WRITE_NTH: '3',
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('EISDIR');
+    expect(stderr).not.toContain('UNHANDLEABLE_ERROR');
+    expect(STACK.test(stderr), stderr).toBe(false);
+    // the third write is the one made a directory, so two files were written
+    // before it and neither is left; what is there is the directory the failure
+    // was provoked with, which the build did not make and does not own
+    expect(filesUnder(out)).toEqual([]);
+    expect(statSync(out).isDirectory()).toBe(true);
+  }, 60_000);
+
+  it('should remove the file that failed when it was left truncated', async () => {
+    const app = linkedFixture(buildable, 'sigil-partial-write-full-');
+    const out = join(app, 'dist');
+
+    const { code, stderr } = await run(cli, app, ['build', app, '--out', out], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_WRITE_NTH: '3',
+      SIGIL_FAIL_WRITE_PARTIAL: '1',
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('ENOSPC');
+    // the third file holds what was written before the disk filled, and goes
+    // with the two before it
+    expect(filesUnder(out)).toEqual([]);
+  }, 60_000);
+
+  it('should report the original error when the cleanup fails too', async () => {
+    const app = linkedFixture(buildable, 'sigil-partial-write-cleanup-');
+    const out = join(app, 'dist');
+
+    const { code, stderr } = await run(cli, app, ['build', app, '--out', out], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_REMOVE: '1',
+      SIGIL_FAIL_WRITE_NTH: '3',
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('EISDIR');
+    expect(stderr).not.toContain('EBUSY');
+    expect(STACK.test(stderr), stderr).toBe(false);
+    // and the cleanup did not run, so this is what proves the removal was what
+    // failed rather than there having been nothing to remove
+    expect(filesUnder(out).length).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('should leave what was already in --out, including a file this build had not reached', async () => {
+    const app = linkedFixture(buildable, 'sigil-partial-write-keep-');
+    const out = join(app, 'dist');
+    expect((await build(app, '0', '--out', out)).code).toBe(0);
+    writeFileSync(join(out, 'keep.txt'), 'mine');
+    const before = filesUnder(out);
+
+    const { code, stderr } = await run(cli, app, ['build', app, '--out', out, '--no-clean'], {
+      FORCE_COLOR: '0',
+      NODE_OPTIONS: failingWrite(),
+      SIGIL_FAIL_WRITE_NTH: '3',
+      SIGIL_FAIL_WRITE_UNDER: out,
+    });
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('EISDIR');
+    expect(readFileSync(join(out, 'keep.txt'), 'utf8')).toBe('mine');
+    // the two this build rewrote are removed, the third is the one the preload
+    // replaced with a directory, and the fourth onward, which the build never
+    // reached, are files the previous build left and are still there
+    const after = filesUnder(out);
+    expect(before.length - after.length).toBe(3);
+    expect(after).toContain('keep.txt');
+  }, 90_000);
 
   it('should write the bytes rolldown generated, and make the entry executable', async () => {
     const app = linkedFixture(buildable, 'sigil-write-bytes-');

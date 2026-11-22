@@ -3,6 +3,7 @@ import { PROCESSING_INSTRUCTION_NODE, type XmlNode } from './names.js';
 import { readDocument, type ReadShape } from './read.js';
 import { nameable, xmlCanHold } from './represent.js';
 import { FRESH, reshape, type Shape, shapeOf } from './shape.js';
+import { firstControl } from './wellformed.js';
 import { applyInto, writeShape, type XmlEl } from './write.js';
 import {
   claim,
@@ -32,6 +33,19 @@ interface XmlDocument {
 interface ParsedDocument {
   readonly documentElement?: XmlEl | null;
   readonly firstChild?: XmlNode | null;
+}
+
+/**
+ * Whether a file holds nothing, which is an empty document rather than a parse
+ * error.
+ *
+ * `trim()` counts U+000B and U+000C as whitespace and XML does not, so a file of
+ * nothing but a vertical tab would be read as empty -- and a write would replace
+ * it -- where the same character beside a root is refused (SIG-581). A control
+ * character is not blank: it goes on to `parse()`, which says so.
+ */
+function isBlank(raw: string): boolean {
+  return !raw.trim() && firstControl(raw) === undefined;
 }
 
 /**
@@ -203,6 +217,17 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * would be silently kept or silently dropped either way.
    */
   const parse = (xmlText: string): XmlDocument => {
+    // before the parser, because the parser has nothing to say: a C0 control
+    // character is not XML 1.0, and `@xmldom/xmldom` reads one as whitespace
+    // between an element name and an attribute, or as text, without reporting
+    // anything (SIG-581). Every read and every write goes through here
+    const control = firstControl(xmlText);
+    if (control) {
+      throw new Error(
+        __`Failed to parse ${escapeControls(source)}: line ${control.line}, column ${control.column}: the character ${escapeControls(control.char)} is not allowed in XML`
+      );
+    }
+
     const errors: string[] = [];
     const onError = (level: string, message: unknown): void => {
       if (level === 'error' || level === 'fatalError') {
@@ -284,7 +309,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * the only thing in the JSON store's way.
    */
   const document = (raw: string | undefined): ConfigDocument => {
-    if (raw === undefined || !raw.trim()) {
+    if (raw === undefined || isBlank(raw)) {
       return { value: {} };
     }
 
@@ -323,7 +348,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * with the file untouched.
    */
   const render: RenderText = (now, value, paths) => {
-    const blank = now === undefined || !now.trim();
+    const blank = now === undefined || isBlank(now);
     const { doc, shape } = blank ? fresh() : parseShaped(now as string);
     const el = doc.documentElement;
 

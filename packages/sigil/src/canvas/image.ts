@@ -24,6 +24,7 @@
 // from the module rather than the subpath's barrel: the barrel is the codec,
 // about 10 kB that checking a shape has no use for
 import { assertRgbaImage, type RgbaImage } from '../png/image.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /** A rectangle of a picture, in its pixels. It may be fractional. */
 export interface ImageRect {
@@ -128,7 +129,7 @@ export function resampleImage(
   assertRgbaImage(image, { name: 'resampleImage()' });
   if (!Number.isSafeInteger(width) || width < 0 || !Number.isSafeInteger(height) || height < 0) {
     throw new RangeError(
-      `Invalid resample size ${String(width)}x${String(height)}: expected whole numbers of pixels`
+      `Invalid resample size ${escapeControls(width)}x${escapeControls(height)}: expected whole numbers of pixels`
     );
   }
 
@@ -229,7 +230,7 @@ function clampRect(rect: ImageRect | undefined, image: RgbaImage): ImageRect {
   // of those is false for `NaN` and a rectangle of `NaN` would pass them all
   if (!(right - x > 0 && bottom - y > 0)) {
     throw new RangeError(
-      `Invalid resample rectangle ${String(rect.x)},${String(rect.y)} ${String(rect.width)}x${String(rect.height)}: nothing of a ${image.width}x${image.height} image is inside it`
+      `Invalid resample rectangle ${escapeControls(rect.x)},${escapeControls(rect.y)} ${escapeControls(rect.width)}x${escapeControls(rect.height)}: nothing of a ${image.width}x${image.height} image is inside it`
     );
   }
   return { height: bottom - y, width: right - x, x, y };

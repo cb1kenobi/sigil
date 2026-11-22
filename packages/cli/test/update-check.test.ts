@@ -823,6 +823,66 @@ describe('whether the schema names its own checker', () => {
       expect(readsTs(`updateCheck: ${wrap("{ distTag: 'next' }")}`)).toBe('asks');
     });
   });
+
+  // SIG-579: the same wrappers on the *callee*. `bindingName()` takes the
+  // parentheses off and nothing else, so `(<T>githubChecker)({ ... })` was a
+  // call to something it could not name -- "asks", and a refusal of a binary that
+  // had said where to look
+  describe.each([...WRAPPERS, ['!', (expression: string) => `${expression}!`]])(
+    'a builder under %s',
+    (_wrapper, wrap) => {
+      const readsTs = (
+        body: string,
+        preamble = builders
+      ): ReturnType<typeof readSchemaUpdateCheck> =>
+        readSchemaUpdateCheck(entryOf(body, preamble, 'index.ts'));
+
+      it('should be seen when it is the callee', () => {
+        expect(readsTs(`updateCheck: (${wrap('githubChecker')})({ repo: 'a/b' })`)).toBe('names');
+      });
+
+      it('should be seen through an alias and through a namespace', () => {
+        expect(
+          readsTs(
+            `updateCheck: (${wrap('gh')})({ repo: 'a/b' })`,
+            "import { githubChecker as gh } from '@ttylabs/sigil/updates';"
+          )
+        ).toBe('names');
+        expect(
+          readsTs(
+            `updateCheck: (${wrap('updates.githubChecker')})({ repo: 'a/b' })`,
+            "import * as updates from '@ttylabs/sigil/updates';"
+          )
+        ).toBe('names');
+      });
+
+      it('should not be taken for the builder when it is a local of that name', () => {
+        expect(
+          readsTs(
+            `updateCheck: (${wrap('githubChecker')})({ repo: 'a/b' })`,
+            'const githubChecker = (options: object) => options;'
+          )
+        ).toBe('asks');
+      });
+    }
+  );
+
+  it('should see a callee under several wrappers at once', () => {
+    expect(
+      readSchemaUpdateCheck(
+        entryOf(
+          "updateCheck: ((<Type>githubChecker) satisfies Type)!({ repo: 'a/b' })",
+          builders,
+          'index.ts'
+        )
+      )
+    ).toBe('names');
+  });
+
+  it('should see a callee in parentheses alone, which bindingName() already took off', () => {
+    expect(reads("updateCheck: (githubChecker)({ repo: 'a/b' })")).toBe('names');
+    expect(reads("updateCheck: ((githubChecker))({ repo: 'a/b' })")).toBe('names');
+  });
 });
 
 // SIG-564: `check()` refuses a hand-written checker that could never work, and a

@@ -236,6 +236,13 @@ a row matching there would send you to a line with nothing wrong with it. NEL is
 the exception and is matched against the raw bytes, because that one is
 normalized everywhere a parser finds it, a comment included.
 
+A **C0 control character anywhere in the document** is refused at read, because XML
+1.0 allows nothing below U+0020 but tab, newline and carriage return and
+`@xmldom/xmldom` would otherwise read one between an element name and an attribute
+as whitespace -- `<server`, ESC, `port="1"/>` as the setting `server.port`. The
+error is `Failed to parse`, naming the file, the line and the column, with the
+character escaped. U+007F and the C1 range are legal and are read.
+
 An **internal DTD entity reference** is refused at read rather than reported here:
 `@xmldom/xmldom` cannot expand one, so the value would be the four characters
 `&e;` where the document says `hi`. A wrong value is not something to write down
@@ -291,11 +298,12 @@ rather than this store, and it is what `type` is for.
 
 The check is asked of the **merged document** rather than of what you passed, so
 that a key your write is not claiming cannot refuse a write that never touches
-it. Which means a file that already holds something XML cannot carry — a stray
-control character somebody pasted — refuses **every** write to that file, naming
-the character and the key. That is conservative on purpose: the alternative is
+it. Which means a file that already holds something XML cannot carry — a lone
+surrogate, or a `&#27;` reference to a control character — refuses **every** write
+to that file, naming the character and the key. That is conservative on purpose: the alternative is
 the store deliberately writing a document no conforming tool can read. Reading
-such a file is fine; only writing it back is refused.
+such a file is fine; only writing it back is refused. (A raw control character
+somebody pasted is not one of these: the read refuses it, as above.)
 
 ## Options
 

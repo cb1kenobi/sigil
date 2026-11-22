@@ -111,3 +111,17 @@ describe('the committed key set', () => {
     }
   });
 });
+
+// SIG-579: a plural written through a wrapper that erases is the same call
+describe.each([
+  ['<T>', (callee: string) => `<Type>${callee}`],
+  ['as', (callee: string) => `${callee} as Type`],
+  ['satisfies', (callee: string) => `${callee} satisfies Type`],
+  ['!', (callee: string) => `${callee}!`],
+])('a plural written under %s', (_wrapper, wrap) => {
+  it('should still be found', () => {
+    const source = `import { __n } from '@ttylabs/sigil/i18n';\nexport const s = (${wrap('__n')})(2, 'one', 'many');\n`;
+
+    expect(keysIn(parseModule('app.ts', source)).map((found) => found.key)).toEqual(['one']);
+  });
+});

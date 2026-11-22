@@ -1,4 +1,5 @@
 import { ESC } from '../ansi/codes.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * A cell's style, and the SGR needed to move from one to another.
@@ -28,7 +29,9 @@ const RGB_BASE = 0x100;
  */
 export function palette(index: number): Color {
   if (!Number.isInteger(index) || index < 0 || index > 255) {
-    throw new TypeError(`Invalid palette index ${String(index)}: expected a whole number 0-255`);
+    throw new TypeError(
+      `Invalid palette index ${escapeControls(index)}: expected a whole number 0-255`
+    );
   }
   return index;
 }
@@ -60,7 +63,9 @@ export function rgb(r: number, g: number, b: number): Color {
  */
 function byte(value: number, name: string): number {
   if (!Number.isInteger(value) || value < 0 || value > 255) {
-    throw new TypeError(`Invalid ${name} channel ${String(value)}: expected a whole number 0-255`);
+    throw new TypeError(
+      `Invalid ${name} channel ${escapeControls(value)}: expected a whole number 0-255`
+    );
   }
   return value;
 }
@@ -297,7 +302,7 @@ function normalize(style: Partial<Style>): Style {
   assertColor(fg, 'fg');
   assertColor(bg, 'bg');
   if (!Number.isInteger(attrs) || attrs < 0 || attrs > 0xff) {
-    throw new TypeError(`Invalid style attrs ${String(attrs)}`);
+    throw new TypeError(`Invalid style attrs ${escapeControls(attrs)}`);
   }
   assertLink(link);
 
@@ -316,7 +321,7 @@ function normalize(style: Partial<Style>): Style {
  */
 function assertLink(link: string): void {
   if (typeof link !== 'string') {
-    throw new TypeError(`Invalid style link ${String(link)}`);
+    throw new TypeError(`Invalid style link ${escapeControls(link)}`);
   }
   // C0, DEL and C1: the ranges an OSC terminator can hide in
   // refusing control characters is the whole job here: an OSC sequence runs
@@ -336,7 +341,7 @@ function assertLink(link: string): void {
  */
 function assertColor(color: Color, which: string): void {
   if (!Number.isInteger(color) || color < DEFAULT_COLOR || color > RGB_BASE + 0xff_ff_ff) {
-    throw new TypeError(`Invalid style ${which} ${String(color)}`);
+    throw new TypeError(`Invalid style ${which} ${escapeControls(color)}`);
   }
 }
 

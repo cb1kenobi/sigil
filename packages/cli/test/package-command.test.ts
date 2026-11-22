@@ -215,6 +215,27 @@ describe('sigil package', () => {
     expect(process.exitCode).toBe(1);
   }, 60_000);
 
+  it('should refuse it under --commands as well, before it asks which runtime', async () => {
+    // SIG-580. `--commands` says where the commands are and not where the schema
+    // is, so it is no way past the refusal -- and `package` reaches `inspect()`
+    // first of everything, so a shortcut added ahead of it would skip the check
+    // without `build`'s own test, which does not go through here, seeing it
+    const { err } = await sigil(
+      'package',
+      join(fixtures, 'discover', 'inline-main'),
+      '--commands',
+      'src/commands',
+      '--out',
+      out
+    );
+
+    expect(err).toContain('this entry exports none');
+    // the only error: a --commands that resolved wrongly would add one of its own
+    expect(err).toContain('1 error in inline-main');
+    expect(err).not.toContain('--runtime is required');
+    expect(process.exitCode).toBe(1);
+  }, 60_000);
+
   describe('choosing a runtime', () => {
     it('should refuse to pick one, naming both and what each costs', async () => {
       // the error *is* the feature: a runtime decides what the app runs on, so

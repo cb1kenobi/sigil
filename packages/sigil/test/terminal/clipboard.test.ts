@@ -93,6 +93,23 @@ describe('clipboardSequence', () => {
     }
   });
 
+  it('should not echo a rejected target raw', () => {
+    // a target comes from a config file or a command line, and a window-title
+    // sequence in it would be acted on by whatever printed the message
+    const raw = 'x\u001B]0;PWNED\u0007y';
+    let message = '';
+    try {
+      clipboardSequence('x', { target: raw as never });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message, 'the call should have thrown').not.toBe('');
+    expect(message).toBe(
+      'Invalid clipboard target x\\x1B]0;PWNED\\x07y: expected "clipboard" or "primary"'
+    );
+    expect(message).not.toMatch(/\p{Cc}/u);
+  });
+
   it('should make a control character in the text inert rather than refusing it', () => {
     // base64 is *why* OSC 52 is safe to build out of user input: a control
     // character inside an OSC payload would end the sequence early and the rest

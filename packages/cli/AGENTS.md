@@ -983,6 +983,21 @@ makes it testable with a fixture directory and no bundler at all.
   needs something one parse of one module has not got: another file, or a value
   flow. Enumerated rather than summarised, because the summary is what went
   stale, and because the count cannot see any of them.
+- **A _callee_ is read through the wrappers that erase, and a _tag_ is not, and
+  the two are different on purpose** (SIG-579). `bindingName()` takes
+  parentheses off and stops there, which is right for a template tag -- the list
+  above records `(ui as any)` as a miss because rewriting a stranger's template
+  is the louder failure. A call is the other way round: `(<T>githubChecker)(...)`,
+  `(main as Main)(schema)` and `(utilitySheet!)()` are the same call at run time
+  and a miss is silent, so the update-check reader, `main()` in the schema
+  finder and the settings check, the utility-sheet rewrite and the plural key
+  reader each pass the callee through `unwrapShallow()` first. The tag readers
+  (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are left as the list
+  above says.
+  What stays missed, because it needs `unwrapShallow()` or the bindings to learn
+  something new: a wrapper on the _namespace_ (`(t as any).main(...)`,
+  `t!.main(...)`), and an instantiation expression, `(main<T>)(...)`, which
+  `unwrapShallow()` does not strip.
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag
@@ -5194,7 +5209,7 @@ about what a valid app is would be the worse half of the feature.
   still its own. `generate()` runs `generateBundle` as `write()` does, so
   `prepareOutput()` is asked at the same moment. It stays, and this does not make
   it redundant: it refuses **before** a byte is written, where a Node write that
-  fails on its third file leaves two behind, and it is the only thing that says
+  fails on its third file used to leave two behind (SIG-582 removes them), and it is the only thing that says
   `Cannot write <file>, which is a directory.`. The mode is the default one, as
   rolldown's was. The provocation that is not a permission, so that it holds as
   root, is a preloaded `writeFileSync()` that makes the target a directory just
@@ -5223,6 +5238,46 @@ about what a valid app is would be the worse half of the feature.
   `bundle-close.test.ts` and `build-command.test.ts` named rolldown's `Could not
   create directory` as the proof the write rejected, and name Node's `EEXIST`
   now.
+
+  **A write that fails partway removes what it wrote, and the error is the one
+  Node raised (SIG-582).** `prepareOutput()` refuses before a byte is written,
+  but a failure only the write finds -- a full disk, a file that became a
+  directory -- on the third file left the first two in `--out`, a partial bundle
+  that read as a build. Every gate after the write already ended in
+  `undo(out, written.output)` and the write itself did not. `writeOutput()` now
+  catches, calls `undo()` and rethrows the same error object, so `escaped()`
+  escapes it whole as before. Three decisions, each a consequence of `undo()`'s
+  own rule rather than a new one:
+
+  - **What is handed to `undo()` is the files the write _began_, not
+    `written.output`.** Under `--no-clean`, `--out` may hold an earlier build's
+    file under a name this build had not reached yet, and `undo()` removes
+    whatever it is given -- `force` makes a missing file a no-op, which is why it
+    copes with an entry that was never written, but it cannot tell an absent file
+    from one somebody else left. The file that failed is in the list, because a
+    full disk leaves it truncated; one that failed in `mkdirSync()` is not, since
+    nothing of it was touched. A file this build rewrote is removed like any
+    other gate's `undo()` removes it, whether or not the failed `open()`
+    got as far as truncating it: that is `undo()`'s rule and it is unchanged.
+    One test fails a write after it wrote some bytes (`ENOSPC`), which is what
+    pins the failed file being in the list.
+  - **Directories follow `undo()`: those a removed file sat in, while empty, and
+    never `out`.** A directory `prepareOutput()` made that held no file this
+    build began to write stays -- failing the first write leaves an empty
+    `chunks/` -- which is the empty directory behind a failed build this entry
+    already records, and removing it would mean a second rule about which
+    directories are the build's. `out` is never removed, as everywhere.
+  - **A cleanup that fails cannot replace the error.** `undo()` swallows each
+    removal's failure and moves on, so nothing is added around it; the test
+    makes `rmSync()` throw after the write has failed and asserts the report is
+    still the `EISDIR`.
+
+  `test/bundle-escape.test.ts` fails the Nth write with the same preload
+  SIG-573 uses (a directory made at the target just before the real call, so it
+  holds as root), and asserts the files before it are gone, that a stray file and
+  a previous build's file that was not reached survive `--no-clean`, and that a
+  throwing cleanup is not reported. Without the `undo()` call the first and
+  third fail; with `output` in place of the files begun the third fails.
 
 - **`assertCleanable()` cannot raise a file system error, and a test says so
   (SIG-560).** It runs before the bundle, outside what `escaped()` covers, so an
