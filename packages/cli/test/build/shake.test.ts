@@ -368,16 +368,93 @@ describe('the class evidence', () => {
     }
   });
 
-  it('should not read the right of a || or ?? as the value, or an empty left of ||', () => {
-    // `'' || x` is `x`, so the left is not the value, and `x || 'text-'` is `x`
-    // whenever `x` is truthy. Neither is a literal on a left that is the value
+  it('should not read an empty left of || as the value', () => {
+    // `'' || x` is `x`, so the empty literal is not what the expression is.
+    // With an unknown right side nothing is read at all
+    expect(evidenceOf(`const c = ('' || x) + colour;`).mayName('text-red')).toBe(false);
+    // and a literal beside it is the value, which is read: `'' || 'text-'` is
+    // `text-` and nothing else
+    const evidence = evidenceOf(`const c = ('' || 'text-') + colour;`);
+    expect(evidence.mayName('text-red')).toBe(true);
+    expect(evidence.mayName('bg-red')).toBe(false);
+  });
+
+  it('should read a literal on the right of || or ?? as that literal or something unknown', () => {
+    // SIG-595: `(x || 'text-') + colour` is the common real-world shape, and the
+    // value is `x` whenever `x` is truthy, so the literal is one of the strings
+    // it can be rather than the string it is. Read closed, as it was, the walk
+    // kept 8 of 383 rules and the `text-*` rules went with the rest
     for (const source of [
-      `const c = ('' || 'text-') + colour;`,
       `const c = (x || 'text-') + colour;`,
       `const c = (x ?? 'text-') + colour;`,
+      'const c = (x || `text-`) + colour;',
+      `const c = (x || 'text-' as string) + colour;`,
+      `const c = (<string>(x || 'text-')) + colour;`,
+      `const c = (a.b || 'text-') + colour;`,
+      `const c = (a && b || 'text-') + colour;`,
+      `const c = (x || y || 'text-') + colour;`,
+      `const c = ((x || 'text-') || y) + colour;`,
+      'const c = `${x || "text-"}${colour}`;',
+      `let c = ''; c += (x || 'text-') + colour;`,
+      // nested in a concatenation, on either side of it
+      `const c = ('flex ' + (x || 'text-')) + colour;`,
+      `const c = colour + ((x || 'text-') + other);`,
     ]) {
-      expect(evidenceOf(source).mayName('text-red'), source).toBe(false);
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('border-red'), source).toBe(false);
     }
+  });
+
+  it('should read the right-hand literal in a .tsx file as well', () => {
+    for (const source of [
+      `export const c = (x || 'text-') + colour;\n`,
+      `export const c = (x ?? 'text-') + colour;\n`,
+      `export const v = <box class={(x || 'text-') + colour} />;\n`,
+    ]) {
+      const evidence = evidenceOf(source, 'src/view.tsx');
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('border-red'), source).toBe(false);
+    }
+  });
+
+  it('should join a right-hand literal to the known parts beside it', () => {
+    // the literal is `x || 'flex-'` where it is not `x`, so what follows it is
+    // joined to it on that side and open on the left on the other: `md:flex-row`
+    // is named whole by the one reading, and `row` ends whatever `x` was.
+    // `md:flex-col` is kept too, since `x` may be `flex-col` -- `md:` is open
+    const joined = evidenceOf(`const c = 'md:' + (x || 'flex-') + 'row';`);
+    expect(joined.mayName('md:flex-row')).toBe(true);
+    expect(joined.mayName('md:flex-col')).toBe(true);
+    expect(joined.mayName('p-2')).toBe(false);
+
+    // `x` can be anything, so the known text after it is open on the left
+    const suffix = evidenceOf(`const c = (x || 'a-') + 'red';`);
+    expect(suffix.mayName('text-red')).toBe(true);
+    expect(suffix.mayName('a-red')).toBe(true);
+    expect(suffix.mayName('text-green')).toBe(false);
+  });
+
+  it('should read every literal of a chain of || and ??', () => {
+    const evidence = evidenceOf(`const c = (x || 'text-' || 'bg-') + colour;`);
+
+    expect(evidence.mayName('text-red')).toBe(true);
+    // the first literal is truthy, so the second is never the value -- and is
+    // still read: more kept, never fewer
+    expect(evidence.mayName('border-red')).toBe(false);
+
+    const mixed = evidenceOf(`const c = (x ?? (dark ? 'text-' : 'bg-')) + colour;`);
+    expect(mixed.mayName('text-red')).toBe(true);
+    expect(mixed.mayName('bg-red')).toBe(true);
+    expect(mixed.mayName('border-red')).toBe(false);
+  });
+
+  it('should still not read a literal on the right of &&, which is not the value', () => {
+    // `x && 'text-'` is `'text-'` only when `x` is truthy and is `x` -- which may
+    // be `''` or `0` -- otherwise. A decision of SIG-578 and not changed
+    expect(evidenceOf(`const c = (x && 'text-') + colour;`).mayName('text-red')).toBe(false);
   });
 
   it('should leave .concat() and .join() to the safelist', () => {
@@ -431,6 +508,10 @@ describe('the class evidence', () => {
       `const c = ('' || x) + 'flex';`,
       `const c = ('a' && x) + 'flex';`,
       `const c = ('' && x) + 'flex';`,
+      // the right-hand literal of SIG-595 is one alternative and `x` the other,
+      // so what follows is still open on the left
+      `const c = (x || '') + 'flex';`,
+      `const c = (x ?? 'a-') + 'flex';`,
     ]) {
       expect(evidenceOf(source).mayName('zflex'), source).toBe(true);
     }

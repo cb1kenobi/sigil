@@ -374,12 +374,12 @@ builds is read where it is written out. Besides a literal and a template, the
 shake reads a `+` chain, a `+=`, a `?:` whose branches are all literals
 (`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule, and
 `'p-' + (wide ? '2' : '4') + x` keeps `p-2*` and `p-4*` rather than every `p-*`),
-and a `||` or `??` whose left side is a literal (`('text-' || x) + colour`).
+a `||` or `??` whose left side is a literal (`('text-' || x) + colour`), and one
+whose right side is (`(x || 'text-') + colour` keeps `text-*` as well as whatever
+`x` is, which is not known).
 It does **not** read, and these need `safelist` or `--no-shake`:
 
 - a `?:` with a branch that is not a literal: `(dark ? 'text-' : theme) + colour`
-- a literal on the right of `||` or `??`: `(x || 'text-') + colour`, or on the
-  left of `||` when it is empty: `('' || 'text-') + colour`
 - `&&`: `(dark && 'text-') + colour`
 - `.concat()`: `'text-'.concat(colour)`
 - `.join()`: `['text', colour].join('-')`

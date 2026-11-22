@@ -2852,7 +2852,10 @@ other is refused with numbers.
   suite's parallel load and a count does not.
 
   **`?:`, `||` and `??` are read when they are certain, and `.concat()` and
-  `.join()` are the safelist's** (SIG-578, decided by Chris). The ticket offered
+  `.join()` are the safelist's** (SIG-578, decided by Chris; a literal on the
+  right of `||` and `??` joined it in SIG-595, which he approved after the
+  first decision left it out -- the table and the bullet on it are the
+  current reading). The ticket offered
   three answers -- read the cheap ones, read all of them, read none -- and the
   first is taken. It is one case in `partsOf()` and `knownParts()` is where it
   lives. Measured with `sigil build` on a copy of `test/fixtures/styled/` whose
@@ -2867,7 +2870,9 @@ other is refused with numbers.
   | `('text-' \|\| label) + label`                        | 8      | **25** |
   | `('text-' ?? label) + label`                          | 8      | **25** |
   | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | 8      |
-  | `(label \|\| 'text-') + label` (literal on the right) | 8      | 8      |
+  | `(label \|\| 'text-') + label` (literal on the right) | 8      | **25** |
+  | `(label ?? 'text-') + label` (literal on the right)   | 8      | **25** |
+  | `(label \|\| 'text-' \|\| 'bg-') + label`             | 8      | **41** |
   | `'text-'.concat(label)`                               | 8      | 8      |
   | `['text', label].join('-')`                           | 8      | 8      |
   - **A `?:` whose every branch is a literal is a choice between those texts**,
@@ -2896,9 +2901,30 @@ other is refused with numbers.
   - **`'x' || y` and `'x' ?? y` are `'x'`**, because a non-empty literal is
     always truthy and a string is never nullish, so the right side is never the
     value. An **empty** literal on the left of `||` is falsy and the value _is_
-    the right side, which is not known, so it is left alone; `'' ?? y` is `''`
-    and is read. A literal on the **right** (`y || 'x'`) is not read: the value
-    is `y` whenever `y` is truthy, and what it is then is not known.
+    the right side, so the left is skipped and the right is read in its place:
+    `'' || y` is unknown and `'' || 'x'` is `'x'`. `'' ?? y` is `''` and is read.
+  - **A literal on the right, `y || 'x'` or `y ?? 'x'`, is `'x'` or whatever `y`
+    is** (SIG-595). The first decision left it out on the reasoning that the
+    value is `y` whenever `y` is truthy, which is true and not a reason: reading
+    it keeps more rules and never fewer, because `'x'` is one of the values the
+    expression can produce, and `(x || 'text-') + colour` is the commonest way
+    an app writes a default class prefix -- so it dropped every `text-*` rule
+    unless they were on the safelist. It is a choice with an unknown
+    alternative, and `readRuns()` reads the run around it **once with the
+    literal in it and once ended by an unknown part**: `(x || 'text-') + colour`
+    is the closed-left prefix `text-` and, from the other alternative, nothing
+    known at all, and `(x || 'a-') + 'red'` is `a-red` and an open-left `red`.
+    That is the one thing a choice of texts could not say, and the reason the
+    openness belongs to each text of a run rather than to the run. A `||` or
+    `??` nested on either side is read the same way, so `x || 'a' || 'b'` is
+    `a`, `b` or unknown, with every literal kept even where an earlier one is
+    always truthy; `&&` and a `?:` with an unknown branch are the unknown
+    alternative there as they are everywhere. It counts toward the cap above
+    (the unknown alternative is one more text), and each side is read once, so
+    a chain of n of them is linear -- pinned by a count in `shake-cost.test.ts`.
+    The three rows above that name it are measured with `sigil build` on the
+    `styled` fixture; `'md:' + (label || 'flex-') + 'row'` keeps `md:flex-row`
+    and, because `label` may be `flex-col`, `md:*` as well.
   - **`.concat()` and `.join()` stay the safelist's.** A method's value is
     whatever the method returns, and the receiver here is a value this pass has
     not typed: `a.concat(b)` is a string for a string `a` and an array for an

@@ -95,6 +95,20 @@ describe('the cost of a long chain', () => {
     expect(growth(deep, 200)).toBeLessThan(3);
   });
 
+  it('should read a chain of || terms with a literal on the right in linear operands', () => {
+    // SIG-595: each `(v || 'p-N')` is a choice with an unknown alternative, and
+    // a run of n of them must not be 2^n texts or a read of every prefix
+    const choices = (n: number): string =>
+      `const c = ${Array.from({ length: n }, (_, i) => `(v${i} || 'p-${i % 7}')`).join(' + ')};`;
+    expect(growth(choices, 500)).toBeLessThan(3);
+  });
+
+  it('should read a left-nested || chain once, whatever its length', () => {
+    const nested = (n: number): string =>
+      `const c = (${Array.from({ length: n }, (_, i) => `v${i}`).join(' || ')} || 'p-2') + x;`;
+    expect(growth(nested, 500)).toBeLessThan(3);
+  });
+
   it('should read each term about once, whatever the length', () => {
     // a chain of 1,000 terms unwraps each operand a handful of times at most,
     // where reading every prefix of it is half a million

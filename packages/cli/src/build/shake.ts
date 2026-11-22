@@ -446,10 +446,13 @@ function readFile(path: string, into: Evidence): void {
  * Two more shapes are known, because each is certain and each only keeps more
  * (SIG-578). A `?:` whose branches are all literals is a **choice**, read as one
  * run per branch. A `||` or `??` whose left side is a literal is that literal,
- * since the right side can never be the value. Every other shape of the kind --
- * a `?:` with a branch that is not a literal, a literal on the *right* of `||`,
- * `.concat()`, `.join()` -- is an unknown part and the safelist's, and the list
- * an author can read without this file is in `packages/cli/README.md`.
+ * since the right side can never be the value. A literal on the *right* of one
+ * is a choice too, between the literal and the unknown left side (SIG-595):
+ * `(x || 'text-') + colour` is `text-` followed by something, or something
+ * followed by something. Every other shape of the kind -- a `?:` with a branch
+ * that is not a literal, `.concat()`, `.join()` -- is an unknown part and the
+ * safelist's, and the list an author can read without this file is in
+ * `packages/cli/README.md`.
  *
  * ## A tagged template is not a concatenation
  *
@@ -570,9 +573,11 @@ function addTemplateParts(node: Node, isTagged: boolean, spliced: Set<Node>, par
 
 /**
  * One part of a string an app builds: the text it is, a choice between two or
- * more texts it is one of, or `undefined` where it is not known at all.
+ * more texts it is one of, or `undefined` where it is not known at all. A choice
+ * may itself hold an `undefined`, which is the one that says "or something this
+ * cannot read" -- `x || 'text-'` is `'text-'` or whatever `x` is (SIG-595).
  */
-type Part = string | readonly string[] | undefined;
+type Part = string | readonly (string | undefined)[] | undefined;
 
 /**
  * The most texts one run may stand for at once.
@@ -599,62 +604,85 @@ const MAX_RUN_TEXTS = 16;
  * @param into - Where the evidence goes.
  */
 function readRuns(parts: readonly Part[], into: Evidence): void {
-  // the texts the run so far can be: one, until a choice multiplies it
-  let texts = [''];
+  // the texts the run so far can be, each with what it is open towards: one,
+  // until a choice multiplies it. A choice holding an unknown alternative makes
+  // a text that is open on the left where the rest are not, which is why the
+  // openness belongs to the text rather than to the run
+  let states: RunState[] = [{ openLeft: false, text: '', touched: false }];
   // consecutive known text, joined once rather than appended to every text
   let pending: string[] = [];
-  let touched = false;
-  // the first run starts at the start of the expression, where there is
-  // nothing to be open towards
-  let openLeft = false;
 
   const settle = (): void => {
     if (pending.length) {
       const text = pending.join('');
-      texts = texts.map((t) => t + text);
+      states = states.map((s) => ({ openLeft: s.openLeft, text: s.text + text, touched: true }));
       pending = [];
     }
   };
 
+  const read = (state: RunState, openRight: boolean): void => {
+    if (state.touched) {
+      into.read({ openLeft: state.openLeft, openRight, text: state.text });
+    }
+  };
+
+  // the first run starts at the start of the expression, where there is
+  // nothing to be open towards; every one after an unknown is open on the left
+  const reset = (): RunState => ({ openLeft: true, text: '', touched: false });
+
   const flush = (openRight: boolean): void => {
     settle();
-    if (touched) {
-      for (const text of texts) {
-        into.read({ openLeft, openRight, text });
-      }
+    for (const state of states) {
+      read(state, openRight);
     }
-    texts = [''];
-    touched = false;
+    states = [reset()];
   };
 
   for (const part of parts) {
     if (part === undefined) {
       flush(true);
-      openLeft = true;
       continue;
     }
 
     if (typeof part === 'string') {
       pending.push(part);
-      touched = true;
       continue;
     }
 
-    if (texts.length * part.length > MAX_RUN_TEXTS) {
+    const known = part.filter((text): text is string => text !== undefined);
+    const unknown = known.length < part.length;
+    if (states.length * known.length + (unknown ? 1 : 0) > MAX_RUN_TEXTS) {
       flush(true);
-      for (const text of part) {
+      for (const text of known) {
         into.read({ openLeft: true, openRight: true, text });
       }
-      openLeft = true;
       continue;
     }
 
     settle();
-    texts = texts.flatMap((t) => part.map((alternative) => t + alternative));
-    touched = true;
+    const next = states.flatMap((s) =>
+      known.map((text) => ({ openLeft: s.openLeft, text: s.text + text, touched: true }))
+    );
+    if (unknown) {
+      // the alternative nothing is known about ends what was read so far, as an
+      // unknown part does, and what follows starts open on the left
+      for (const state of states) {
+        read(state, true);
+      }
+      next.push(reset());
+    }
+    states = next;
   }
 
   flush(false);
+}
+
+/** One text a run can be so far, and what is known of how it is open. */
+interface RunState {
+  readonly openLeft: boolean;
+  readonly text: string;
+  /** Whether any known text went into it, so an empty one is not read. */
+  readonly touched: boolean;
 }
 
 /**
@@ -805,27 +833,87 @@ function addChoiceTexts(node: Node, into: Set<string>): boolean {
  * whatever it is, since a string is never nullish -- so the right side is never
  * the value and only the left is read. An empty literal on the left of `||` is
  * falsy and the right side *is* the value, which is not known, so it is left
- * alone. The right-hand literal of `y || 'x'` is not read either: the value is
- * `y` whenever `y` is truthy, and what it is then is not known.
+ * alone. The right-hand literal of `y || 'x'` is `'x'` **or whatever `y` is**
+ * (SIG-595), so it is a choice with an unknown alternative: the run around it is
+ * read once with the literal in it and once ended by an unknown part, and what
+ * follows an unknown part is open on the left as it always is.
  *
  * @param node - The expression, wrappers already taken off.
  * @returns The part, or `undefined` when this is not a shape that is read.
  */
-function knownParts(node: Node): string | readonly string[] | undefined {
+function knownParts(node: Node): Part {
   if (node.type === 'ConditionalExpression') {
     const texts = choiceTexts(node);
     return texts?.length === 1 ? texts[0] : texts;
   }
 
   if (node.type === 'LogicalExpression') {
-    const logical = node as unknown as { left: Node; operator: string };
-    if (logical.operator === '||' || logical.operator === '??') {
-      const text = literalText(unwrapShallow(logical.left as Expression));
-      return logical.operator === '||' && text === '' ? undefined : text;
+    const operator = (node as unknown as { operator: string }).operator;
+    if (operator === '||' || operator === '??') {
+      const alternatives = new Set<string | undefined>();
+      addAlternatives(node, alternatives);
+      const texts = [...alternatives];
+      if (!texts.some((text) => text !== undefined)) {
+        return undefined;
+      }
+
+      return texts.length === 1 ? texts[0] : texts;
     }
   }
 
   return undefined;
+}
+
+/**
+ * Every text an expression can be, with `undefined` among them where it can be
+ * something this does not read -- the alternatives `knownParts()` makes a part
+ * of for a `||` or a `??`.
+ *
+ * A literal on the left decides the whole of it where it cannot be skipped, so
+ * only it is added; a side that is anything else is the unknown alternative, and
+ * a `||` or `??` nested on either side is read the same way, so that
+ * `x || 'a' || 'b'` is `a`, `b` or `x`. `&&` is one of the shapes that is not
+ * read, and is the unknown alternative here too.
+ */
+function addAlternatives(node: Node, into: Set<string | undefined>): void {
+  const inner = unwrapShallow(node as Expression);
+
+  const text = literalText(inner);
+  if (text !== undefined) {
+    into.add(text);
+    return;
+  }
+
+  if (inner.type === 'ConditionalExpression') {
+    const texts = choiceTexts(inner);
+    if (texts) {
+      for (const choice of texts) {
+        into.add(choice);
+      }
+    } else {
+      into.add(undefined);
+    }
+    return;
+  }
+
+  if (inner.type === 'LogicalExpression') {
+    const logical = inner as unknown as { left: Node; operator: string; right: Node };
+    if (logical.operator === '||' || logical.operator === '??') {
+      const left = literalText(unwrapShallow(logical.left as Expression));
+      if (left !== undefined && (logical.operator === '??' || left !== '')) {
+        into.add(left);
+      } else if (left === '') {
+        // falsy, so the right side is the value and the left never is
+        addAlternatives(logical.right, into);
+      } else {
+        addAlternatives(logical.left, into);
+        addAlternatives(logical.right, into);
+      }
+      return;
+    }
+  }
+
+  into.add(undefined);
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
