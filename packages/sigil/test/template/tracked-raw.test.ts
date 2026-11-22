@@ -12,7 +12,7 @@
  */
 
 import { createCanvas } from '../../src/canvas/index.js';
-import { box, type Element } from '../../src/element/index.js';
+import { box, type Element, text } from '../../src/element/index.js';
 import { createRoot, render } from '../../src/renderer/index.js';
 import { createEffects, sinkCount, State } from '../../src/signals/index.js';
 import { ui } from '../../src/template/index.js';
@@ -158,6 +158,47 @@ describe.each(frontends)('a <raw tracked> in $name', ({ build }) => {
   });
 });
 
+describe('the measure of a <raw tracked>', () => {
+  // SIG-486 follows the measure too, and the template flag is the same one
+  type Paint = (painter: { text(x: number, y: number, s: string): void }, at: never) => void;
+  const fill: Paint = (painter, at) => {
+    const { width, x, y } = at as { width: number; x: number; y: number };
+    painter.text(x, y, '#'.repeat(width));
+  };
+
+  it.each([
+    [
+      'the ui tag',
+      (size: State<number>) =>
+        ui`<raw tracked measure=${() => ({ height: 1, width: size.get() })} paint=${fill} />`,
+    ],
+    [
+      'JSX',
+      (size: State<number>) =>
+        jsx('raw', {
+          measure: () => ({ height: 1, width: size.get() }),
+          paint: fill,
+          tracked: true,
+        }),
+    ],
+  ])('should lay out again when only a signal its measure read has changed: %s', (_, make) => {
+    const h = harness();
+    const size = new State(2);
+    const view = render(() => box({}, make(size), text('x')), {
+      backend: h.backend,
+      effects: createEffects(),
+      terminal: h.terminal,
+    });
+    expect(h.picture()).toBe('##x.......');
+
+    size.set(4);
+    view.frame();
+
+    expect(h.picture()).toBe('####x.....');
+    view.dispose();
+  });
+});
+
 describe('what `tracked` may be', () => {
   const paint = () => {};
 
@@ -197,5 +238,9 @@ describe('what `tracked` may be', () => {
     expect(() => jsx('raw', { measure, paint, tracked: () => true })).toThrow(
       /<raw tracked> is a flag/
     );
+    expect(() => jsx('raw', { measure, paint, tracked: 'false' })).toThrow(
+      /<raw tracked> is a flag/
+    );
+    expect(() => jsx('raw', { measure, paint, tracked: null })).toThrow(/<raw tracked> is a flag/);
   });
 });

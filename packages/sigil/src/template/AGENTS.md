@@ -235,7 +235,7 @@ the entry it belongs to.
   `rootElement()`, and `applyRef()` for the one prop that runs after the
   children. The code the build emitter in `@ttylabs/cli` generates calls those
   six; the compiler itself also reads `componentChildren()`, `rawParts()`,
-  `splitRefs()`, `textPart()`, `refuseHandlerName()` and `templateError()` while
+  `trackedFlag()`, `splitRefs()`, `textPart()`, `refuseHandlerName()` and `templateError()` while
   it prints, which are rules about what exists and never reach a bundle. So
   the two cannot come to _disagree_ about what a prop or a child means; they can
   only differ over which of those answers was settled ahead of time, and

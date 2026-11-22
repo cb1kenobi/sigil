@@ -38,8 +38,8 @@
  * `rootElement()`, and to `applyRef()` for the one prop that runs after the
  * children. The code the build emitter in `@ttylabs/cli` *generates* calls those
  * same six and nothing else from this module. The compiler itself also reads
- * `componentChildren()`, `rawParts()`, `splitRefs()`, `textPart()`,
- * `refuseHandlerName()` and `templateError()` while it prints -- the rules about
+ * `componentChildren()`, `rawParts()`, `trackedFlag()`, `splitRefs()`,
+ * `textPart()`, `refuseHandlerName()` and `templateError()` while it prints -- the rules about
  * which children, props and names exist, which are not to be written twice and
  * which never reach an app's bundle. So the two emitters cannot
  * come to disagree about what a prop or a child *means*; they can only disagree
