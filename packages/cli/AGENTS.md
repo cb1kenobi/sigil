@@ -3134,19 +3134,29 @@ other is refused with numbers.
   with the same giving up on a name the module binds again) and `resolveSpecifier()`,
   so there is no second resolver.
 
-  **Two things a followed schema makes true that a read entry did not.** The
-  settings warning's "a built app uses ..." claim needs the schema known whole, and
-  an entry that imports the schema and then assigns to it
-  (`schema.settings.errorHandler = false`) changes it where the schema's own
-  file cannot see, so that sentence is given only when the entry **does nothing
-  but forward**: imports, re-exports and `export default name`. And an entry that
-  reaches its schema **only** through `main()` is checked like any other app, but it
-  is an **error** in `inspect()`: a built app imports the entry for an export, so
-  it would build and then stop at start with `This app's entry exports no schema`.
-  That app was already refused, with `no "commands" found`, so the verdict is the
-  same and the message is now the true one; it is not extended to an entry whose
-  `main()` is given a literal, which has always built that way. The schema module
-  is also in `buildReads()`, so a clean never removes it.
+  **It follows only a module that does nothing but forward, because an app that
+  builds today can add to its schema in the entry.** `Object.assign(schema, {
+  commands })` after an import, or `base.commands = ...` before
+  `export { base as schema }`, writes part of the schema in the entry, and the file
+  it imported is then not all of it -- round 1 of this ticket reproduced both as
+  apps that built and ran on the base branch and were refused by the first version
+  of this. So the entry, and every module a re-export passes through, may hold
+  imports, re-exports, `export default name` and type declarations only (the entry
+  may also hold the `main()` call a `main()` follow is about), and one that holds
+  anything else is where the walk stops and answers the entry. That is also what
+  makes the settings warning's "a built app uses ..." sentence safe: nothing on the
+  way can have assigned to `settings` after the literal.
+
+  **An entry that reaches its schema only through `main()` is checked like any
+  other app, and is an `inspect()` error unless `--commands` was given.** A built
+  app imports the entry for an export, so it would build and then stop at start with
+  `This app's entry exports no schema`. That app was refused before, with
+  `no "commands" found`, so the verdict is the same and the message is the true
+  one. `--commands` says where the commands are and an app that passed
+  `check --commands` before still does, so the error is not raised there. It is not
+  extended to an entry whose `main()` is given a literal, which has always built
+  that way. The schema module is also in `buildReads()`, so a clean never removes
+  it.
 
   **Not followed, and recorded rather than guessed:** the `ui` templates in a
   schema file (the bundler's transform finds those and `checkTemplates()` reads

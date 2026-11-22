@@ -23,6 +23,16 @@
  * and `main({ schema: x })` when the name is an import. (A bare `main(x)` is read
  * the same way: the entry says the same thing about where the schema is.)
  *
+ * ## It follows only a module that does nothing but forward
+ *
+ * A module that imports the schema and then does something to it -- `Object.assign(
+ * schema, { commands })` in the entry -- has written part of the schema itself, and
+ * the file it came from is no longer all of it. Such an app builds and runs
+ * today, so every module the walk passes through has to be imports, re-exports,
+ * `export default name` and type declarations (and, for the entry, the `main()`
+ * call), and one that is anything else is where the walk stops and answers the
+ * entry.
+ *
  * ## What it gives up on
  *
  * Anything it cannot read for certain answers the **entry**, which is what every
@@ -39,7 +49,7 @@
  * this only decides which file a reader opens.
  */
 
-import { importBindings, importedAs, bindingName } from './bindings.ts';
+import { bindingName, importBindings, importedAs, type ImportBindings } from './bindings.ts';
 import { EXTENSIONS, resolveSpecifier, RUNTIME } from './discover.ts';
 import { plainProperty, unwrapShallow } from './literals.ts';
 import { parseModule, type ParsedModule } from './parse-module.ts';
@@ -100,6 +110,61 @@ function follow(from: string, specifier: string, name: string, seen: Set<string>
 }
 
 /**
+ * Whether a module does nothing but hand on what it imports.
+ *
+ * Imports, re-exports, `export default name`, type declarations and -- where the
+ * caller is following a `main()` call -- the call itself. None of those can
+ * assign to the schema or write a second one, so the schema the module forwards
+ * is the schema the file it came from wrote. Anything else can: `Object.assign(
+ * schema, { commands })` in the entry is how an app that builds today adds the
+ * very key a reader looks for, and following past it reads the wrong file.
+ *
+ * @param parsed - The module.
+ * @param mains - Where `main` is imported, to let its calls through; `undefined`
+ *   lets none.
+ * @returns Whether every statement is one of those.
+ */
+function forwardsOnly(parsed: ParsedModule, mains?: ImportBindings): boolean {
+  return parsed.program.body.every((statement) => {
+    switch (statement.type) {
+      case 'EmptyStatement':
+      case 'ExportAllDeclaration':
+      case 'TSInterfaceDeclaration':
+      case 'TSTypeAliasDeclaration':
+        return true;
+      // an import that binds nothing runs the module for what it does, which may
+      // be to change the schema
+      case 'ImportDeclaration':
+        return statement.specifiers.length > 0 || statement.importKind === 'type';
+      case 'ExportNamedDeclaration':
+        return (
+          !statement.declaration ||
+          statement.declaration.type === 'TSInterfaceDeclaration' ||
+          statement.declaration.type === 'TSTypeAliasDeclaration'
+        );
+      case 'ExportDefaultDeclaration':
+        return statement.declaration.type === 'Identifier';
+      case 'ExpressionStatement': {
+        // a directive such as 'use strict'
+        if ('directive' in statement && statement.directive) {
+          return true;
+        }
+        if (!mains) {
+          return false;
+        }
+        let call = unwrapShallow(statement.expression as Expression);
+        if (call.type === 'AwaitExpression') {
+          call = unwrapShallow(call.argument as Expression);
+        }
+        return call.type === 'CallExpression' && bindingName(call.callee, mains) !== undefined;
+      }
+      default:
+        return false;
+    }
+  });
+}
+
+/**
  * Where a module's export is written, following re-exports.
  *
  * @param file - The module.
@@ -140,7 +205,7 @@ function exportedFrom(file: string, name: string, seen: Set<string>): Hop {
       // `export { default } from './x.js'`, and an import that oxc has already
       // folded into a re-export (`import x from './x.js'; export { x }`)
       if (entry.moduleRequest) {
-        return entry.importName.kind === 'Name' && entry.importName.name
+        return entry.importName.kind === 'Name' && entry.importName.name && forwardsOnly(parsed)
           ? follow(file, entry.moduleRequest.value, entry.importName.name, seen)
           : UNREADABLE;
       }
@@ -150,7 +215,7 @@ function exportedFrom(file: string, name: string, seen: Set<string>): Hop {
       const local = entry.localName.name;
       const imported = local ? importedAs(parsed, local) : undefined;
       if (imported) {
-        return imported.name === '*'
+        return imported.name === '*' || !forwardsOnly(parsed)
           ? UNREADABLE
           : follow(file, imported.specifier, imported.name, seen);
       }
@@ -261,6 +326,11 @@ export function findSchema(entry: string): FoundSchema {
   }
 
   // no export, so the app starts itself and the object `main()` is given is it
+  const mains = importBindings(parsed, RUNTIME, 'main');
+  if (!forwardsOnly(parsed, mains)) {
+    return here;
+  }
+
   const files = new Set<string>();
   for (const name of mainSchemas(parsed)) {
     const imported = name === undefined ? undefined : importedAs(parsed, name);

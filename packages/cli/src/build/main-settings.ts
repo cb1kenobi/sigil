@@ -231,17 +231,6 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   try {
     const file = schemaModule(app.entry);
     parsed = parseModule(file, readFileSync(file, 'utf-8'));
-
-    // the claim is that nothing changes `settings` after the literal, which the
-    // mention count below answers for the module the schema is written in. An
-    // entry that imports it and does something else too could change it where that
-    // count cannot see, and what the built app does is what the entry does
-    if (
-      file !== app.entry &&
-      !onlyForwards(parseModule(app.entry, readFileSync(app.entry, 'utf-8')))
-    ) {
-      return undefined;
-    }
   } catch {
     return undefined;
   }
@@ -292,32 +281,6 @@ function schemaSettingsKeys(app: DiscoveredApp): ReadonlySet<string> | undefined
   const keys = value?.type === 'ObjectExpression' ? namedKeys(value) : undefined;
 
   return keys && new Set(keys);
-}
-
-/**
- * Whether a module does nothing but hand on what it imports.
- *
- * Imports, re-exports and `export default name`: none of them can assign to
- * anything, so a schema the module forwards is the schema the file it came from
- * wrote.
- *
- * @param parsed - The module.
- * @returns Whether every statement is one of those.
- */
-function onlyForwards(parsed: ParsedModule): boolean {
-  return parsed.program.body.every((statement) => {
-    switch (statement.type) {
-      case 'ImportDeclaration':
-      case 'ExportAllDeclaration':
-        return true;
-      case 'ExportNamedDeclaration':
-        return !statement.declaration;
-      case 'ExportDefaultDeclaration':
-        return statement.declaration.type === 'Identifier';
-      default:
-        return false;
-    }
-  });
 }
 
 /**

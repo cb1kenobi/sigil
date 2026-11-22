@@ -140,7 +140,9 @@ export function inspect(options: InspectOptions): Inspection {
 
   // a schema reached through the entry's own `main()` call is read like any other,
   // but a built app imports the entry for an export and finds none
-  if (findSchema(app.entry).viaMain) {
+  // not under `--commands`, which says where the commands are and leaves the app
+  // as it was before the schema was followed
+  if (options.commands === undefined && findSchema(app.entry).viaMain) {
     diagnostics.push({
       file: app.entry,
       message:

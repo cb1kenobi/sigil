@@ -1,3 +1,4 @@
+import { displayPath } from '../../src/build/diagnostic.ts';
 import { readAppCatalogs } from '../../src/build/i18n.ts';
 import {
   checkSchemaUpdateCheck,
@@ -132,14 +133,14 @@ describe('which module holds the schema', () => {
     }
   });
 
-  it('should prefer the export a built app reads to the call a dev run makes', () => {
+  it('should read an entry that exports a schema and also starts itself as the entry', () => {
+    // it does more than forward, so the schema may be partly written here
     const root = appOf({
-      'src/dev.js': ASKS,
-      'src/index.js': `${RUNTIME}import other from './dev.js';\nimport schema from './schema.js';\nawait main({ schema: other });\nexport default schema;\n`,
+      'src/index.js': `${RUNTIME}import schema from './schema.js';\nawait main({ schema });\nexport default schema;\n`,
       'src/schema.js': ASKS,
     });
 
-    expect(whereIs(root)).toBe('src/schema.js');
+    expect(whereIs(root)).toBe('src/index.js');
   });
 
   describe('what it cannot read for certain is the entry, as it always was', () => {
@@ -174,6 +175,32 @@ describe('which module holds the schema', () => {
       },
       'a name the other module does not export': {
         'src/index.js': "import { nothing } from './schema.js';\nexport default nothing;\n",
+        'src/schema.js': ASKS,
+      },
+      'an entry that adds the keys to the schema it imports': {
+        'src/index.js':
+          "import schema from './schema.js';\nObject.assign(schema, { commands: './commands' });\nexport default schema;\n",
+        'src/schema.js': "export default { name: 'a' };\n",
+      },
+      'an entry that assigns to a named import it exports as the schema': {
+        'src/index.js':
+          "import { base } from './base.js';\nbase.commands = './commands';\nexport { base as schema };\n",
+        'src/base.js': 'export const base = {};\n',
+      },
+      'an entry that imports a module for what it does to the schema': {
+        'src/index.js':
+          "import './patch.js';\nimport schema from './schema.js';\nexport default schema;\n",
+        'src/patch.js': "import schema from './schema.js';\nschema.commands = './commands';\n",
+        'src/schema.js': ASKS,
+      },
+      'a barrel that changes the schema it passes on': {
+        'src/index.js': "export { default } from './mid.js';\n",
+        'src/mid.js':
+          "import schema from './schema.js';\nschema.settings = {};\nexport default schema;\n",
+        'src/schema.js': ASKS,
+      },
+      'an entry that starts itself and does something else': {
+        'src/index.js': `${RUNTIME}import schema from './schema.js';\nschema.updateCheck = false;\nawait main({ schema });\n`,
         'src/schema.js': ASKS,
       },
       'a re-export cycle': {
@@ -285,7 +312,7 @@ describe('a schema imported from another file', () => {
     expect(rest).toEqual([]);
     expect(warning?.file).toBe(join(root, 'src', 'config', 'schema.js'));
     expect([warning?.line, warning?.column]).toEqual([2, 28]);
-    expect(warning?.message).toContain(join('src', 'config'));
+    expect(warning?.message).toContain(displayPath(join(root, 'src', 'config')));
   });
 
   it('should have its single-command `run` read, so the app is not called empty', () => {
@@ -346,6 +373,55 @@ describe('a schema imported from another file', () => {
   });
 });
 
+describe('an entry that adds to the schema it imports', () => {
+  const root = (): string =>
+    appOf({
+      'src/index.js':
+        "import schema from './schema.js';\nObject.assign(schema, { baseDir: import.meta.dirname, commands: './commands', updateCheck: true });\nexport default schema;\n",
+      'src/schema.js': "export default { name: 'a' };\n",
+    });
+
+  it('should still have its commands read from the entry, as an app that builds today does', () => {
+    const read = readAppCommands(discoverApp(root()));
+
+    expect(read.found).toBe(true);
+    expect(read.diagnostics).toEqual([]);
+  });
+
+  it('should still have its update check read from the entry', () => {
+    expect(readSchemaUpdateCheck(join(root(), 'src', 'index.js'))).toBe('asks');
+  });
+});
+
+describe('commands written out in a schema imported from another file', () => {
+  it('should resolve a `load` specifier against the schema, not the entry', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './config/schema.js';\n",
+      'src/config/schema.js':
+        "export default { commands: { hi: { load: () => import('./hi.js') } } };\n",
+      'src/config/hi.js': 'export default { run() {} };\n',
+    });
+
+    const read = readAppCommands(discoverApp(root));
+
+    expect(read.commands?.kind).toBe('inline');
+    const [hi] = read.commands?.kind === 'inline' ? read.commands.commands : [];
+    expect(hi?.module).toBe(join(root, 'src', 'config', 'hi.js'));
+  });
+
+  it('should name the schema file when it declares none, not the entry', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './config/schema.js';\n",
+      'src/config/schema.js': "export default { name: 'x' };\n",
+    });
+
+    const { diagnostics } = inspect({ cwd: root });
+    const [none] = diagnostics.filter((d) => d.message.includes('no "commands" found'));
+
+    expect(none?.file).toBe(join(root, 'src', 'config', 'schema.js'));
+  });
+});
+
 describe('an entry that calls main() with a schema it imports', () => {
   const files = {
     'src/index.js': `${RUNTIME}import schema from './schema.js';\nawait main({ schema });\n`,
@@ -366,6 +442,14 @@ describe('an entry that calls main() with a schema it imports', () => {
 
     expect(exported?.severity).toBe('error');
     expect(exported?.file).toMatch(/index\.js$/);
+  });
+
+  it('should not be said when --commands says where the commands are', () => {
+    const root = appOf({ ...files, 'src/commands/hi.js': 'export default { run() {} };\n' });
+
+    const { diagnostics } = inspect({ commands: join(root, 'src', 'commands'), cwd: root });
+
+    expect(diagnostics.some((d) => d.message.includes('exports none'))).toBe(false);
   });
 
   it('should not be said of an entry that exports its schema', () => {
