@@ -56,7 +56,7 @@ import { parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import { readFileSync } from 'node:fs';
 import { dirname, extname } from 'node:path';
-import type { Expression } from 'oxc-parser';
+import type { Expression, Statement } from 'oxc-parser';
 
 /** Where a name one module exports turned out to be written. */
 type Hop =
@@ -110,6 +110,29 @@ function follow(from: string, specifier: string, name: string, seen: Set<string>
 }
 
 /**
+ * The name an `export default` hands on, looking through the type syntax a
+ * TypeScript file puts around it.
+ *
+ * `export default schema satisfies Schema`, `schema as Schema` and
+ * `<Schema>schema` all erase to `export default schema`, so they forward the
+ * same name. A wrapper around anything that is not a bare name says nothing about
+ * where the schema is, and answers `undefined`.
+ *
+ * @param statement - A statement of the module's body.
+ * @returns The name, or `undefined` when the statement is not an `export default`
+ *   of one.
+ */
+function defaultName(statement: Statement): string | undefined {
+  if (statement.type !== 'ExportDefaultDeclaration') {
+    return undefined;
+  }
+
+  // a function or class declaration is not an expression, and is not a name
+  const declared = unwrapShallow(statement.declaration as Expression);
+  return declared.type === 'Identifier' ? declared.name : undefined;
+}
+
+/**
  * Whether a module does nothing but hand on what it imports.
  *
  * Imports, re-exports, `export default name`, type declarations and -- where the
@@ -156,7 +179,7 @@ function forwardsOnly(
               statement.declaration.type === 'TSInterfaceDeclaration' ||
               statement.declaration.type === 'TSTypeAliasDeclaration';
       case 'ExportDefaultDeclaration':
-        return statement.declaration.type === 'Identifier';
+        return defaultName(statement) !== undefined;
       case 'ExpressionStatement': {
         // a directive such as 'use strict'
         if ('directive' in statement && statement.directive) {
@@ -226,8 +249,12 @@ function exportedFrom(file: string, name: string, seen: Set<string>): Hop {
       }
 
       // `export default schema` and `export { schema as default }`, where the
-      // name may be an import
-      const local = entry.localName.name;
+      // name may be an import. `export default schema satisfies Schema` has no
+      // local name of its own: the declaration is an expression, and what it
+      // wraps is read off the statement
+      const local =
+        entry.localName.name ??
+        (exported === 'default' ? parsed.program.body.map(defaultName).find(Boolean) : undefined);
       const imported = local ? importedAs(parsed, local) : undefined;
       if (imported) {
         return imported.name === '*' || !forwardsOnly(parsed, new Set([imported.specifier]))

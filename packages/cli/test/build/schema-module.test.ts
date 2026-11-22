@@ -119,6 +119,67 @@ describe('which module holds the schema', () => {
     expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
   });
 
+  it('should follow `export default x satisfies T`, which erases to `export default x`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema satisfies Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow `export default x as T`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema as Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow `export default <T>x`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default <Schema>schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow a wrapped name through a module in between, to the file that writes it', () => {
+    const root = appOf({
+      'src/index.ts': "export { default } from './app.js';\n",
+      'src/app.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema satisfies Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow what an entry hands to main() through the same wrappers', () => {
+    for (const call of [
+      'main(schema as Schema)',
+      'main(schema satisfies Schema)',
+      'main(<Schema>schema)',
+      'main({ schema: <Schema>schema })',
+      'main({ schema: schema as Schema })',
+    ]) {
+      const root = appOf({
+        'src/index.ts': `${RUNTIME}import schema from './schema.js';\nimport type { Schema } from './types.js';\nawait ${call};\n`,
+        'src/schema.ts': ASKS,
+      });
+
+      expect(findSchema(join(root, 'src', 'index.ts'))).toEqual({
+        file: join(root, 'src', 'schema.ts'),
+        viaMain: true,
+      });
+    }
+  });
+
   it('should follow an entry that also holds directives, types and type-only imports', () => {
     const root = appOf({
       'src/index.ts': [
@@ -160,6 +221,36 @@ describe('which module holds the schema', () => {
     });
 
     expect(whereIs(root)).toBe('src/index.js');
+  });
+
+  describe('a wrapper around anything but a bare name does not forward it', () => {
+    const wrapped: Record<string, string> = {
+      'satisfies on a spread': 'export default { ...base } satisfies Schema;\n',
+      'as on a call': 'export default build(base) as Schema;\n',
+      'an assertion on a literal': "export default <Schema>{ ...base, name: 'x' };\n",
+      'satisfies on a member': 'export default base.schema satisfies Schema;\n',
+    };
+
+    for (const [label, statement] of Object.entries(wrapped)) {
+      it(`should be the entry for ${label}`, () => {
+        const root = appOf({
+          'src/index.ts': `import base from './schema.js';\nimport type { Schema } from './types.js';\nconst build = (x: unknown) => x;\n${statement}`,
+          'src/schema.ts': ASKS,
+        });
+
+        expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
+      });
+    }
+
+    it('should be the entry when a wrapped name is not all the module does', () => {
+      const root = appOf({
+        'src/index.ts':
+          "import schema from './schema.js';\nimport type { Schema } from './types.js';\nObject.assign(schema, { commands: './commands' });\nexport default schema satisfies Schema;\n",
+        'src/schema.ts': "export default { name: 'a' };\n",
+      });
+
+      expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
+    });
   });
 
   describe('what it cannot read for certain is the entry, as it always was', () => {
