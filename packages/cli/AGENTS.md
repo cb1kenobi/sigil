@@ -6593,6 +6593,13 @@ measurements are in
   `readName()`, because `""` is a real answer there -- it is how a repository
   whose tags are already versions says so.
 
+  What a **value** may be is not this reader's to say twice: `repo`, `registry`
+  and a `custom` `url` and `path` are asked of the runtime's own builders in
+  `checkerFor()` and refused there, so `check`, `build` and `package` agree. A
+  refusal is re-worded to name the file's key -- `updateCheck.registry`, not
+  `npmChecker()`'s `registryURL` -- by `asDeclared()`; the record is under "A
+  `custom` check's `url`" in `packages/sigil/src/updates` (SIG-546, SIG-547).
+
 - **`sigil package` refuses a binary whose check could never report
   anything, and it is deliberately not a pre-flight.** `assertCleanable()` is
   refused before a runtime is fetched because it needs only paths `inspect()`

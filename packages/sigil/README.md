@@ -8596,6 +8596,37 @@ credentials, query or fragment. Anything else, `http://` included, is refused
 when the checker is built: the worker only fetches over `https`, so a root it
 could not use would be a check that fails where nothing reports it.
 
+A `custom` check's `url` is held to the same rule where it is built, with one
+difference: it is the request itself rather than a root something is joined to,
+so it **may carry a query** -- `https://h/api/latest?channel=stable` -- and it
+is used as the parser wrote it -- a host is lower-cased and a dot segment
+resolved -- with its trailing slash kept. It is still an absolute `https://`
+URL with a host, with no whitespace or control character, no credentials and no
+fragment (which no request carries), and `path` is a non-empty list of non-empty
+strings. A declaration that breaks any of that fails `sigil check`, `sigil build`
+and `sigil package` naming `updateCheck.url`, instead of producing an app whose
+check fails in the background where nothing reports it. `customChecker()` is the
+same builder for code:
+
+```js
+import { check, customChecker } from '@ttylabs/sigil/updates';
+
+await check({
+  packageName: 'mycli',
+  packageVersion: VERSION,
+  checker: customChecker({
+    url: 'https://downloads.acme.example/mycli/latest.json?channel=stable',
+    path: ['stable', 'version'],
+  }),
+});
+```
+
+It throws a `TypeError` for a `url` or a `path` that is not what that says. A
+plain `{ type: 'custom', url, path }` object is still a checker, and is **not**
+checked: it is data, `check()` takes it as it is, and an `ftp://` URL in one is
+a check that fails in the worker. `customChecker()` is how to have it refused
+instead.
+
 Or pass one in code, which beats whatever is baked in:
 
 ```js
@@ -8672,7 +8703,7 @@ The checker alone can also live in `sigil.json`, where the build bakes it in (a
 }
 ```
 
-`npmChecker()`, `githubChecker()` and a plain `{ type, url, path, headers,
+`npmChecker()`, `githubChecker()`, `customChecker()` and a plain `{ type, url, path, headers,
 prefix }` object are all a checker is — data, not a function, because the
 ordinary path hands it to another process.
 

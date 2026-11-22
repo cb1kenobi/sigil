@@ -291,9 +291,95 @@ describe('what the build bakes in', () => {
           config: { updateCheck: { package: 'other', registry, type: 'npm' } },
           packageName: 'mycli',
         })
-      ).toThrow(/registryURL must be an absolute https:\/\/ URL/);
+      ).toThrow(/"updateCheck.registry" must be an absolute https:\/\/ URL/);
     }
   );
+
+  it('should name the key the author wrote, and not the option a builder calls it (SIG-547)', () => {
+    // `registry` is `npmChecker()`'s `registryURL`, `package` is its
+    // `packageName`: a refusal that said so told an author about a word they
+    // never typed. One row per key that is renamed on the way in, and `repo`,
+    // `url` and `path` beside them because each is refused by the same path
+    const refused = (updateCheck: object, packageName = 'mycli'): string => {
+      try {
+        bakedUpdateCheck({ compiled: true, config: { updateCheck } as never, packageName });
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return '';
+    };
+
+    const cases: [key: string, builderWord: string, updateCheck: object][] = [
+      ['updateCheck.registry', 'registryURL', { registry: 'http://r.example', type: 'npm' }],
+      ['updateCheck.package', 'package name', { package: 42, type: 'npm' }],
+      ['updateCheck.distTag', 'dist tag', { distTag: 42, package: 'p', type: 'npm' }],
+      ['updateCheck.repo', 'repo', { repo: 'notarepo', type: 'github' }],
+      ['updateCheck.url', 'url', { path: ['v'], type: 'custom', url: 'ftp://h' }],
+      ['updateCheck.path', 'path', { path: [1], type: 'custom', url: 'https://h/x' }],
+    ];
+
+    for (const [key, word, updateCheck] of cases) {
+      const message = refused(updateCheck);
+      expect(message, key).toMatch(new RegExp(`^Update check "${key}" `));
+      expect(message, key).not.toContain(`Update check ${word}`);
+    }
+    // the sentence the builder wrote survives, so what was wrong is still said
+    expect(refused({ registry: 'http://r.example', type: 'npm' })).toBe(
+      'Update check "updateCheck.registry" must be an absolute https:// URL with no ' +
+        'credentials, query or fragment, got "http://r.example"'
+    );
+    expect(refused({ repo: 'notarepo', type: 'github' })).toBe(
+      'Update check "updateCheck.repo" must be "owner/name", got "notarepo"'
+    );
+  });
+
+  it('should not re-word anything but the refusal of a declared key', () => {
+    // an error from somewhere else keeps its own words, and its own class
+    expect(() =>
+      bakedUpdateCheck({
+        compiled: true,
+        config: { updateCheck: { type: 'npm' } },
+        packageName: '',
+      })
+    ).toThrow(/needs a package name/);
+  });
+
+  it.each([
+    'ftp://h/latest.json',
+    'http://h/latest.json',
+    'https://h/\nx',
+    'https://h/a b',
+    'latest.json',
+    'https://',
+    'https:///x',
+    'https://user:pass@h/latest.json',
+    'https://h/latest.json#frag',
+  ])('should refuse a custom url that is not an absolute https URL: %j', (url) => {
+    // SIG-546: it was copied across as written, so each of these was baked into
+    // a worker that fetches `https:` only and swallows the failure
+    expect(() =>
+      bakedUpdateCheck({
+        compiled: true,
+        config: { updateCheck: { path: ['version'], type: 'custom', url } },
+        packageName: 'mycli',
+      })
+    ).toThrow(/^Update check "updateCheck.url" must be an absolute https:\/\/ URL/);
+  });
+
+  it('should keep the query of a custom url, which an endpoint may need', () => {
+    const baked = bakedUpdateCheck({
+      compiled: true,
+      config: {
+        updateCheck: {
+          path: ['version'],
+          type: 'custom',
+          url: 'https://h/api/latest?channel=stable',
+        },
+      },
+      packageName: 'mycli',
+    });
+    expect(baked.checker?.url).toBe('https://h/api/latest?channel=stable');
+  });
 
   it('should build a custom checker', () => {
     const baked = bakedUpdateCheck({

@@ -331,7 +331,7 @@ describe('sigil check', () => {
 
       const { err } = await sigil('check', dir);
 
-      expect(err).toContain('Update check repo must be "owner/name", got "notarepo"');
+      expect(err).toContain('Update check "updateCheck.repo" must be "owner/name", got "notarepo"');
       expect(process.exitCode).toBe(1);
     });
 
@@ -368,8 +368,66 @@ describe('sigil check', () => {
 
       const { err } = await sigil('check', dir);
 
-      expect(err).toContain('Update check repo must be "owner/name"');
+      expect(err).toContain('Update check "updateCheck.repo" must be "owner/name"');
       expect(process.exitCode).toBe(1);
+    });
+
+    it('should name updateCheck.registry for a registry that is not https (SIG-547)', async () => {
+      // `registryURL` is `npmChecker()`'s option and the file never says it
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: { package: 'p', registry: 'http://registry.example.com', type: 'npm' },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Update check "updateCheck.registry" must be an absolute https://');
+      expect(err).not.toContain('registryURL');
+      expect(process.exitCode).toBe(1);
+    });
+
+    it.each([
+      ['a protocol the worker refuses', 'ftp://h/latest.json'],
+      ['a newline', 'https://h/\nx'],
+      ['a space', 'https://h/a b'],
+      ['no host', 'https:///latest.json'],
+      ['credentials', 'https://user:hunter2@h/latest.json'],
+    ])('should refuse a custom url with %s (SIG-546)', async (_name, url) => {
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({ updateCheck: { path: ['version'], type: 'custom', url } })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).toContain('Update check "updateCheck.url" must be an absolute https://');
+      expect(err).not.toContain('hunter2');
+      // a newline in the value is echoed escaped, never as a line of its own
+      expect(err.split('\n').some((line) => line.startsWith('x'))).toBe(false);
+      expect(process.exitCode).toBe(1);
+    });
+
+    it('should accept a custom url with a query', async () => {
+      const dir = app();
+      writeFileSync(
+        join(dir, 'sigil.json'),
+        JSON.stringify({
+          updateCheck: {
+            path: ['version'],
+            type: 'custom',
+            url: 'https://h/api/latest?channel=stable',
+          },
+        })
+      );
+
+      const { err } = await sigil('check', dir);
+
+      expect(err).not.toContain('updateCheck.url');
+      expect(process.exitCode).not.toBe(1);
     });
 
     it('should fail on a file that is not JSON, as a diagnostic and not a stack', async () => {
