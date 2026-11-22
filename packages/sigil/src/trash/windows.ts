@@ -207,11 +207,11 @@ namespace SigilTrash {
  *   cannot be written costs the compile, as it always did, and never the trash.
  *
  * - A load that is refused is not the end of the call. `Assembly.Load(byte[])` is
- *   what an endpoint product may refuse, and compiling the helper by hand does
- *   not help when its bytes cannot be loaded either, so a refusal of the freshly
- *   built bytes is answered as `loadRefused` and `recycle()` asks again with
- *   `SIGIL_TRASH_MODE=compile`: `Add-Type`, which is what every call did before
- *   the cache, and which keeps and seals nothing.
+ *   what an endpoint product may refuse, and `Add-Type` makes the same call
+ *   itself, so the fallback loads from a file instead: a refusal of the freshly
+ *   built bytes is answered as `loadRefused`, and `recycle()` asks again with
+ *   `SIGIL_TRASH_MODE=compile`, which compiles into a directory of its own and
+ *   `LoadFrom()`s the library, keeping and sealing nothing.
  *
  * The path, the cache file, the key and the C# itself all come from the
  * environment rather than being spliced into the script, so nothing in a name
@@ -221,6 +221,18 @@ namespace SigilTrash {
  */
 const SCRIPT = `$ErrorActionPreference = 'Stop'
 $state = 'none'
+function Compile([string]$dir) {
+  $params = New-Object CodeDom.Compiler.CompilerParameters
+  $params.GenerateInMemory = $false
+  $params.OutputAssembly = Join-Path $dir 'SigilTrash.dll'
+  $params.TempFiles = New-Object CodeDom.Compiler.TempFileCollection $dir, $false
+  $built = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($params, [string]$env:SIGIL_TRASH_SOURCE)
+  $failed = @($built.Errors | Where-Object { -not $_.IsWarning })
+  if ($failed.Count) {
+    throw [string]$failed[0]
+  }
+  $params.OutputAssembly
+}
 function Escape([string]$m) {
   ($m.ToCharArray() | ForEach-Object { if ([int]$_ -lt 32 -or [int]$_ -gt 126 -or $_ -eq '"' -or $_ -eq '\\') { '\\u{0:x4}' -f [int]$_ } else { [string]$_ } }) -join ''
 }
@@ -228,8 +240,16 @@ try {
   $bin = $null
   $refused = $null
   if ($env:SIGIL_TRASH_MODE -eq 'compile') {
-    $types = Add-Type -TypeDefinition ([string]$env:SIGIL_TRASH_SOURCE) -PassThru
-    $bin = $types | Where-Object { $_.FullName -eq 'SigilTrash.Bin' } | Select-Object -First 1
+    # a library that is loaded from its own file stays locked for as long as this
+    # process lives, so it cannot be removed here; an earlier call's is, once it is
+    # old enough that nothing can still be using it
+    Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'sigil-trash-*' -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '^sigil-trash-[0-9a-f]{32}$' -and $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
+      Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
+    [void][IO.Directory]::CreateDirectory($dir)
+    $assembly = [Reflection.Assembly]::LoadFrom((Compile $dir))
+    $bin = $assembly.GetType('SigilTrash.Bin', $true)
     $state = 'compiled'
   } else {
     $cache = [string]$env:SIGIL_TRASH_CACHE
@@ -258,16 +278,7 @@ try {
       $dir = Join-Path ([IO.Path]::GetTempPath()) ('sigil-trash-' + [Guid]::NewGuid().ToString('N'))
       [void][IO.Directory]::CreateDirectory($dir)
       try {
-        $params = New-Object CodeDom.Compiler.CompilerParameters
-        $params.GenerateInMemory = $false
-        $params.OutputAssembly = Join-Path $dir 'SigilTrash.dll'
-        $params.TempFiles = New-Object CodeDom.Compiler.TempFileCollection $dir, $false
-        $built = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($params, [string]$env:SIGIL_TRASH_SOURCE)
-        $failed = @($built.Errors | Where-Object { -not $_.IsWarning })
-        if ($failed.Count) {
-          throw [string]$failed[0]
-        }
-        $bytes = [IO.File]::ReadAllBytes($params.OutputAssembly)
+        $bytes = [IO.File]::ReadAllBytes((Compile $dir))
       } finally {
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
       }
@@ -322,15 +333,15 @@ try {
 /**
  * What became of the compiled helper on one call: loaded from the cache (`hit`),
  * compiled and kept (`saved`), compiled and not kept because the cache could not
- * be written (`built`), compiled by `Add-Type` and not kept because loading the
- * bytes was refused (`compiled`), or nothing yet because the call failed first
- * (`none`).
+ * be written (`built`), compiled and loaded from a file, and not kept, because
+ * loading the bytes was refused (`compiled`), or nothing yet because the call
+ * failed first (`none`).
  */
 export type CacheState = 'built' | 'compiled' | 'hit' | 'none' | 'saved';
 
 /**
  * How the helper is loaded: from bytes, which is what the cache needs and the
- * default, or by `Add-Type`, which is what a refused load falls back to.
+ * default, or from a file, which is what a refused load falls back to.
  */
 export type LoadMode = 'bytes' | 'compile';
 
@@ -388,8 +399,8 @@ export async function trashWindows(path: string): Promise<string> {
  * difference between one call and the next.
  *
  * When the helper's bytes cannot be loaded -- an endpoint product that refuses
- * `Assembly.Load(byte[])` -- it asks PowerShell again to compile the helper
- * itself, so the item is still recycled and the call costs a second PowerShell
+ * `Assembly.Load(byte[])` -- it asks PowerShell again to compile the helper and
+ * load it from a file, so the item is still recycled and the call costs a second PowerShell
  * start. That is asked of every call in such an environment rather than
  * remembered, since a remembered refusal is module state a later call could not
  * see go away.
@@ -445,7 +456,7 @@ export async function recycle(
     if (load === 'bytes') {
       return recycle(path, file, hash, 'compile');
     }
-    throw new Error(answer.loadRefused);
+    throw new Error(__`The helper could not be loaded: ${answer.loadRefused}`);
   }
   if (answer.refused !== undefined) {
     throw new Error(__`Windows would delete it for good rather than recycle it`);

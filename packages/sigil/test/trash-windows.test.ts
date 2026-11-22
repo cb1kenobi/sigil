@@ -149,7 +149,7 @@ describe('a load that is refused', () => {
     loadRefused: 'Operation did not complete successfully because the file contains a virus',
   });
 
-  it('should ask again, compiling the helper in PowerShell, and still recycle the item', async () => {
+  it('should ask again, in a mode that compiles the helper itself, and still recycle the item', async () => {
     ran.mockResolvedValueOnce(REFUSED);
     ran.mockResolvedValueOnce(reply('compiled', { path: 'C:\\bin\\$R1.txt' }));
 
@@ -178,7 +178,9 @@ describe('a load that is refused', () => {
   it('should ask for the compile once, and throw rather than loop when that is refused too', async () => {
     ran.mockResolvedValue(REFUSED);
 
-    await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow(/contains a virus/);
+    await expect(recycle('C:\\a.txt', undefined, 'k')).rejects.toThrow(
+      /The helper could not be loaded: .*contains a virus/
+    );
 
     expect(ran).toHaveBeenCalledTimes(2);
   });
@@ -191,18 +193,31 @@ describe('a load that is refused', () => {
     expect(ran).toHaveBeenCalledTimes(1);
   });
 
-  it('should have a script that answers a refusal, and a mode that compiles with Add-Type', async () => {
+  it('should have a script that answers a refusal, and a mode that loads from a file', async () => {
     ran.mockResolvedValue(reply('hit', { path: 'x' }));
     await recycle('C:\\a.txt', undefined, 'k');
 
     const script = Buffer.from(lastCall().args.at(-1)!, 'base64').toString('utf16le');
     // run for real on the Windows jobs; here only what a macOS or Linux run can see
     expect(script).toContain('loadRefused');
-    expect(script).toContain("$env:SIGIL_TRASH_MODE -eq 'compile'");
-    expect(script).toContain('Add-Type -TypeDefinition');
-    // the refusal is caught before the cache is written, so a helper whose bytes
-    // cannot be loaded is never sealed and kept
-    expect(script.indexOf('$refused = ')).toBeGreaterThan(-1);
-    expect(script.indexOf('$refused = ')).toBeLessThan(script.indexOf('ProtectedData]::Protect('));
+    // the refusal is caught, and everything that keeps the helper is behind a
+    // check that there was none, so a helper whose bytes cannot be loaded is
+    // never sealed and kept
+    const caught = script.indexOf('$refused = [string]');
+    const guard = script.indexOf('if ($null -eq $refused) {');
+    expect(caught).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(caught);
+    expect(script.indexOf('ProtectedData]::Protect(')).toBeGreaterThan(guard);
+
+    // the compile mode loads from a file: `Add-Type` would load the bytes it
+    // compiled, which is the call that was refused
+    const start = script.indexOf("$env:SIGIL_TRASH_MODE -eq 'compile'");
+    const compile = script.slice(start, script.indexOf('} else {', start));
+    expect(start).toBeGreaterThan(-1);
+    expect(compile).toContain('Assembly]::LoadFrom(');
+    expect(compile).not.toContain('Assembly]::Load(');
+    expect(compile).not.toContain('Add-Type -TypeDefinition');
+    expect(compile).not.toContain('SIGIL_TRASH_CACHE');
+    expect(compile).not.toContain('Protect(');
   });
 });

@@ -657,11 +657,11 @@ describe('trash()', () => {
       );
 
       it(
-        'should still trash with Add-Type, and touch no cache, where the helper cannot be loaded from bytes',
+        'should still trash from a file, and touch no cache, where the helper cannot be loaded from bytes',
         async () => {
           const file = join(made('sigil-trash-refused-'), 'sigil', 'trash.bin');
 
-          // what a refused `Assembly.Load(byte[])` falls back to, asked for directly:
+          // what a refused `Assembly.Load(byte[])` falls back to -- the library loaded from a file -- asked for directly:
           // a refusal cannot be provoked from here, and this is the script that
           // answers it. It must neither read nor write the cache
           expect(await once(file, undefined, 'compile')).toBe('compiled');
