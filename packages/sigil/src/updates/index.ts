@@ -1,6 +1,6 @@
 import debug from '../debug/index.js';
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
-import { npmChecker, versionFrom, type UpdateChecker } from './checker.js';
+import { checkedChecker, npmChecker, versionFrom, type UpdateChecker } from './checker.js';
 import { bakedConfig, compiledHost } from './host.js';
 import { cacheFileName } from './registry.js';
 import { isFreshStamp } from './stamp.js';
@@ -241,7 +241,7 @@ function resolveChecker(
   distTag: string
 ): UpdateChecker | undefined {
   if (opts.checker) {
-    return opts.checker;
+    return checkedChecker(opts.checker);
   }
 
   const baked = bakedConfig();
@@ -249,7 +249,7 @@ function resolveChecker(
     // `null` is the app declaring that it checks nothing, which is a
     // different answer from declaring nothing at all -- the second falls
     // through to the default below and the first must not
-    return baked.checker ?? undefined;
+    return baked.checker ? checkedChecker(baked.checker) : undefined;
   }
 
   if (compiled) {

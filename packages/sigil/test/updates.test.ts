@@ -1,3 +1,4 @@
+import { checkedChecker } from '../src/updates/checker.js';
 import {
   check,
   customChecker,
@@ -501,6 +502,32 @@ describe('updates', () => {
       expect(versionFrom({ tag_name: '\rv1.2.3' }, githubChecker({ repo: 'a/b' }))).to.equal(
         '1.2.3'
       );
+    });
+
+    // SIG-562: an answer that was exactly the prefix was stripped to `''`, which
+    // the cache read as a version (`'' !== undefined`) and so as a fresh answer
+    it('should answer undefined for an answer that is only the prefix', () => {
+      const github = githubChecker({ repo: 'a/b' });
+      const custom = customChecker({ path: ['v'], prefix: 'release-', url: 'https://h/x' });
+
+      for (const tag of ['v', ' v', 'v ', '\tv\n', 'v   ']) {
+        expect(versionFrom({ tag_name: tag }, github), JSON.stringify(tag)).to.equal(undefined);
+      }
+      expect(versionFrom({ v: 'release-' }, custom)).to.equal(undefined);
+      expect(versionFrom({ v: 'release- ' }, custom)).to.equal(undefined);
+
+      // what follows a prefix is still the version, and is still trimmed
+      expect(versionFrom({ tag_name: 'v 1.2.3' }, github)).to.equal('1.2.3');
+      expect(versionFrom({ tag_name: 'v1.2.3' }, github)).to.equal('1.2.3');
+    });
+
+    it('should strip a prefix only from the start of the answer', () => {
+      const github = githubChecker({ repo: 'a/b' });
+      expect(versionFrom({ tag_name: '1.0.0v' }, github)).to.equal('1.0.0v');
+      expect(versionFrom({ tag_name: '1.v0.0' }, github)).to.equal('1.v0.0');
+      expect(versionFrom({ tag_name: 'rcv1.0.0' }, github)).to.equal('rcv1.0.0');
+      // a prefix at the start is taken once, and not again
+      expect(versionFrom({ tag_name: 'vv1.0.0' }, github)).to.equal('v1.0.0');
     });
 
     // SIG-546: a `custom` check's `url` was copied across as written, so
@@ -1049,6 +1076,194 @@ describe('updates', () => {
   // check could not handle: the slash split the registry path and nested the
   // cache file in a directory nothing created. Every test above uses an
   // unscoped name, which is why the suite was green
+  // SIG-563: `check()` took a checker as data, so one written as an object
+  // literal never met `customChecker()`'s rules. A header Node refuses to send
+  // made `https.get()` throw inside a worker that says nothing, so the check
+  // just stopped. What is refused is what could never have worked, and a URL
+  // with credentials; everything a hand-written checker could do before it still does
+  describe('A checker written by hand', () => {
+    const good = { path: ['tag_name'], type: 'github', url: 'https://h/releases/latest' };
+    const refusal = (checker: unknown): string => {
+      try {
+        checkedChecker(checker);
+      } catch (err) {
+        expect(err).to.be.instanceOf(TypeError);
+        return (err as Error).message;
+      }
+      throw new Error(`accepted ${JSON.stringify(checker)}`);
+    };
+
+    it('should refuse what no request could be made from', () => {
+      for (const url of ['http://h/x', 'ftp://h/x', 'not a url', '', 'https://', undefined, 42]) {
+        expect(refusal({ ...good, url }), String(url)).to.contain(
+          'Update check url must be an absolute https:// URL'
+        );
+      }
+      expect(refusal({ ...good, path: [] })).to.contain('path must be a non-empty list');
+      expect(refusal({ ...good, path: undefined })).to.contain('path must be a non-empty list');
+      expect(refusal(undefined)).to.contain('must be an object');
+      expect(refusal('https://h/x')).to.contain('must be an object');
+    });
+
+    it('should refuse a header Node would refuse to send, and never quote its value', () => {
+      const secret = 'hunter2';
+      for (const headers of [
+        { authorization: `${secret}\r\nx-injected: 1` },
+        { authorization: `${secret}\n` },
+        { authorization: `${secret}\0` },
+        { authorization: `${secret}\u0100` },
+      ]) {
+        const message = refusal({ ...good, headers });
+        expect(message).to.contain('header "authorization" must not contain a control character');
+        expect(message).to.not.contain(secret);
+      }
+      expect(refusal({ ...good, headers: { 'bad name': secret } })).to.contain('HTTP token');
+      expect(refusal({ ...good, headers: { 'bad name': secret } })).to.not.contain(secret);
+      // and what Node refuses whatever it is: no value, a nested object
+      expect(refusal({ ...good, headers: { a: {} } })).to.contain('must be a string, got a object');
+      expect(refusal({ ...good, headers: { a: 10n } })).to.contain('got a bigint');
+      // a list is held element by element, and no element is ever turned into a string
+      // before it is known to be one
+      const trap = { toString: () => secret };
+      for (const list of [
+        ['ok', {}],
+        ['ok', trap],
+        ['ok', 10n],
+      ]) {
+        const message = refusal({ ...good, headers: { a: list } });
+        expect(message).to.contain('must be a string, got a ');
+        expect(message).to.not.contain(secret);
+      }
+      expect(refusal({ ...good, headers: { a: [`${secret}\n`] } })).to.not.contain(secret);
+      expect(refusal({ ...good, headers: { a: ['ok', `${secret}\n`] } })).to.contain(
+        'must not contain a control character'
+      );
+      expect(refusal({ ...good, headers: 'x' })).to.contain('must be an object');
+      expect(refusal({ ...good, headers: [secret] })).to.contain('must be an object');
+    });
+
+    it('should refuse credentials in the URL, and never quote them', () => {
+      for (const url of [
+        'https://user:hunter2@h/x',
+        'https://hunter2@h/x',
+        'https://h:80@h/x?token=hunter2',
+      ]) {
+        const message = refusal({ ...good, url });
+        expect(message, url).to.contain('no credentials');
+        expect(message, url).to.not.contain('hunter2');
+      }
+    });
+
+    it('should say the same thing customChecker() does about what they share', () => {
+      const throws = (fn: () => unknown): string => {
+        try {
+          fn();
+        } catch (err) {
+          return (err as Error).message;
+        }
+        return '';
+      };
+      // credentials and the scheme are the same sentence, minus a fragment that a
+      // hand-written URL is allowed to carry
+      const strip = (m: string): string => m.replace(' or fragment', '');
+      for (const url of ['http://h/x', 'https://u:p@h/x']) {
+        expect(refusal({ ...good, url })).to.equal(
+          strip(throws(() => customChecker({ path: ['a'], url })))
+        );
+      }
+      expect(refusal({ ...good, headers: { a: 'x\ny' } })).to.equal(
+        throws(() => customChecker({ headers: { a: 'x\ny' }, path: ['a'], url: 'https://h/x' }))
+      );
+    });
+
+    it('should keep accepting what worked before', () => {
+      for (const checker of [
+        good,
+        // each of these is something `customChecker()` refuses and `https.get()` sends
+        { ...good, url: 'https://h/x#fragment' },
+        { ...good, url: ' https://h/x ' },
+        { ...good, url: 'HTTPS://H/x' },
+        { ...good, url: 'https://h/x\ny' },
+        { ...good, url: 'https://h/x?channel=stable' },
+        { ...good, prefix: '' },
+        { ...good, prefix: ' v' },
+        { ...good, path: [''] },
+        { ...good, headers: {} },
+        { ...good, headers: null },
+        // an unset environment variable, which the worker's JSON drops
+        { ...good, headers: { authorization: undefined } },
+        // Node sends each of these, and each survives the trip to the worker as JSON
+        { ...good, headers: { 'x-n': 2, 'x-b': true, 'x-null': null, 'x-list': ['a', 'b'] } },
+        {
+          ...good,
+          headers: new (class Headers {
+            accept = 'application/json';
+          })(),
+        },
+        { ...good, headers: { 'x-c1': 'a\u0085b', 'x-latin': 'caf\u00e9', 'x-tab': 'a\tb' } },
+        { ...good, type: 'anything at all' },
+      ]) {
+        expect(checkedChecker(checker), JSON.stringify(checker)).to.equal(checker);
+      }
+    });
+
+    it('should leave what customChecker() is stricter about to customChecker()', () => {
+      const url = 'https://h/x';
+      expect(() => customChecker({ path: [''], url })).to.throw('non-empty strings');
+      expect(() => customChecker({ path: ['a'], prefix: '', url })).to.throw('prefix');
+      expect(() => customChecker({ path: ['a'], url: `${url}#f` })).to.throw('fragment');
+      expect(() => customChecker({ headers: { a: '\u0085' }, path: ['a'], url })).to.throw(
+        'control character'
+      );
+    });
+
+    it('should refuse the checker where check() is handed it', async () => {
+      const cacheDir = await generateTmpDir();
+      for (const checker of [
+        { ...good, url: 'http://h/x' },
+        { ...good, headers: { a: 'x\r\ny' } },
+        { ...good, path: [] },
+        { ...good, url: 'https://u:hunter2@h/x' },
+      ]) {
+        await expect(
+          check({ cacheDir, checker, packageName: 'a', packageVersion: '1.0.0', wait: true })
+        ).rejects.toThrow(TypeError);
+      }
+    });
+
+    it('should refuse a baked checker too, where it is handed to check()', async () => {
+      const cacheDir = await generateTmpDir();
+      vi.stubGlobal(
+        '__SIGIL_UPDATE_CHECK__',
+        JSON.stringify({ checker: { ...good, headers: { a: 'x\ny' } } })
+      );
+      try {
+        await expect(
+          check({ cacheDir, packageName: 'a', packageVersion: '1.0.0', wait: true })
+        ).rejects.toThrow('header "a" must not contain a control character');
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('should still use a checker that was working, from a fresh cache', async () => {
+      const cacheDir = await generateTmpDir();
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(
+        join(cacheDir, cacheFileName('a', 'latest')),
+        JSON.stringify({ body: { '': 'v2.0.0' }, ts: Date.now() })
+      );
+
+      const result = await check({
+        cacheDir,
+        checker: { ...good, path: [''], prefix: '', url: 'https://h/x#fragment' },
+        packageName: 'a',
+        packageVersion: '1.0.0',
+      });
+      expect(result.latest).to.equal('v2.0.0');
+    });
+  });
+
   describe('Scoped package names', () => {
     it('should encode the package name into one path segment', () => {
       expect(distTagsURL('@ttylabs/sigil')).to.equal(

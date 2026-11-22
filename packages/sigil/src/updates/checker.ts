@@ -305,17 +305,44 @@ function redact(value: unknown, kind: 'endpoint' | 'root'): string {
  * @param value - What the caller passed.
  * @param label - The option's name, for the message.
  * @param kind - `root` for a URL a path is joined to, `endpoint` for one that is fetched as it stands.
+ * @param strict - `false` for a checker written by hand, which is refused only for a URL
+ * `https.get()` cannot request (not `https`, or no host) and for credentials, and is returned unchanged.
  * @returns The URL as the parser wrote it, minus any trailing slash for a root.
  * @throws If it is not an `https` URL of that shape.
  */
-function checkedURL(value: unknown, label: string, kind: 'endpoint' | 'root'): string {
+function checkedURL(
+  value: unknown,
+  label: string,
+  kind: 'endpoint' | 'root',
+  strict = true
+): string {
   const root = kind === 'root';
   const refuse = (): never => {
+    // the fragment is named only where it is refused, so the message does not
+    // forbid what the checker it was written for may carry
+    const refused = !strict ? '' : root ? ', query or fragment' : ' or fragment';
     throw new TypeError(
       `Update check ${label} must be an absolute https:// URL with no credentials` +
-        `${root ? ', query or fragment' : ' or fragment'}, got "${escapeControls(redact(value, kind))}"`
+        `${refused}, got "${escapeControls(redact(value, kind))}"`
     );
   };
+
+  // a checker somebody wrote by hand is held to what could never have worked and
+  // to credentials, and is returned as it was given: `https.get()` parses the
+  // string itself, so what it takes is what `new URL()` takes (SIG-563)
+  if (!strict) {
+    let given: URL | undefined;
+    try {
+      given = typeof value === 'string' ? new URL(value) : undefined;
+    } catch {}
+    if (!given || given.protocol !== 'https:' || !given.hostname) {
+      return refuse();
+    }
+    if (given.username || given.password) {
+      return refuse();
+    }
+    return value as string;
+  }
 
   if (
     typeof value !== 'string' ||
@@ -432,6 +459,14 @@ const headerNameRE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const headerValueRE = /^[\t\u0020-\u007e\u00a0-\u00ff]*$/;
 
 /**
+ * What Node accepts in a header value: `headerValueRE` with the C1 controls
+ * (`U+0080` to `U+009F`) it lets through. A checker written by hand is held to
+ * this one and `customChecker()` to the stricter one, so a value that was being
+ * sent keeps being sent (SIG-563).
+ */
+const sentHeaderValueRE = /^[\t\u0020-\u007e\u0080-\u00ff]*$/;
+
+/**
  * Validates `headers` and returns a copy of them (SIG-555).
  *
  * A refusal names the header and never its value: a value is often a
@@ -440,14 +475,23 @@ const headerValueRE = /^[\t\u0020-\u007e\u00a0-\u00ff]*$/;
  * not where a secret goes; a value's refusal quotes the name, which has passed
  * that test by then, and says nothing of the value but that it is not allowed.
  * The object itself is never echoed, for the same reason.
+ *
+ * @param headers - What was given.
+ * @param strict - `false` for a checker written by hand, which is refused only what
+ * Node's `https.get()` refuses to send: a value may hold a C1 control, be a number, a
+ * boolean, `null` or a list of those, and the headers may be an instance of a class.
  */
-function checkedHeaders(headers: unknown): Record<string, string> {
+function checkedHeaders(headers: unknown, strict = true): Record<string, string> {
   const proto: unknown =
     typeof headers === 'object' && headers !== null && Object.getPrototypeOf(headers);
-  if (proto !== Object.prototype && proto !== null) {
+  const plain = proto === Object.prototype || proto === null;
+  if (
+    !strict ? typeof headers !== 'object' || headers === null || Array.isArray(headers) : !plain
+  ) {
     throw new TypeError('Update check headers must be an object of header names to string values');
   }
 
+  const valueRE = strict ? headerValueRE : sentHeaderValueRE;
   const checked: [string, string][] = [];
   for (const [name, value] of Object.entries(headers as object)) {
     if (!headerNameRE.test(name)) {
@@ -455,19 +499,57 @@ function checkedHeaders(headers: unknown): Record<string, string> {
         `Update check header name must be an HTTP token, got "${escapeControls(name)}"`
       );
     }
-    if (typeof value !== 'string') {
-      throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof value}`);
+    // a string, which is what the type says. Node also sends a number, a boolean,
+    // `null` and a list of those, and the worker's JSON hop drops `undefined`
+    // (`{ authorization: process.env.TOKEN }` with the variable unset sends no
+    // header), so a checker written by hand that has one keeps it. An object, a
+    // function, a symbol and a bigint are refused: they are junk or work on one
+    // transport only
+    const sendable = (v: unknown): boolean =>
+      typeof v === 'string' ||
+      (!strict &&
+        (typeof v === 'number' || typeof v === 'boolean' || v === null || v === undefined));
+    const values = !strict && Array.isArray(value) ? (value as unknown[]) : [value];
+    for (const v of values) {
+      if (!sendable(v)) {
+        throw new TypeError(`Update check header "${name}" must be a string, got a ${typeof v}`);
+      }
     }
-    if (!headerValueRE.test(value)) {
+    if (!values.every((v) => valueRE.test(String(v)))) {
       throw new TypeError(
         `Update check header "${name}" must not contain a control character or a character past U+00FF`
       );
     }
-    checked.push([name, value]);
+    checked.push([name, value as string]);
   }
   // `fromEntries()` defines each property, where assigning `checked['__proto__']`
   // sets the prototype and drops a header the name test accepted
   return Object.fromEntries(checked);
+}
+
+/**
+ * Validates `path`, which is where the version sits in the answer.
+ *
+ * An empty path reads the whole body, which is never a string, and a key that
+ * is not one is looked up as whatever it coerces to: either is a check that
+ * answers `undefined` for ever, which is the silent miss again. A checker
+ * written by hand is held to the first only -- a list with something in it --
+ * because an empty key is a real key of a JSON object and looks it up (SIG-563).
+ *
+ * @param path - What was given.
+ * @param strict - `false` for a checker written by hand.
+ */
+function checkedPath(path: unknown, strict = true): void {
+  if (
+    !Array.isArray(path) ||
+    path.length === 0 ||
+    (strict && Array.from(path).some((key) => typeof key !== 'string' || !key))
+  ) {
+    throw new TypeError(
+      `Update check path must be a non-empty list of ${strict ? 'non-empty strings' : 'keys'}, ` +
+        `got "${escapeControls(path)}"`
+    );
+  }
 }
 
 /**
@@ -489,18 +571,7 @@ function checkedHeaders(headers: unknown): Record<string, string> {
 export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
   const { headers, path, prefix, url } = opts;
 
-  // an empty path reads the whole body, which is never a string, and a key
-  // that is not one is looked up as whatever it coerces to: either is a check
-  // that answers `undefined` for ever, which is the silent miss again
-  if (
-    !Array.isArray(path) ||
-    path.length === 0 ||
-    Array.from(path).some((key) => typeof key !== 'string' || !key)
-  ) {
-    throw new TypeError(
-      `Update check path must be a non-empty list of non-empty strings, got "${escapeControls(path)}"`
-    );
-  }
+  checkedPath(path);
 
   // `undefined` is the option left out; an empty string is not. An empty prefix
   // strips nothing, which is what leaving it out says, so it is refused rather
@@ -527,6 +598,44 @@ export function customChecker(opts: CustomCheckerOptions): UpdateChecker {
     type: 'custom',
     url: checkedURL(url, 'url', 'endpoint'),
   };
+}
+
+/**
+ * Refuses a checker the update check could never have used (SIG-563).
+ *
+ * `check()` and a schema's `updateCheck` take a checker as **data**, so one
+ * written by hand as an object literal never passed through `customChecker()`'s
+ * rules, and a header Node refuses to send made `https.get()` throw inside a
+ * worker that says nothing. Every checker is asked here, whatever its `type`
+ * and however it was built, which is one place for the rules rather than a copy
+ * of them: it is `customChecker()`'s own `checkedURL()`, `checkedHeaders()` and
+ * `checkedPath()` asked with `strict` off.
+ *
+ * What it refuses is what could never have worked -- a URL that is not `https`
+ * or has no host, a header name or value `https.get()` rejects, a path with
+ * nothing in it -- and a URL with credentials, which does work and is refused
+ * anyway because a secret in a URL travels in the worker's environment and a
+ * process listing, and a header is where it belongs. What `customChecker()`
+ * holds a checker to on top of that stays `customChecker()`'s, because it
+ * refuses things that were working: a fragment, whitespace in the URL, a C1
+ * control in a header value, an empty key and a prefix of `''`.
+ *
+ * @param checker - What the app handed over.
+ * @returns The same checker.
+ * @throws A `TypeError` that never quotes a header value or a credential.
+ */
+export function checkedChecker(checker: unknown): UpdateChecker {
+  if (typeof checker !== 'object' || checker === null) {
+    throw new TypeError('Update check checker must be an object');
+  }
+
+  const { headers, path, url } = checker as Record<string, unknown>;
+  checkedURL(url, 'url', 'endpoint', false);
+  checkedPath(path, false);
+  if (headers !== undefined && headers !== null) {
+    checkedHeaders(headers, false);
+  }
+  return checker as UpdateChecker;
 }
 
 /**
@@ -564,8 +673,15 @@ export function versionFrom(body: unknown, checker: UpdateChecker): string | und
     return undefined;
   }
 
+  // an answer that is the prefix and nothing else carries no version either,
+  // and stripping it left `''` where this promises `undefined` (SIG-562). The
+  // remainder is trimmed because the prefix may be followed by whitespace, and
+  // only a prefix at the start is stripped: `1.0.0v` is not `v`'s to take
   const { prefix } = checker;
-  return prefix && version.startsWith(prefix) ? version.slice(prefix.length) : version;
+  if (!prefix || !version.startsWith(prefix)) {
+    return version;
+  }
+  return version.slice(prefix.length).trim() || undefined;
 }
 
 // The pre-release and the build metadata are dot-separated identifiers, none of

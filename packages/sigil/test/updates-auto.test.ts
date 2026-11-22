@@ -459,6 +459,30 @@ describe('beginUpdateCheck', () => {
     }
   );
 
+  // SIG-563: a hand-written checker is refused where `check()` is handed it, and
+  // for a schema that refusal is a log line: an update notice cannot fail the command
+  it('should say nothing, and fail nothing, for a checker that is refused', async () => {
+    seed(dir, 'mycli', '9.0.0');
+    for (const checker of [
+      { path: ['latest'], type: 'custom', url: 'http://h/latest' },
+      {
+        headers: { Authorization: 'x\r\ny' },
+        path: ['latest'],
+        type: 'custom',
+        url: 'https://h',
+      },
+      { path: [] as string[], type: 'custom', url: 'https://h' },
+    ]) {
+      const stderr = { isTTY: true, write: vi.fn() };
+      const finish = await beginUpdateCheck(
+        { name: 'mycli', updateCheck: { cacheDir: dir, checker }, version: '1.0.0' },
+        { env: {}, stderr }
+      );
+      await expect(finish?.()).resolves.toBe(undefined);
+      expect(stderr.write).not.toHaveBeenCalled();
+    }
+  });
+
   it('should not let a version that throws null fail anything', async () => {
     const finish = await beginUpdateCheck(
       {

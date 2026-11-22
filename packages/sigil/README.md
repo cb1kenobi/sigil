@@ -8623,10 +8623,17 @@ await check({
 ```
 
 It throws a `TypeError` for a `url` or a `path` that is not what that says. A
-plain `{ type: 'custom', url, path }` object is still a checker, and is **not**
-checked: it is data, `check()` takes it as it is, and an `ftp://` URL in one is
-a check that fails in the worker. `customChecker()` is how to have it refused
-instead.
+plain `{ type: 'custom', url, path }` object is still a checker, and `check()`
+refuses it where it is handed over for what could never have worked: a `url`
+that is not an `https://` URL with a host, a header name or value that
+`https.get()` would refuse to send, a `path` with nothing in it -- and a `url`
+with credentials in it, which would work and is refused anyway, since a token
+belongs in a header. The message never quotes a header value or the credentials.
+`customChecker()` is stricter and is how to have the rest refused too: a
+fragment, whitespace in the `url`, an empty key in `path`, a `prefix` of `''` or
+one starting with whitespace, and a control character in a header value. For a
+schema's `updateCheck` the refusal is logged and not shown, since an update
+check never fails the command; turn on `DEBUG=sigil:updates` to see it.
 
 An endpoint that wants a header, or answers `v1.2.3` where the app's version is
 `1.2.3`, says so with `headers` and `prefix`:
