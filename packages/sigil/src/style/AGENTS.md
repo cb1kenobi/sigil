@@ -1100,6 +1100,51 @@ toolchain's one reader.
   order, no deduplication, a less specific selector kept, media ignored, and the
   index read again per bucket.
 
+- **`resolveSheets()` keeps allocating its result object, and that is
+  measured rather than assumed (SIG-513).** SIG-455 left the `CascadeResult`
+  as the one thing a resolve builds beside the style it returns, about 50 bytes,
+  and asked whether saving it was worth a contract that every caller finish with
+  the object before the next resolve. It is not, and there are two reasons, the
+  second of which is the one that would have decided it alone.
+
+  - **The saving is under what the stress workload can see.** A prototype took
+    the object to fill in as a third argument and `Restyler` passed it the
+    element's own previous result, which is the only reuse that can be correct
+    (below). On a four-element, five-rule sheet that is `resolveSheets()` at
+    about 604 bytes a call against about 554: 48 to 50 bytes, 8% of the call,
+    three runs of 200,000 calls each and the spread under 6 bytes. A frame of
+    SIG-290's stress workload resolves about 930 elements, so the most it can
+    save is about 46 KB of the frame's 14.6 MB -- **0.3%**. Measured on that
+    workload, `total_allocated_bytes` per frame, p50 over 300 frames, six
+    interleaved runs of each on node 26.10.0, Apple M5 Pro, with other agents'
+    builds running beside it: 14,662,345 bytes on average without and 14,657,248
+    with, a difference of 5 KB against runs that differ from one another by 77 KB
+    (14.62 to 14.69 MB without, 14.60 to 14.69 with). `benchmark.js --only
+    stress` prints 14.0 MiB for both, and the frame's p50 was 5.97 to 11.86 ms
+    without and 5.72 to 12.81 ms with, which is the machine and not the change.
+    The saving is a real 8% of one call and not a figure a frame can show.
+  - **The one caller that keeps the object keeps a thousand of them.** `Restyler`
+    stores a `CascadeResult` per element in `#results`, because the prop fast
+    path re-applies an element's props over its own sheet-only style and
+    `colorLevel()` reads it back. So there is no moment at which "the caller has
+    finished with it": a single object shared by every resolve gives every element
+    the last one's style and locked set, and `test/style/cascade-precedence.test.ts`
+    holds that (`a result the cascade handed back`). The only reuse that is correct
+    is per element, in place -- a mutable `CascadeResult` where it is now
+    `readonly`, a new third parameter on `Cascade.resolveSheets()`, which is
+    exported from `@ttylabs/sigil/style`, and a rule that the object passed in is
+    overwritten. That is a wider contract on a published type for 0.3% of a
+    frame, and it still allocates the style, which is most of what a resolve costs
+    (`initialStyle()`'s 560 bytes against these 50).
+
+  **What would change the answer** is a cascade whose result is built once per
+  element for good -- a result that held the sheet-only style and was patched
+  rather than rebuilt -- and that is SIG-454's territory, where `readSettings()`
+  parsing every prop on every restyle is now the larger allocator. Measure the
+  object again after that, not before. The prototype is not kept: it was a diff
+  of `cascade.ts` and `invalidate.ts` of about ten lines, which is also what
+  makes it cheap to try again.
+
 - **The cascade hands back a plain resolved style per element; interning is the
   canvas's business.** That settles the question the ticket left open. A
   resolved `Style` is fifty-odd properties that mostly differ per element, while
