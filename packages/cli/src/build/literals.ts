@@ -23,7 +23,8 @@ import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement 
  *
  * `?.` is deliberately not here: it can change a value, to `undefined`, so it is
  * not a wrapper that changes nothing. `importCall()` in `bindings.ts` looks
- * through it in the one place that is true, a call whose callee is an import.
+ * through it where that is true, a call whose callee is an import, and
+ * `objectLiteral()` does for a caller that asks and can afford it.
  *
  * @param node - The expression.
  * @returns The expression under the type syntax.
@@ -57,13 +58,29 @@ export function unwrapShallow(node: Expression): Expression {
  * literal: a wrapper doing anything more interesting than passing its argument
  * through almost always takes something else too.
  *
+ * `?.` is not looked through unless the caller says so (SIG-591), for the reason
+ * `unwrapShallow()` gives: `wrap?.({ desc })` is `undefined` when `wrap` is
+ * nullish, so it is not the object it wraps. Each caller decides whether that
+ * matters to it, and only a reader that is safe either way may opt in.
+ *
  * @param node - The expression.
+ * @param options - `optional`: read an optional call, `wrap?.({ ... })`, as the plain one.
  * @returns The object literal, or `undefined` when it is not one.
  */
-export function objectLiteral(node: Expression): ObjectExpression | undefined {
+export function objectLiteral(
+  node: Expression,
+  options: { readonly optional?: boolean } = {}
+): ObjectExpression | undefined {
   let current = unwrapShallow(node);
 
   for (;;) {
+    if (options.optional && current.type === 'ChainExpression') {
+      // oxc's node for a chain; what is inside is the call itself, or a member
+      // read, which the checks below decline
+      current = unwrapShallow(current.expression as Expression);
+      continue;
+    }
+
     if (current.type === 'ObjectExpression') {
       return current;
     }
