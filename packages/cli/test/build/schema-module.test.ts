@@ -579,6 +579,10 @@ describe('an entry that exports no schema, however it reaches main()', () => {
     expect(exportsNoSchema(entry("export * from './schema.js';\n"))).toBe(false);
     expect(exportsNoSchema(entry('module.exports = { name: "x" };\n', 'index.cjs'))).toBe(false);
     expect(exportsNoSchema(entry('export = {};\n', 'index.ts'))).toBe(false);
+    // an `import` is module syntax, but a file that sets `module.exports` is still CommonJS
+    expect(
+      exportsNoSchema(entry("import { sep } from 'node:path';\nmodule.exports = { name: sep };\n"))
+    ).toBe(false);
     expect(exportsNoSchema(entry('export default {', 'index.js'))).toBe(false);
   });
 });

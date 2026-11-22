@@ -3204,8 +3204,10 @@ other is refused with numbers.
   want `check`.
 
   **Only when it is certain.** A module with no ES module syntax is CommonJS, whose
-  `module.exports` is the namespace's `default`, and `export =` is the same in
-  TypeScript; a module that cannot be read or does not parse and an `export *` that
+  `module.exports` is the namespace's `default`, and so is one that has an `import`
+  and also names `module` or `exports` -- the bundler still treats it as CommonJS,
+  and round 1 found `import { sep } from 'node:path'; module.exports = { ... }`
+  building and running on main -- and `export =` is the same in TypeScript; a module that cannot be read or does not parse and an `export *` that
   may supply `schema` are ones this cannot see into. Each of them is not refused,
   the direction this file records everywhere. Covered by `an entry that exports no
   schema, however it reaches main()` in `test/build/schema-module.test.ts`.
