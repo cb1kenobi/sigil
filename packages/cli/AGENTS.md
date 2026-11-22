@@ -1024,7 +1024,8 @@ makes it testable with a fixture directory and no bundler at all.
 
   `updateCheck: wrap?.({ checker })` was missed too and is read now (SIG-591): an
   optional call to something that is _not_ a builder read as asking where the
-  plain `wrap({ checker })` reads as naming. The argument above does not carry
+  plain `wrap({ checker })` reads as naming (as `'wrapped'` since SIG-593, which
+  is the same refusal-free read with a warning). The argument above does not carry
   over -- `wrap` may be nullish, and then the value is `undefined` rather than
   the object -- so the answer is a different one. `objectLiteral()` takes
   `{ optional: true }` and looks through the chain **only for a caller that
@@ -7258,7 +7259,12 @@ measurements are in
   only: `sigil build` leaves a runtime to fall back on, and `check()`'s own
   default there is npm. The warning cannot say whether `check()` is called --
   the bundler's watch sees the specifier and not what was imported from it -- so
-  it fires for every wrapped schema that imports a builder, which is the limit.
+  it fires for every wrapped schema whose bundle reaches `@ttylabs/sigil/updates`,
+  which is the limit. It goes through `writeNote()`, so `--quiet` silences it: a
+  release script that asked for no prose gets the hollow check with no word,
+  which is the ticket's own symptom in the one place binaries are made. Left,
+  because routing one note around `--quiet` is a decision about `--quiet` and not
+  about this.
 
   **What stays missed, and is the larger hole: a confirmed `'names'` has it too.**
   `updateCheck: githubChecker({ repo })` plus a hand-called `check()` with no

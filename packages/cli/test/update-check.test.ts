@@ -973,6 +973,19 @@ describe('whether the schema names its own checker', () => {
       expect(readsWrapped(`updateCheck: ${value}`)).toBe('names');
     });
 
+    // two schemas in one module: the weaker answer is the module's, in either order
+    it.each([
+      ['confirmed first', 'githubChecker({ repo: "a/b" })', 'wrap?.({ checker: githubChecker() })'],
+      ['confirmed last', 'wrap?.({ checker: githubChecker() })', 'githubChecker({ repo: "a/b" })'],
+    ])('should answer wrapped when one of two schemas is unconfirmed, %s', (_what, one, two) => {
+      const entry = entryOf(
+        `updateCheck: ${one}`,
+        `${builders}\n${wrapper}\nexport const other = { name: 'o', commands: './commands', updateCheck: ${two} };`,
+        'index.ts'
+      );
+      expect(readSchemaUpdateCheck(entry)).toBe('wrapped');
+    });
+
     it('should still read one that names nothing as asking, optional or not', () => {
       expect(readsWrapped("updateCheck: wrap({ distTag: 'next' })")).toBe('asks');
       expect(readsWrapped("updateCheck: wrap?.({ distTag: 'next' })")).toBe('asks');
@@ -1477,6 +1490,8 @@ describe('a packaged binary that asks in its schema', () => {
         '',
       ].join('\n');
 
+    const flat = (text: string): string => text.replace(/\s+/g, ' ');
+
     async function packaged(name: string, config?: unknown) {
       const root = variant(name, config, entry());
       const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
@@ -1495,8 +1510,9 @@ describe('a packaged binary that asks in its schema', () => {
     it('should warn that the check may be empty, and still package', async () => {
       const { code, err, ran } = await packaged('wrapped-empty');
       expect(code, err).toBeFalsy();
-      expect(err).toContain('through a call');
-      expect(err).toContain('"updateCheck"');
+      // `writeNote()` wraps to `COLUMNS`, which can break a phrase across a line
+      expect(flat(err)).toContain('through a call');
+      expect(flat(err)).toContain('"updateCheck"');
 
       // the defect the warning is about: a check that ran and found nothing to look at
       expect(ran?.stdout).toBe('{"current":"1.0.0"}\n');
@@ -1507,7 +1523,7 @@ describe('a packaged binary that asks in its schema', () => {
         updateCheck: { repo: 'acme/mycli', type: 'github' },
       });
       expect(code, err).toBeFalsy();
-      expect(err).not.toContain('through a call');
+      expect(flat(err)).not.toContain('through a call');
     }, 180000);
   });
 

@@ -233,7 +233,9 @@ const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
 /**
  * Whether a schema's `updateCheck` names its own checker.
  *
- * Three spellings do, and each is the app having said where to look: a
+ * Three spellings do, and each is the app having said where to look -- except
+ * that one handed over by a call of the app's own, `wrap({ checker })`, is
+ * `'wrapped'` rather than `'names'`: a
  * `checker` inside the options, a checker written bare -- the shorthand, as a
  * call to one of the builders or as a literal with a `type` and a `url` -- and
  * nothing else. The builder is asked as a **binding** rather than a spelling,
@@ -261,8 +263,8 @@ function namesChecker(
 
   const expression = unwrapShallow(value);
 
-  // `optional`: `wrap?.({ checker })` names its checker as `wrap({ checker })` does
-  // (SIG-591). When `wrap` is nullish the schema has no `updateCheck` at all, so
+  // `optional`: `wrap?.({ checker })` is read as `wrap({ checker })` is, which
+  // is `'wrapped'` and not `'names'` (SIG-591, SIG-593). When `wrap` is nullish the schema has no `updateCheck` at all, so
   // reading it as naming costs a declaration the build did not demand, and a
   // reader that errs towards not refusing may afford that. The shared reader does
   // not do it by default because the module lift and the command tree could not
