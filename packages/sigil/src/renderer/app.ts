@@ -351,7 +351,9 @@ export interface App {
    *
    * Not yet there while the component's body runs, because the body is how the
    * renderer gets its tree -- reading it then throws rather than answering
-   * `undefined`. A body that wants it reads it in `onMount()` or a handler. An
+   * `undefined`. A body that wants it reads it in `onMount()` or a handler, and
+   * that includes an `onMount()` that fires on the first frame, which is painted
+   * before `runApp()` has returned. An
    * app that refused to start has none, and reading it throws too.
    */
   readonly view: Renderer;
@@ -587,6 +589,14 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     : reportError;
 
   let view: Renderer | undefined;
+  /**
+   * The renderer from the moment `render()` has made it until it has returned it,
+   * which is what the first frame's `onMount()` callbacks read `App.view` through.
+   * Kept apart from `view` on purpose: `view` being set is what `reportError()` and
+   * `hold()` read as "the backend is there to write through", and during that
+   * first frame it is not yet something a report may be held by.
+   */
+  let building: Renderer | undefined;
   let input: InputRouter | undefined;
   /** The cascade the app draws through, once it has been built or taken. */
   let cascade: Cascade | undefined;
@@ -1012,14 +1022,15 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     },
     terminal,
     get view(): Renderer {
-      if (view === undefined) {
+      const renderer = view ?? building;
+      if (renderer === undefined) {
         throw new Error(
           interactive
             ? 'App.view is not there while the component is being built: read it in onMount()'
             : 'App.view is not there because runApp() refused to start without a terminal'
         );
       }
-      return view;
+      return renderer;
     },
   };
 
@@ -1194,6 +1205,9 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
         gatherStats: opts.gatherStats,
         now: opts.now,
         onError: report,
+        onReady: (made) => {
+          building = made;
+        },
         reducedMotion: opts.reducedMotion,
         terminal,
       }
@@ -1228,6 +1242,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     throw error;
   } finally {
     rendering = false;
+    building = undefined;
   }
 
   for (const held of early.splice(0)) {

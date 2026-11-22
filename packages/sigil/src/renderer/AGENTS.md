@@ -1240,6 +1240,16 @@ it.
   `view` is the one thing a body cannot have, because the body is how the renderer
   gets its tree: reading it then throws, naming `onMount()`, rather than answering
   `undefined`.
+  **It is there for an `onMount()` of the first frame, though** (SIG-603): that
+  frame is painted inside `render()`, so the callbacks drain before `render()` has
+  returned and `view` was still unassigned -- the error told a reader to read it in
+  the one place it threw, and an effect created there that read it died on its first
+  run and never ran again. `render()` hands the renderer to `RenderOptions.onReady`
+  before it paints, and the runner keeps it in `building`, which the `view` getter
+  falls back to. A separate variable rather than assigning `view` early, because
+  `reportError()` and `hold()` read `view` as "the backend is there to write
+  through", and an error from a first-frame callback has to keep waiting in `early`
+  for the screen to be back rather than being written mid-frame. See `test/renderer/app.test.ts`.
 - **The mouse surface is late-bound, because the router asks where the canvas is
   the moment it is built.** That is before `render()` has made the backend, so the
   first ask finds nothing and answers the way a terminal that said nothing does --
