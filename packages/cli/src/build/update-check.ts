@@ -28,6 +28,7 @@ import {
 } from './literals.ts';
 import { parseModule } from './parse-module.ts';
 import {
+  customChecker,
   githubChecker,
   npmChecker,
   type BakedUpdateConfig,
@@ -78,6 +79,56 @@ export function bakedUpdateCheck(options: BakedUpdateCheckOptions): BakedUpdateC
 }
 
 /**
+ * What each builder calls the option a `sigil.json` key becomes, and the key.
+ *
+ * A builder's refusal is written for code -- `registryURL` is `npmChecker()`'s
+ * option and `package name` is its message's noun -- and an author who wrote
+ * `updateCheck.registry` in a file is told about a word they never typed
+ * (SIG-547). `checkerFor()` is the one place a declaration is renamed on its way
+ * in, so it is the one place this table is needed, and a test per row pins each
+ * against the message the builder writes.
+ */
+const DECLARED_KEYS: readonly (readonly [noun: string, key: string])[] = [
+  ['registryURL', 'updateCheck.registry'],
+  ['package name', 'updateCheck.package'],
+  ['dist tag', 'updateCheck.distTag'],
+  ['repo', 'updateCheck.repo'],
+  ['url', 'updateCheck.url'],
+  ['path', 'updateCheck.path'],
+  ['prefix', 'updateCheck.prefix'],
+];
+
+/**
+ * Builds a checker, and re-words a refusal in the terms of the file.
+ *
+ * Re-worded here rather than by a label the published builders take: a label
+ * would be an option on three public functions that only this caller wants,
+ * where the table above is one place, private, and held honest by tests that
+ * read every refusal back. The message keeps the builder's own sentence, so
+ * what was wrong is said once and by the one definition of the rule.
+ *
+ * @param build - Makes the checker.
+ * @returns What it made.
+ * @throws What the builder threw, naming the `sigil.json` key.
+ */
+function asDeclared<T>(build: () => T): T {
+  try {
+    return build();
+  } catch (err) {
+    if (err instanceof Error) {
+      for (const [noun, key] of DECLARED_KEYS) {
+        const prefix = `Update check ${noun} `;
+        if (err.message.startsWith(prefix)) {
+          err.message = `Update check "${key}" ${err.message.slice(prefix.length)}`;
+          break;
+        }
+      }
+    }
+    throw err;
+  }
+}
+
+/**
  * The `define` entry the bundler is given.
  *
  * @param baked - What the build decided.
@@ -116,17 +167,21 @@ function checkerFor(
       return null;
 
     case 'github':
-      return githubChecker({
-        ...(declared.prefix !== undefined && { prefix: declared.prefix }),
-        repo: declared.repo!,
-      });
+      return asDeclared(() =>
+        githubChecker({
+          ...(declared.prefix !== undefined && { prefix: declared.prefix }),
+          repo: declared.repo!,
+        })
+      );
 
     case 'custom':
-      return {
-        path: declared.path!,
-        type: 'custom',
-        url: declared.url!,
-      };
+      return asDeclared(() =>
+        customChecker({
+          path: declared.path!,
+          ...(declared.prefix !== undefined && { prefix: declared.prefix }),
+          url: declared.url!,
+        })
+      );
 
     default: {
       const name = declared.package ?? packageName;
@@ -136,11 +191,13 @@ function checkerFor(
             'or give the app\'s package.json a "name".'
         );
       }
-      return npmChecker({
-        ...(declared.distTag !== undefined && { distTag: declared.distTag }),
-        packageName: name,
-        ...(declared.registry !== undefined && { registryURL: declared.registry }),
-      });
+      return asDeclared(() =>
+        npmChecker({
+          ...(declared.distTag !== undefined && { distTag: declared.distTag }),
+          packageName: name,
+          ...(declared.registry !== undefined && { registryURL: declared.registry }),
+        })
+      );
     }
   }
 }

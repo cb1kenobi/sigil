@@ -577,6 +577,17 @@ export function bundleFailure(
  * with `escapeMessage()`, `diagnosticMessage()`'s rule by name -- which a
  * sentence already escaped passes through unchanged.
  *
+ * A **system error** is the exception, and it is escaped whole with
+ * `escapeControls()`: Node's `ENOTDIR` is one line quoting a path, so a newline
+ * in it belongs to the path, and `escapeMessage()` -- which keeps line breaks
+ * for the structure rolldown's own messages have -- would let the rest of a root
+ * called `h\nsrc/forged.ts:1:1: error: ...` start a line a problem matcher reads
+ * as a diagnostic (SIG-552). It is told by carrying both a string `code` and a
+ * string `syscall`, which Node sets on every one and rolldown sets on none: a
+ * rolldown error has no `code` of its own, and the logs inside it carry a `code`
+ * (`PARSE_ERROR`) but no `syscall`. `package`'s `quoting()` asks for a `code`
+ * alone, which is enough where only Node's errors reach it.
+ *
  * The error is kept rather than replaced when it is one, so its class, its
  * `code` and an `exitCode` it carries all survive; only the message changes.
  *
@@ -588,11 +599,24 @@ export function escaped(error: unknown): unknown {
     return new Error(escapeMessage(String(error)));
   }
 
-  const message = escapeMessage(error.message);
+  const message = isSystemError(error)
+    ? escapeControls(error.message)
+    : escapeMessage(error.message);
   if (message !== error.message) {
     error.message = message;
   }
   return error;
+}
+
+/**
+ * Whether an error is one Node raised from a system call.
+ *
+ * @param error - The error.
+ * @returns True when it carries a string `code` and a string `syscall`.
+ */
+function isSystemError(error: Error): boolean {
+  const { code, syscall } = error as { code?: unknown; syscall?: unknown };
+  return typeof code === 'string' && typeof syscall === 'string';
 }
 
 /**
