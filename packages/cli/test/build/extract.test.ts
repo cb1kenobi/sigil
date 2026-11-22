@@ -221,6 +221,19 @@ describe('extracting a command module', () => {
       expect(diagnostics).to.have.lengthOf(1);
       expect(diagnostics[0]!.severity).to.equal('warning');
     });
+
+    // SIG-591: `?.` can make the call `undefined`, and a command that is `undefined`
+    // when the module runs has no description to lift. The update-check reader
+    // may read `wrap?.({ ... })` as the plain call and this one may not
+    it('should not step into an optional call, which may be undefined', () => {
+      const { diagnostics, facts } = extractCommand(
+        'a.js',
+        `export default wrap?.({ desc: 'inner' });`
+      );
+      expect(facts.desc).to.equal(undefined);
+      expect(diagnostics).to.have.lengthOf(1);
+      expect(diagnostics[0]!.severity).to.equal('warning');
+    });
   });
 
   describe('a computed value', () => {

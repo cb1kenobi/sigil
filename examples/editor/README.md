@@ -115,8 +115,8 @@ every save back off the disk.
 
 Each is a small local answer where sigil has no answer yet.
 
-- **A dialog borrows an owner.** The palette and the text areas are built from a
-  key, which has no owner, so each is built under a branch of the component's and
-  disposed with it (SIG-335).
+- **A text area borrows an owner.** Each is built from a key, which has no
+  owner, so it is built under a branch of the component's and disposed with its
+  tab (SIG-335's `body` function covers a dialog, and a text area is not one).
 - **A shown box is not shown to the router until a frame.** Opening a file paints
   a frame before the next key, as the log browser does (SIG-384).

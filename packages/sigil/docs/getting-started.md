@@ -258,8 +258,8 @@ $ my-cli deplyo api
 Error: Unexpected argument "deplyo". Did you mean "deploy"?
 ```
 
-Each of these is written to stderr, the process exits with code 1, and no stack
-trace is printed. A CLI's users need the message, not the stack.
+Each of these is written to stderr, the process exits with code 2 (what the user
+typed was wrong), and no stack trace is printed. A CLI's users need the message, not the stack.
 
 ## Options every command shares
 
@@ -336,7 +336,8 @@ Two things to notice:
 - **A thrown error is the command's failure.** `main()` prints its message and
   sets the exit code. The exit code is 1 unless the error has an integer
   `exitCode` property, as this one does, so `my-cli db migrate --to 0` exits
-  with 2.
+  with 2. A mistake in how the program was run, such as a missing argument, is
+  a `UsageError` and exits with 2 too.
 
 `db` has no `run`, so naming it lists what is under it.
 
@@ -367,7 +368,7 @@ describe('deploy', () => {
   it('refuses an environment it does not know', async () => {
     const ran = await runCommand({ argv: ['deploy', 'api', '--env', 'prod'], schema });
 
-    expect(ran.code).toBe(1);
+    expect(ran.code).toBe(2);
     expect(ran.err).toContain('Invalid value "prod" for option --env');
   });
 });

@@ -38,8 +38,8 @@
  * `rootElement()`, and to `applyRef()` for the one prop that runs after the
  * children. The code the build emitter in `@ttylabs/cli` *generates* calls those
  * same six and nothing else from this module. The compiler itself also reads
- * `componentChildren()`, `rawParts()`, `splitRefs()`, `textPart()`,
- * `refuseHandlerName()` and `templateError()` while it prints -- the rules about
+ * `componentChildren()`, `rawParts()`, `trackedFlag()`, `splitRefs()`,
+ * `textPart()`, `refuseHandlerName()` and `templateError()` while it prints -- the rules about
  * which children, props and names exist, which are not to be written twice and
  * which never reach an app's bundle. So the two emitters cannot
  * come to disagree about what a prop or a child *means*; they can only disagree
@@ -65,7 +65,7 @@ import {
   type RawOptions,
   text,
 } from '../element/index.js';
-import { createEffect } from '../renderer/index.js';
+import { createEffect, trackedRaw } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
 
 /**
@@ -487,28 +487,67 @@ export function applyText(element: Element, parts: readonly unknown[], loc?: Sou
  *
  * `measure` and `paint` are construction options rather than props, so neither
  * is ever reactive: they are what the element *is*, and a `raw` that changed
- * how it measures would have to invalidate a layout nobody asked to run.
+ * how it measures would have to invalidate a layout nobody asked to run. `tracked`
+ * is the same kind of thing, and for the same reason: whether an element listens
+ * to what its paint reads is how it is built, and a flag that flipped later
+ * would have to build or release the listening from outside the frame.
  *
  * @param measure - How wide and tall it wants to be.
  * @param paint - What it draws.
  * @param loc - Where it was written.
  * @param props - Its style props.
+ * @param tracked - Whether to build it with `trackedRaw()`, so a signal its paint or
+ * its measure read repaints or relays it out. A plain `raw` is the default.
  * @returns The raw element.
  */
 export function rawElement(
   measure: unknown,
   paint: unknown,
   loc?: SourceLocation,
-  props: ElementProps = {}
+  props: ElementProps = {},
+  tracked: unknown = false
 ): Element {
   refuseExpr(measure, loc);
   refuseExpr(paint, loc);
+  refuseExpr(tracked, loc);
 
   if (typeof measure !== 'function' || typeof paint !== 'function') {
     throw templateError('<raw> needs a measure and a paint', loc);
   }
 
-  return raw({ measure, paint } as RawOptions, props);
+  const options = { measure, paint } as RawOptions;
+  return trackedFlag(tracked, loc) ? trackedRaw(options, props) : raw(options, props);
+}
+
+/**
+ * What a `<raw>`'s `tracked` says, refusing anything that is not a flag.
+ *
+ * Both emitters ask it, so a `tracked` that is not `true` or `false` is the same
+ * error on a build as on a run. A bare `tracked` is `true`; `tracked=${false}` is
+ * how a template says plain while a variable decides. A string is refused rather
+ * than read -- `tracked="false"` is truthy to anything that tests it and false to
+ * anyone who reads it -- and so is a function, which a template would otherwise
+ * call a thunk and expect to follow a signal: the flag is how the element is
+ * built, and is read once.
+ *
+ * @param value - What the template gave, or `undefined` for none.
+ * @param loc - Where it was written.
+ * @returns Whether to build a tracked raw, or the expression the build emitter
+ * prints for the run to decide.
+ * @throws If the value is neither a boolean nor an expression.
+ */
+export function trackedFlag(value: unknown, loc?: SourceLocation): boolean | Expr {
+  if (value === undefined) {
+    return false;
+  }
+  if (typeof value === 'boolean' || value instanceof Expr) {
+    return value;
+  }
+  throw templateError(
+    '<raw tracked> is a flag, written bare or as true or false: it is read once, when the ' +
+      'element is built, so a function or a string cannot follow a signal',
+    loc
+  );
 }
 
 /**
@@ -660,13 +699,14 @@ export function textPart(child: IRNode): unknown {
  * about one element is the divergence they exist to avoid.
  *
  * @param node - The element node.
- * @returns The measure, the paint, and every other prop in order.
+ * @returns The measure, the paint, the `tracked` flag, and every other prop in order.
  * @throws If the node has children.
  */
 export function rawParts(node: IRElement): {
   readonly measure: unknown;
   readonly paint: unknown;
   readonly props: readonly IRProp[];
+  readonly tracked: unknown;
 } {
   if (node.children.length > 0) {
     throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
@@ -675,7 +715,10 @@ export function rawParts(node: IRElement): {
   return {
     measure: node.props.find((prop) => prop.name === 'measure')?.value,
     paint: node.props.find((prop) => prop.name === 'paint')?.value,
-    props: node.props.filter((prop) => prop.name !== 'measure' && prop.name !== 'paint'),
+    props: node.props.filter(
+      (prop) => prop.name !== 'measure' && prop.name !== 'paint' && prop.name !== 'tracked'
+    ),
+    tracked: node.props.find((prop) => prop.name === 'tracked')?.value,
   };
 }
 
@@ -686,9 +729,9 @@ export function rawParts(node: IRElement): {
  * @returns The raw element.
  */
 function emitRaw(node: IRElement): Element {
-  const { measure, paint, props: all } = rawParts(node);
+  const { measure, paint, props: all, tracked } = rawParts(node);
   const { props, refs } = splitRefs(all);
-  const element = rawElement(measure, paint, node.loc);
+  const element = rawElement(measure, paint, node.loc, {}, tracked);
   applyProps(element, props, node.loc);
   applyRefs(element, refs, node.loc);
   return element;

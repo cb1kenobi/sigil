@@ -21,6 +21,7 @@ export * from './types.js';
 export { command } from './command.js';
 export { options } from './options.js';
 export { errorExitCode, errorHandler, errorMessage, renderError } from './error-handler.js';
+export { UsageError, type UsageErrorCode } from './util/usage-error.js';
 
 const { log } = debug('sigil');
 

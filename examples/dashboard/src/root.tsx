@@ -21,6 +21,7 @@ import { THEMES } from './themes.ts';
 import { buildTraffic } from './traffic.tsx';
 import { useApp } from '@ttylabs/sigil/app';
 import { describeButton } from '@ttylabs/sigil/components/button';
+import { describeLineChart } from '@ttylabs/sigil/components/chart';
 import { keyHelp } from '@ttylabs/sigil/components/key-help';
 import { describeTabs } from '@ttylabs/sigil/components/tabs';
 import type { Element } from '@ttylabs/sigil/element';
@@ -201,6 +202,7 @@ export function App(): Element {
   // Tab is the router's own default, so it is described rather than bound
   onCleanup(input.describe('tab', { description: 'next', priority: 8 }));
   onCleanup(describeTabs(input, traffic.ranges));
+  onCleanup(describeLineChart(input, traffic.chart));
   onCleanup(describeButton(input, header.menu));
 
   const showing = (overview: boolean) => (): 'flex' | 'none' =>

@@ -5,6 +5,7 @@ import type { ErrorContext, ErrorHandlerOptions } from './types.js';
 import { errorMessage, readString } from './util/error-message.js';
 import { safeLog as safeLogTo } from './util/safe-log.js';
 import { trimTrailingNewlines } from './util/trim-trailing-newlines.js';
+import { UsageError } from './util/usage-error.js';
 
 export type { ErrorContext, ErrorHandler, ErrorHandlerOptions, ErrorRenderer } from './types.js';
 // published here, and written in a leaf module so that a layer below this one
@@ -13,6 +14,9 @@ export { errorMessage } from './util/error-message.js';
 // and the one spelling of a value a message echoes, which the parser's own
 // messages use and `sigil add` imports from here rather than copying
 export { escapeControls } from './util/escape-controls.js';
+// and the error a usage mistake is thrown as, which a custom handler or a
+// `beforeError` hook asks `instanceof` of
+export { UsageError, type UsageErrorCode } from './util/usage-error.js';
 
 const { log } = debug('sigil:error');
 
@@ -59,8 +63,15 @@ function errorLine(err: unknown): string {
  */
 function errorPayload(err: unknown): SerializedError {
   const name = err !== null && typeof err === 'object' ? readString(err, 'name') : undefined;
+  const code = err instanceof UsageError ? readString(err, 'code') : undefined;
 
-  return { error: name ? { message: errorMessage(err), name } : { message: errorMessage(err) } };
+  return {
+    error: {
+      message: errorMessage(err),
+      ...(name && { name }),
+      ...(code && { code }),
+    },
+  };
 }
 
 /**

@@ -18,7 +18,7 @@
 
 import type { SigilConfig, UpdateCheckConfig } from '../config.ts';
 import { quote } from '../template/emit.ts';
-import { bindingName, importBindings, type ImportBindings } from './bindings.ts';
+import { importBindings, importCall, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import {
   flatten,
@@ -240,18 +240,22 @@ const CHECKER_BUILDERS = ['githubChecker', 'npmChecker'] as const;
  * `githubChecker({ repo })` would otherwise be read as the options `{ repo }`.
  */
 function namesChecker(value: Expression, builders: readonly ImportBindings[]): boolean {
-  const expression = unwrapShallow(value);
-
-  if (
-    expression.type === 'CallExpression' &&
-    builders.some(
-      (bindings) => bindingName(unwrapShallow(expression.callee), bindings) !== undefined
-    )
-  ) {
+  // `importCall()` rather than a `CallExpression` check, so that
+  // `githubChecker?.({ ... })` is the call it is: oxc puts a `ChainExpression`
+  // around it, which is not a wrapper `unwrapShallow()` takes off
+  if (importCall(value, builders)) {
     return true;
   }
 
-  const options = objectLiteral(expression);
+  const expression = unwrapShallow(value);
+
+  // `optional`: `wrap?.({ checker })` names its checker as `wrap({ checker })` does
+  // (SIG-591). When `wrap` is nullish the schema has no `updateCheck` at all, so
+  // reading it as naming costs a declaration the build did not demand, and a
+  // reader that errs towards not refusing may afford that. The shared reader does
+  // not do it by default because the module lift and the command tree could not
+  // afford it: they would bake a description of a command that is not there.
+  const options = objectLiteral(expression, { optional: true });
   if (!options) {
     return false;
   }
