@@ -334,13 +334,19 @@ describe('the examples', () => {
         // `runApp()` a `mouse` of its own -- is run by nothing else: take it out
         // and the suite stays green over an app with no mouse (SIG-522, SIG-594).
         // Read off the entry's source, so an example that adds the flag, or turns
-        // the mouse on without one, has to add the file. The file has to name what
-        // it reads, so an empty one is not an answer
+        // the mouse on without one, has to add the file. Any use of the word
+        // outside a comment counts -- `'-m, --mouse'`, a shorthand `{ mouse }`, a
+        // quoted key -- since a test owed wrongly is cheaper than one missed. The
+        // file has to name what it reads, so an empty one is not an answer, and
+        // the unbuilt entry too, since it spells the flag separately from the bin
         const sources = [join(example.dir, 'src', 'index.ts'), example.unbuilt]
           .filter((file): file is string => file !== undefined && existsSync(file))
-          .map((file) => readFileSync(file, 'utf-8'));
-        const turnsMouseOn = sources.some((text) => /['"]--mouse['"]|\bmouse\s*:/.test(text));
-        if (!turnsMouseOn) {
+          .map((file) =>
+            readFileSync(file, 'utf-8')
+              .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+              .replaceAll(/^\s*\/\/.*$/gm, '')
+          );
+        if (!sources.some((text) => /\bmouse\b/.test(text))) {
           return;
         }
 
@@ -349,9 +355,15 @@ describe('the examples', () => {
           existsSync(test),
           `${example.name}'s entry turns the mouse on and ${relative(root, test)} does not exist: it spawns the entry and reads ENABLE_MOUSE_* off the terminal`
         ).toBe(true);
-        expect(readFileSync(test, 'utf-8'), 'the entry test reads the mouse modes').toMatch(
+        const text = readFileSync(test, 'utf-8');
+        expect(text, 'the entry test reads the mouse modes').toMatch(
           /\bENABLE_MOUSE_(BUTTONS|MOTION)\b/
         );
+        if (example.unbuilt !== undefined) {
+          expect(text, 'the entry test spawns the unbuilt entry too').toContain(
+            basename(example.unbuilt)
+          );
+        }
       });
 
       it.skipIf(!example.roots.some((file) => file.endsWith('.tsx')))(

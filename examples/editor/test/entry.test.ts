@@ -85,9 +85,9 @@ describe('the entry', () => {
 
   it.concurrent('should open the directory it was given rather than the working directory', async () => {
     // the file tree's root row is the directory, so a `dir` that did not reach
-    // `createWorkspace()` would show `started-here/` here, which is where the
+    // `createWorkspace()` would show `started-here` here, which is where the
     // process was started
-    const out = await started([opened], /opened-dir\//);
+    const out = await started([opened], /opened-dir/);
     expect(out).not.toContain('started-here');
   }, 45_000);
 });

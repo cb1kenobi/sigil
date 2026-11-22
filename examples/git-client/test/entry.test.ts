@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * Whether `--mouse` reaches `runApp()`, read off what each entry writes to the
@@ -44,10 +44,22 @@ afterAll(() => {
   rmSync(cwd, { force: true, maxRetries: 5, recursive: true });
 });
 
+/**
+ * The environment git is run in, here and in the entry: no config of the
+ * machine's, so that a global `core.excludesFile` ignoring `*.txt` cannot hide
+ * the file below. `app.test.ts` isolates its fixture the same way.
+ */
+const gitEnv = {
+  GIT_CONFIG_GLOBAL: join(cwd, 'no-such-gitconfig'),
+  GIT_CONFIG_NOSYSTEM: '1',
+};
+
 /** A repository with one untracked file, which is all the client needs to have something to show. */
 const repo = mkdtempSync(join(tmpdir(), 'sigil-git-client-entry-repo-'));
-execFileSync('git', ['init', '--quiet'], { cwd: repo });
-writeFileSync(join(repo, 'untracked-marker.txt'), 'x\n');
+beforeAll(() => {
+  execFileSync('git', ['init', '--quiet'], { cwd: repo, env: { ...process.env, ...gitEnv } });
+  writeFileSync(join(repo, 'untracked-marker.txt'), 'x\n');
+});
 afterAll(() => {
   rmSync(repo, { force: true, maxRetries: 5, recursive: true });
 });
@@ -71,6 +83,7 @@ async function started(
     argv: [dir, ...flags],
     columns: 80,
     cwd,
+    env: gitEnv,
     rows: 24,
     run: file,
     stdin: true,
