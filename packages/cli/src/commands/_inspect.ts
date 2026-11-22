@@ -179,8 +179,8 @@ export function inspect(options: InspectOptions): Inspection {
  *
  * The entry, the file the schema is written in when that is another one
  * (`schemaModule()`, which every other schema reader asks), and every command
- * module, which is what `check` has always read -- not every module in the app, which only the bundler knows: a template in a
- * helper the commands import is found by `bundleApp()`'s transform instead,
+ * module, which is what `check` has always read -- not every module in the app,
+ * which only the bundler knows: a template in a helper the commands import is found by `bundleApp()`'s transform instead,
  * through the same `templateDiagnostics()`, so `build` and `package` say the
  * same line about it that `check` says about one here. Walking the app's tree
  * to close that gap was not taken, because a tree holds fixtures and tests

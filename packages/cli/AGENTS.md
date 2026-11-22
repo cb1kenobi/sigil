@@ -2522,7 +2522,9 @@ block and the imports at the top. A rolldown `transform` runs it on the way in.
   them parse and only compile() refuses`.
 
   `sigil check` reports it too, by compiling the templates in the modules it
-  already reads -- the entry and every command module -- in `checkTemplates()`.
+  already reads -- the entry, the file the schema is written in (SIG-568) and every
+  command module -- in `checkTemplates()`, once each by the path as resolved, so a
+  symlink or a differently cased spelling of one file is two.
   Not every module in the app: only the bundler knows what is reached, and
   walking the tree would refuse an app over a fixture or a test nothing imports,
   which the build would not. A template in a helper the commands import is
