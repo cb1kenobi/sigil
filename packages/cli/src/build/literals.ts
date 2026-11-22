@@ -17,8 +17,9 @@ import type { Expression, Node, ObjectExpression, ObjectProperty, SpreadElement 
 /**
  * Looks through the wrappers that do not change what a value is.
  *
- * `as` and `satisfies` are type syntax and erase to nothing; parentheses are
- * nothing at all; `!` is an assertion about a value rather than a change to it.
+ * `as`, `satisfies` and the angle-bracket assertion `<T>x` are type syntax and
+ * erase to nothing; parentheses are nothing at all; `!` is an assertion about a
+ * value rather than a change to it.
  *
  * @param node - The expression.
  * @returns The expression under the type syntax.
@@ -28,6 +29,7 @@ export function unwrapShallow(node: Expression): Expression {
   while (
     current.type === 'TSAsExpression' ||
     current.type === 'TSSatisfiesExpression' ||
+    current.type === 'TSTypeAssertion' ||
     current.type === 'ParenthesizedExpression' ||
     current.type === 'TSNonNullExpression'
   ) {

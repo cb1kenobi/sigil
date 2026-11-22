@@ -6,13 +6,14 @@ import {
   readAppCommands,
   readSchemaUpdateCheck,
   schemaWantsUpdateCheck,
+  walkTree,
 } from '../../src/build/index.ts';
 import { checkMainSettings } from '../../src/build/main-settings.ts';
 import { exportsNoSchema, findSchema, schemaModule } from '../../src/build/schema-module.ts';
 import { buildReads, inspect } from '../../src/commands/_inspect.ts';
 import { tempDir } from '../temp.ts';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -119,6 +120,67 @@ describe('which module holds the schema', () => {
     expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
   });
 
+  it('should follow `export default x satisfies T`, which erases to `export default x`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema satisfies Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow `export default x as T`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema as Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow `export default <T>x`', () => {
+    const root = appOf({
+      'src/index.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default <Schema>schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow a wrapped name through a module in between, to the file that writes it', () => {
+    const root = appOf({
+      'src/index.ts': "export { default } from './app.js';\n",
+      'src/app.ts':
+        "import schema from './schema.js';\nimport type { Schema } from './types.js';\nexport default schema satisfies Schema;\n",
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
+  it('should follow what an entry hands to main() through the same wrappers', () => {
+    for (const call of [
+      'main(schema as Schema)',
+      'main(schema satisfies Schema)',
+      'main(<Schema>schema)',
+      'main({ schema: <Schema>schema })',
+      'main({ schema: schema as Schema })',
+    ]) {
+      const root = appOf({
+        'src/index.ts': `${RUNTIME}import schema from './schema.js';\nimport type { Schema } from './types.js';\nawait ${call};\n`,
+        'src/schema.ts': ASKS,
+      });
+
+      expect(findSchema(join(root, 'src', 'index.ts'))).toEqual({
+        file: join(root, 'src', 'schema.ts'),
+        viaMain: true,
+      });
+    }
+  });
+
   it('should follow an entry that also holds directives, types and type-only imports', () => {
     const root = appOf({
       'src/index.ts': [
@@ -160,6 +222,52 @@ describe('which module holds the schema', () => {
     });
 
     expect(whereIs(root)).toBe('src/index.js');
+  });
+
+  describe('a wrapper around anything but a bare name does not forward it', () => {
+    const wrapped: Record<string, string> = {
+      'satisfies on a spread': 'export default { ...base } satisfies Schema;\n',
+      'as on a call': 'export default Object.freeze(base) as Schema;\n',
+      'an assertion on a literal': "export default <Schema>{ ...base, name: 'x' };\n",
+      'satisfies on a member': 'export default base.schema satisfies Schema;\n',
+    };
+
+    for (const [label, statement] of Object.entries(wrapped)) {
+      it(`should be the entry for ${label}`, () => {
+        const root = appOf({
+          'src/index.ts': `import base from './schema.js';\nimport type { Schema } from './types.js';\n${statement}`,
+          'src/schema.ts': ASKS,
+        });
+
+        expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
+      });
+    }
+
+    it('should follow a name under parentheses, `!` and stacked assertions, which erase the same way', () => {
+      for (const statement of [
+        'export default (schema);',
+        'export default schema!;',
+        'export default schema as unknown as Schema;',
+        'export default (<Schema>schema)! satisfies Schema;',
+      ]) {
+        const root = appOf({
+          'src/index.ts': `import schema from './schema.js';\nimport type { Schema } from './types.js';\n${statement}\n`,
+          'src/schema.ts': ASKS,
+        });
+
+        expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+      }
+    });
+
+    it('should be the entry when a wrapped name is not all the module does', () => {
+      const root = appOf({
+        'src/index.ts':
+          "import schema from './schema.js';\nimport type { Schema } from './types.js';\nObject.assign(schema, { commands: './commands' });\nexport default schema satisfies Schema;\n",
+        'src/schema.ts': "export default { name: 'a' };\n",
+      });
+
+      expect(whereIs(root, 'src/index.ts')).toBe('src/index.ts');
+    });
   });
 
   describe('what it cannot read for certain is the entry, as it always was', () => {
@@ -584,5 +692,62 @@ describe('an entry that exports no schema, however it reaches main()', () => {
       exportsNoSchema(entry("import { sep } from 'node:path';\nmodule.exports = { name: sep };\n"))
     ).toBe(false);
     expect(exportsNoSchema(entry('export default {', 'index.js'))).toBe(false);
+  });
+});
+
+describe('a ui template in a schema imported from another file', () => {
+  /** A template whose interpolation sits inside a quoted value, which cannot be compiled. */
+  const BROKEN = 'export const banner = () => ui`<text class="a ${\'b\'} c">x</text>`;\n';
+  const TEMPLATE = "import { ui } from '@ttylabs/sigil/template';\n";
+
+  /** The template diagnostics of an app, which are the only ones with this wording. */
+  function templateErrors(root: string) {
+    return inspect({ cwd: root }).diagnostics.filter((d) =>
+      d.message.includes('An interpolation inside a quoted value')
+    );
+  }
+
+  it('should be reported with the schema file, line and column, as one in the entry is', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './config/schema.js';\n",
+      'src/config/schema.js': `${TEMPLATE}\n${BROKEN}\nexport default { name: 'x' };\n`,
+    });
+
+    const [error, ...rest] = templateErrors(root);
+
+    expect(rest).toEqual([]);
+    expect(error).toMatchObject({
+      column: 29,
+      file: join(root, 'src', 'config', 'schema.js'),
+      line: 3,
+      severity: 'error',
+    });
+  });
+
+  it('should be reported where the schema is reached through the entry`s main() call', () => {
+    const root = appOf({
+      'src/index.js': `${RUNTIME}import schema from './schema.js';\nawait main({ schema });\n`,
+      'src/schema.js': `${TEMPLATE}${BROKEN}${ASKS}`,
+    });
+
+    expect(templateErrors(root).map((d) => basename(d.file ?? ''))).toEqual(['schema.js']);
+  });
+
+  it('should be reported once when the schema file is also a command module', () => {
+    const root = appOf({
+      'src/index.js': "export { default } from './schema.js';\n",
+      'src/schema.js': `${TEMPLATE}${BROKEN}export default { commands: { again: { load: () => import('./schema.js') } } };\n`,
+    });
+    const modules = [...walkTree(inspect({ cwd: root }).commands)].map((c) => c.command.module);
+
+    // the fixture is only meaningful if the schema file really is a command's module
+    expect(modules).toContain(join(root, 'src', 'schema.js'));
+    expect(templateErrors(root)).toHaveLength(1);
+  });
+
+  it('should be reported once when the schema is written in the entry', () => {
+    const root = appOf({ 'src/index.js': `${TEMPLATE}${BROKEN}${ASKS}` });
+
+    expect(templateErrors(root)).toHaveLength(1);
   });
 });

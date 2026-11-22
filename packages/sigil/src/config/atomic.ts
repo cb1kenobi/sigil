@@ -1,4 +1,4 @@
-import { escapeControls } from '../util/escape-controls.js';
+import { escapeControls, inertError } from '../util/escape-controls.js';
 import { mkdirOwnerSync } from '../util/mkdir-owner-sync.js';
 import {
   chmodSync,
@@ -206,7 +206,7 @@ export function physicalPath(raw: string): string {
       return rest === '' ? real : join(real, rest);
     } catch (e: unknown) {
       if (!isMissing(e)) {
-        throw e;
+        throw inertError(e);
       }
     }
 
@@ -509,10 +509,29 @@ function keepOf(path: string): Keep {
 /**
  * Writes a file atomically.
  *
+ * What a failed write throws is Node's own error, with its message escaped and
+ * nothing else about it touched: it quotes the path it failed on, and the path
+ * is the app's, as the file system holds it. `inertError()` has why the error
+ * itself is edited rather than wrapped, and the wrap is out here rather than at
+ * each `throw` because the failures that matter are not all this file's --
+ * `mkdirOwnerSync()` raises its own -- and one place cannot miss a site added
+ * later (SIG-571).
+ *
  * @param path - The file.
  * @param text - What it should hold.
+ * @throws What the file system raised, with a message that holds no control
+ * character; `code`, `errno`, `syscall` and `path` are as it set them.
  */
 export async function writeAtomic(path: string, text: string): Promise<void> {
+  try {
+    await save(path, text);
+  } catch (e: unknown) {
+    throw inertError(e);
+  }
+}
+
+/** `writeAtomic()` before its errors are made inert. */
+async function save(path: string, text: string): Promise<void> {
   // resolved first, so a symlinked config is written **through** rather than
   // replaced -- `realPathOf()` has the measurement. Synchronous for the reason
   // `mkdirOwnerSync()` is: there is no async twin of that one, so the pair is
@@ -566,11 +585,22 @@ export async function writeAtomic(path: string, text: string): Promise<void> {
  * Beside the async one rather than instead of it, for the reason
  * `createConfigSync()` is: an exit or signal handler cannot await, and "read
  * the config on the way in and write it on the way out" is that shape exactly.
+ * What it throws is what `writeAtomic()` throws.
  *
  * @param path - The file.
  * @param text - What it should hold.
+ * @throws For the reasons `writeAtomic()` does.
  */
 export function writeAtomicSync(path: string, text: string): void {
+  try {
+    saveSync(path, text);
+  } catch (e: unknown) {
+    throw inertError(e);
+  }
+}
+
+/** `writeAtomicSync()` before its errors are made inert. */
+function saveSync(path: string, text: string): void {
   const real = realPathOf(path);
 
   mkdirOwnerSync(dirname(real));
