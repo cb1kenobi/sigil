@@ -97,8 +97,8 @@ const NOTHING = { file: false, rc: false } as const;
  * names a file that is not there. So a path with nothing in it to escape is
  * `shQuote()`'s word, and a path with something is the same word in the `$'...'`
  * form bash and zsh read, each character `escapeControls()` would change spelled
- * as the escape that means it to the shell -- `\xNN`, `\uNNNN` or `\UNNNNNNNN`
- * -- and the backslash and the quote the two that form needs for themselves
+ * as the UTF-8 bytes it is in the file's name, each `\xNN` -- and the backslash
+ * and the quote the two that form needs for themselves
  * (SIG-576). The question of *which* characters is `escapeControls()`'s, asked
  * of one character at a time, so the class is still defined once.
  *
@@ -112,15 +112,13 @@ function shDisplay(path: string): string {
 
   let word = '';
   for (const c of path) {
-    const code = c.codePointAt(0) ?? 0;
     if (escapeControls(c) !== c) {
-      const hex = code.toString(16).toUpperCase();
-      word +=
-        code < 0x100
-          ? `\\x${hex.padStart(2, '0')}`
-          : code < 0x10000
-            ? `\\u${hex.padStart(4, '0')}`
-            : `\\U${hex.padStart(8, '0')}`;
+      // the character's UTF-8 **bytes**, each as `\xNN`: inside `$'...'` that
+      // escape is one byte in both shells, so it is the one spelling that names
+      // the same file in bash 3.2 (which has no `\u`) and in zsh under any locale
+      for (const byte of Buffer.from(c)) {
+        word += `\\x${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+      }
     } else if (c === '\\' || c === "'") {
       word += `\\${c}`;
     } else {

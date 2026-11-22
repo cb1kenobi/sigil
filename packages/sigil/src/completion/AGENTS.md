@@ -1618,9 +1618,14 @@ dispatches between the printer and the installer.
   `rm ${shQuote(file)}` kept an `ESC` raw, and `rm '<path with \x1B>'` would name
   a file that is not there. So `shDisplay()` in `interactive.ts` is `shQuote()`'s
   word for a path with nothing in it to escape and the `$'...'` form for one with
-  something, each character `escapeControls()` would change written as the
-  `\xNN`, `\uNNNN` or `\UNNNNNNNN` escape bash and zsh read, and the backslash
-  and quote as themselves. The class is `escapeControls()`'s, asked one character
+  something, each character `escapeControls()` would change written as its
+  UTF-8 **bytes**, each one `\xNN`, and the backslash and quote as themselves.
+  Bytes rather than `\uNNNN`, which was the first version and was wrong twice:
+  bash 3.2, the one macOS ships, has no `\u` and keeps it literal, and in zsh it
+  is read through the locale, so `LC_ALL=C` refuses it. And `\xNN` for a code
+  point such as U+009B is **one** byte, `9B`, where the file's name holds `C2 9B`
+  -- so the character's own number is not what that escape wants. Found by
+  review, with each shell handed the printed word. The class is `escapeControls()`'s, asked one character
   at a time, so it is still defined once; `shQuote()` itself is not touched,
   because it writes the startup file, where a shell reading a raw byte is what is
   wanted. The test hands the printed word to `bash` and compares what it prints

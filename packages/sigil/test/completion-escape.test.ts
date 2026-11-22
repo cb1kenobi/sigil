@@ -268,6 +268,37 @@ describe.skipIf(!POSIX)('the command, under a directory with a control character
     expect(execFileSync('bash', ['-c', `printf %s ${word}`], { encoding: 'utf8' })).toBe(t.file);
   });
 
+  it('should print an rm that names the file where the character is not one byte', async () => {
+    const { runInstaller } = await import('../src/completion/interactive.js');
+    // each a different width in UTF-8: a C1 control (two bytes, and what `\xNN`
+    // would name as one), a soft hyphen, the bidi override, and a tag character
+    // outside the BMP -- plus the two characters `$'...'` needs for itself. A
+    // shell's `\u` is not read by bash 3.2 and a locale decides it in zsh, so the
+    // bytes are what is written
+    const odd = [0x9b, 0xad, 0x202e, 0xe0001].map((code) => String.fromCodePoint(code)).join('');
+    const dir = join(box, `wide-${odd}-it's\\here`);
+    mkdirSync(dir, { recursive: true });
+    const env = { XDG_DATA_HOME: dir, ZDOTDIR: join(box, 'plain zdot') };
+    const t = target(env);
+    install(t);
+    vi.stubEnv('XDG_DATA_HOME', dir);
+    vi.stubEnv('ZDOTDIR', env.ZDOTDIR);
+
+    const out = await stderrOf(async () => {
+      await runInstaller(await state(), { shell: 'zsh', uninstall: true });
+    });
+
+    expect(out).not.toContain(BIDI);
+    expect(out).not.toContain(String.fromCodePoint(0x9b));
+    const rm = out.split('\n').find((line) => line.trimStart().startsWith('rm '));
+    const word = (rm ?? '').trimStart().slice('rm '.length);
+    // the word is ASCII, so it reads the same in every locale
+    expect(/^[\x20-\x7e]+$/u.test(word)).toBe(true);
+    for (const shell of ['/bin/bash', 'bash']) {
+      expect(execFileSync(shell, ['-c', `printf %s ${word}`], { encoding: 'utf8' })).toBe(t.file);
+    }
+  });
+
   it('should leave an ordinary path single-quoted in the rm it prints', async () => {
     const { runInstaller } = await import('../src/completion/interactive.js');
     const env = { XDG_DATA_HOME: join(box, 'plain data'), ZDOTDIR: join(box, 'plain zdot') };
@@ -312,6 +343,19 @@ describe.skipIf(!POSIX)('an error under a directory with a control character', (
       expectInert(e.message);
       expectInert(String(e.stack).split('\n    at ')[0] ?? '');
     }
+  });
+
+  it("should escape the path in the message Node's own read error carries", () => {
+    const t = target();
+    // the script's directory is a regular file, so the open is refused
+    // `ENOTDIR` and Node's message quotes the whole path
+    mkdirSync(join(t.dir, '..'), { recursive: true });
+    writeFileSync(t.dir, 'x');
+
+    const e = thrown(() => planUninstall(t, 'mycli'));
+    expect(e.message).toContain('ENOTDIR');
+    expect(e.message).toContain(ESCAPED);
+    expectInert(e.message);
   });
 
   it('should escape the path of a file it will not remove, which sigil did not write', () => {
