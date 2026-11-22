@@ -2,6 +2,7 @@ import {
   declare,
   expandShorthand,
   gradientBox,
+  gradientColors,
   longhandsFor,
   parseBoolean,
   parseColor,
@@ -11,11 +12,13 @@ import {
   parseIterations,
   parseLength,
   parseMediaQueryList,
+  parseSelector,
   parseSelectorList,
   parseStylesheet,
   parseTime,
   StyleError,
 } from '../../src/style/index.js';
+import { parseCount, parseFactor, parseKeyword } from '../../src/style/value.js';
 import { describe, expect, it } from 'vitest';
 
 // Built rather than typed, so no raw control character sits in this file: an
@@ -36,8 +39,11 @@ const HOSTILE = `${ESC}pwned${BEL}${RLO}`;
 const SHOWN = String.raw`\x1Bpwned\x07\u{202E}`;
 
 // what no message may hold: the class `escapeControls()` names, written here by
-// the properties that cover everything it is built from
-const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+// the properties it is built from
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
+
+// the same value written as an identifier, each character behind a backslash
+const NAME = [...HOSTILE].map((c) => `\\${c}`).join('');
 
 interface Refusal {
   /** The fixed words of the message, so a case proves it reached the throw it names. */
@@ -133,9 +139,22 @@ describe('a stylesheet refusal', () => {
 
 describe('a media query refusal', () => {
   each({
-    'a query that asks nothing': {
-      says: 'Invalid media query',
-      run: () => parseMediaQueryList(`,${HOSTILE},`),
+    'a query that asks nothing': padded('it asks nothing', () => parseMediaQueryList(`,${LS},`)),
+    'a feature that is not one, in a longer query': {
+      says: 'Unknown media feature',
+      run: () => parseMediaQueryList(`(bogus) and (${HOSTILE})`),
+    },
+    'a prefixed feature with no value': {
+      says: 'needs a value',
+      run: () => parseMediaQueryList(`(min-width) ${HOSTILE}`),
+    },
+    'a keyword feature with no value': {
+      says: 'it is always set',
+      run: () => parseMediaQueryList(`(prefers-color-scheme) ${HOSTILE}`),
+    },
+    'a keyword feature with a range prefix': {
+      says: 'takes no range',
+      run: () => parseMediaQueryList(`(min-prefers-color-scheme: dark) ${HOSTILE}`),
     },
     'text where a feature test belongs': {
       says: 'expected a parenthesised feature test',
@@ -176,8 +195,36 @@ describe('a value refusal', () => {
       run: () => parseIterations(HOSTILE, 'animation-iteration-count'),
     },
     'a property name passed as the name': {
-      says: 'Invalid',
+      says: 'expected true or false',
       run: () => parseBoolean('maybe', HOSTILE),
+    },
+    'a property name passed to a count': {
+      says: 'expected a whole number of 0 or more',
+      run: () => parseCount('x', HOSTILE),
+    },
+    'a property name passed to a factor': {
+      says: 'expected a number of 0 or more',
+      run: () => parseFactor('x', HOSTILE),
+    },
+    'a property name passed to an integer': {
+      says: 'expected a whole number',
+      run: () => parseInteger('x', HOSTILE),
+    },
+    'a property name passed to a time': {
+      says: 'expected a time',
+      run: () => parseTime('x', HOSTILE),
+    },
+    'a property name passed to a negative time': {
+      says: 'a duration cannot be negative',
+      run: () => parseTime('-1', HOSTILE),
+    },
+    'a property name passed to an iteration count': {
+      says: 'or infinite',
+      run: () => parseIterations('x', HOSTILE),
+    },
+    'a property name passed to a keyword': {
+      says: 'expected one of',
+      run: () => parseKeyword('x', ['a', 'b'], HOSTILE),
     },
     'a timing function': { says: 'Invalid timing function', run: () => parseEasing(HOSTILE) },
     'a cubic-bezier': {
@@ -185,7 +232,7 @@ describe('a value refusal', () => {
       run: () => parseEasing(`cubic-bezier(1, 2, 3, ${HOSTILE})`),
     },
     'a steps() count': {
-      says: 'Invalid',
+      says: 'steps() count',
       run: () => parseEasing(`steps(${HOSTILE})`),
     },
     'a property': { says: 'Unknown property', run: () => longhandsFor(HOSTILE) },
@@ -269,7 +316,7 @@ describe('a selector refusal', () => {
       run: () => parseSelectorList(`.a:nth-child(${HOSTILE})`),
     },
     'a :not() with nothing readable in it': {
-      says: 'Invalid',
+      says: 'expected an element type',
       run: () => parseSelectorList(`.a:not(${HOSTILE})`),
     },
     'a combinator inside :not()': {
@@ -283,12 +330,16 @@ describe('a selector name written with backslash escapes', () => {
   // an identifier may hold any character a backslash escapes, and its name comes
   // back unescaped -- so these are the selector messages a hostile value reaches
   // through the name rather than through the text around it
-  const NAME = [...HOSTILE].map((c) => `\\${c}`).join('');
-
   each({
     'an unknown pseudo-class': {
       says: 'Unknown pseudo-class',
       run: () => parseSelectorList(`.a:${NAME}`),
+    },
+    'a list given where one selector was asked for': {
+      says: 'Expected one selector',
+      // the backslash stays, since it is the source text's and not a control
+      shown: String.raw`\\x1B`,
+      run: () => parseSelector(`.a\\${ESC}, .b`),
     },
     'a :not() with an empty alternative': padded('empty', () =>
       parseSelectorList(`.a:not(.b,${LS})`)
@@ -336,6 +387,15 @@ describe('a shorthand refusal', () => {
 
 describe('a gradient refusal', () => {
   each({
+    'a padding that is not a number': {
+      says: 'Invalid padding',
+      run: () =>
+        gradientBox('x', ['#ff0000', '#0000ff'], { padding: HOSTILE as unknown as number }),
+    },
+    'a length that is not a number': {
+      says: 'Invalid gradient length',
+      run: () => gradientColors(['#ff0000', '#0000ff'], HOSTILE as unknown as number),
+    },
     'a border it does not know': {
       says: 'Unknown border',
       run: () => gradientBox('x', ['#ff0000', '#0000ff'], { border: HOSTILE as 'round' }),

@@ -838,9 +838,9 @@ toolchain's one reader.
   never a copy) -- the colour, length, time and keyword parsers in `value.ts`, the
   stylesheet's at-rule, keyframe, layer and media messages, the selector cursor's
   `Invalid selector "..." at "..."` and its pseudo-class messages, the shorthand
-  and property parsers, and the one in `easing.ts` and `declaration.ts` -- plus the
-  two `TypeError`s `gradient.ts` raises over a stop and a border name, which are
-  the same fault, and `readDeclarations()`'s cascade-keyword refusal in
+  and property parsers, `easing.ts`'s timing function, `cubic-bezier` and `steps()` messages, and `declaration.ts`'s unknown property -- plus the
+  four `TypeError`s `gradient.ts` raises over a stop, a length, a padding and a
+  border name, which are the same fault, and `readDeclarations()`'s cascade-keyword refusal in
   `index.ts`. The ticket counted 47 from one grep pattern; the sites were found
   by reading every `throw` in the directory.
 
@@ -875,22 +875,25 @@ toolchain's one reader.
   as hostile as the text around it. Both were found by sabotage rather than by
   reading: the first version of the test passed with those sites unescaped.
 
-  _What is escaped without being able to be hostile, as a defence._ Twenty-three
-  sites echo a value a pattern or a table has already limited, so no input
-  reaches them with a hostile character and sabotaging them goes unnoticed: the
-  at-rule keyword (`[-a-zA-Z]+`) in two messages, a keyframes name that has
-  already passed `KEYFRAMES_NAME` in three, a keyframe percentage past 100 and a
+  _What is escaped without being able to be hostile, as a defence._ These sites
+  echo a value a pattern or a table has already limited, so no input reaches them
+  with a hostile character and sabotaging the escape goes unnoticed by the test:
+  the at-rule keyword (`[-a-zA-Z]+`) in two messages, a keyframes name that has
+  already passed `KEYFRAMES_NAME` in three, a keyframe percentage past 100, a
   cascade keyword (a member of a fixed list) in the stylesheet and in
-  `readDeclarations()`, a media feature and its prefix once the feature pattern
-  has matched, a colour channel or palette index in a function form the colour
-  patterns matched, a media query or a selector list that parsed and is quoted as
-  a whole, the `:not` and `:nth-child` names that are fixed words, a property a
-  table resolved, a `steps()` count and a `cubic-bezier` whose numbers parsed, the
-  `v.join(' ')` of a `border` that holds two valid colours, a shorthand's own
-  name, and a gradient stop that is a number. They are escaped anyway: the
-  pattern is another function's and can be loosened without anyone looking here,
-  which is the position SIG-558 recorded for a layer name.
-  `test/style/error-escape.test.ts` holds every site a hostile value can reach.
+  `readDeclarations()`, a colour channel or palette index in a function form the
+  colour patterns matched, the `:not` and `:nth-child` names that are fixed
+  words in the two `expected ... for :name()` messages, a property a table
+  resolved in a transition-property refusal, a `steps()` count and position, the `v.join(' ')` of a `border` that
+  holds two valid colours, a shorthand's own name, and a gradient stop that is a
+  number. They are escaped anyway: the pattern is another function's and can be
+  loosened without anyone looking here, which is the position SIG-558 recorded for
+  a layer name. A media query or a selector list that parsed and is quoted as a
+  whole is **not** on this list: it is reachable, through text a later part of the
+  query leaves hostile and through a backslash-escaped identifier, and has cases.
+  `test/style/error-escape.test.ts` holds every site a hostile value can reach,
+  which the per-site sabotage the review ran is what checks; it is not
+  a count to keep, because the list above moves whenever a message is added.
 
 ### Stylesheets and the cascade
 

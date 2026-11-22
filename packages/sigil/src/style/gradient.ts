@@ -185,7 +185,9 @@ export function gradientColors(
   opts: GradientOptions = {}
 ): Color[] {
   if (!Number.isInteger(count) || count < 0) {
-    throw new TypeError(`Invalid gradient length ${String(count)}: expected a whole number`);
+    throw new TypeError(
+      `Invalid gradient length ${escapeControls(String(count))}: expected a whole number`
+    );
   }
   const colors = readStops(stops);
   const at = ramp(colors, levelOf(opts));
@@ -337,7 +339,9 @@ export function gradientBox(
     throw new TypeError(`Unknown border "${escapeControls(String(opts.border))}"`);
   }
   if (!Number.isInteger(padding) || padding < 0) {
-    throw new TypeError(`Invalid padding ${String(padding)}: expected a whole number`);
+    throw new TypeError(
+      `Invalid padding ${escapeControls(String(padding))}: expected a whole number`
+    );
   }
 
   const [topLeft, top, topRight, right, bottomRight, bottom, bottomLeft, left] = set;
