@@ -372,16 +372,19 @@ the entry it belongs to.
   a paste a terminal wrote. Measured end to end, 1,000,000 units in 1 KiB reads
   went from 1.4s to 2ms, and 4,000,000 from 23s to 9ms.
 
-  **It is still unbounded in size, and that is not decided here.** A string held
-  with a query outstanding has no limit: `HELD_LIMIT` exempts it and nothing else
-  replaced it, as was true before SIG-439, and this made it cheap to hold rather
-  than bounded. It is held until a terminator arrives, the query's own deadline
-  settles it, or the key timer flushes it where no query is outstanding, so the
-  memory is whatever the terminal sends inside that window. A cap would have to
-  say what a string past it is -- released as an `unknown` key as the other
-  sequences are, which types its payload into the focused field, or dropped --
-  and neither is free, which is the reason it is a decision for somebody rather
-  than a comparison to add.
+  **It stays unbounded in size, and that is decided.** A string held with a
+  query outstanding has no limit: `HELD_LIMIT` exempts it and nothing else
+  replaced it, as was true before SIG-439, and SIG-550 made it cheap to hold
+  rather than bounded. It is held until a terminator arrives, the query's own
+  deadline settles it, or the key timer flushes it where no query is
+  outstanding, so the memory is whatever the terminal sends inside that window.
+  A cap would have to say what a string past it is -- released as an `unknown`
+  key as the other sequences are, which types its payload into the focused
+  field, or dropped, which needs a way to discard a string until its terminator
+  -- and neither is free. With the cost linear there is no measured harm left
+  for a cap to answer, so on 2026-11-22 it was left unbounded on purpose, and
+  `PASTE_LIMIT`'s 32 MiB is the figure to start from if a real source of
+  unbounded input ever turns up. Do not add one without that.
 
   **At the cap the tail is released as keys, not dropped and not made text.** A
   tail longer than `HELD_LIMIT` is read as final, the reading `expire()` gives a
