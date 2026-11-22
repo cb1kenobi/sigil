@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 466 keys, which is what a catalog has to carry to translate sigil's own
+ * 469 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -93,7 +93,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a list of values',
   'Expected a menu host to be an element or a renderer',
   'Expected a menu input to be a router',
+  'Expected a menu item check or radio to be a boolean, a state or a function',
+  'Expected a menu item to be a check or a radio, not both',
   'Expected a menu item to have a label',
+  'Expected a menu item with a submenu not to be a check or a radio',
   'Expected a menu item with an initial to have a submenu',
   'Expected a menu minWidth to be a whole number of cells',
   'Expected a menu side to be top, bottom, left or right',

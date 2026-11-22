@@ -12612,6 +12612,59 @@ exception per widget. This is the one answer, and every widget below follows it.
   and Escape still closing it; catching it would be the menu deciding what an app
   bug means.
 
+- **A check item and a radio item are two properties, read by the app's own
+  state, and a radio group is the menu's default highlight (SIG-523).** The
+  dashboard's Theme and the menu demo's Sort by each drew a `●` into a hint by
+  hand, and an app doing that also stated the current choice twice -- once for the
+  mark, once for `initial`. `check` and `radio` each take a `MenuMark`: a boolean,
+  anything with a `get()`, or a function, which is `BadgeSource`'s and `ChartSource`'s
+  shape without the plain-value-or-signal generics, since it only ever answers
+  yes or no. Two names rather than one `kind` beside a `checked`, because the
+  mark and the group are different things to say and an item that is both has no
+  meaning; an item with both, or with `items`, is refused by `checkMenuEntries()`
+  where the menu is built, the dead-property rule. A submenu has no mark because
+  its arrow is its mark.
+
+  **The menu reads it and never writes it.** A chosen item reaches `onSelect()`
+  like any other and flipping the state is the app's, for the reason a `hint` binds
+  no key: `value` is already the app's action, and a menu that wrote a `State`
+  would be deciding what a check means for an app that keeps it somewhere else.
+  It is read each time a menu opens, **untracked**, because the rows are built per
+  opening -- a menubar's items are built once and its menus' rows are not -- so a
+  function is current without anyone rewriting a label. A radio function is asked
+  twice per opening -- once to find the current item for the default, once to draw
+  its row -- which a pure function does not notice and is not worth a cache for.
+  What is **not** done is
+  following the state while the menu is open: choosing closes it, and a mark
+  redrawn under a reader who is looking at the list is the one case where it would
+  show. A function that throws goes out through the key that opened the menu, as
+  an `initial` does.
+
+  **A menu with any mark reserves a two-cell column for it on every row**, blank
+  where the item is off, so labels line up and the width does not change with the
+  state; a menu with none reserves nothing and is unchanged. Off is blank, not
+  `[ ]`: that is the desktop convention, and at colour level 0 a tick is already
+  the difference. `✔` and `●` are in the bundled symbol font's coverage by the
+  components' own literals (`symbols.test.ts` reads them), and the ASCII fallback
+  is `x` and `*`, chosen by the menu's `ascii` as the arrow and the pointer are.
+  No theme role was added: the cell has the hook `.sigil-menu-mark`.
+
+  **The settled question: a radio group's current item is the menu's `initial` by
+  default, and an `initial` that was given always wins.** Stated once is the point
+  of the ticket. It is `menuInitial()`'s third argument, so the three callers that
+  resolve an `initial` -- `openMenu()`, a menubar's menu and a submenu -- get it
+  from one place, and it is treated as an explicit `initial` is (highlighted
+  however the menu opened) because it says which entry is current, which is what
+  `initial` is. Three limits keep it from surprising anybody. It applies only to a
+  menu whose entries are **radio items and separators**: a View menu with a check
+  item and a radio group in it has no one current item, and opening on the
+  radio group's mid-list would be wrong for the check item above it, so the app
+  says `initial` there. The first radio item that is on **and on offer** wins, so
+  a disabled current item falls back to the menu's own default rather than
+  highlighting nothing. And "given" includes a function whose answer is none:
+  `initial: () => undefined` is SIG-463's spelling of nothing being current, and a
+  radio item overruling it would make that spelling mean two things.
+
 - **Tests, and the sabotage pass.** `menu.test.ts`, `menubar.test.ts` and
   `dropdown.test.ts`, through a real router over a test terminal with mouse reports
   as bytes, plus the decoder's function keys in `keys.test.ts` and `Dropdown` in
@@ -12623,7 +12676,7 @@ exception per widget. This is the one answer, and every widget below follows it.
   are in
   [docs/history/menus-a-dropdown-select-a-context-menu-and-a-menubar.md](../../../../docs/history/menus-a-dropdown-select-a-context-menu-and-a-menubar.md).
 
-- **Not done:** check and radio items; type-ahead of more than one letter; a hover
+- **Not done:** type-ahead of more than one letter; a hover
   delay before a submenu opens or closes (the pointer cutting diagonally across a
   parent's rows closes its submenu); a keyboard context menu placed by the app
   rather than under the focused element; scrolling a long list with the wheel by

@@ -21,9 +21,10 @@
  * by: name A to Z, size largest first, modified newest first. Tab to the dropdown
  * and Enter, Space or Down opens it under itself with the current choice
  * highlighted; a letter picks the next choice starting with it without opening
- * anything. View > Sort by is the same choice as a submenu, and it opens on the
- * sort in use too: its `initial` is a function, asked each time it opens, because
- * the bar's menus are built once and the sort changes under them.
+ * anything. View > Sort by is the same choice as a submenu, made of radio items:
+ * each one's `radio` is a function over the sort, so the menu marks the sort in use
+ * and opens on it, whichever of the two changed it last, with no `initial` stated.
+ * View > Hidden files is a check item, marked while it is on.
  *
  * Right click a file, or press Shift-F10 or the Menu key with the focus on one, for
  * a context menu about that file -- at the pointer, or under the row. The focus
@@ -96,6 +97,7 @@ const STYLES = `
 /** The browser: a menubar, a sort dropdown, the files, a status line and the styled pair. */
 function scene(input, status) {
   const sort = new State('name');
+  const hidden = new State(false);
   const say = (words) => status.set(words);
 
   const actions = {
@@ -132,13 +134,21 @@ function scene(input, status) {
       },
       {
         items: [
-          { label: '&Hidden files', value: () => say('View > Hidden files') },
+          {
+            // a check item: the menu draws the tick while the State is on, and
+            // flipping it is the app's, in the item's own action
+            check: hidden,
+            label: '&Hidden files',
+            value: () => {
+              hidden.set(!hidden.get());
+              say(`Hidden files ${hidden.get() ? 'shown' : 'hidden'}`);
+            },
+          },
           { label: '&Refresh', value: () => say('View > Refresh') },
           {
-            // opens on the sort in use, whichever of the two last changed it
-            initial: () => SORT_ORDER.indexOf(sort.get()),
             items: SORT_ORDER.map((by) => ({
               label: by,
+              radio: () => sort.get() === by,
               value: () => {
                 sort.set(by);
                 say(`Sorted by ${by}`);
@@ -423,9 +433,15 @@ if (live) {
   show('m, closed: the next choice starting with m -- sorted by modified, newest first');
 
   await key(`${ESC}v`, 's');
-  show('Alt-V, then s: View > Sort by opens on modified, the sort in use');
+  show('Alt-V, then s: View > Sort by marks modified and opens on it, the sort in use');
 
   await escape();
+  await key('h');
+  show('Escape, then h: Hidden files chosen, and ticked the next time View opens');
+
+  await key(`${ESC}v`);
+  show('Alt-V: the tick beside Hidden files');
+
   await escape();
 
   input.focus.focus(rowFor('src/index.ts'));
