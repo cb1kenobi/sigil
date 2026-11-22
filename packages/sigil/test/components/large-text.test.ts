@@ -6,7 +6,7 @@ import {
   renderFiglet,
 } from '../../src/components/index.js';
 import { box, renderToString } from '../../src/element/index.js';
-import { measureNode } from '../../src/layout/index.js';
+import { measureSubtree } from '../../src/layout/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -698,7 +698,7 @@ describe('largeTextView()', () => {
     const rows = renderFiglet('AB', WORDS);
 
     expect(width).toBe(rows[0]?.length);
-    expect(measureNode(element, 80)).toMatchObject({ height: 3, width });
+    expect(measureSubtree(element, 80)).toMatchObject({ height: 3, width });
   });
 
   it('should measure a wide glyph by what it draws rather than by its columns', () => {

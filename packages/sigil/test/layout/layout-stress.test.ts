@@ -1,4 +1,4 @@
-import { layout } from '../../src/layout/index.js';
+import { layoutTree } from '../../src/layout/index.js';
 import { checkInvariants } from './helpers.js';
 import { build, generate, type Options, rng, shrink, source, type Spec } from './random.js';
 import { describe, expect, it } from 'vitest';
@@ -75,7 +75,7 @@ function check(spec: Spec, width: number, height: number): string | undefined {
     // overflow allowed, for the reason at the top: an escape is legitimate
     // across this corpus, and a check that fails on what the engine is
     // supposed to do is a check somebody deletes
-    checkInvariants(layout(build(spec), { height, width }), { overflow: true });
+    checkInvariants(layoutTree(build(spec), { height, width }), { overflow: true });
     return undefined;
   } catch (error) {
     return (error as Error).message;

@@ -3,6 +3,7 @@ import { trash } from '../src/trash/index.js';
 import { keyOf, recycle } from '../src/trash/windows.js';
 import { tempDir } from './temp.js';
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -11,11 +12,14 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, sep } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -473,12 +477,16 @@ describe('trash()', () => {
       const POWERSHELL = `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
 
       /** Trashes a fresh file through `recycle()` with this cache, and takes it back out. */
-      async function once(file: string | undefined, hash = keyOf('sigil-trash-test')) {
+      async function once(
+        file: string | undefined,
+        hash = keyOf('sigil-trash-test'),
+        load?: 'bytes' | 'compile'
+      ) {
         const item = join(made('sigil-trash-cached-'), 'a.txt');
         writeFileSync(item, 'a');
         let where = '';
         try {
-          const out = await recycle(item, file, hash);
+          const out = await recycle(item, file, hash, load);
           where = out.path;
           expect(where).not.toBe('');
           expect(existsSync(item)).toBe(false);
@@ -647,6 +655,58 @@ describe('trash()', () => {
           expect(states.filter((state) => state === 'hit').length).toBeLessThan(2);
           expect(states).toContain('saved');
           expect(existsSync(file)).toBe(true);
+          expect(await once(file)).toBe('hit');
+        },
+        SLOW
+      );
+
+      it(
+        'should sweep the directories an earlier compile left, and only those',
+        async () => {
+          const hex = () => randomBytes(16).toString('hex');
+          const old = join(tmpdir(), `sigil-trash-${hex()}`);
+          const fresh = join(tmpdir(), `sigil-trash-${hex()}`);
+          // old enough, and not a name the compile makes: someone else's directory
+          const other = join(tmpdir(), `sigil-trash-not-ours-${hex()}`);
+          const dirs = [old, fresh, other];
+          try {
+            for (const dir of dirs) {
+              mkdirSync(dir);
+            }
+            const then = new Date(Date.now() - 2 * 60 * 60 * 1000);
+            utimesSync(old, then, then);
+            utimesSync(other, then, then);
+
+            await once(undefined, undefined, 'compile');
+
+            expect(existsSync(old)).toBe(false);
+            expect(existsSync(fresh)).toBe(true);
+            expect(existsSync(other)).toBe(true);
+          } finally {
+            for (const dir of dirs) {
+              rmSync(dir, { force: true, recursive: true });
+            }
+          }
+        },
+        SLOW
+      );
+
+      it(
+        'should still trash from a file, and touch no cache, where the helper cannot be loaded from bytes',
+        async () => {
+          const file = join(made('sigil-trash-refused-'), 'sigil', 'trash.bin');
+
+          // what a refused `Assembly.Load(byte[])` falls back to -- the library loaded from a file -- asked for directly:
+          // a refusal cannot be provoked from here, and this is the script that
+          // answers it. It must neither read nor write the cache
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
+          expect(existsSync(file)).toBe(false);
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
+
+          // and the way back is untouched: a call that may load bytes still caches
+          expect(await once(file)).toBe('saved');
+          expect(await once(file)).toBe('hit');
+          expect(await once(file, undefined, 'compile')).toBe('compiled');
           expect(await once(file)).toBe('hit');
         },
         SLOW

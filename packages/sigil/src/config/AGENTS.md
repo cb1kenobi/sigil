@@ -1294,9 +1294,9 @@ hold, and `Config.save()` is the one caller of all four.
   added later. `physicalPath()` is the third, being exported and having its own
   raw rethrow; `realPathOf()` is not: its callers are `writeAtomic()`, the watcher
   and the build, which discard it, and the completion installer's uninstall
-  (`unlinkSync(realPathOf(...))`), which does not -- so a failed uninstall under a
-  directory holding a control character still prints it raw. That is not a config
-  save and is left alone here. The codes `isMissing()`,
+  (`unlinkSync(realPathOf(...))`), which does not. That is not a config save and
+  is left alone here, and the installer wraps its own call: see "The installer
+  echoes a path inert" in `packages/sigil/src/completion` (SIG-576). The codes `isMissing()`,
   `endsChain()` and `declinesFlush()` read are untouched, which is what a
   rewrite of the message cannot move. None of the tests provokes a failure by
   permission, which a CI job running as root does not have: a target name that

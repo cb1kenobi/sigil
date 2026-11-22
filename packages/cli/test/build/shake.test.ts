@@ -294,6 +294,148 @@ describe('the class evidence', () => {
     expect(evidence.mayName('context-red')).toBe(false);
   });
 
+  it('should read a ?: of two literals as the two runs it is', () => {
+    // `(dark ? 'text-' : 'bg-') + colour` was one unknown part, and the two
+    // literals inside it were read closed -- so `text-red` and `bg-red` were
+    // shaken out of a build that names one at run time. 8 of 383 kept where
+    // `` `text-${colour}` `` keeps 25, measured with `sigil build` on a copy of
+    // the `styled` fixture (41 of 383 now, for the two prefixes)
+    for (const source of [
+      `const c = (dark ? 'text-' : 'bg-') + colour;`,
+      `const c = (dark ? 'text-' : \`bg-\`) + colour;`,
+      `const c = (dark ? 'text-' : 'bg-' as string) + colour;`,
+      `const c = (<string>(dark ? 'text-' : 'bg-')) + colour;`,
+      'const c = `${dark ? "text-" : "bg-"}${colour}`;',
+      `let c = ''; c += (dark ? 'text-' : 'bg-') + colour;`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('bg-red'), source).toBe(true);
+      // two prefixes, and still only those two
+      expect(evidence.mayName('border-red'), source).toBe(false);
+    }
+  });
+
+  it('should join each text of a ?: to the known parts beside it', () => {
+    // `'p-' + (c ? '2' : '4') + x` is the prefix `p-2` or the prefix `p-4`,
+    // and neither is the prefix `p-`. Two choices multiply: four closed names
+    const prefix = evidenceOf(`const c = 'p-' + (wide ? '2' : '4') + x;`);
+    expect(prefix.mayName('p-2')).toBe(true);
+    expect(prefix.mayName('p-4')).toBe(true);
+    expect(prefix.mayName('p-3')).toBe(false);
+
+    const product = evidenceOf(`const c = (a ? 'p-' : 'm-') + (b ? '2' : '4');`);
+    for (const name of ['p-2', 'p-4', 'm-2', 'm-4']) {
+      expect(product.mayName(name), name).toBe(true);
+    }
+    expect(product.mayName('p-3')).toBe(false);
+  });
+
+  it('should read a ?: of ?:s of literals, which is how a chain of them is written', () => {
+    const evidence = evidenceOf(`const c = (a ? 'text-' : b ? 'bg-' : 'border-') + colour;`);
+
+    expect(evidence.mayName('text-red')).toBe(true);
+    expect(evidence.mayName('bg-red')).toBe(true);
+    expect(evidence.mayName('border-red')).toBe(true);
+    expect(evidence.mayName('outline-red')).toBe(false);
+  });
+
+  it('should leave a ?: with a branch that is not a literal to the safelist', () => {
+    // the documented limit: this is a choice between `text-` and whatever `x`
+    // is, and a `x` that is not a literal in the source is what `build.safelist`
+    // is for. Only the literal is read, closed, as it always was
+    for (const source of [
+      `const c = (dark ? 'text-' : x) + colour;`,
+      `const c = (dark ? 'text-' : 'bg-' + y) + colour;`,
+      `const c = (dark ? 'text-' : x ? 'bg-' : y) + colour;`,
+    ]) {
+      expect(evidenceOf(source).mayName('text-red'), source).toBe(false);
+    }
+  });
+
+  it('should read a || or ?? with a literal on the left as that literal', () => {
+    for (const source of [
+      `const c = ('text-' || x) + colour;`,
+      `const c = ('text-' ?? x) + colour;`,
+      'const c = (`text-` || x) + colour;',
+      `const c = (<string>'text-' ?? x) + colour;`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('bg-red'), source).toBe(false);
+    }
+  });
+
+  it('should not read the right of a || or ?? as the value, or an empty left of ||', () => {
+    // `'' || x` is `x`, so the left is not the value, and `x || 'text-'` is `x`
+    // whenever `x` is truthy. Neither is a literal on a left that is the value
+    for (const source of [
+      `const c = ('' || 'text-') + colour;`,
+      `const c = (x || 'text-') + colour;`,
+      `const c = (x ?? 'text-') + colour;`,
+    ]) {
+      expect(evidenceOf(source).mayName('text-red'), source).toBe(false);
+    }
+  });
+
+  it('should leave .concat() and .join() to the safelist', () => {
+    // decided, not missed (SIG-578): a method call's value is whatever the
+    // method returns, and reading `concat` and `join` on a receiver this has
+    // not typed is asserting something about a function it has never seen. The
+    // safelist is the answer, and `packages/cli/AGENTS.md` lists them
+    for (const source of [
+      `const c = 'text-'.concat(colour);`,
+      `const c = ['text', colour].join('-');`,
+      `const c = ['text-', colour].join('');`,
+    ]) {
+      expect(evidenceOf(source).mayName('text-red'), source).toBe(false);
+    }
+  });
+
+  it('should keep every text of a long chain of choices, without multiplying them', () => {
+    // each binary choice doubles the run it sits in, so 40 of them is 2^40
+    // texts unless something stops it. Past the limit a choice is read as an
+    // unknown part with its texts read open on both ends -- more kept, never less
+    const spaces = Array.from({ length: 40 }, () => `(a ? ' ' : ',')`).join(' + ');
+    const evidence = evidenceOf(`const c = ${spaces} + (dark ? 'text-' : 'bg-') + colour;`);
+
+    expect(evidence.mayName('text-red')).toBe(true);
+    expect(evidence.mayName('bg-red')).toBe(true);
+    expect(evidence.mayName('border-red')).toBe(false);
+  });
+
+  it('should keep a choice past the cap open on both ends, and what follows it open on the left', () => {
+    // four binary choices make 16 texts, so the fifth multiplies past the cap
+    // and is read as an unknown part with each of its texts open on both ends.
+    // Closed, or dropped, `text-red` and `bg-red` go with it
+    const spacers = Array.from({ length: 4 }, () => `(a ? ' ' : ',')`).join(' + ');
+
+    const prefixes = evidenceOf(`const c = ${spacers} + (dark ? 'text-' : 'bg-') + colour;`);
+    expect(prefixes.mayName('text-red')).toBe(true);
+    expect(prefixes.mayName('bg-red')).toBe(true);
+    expect(prefixes.mayName('border-red')).toBe(false);
+
+    // what follows the fallback is open on the left: the choice is unknown
+    // text, so `:flex-row` can be the end of a class that began inside it
+    const suffix = evidenceOf(`const c = ${spacers} + (w ? 'sm' : 'md') + ':flex-row';`);
+    expect(suffix.mayName('md:flex-row')).toBe(true);
+  });
+
+  it('should not read an empty left of || or any left of &&, whose value is the right', () => {
+    // `'' || x` and `'a' && x` are both `x`, so reading the left would close the
+    // literal beside them: `x + 'flex'` is a suffix, and a closed `flex` drops
+    // `aflex`
+    for (const source of [
+      `const c = ('' || x) + 'flex';`,
+      `const c = ('a' && x) + 'flex';`,
+      `const c = ('' && x) + 'flex';`,
+    ]) {
+      expect(evidenceOf(source).mayName('zflex'), source).toBe(true);
+    }
+  });
+
   it('should not fold an interpolation into a tagged template', () => {
     // a tagged template's value is whatever the tag returns, so folding the
     // interpolation in would assert something about a function this has never
@@ -571,13 +713,24 @@ describe('variant evidence', () => {
     // the documented limit, pinned so that changing it is a decision: the
     // variant and the utility are separate tokens, neither is a variant
     // qualified class, and the answer is the safelist
+    const found = evidenceOf(`export const d = ['focus', 'border-green'].join(':');`);
+
+    expect(found.mayName('focus:border-green')).toBe(false);
+  });
+
+  it('should assemble a variant out of a ?: of literals beside the utility', () => {
+    // SIG-578: `${w ? 'md:' : ''}flex-row` is one of two strings the source
+    // spells out, `md:flex-row` or `flex-row`, so it is read as the two runs it
+    // is and the variant is evidence. It was the documented limit above for as
+    // long as a `?:` was an unknown part, and what stays one is a variant and a
+    // utility joined by a method call or split across a binding
     const found = evidenceOf(
-      `export const c = (w: boolean) => \`${'$'}{w ? 'md:' : ''}flex-row\`;\n` +
-        `export const d = ['focus', 'border-green'].join(':');`
+      `export const c = (w: boolean) => \`${'$'}{w ? 'md:' : ''}flex-row\`;`
     );
 
-    expect(found.mayName('md:flex-row')).toBe(false);
-    expect(found.mayName('focus:border-green')).toBe(false);
+    expect(found.mayName('md:flex-row')).toBe(true);
+    expect(found.mayName('flex-row')).toBe(true);
+    expect(found.mayName('lg:flex-row')).toBe(false);
   });
 
   it('should not read a clock as evidence for every variant', () => {
@@ -941,6 +1094,52 @@ describe.each([
     const out = shakeStyles(
       '/app/src/view.ts',
       `import { utilitySheet } from '@ttylabs/sigil/style';\nexport const s = (${wrap('utilitySheet')})();\n`,
+      () => sheet
+    );
+
+    expect(out?.sites).toBe(1);
+  });
+});
+
+// SIG-588, SIG-589: `fn<T>` is type syntax that erases, and so is a wrapper on the
+// namespace object of `s.utilitySheet()`, so each is the same call and was left
+// unshaken. SIG-590: an optional call is a `CallExpression` inside a chain, which
+// the walk reaches on its own -- pinned, and the splice covers the whole chain
+const DIRECT = "import { utilitySheet } from '@ttylabs/sigil/style';\n";
+const NAMESPACED = "import * as s from '@ttylabs/sigil/style';\n";
+
+describe.each([
+  ['an instantiation', DIRECT, '(utilitySheet<Type>)()'],
+  ['a namespace under as', NAMESPACED, '(s as any).utilitySheet()'],
+  ['a namespace under !', NAMESPACED, 's!.utilitySheet()'],
+  ['a namespace under <T>', NAMESPACED, '(<any>s).utilitySheet()'],
+  ['a namespace under satisfies', NAMESPACED, '(s satisfies object).utilitySheet()'],
+  ['an optional call', DIRECT, 'utilitySheet?.()'],
+  ['an optional namespace member', NAMESPACED, 's?.utilitySheet()'],
+])('utilitySheet() called through %s', (_what, preamble, call) => {
+  it('should still be replaced, whole', () => {
+    const out = shakeStyles(
+      '/app/src/view.ts',
+      `${preamble}export const v = ${call};\n`,
+      () => sheet
+    );
+
+    expect(out?.sites).toBe(1);
+    expect(out?.code).toContain('export const v = $csss();\n');
+  });
+});
+
+// SIG-588, SIG-589: `fn<T>` and a wrapped namespace object parse in a `.tsx` too,
+// where `<T>x` would be JSX -- the two that are not an angle-bracket assertion
+describe.each([
+  ['an instantiation', DIRECT, '(utilitySheet<Type>)()'],
+  ['a namespace under as', NAMESPACED, '(s as any).utilitySheet()'],
+  ['a namespace under !', NAMESPACED, 's!.utilitySheet()'],
+])('utilitySheet() called through %s in a .tsx', (_what, preamble, call) => {
+  it('should still be replaced', () => {
+    const out = shakeStyles(
+      '/app/src/view.tsx',
+      `${preamble}export const v = ${call};\n`,
       () => sheet
     );
 

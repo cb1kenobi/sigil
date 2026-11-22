@@ -31,9 +31,9 @@ afterEach(() => {
  * @param schema - The schema.
  * @returns Stderr.
  */
-async function stderrOf(argv: string[], schema: Schema): Promise<string> {
+async function stderrOf(argv: string[], schema: Schema, code = 2): Promise<string> {
   const ran = await runCommand({ argv, schema });
-  expect(ran.code).toBe(1);
+  expect(ran.code).toBe(code);
   return ran.err;
 }
 
@@ -237,12 +237,17 @@ describe('a value echoed into an error message', () => {
   it("should leave an app's own error message as it wrote it", async () => {
     // the line SIG-412 drew: the escaping is at the framework's throw sites and
     // not in the error handler, so a message an app styled keeps its styling
-    const err = await stderrOf([], {
-      name: 'mycli',
-      run() {
-        throw new Error(`${ESC}[31mred${ESC}[39m`);
+    // an error of the app's own is not a usage error, so it exits 1 and not 2
+    const err = await stderrOf(
+      [],
+      {
+        name: 'mycli',
+        run() {
+          throw new Error(`${ESC}[31mred${ESC}[39m`);
+        },
       },
-    });
+      1
+    );
 
     expect(err).toBe(`Error: ${ESC}[31mred${ESC}[39m\n`);
   });

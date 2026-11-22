@@ -1,3 +1,4 @@
+import * as layoutModule from '../src/layout/index.js';
 import config from '../tsdown.config.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -65,6 +66,40 @@ describe('package exports', () => {
     // build quietly shipping less than it says it does
     for (const { from } of (config.copy ?? []) as { from: string }[]) {
       expect(existsSync(resolve(root, from)), from).toBe(true);
+    }
+  });
+
+  it('should keep the route rules under an internal path, and out of the README', () => {
+    // SIG-400: `./routes` read as an API and is plumbing -- the runtime and
+    // `sigil build` read the same rules through it. An `internal` segment and no
+    // README entry is what says so
+    expect(Object.keys(pkg.exports)).not.toContain('./routes');
+    expect(Object.keys(pkg.exports)).toContain('./internal/routes');
+
+    const readme = readFileSync(join(root, 'README.md'), 'utf-8');
+    expect(readme).not.toContain('sigil/internal');
+    expect(readme).not.toContain('sigil/routes');
+  });
+
+  it('should document every export of the layout subpath in the README', () => {
+    // SIG-400: the subpath was published undocumented, with names generic enough
+    // to mean something else in every other module. It is public API now, and a
+    // name added to its barrel is a name the README table has to carry
+    const readme = readFileSync(join(root, 'README.md'), 'utf-8');
+    const start = readme.indexOf('### `sigil/layout`');
+    expect(start, 'the README has no `sigil/layout` section').toBeGreaterThan(-1);
+    const section = readme.slice(start, readme.indexOf('\n### ', start + 1));
+
+    for (const name of Object.keys(layoutModule)) {
+      // a row of the table, not a mention in the prose around it
+      expect(section, `\`${name}\` is exported and not in the README's table`).toContain(
+        `\n| \`${name}(`
+      );
+    }
+
+    // the types are not keys of the module, so they are named here
+    for (const type of ['Box', 'LayoutNode', 'LayoutOptions', 'LayoutResult', 'Measurement']) {
+      expect(section, `\`${type}\` is exported and not in the README`).toContain(`\`${type}\``);
     }
   });
 });

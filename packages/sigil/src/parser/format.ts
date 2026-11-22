@@ -83,6 +83,7 @@ import {
   type ParsedOption,
 } from '../types.js';
 import { escapeControls } from '../util/escape-controls.js';
+import { UsageError } from '../util/usage-error.js';
 import type { OptionRegistry } from './option/option-registry.js';
 
 /**
@@ -378,8 +379,9 @@ export function detectFormat(state: ParseState): void {
       // because that is the one the user typed and the statement is true of it
       // either way: a child that declared nothing under an opted-out parent
       // inherits the opt-out, so it presents none too
-      throw new Error(
-        __`The "${state.contexts[0].name}" command presents no output formats, so "${escapeControls(selected)}" cannot be asked for.`
+      throw new UsageError(
+        __`The "${state.contexts[0].name}" command presents no output formats, so "${escapeControls(selected)}" cannot be asked for.`,
+        'unsupported-format'
       );
     }
 
