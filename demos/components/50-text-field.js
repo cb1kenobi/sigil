@@ -62,7 +62,7 @@ function scene() {
  * Wires `r` on the rows, and the app's own paste handler.
  *
  * @param {import('@ttylabs/sigil/input').InputRouter} input - The router.
- * @param {{ root: import('@ttylabs/sigil/element').Element; rows: any[]; field?: any }} ui - The list, and the field once a dialog has opened.
+ * @param {{ root: import('@ttylabs/sigil/element').Element; rows: any[]; field?: any; host?: any }} ui - The list, the renderer when there is one, and the field once a dialog has opened.
  * @param {import('@ttylabs/sigil/element').Element} status - Where the outcome is said.
  */
 function wire(input, ui, status) {
@@ -74,7 +74,8 @@ function wire(input, ui, status) {
 
   const rename = async (row) => {
     const name = new State(row.text);
-    const dialog = openModal(ui.root, {
+    // the renderer when there is one: it owns what the body function builds
+    const dialog = openModal(ui.host ?? ui.root, {
       actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
       body: () => {
         ui.field = TextField({ onSubmit: () => dialog.close(true), value: name });
@@ -127,6 +128,7 @@ if (live) {
     cascade: themedCascade({ sheets: [sheet] }),
   });
   const input = createInput({ root: view.root });
+  ui.host = view;
   wire(input, ui, status);
 
   input.bind((event) => {

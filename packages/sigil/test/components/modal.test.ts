@@ -20,7 +20,7 @@ import {
   render,
   runWithOwner,
 } from '../../src/renderer/index.js';
-import { Computed, flush, State } from '../../src/signals/index.js';
+import { Computed, flush, sinkCount, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
 import { createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
@@ -1168,12 +1168,10 @@ describe('a body built by a function', () => {
   it('should not make the effect that opened the dialog depend on what the body reads', () => {
     const s = mounted();
     const app = new State('a');
-    let ran = 0;
     let opened = false;
     const handles: Array<{ close(): void }> = [];
     runWithOwner(s.view.owner, () => {
       createEffect(() => {
-        ran++;
         // once: opening moves the focus, which this effect reads and so re-runs on
         if (!opened) {
           opened = true;
@@ -1181,11 +1179,9 @@ describe('a body built by a function', () => {
         }
       });
     });
-    s.view.frame();
-    const settled = ran;
-    app.set('b');
-    s.view.frame();
-    expect(ran).toBe(settled);
+    // read before any frame, while the opener's first run is all there has been: a
+    // later run sheds its sinks, which is what hid this from the first draft
+    expect(sinkCount(app)).toBe(0);
     for (const handle of handles) {
       handle.close();
     }

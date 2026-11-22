@@ -10214,7 +10214,16 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   dialog is the screen's and does not go when the component that opened it does
   (a first draft preferred `getOwner()`, and a dialog left up by a component that
   unmounted kept trapping the keys over a body whose effects had stopped, found by
-  review). A bare element has no owner and the body is built under a
+  review). The cost is context: what a component provided below the root is not
+  readable from the function, and what was provided at the root is. No example
+  needs it -- they close over values -- and a body that does can read it where it
+  opens and close over that. The function is called untracked: `runWithOwner()`
+  puts the effect parentage aside and **not** the consumer, so without that an
+  effect opening a modal from a renderer host became a sink of whatever the body
+  read (a first draft dropped the `untrack()` on a sabotage that could not see it,
+  because `openModal()` reads the focus tracked and an opener re-runs and sheds
+  its sinks at once -- found by review round 2, and the test now reads
+  `sinkCount()` straight after the opener's first run). A bare element has no owner and the body is built under a
   `createRoot()` of its own, whose effects run through the default factory. The branch is disposed in `close()`, so every way a
   dialog ends does it: a button, Escape, `close()`, `dispose()` and the renderer
   going, which closes first. It is disposed **before** the panel leaves the tree

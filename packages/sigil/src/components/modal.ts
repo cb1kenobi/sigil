@@ -37,6 +37,7 @@ import {
 import { __ } from '../i18n/index.js';
 import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/index.js';
 import { createBranch, createRoot, type Owner, runWithOwner } from '../renderer/index.js';
+import { untrack } from '../signals/index.js';
 import { Button } from './button.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { labelLine, unicodeSupported } from './note.js';
@@ -101,8 +102,10 @@ export interface ModalOptions<T = undefined> {
    *
    * The owner is a branch of the renderer's root owner, wherever `openModal()` was
    * called from -- a body, a handler or a promise -- so the dialog does not go when
-   * the component that opened it does. A bare element as `host` has none, and the
-   * body is then built under a root of its own. What the function returns has to be
+   * the component that opened it does. That owner is the root's, so a context a
+   * component provided lower down is not one the function can read; one provided at
+   * the root is. A bare element as `host` has no owner, and the body is then built
+   * under a root of its own. What the function returns has to be
    * an element, and a function that throws leaves nothing open.
    */
   body?: Element | string | (() => Element);
@@ -183,10 +186,10 @@ interface OwnedBody {
  * has no owner, and then the body gets a root of its own: its effects run through
  * the default factory, which is all a host with no renderer behind it could mean.
  *
- * What the function reads is not the caller's to depend on: `runWithOwner()` puts
- * the signals layer's parentage aside, so one that read a signal while an effect was
- * opening the modal does not make that effect a sink of it (and `untrack()` around
- * the call changed nothing, which a sabotage showed).
+ * Untracked, because the function is the dialog's and not the caller's: one that
+ * read a signal while an effect was opening the modal would otherwise make that
+ * effect a sink of it. `runWithOwner()` puts the effect parentage aside and not the
+ * consumer, which is why `createRoot()` untracks as well.
  *
  * @param host - What `openModal()` was given.
  * @param build - The body function.
@@ -199,7 +202,7 @@ function buildOwned(host: ModalHost, build: () => Element): OwnedBody {
   let dispose: () => void;
   let element: Element;
   const make = (): Element => {
-    const made = build();
+    const made = untrack(build);
     if (!(made instanceof Element)) {
       throw new TypeError(__`Expected a modal body function to return an element`);
     }
