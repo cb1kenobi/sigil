@@ -14324,10 +14324,10 @@ root file's rule is one definition per helper, across a package boundary too.
   trims it. Not changed here, because a caller that wants the empty line -- an
   editor -- needs it.
 - **It is not on by default anywhere, and costs what `markdown()` costs.** It
-  imports `tokensOf()`, which lives in `prompt.ts` with `PromptError`, so its
-  graph is the prompt stack's, 263,687 B as it landed, against `highlight`'s
-  14 kB. Moving the validator out of the prompt module would lighten four
-  components and is a change of its own.
+  imports `tokensOf()`, which lived in `prompt.ts` with `PromptError`, so its
+  graph was the prompt stack's: 263,687 B as it landed, against `highlight`'s
+  14 kB. SIG-597 moved the validator out of the prompt module into `token.ts`,
+  and the graph is 147,669 B without the prompts.
 
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 

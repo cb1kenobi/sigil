@@ -5,6 +5,9 @@ import {
   tokensOf as tokensFromPrompt,
 } from '../../src/components/prompt.js';
 import { tokenClasses, tokensOf } from '../../src/components/token.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 describe('the highlight seam', () => {
@@ -31,4 +34,26 @@ describe('the highlight seam', () => {
     );
     expect(codeRun('x', undefined, { role: 'accent' }).classes.join(' ')).toBe('accent');
   });
+
+  it.each(['code-view', 'diff', 'diff-view', 'highlight', 'markdown'])(
+    'should have %s read the seam from token.ts and never through prompt.ts',
+    (name) => {
+      // `prompt.ts` re-exports `tokensOf()`, and the bundler sees through that, so the
+      // dist graph stays small -- but an ejected copy's import is rewritten to
+      // `@ttylabs/sigil/components/prompt`, which is the whole stack again (SIG-597)
+      const source = readFileSync(
+        join(
+          dirname(fileURLToPath(import.meta.url)),
+          '..',
+          '..',
+          'src',
+          'components',
+          `${name}.ts`
+        ),
+        'utf-8'
+      );
+
+      expect(source).not.toMatch(/from '\.\/prompt\.js'/);
+    }
+  );
 });

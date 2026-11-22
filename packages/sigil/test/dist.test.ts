@@ -1031,9 +1031,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/chart': [396, 201_844],
   'components/checkbox': [488, 248_863],
   'components/clock': [384, 196_045],
-  // SIG-465, measured when it was added: the view's module and `tokensOf()`, which
-  // brings the prompt stack it lives in -- the same stack `markdown()` and `diff()`
-  // already pay for, and the reason it is not the 14 kB `highlight` is
+  // SIG-465, measured when it was added: 263,687 B, the view's module and
+  // `tokensOf()` with the prompt stack it then lived in; SIG-597 moved it out and
+  // the graph is 147,669 B. The ceiling has not come down with it
   'components/code-view': [520, 263_687],
   'components/collapsible': [380, 193_603],
   // added when SIG-309 gave every component one colour-level rule
