@@ -152,6 +152,23 @@ the entry it belongs to.
   sabotaged on `rawElement()` and on the compiler's printed argument -- each
   failed the cases it should.
 
+- **A `<raw>` refuses a prop nothing reads, from the one function both emitters ask
+  (SIG-599).** `<raw Tracked>` and `<raw trackd>` built a plain `raw()`: the name
+  was not `tracked`, so it was not read as the option, and it went to the cascade
+  as a style property -- which refuses an unknown one, but on the first frame and as
+  a `StyleError`, after the app had been built without the tracking it asked for.
+  `rawParts()` now refuses every prop that is none of `measure`, `paint`, `tracked`,
+  `ref`, a reserved name (`isReservedProp()`, which is `RESERVED` in
+  `src/element` and not a second list) or a known style property
+  (`isKnownProperty()`), so the tag, JSX and the compiler -- which all read a raw's
+  props through `rawParts()` -- refuse the same set in the same words, and the
+  compiler does it at build time. An option spelled with the wrong case or a dash
+  gets a sentence naming the right one; a near miss for a handler keeps
+  `refuseHandlerName()`'s. Only `<raw>`: `<box padddding>` still reaches the cascade,
+  which is the same behaviour for the same reason and is not changed here. Pinned by
+  `a prop a <raw> does not take` in `test/template/tracked-raw.test.ts` and by two
+  entries in `REFUSALS`, which hold the compiled path to the same sentence.
+
 - **The IR is not serializable, and that is the expression decision rather than
   a second one.** An expression is opaque JavaScript, so `${() => count()}` is a
   closure and no design makes it data. The payoff the ticket wanted -- shipping

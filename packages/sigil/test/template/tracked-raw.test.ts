@@ -244,3 +244,55 @@ describe('what `tracked` may be', () => {
     expect(() => jsx('raw', { measure, paint, tracked: null })).toThrow(/<raw tracked> is a flag/);
   });
 });
+
+describe('a prop a <raw> does not take (SIG-599)', () => {
+  const paint = () => {};
+
+  // a misspelled `tracked` was not read as `tracked`, and the cascade refused it
+  // only on the first frame, as a style error -- so the template built a plain
+  // raw and the app lost the tracking it had asked for
+  it.each([
+    [
+      'the ui tag, capitalized',
+      () => ui`<raw Tracked measure=${measure} paint=${paint} />`,
+      /<raw> has no prop `Tracked`: write `tracked`/,
+    ],
+    [
+      'the ui tag, misspelled',
+      () => ui`<raw trackd measure=${measure} paint=${paint} />`,
+      /<raw> has no prop `trackd`/,
+    ],
+    [
+      'JSX, capitalized',
+      () => jsx('raw', { Tracked: true, measure, paint }),
+      /<raw> has no prop `Tracked`: write `tracked`/,
+    ],
+    [
+      'JSX, misspelled',
+      () => jsx('raw', { measure, paint, trackd: true }),
+      /<raw> has no prop `trackd`/,
+    ],
+    [
+      'a dash inside an option',
+      () => ui`<raw track-ed measure=${measure} paint=${paint} />`,
+      /write `tracked`/,
+    ],
+    [
+      'a near miss for a handler, which keeps its own sentence',
+      () => ui`<raw onkey=${() => {}} measure=${measure} paint=${paint} />`,
+      /not a handler name: write `onKey`/,
+    ],
+  ])('should be refused when built, naming it: %s', (_, build, message) => {
+    expect(build).toThrow(message);
+  });
+
+  it('should still take everything a raw takes', () => {
+    const element = ui`<raw tracked class="a" id="x" key="k" tabindex="0" focusable
+      onKey=${() => {}} ref=${() => {}} width="3" background-color="red" padding="1"
+      measure=${measure} paint=${paint} />`;
+    expect(element.type).toBe('raw');
+    expect(() =>
+      jsx('raw', { backgroundColor: 'red', class: 'a', measure, onKey: () => {}, paint, width: 3 })
+    ).not.toThrow();
+  });
+});
