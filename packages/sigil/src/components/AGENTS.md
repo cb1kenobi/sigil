@@ -10432,6 +10432,9 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   since every read in it (the focus, a `disabled` condition's first answer, the
   ring) is the dialog's own and none is something the opener should follow. A
   write inside an untracked call is still a write: the focus moves as before.
+  `close()` is the same shape and is untracked the same way (review found it: read
+  the focus to decide whether to hand it back, then hand it back, so an effect that
+  closed a modal ran 3 times where 2 belong).
   `openMenu()`, `showToast()` and `attachTooltip()` were probed with the same
   effect and run twice (the `show` change and nothing more), so the loop is the
   modal's alone. Covered by `an effect that opens a modal` in

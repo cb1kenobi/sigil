@@ -532,7 +532,16 @@ function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHan
   const inside = (scope: Element): Element[] =>
     input.focus.ring().filter((element) => scope.contains(element));
 
+  /**
+   * Closes the dialog, untracked as a whole: it reads the focus to know whether to
+   * hand it back and then hands it back, so an effect that closed a modal would
+   * otherwise be left reading what it wrote (SIG-596).
+   */
   function close(value?: T): void {
+    untrack(() => finish(value));
+  }
+
+  function finish(value?: T): void {
     if (!open) {
       return;
     }

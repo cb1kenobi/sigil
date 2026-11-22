@@ -25,6 +25,7 @@ import { Computed, flush, sinkCount, State } from '../../src/signals/index.js';
 import { Restyler, setQuiet } from '../../src/style/index.js';
 import { alt, createTestTerminal, ctrl, KEYS } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { runsOf, sourcesOf } from '../runs-of.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -1888,12 +1889,63 @@ describe('an effect that opens a modal', () => {
     createRoot(() => createEffect(o.open));
     o.show.set(true);
     flush();
-    // the focus moves on its own: a key the dialog answers, and a close that hands it back
+    // the focus moving on its own, from outside the effect, is no reason to run it again
     s.input.focus.focus(s.one);
     flush();
     s.input.focus.focus(s.two);
     flush();
     expect(o.runs()).toBe(2);
     o.handles[0].close();
+  });
+
+  it('should leave its caller subscribed to nothing, with either body and either host', () => {
+    const s = scene();
+    const view = render(() => s.root, { terminal: s.term.terminal });
+    handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+    const open = (host: Parameters<typeof openModal>[0], body: ModalOptions['body']) => () => {
+      const handle = openModal(host, { body, input: s.input });
+      handles.push(handle);
+    };
+    for (const host of [s.root, view]) {
+      for (const body of [text('body'), () => text('body')]) {
+        expect(sourcesOf(open(host, body))).toBe(0);
+        for (const handle of handles.splice(0)) {
+          if ('close' in handle) {
+            (handle as { close(): void }).close();
+          }
+        }
+        handles.push({ dispose: () => s.input.stop() }, { dispose: () => view.dispose() });
+      }
+    }
+  });
+
+  it('should run once more, and no more, when the focus is moved from outside', () => {
+    const s = scene();
+    handles.push({ dispose: () => s.input.stop() });
+    const runs = runsOf(
+      () => handles.push(openModal(s.root, { body: text('body'), input: s.input })),
+      () => s.input.focus.focus(s.two)
+    );
+    expect(runs).toBe(2);
+  });
+
+  it('should run once when the same effect closes it', () => {
+    const s = scene();
+    s.input.focus.focus(s.one);
+    const handle = modalOn(s);
+    expect(
+      runsOf(
+        () => handle.close(),
+        () => s.input.focus.focus(s.two)
+      )
+    ).toBe(2);
+    expect(handle.open).toBe(false);
+  });
+
+  it('should leave an effect that closes it subscribed to nothing', () => {
+    const s = scene();
+    s.input.focus.focus(s.one);
+    const handle = modalOn(s);
+    expect(sourcesOf(() => handle.close())).toBe(0);
   });
 });
