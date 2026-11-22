@@ -617,8 +617,9 @@ function partsOf(node: Node): (string | undefined)[] {
     }
   }
 
-  // a template with no interpolations is a string written the other way, and
-  // missing that is what made `` `text-` + colour `` drop every `text-*` rule
+  // a template is a string written the other way, and missing that is what
+  // made `` `text-` + colour `` drop every `text-*` rule. A tagged one is a
+  // `TaggedTemplateExpression` and never gets here
   if (inner.type === 'TemplateLiteral') {
     return templateParts(inner, false);
   }

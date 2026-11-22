@@ -2803,11 +2803,17 @@ other is refused with numbers.
   changed: **8 of 383** utility rules kept for each nested spelling and **13**
   for the flat one (`colour + '-red' + x`, `` `${colour}-red${x}` ``,
   `c += '-red'`), and 13 for all of them now. The same went for
-  `` `${a}${`-red${x}`}` `` and `c += '-r' + 'ed'`. It can only ever keep
-  more: a spliced chunk is open on a side where the unspliced one was closed, and
-  an open reading matches a superset of the closed one. The walk still visits the
-  inner node and reads it on its own as well, which keeps what it kept before and
-  is redundant rather than wrong. A tagged template stays one unknown part and
+  `` `${a}${`-red${x}`}` `` and `c += '-r' + 'ed'`. The spliced chunk
+  itself keeps more: it is open on a side where the unspliced one was closed, and
+  an open reading matches a superset of the closed one. What a splice also does
+  is join a known neighbour to it, as the flat spelling always did, so
+  `'p-' + ('2' + x)` is the prefix `p-2` rather than `p-` and no longer keeps
+  `p-4`. That is tighter and correct, the string really does start `p-2`, and it
+  is the same trade `'a' + 'b' + c` makes; it is measured in
+  `should join a spliced run to its known neighbours`, and it is not a rule the
+  build can lose that something could produce. The walk still visits the inner
+  node and reads it on its own as well, which keeps what it kept before and is
+  redundant rather than wrong. A tagged template stays one unknown part and
   its quasis are still read as chunks, for the reason above.
 
   The place for `?:`, `||`, `??`, `.concat()` and `.join()` (SIG-578) is a case

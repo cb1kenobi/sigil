@@ -209,16 +209,35 @@ describe('the class evidence', () => {
     // closed on its left. 8 of 383 kept where the flat spelling keeps 13
     for (const source of [
       'const c = colour + `-red${x}`;',
-      'const c = `${y}-red${x}` + colour;',
+      'const c = `${y}` + `-red${x}`;',
       'const c = `${a}${`-red${x}`}`;',
       "const c = `${a}${'-red' + x}`;",
-      'const c = `${a}${colour + `-red`}`;',
+      'const c = `${a}${colour + `-red${x}`}`;',
       'const c = `${a}${`${b}${`-red${x}`}`}`;',
     ]) {
       const evidence = evidenceOf(source);
 
       expect(evidence.mayName('text-red'), source).toBe(true);
       expect(evidence.mayName('text-green'), source).toBe(false);
+    }
+  });
+
+  it('should join a spliced run to its known neighbours, and be tighter for it', () => {
+    // splicing is the same reading as the flat spelling, which also means a
+    // known neighbour is joined to it: `'p-' + ('2' + x)` is `p-2` followed by
+    // something unknown, the prefix `p-2`, where the prefix `p-` was read
+    // before. The string really does start `p-2`, so `p-4` cannot be it --
+    // tighter and correct, the same trade `'a' + 'b' + c` makes
+    for (const source of [
+      `const c = 'p-' + ('2' + x);`,
+      'const c = `p-${"2" + x}`;',
+      `let c = ''; c += 'p-' + ('2' + x);`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('p-2'), source).toBe(true);
+      expect(evidence.mayName('p-25'), source).toBe(true);
+      expect(evidence.mayName('p-4'), source).toBe(false);
     }
   });
 
