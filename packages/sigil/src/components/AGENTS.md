@@ -1596,6 +1596,25 @@ decided once, for all of them. The runs and the sabotage passes are in
   Moving the names out of the overlay's facade was tried first and failed the
   website's check that a page's subpath exports what the page lists.
 
+  `token` and `prompt-error` are the next two, for the registry's reason
+  (SIG-597); the barrel already had every name but `tokenClasses()`. `tokensOf()` and
+  `PromptError` were written in `prompt.ts`, so a code view, a diff and a
+  markdown page imported the whole prompt stack -- about 116 KB of `components/
+  code-view`'s 264 KB graph -- to turn a highlighter's spans into tokens. They are
+  modules of their own now and `prompt.ts` re-exports every name it moved, so
+  `PromptError` is one class from either path. Both facades export the same
+  bindings, which is the `console-capture` rule. A **value** imported from `prompt`
+  by a component that only draws puts the stack back, and `should not load the
+  prompt stack to draw highlighted code` in `test/dist.test.ts` is the check --
+  sabotaged with a call to `refusePrompt()`, because a re-export of `tokensOf()`
+  through `prompt.ts` is transparent to the bundler and does not trip it.
+  `tokenClasses(token, role)` is the one spelling of `sigil-token
+  sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
+  each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
+  is the theme's and importing it would put the theme behind a module that is 655 B
+  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
+  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
   things -- `prompt.ts` the six prompts and the plumbing under them, `chart.ts`

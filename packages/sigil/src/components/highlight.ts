@@ -34,7 +34,7 @@
  * them by line with a step or two rather than a search.
  */
 
-import type { HighlightSpan } from './prompt.js';
+import type { HighlightSpan } from './token.js';
 
 /** A language `highlightCode()` reads, by the name it is filed under. */
 export type CodeLanguage = 'diff' | 'js' | 'json' | 'markdown' | 'sh' | 'ts' | 'yaml';
