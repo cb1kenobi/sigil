@@ -1776,6 +1776,20 @@ by the rule at the top of this file. It is a message the runtime prints and
 terminal byte and a second line a log parser reads as an error. Pinned by `should
 escape a control character in a key it echoes` in `test/parser/routing.test.ts`.
 
+**The route rules are published at `@ttylabs/sigil/internal/routes`, and the
+README does not list it (SIG-400).** It was `@ttylabs/sigil/routes`, a name that
+read as an API when it is plumbing: `readRoutes()`, `readPackage()` and the rest
+exist so that `sigil build` bakes exactly what the runtime would walk, and nothing
+an app has a use for. It cannot move into `@ttylabs/cli` -- the runtime needs it,
+`declaration.ts` walks a `commands/` directory with it -- so what marks it is the
+path: an `internal` segment, and no entry in the README's subpath modules. That
+leaves it importable, which it has to be, and unsupported, which is the claim. The
+build entry is `internal/routes`, so the file is `dist/internal/routes.mjs`, the
+same shape `components/<name>` already has, and `exports.test.ts` and the ceiling
+in `dist.test.ts` follow the name without a rule of their own. The two importers in
+`@ttylabs/cli`, `build/tree.ts` and `build/discover.ts`, and four of its tests,
+read it by the new name.
+
 ### A route's name is the file system's, taken literally (SIG-389)
 
 - **A name a file, a directory or a manifest gave is never a name string.** It

@@ -18,7 +18,7 @@ none of which runs any of it, and then rolldown. The bundler is stage five and
 is not written yet; everything below produces source and data, which is what
 makes it testable with a fixture directory and no bundler at all.
 
-- **The route rules live in `@ttylabs/sigil/routes`, because there are two
+- **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
   every level ahead of time. They have to agree _exactly_ -- an app that routes
   differently bundled and unbundled is the one divergence a user cannot debug,
@@ -777,7 +777,7 @@ makes it testable with a fixture directory and no bundler at all.
   of another type -- and a method `hidden`, are now errors. The words are the
   runtime's own definitions rather than copies: `descTypeMessage()`,
   `descReturnMessage()`, `hiddenTypeMessage()` and `defaultTypeMessage()` are
-  re-exported from `@ttylabs/sigil/routes` beside `parseName()`, which moved out
+  re-exported from `@ttylabs/sigil/internal/routes` beside `parseName()`, which moved out
   of `initCommand()` into `src/parser/command/declaration.ts` for it -- the
   subpath the build already reads the route rules through, rather than a new
   one. A command is named the way the runtime names it in each message, which is
