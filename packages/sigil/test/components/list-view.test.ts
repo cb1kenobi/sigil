@@ -1073,6 +1073,90 @@ describe('ListView()', () => {
     });
   });
 
+  describe('the element a row was built as (SIG-459)', () => {
+    it("should hand out the row's own element for a key, and the current row's by default", () => {
+      const host = list({ items: ['a', 'b', 'c'] });
+      const { rowElement, selection } = control(host);
+
+      expect(rowElement('b')).toBe(rowWith(host, 'b'));
+      expect(rowElement()).toBe(rowWith(host, 'a'));
+      expect(rowElement()?.classes).toContain('is-current');
+
+      selection.move(1);
+      flush();
+      expect(rowElement()).toBe(rowWith(host, 'b'));
+      expect(rowElement()?.classes).toContain('is-current');
+    });
+
+    it('should answer undefined for a key that is no row, and for a list with no current row', () => {
+      const host = list({ items: ['a', 'b'] });
+      expect(control(host).rowElement('nope')).toBeUndefined();
+
+      const empty = list({ items: [] as string[] });
+      expect(control(empty).rowElement()).toBeUndefined();
+    });
+
+    it('should answer undefined for a row the window has not built, and a row once it is revealed', () => {
+      const host = list({ items: numbered(100) }, 5);
+      const { reveal, rowElement } = control(host);
+
+      expect(rowElement('item 3')).toBeDefined();
+      expect(rowElement('item 50')).toBeUndefined();
+
+      reveal('item 50');
+      picture(host);
+      expect(rowElement('item 50')).toBe(rowWith(host, 'item 50'));
+      // the row it scrolled away from has no element now
+      expect(rowElement('item 3')).toBeUndefined();
+      expect(rowElement('item 0')).toBeUndefined();
+    });
+
+    it('should hand out the new element once a row is rebuilt for a replaced item, and never the old one', () => {
+      const items = new State([
+        { cpu: 1, id: 'a' },
+        { cpu: 2, id: 'b' },
+      ]);
+      const host = list({
+        items,
+        key: (item) => item.id,
+        row: (item) => `${item.id} ${item.cpu}%`,
+      });
+      const { rowElement } = control<string>(host);
+      const a = rowElement('a');
+      const b = rowElement('b');
+
+      items.set([items.get()[0] as { cpu: number; id: string }, { cpu: 9, id: 'b' }]);
+      flush();
+
+      expect(rowElement('a')).toBe(a);
+      expect(rowElement('b')).not.toBe(b);
+      expect(rowElement('b')).toBe(rowWith(host, 'b 9%'));
+    });
+
+    it('should hand out a row built again by refresh(), not the one it replaced', () => {
+      const host = list({ items: ['a', 'b'] });
+      const { refresh, rowElement } = control(host);
+      const before = rowElement('a');
+
+      refresh();
+
+      expect(rowElement('a')).toBeDefined();
+      expect(rowElement('a')).not.toBe(before);
+      expect(rowElement('a')).toBe(rowWith(host, 'a'));
+    });
+
+    it('should take the items as they are now, as the rest of the control does', () => {
+      const items = new State(['apple', 'banana', 'cherry']);
+      const host = list({ items });
+
+      items.set(['banana', 'cherry']);
+
+      // no flush: the row for the dropped key is gone, and the cursor's row is banana's
+      expect(control(host).rowElement('apple')).toBeUndefined();
+      expect(control(host).rowElement()).toBe(rowWith(host, 'banana'));
+    });
+  });
+
   describe('a key in the same step as a change of the items (SIG-469)', () => {
     // the items effect runs with the next frame, and every key of one read is
     // routed before it: a filter typed and Enter pressed in one burst. Nothing here

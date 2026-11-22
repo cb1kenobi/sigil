@@ -18,7 +18,7 @@ none of which runs any of it, and then rolldown. The bundler is stage five and
 is not written yet; everything below produces source and data, which is what
 makes it testable with a fixture directory and no bundler at all.
 
-- **The route rules live in `@ttylabs/sigil/routes`, because there are two
+- **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
   every level ahead of time. They have to agree _exactly_ -- an app that routes
   differently bundled and unbundled is the one divergence a user cannot debug,
@@ -777,7 +777,7 @@ makes it testable with a fixture directory and no bundler at all.
   of another type -- and a method `hidden`, are now errors. The words are the
   runtime's own definitions rather than copies: `descTypeMessage()`,
   `descReturnMessage()`, `hiddenTypeMessage()` and `defaultTypeMessage()` are
-  re-exported from `@ttylabs/sigil/routes` beside `parseName()`, which moved out
+  re-exported from `@ttylabs/sigil/internal/routes` beside `parseName()`, which moved out
   of `initCommand()` into `src/parser/command/declaration.ts` for it -- the
   subpath the build already reads the route rules through, rather than a new
   one. A command is named the way the runtime names it in each message, which is
@@ -975,7 +975,7 @@ makes it testable with a fixture directory and no bundler at all.
   of being written. Also uncompiled, each silently, each the same function at run
   time: `const { ui } = t`; `(t).ui`, where the parentheses are around the object
   rather than the tag, so the unwrap does not reach them; `const ui = t.ui`;
-  `(ui as any)` and `(ui satisfies ...)`; `(0, ui)`; `ui!` and `t.ui!`, where the
+  `(ui as any)`, `(ui satisfies ...)` and `(ui<T>)`; `(t as any).ui`; `(0, ui)`; `ui!` and `t.ui!`, where the
   `!` erases; a dynamic `await import()`; and a specifier written with an escape
   -- `'@ttylabs/sigil/\u0074emplate'`, which oxc decodes, so `findTemplates()`
   finds the template while the substring fast path and the rolldown `code` filter
@@ -991,13 +991,40 @@ makes it testable with a fixture directory and no bundler at all.
   `(main as Main)(schema)` and `(utilitySheet!)()` are the same call at run time
   and a miss is silent, so the update-check reader, `main()` in the schema
   finder and the settings check, the utility-sheet rewrite and the plural key
-  reader each pass the callee through `unwrapShallow()` first. The tag readers
-  (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are left as the list
-  above says.
-  What stays missed, because it needs `unwrapShallow()` or the bindings to learn
-  something new: a wrapper on the _namespace_ (`(t as any).main(...)`,
-  `t!.main(...)`), and an instantiation expression, `(main<T>)(...)`, which
-  `unwrapShallow()` does not strip.
+  reader each ask `calleeName()` in `bindings.ts` rather than `bindingName()`.
+  The tag readers (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are
+  left as the list above says, and `templates.test.ts` and `i18n-keys.test.ts`
+  pin that they still decline every wrapper below.
+
+  `calleeName()` reads the callee through `unwrapShallow()`, and the _object_ of a
+  namespace member through it too (SIG-589): `(t as any).main(...)`,
+  `t!.main(...)` and `(<any>t).main(...)` are `t.main(...)`. It is a helper
+  beside `bindingName()` rather than a change inside it, because the tag readers
+  ask `bindingName()` directly and a change there would have reversed the
+  decision above. `unwrapShallow()` strips an instantiation expression, `fn<T>`,
+  as well (SIG-588) -- type syntax that erases, like `as` -- so `(main<T>)(...)`
+  is seen, and every other caller of `unwrapShallow()` reads through it on a
+  value too. Each was checked: they all ask what a value _is_, and `x<T>` is `x`.
+
+  `?.` is the one wrapper that is **not** in `unwrapShallow()` (SIG-590), because
+  it can change a value, to `undefined`, and that helper is the list of wrappers
+  that change nothing. It is looked through only by `importCall()`, which returns
+  the call only when its callee is the import -- so every link the chain could
+  short-circuit at is on the import itself, `main?.(...)` or `t?.main(...)`, and
+  an import binding is never nullish. A chain that ends past the call,
+  `githubChecker()?.x`, is not the call. Only two readers needed it: the value of
+  a schema's `updateCheck` and an entry's forwarding statement in
+  `forwardsOnly()`, which look at one expression and ask whether it is the call.
+  The other three _walk_ to a `CallExpression` and reach the one inside the chain
+  on their own; their tests pin that rather than test a fix.
+
+  What stays missed, each silently: `(t?.main)(...)`, where the chain is inside
+  the parentheses around the callee rather than around the call, so neither
+  helper looks into it; and `updateCheck: wrap?.({ checker })`, an optional call
+  to something that is _not_ a builder, which `objectLiteral()`'s look through a
+  one-argument call does not reach, so it reads as asking where the plain
+  `wrap({ checker })` reads as naming.
+
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag
@@ -2851,11 +2878,78 @@ other is refused with numbers.
   the terms, for the reason `shake-walk.test.ts` gives: a clock flakes under the
   suite's parallel load and a count does not.
 
-  The place for `?:`, `||`, `??`, `.concat()` and `.join()` (SIG-578) is a case
-  in `partsOf()` and nowhere else, which is the point of there being one. They
-  differ in kind rather than in spelling: `a ? '-red' : '-blue'` is a **choice**
-  between two sequences rather than one, so it cannot return a single list of
-  parts, and the decision about what it should return is that ticket's.
+  **`?:`, `||` and `??` are read when they are certain, and `.concat()` and
+  `.join()` are the safelist's** (SIG-578, decided by Chris). The ticket offered
+  three answers -- read the cheap ones, read all of them, read none -- and the
+  first is taken. It is one case in `partsOf()` and `knownParts()` is where it
+  lives. Measured with `sigil build` on a copy of `test/fixtures/styled/` whose
+  `text()` class was the only thing changed, `` `text-${label}` `` keeps **25 of
+  383** utility rules and every shape below kept **8**, which is what the
+  fixture keeps for no `text-*` evidence at all:
+
+  | shape                                                 | before | after  |
+  | ----------------------------------------------------- | ------ | ------ |
+  | `(dark ? 'text-' : 'bg-') + label`                    | 8      | **41** |
+  | `(dark ? 'text-' : dark ? 'bg-' : 'p-') + label`      | 8      | **49** |
+  | `('text-' \|\| label) + label`                        | 8      | **25** |
+  | `('text-' ?? label) + label`                          | 8      | **25** |
+  | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | 8      |
+  | `(label \|\| 'text-') + label` (literal on the right) | 8      | 8      |
+  | `'text-'.concat(label)`                               | 8      | 8      |
+  | `['text', label].join('-')`                           | 8      | 8      |
+  - **A `?:` whose every branch is a literal is a choice between those texts**,
+    and a choice is a part holding several of them. A run containing one is read
+    once per text, each open and closed where the run is, so `'p-' + (w ? '2' :
+    '4') + x` is the prefixes `p-2` and `p-4`. A branch that is itself a `?:` of
+    literals counts, which is how `a ? 'x' : b ? 'y' : 'z'` is written, and a
+    template with no interpolation is a literal. One branch that is anything
+    else makes the whole `?:` an unknown part, as it always was.
+  - **A choice multiplies the run around it, so the product is capped at 16
+    texts** (`MAX_RUN_TEXTS`). Forty `(a ? ' ' : ',') + ...` in a row is 2^40
+    strings uncapped. Past the cap the choice is read as an unknown part, with
+    each of its texts read on its own open on both ends: the neighbours it would
+    have been joined to are read separately, which keeps every base class the
+    product would have, and costs a handful of reads rather than a doubling. It
+    is **not** a superset for a variant assembled across the choice:
+    `'md' + (w ? ':' : '-') + 'flex-row'` is evidence for `md:flex-row` under the
+    cap and none past it, because none of the pieces is half of a qualified name.
+    That is the safelist's, as the same pieces joined by a call always were, and
+    it is pinned only as far as the cap itself is.
+  - **`&&` is not read, and neither is a call to the app's own helper.**
+    `'a' && x` is `x`, so reading its left would close the literal beside it and
+    drop `aflex` from `('a' && x) + 'flex'`; `cx('text-', colour)` is whatever
+    `cx` returns. Both are in the README's list, and `should not read an empty
+    left of || or any left of &&` pins the first.
+  - **`'x' || y` and `'x' ?? y` are `'x'`**, because a non-empty literal is
+    always truthy and a string is never nullish, so the right side is never the
+    value. An **empty** literal on the left of `||` is falsy and the value _is_
+    the right side, which is not known, so it is left alone; `'' ?? y` is `''`
+    and is read. A literal on the **right** (`y || 'x'`) is not read: the value
+    is `y` whenever `y` is truthy, and what it is then is not known.
+  - **`.concat()` and `.join()` stay the safelist's.** A method's value is
+    whatever the method returns, and the receiver here is a value this pass has
+    not typed: `a.concat(b)` is a string for a string `a` and an array for an
+    array one, and `.join()` has a separator to read besides. Reading the
+    spelling of a literal receiver would be a rule for `'text-'.concat(x)` and
+    none for `prefix.concat(x)`, which is the half-reading this file declines
+    elsewhere -- a shape that works for the one spelling and silently drops the
+    next.
+  - **The shapes that are not read are listed where an author will find them**,
+    which is `packages/cli/README.md` under "What the shake reads", the
+    `build.safelist` JSDoc in `src/config.ts`, and `skills/sigil-cli/SKILL.md`.
+    The message `warnEmptyShake()` writes is unchanged: it is only printed when
+    _everything_ was dropped, and naming the shapes there would say nothing to an
+    app that dropped some.
+
+  It changes one documented limit, in `packages/sigil/src/style/AGENTS.md`:
+  `` `${wide ? 'md:' : ''}flex-row` `` used to leave no evidence for
+  `md:flex-row` -- the `?:` was an unknown part, so `md:` and `flex-row` were
+  two tokens -- and is now read as the two strings it is, `md:flex-row` and
+  `flex-row`. That is the same trade a splice already made (a known neighbour is
+  joined to it) and it is tighter _and_ correct; the half that stays the
+  safelist's is a variant and a utility joined by `.join(':')`, which is what
+  `should not assemble a variant out of two literals` pins now, beside
+  `should assemble a variant out of a ?: of literals beside the utility`.
 
 - **The scan is lazy, and what it costs is measured rather than optimized.** It
   is asked for on the first module that turns out to hold a `utilitySheet()`
@@ -4504,6 +4598,58 @@ people's software and will move.
   language, and one command versus several have no defensible default for a
   project that does not exist; a linter is a preference and a config file nobody
   enjoys writing twice. Git is just done.
+- **The release workflow keeps the repository token away from code nobody
+  reviewed, and it does it without a second job (SIG-418).** It used `@v7`-style
+  tags and one job that installs the app's devDependencies and runs them, so a
+  moved tag on any action, or any dependency's `postinstall`, ran beside a
+  `contents: write` token -- the exposure SIG-356 closed in this repository's own
+  workflows. Four decisions, all Chris's, recorded so they are not re-litigated:
+  - **Actions are pinned to a commit SHA with a `# vN.N.N` comment**, from the
+    `ACTIONS` table in `src/scaffold/index.ts` -- one definition, which the
+    workflow's `uses:` lines are built from and the test reads back. The table is
+    frozen at scaffold time, so the scaffold **also writes
+    `.github/dependabot.yml`** with a `github-actions` entry (weekly, and only
+    that: the app's own dependencies are the author's policy). A pin with nothing
+    to move it is an app that ages from its first day. The checkout and
+    setup-node pins are the ones this repository's workflows use, and the test
+    does **not** assert they stay equal: Dependabot moves this repository's and
+    nobody else's, so equality would fail every automerged bump.
+  - **One job, not two.** SIG-356's build/publish split costs a second job, an
+    artifact hand-off and a tar filter, which is too much ceremony for a starter
+    workflow. What it buys here is bought in place: the install runs
+    `--ignore-scripts` (`npm ci`, `pnpm install --frozen-lockfile`), the checkout
+    sets `persist-credentials: false` so the token is not left in `.git/config`
+    for a test to read, and `github.token` is passed to the **one** step that
+    uses it, in `env`, never in a `run` block and never at job level. vlt takes
+    no flag because there is none to take: `vlt install` leaves a dependency's
+    lifecycle scripts unrun until `vlt build`, measured on 1.1.1 and again
+    on 1.8.2 (what `npm install --global vlt` installs) with a dependency whose
+    `postinstall` writes a file. There is **no `NPM_TOKEN`** in
+    this workflow -- the ticket was written about the token the release is made
+    with, which is the GitHub one; an app that adds an npm publish step should
+    give that step the same treatment. What `--ignore-scripts` does not do is
+    stop `vitest` and `sigil package`, which are the app's devDependencies
+    running as intended: the install is the part that runs _other people's_
+    code unasked.
+  - **pnpm is the developer's pnpm, exactly.** `sigil new` reads
+    `pnpm --version` (from the temp directory, since pnpm reads the
+    `packageManager` of the project it is run in and a repository pinned to
+    another pnpm answers with that one -- 11.9.0 against 12.21.0, seen on the
+    machine this was written on) and writes it as the manifest's
+    `"packageManager": "pnpm@<exact>"` and into the install step, so CI runs the
+    pnpm that wrote `pnpm-lock.yaml`. SIG-351's major pin followed _this
+    repository's_ pnpm, so a developer on 9 or 10 got CI on 12, which holds a
+    lockfile to a minimum release age 9 and 10 never checked. Anything that is not
+    a plain `MAJOR.MINOR.PATCH` (a failed spawn, a banner, a range) is treated as
+    no answer: no `packageManager`, and the install falls back to `PNPM_MAJOR`,
+    which is what it did before. `scaffold()` refuses a non-exact `pnpmVersion`
+    rather than write a field pnpm cannot switch to; `isExactVersion()` is the one
+    definition. The install is `npm install --global --allow-scripts=pnpm pnpm@...`
+    to silence npm 11's `allowScripts` warning. vlt's install line is untouched.
+    Pinned by `what runs with the repository token`, `which pnpm the workflow
+    installs`, `the pnpm sigil new reads off the machine` and `the Dependabot
+    config` in `new.test.ts`, each sabotaged: an unpinned action, a dropped
+    `--ignore-scripts` and a dropped `persist-credentials` each fail one.
 - **Which package manager is a question about the machine, and it used to be
   answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
   argument that a question whose answer is already on the table is not worth
@@ -6345,8 +6491,9 @@ about what a valid app is would be the worse half of the feature.
   pnpm and no corepack, and the macOS 15 arm64 and x64 images say the same.
   Corepack is not the way round it either: the workflow's `setup-node` installs
   Node 26, which carries no corepack (measured on 26.10.0: no `corepack` bin
-  and none under `lib/node_modules`). The scaffold writes no
-  `packageManager` field, so nothing else would have fetched one. pnpm is the
+  and none under `lib/node_modules`). The scaffold wrote no
+  `packageManager` field then, so nothing else would have fetched one (it writes
+  the developer's pnpm now, SIG-418, under `sigil new`). pnpm is the
   default whenever it is installed, so the default app's release failed at
   "Install dependencies" on its first tag -- and the suite asserted the opposite,
   `not.toContain('--global')` for pnpm, because it encoded the sentence.

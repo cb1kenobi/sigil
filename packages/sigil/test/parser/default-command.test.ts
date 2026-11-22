@@ -150,7 +150,10 @@ describe('default command', () => {
           argv: [],
           schema: { commands: { build: { args: ['<entry>'], default: true } } },
         })
-      ).rejects.toThrow(new Error('Missing required arguments: <entry>'));
+      ).rejects.toMatchObject({
+        code: 'missing-argument',
+        message: 'Missing required arguments: <entry>',
+      });
     });
 
     it('should carry the default command on a missing argument error', async () => {
@@ -185,7 +188,10 @@ describe('default command', () => {
           argv: ['nope'],
           schema: { commands: { build: { default: true } } },
         })
-      ).rejects.toThrow(new Error('Unexpected argument "nope"'));
+      ).rejects.toMatchObject({
+        code: 'unexpected-argument',
+        message: 'Unexpected argument "nope"',
+      });
     });
 
     it('should match a subcommand of the default command', async () => {
@@ -234,7 +240,10 @@ describe('default command', () => {
             },
           },
         })
-      ).rejects.toThrow(new Error('Missing required options: --target'));
+      ).rejects.toMatchObject({
+        code: 'missing-option',
+        message: 'Missing required options: --target',
+      });
     });
 
     it('should still resolve the options the root declares', async () => {

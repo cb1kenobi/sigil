@@ -20,9 +20,10 @@
  * shapes that stay unreachable is in AGENTS.md rather than repeated here.
  */
 
+import { unwrapShallow } from './literals.ts';
 import { type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
-import type { Expression } from 'oxc-parser';
+import type { CallExpression, Expression } from 'oxc-parser';
 
 /**
  * Every way one module can reach one export.
@@ -287,6 +288,77 @@ export function bindingName(node: Expression, bindings: ImportBindings): string 
   }
 
   return undefined;
+}
+
+/**
+ * The name a call's callee reached an import by, reading through every wrapper
+ * that erases.
+ *
+ * A callee is the other way round from a template tag, and AGENTS.md records
+ * why: a missed call is silent, while a claimed tag rewrites somebody's template.
+ * So a callee is read through `unwrapShallow()` -- `(<T>main)(...)`,
+ * `(main as Main)(...)`, `(main<T>)(...)`, `main!(...)` -- and so is the object
+ * of a namespace member, because `(t as any).main(...)`, `t!.main(...)` and
+ * `(<any>t).main(...)` are the same call as `t.main(...)`. `bindingName()` is
+ * left taking parentheses off and nothing else, since the tag readers ask it
+ * directly and a wrapped tag is deliberately not recognised.
+ *
+ * @param node - The callee, wrappers and all.
+ * @param bindings - What this module imported.
+ * @returns The name it was reached by, or `undefined` if it is not the import.
+ */
+export function calleeName(node: Expression, bindings: ImportBindings): string | undefined {
+  const callee = unwrapShallow(node);
+
+  if (callee.type === 'MemberExpression' && !callee.computed) {
+    const object = unwrapShallow(callee.object as Expression);
+    if (object !== callee.object) {
+      return bindingName({ ...callee, object } as Expression, bindings);
+    }
+  }
+
+  return bindingName(callee, bindings);
+}
+
+/**
+ * The call an expression is, if it is a call to one of the imports.
+ *
+ * Read through the wrappers that erase, and through `?.` as well, which
+ * `unwrapShallow()` refuses because it can change a value. It cannot here. oxc
+ * puts a `ChainExpression` around a call with `?.` anywhere in its callee, and
+ * the call is only returned when that callee is the import, so every optional
+ * link the chain could short-circuit at is on the import itself -- `main?.(...)`
+ * or `t?.main(...)` -- and an import binding is never `null` or `undefined`.
+ * That holds for what the callers pass, a named export of sigil's own modules or
+ * a namespace of one; a caller passing the default import of some other module
+ * would have to argue it again, since a default export may be anything. A
+ * chain whose outermost node is not the call, `checker()?.x`, is not the call
+ * and is not returned.
+ *
+ * The readers that *walk* to a call do not need this: the walk reaches the
+ * `CallExpression` inside the chain on its own. It is for a reader that looks at
+ * one expression and asks whether it is the call -- the value of a schema's
+ * `updateCheck`, or a statement of an entry that forwards its schema.
+ *
+ * @param node - The expression.
+ * @param bindings - Every import that counts.
+ * @returns The call, or `undefined` when the expression is not a call to one.
+ */
+export function importCall(
+  node: Expression,
+  bindings: readonly ImportBindings[]
+): CallExpression | undefined {
+  let expression = unwrapShallow(node);
+  if (expression.type === 'ChainExpression') {
+    expression = unwrapShallow(expression.expression as Expression);
+  }
+
+  if (expression.type !== 'CallExpression') {
+    return undefined;
+  }
+
+  const callee = expression.callee;
+  return bindings.some((each) => calleeName(callee, each) !== undefined) ? expression : undefined;
 }
 
 /**

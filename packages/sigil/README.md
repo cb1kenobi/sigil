@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`, `layout`
 
 ---
 
@@ -86,6 +86,7 @@ import {
   renderError, // an error as the string that would be printed
   errorExitCode, // the exit code an error implies
   errorMessage, // what a thrown value says, as one line
+  UsageError, // what the parser throws for a mistake in how the program was run
 } from '@ttylabs/sigil';
 ```
 
@@ -144,9 +145,40 @@ try {
   });
 } catch (err) {
   renderError(err); // 'Error: Unknown option "--nope"'
-  errorExitCode(err); // 1
+  errorExitCode(err); // 2
 }
 ```
+
+### `UsageError`
+
+Two things go wrong and they are not the same: the user ran the program wrongly,
+or the program is broken. Everything the parser rejects about argv is a
+`UsageError` — an `Error` subclass, so `instanceof` tells the two apart in a
+`beforeError` hook, a custom `errorHandler` or a `catch`. It exits with **2**,
+where anything else exits with **1**, and neither is printed with a stack.
+
+```js
+import { UsageError } from '@ttylabs/sigil';
+
+if (err instanceof UsageError) {
+  err.code; // 'unknown-option', 'missing-argument', 'invalid-value', ...
+  err.exitCode; // 2
+}
+```
+
+`err.code` is not translated, so it is what to branch on where the message is
+not. The kinds are `unknown-option`, `unknown-command`, `unexpected-argument`,
+`extra-arguments`, `missing-value`, `missing-argument`, `missing-option`,
+`invalid-value` and `unsupported-format`, and `UsageErrorCode` is the type. Throw
+one from a `transform` or a `run()` of your own to have a check you wrote
+reported the way the parser's are: `new UsageError('Port 80 is reserved',
+'invalid-value')`. A `transform` that throws a plain `Error` is **not** guessed
+at — the parser cannot tell a rejected value from a bug — and exits with 1.
+[docs/parser.md](docs/parser.md#usage-errors) has the whole table.
+
+`exitCode` is an ordinary property, so a hook can change what a particular usage
+error exits with. An exit code of `2` for a bad invocation is new; a script that
+tests for non-zero is unaffected.
 
 `errorMessage()` is the message on its own, without the `Error: ` prefix, from
 `@ttylabs/sigil` or `@ttylabs/sigil/error-handler`. It takes anything that can be
@@ -958,7 +990,7 @@ and `db dashboard --json` is refused rather than run and then complained about.
 ```sh
 $ mycli db dashboard --json; echo "exit $?"
 Error: The "dashboard" command presents no output formats, so "json" cannot be asked for.
-exit 1
+exit 2
 ```
 
 Refused rather than ignored, which is the same answer a name the command cannot
@@ -1056,6 +1088,10 @@ $ mycli list --json; echo "exit $?"
 }
 exit 1
 ```
+
+A usage error adds a `code`, which like `name` is not translated:
+`{ "error": { "message": "Missing required options: --target", "name": "UsageError", "code": "missing-option" } }`
+and exits `2`.
 
 `name` is the half a script can branch on, and that is why it is there: a
 **message is translated and a name is not**, so a script keyed on the message
@@ -2805,6 +2841,49 @@ A name that nearly spells a hook is refused rather than treated as a style
 property: `on-key`, `onkey` and the like say which name to write, and any other
 `on`-prefixed name given a function (`onClick=${fn}`) is "not an event this
 element has". No style property starts with `on`.
+
+### `sigil/layout`
+
+The flexbox subset the renderer lays a tree out with, over whole cells, on its own.
+It takes a `LayoutNode` -- a `style`, optional `children`, and an optional `measure`
+for content that is not made of children, text almost always -- and not an element,
+so it runs with no terminal, no renderer and no signals: lay a tree out, read the
+boxes back. The element tree satisfies `LayoutNode`, and so does an object literal.
+
+```js
+import { layoutTree } from '@ttylabs/sigil/layout';
+import { declare } from '@ttylabs/sigil/style';
+
+const tree = {
+  style: declare({ 'flex-direction': 'row', gap: '1' }),
+  children: [{ style: declare({ width: '10' }) }, { style: declare({ 'flex-grow': '1' }) }],
+};
+
+const result = layoutTree(tree, { width: 40, height: 3 });
+result.children[1].box; // { x: 11, y: 0, width: 29, height: 3 }
+```
+
+| Export                                 | What it does                                                                                                                                                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `layoutTree(root, { width, height? })` | Lays the tree out and returns a `LayoutResult`: for each node its border `box`, the `content` area inside padding and border, and its `children`. Omit `height` to let the tree be as tall as it needs |
+| `measureSubtree(node, availableWidth)` | What a subtree would ask for if it could have whatever it wanted -- `{ width, height }`, plus `minWidth` and `minHeight`, the narrowest and shortest it can be without overflowing. Nothing is placed  |
+| `distributeCells(total, weights)`      | Splits `total` cells across `weights` into whole numbers that add up to exactly `total`. The same weights give the same integers every time, so a layout does not shimmer between frames               |
+| `resolveLength(length, available)`     | A style `Length` as a number of cells: `cells` as they are, `percent` of `available` rounded to the nearest cell, `auto` -- and a percentage of an unknown size -- as `undefined`                      |
+| `clampSize(value, min, max)`           | A size held between its minimum and maximum, the minimum winning where they conflict, as in CSS, and never negative                                                                                    |
+| `borderCells(style)`                   | How many cells a border takes on each edge: one, or none                                                                                                                                               |
+
+`Box`, `LayoutNode`, `LayoutOptions`, `LayoutResult` and `Measurement` are the types.
+
+A `measure` is called with the width on offer and returns `{ width, height }`, with
+`minWidth` and `minHeight` for the narrowest and shortest the content can be without
+overflowing -- the longest word, for text. Wrapping makes height a function of width,
+which is why it is asked a width. Measuring is the most repeated work in a pass, so
+keep it cheap: one call to `layoutTree()` measures each node a handful of times at most
+and remembers the answers for the length of that call only.
+
+Everything is an integer. Seven spare columns across three children cannot be split
+evenly, and the rule for who gets the extra one is the stable one `distributeCells()`
+keeps: the remainder moves forward, so `[2, 2, 3]`, always.
 
 ### `sigil/help`
 
@@ -5037,6 +5116,49 @@ The module imports nothing at run time, so `@ttylabs/sigil/components/highlight`
 costs its own 14 kB and no component behind it -- a pager or a log viewer that only
 wants spans pays for spans.
 
+#### A code view
+
+```js
+import { codeView } from '@ttylabs/sigil/components/code-view';
+import { highlightCode } from '@ttylabs/sigil/components/highlight';
+
+const view = codeView(source, {
+  gutter: true, // line numbers
+  highlight: highlightCode,
+  lang: 'ts',
+  width: 80,
+  wrap: 'cut', // or 'fold'
+});
+```
+
+Code as a column of rows, a row a line, in the runs of cells that share a token --
+the lines `markdown()` draws in a fenced block, `diff()` draws a change with, and a
+file preview draws behind its line numbers, written once and published. It returns
+an element, so it goes in a `ScrollBox` or beside a list like anything else, and it
+is built for the `width` it is told.
+
+- **The gutter is optional, and gives way before the code does.** `gutter: true`
+  numbers each line, right-aligned to the last number, from `firstLine` for an
+  excerpt. A width with no room for a gutter and a cell of code draws the code
+  alone. A line that wraps is numbered on its first row.
+- **A long line is cut or folded.** `wrap: 'cut'`, the default, ends it at the edge
+  as a pager does; `'fold'` carries it onto the next row at a grapheme boundary and
+  never splits a wide character. A tab goes to the next multiple of `tabSize` (4) and
+  is drawn as spaces.
+- **The highlighter is the one every seam takes.** `highlight` is called once with
+  the whole text and `lang`, so a comment over three lines is one span; or hand over
+  `tokens`, a token per code unit, if you have them. A language it does not know is
+  drawn plain. `plain` is a role class for the code with no token, for an app that
+  wants one.
+- **Classes name the parts.** `sigil-code-view`, `sigil-code-row`, `sigil-code` and
+  `sigil-code-gutter`, and `class` renames the lot -- `markdown()` is
+  `sigil-markdown-code`. A token carries `sigil-token-<token>` and its role, as it
+  does in `diff()`.
+
+`codeRun(text, token, { class, role })` is the one run of cells on its own, for a
+view that arranges its rows differently and wants the same classes: it is what
+`diff()` draws an edited line's stretches with.
+
 #### Outline
 
 ```js
@@ -5254,7 +5376,8 @@ and `-` in a gauge. `.sigil-chart-sparkline`, `-bar`, `-line` and `-gauge` are t
 theme hooks, each with `-row` and `-part` classes inside; a line chart's series are
 `.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
 `.sigil-chart-area` beside its series' classes, and a crosshair
-`.sigil-chart-crosshair`. A bar takes
+`.sigil-chart-crosshair`, with `.sigil-chart-crosshair-focus` and `.sigil-accent`
+beside it while the chart has the focus. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts
@@ -5324,6 +5447,16 @@ picture.
   needs `mouse: { motion: true }`, since without motion nothing knows where the
   pointer is. There is no horizontal line, because the value is not where the
   pointer is: what the readout names is each line's value at that sample.
+- **A chart with a `crosshair` takes the focus, and reads from the keyboard.**
+  While it has the focus the rule stands at the newest sample, in the accent role,
+  and Left and Right step it to the sample before and after -- every sample, even
+  where `fit` puts several in one cell, which a pointer cannot tell apart. The
+  readout is the one the pointer gets, the pointer takes the rule back while it
+  moves over the chart, and the next arrow steps from where the rule is. Up, Down
+  and an arrow with Shift, Ctrl or Alt are left to what is around the chart.
+  `describeLineChart(input, chart)` describes the keys to a router for
+  `keyHelp()`, scoped to the chart; `focusable: false` in `props` takes the focus
+  and the keys back, and `props` may not carry an `onKey`, which the chart owns.
 - **`BarChart({ data, direction, ... })`** gives horizontal bars the width the
   labels and the values leave; vertical bars share the width out between them
   and take the rows the values and the labels leave.
@@ -5698,7 +5831,7 @@ New items and a `current` key that only they hold can be written in one step, in
 either order: the list keys the rows before it reads the cursor.
 
 A key, a click and the calls on `listControl(list)` that read or move over the rows
--- `activate()`, `reveal()`, and the selection's moves and reads -- take the items
+-- `activate()`, `reveal()`, `rowElement()`, and the selection's moves and reads -- take the items
 as they are **now**, not as the last frame drew them. So a filter typed and Enter
 pressed in one read, which is a paste or fast fingers, opens a row of the filtered
 list. `follow: 'first'` puts the cursor on the first row at every change of the
@@ -5772,7 +5905,15 @@ describer with no list in it does not load the list view; the list view's subpat
 exports the same function too.
 
 `listControl(list)` is the handle: `selection`, `scroll` (the scroll box's
-control), `reveal(key?)`, `refresh()` and `activate()`. `createListSelection()` is
+control), `reveal(key?)`, `rowElement(key?)`, `refresh()` and `activate()`.
+`rowElement()` hands out the element a row was built as, the current row's with no
+key, for an app that anchors a menu or a popover to a row. A row the scroll box
+has not built -- scrolled out of view, or past the window of a long list -- has no
+element and answers `undefined`, as does a key that is no row, so `reveal(key)`
+first where it has to be there -- the current row too, since a move scrolls with the
+next frame. The element is one build's: a row replaced by a
+new item, `refresh()`, or a scroll away and back builds a new one, so ask where it
+is needed and do not hold the answer across those. `createListSelection()` is
 the selection on its own -- a current key, a set of selected keys, and the moves
 over whatever rows it was last handed with `setRows(keys, disabled)` -- for a
 component that draws its own rows, a table or a tree, and wants the same answer
@@ -5950,7 +6091,7 @@ The heading row is `.sigil-data-table-head`, its cells `.sigil-table-head
 `.sigil-data-table` is the host and `props` goes on it; the list inside it,
 `.sigil-data-table-body`, is the element that takes the focus, which Tab reaches.
 `dataTableControl(table)` is the handle: the list's `selection`, `scroll`,
-`reveal()` and `activate()`, and `list` (the focusable element), `sort`,
+`reveal()`, `rowElement(key?)` (a row's element, as the list's) and `activate()`, and `list` (the focusable element), `sort`,
 `sortBy(column)`, `shown()` (the columns on screen) and `refresh()`, which measures
 again and rebuilds the rows in view for rows changed in place.
 `describeDataTable(input, ...tables)` describes the list's keys and a digit for
@@ -6180,7 +6321,13 @@ with a `label` and a `value`; Enter, Space or a click presses the focused one an
 holds the focus itself. `initial` is which button starts focused, by position;
 `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
 `closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
-string, which wraps, or an element, whose focusable parts join the trap.
+string, which wraps, an element, whose focusable parts join the trap, or **a
+function that builds one**. Use the function when the body has anything reactive
+in it -- a field over a `State`, a `disabled` that reads one: a dialog is opened
+from a key handler or an `onPress`, which have no owner, so an effect in an
+element built there is never disposed and goes on running after the dialog has
+gone. A function is called once, as it opens, under an owner of its own that is
+disposed when the dialog closes, the way `Show` owns what it mounts.
 `handle.close(value)` and `handle.dispose()` close it from outside, and closing
 twice does nothing.
 
@@ -6214,7 +6361,7 @@ import { State } from '@ttylabs/sigil/signals';
 const name = new State('draft.md');
 const dialog = openModal(view, {
   actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
-  body: TextField({ value: name, onSubmit: () => dialog.close(true) }),
+  body: () => TextField({ value: name, onSubmit: () => dialog.close(true) }),
   input,
   title: 'Rename',
 });
@@ -8377,7 +8524,7 @@ network drive -- is refused, where Windows itself would delete it without
 asking. The few lines of C# that reach the shell are compiled on the first call
 and kept in the cache directory, sealed for the current user, so that a file another
 user puts there is rebuilt rather than run. (A process running as you can still
-seal one; that is not something a cache file can guard against.) Everywhere else it is the freedesktop.org trash, which
+seal one; that is not something a cache file can guard against.) Where security software refuses to load that compiled helper, it is compiled into a file and loaded from there on every call instead, which costs a second PowerShell start but still moves the item. Everywhere else it is the freedesktop.org trash, which
 file managers on Linux read: `$XDG_DATA_HOME/Trash` for anything on the same
 device as your home, and the trash at the top of the item's own mount for
 anything on another, since a trash on another device would mean a copy. Where
