@@ -36,7 +36,7 @@
         "type": "number"
       },
       {
-        "description": "A third reason to show the bubble, beside the pointer and the focus: shown while it returns `true`, with neither. Asked in the effect that reads the focus, so a signal it reads shows or hides the bubble the moment it is set. `delay` still applies. That is how a line chart's pinned sample keeps its readout once the focus has gone. Defaults to none.",
+        "description": "A third reason to show the bubble, beside the pointer and the focus: shown while it returns `true`, with neither. Asked in the effect that reads the focus, so a signal it reads shows or hides the bubble the moment it is set. `delay` still applies. While it returns `true`, Escape and `hide()` do nothing: the app asked for the bubble to stay. That is how a line chart's pinned sample keeps its readout once the focus has gone. Defaults to none.",
         "default": "none",
         "name": "hold",
         "optional": true,
