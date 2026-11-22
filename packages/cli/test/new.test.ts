@@ -10,6 +10,16 @@ import {
   type ScaffoldOptions,
 } from '../src/scaffold/index.js';
 import { writeExecutable } from './executable.ts';
+import {
+  allLines,
+  expressionsInRun,
+  outsideSteps,
+  readWorkflow,
+  runBlocks,
+  stepsMatching,
+  withInlineRunExpression,
+  withSecretAfterSteps,
+} from './workflow.ts';
 import { runCommand } from '@ttylabs/sigil/testing';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -674,22 +684,15 @@ describe('the release workflow', () => {
     expect(root.packageManager.split('@')[1]?.split('.')[0]).toBe(String(PNPM_MAJOR));
   });
 
-  /** The release workflow's steps, each as its name and its lines. */
-  function stepsOf(text: string): { lines: string[]; name: string }[] {
-    const found: { lines: string[]; name: string }[] = [];
-    for (const line of text.split('\n')) {
-      if (/^ {6}- /.test(line)) found.push({ lines: [], name: '' });
-      const step = found.at(-1);
-      if (!step) continue;
-      step.lines.push(line);
-      const name = /^ {6}(?:- | {2})name:\s*(.*)$/.exec(line);
-      if (name && step.name === '') step.name = name[1] as string;
-    }
-    return found;
-  }
+  /** The release workflow as the shared reader sees it. */
+  const read = (overrides: Partial<ScaffoldOptions> = {}) => readWorkflow(workflow(overrides));
+
+  /** The workflow's one job's steps. */
+  const stepsOf = (overrides: Partial<ScaffoldOptions> = {}) =>
+    read(overrides).jobs.get('release')?.steps ?? [];
 
   /** Uncommented lines only: a comment saying `persist-credentials` is not the setting. */
-  const code = (text: string) => text.split('\n').filter((line) => !/^\s*#/.test(line));
+  const code = (text: string) => allLines(readWorkflow(text));
 
   describe('what runs with the repository token (SIG-418)', () => {
     it.each(['npm', 'pnpm', 'vlt'] as const)(
@@ -733,41 +736,55 @@ describe('the release workflow', () => {
 
     it('should leave no credentials in the checkout', () => {
       for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
-        const checkout = stepsOf(workflow({ manager })).find(
-          (step) => step.name === 'Checkout repository'
-        );
+        const checkout = stepsOf({ manager }).find((step) => step.name === 'Checkout repository');
         expect(checkout?.lines).toContain('          persist-credentials: false');
       }
     });
 
     it('should hand the token to the release step alone', () => {
+      const token = /secrets\.|github\.token|GH_TOKEN/;
+      for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
+        expect(stepsMatching(read({ manager }), /secrets\.|github\.token/)).toStrictEqual([
+          'Create the release',
+        ]);
+        // nor at the job or the workflow, where every step would have it: not
+        // before the steps, and not after them either
+        expect(outsideSteps(read({ manager }), token)).toStrictEqual([]);
+      }
+    });
+
+    it('should refuse a token a job holds after its steps', () => {
+      // the shape the last step used to absorb: a key that follows the steps
+      // list is the job's, and gives every step the secret
+      const token = /secrets\.|github\.token|GH_TOKEN/;
       for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
         const text = workflow({ manager });
-        const readers = stepsOf(text)
-          .filter((step) =>
-            code(step.lines.join('\n')).some((line) => /secrets\.|github\.token/.test(line))
-          )
-          .map((step) => step.name);
-
-        expect(readers).toStrictEqual(['Create the release']);
-        // nor at the job or the workflow, where every step would have it
-        const head = code(text.slice(0, text.indexOf('    steps:')));
-        expect(head.filter((line) => /secrets\.|github\.token|GH_TOKEN/.test(line))).toStrictEqual(
-          []
-        );
+        const sabotaged = readWorkflow(withSecretAfterSteps(text));
+        const [found, ...rest] = outsideSteps(sabotaged, token);
+        expect(found, manager).toContain('after its steps');
+        expect(rest, manager).toStrictEqual([]);
+        // and it is not one of the release step's own lines
+        expect(stepsMatching(sabotaged, /secrets\./), manager).toStrictEqual([]);
       }
     });
 
     it('should put no expression inside a run block', () => {
       // an expression is pasted into the script before the shell parses it
       for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
-        for (const step of stepsOf(workflow({ manager }))) {
-          const lines = code(step.lines.join('\n'));
-          const at = lines.findIndex((line) => /^\s*(?:- )?run:/.test(line));
-          if (at < 0) continue;
-          const block = lines.slice(at).filter((line) => !/^\s+(?:env|name):/.test(line));
-          expect(block.join('\n'), step.name).not.toContain('${{');
-        }
+        expect(runBlocks(code(workflow({ manager }))).length, manager).toBeGreaterThan(3);
+        expect(expressionsInRun(read({ manager })), manager).toStrictEqual([]);
+      }
+    });
+
+    it('should refuse an inline `- run:` step holding an expression', () => {
+      // a step that opens with `run:` has no `name:`, so nothing keyed by name
+      // finds it: the check has to be asked of every step
+      for (const manager of ['npm', 'pnpm', 'vlt'] as const) {
+        const found = expressionsInRun(
+          readWorkflow(withInlineRunExpression(workflow({ manager })))
+        );
+        expect(found, manager).toHaveLength(1);
+        expect(found[0], manager).toContain('- run: echo');
       }
     });
   });
