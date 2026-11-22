@@ -49,7 +49,7 @@ the entry it belongs to.
   `apiURL: 'https://h/api/v3/\n x'`, `'not a url'` and `'ftp://h'` each built a
   request that failed in the worker, which the check swallows. `registryURL` is
   the one reachable from `sigil.json` (`registry`), and `apiURL` only from code.
-  One function, `rootURL()`, for both. The decisions:
+  One function, `rootURL()` (`checkedURL()` since SIG-546), for both. The decisions:
 
   - **`https:` only, and the ticket's `http:` is left out.** The worker refuses
     anything else (`CHECK_URL must use https`) and the in-process fetch is
@@ -102,8 +102,8 @@ the entry it belongs to.
     worker refuses anything but `https`. The automatic path (`auto.ts`) catches
     and logs it, and `sigil check`, `build` and `package` report it as a
     diagnostic; only a hand-called `check()` with an environment-supplied
-    registry and no `catch` is newly exposed, and the refusal names `registryURL`
-    even where `sigil.json` spelled it `registry`.
+    registry and no `catch` is newly exposed. The refusal names `registryURL`,
+    and the toolchain says `updateCheck.registry` for a file (SIG-547, below).
   - **Not a string is the same refusal** (`undefined` is the default only for
     `apiURL`; `null`, a number and an object are refused).
 
@@ -118,6 +118,61 @@ the entry it belongs to.
   `TypeError` naming the value through `escapeControls()`, which turns anything
   into a string. A non-string `prefix` is left alone: it only strips a string
   off a tag and cannot build a request path.
+
+- **A `custom` check's `url` is held to the root rule, minus the query, by one
+  function (SIG-546), and the toolchain names the `sigil.json` key in a refusal
+  (SIG-547).** `checkerFor()` built the `custom` checker as an object literal and
+  copied `url` across as written, so `ftp://h` and a URL with a newline in it
+  passed `sigil check` and `sigil build` and failed in a worker that fetches
+  `https:` only, which the check swallows. `customChecker({ url, path })` is the
+  builder, in `checker.ts` beside the other two and exported, and `rootURL()` became
+  `checkedURL(value, label, kind)` rather than gaining a sibling: one
+  definition of "an `https://` URL with a host, no whitespace or control
+  character, no credentials, no fragment", asked with `kind: 'root'` by the two
+  builders that join a path and `'endpoint'` by this one. The decisions:
+
+  - **The endpoint keeps its query and is used as the parser wrote it.** A custom
+    URL is the whole request and `?channel=stable` is a real thing to want, so
+    the one rule that separates the kinds is the query. A root is trimmed of its
+    trailing slashes because a path is joined to it; an endpoint is not, since
+    `/latest/` and `/latest` are different resources. A **fragment** is refused
+    for both: no request carries one, so a URL that depends on it is a URL that
+    does not mean what its author thinks.
+  - **`redact()` still cuts at the first `?`, so a refusal of an endpoint hides
+    its query.** A token in a query is a secret and the message is for a
+    terminal and a log, so the echo says `https://h/x?***`; the cost is that a
+    legitimate `?channel=stable` is hidden in a refusal, a message losing detail
+    rather than a log gaining a secret -- the trade `redact()` already records.
+  - **`path` is checked too: a non-empty array of non-empty strings.** An empty
+    path reads the whole body, which `versionFrom()` rejects as not a string, and
+    a key that is not a string is looked up as whatever it coerces to; either is a
+    check that answers `undefined` for ever. `sigil.json`'s reader already refuses
+    an empty key and an empty list, and a non-array is refused by its schema, so
+    this is for code, and the message echoes through `escapeControls()` without
+    asking JSON to serialize it (a `BigInt` would throw a different error). It
+    is asked of `Array.from(path)`, since `.some()` skips the holes of a sparse
+    array. The
+    builder copies the list, so a later edit of the caller's array cannot move a
+    baked checker.
+  - **A literal `{ type: 'custom', url, path }` is still not checked.** A checker
+    is data (`isChecker()` is a shape test), so `check({ checker })` and a
+    schema's `updateCheck` take a hand-written object as it stands. Making
+    `check()` validate every checker it is handed would change what a working app
+    does at run time, and the type is the contract it was always given;
+    `customChecker()` is the way to have the rule applied, and the README says
+    so.
+  - **The re-wording is the toolchain's and is a table, not an option on the
+    builders.** `bakedUpdateCheck()` renames what `sigil.json` spells on the way in
+    (`registry` is `registryURL`, `package` is `packageName`), and a refusal said
+    `registryURL` to an author who never typed it. A `label` on `npmChecker()`
+    would be a public option on three functions that only one caller wants, so
+    `asDeclared()` in `packages/cli/src/build/update-check.ts` catches the
+    `TypeError` and swaps the leading noun for `"updateCheck.<key>"`, keeping the
+    builder's own sentence. It couples the toolchain to the message's first words
+    and that is the cost: one test per row builds the refusal through the real
+    builder and reads it back, so a reworded builder fails there rather than
+    quietly going back to naming `registryURL`. Code that calls `npmChecker()`
+    directly still sees `registryURL`.
 
 - **The cache filename was a collision, not a broken write.** Worth saying plainly,
   because the obvious reading of `join(cacheDir, '@ttylabs/sigil-latest.json')` is
