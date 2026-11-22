@@ -1139,16 +1139,10 @@ describe('a sheet swapped under an animation', () => {
 });
 
 describe('a color transition across a change of color scheme', () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   // the scheme is a media query's answer and `setColorScheme()` publishes it the way
   // a resize does, so a `transition: color` has to walk from the old scheme's color
   // to the new one's rather than snapping -- nothing said so until this
   it('should walk the color between the two schemes rather than snapping', () => {
-    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
-    vi.stubEnv('COLORFGBG', '');
     const h = harness();
     const cascade = sheets(`
       box { height: 1; color: #000000; transition: color 300ms linear }
