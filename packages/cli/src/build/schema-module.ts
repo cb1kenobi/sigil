@@ -354,8 +354,9 @@ export interface FoundSchema {
    *
    * A built app imports the entry for a `default` or `schema` export, so such an
    * entry builds an app that stops at start with `This app's entry exports no
-   * schema`. The readers follow it anyway, since it is what the entry says, and
-   * the caller says the rest.
+   * schema`. The readers follow it anyway, since it is what the entry says.
+   * `exportsNoSchema()` is what says whether that is an error, for every entry
+   * and not only this one.
    */
   readonly viaMain: boolean;
 }
@@ -427,4 +428,63 @@ export function findSchema(entry: string): FoundSchema {
  */
 export function schemaModule(entry: string): string {
   return findSchema(entry).file;
+}
+
+/**
+ * Whether a module reads or writes `module` or `exports`.
+ *
+ * Any `import` is module syntax, but the bundler still treats a file that sets
+ * `module.exports` as CommonJS, so `import { sep } from 'node:path'; module.exports
+ * = schema` builds and runs with that object as the namespace's `default`. Any
+ * identifier of either name counts, which over-reads on purpose: it can only
+ * leave an entry unrefused.
+ *
+ * @param parsed - The module.
+ * @returns Whether the name appears as an identifier anywhere in it.
+ */
+function assignsCommonJs(parsed: ParsedModule): boolean {
+  let found = false;
+  walk(parsed.program, (node) => {
+    if (node.type === 'Identifier' && (node.name === 'module' || node.name === 'exports')) {
+      found = true;
+    }
+    return !found;
+  });
+  return found;
+}
+
+/**
+ * Whether an entry exports neither of the two names the generated entry reads.
+ *
+ * `generateBin()` takes `default ?? schema` from the entry, so a module that
+ * exports neither builds an app that stops at start with `This app's entry
+ * exports no schema` -- whatever else the module does, and wherever its `main()`
+ * call finds the schema: written in the call, or imported. It asks the question
+ * `findSchema()` asks of the same two names, with the same readers, so the two
+ * cannot disagree about what counts as an export (SIG-567).
+ *
+ * `true` only when it is certain. A module with no ES module syntax is CommonJS,
+ * and so is one that names `module` or `exports` beside its imports -- either way
+ * `module.exports` is the namespace's `default`; `export =` is the same in
+ * TypeScript; and a module that cannot be read, or an `export *` that may supply
+ * `schema`, is one this cannot see into. Each of those is `false`, the direction
+ * the whole build errs in.
+ *
+ * @param entry - The app's entry module, as discovery found it.
+ * @returns Whether the entry certainly exports no schema.
+ */
+export function exportsNoSchema(entry: string): boolean {
+  const parsed = read(entry);
+  if (
+    !parsed ||
+    !parsed.module.hasModuleSyntax ||
+    parsed.program.body.some((statement) => statement.type === 'TSExportAssignment') ||
+    assignsCommonJs(parsed)
+  ) {
+    return false;
+  }
+
+  return ['default', 'schema'].every(
+    (name) => exportedFrom(entry, name, new Set()).kind === 'absent'
+  );
 }

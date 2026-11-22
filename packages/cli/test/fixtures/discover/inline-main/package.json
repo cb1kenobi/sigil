@@ -1,0 +1,7 @@
+{
+  "name": "inline-main",
+  "type": "module",
+  "devDependencies": {
+    "@ttylabs/sigil": "*"
+  }
+}
