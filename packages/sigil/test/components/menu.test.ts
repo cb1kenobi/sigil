@@ -822,3 +822,212 @@ describe('initial (SIG-463)', () => {
     expect(topLayer(s.input)).toBeUndefined();
   });
 });
+
+describe('check and radio items (SIG-523)', () => {
+  /** The three rows of a menu a test reads, the pointer and the mark included. */
+  const rows = (s: ReturnType<typeof scene>) =>
+    picture(s.root)
+      .slice(3, 6)
+      .map((line) => line.replace(/\s*[│|]\s*$/u, ''));
+
+  const SORTS = ['name', 'size', 'date'] as const;
+
+  /** A radio group over a `State`, as the dashboard's Theme submenu is. */
+  const radios = (sort: State<string>): MenuEntry<string>[] =>
+    SORTS.map((by) => ({ label: by, radio: () => sort.get() === by, value: by }));
+
+  it('should mark the radio item that is on, and keep every label in one column', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, { items: radios(new State('size')) });
+    const lines = rows(s);
+    expect(lines.map((line) => line.replace(/^[^a-z●]*/, ''))).toEqual(['name', '● size', 'date']);
+    // the column is reserved on the rows that are off, so the labels line up
+    const at = lines.map((line) => line.search(/name|size|date/));
+    expect(new Set(at).size).to.equal(1);
+  });
+
+  it('should mark a check item with a tick and leave it blank when off', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { check: true, label: 'Hidden', value: 'hidden' },
+        { check: false, label: 'Ruler', value: 'ruler' },
+        { label: 'Refresh', value: 'refresh' },
+      ],
+    });
+    expect(rows(s).map((line) => line.replace(/^[^a-zA-Z✔]*/, ''))).toEqual([
+      '✔ Hidden',
+      'Ruler',
+      'Refresh',
+    ]);
+  });
+
+  it('should draw ASCII marks when asked, and reserve no column when nothing has a mark', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      ascii: true,
+      items: [
+        { check: true, label: 'Hidden', value: 'hidden' },
+        { label: 'Radio', radio: true, value: 'radio' },
+        { label: 'Plain', value: 'plain' },
+      ],
+    });
+    expect(rows(s).map((line) => line.replace(/^[^a-zA-Z*x]*/, ''))).toEqual([
+      'x Hidden',
+      '* Radio',
+      'Plain',
+    ]);
+    const plain = scene({ at: { x: 0, y: 1 } });
+    menuOn(plain, { items: [{ label: 'Plain', value: 'plain' }] });
+    // the pointer's column and its space, and the label: no mark column
+    expect(picture(plain.root)[3]).toMatch(/│[❯ ] Plain/u);
+  });
+
+  it('should read a State, a function and a boolean, each time the menu opens', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    const on = new State(false);
+    let calls = 0;
+    const items: MenuEntry<string>[] = [
+      { check: on, label: 'State', value: 'a' },
+      {
+        check: () => {
+          calls++;
+          return true;
+        },
+        label: 'Function',
+        value: 'b',
+      },
+      { check: true, label: 'Boolean', value: 'c' },
+    ];
+    const first = menuOn(s, { items });
+    expect(rows(s)[0]).not.toContain('✔');
+    expect(calls).to.equal(1);
+    first.close();
+    on.set(true);
+    menuOn(s, { items });
+    expect(rows(s)[0]).toContain('✔');
+    expect(calls).to.equal(2);
+  });
+
+  it('should hand a chosen check item to the app and leave the state alone', async () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    const on = new State(false);
+    const menu = menuOn(s, { items: [{ check: on, label: 'Hidden', value: 'hidden' }] });
+    await s.term.press(KEYS.enter);
+    expect((await menu.result)?.value).to.equal('hidden');
+    expect(on.get()).to.equal(false);
+  });
+
+  it('should read it untracked, so an effect that opens a menu does not depend on it', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    const on = new State(false);
+    let runs = 0;
+    const stop = effect(() => {
+      runs++;
+      if (runs === 1) {
+        menuOn(s, { items: [{ check: on, label: 'Hidden', value: 'hidden' }] });
+      }
+    });
+    handles.push({ dispose: stop });
+    on.set(true);
+    flush();
+    expect(runs).to.equal(1);
+  });
+
+  it('should open a radio group on its current item, and an explicit initial still wins', async () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, { items: radios(new State('date')) });
+    expect(rows(s).filter((line) => line.includes('❯'))[0]).toContain('date');
+    const t = scene({ at: { x: 0, y: 1 } });
+    menuOn(t, { initial: 0, items: radios(new State('date')) });
+    expect(rows(t).filter((line) => line.includes('❯'))[0]).toContain('name');
+    // a function that says nothing is current is an initial too, and is not overruled
+    const u = scene({ at: { x: 0, y: 1 } });
+    menuOn(u, { initial: () => undefined, items: radios(new State('date')) });
+    expect(rows(u).filter((line) => line.includes('❯'))[0]).toContain('name');
+  });
+
+  it("should open a submenu's radio group on its current item from the keys and the pointer", async () => {
+    const sort = new State('size');
+    const items: MenuEntry<string>[] = [
+      { items: radios(sort), label: 'Sort &by' },
+      { label: 'Refresh', value: 'refresh' },
+    ];
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, { items });
+    await s.term.press(KEYS.right);
+    expect(picture(s.root).find((line) => line.includes('❯ ●'))).toContain('size');
+    const t = scene({ at: { x: 0, y: 1 } });
+    menuOn(t, { items });
+    await t.term.press(move(6, rowOf(picture(t.root), 'Sort')));
+    expect(picture(t.root).find((line) => line.includes('❯ ●'))).toContain('size');
+  });
+
+  it('should have no default highlight when nothing is on, or the one that is on is disabled', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, { items: radios(new State('none')) });
+    expect(rows(s)[0]).toContain('❯');
+    const t = scene({ at: { x: 0, y: 1 } });
+    menuOn(t, {
+      items: [
+        { label: 'a', radio: false, value: 'a' },
+        { disabled: true, label: 'b', radio: true, value: 'b' },
+      ],
+    });
+    expect(rows(t)[0]).toContain('❯');
+  });
+
+  it('should not default a menu that mixes in anything but radio items and separators', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { check: true, label: 'Hidden', value: 'hidden' },
+        { label: 'name', radio: false, value: 'name' },
+        { label: 'size', radio: true, value: 'size' },
+      ],
+    });
+    expect(rows(s)[0]).toContain('❯');
+    expect(rows(s)[2]).not.toContain('❯');
+  });
+
+  it('should open on the first radio item that is on, with a separator inside the group', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { label: 'a', radio: false, value: 'a' },
+        { separator: '' },
+        { label: 'b', radio: true, value: 'b' },
+        { label: 'c', radio: true, value: 'c' },
+      ],
+    });
+    const pointed = picture(s.root).filter((line) => line.includes('❯'));
+    expect(pointed).toHaveLength(1);
+    expect(pointed[0]).toContain('● b');
+  });
+
+  it('should count the mark column in the width, so a minWidth is the width it asks for', () => {
+    const s = scene({ at: { x: 0, y: 1 } });
+    menuOn(s, {
+      items: [
+        { label: 'a', radio: true, value: 'a' },
+        { hint: 'h', label: 'b', radio: false, value: 'b' },
+      ],
+      minWidth: 30,
+    });
+    const border = picture(s.root)[2] as string;
+    expect(border.trim()).toHaveLength(30);
+  });
+
+  it('should refuse a mark that is not a boolean, a state or a function, on both, or on a submenu', () => {
+    const s = scene();
+    const one = (item: Partial<MenuItem<string>>) => () =>
+      menuOn(s, { items: [{ label: 'x', value: 'x', ...item }] });
+    for (const bad of [null, 'yes', 1, {}]) {
+      expect(one({ check: bad as never }), String(bad)).toThrow(/boolean, a state or a function/);
+      expect(one({ radio: bad as never }), String(bad)).toThrow(/boolean, a state or a function/);
+    }
+    expect(one({ check: true, radio: true })).toThrow(/not both/);
+    expect(one({ check: true, items: [{ label: 'a', value: 'a' }] })).toThrow(/submenu/);
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+});

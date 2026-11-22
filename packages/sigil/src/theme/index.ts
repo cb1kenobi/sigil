@@ -249,7 +249,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-tooltip  .sigil-tooltip-fill  .sigil-tooltip-text
  *   .sigil-menu  .sigil-menu-backdrop  .sigil-menu-fill  .sigil-menu-list
  *   .sigil-menu-item  .sigil-menu-pointer  .sigil-menu-label  .sigil-menu-mnemonic
- *   .sigil-menu-hint  .sigil-menu-arrow  .sigil-menu-separator
+ *   .sigil-menu-hint  .sigil-menu-arrow  .sigil-menu-separator  .sigil-menu-mark
  *   .sigil-menubar  .sigil-menubar-title  .sigil-menubar-face  .sigil-menubar-label
  *   .sigil-menubar-bracket
  *   .sigil-dropdown  .sigil-dropdown-face  .sigil-dropdown-label  .sigil-dropdown-arrow

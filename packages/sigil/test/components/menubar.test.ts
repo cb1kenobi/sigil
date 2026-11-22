@@ -5,6 +5,7 @@ import { TextField } from '../../src/components/text-field.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createInput, type InputRouter } from '../../src/input/index.js';
 import { createRoot } from '../../src/renderer/index.js';
+import { State } from '../../src/signals/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import {
   click,
@@ -380,5 +381,29 @@ describe('a menubar menu with an initial (SIG-463)', () => {
     routers.push(input);
     expect(() => Menubar({ input, menus: withView(3) })).toThrow(/initial/);
     expect(() => Menubar({ input, menus: withView('1' as never) })).toThrow(/initial/);
+  });
+});
+
+describe('a menubar menu of radio items (SIG-523)', () => {
+  it('should open on the radio item that is on, asked each time it opens', async () => {
+    const size = new State('medium');
+    const menus: MenubarMenu<string>[] = [
+      ...MENUS.slice(0, 2),
+      {
+        items: ['small', 'medium', 'large'].map((by) => ({
+          label: by,
+          radio: () => size.get() === by,
+          value: by,
+        })),
+        label: '&View',
+      },
+    ];
+    const s = scene({ menus });
+    await s.term.press(`${ESC}[21~`, KEYS.left);
+    expect(picture(s.root).join('\n')).toContain('❯ ● medium');
+    await escape(s.term);
+    size.set('large');
+    s.control.open(2);
+    expect(picture(s.root).join('\n')).toContain('❯ ● large');
   });
 });

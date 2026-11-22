@@ -71,15 +71,13 @@ export function buildHeader(d: Dashboard, input: InputRouter, actions: HeaderAct
   };
 
   const entries = (): MenuEntry<() => void>[] => {
-    const on = d.theme.get();
     return [
       {
-        // opens on the theme in use, so Enter keeps it and a letter or an arrow
-        // starts from it
-        initial: on,
+        // radio items: the menu marks the theme in use and opens on it, so Enter
+        // keeps it and a letter or an arrow starts from it
         items: THEMES.map((theme, i) => ({
-          hint: i === on ? (ascii ? '*' : '●') : '',
           label: `&${theme.label}`,
+          radio: () => d.theme.get() === i,
           value: () => actions.setTheme(i),
         })),
         label: '&Theme',
