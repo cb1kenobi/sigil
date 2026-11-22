@@ -169,8 +169,8 @@ the `ui` tag run by plain `node`.
   `?1002l` and `?1006l` come after them; without it, neither enable is. Bytes
   rather than a spy on `runApp()`, because a spy passes for an entry that handed
   the option to something else. Sabotaged for both, in both entries: the line
-  removed fails the `--mouse` test and the line made `true` fails the other, four
-  one failure per entry each time and none from the neighbouring tests. The `bin` test needs
+  removed fails the `--mouse` test and the line made `true` fails the other, one
+  failure per entry each time and none from the neighbouring tests. The `bin` test needs
   the example built, and says which command makes it. An example that adds the
   flag adds the file.
 

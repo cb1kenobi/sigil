@@ -3,6 +3,7 @@ import {
   DISABLE_MOUSE_SGR,
   ENABLE_MOUSE_BUTTONS,
   ENABLE_MOUSE_SGR,
+  ENTER_ALT_SCREEN,
 } from '@ttylabs/sigil/terminal';
 import { runOnTerminal } from '@ttylabs/sigil/testing';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -39,7 +40,7 @@ const entries = [
 /** Somewhere that is not a repository, so that the client has nothing to read but an empty answer. */
 const cwd = mkdtempSync(join(tmpdir(), 'sigil-git-client-entry-'));
 afterAll(() => {
-  rmSync(cwd, { force: true, recursive: true });
+  rmSync(cwd, { force: true, maxRetries: 5, recursive: true });
 });
 
 /** What the entry wrote, from its start to its exit on `q`. */
@@ -59,8 +60,9 @@ async function started(file: string, flags: string[]): Promise<string> {
     stdin: true,
   });
   try {
-    // the first frame, so that `q` is a key somebody has read
-    await running.waitFor(/\S/);
+    // the first frame, so that `q` is a key somebody has read. Longer than the
+    // default: four cold node starts at once, on a runner that may be slow
+    await running.waitFor(/\S/, { timeout: 20_000 });
     await running.press('q');
     const ran = await running;
     expect(ran.err, 'nothing on stderr').toBe('');
@@ -85,8 +87,7 @@ describe('the entry', () => {
 
     it.concurrent(`should leave the terminal selecting text without --mouse: ${label}`, async () => {
       const out = await started(file, []);
-      // the screen is the proof it ran at all
-      expect(out, 'the app drew').not.toBe('');
+      expect(out, 'the app drew').toContain(ENTER_ALT_SCREEN);
       expect(out, 'no tracking mode').not.toContain(ENABLE_MOUSE_BUTTONS);
       expect(out, 'no mouse encoding').not.toContain(ENABLE_MOUSE_SGR);
     }, 45_000);
