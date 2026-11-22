@@ -6,7 +6,7 @@ import { run, STACK } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -250,6 +250,158 @@ describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
     }, 60_000);
   }
 );
+
+/**
+ * The lines of some output that start where a forged diagnostic would.
+ *
+ * @param out - What a stream held.
+ * @returns Each line starting `forged.ts`, which is the part of `FORGED` after
+ * its newline and so what only a newline in the path can start.
+ */
+function forgedLines(out: string): string[] {
+  return out.split('\n').filter((line) => line.startsWith('forged.ts'));
+}
+
+// SIG-559: a write the file system refuses used to be rolldown's to report, as
+// its own `UNHANDLEABLE_ERROR` with the path inside text of its own -- and a
+// newline in `--out` then started a line of that text. It is asked of Node first
+// now, so what is reported is Node's error, which `escaped()` escapes whole
+describe.skipIf(process.platform === 'win32')('an --out the bundle cannot be written to', () => {
+  /**
+   * Builds into an `--out` whose name holds `FORGED` and checks that nothing
+   * forged a line, in either stream, and that the name is there escaped.
+   *
+   * @param app - The app's root.
+   * @param out - The directory to build into.
+   * @param said - What the failure has to say as well.
+   * @param extra - More arguments to the build.
+   */
+  async function refused(app: string, out: string, said: string, ...extra: string[]) {
+    const { code, stderr, stdout } = await build(app, '0', '--out', out, ...extra);
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain(said);
+    expect(stderr).toContain('forge\\x0Aforged.ts');
+    for (const stream of [stderr, stdout]) {
+      expect(forgedLines(stream), stream).toEqual([]);
+    }
+    expect(stderr).not.toContain('UNHANDLEABLE_ERROR');
+    expect(STACK.test(stderr), stderr).toBe(false);
+  }
+
+  it('should not forge a line when --out is under a file', async () => {
+    const app = linkedFixture(buildable, 'sigil-out-under-file-');
+    writeFileSync(join(app, 'afile'), '');
+
+    await refused(app, join(app, 'afile', FORGED), 'ENOTDIR');
+  }, 60_000);
+
+  it('should not forge a line when --out is a file', async () => {
+    // `--no-clean`, because without it the file is removed and a directory made
+    // where it was
+    const app = linkedFixture(buildable, 'sigil-out-is-file-');
+    const out = join(app, FORGED);
+    writeFileSync(out, '');
+
+    await refused(app, out, 'EEXIST', '--no-clean');
+  }, 60_000);
+
+  it('should not forge a line when a file the build writes is a directory', async () => {
+    const app = linkedFixture(buildable, 'sigil-out-entry-dir-');
+    const out = join(app, FORGED);
+    mkdirSync(join(out, 'buildable.mjs'), { recursive: true });
+
+    await refused(app, out, 'which is a directory', '--no-clean');
+  }, 60_000);
+
+  it('should not forge a line when the chunk directory is a file', async () => {
+    const app = linkedFixture(buildable, 'sigil-out-chunks-file-');
+    const out = join(app, FORGED);
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, 'chunks'), '');
+
+    await refused(app, out, 'EEXIST', '--no-clean');
+  }, 60_000);
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should not forge a line when a file the build writes is a link to nothing, in a directory it cannot write',
+    async () => {
+      // the write goes through the link, and `statSync()` finds nothing to ask about
+      const app = linkedFixture(buildable, 'sigil-out-dangling-');
+      const out = join(app, FORGED);
+      // named with the forged name too, since that is the directory the error quotes
+      const locked = `${out}-locked`;
+      mkdirSync(out, { recursive: true });
+      mkdirSync(locked);
+      symlinkSync(join(locked, 'x.mjs'), join(out, 'buildable.mjs'));
+      chmodSync(locked, 0o555);
+
+      try {
+        await refused(app, out, 'EACCES', '--no-clean');
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    },
+    60_000
+  );
+
+  // a directory made with a mode, which root ignores
+  it.skipIf(process.getuid?.() === 0)(
+    'should not forge a line when --out cannot be written to',
+    async () => {
+      const app = linkedFixture(buildable, 'sigil-out-readonly-');
+      const out = join(app, FORGED);
+      mkdirSync(out, { recursive: true });
+      chmodSync(out, 0o555);
+
+      try {
+        await refused(app, out, 'EACCES', '--no-clean');
+      } finally {
+        chmodSync(out, 0o755);
+      }
+    },
+    60_000
+  );
+
+  it.skipIf(process.getuid?.() === 0)(
+    'should not forge a line when --out cannot be created',
+    async () => {
+      const app = linkedFixture(buildable, 'sigil-out-parent-readonly-');
+      const parent = join(app, 'parent');
+      mkdirSync(parent);
+      chmodSync(parent, 0o555);
+
+      try {
+        await refused(app, join(parent, FORGED), 'EACCES');
+      } finally {
+        chmodSync(parent, 0o755);
+      }
+    },
+    60_000
+  );
+});
+
+// SIG-560: `assertCleanable()` runs outside the bundle stage's error handling,
+// so an error it threw would reach `main()` as it stands. None can, and `check`
+// asks it too, through the file's `build.out`
+describe.skipIf(process.platform === 'win32')('an --out the guard cannot ask about', () => {
+  it('should leave a path under a file to the build, and print nothing forged', async () => {
+    const app = linkedFixture(buildable, 'sigil-guard-under-file-');
+    writeFileSync(join(app, 'afile'), '');
+    writeFileSync(
+      join(app, 'sigil.json'),
+      JSON.stringify({ build: { out: join('afile', FORGED) } })
+    );
+
+    const { code, stderr, stdout } = await run(cli, app, ['check', app], { FORCE_COLOR: '0' });
+
+    expect(code, stderr).toBe(0);
+    for (const stream of [stderr, stdout]) {
+      expect(forgedLines(stream), stream).toEqual([]);
+    }
+    expect(stderr).not.toContain('ENOTDIR');
+  }, 60_000);
+});
 
 describe('what escaped() does to a message', () => {
   /** What Node raises for a `mkdir` under a root that holds a newline. */
