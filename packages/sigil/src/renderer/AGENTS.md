@@ -1199,7 +1199,7 @@ it.
   prompt; folded into `input` it is the whole renderer
   on a router; folded into `components` it is a 455 KB graph to start an app built
   from `box` and `text`. The source sits in `src/renderer/` and the entry points at
-  it, which is the `coerce` and `routes` shape: a subpath named for what an app
+  it, which is the `coerce` shape: a subpath named for what an app
   imports, a file kept beside the code it composes. `dist.test.ts` pins the split
   with a router string, a framework-sheet selector and the runner's own message,
   each absent from `renderer.mjs`'s graph and present in `app.mjs`'s, so neither half

@@ -12,7 +12,7 @@
  * about either.
  *
  * ```js
- * import { layout } from '@ttylabs/sigil/layout';
+ * import { layoutTree } from '@ttylabs/sigil/layout';
  * import { declare } from '@ttylabs/sigil/style';
  *
  * const tree = {

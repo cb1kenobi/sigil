@@ -135,7 +135,7 @@ the entry it belongs to.
   nothing, so two adjacent items each pushing away from the other pushed once.
 - **`layoutTree()` honours the root's own declared size.** Every other node's is
   resolved by its parent before `layoutNode()` is reached, and the root has no
-  parent to do that -- so `layout(panel, { width: 80 })` gave the panel eighty
+  parent to do that -- so `layoutTree(panel, { width: 80 })` gave the panel eighty
   columns however wide it said it was.
 - **Measurements are cached for the length of one `layoutTree()` call.** Without it a
   node's subtree is re-measured once per ancestor level, which is the node count
@@ -264,7 +264,7 @@ the entry it belongs to.
   that placed it at a width its child had said it need not keep.
 - **`max-width` is _not_ part of that, and it is asserted so that nobody adds it.**
   It is the obvious third divergence and it is unreachable on the main axis:
-  `measureUncached()` lays a child's content out at `clamp(declared ?? available, min,
+  `measureUncached()` lays a child's content out at `clampSize(declared ?? available, min,
   max)`, so a box child's measured width is already a sum taken inside its own limit --
   and where the content cannot shrink that far, a long word, `clampSize()` applies max
   before min so `min` wins, which is CSS. `max-width: 10` around `aa bb cc dd ee ff gg`

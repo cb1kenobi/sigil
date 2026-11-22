@@ -71,7 +71,7 @@ plain JavaScript, with the commands worth trying at the top of every one.
 - [Typed argv](#typed-argv)
 - [Testing](#testing) — `runCommand()`, `runOnTerminal()`, `createTestTerminal()`, `frame()`, `KEYS`
 - [Config files](#config-files) — `createConfig()`, layers, a schema, dotted paths, `save()`
-- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `layout`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`
+- [Subpath modules](#subpath-modules) — `app`, `ansi`, `wrap`, `width`, `help`, `i18n`, `terminal`, `components`, `canvas`, `input`, `style`, `signals`, `paths`, `config`, `which`, `trash`, `updates`, `testing`, `reference`, `png`, `layout`
 
 ---
 
@@ -2808,7 +2808,7 @@ result.children[1].box; // { x: 11, y: 0, width: 29, height: 3 }
 | Export                                 | What it does                                                                                                                                                                                           |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `layoutTree(root, { width, height? })` | Lays the tree out and returns a `LayoutResult`: for each node its border `box`, the `content` area inside padding and border, and its `children`. Omit `height` to let the tree be as tall as it needs |
-| `measureSubtree(node, availableWidth)` | What a subtree would ask for if it could have whatever it wanted -- `{ width, height }`, plus `minWidth` and `minHeight` when the content has a floor. Nothing is placed                               |
+| `measureSubtree(node, availableWidth)` | What a subtree would ask for if it could have whatever it wanted -- `{ width, height }`, plus `minWidth` and `minHeight`, the narrowest and shortest it can be without overflowing. Nothing is placed  |
 | `distributeCells(total, weights)`      | Splits `total` cells across `weights` into whole numbers that add up to exactly `total`. The same weights give the same integers every time, so a layout does not shimmer between frames               |
 | `resolveLength(length, available)`     | A style `Length` as a number of cells: `cells` as they are, `percent` of `available` rounded to the nearest cell, `auto` -- and a percentage of an unknown size -- as `undefined`                      |
 | `clampSize(value, min, max)`           | A size held between its minimum and maximum, the minimum winning where they conflict, as in CSS, and never negative                                                                                    |

@@ -91,7 +91,15 @@ describe('package exports', () => {
     const section = readme.slice(start, readme.indexOf('\n### ', start + 1));
 
     for (const name of Object.keys(layoutModule)) {
-      expect(section, `\`${name}\` is exported and not in the README`).toContain(`\`${name}(`);
+      // a row of the table, not a mention in the prose around it
+      expect(section, `\`${name}\` is exported and not in the README's table`).toContain(
+        `\n| \`${name}(`
+      );
+    }
+
+    // the types are not keys of the module, so they are named here
+    for (const type of ['Box', 'LayoutNode', 'LayoutOptions', 'LayoutResult', 'Measurement']) {
+      expect(section, `\`${type}\` is exported and not in the README`).toContain(`\`${type}\``);
     }
   });
 });
