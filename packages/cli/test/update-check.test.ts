@@ -867,6 +867,18 @@ describe('whether the schema names its own checker', () => {
     }
   );
 
+  it('should see a callee under several wrappers at once', () => {
+    expect(
+      readSchemaUpdateCheck(
+        entryOf(
+          "updateCheck: ((<Type>githubChecker) satisfies Type)!({ repo: 'a/b' })",
+          builders,
+          'index.ts'
+        )
+      )
+    ).toBe('names');
+  });
+
   it('should see a callee in parentheses alone, which bindingName() already took off', () => {
     expect(reads("updateCheck: (githubChecker)({ repo: 'a/b' })")).toBe('names');
     expect(reads("updateCheck: ((githubChecker))({ repo: 'a/b' })")).toBe('names');

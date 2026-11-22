@@ -994,6 +994,10 @@ makes it testable with a fixture directory and no bundler at all.
   reader each pass the callee through `unwrapShallow()` first. The tag readers
   (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are left as the list
   above says.
+  What stays missed, because it needs `unwrapShallow()` or the bindings to learn
+  something new: a wrapper on the _namespace_ (`(t as any).main(...)`,
+  `t!.main(...)`), and an instantiation expression, `(main<T>)(...)`, which
+  `unwrapShallow()` does not strip.
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag
