@@ -19,6 +19,7 @@
  * say where in the cascade it sits and when it applies.
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import { type Setting, readSettings } from './declaration.js';
 import type { ReducedMotion } from './motion.js';
 import type { PropertyName } from './properties.js';
@@ -494,7 +495,7 @@ class Parser {
     const prelude = rest.text;
     const opened = rest.stopped === '{';
     if (!opened && rest.stopped !== ';') {
-      throw this.#fail(`unclosed @${keyword}`, at);
+      throw this.#fail(`unclosed @${escapeControls(keyword)}`, at);
     }
 
     if (keyword === 'layer') {
@@ -537,7 +538,10 @@ class Parser {
       return [];
     }
 
-    throw this.#fail(`unknown at-rule "@${keyword}": there is @layer, @media and @keyframes`, at);
+    throw this.#fail(
+      `unknown at-rule "@${escapeControls(keyword)}": there is @layer, @media and @keyframes`,
+      at
+    );
   }
 
   /**
@@ -551,7 +555,10 @@ class Parser {
   #readKeyframes(prelude: string, at: number): void {
     const name = prelude.trim();
     if (!KEYFRAMES_NAME.test(name)) {
-      throw this.#fail(`invalid @keyframes name "${name}": expected an identifier`, at);
+      throw this.#fail(
+        `invalid @keyframes name "${escapeControls(name)}": expected an identifier`,
+        at
+      );
     }
 
     const frames: Keyframe[] = [];
@@ -559,7 +566,7 @@ class Parser {
     for (;;) {
       this.#trivia();
       if (this.#done) {
-        throw this.#fail(`unclosed @keyframes ${name}`, at);
+        throw this.#fail(`unclosed @keyframes ${escapeControls(name)}`, at);
       }
       if (this.#peek === '}') {
         this.#at++;
@@ -569,11 +576,14 @@ class Parser {
       const stopAt = this.#at;
       const selector = this.#until('{};');
       if (selector.stopped !== '{') {
-        throw this.#fail(`expected "{" after a keyframe selector in @keyframes ${name}`, stopAt);
+        throw this.#fail(
+          `expected "{" after a keyframe selector in @keyframes ${escapeControls(name)}`,
+          stopAt
+        );
       }
       const body = this.#until('}');
       if (body.stopped !== '}') {
-        throw this.#fail(`unclosed keyframe in @keyframes ${name}`, stopAt);
+        throw this.#fail(`unclosed keyframe in @keyframes ${escapeControls(name)}`, stopAt);
       }
 
       const declarations = Object.freeze(this.#keyframeDeclarations(body.text, stopAt));
@@ -604,14 +614,14 @@ class Parser {
       const percent = /^(\d+(?:\.\d+)?|\.\d+)%$/.exec(text);
       if (!percent) {
         throw this.#fail(
-          `invalid keyframe selector "${piece.trim()}": expected from, to, or a percentage`,
+          `invalid keyframe selector "${escapeControls(piece.trim())}": expected from, to, or a percentage`,
           at
         );
       }
       const value = Number(percent[1]);
       if (value > 100) {
         throw this.#fail(
-          `invalid keyframe selector "${piece.trim()}": a percentage past 100% is past the end of the animation`,
+          `invalid keyframe selector "${escapeControls(piece.trim())}": a percentage past 100% is past the end of the animation`,
           at
         );
       }
@@ -637,7 +647,7 @@ class Parser {
 
       const colon = indexOfTop(text, ':');
       if (colon === -1) {
-        throw this.#fail(`expected "property: value" in "${text}"`, at);
+        throw this.#fail(`expected "property: value" in "${escapeControls(text)}"`, at);
       }
 
       const name = text.slice(0, colon).trim();
@@ -649,13 +659,13 @@ class Parser {
         );
       }
       if (value === '') {
-        throw this.#fail(`no value for "${name}"`, at);
+        throw this.#fail(`no value for "${escapeControls(name)}"`, at);
       }
 
       for (const setting of this.#guard(at, () => readSettings(name, value))) {
         if (setting.keyword) {
           throw this.#fail(
-            `"${setting.keyword}" means nothing inside @keyframes: there is no parent here to inherit from and no cascade to resolve it against`,
+            `"${escapeControls(setting.keyword)}" means nothing inside @keyframes: there is no parent here to inherit from and no cascade to resolve it against`,
             at
           );
         }
@@ -673,7 +683,7 @@ class Parser {
       return name as Layer;
     }
     throw this.#fail(
-      `unknown layer "${prelude.trim()}": the layers are fixed, and they are ${LAYERS.join(', ')}`,
+      `unknown layer "${escapeControls(prelude.trim())}": the layers are fixed, and they are ${LAYERS.join(', ')}`,
       at
     );
   }
@@ -692,7 +702,7 @@ class Parser {
 
       const colon = indexOfTop(text, ':');
       if (colon === -1) {
-        throw this.#fail(`expected "property: value" in "${text}"`, at);
+        throw this.#fail(`expected "property: value" in "${escapeControls(text)}"`, at);
       }
 
       const name = text.slice(0, colon).trim();
@@ -703,7 +713,7 @@ class Parser {
       }
 
       if (value === '') {
-        throw this.#fail(`no value for "${name}"`, at);
+        throw this.#fail(`no value for "${escapeControls(name)}"`, at);
       }
 
       for (const setting of this.#guard(at, () => readSettings(name, value))) {
@@ -814,7 +824,7 @@ export function parseMediaQueryList(source: string): MediaQueryList {
     .filter((query) => query.length > 0);
 
   if (list.length === 0) {
-    throw new StyleError(`Invalid media query "${source.trim()}": it asks nothing`);
+    throw new StyleError(`Invalid media query "${escapeControls(source.trim())}": it asks nothing`);
   }
   return Object.freeze(list);
 }
@@ -837,13 +847,13 @@ function parseMediaQuery(source: string): MediaQuery {
     }
     if (text[at] !== '(') {
       throw new StyleError(
-        `Invalid media query "${text}": expected a parenthesised feature test at "${text.slice(at, at + 12)}"`
+        `Invalid media query "${escapeControls(text)}": expected a parenthesised feature test at "${escapeControls(text.slice(at, at + 12))}"`
       );
     }
 
     const end = text.indexOf(')', at);
     if (end === -1) {
-      throw new StyleError(`Invalid media query "${text}": unclosed feature test`);
+      throw new StyleError(`Invalid media query "${escapeControls(text)}": unclosed feature test`);
     }
     conditions.push(parseCondition(text.slice(at + 1, end), text));
     at = end + 1;
@@ -856,7 +866,7 @@ function parseMediaQuery(source: string): MediaQuery {
     }
     if (!/^and\b/i.test(text.slice(at))) {
       throw new StyleError(
-        `Invalid media query "${text}": expected "and" at "${text.slice(at, at + 12)}"`
+        `Invalid media query "${escapeControls(text)}": expected "and" at "${escapeControls(text.slice(at, at + 12))}"`
       );
     }
     at += 3;
@@ -868,7 +878,9 @@ function parseMediaQuery(source: string): MediaQuery {
 function parseCondition(source: string, whole: string): MediaCondition {
   const match = CONDITION.exec(source.trim());
   if (!match) {
-    throw new StyleError(`Invalid media feature "${source.trim()}" in "${whole}"`);
+    throw new StyleError(
+      `Invalid media feature "${escapeControls(source.trim())}" in "${escapeControls(whole)}"`
+    );
   }
 
   const prefix = match[1]?.toLowerCase();
@@ -877,13 +889,15 @@ function parseCondition(source: string, whole: string): MediaCondition {
 
   if (!(FEATURES as readonly string[]).includes(feature)) {
     throw new StyleError(
-      `Unknown media feature "${feature}" in "${whole}": there is ${FEATURES.join(', ')}`
+      `Unknown media feature "${escapeControls(feature)}" in "${escapeControls(whole)}": there is ${FEATURES.join(', ')}`
     );
   }
 
   if (raw === undefined) {
     if (prefix) {
-      throw new StyleError(`Media feature "${prefix}${feature}" in "${whole}" needs a value`);
+      throw new StyleError(
+        `Media feature "${escapeControls(prefix)}${escapeControls(feature)}" in "${escapeControls(whole)}" needs a value`
+      );
     }
     if (Object.hasOwn(KEYWORD_FEATURES, feature)) {
       // the bare form of a numeric feature means "not zero", which is a real
@@ -891,7 +905,7 @@ function parseCondition(source: string, whole: string): MediaCondition {
       // form would be a query that is always true -- and a rule inside one reads
       // as conditional while being unconditional, which is worse than an error
       throw new StyleError(
-        `Media feature "${feature}" in "${whole}" needs a value: it is always set, so asking whether it is would say nothing`
+        `Media feature "${escapeControls(feature)}" in "${escapeControls(whole)}" needs a value: it is always set, so asking whether it is would say nothing`
       );
     }
     return Object.freeze({ feature: feature as MediaFeature, kind: 'boolean', value: 0 });
@@ -900,14 +914,14 @@ function parseCondition(source: string, whole: string): MediaCondition {
   if (Object.hasOwn(KEYWORD_FEATURES, feature)) {
     if (prefix) {
       throw new StyleError(
-        `Media feature "${prefix}${feature}" in "${whole}" takes no range: "${feature}" has values rather than an order`
+        `Media feature "${escapeControls(prefix)}${escapeControls(feature)}" in "${escapeControls(whole)}" takes no range: "${escapeControls(feature)}" has values rather than an order`
       );
     }
     const allowed = KEYWORD_FEATURES[feature].values;
     const keyword = raw.trim().toLowerCase();
     if (!allowed.includes(keyword)) {
       throw new StyleError(
-        `Invalid value "${raw.trim()}" for media feature "${feature}": expected ${allowed.join(' or ')}`
+        `Invalid value "${escapeControls(raw.trim())}" for media feature "${escapeControls(feature)}": expected ${allowed.join(' or ')}`
       );
     }
     // read in any case, which is the rule every keyword in this grammar follows:
@@ -919,7 +933,7 @@ function parseCondition(source: string, whole: string): MediaCondition {
   const value = Number(raw.trim());
   if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(value)) {
     throw new StyleError(
-      `Invalid value "${raw.trim()}" for media feature "${feature}": expected a whole number of 0 or more`
+      `Invalid value "${escapeControls(raw.trim())}" for media feature "${escapeControls(feature)}": expected a whole number of 0 or more`
     );
   }
 

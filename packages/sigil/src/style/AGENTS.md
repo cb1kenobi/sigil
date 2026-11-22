@@ -828,6 +828,53 @@ toolchain's one reader.
   is what puts `absolute` in the utility set. The insets are a length rather than
   a count because pushing a box back the way it came is the ordinary use and a
   negative value is how CSS says it.
+- **A style error escapes the text it echoes at each throw site, and no
+  `StyleError` or `#fail()` does it for them** (SIG-572). A style is normally the
+  app's own code, but an app that builds one from data -- a theme colour read from
+  a config file -- puts someone else's text in it, and `Invalid colour "..."`
+  carried a control character to the terminal as it was: the gap SIG-412 closed for
+  argv and SIG-558 for config. Every `${...}` in a `StyleError` message that came
+  from the style being read is `escapeControls()` (`src/util/escape-controls.ts`,
+  never a copy) -- the colour, length, time and keyword parsers in `value.ts`, the
+  stylesheet's at-rule, keyframe, layer and media messages, the selector cursor's
+  `Invalid selector "..." at "..."` and its pseudo-class messages, the shorthand
+  and property parsers, and the one in `easing.ts` and `declaration.ts` -- plus the
+  two `TypeError`s `gradient.ts` raises over a stop and a border name, which are
+  the same fault, and `readDeclarations()`'s cascade-keyword refusal in
+  `index.ts`. The ticket counted 47 from one grep pattern; the sites were found
+  by reading every `throw` in the directory.
+
+  _Why not once, in `StyleError`'s constructor or in `#fail()`._ It would be one
+  place instead of fifty and it would work, and it is refused for the reasons the
+  parser's entry gives: `StyleError` is exported, so an app that throws one with
+  an SGR of its own would find its colours turned into `\x1B[31m`; and a choke
+  point cannot tell the value from the words around it, so a fixed message that
+  someday carries a character on purpose is rewritten with no site to point at.
+  `#fail()` is the sharper case. It is also what `#guard()` hands an inner
+  parser's message to, so the message arrives already escaped and `#fail()` would
+  be its second pass. That pass happens to change nothing, because
+  `escapeControls()` leaves a backslash alone and a second run over `\x1B` finds no
+  control character -- but a rule that is correct only because a second pass
+  is a no-op is one edit from a double-escaped message, so the sites own it
+  and `#fail()` and `StyleError` take their message as given. The `(line N)`
+  prefix is `#fail()`'s own text and is untouched.
+
+  _Two helpers take a message built by their caller._ `bareTime(part, prefix)` is
+  handed a `prefix` its caller already escaped (it holds `v.join(' ')`) and escapes
+  only `part`; `Cursor.fail(why)` is handed a `why` that is fixed words with any
+  echoed name escaped where it is written. Neither escapes its argument, so a
+  value that reaches either is escaped once, at the line that has it in hand.
+
+  _What is escaped without being able to be hostile, as a defence._ The at-rule
+  keyword (`[-a-zA-Z]+`), a pseudo-class name (an identifier), a keyframes name
+  that has already passed `KEYFRAMES_NAME` and is quoted by a later message, a cascade keyword (a member of a fixed list), a property
+  name that a table has already resolved, and the `v.join(' ')` of a `border`
+  that holds two valid colours are each limited by a pattern or a table before
+  the message is built, so a test cannot reach them with a hostile value. They
+  are escaped anyway: the pattern is another function's and can be loosened
+  without anyone looking here, which is the position SIG-558 recorded for a
+  layer name. `test/style/error-escape.test.ts` holds every site a hostile value
+  can reach, and sabotaging each file's escapes turns its cases red.
 
 ### Stylesheets and the cascade
 

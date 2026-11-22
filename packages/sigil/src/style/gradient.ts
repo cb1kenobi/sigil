@@ -26,6 +26,7 @@ import { sgr } from '../ansi/codes.js';
 import { assertColorLevel, type ColorLevel, getColorLevel } from '../ansi/color-support.js';
 import { matcher } from '../ansi/strip.js';
 import { type Color, colorParams, DEFAULT_COLOR } from '../canvas/style.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { graphemes, graphemeWidth, maxOf, stringWidth } from '../width/index.js';
 import { degradeColor, mixColors } from './degrade.js';
 import { parseColor } from './value.js';
@@ -99,7 +100,7 @@ function readStops(stops: readonly GradientStop[]): Color[] {
     const color = typeof stop === 'string' ? parseColor(stop) : stop;
     if (!Number.isInteger(color) || color < RGB_BASE) {
       throw new TypeError(
-        `Invalid gradient stop ${String(stop)}: a stop must be a 24-bit colour such as '#ff8800', ` +
+        `Invalid gradient stop ${escapeControls(String(stop))}: a stop must be a 24-bit colour such as '#ff8800', ` +
           `because a palette colour has no channels of its own to blend`
       );
     }
@@ -333,7 +334,7 @@ export function gradientBox(
   const set = BORDERS[opts.border ?? 'round'];
 
   if (set === undefined) {
-    throw new TypeError(`Unknown border "${String(opts.border)}"`);
+    throw new TypeError(`Unknown border "${escapeControls(String(opts.border))}"`);
   }
   if (!Number.isInteger(padding) || padding < 0) {
     throw new TypeError(`Invalid padding ${String(padding)}: expected a whole number`);

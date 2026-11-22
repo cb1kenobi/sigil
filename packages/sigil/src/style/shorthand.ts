@@ -1,3 +1,4 @@
+import { escapeControls } from '../util/escape-controls.js';
 import { kebab, type PropertyName, PROPERTIES, registerShorthandLookup } from './properties.js';
 import { parts, StyleError } from './value.js';
 
@@ -61,7 +62,7 @@ function edges(values: string[], edgeNames: Edges, name: string): [PropertyName,
         [left, values[3]],
       ];
     default:
-      throw new StyleError(`Invalid ${name}: expected one to four values`);
+      throw new StyleError(`Invalid ${escapeControls(name)}: expected one to four values`);
   }
 }
 
@@ -189,7 +190,7 @@ const SHORTHANDS = {
       }
 
       if (sawColor) {
-        throw new StyleError(`Invalid border "${v.join(' ')}": two colours`);
+        throw new StyleError(`Invalid border "${escapeControls(v.join(' '))}": two colours`);
       }
       // left for the colour parser to reject, so the message names the colour
       // rather than the shorthand
@@ -259,7 +260,7 @@ const SHORTHANDS = {
         basis = part;
         continue;
       }
-      throw new StyleError(`Invalid flex "${v.join(' ')}"`);
+      throw new StyleError(`Invalid flex "${escapeControls(v.join(' '))}"`);
     }
 
     return [
@@ -295,7 +296,7 @@ const SHORTHANDS = {
         wrap = part;
         continue;
       }
-      throw new StyleError(`Invalid flex-flow "${v.join(' ')}"`);
+      throw new StyleError(`Invalid flex-flow "${escapeControls(v.join(' '))}"`);
     }
 
     // the omitted half is reset rather than left alone, for the same reason
@@ -332,7 +333,7 @@ const SHORTHANDS = {
           delay = part;
         } else {
           throw new StyleError(
-            `Invalid transition "${v.join(' ')}": a transition has a duration and a delay, and no third time`
+            `Invalid transition "${escapeControls(v.join(' '))}": a transition has a duration and a delay, and no third time`
           );
         }
         continue;
@@ -345,7 +346,7 @@ const SHORTHANDS = {
         property = part;
         continue;
       }
-      throw bareTime(part, `Invalid transition "${v.join(' ')}"`);
+      throw bareTime(part, `Invalid transition "${escapeControls(v.join(' '))}"`);
     }
 
     // every longhand reset, including the ones this use did not mention, which
@@ -386,7 +387,7 @@ const SHORTHANDS = {
           delay = part;
         } else {
           throw new StyleError(
-            `Invalid animation "${v.join(' ')}": an animation has a duration and a delay, and no third time`
+            `Invalid animation "${escapeControls(v.join(' '))}": an animation has a duration and a delay, and no third time`
           );
         }
         continue;
@@ -411,7 +412,7 @@ const SHORTHANDS = {
         name = part;
         continue;
       }
-      throw bareTime(part, `Invalid animation "${v.join(' ')}"`);
+      throw bareTime(part, `Invalid animation "${escapeControls(v.join(' '))}"`);
     }
 
     return [
@@ -439,12 +440,15 @@ const COUNT = /^(?:infinite|\d+(?:\.\d+)?|\.\d+)$/i;
  * and "invalid animation" on its own sends the reader looking at the keyframes.
  */
 function bareTime(part: string, prefix: string): StyleError {
+  // `prefix` is escaped by its caller, where the declaration's own text is in
+  // hand; escaping it again here would turn the `\x1B` that wrote into `\\x1B`
+  const shown = escapeControls(part);
   if (/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/.test(part)) {
     return new StyleError(
-      `${prefix}: "${part}" needs a unit here -- write ${part}ms or ${part}s, because a bare number in a shorthand is an iteration count`
+      `${prefix}: "${shown}" needs a unit here -- write ${shown}ms or ${shown}s, because a bare number in a shorthand is an iteration count`
     );
   }
-  return new StyleError(`${prefix}: "${part}" is not part of it`);
+  return new StyleError(`${prefix}: "${shown}" is not part of it`);
 }
 
 /**
@@ -472,7 +476,7 @@ function noList(values: readonly string[], name: string): void {
         depth--;
       } else if (ch === ',' && depth === 0) {
         throw new StyleError(
-          `Invalid ${name} "${values.join(' ')}": one ${name} at a time -- a comma-separated list is not read here, and several properties at one duration is "${name}-property: a, b"`
+          `Invalid ${escapeControls(name)} "${escapeControls(values.join(' '))}": one ${escapeControls(name)} at a time -- a comma-separated list is not read here, and several properties at one duration is "${escapeControls(name)}-property: a, b"`
         );
       }
     }
@@ -540,7 +544,7 @@ export const SHORTHAND_NAMES: readonly ShorthandName[] = Object.keys(SHORTHANDS)
 export function expandShorthand(name: string, value: string): [PropertyName, string][] {
   const entry = shorthandFor(name);
   if (!entry) {
-    throw new StyleError(`"${name}" is not a shorthand`);
+    throw new StyleError(`"${escapeControls(name)}" is not a shorthand`);
   }
   return entry.expand(parts(value));
 }
