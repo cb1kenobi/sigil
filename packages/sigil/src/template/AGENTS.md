@@ -110,6 +110,48 @@ the entry it belongs to.
   effects on the owner before it was dropped. The rule a property the engine
   ignores already follows: parsing something and doing nothing with it is worse
   than not accepting it.
+- **A `<raw>` is tracked by writing `tracked` on it, a flag read once, and a plain
+  `<raw>` stays plain (SIG-485).** `trackedRaw()` (SIG-477) repaints a `raw` when
+  a signal its paint read changes, and a template built `raw()`, so an app written
+  in templates kept the hand-written effect calling `invalidatePaint()` the helper
+  exists to remove. `<raw tracked measure=${m} paint=${p} />` builds it with
+  `trackedRaw()`, in the tag, in JSX and in the compiled output alike, through
+  the one `rawElement()` that both emitters already share -- its fifth argument,
+  after the props the compiler hoists, is the flag.
+
+  A prop rather than a separate tag, for three reasons. `box`, `text` and `raw` are
+  the three host types and `HOSTS`, the unknown-element error and the JSX
+  `IntrinsicElements` each say so, so a fourth name is a
+  fourth place that has to agree; a tag would also have to be refused children
+  and a missing measure in a second place. `measure` and `paint` are already
+  construction options a `raw` is _built_ with rather than props, and `tracked`
+  is the third of the same kind, so `rawParts()` takes it out of the props beside
+  them and it never reaches `applyProps()`. And it keeps the choice where
+  the cost is: tracking was left off `raw()` for what it costs a frame, so
+  writing a word on the one element that wants it is the spelling that says so.
+
+  **The flag is a boolean and is read once.** A bare `tracked` is `true`;
+  `tracked=${false}` is plain, so a variable can decide. A string is refused
+  (`tracked="false"` is truthy to a test and false to a reader) and so is a
+  function, which every other prop treats as a thunk that follows a signal -- a
+  flag that appeared to follow one would have to build or release the listening
+  from outside the frame, which is what an owner is for. `trackedFlag()` is the
+  one function that says what is a flag, both emitters ask it, and the compiler
+  settles it at build time for a literal and prints an expression for the run to
+  settle, so a refusal is the same sentence on both paths (`REFUSALS`).
+
+  **Nothing about a plain `<raw>` changed**, which is the half that has to stay
+  true: the compiler prints the same call it did, with no fifth argument, and the
+  interpreter reaches `raw()` and not the graph. `@ttylabs/sigil/template` already
+  imported the renderer for `createEffect()`, so `trackedRaw()` adds a name to a
+  module that loads it and not a module to an entry. The tests change only the
+  signal the paint reads and ask the next _frame_, because `renderToString()` paints
+  every raw it is given and cannot tell the two apart:
+  `test/template/tracked-raw.test.ts` for the tag and JSX, and the corpus in
+  `packages/cli/test/emitters.test.ts` for the analyzed and compiled paths,
+  sabotaged on `rawElement()` and on the compiler's printed argument -- each
+  failed the cases it should.
+
 - **The IR is not serializable, and that is the expression decision rather than
   a second one.** An expression is opaque JavaScript, so `${() => count()}` is a
   closure and no design makes it data. The payoff the ticket wanted -- shipping
@@ -193,7 +235,7 @@ the entry it belongs to.
   `rootElement()`, and `applyRef()` for the one prop that runs after the
   children. The code the build emitter in `@ttylabs/cli` generates calls those
   six; the compiler itself also reads `componentChildren()`, `rawParts()`,
-  `splitRefs()`, `textPart()`, `refuseHandlerName()` and `templateError()` while
+  `trackedFlag()`, `splitRefs()`, `textPart()`, `refuseHandlerName()` and `templateError()` while
   it prints, which are rules about what exists and never reach a bundle. So
   the two cannot come to _disagree_ about what a prop or a child means; they can
   only differ over which of those answers was settled ahead of time, and
