@@ -366,7 +366,7 @@ function rerun(cwd: string, project: string): string {
  * a line it would forge rather than one of the message's own.
  *
  * @param path - The path.
- * @returns It, forward-slashed and with no control character.
+ * @returns It, forward-slashed and escaped by `escapeControls()`.
  */
 function shownPath(path: string): string {
   return escapeControls(displayPath(path));

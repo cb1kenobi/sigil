@@ -188,8 +188,8 @@ not "fix" them. The full list is
   shows each command and how long it took.
 - **Quote input you did not write through `escapeControls()`** from
   `@ttylabs/sigil/error-handler`, so a hostile file or branch name cannot put
-  an escape sequence on the user's terminal, or reverse the line with a bidi
-  override. The parser does this for its own messages.
+  an escape sequence on the user's terminal, reverse the line with a bidi
+  override, or hide a character that is drawn as nothing or as a blank. The parser does this for its own messages.
 - **In a `catch` that shows what went wrong, use `errorMessage()`** from
   `@ttylabs/sigil`. It takes anything that can be thrown and never throws
   itself, where `err.message` or `String(err)` can.

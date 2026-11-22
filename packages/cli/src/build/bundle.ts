@@ -409,6 +409,10 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
   // an error raised in a hook as `[plugin ...] RolldownError` with its own
   // stack, and what reaches the user is the message, never a stack
   let refused: string | undefined;
+  // and the error itself where it was one, so that a file system error from
+  // `clean()` reaches `escaped()` still carrying its `code` and `syscall`
+  // (SIG-552): rebuilt from its message it would read as rolldown's
+  let refusedWith: Error | undefined;
   let modules: readonly string[] = [];
 
   const generated = bin ? undefined : entryLocation(app, out);
@@ -673,6 +677,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
             beforeWrite?.(modules);
           } catch (e: unknown) {
             refused = e instanceof Error ? e.message : String(e);
+            refusedWith = e instanceof Error ? e : undefined;
           }
           if (refused !== undefined) {
             this.error(refused);
@@ -804,7 +809,7 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
         // rolldown found itself -- a module that does not parse, an export that
         // is not there -- is located in the app's source, so it is reported the
         // way a template that cannot be compiled is: see `bundleError()`
-        throw refused === undefined ? bundleError(e) : new Error(refused);
+        throw refused === undefined ? bundleError(e) : (refusedWith ?? new Error(refused));
       });
 
     // a template that could not be compiled, asked first because it is about

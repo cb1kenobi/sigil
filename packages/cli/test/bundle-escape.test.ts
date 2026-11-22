@@ -1,11 +1,12 @@
 import { bundleError } from '../src/build/bundle.ts';
 import { DiagnosticError, displayPath } from '../src/build/diagnostic.ts';
+import { escaped } from '../src/commands/_inspect.ts';
 import { linkedFixture } from './copy-fixture.ts';
 import { run, STACK } from './spawned.ts';
 import { tempDir } from './temp.ts';
 import { ESC } from '@ttylabs/sigil/ansi';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +26,13 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = resolve(here, '../src/sigil.ts');
 const buildable = resolve(here, 'fixtures', 'buildable');
+
+/**
+ * A root's name holding a newline and then what a problem matcher reads as a
+ * diagnostic. No separator is spelled: `forged.ts` is the part after the newline,
+ * so it is also what starts the forged line.
+ */
+const FORGED = 'sigil-forge\nforged.ts:1:1: error: pwned-';
 
 /** A directory name that is a retitle sequence. */
 const TITLE = 'h\u001b]0;PWN\u0007d';
@@ -192,6 +200,90 @@ describe.skipIf(process.platform === 'win32')('a bundle rolldown refuses', () =>
     expect(stderr).toContain(escapeControls(TITLE));
     expect(controls(stderr), stderr).toEqual([]);
   }, 60_000);
+
+  it('should not let a newline in the app root forge a line through a file system error', async () => {
+    // one line, quoting a path: the part of the root after the newline starts a
+    // line of its own unless the whole message is escaped, and an editor's
+    // problem matcher reads `file:line:col: error: ...` at the start of one
+    const app = linkedFixture(buildable, FORGED);
+    writeFileSync(join(app, 'node_modules', '.sigil'), '');
+
+    const { code, stderr } = await build(app, '0');
+
+    expect(code, stderr).toBe(1);
+    expect(stderr).toContain('ENOTDIR');
+    expect(
+      stderr.split('\n').filter((line) => line.startsWith('forged.ts')),
+      stderr
+    ).toEqual([]);
+  }, 60_000);
+});
+
+// a directory that cannot be emptied is made with a mode, which root ignores
+describe.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+  'an output directory the build cannot empty',
+  () => {
+    it('should not let a newline in the app root forge a line through the error clean() raised', async () => {
+      // `clean()` runs inside a hook, which kept the message and rebuilt a plain
+      // error from it -- so the file system error reached `escaped()` with no
+      // `syscall` and was read as rolldown's own message
+      const app = linkedFixture(buildable, FORGED);
+      const locked = join(app, 'dist', 'locked');
+      mkdirSync(locked, { recursive: true });
+      writeFileSync(join(locked, 'f'), '');
+      chmodSync(locked, 0o555);
+
+      try {
+        const { code, stderr, stdout } = await build(app, '0');
+
+        expect(code, stderr).toBe(1);
+        for (const out of [stderr, stdout]) {
+          expect(
+            out.split('\n').filter((line) => line.startsWith('forged.ts')),
+            out
+          ).toEqual([]);
+        }
+        expect(stderr).toContain('forge\\x0Aforged.ts');
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    }, 60_000);
+  }
+);
+
+describe('what escaped() does to a message', () => {
+  /** What Node raises for a `mkdir` under a root that holds a newline. */
+  function systemError(message: string): Error {
+    return Object.assign(new Error(message), { code: 'ENOTDIR', syscall: 'mkdir' });
+  }
+
+  it('should escape the newlines of a file system error, which is one line quoting a path', () => {
+    const error = systemError("ENOTDIR: not a directory, mkdir '/a\nforged.ts:1:1: error: x/b'");
+
+    const out = escaped(error) as Error & { code?: string };
+
+    expect(out).toBe(error);
+    expect(out.message).toBe("ENOTDIR: not a directory, mkdir '/a\\x0Aforged.ts:1:1: error: x/b'");
+    expect(out.code).toBe('ENOTDIR');
+  });
+
+  it("should keep the line breaks of rolldown's own message, which has structure of its own", () => {
+    // `[CODE] sentence` over a frame: no `syscall`, whether or not it has a `code`
+    const message = 'Build failed with 1 error:\n\n[PARSE_ERROR] Unexpected token\n   | frame\n';
+
+    for (const extra of [{}, { code: 'PARSE_ERROR' }, { syscall: 'mkdir' }]) {
+      expect((escaped(Object.assign(new Error(message), extra)) as Error).message).toBe(message);
+    }
+  });
+
+  it('should escape the other control characters of both kinds', () => {
+    expect((escaped(systemError('a\u001b]0;PWN\u0007b')) as Error).message).toBe(
+      'a\\x1B]0;PWN\\x07b'
+    );
+    expect((escaped(new Error('a\u001b]0;PWN\u0007b\nc')) as Error).message).toBe(
+      'a\\x1B]0;PWN\\x07b\nc'
+    );
+  });
 });
 
 /**

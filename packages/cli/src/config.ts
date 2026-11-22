@@ -134,7 +134,11 @@ export interface UpdateCheckConfig {
   readonly package?: string;
   /** `custom`: where the version sits in the JSON response, as a list of keys. */
   readonly path?: readonly string[];
-  /** `github`: the release tag prefix to strip. Defaults to `v`. */
+  /**
+   * `github`: the release tag prefix to strip, which defaults to `v`. `custom`:
+   * a prefix to strip off the version the endpoint answers with, which is
+   * stripped from nothing by default and must not be empty.
+   */
   readonly prefix?: string;
   /** `npm`: the registry to ask. Defaults to npm's. */
   readonly registry?: string;
@@ -621,7 +625,8 @@ function readUpdateCheck(updateCheck: UpdateCheckConfig, file: string): UpdateCh
       throw new Error(`${file}: "updateCheck.${field}" does not belong to a "${type}" check`);
     }
     // `prefix` is left out on purpose: an empty one is how a GitHub check
-    // says the tag is already the version
+    // says the tag is already the version. A custom check refuses an empty one,
+    // and that is `customChecker()`'s to say, naming this key, when it is built
     if (field !== 'prefix' && field !== 'path') {
       readName(updateCheck[field as keyof UpdateCheckConfig], `updateCheck.${field}`, file);
     }
@@ -649,7 +654,7 @@ function readUpdateCheck(updateCheck: UpdateCheckConfig, file: string): UpdateCh
  * an edit in one place and a field belonging to no kind cannot exist.
  */
 const UPDATE_CHECK_FIELDS: readonly (readonly [string, readonly string[]])[] = [
-  ['custom', ['path', 'url']],
+  ['custom', ['path', 'prefix', 'url']],
   ['github', ['prefix', 'repo']],
   ['none', []],
   ['npm', ['distTag', 'package', 'registry']],

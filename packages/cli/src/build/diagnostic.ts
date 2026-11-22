@@ -111,7 +111,7 @@ export function isFatal(diagnostics: readonly Diagnostic[]): boolean {
  * one of them into a slash.
  *
  * @param diagnostic - The diagnostic.
- * @returns The location, with no trailing colon and no control character.
+ * @returns The location, with no trailing colon, escaped by `escapeControls()`.
  */
 export function diagnosticLocation(diagnostic: Diagnostic): string {
   const { column, file, line } = diagnostic;
@@ -149,7 +149,7 @@ export function byLocation(
  *
  * The other half of `diagnosticLocation()`, for the same reason it is shared:
  * the pipe form and the laid-out form print one message and must not disagree
- * about it. Every control character becomes `\xNN` except `\n` and `\t`.
+ * about it. What `escapeControls()` escapes is escaped, except `\n` and `\t`.
  *
  * A newline is how a message carries lines -- a type checker's whole output
  * travels as one -- and a tab is its own formatting: it moves the cursor along
@@ -187,15 +187,15 @@ export function byLocation(
  * other character, and a producer not on that list has not been audited for it.
  *
  * @param diagnostic - The diagnostic.
- * @returns The message, with each control character but a newline and a tab as `\xNN`.
+ * @returns The message, escaped by `escapeControls()` but for a newline and a tab.
  */
 export function diagnosticMessage(diagnostic: Diagnostic): string {
   return escapeMessage(diagnostic.message);
 }
 
 /**
- * Text the toolchain prints, with every control character but a newline and a
- * tab as `\xNN`.
+ * Text the toolchain prints, escaped by `escapeControls()` but for a newline and
+ * a tab.
  *
  * `diagnosticMessage()`'s rule, given a name of its own for the one caller that
  * has text and no diagnostic: an error rolldown raised without saying where, which
@@ -205,7 +205,7 @@ export function diagnosticMessage(diagnostic: Diagnostic): string {
  * one rule are how the two come to disagree about the tab.
  *
  * @param message - The text.
- * @returns The text, with each control character but a newline and a tab as `\xNN`.
+ * @returns The text, escaped by `escapeControls()` but for a newline and a tab.
  */
 export function escapeMessage(message: string): string {
   return message.replaceAll(/[^\n\t]+/g, (run) => escapeControls(run));
