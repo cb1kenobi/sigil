@@ -51,7 +51,7 @@
 
 import { bindingName, importBindings, importedAs, type ImportBindings } from './bindings.ts';
 import { EXTENSIONS, resolveSpecifier, RUNTIME } from './discover.ts';
-import { plainProperty, unwrapShallow } from './literals.ts';
+import { plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { parseModule, type ParsedModule } from './parse-module.ts';
 import { walk } from './walk.ts';
 import { readFileSync } from 'node:fs';
@@ -119,29 +119,42 @@ function follow(from: string, specifier: string, name: string, seen: Set<string>
  * schema, { commands })` in the entry is how an app that builds today adds the
  * very key a reader looks for, and following past it reads the wrong file.
  *
+ * **Every module the statements load has to be one being followed**, because an
+ * import evaluates its module whatever it binds: `import './patch.js'`,
+ * `export { ready } from './setup.js'` and `import { type T } from './patch.ts'`
+ * all run a file that may change the schema. A type-only import or re-export is
+ * erased and is let through, and so is the runtime, which cannot know the schema.
+ *
  * @param parsed - The module.
+ * @param followed - The specifiers the walk is following out of this module.
  * @param mains - Where `main` is imported, to let its calls through; `undefined`
  *   lets none.
  * @returns Whether every statement is one of those.
  */
-function forwardsOnly(parsed: ParsedModule, mains?: ImportBindings): boolean {
+function forwardsOnly(
+  parsed: ParsedModule,
+  followed: ReadonlySet<string>,
+  mains?: ImportBindings
+): boolean {
+  const loads = (source: { readonly value: string }, kind: string | undefined): boolean =>
+    kind === 'type' || source.value === RUNTIME || followed.has(source.value);
+
   return parsed.program.body.every((statement) => {
     switch (statement.type) {
       case 'EmptyStatement':
-      case 'ExportAllDeclaration':
       case 'TSInterfaceDeclaration':
       case 'TSTypeAliasDeclaration':
         return true;
-      // an import that binds nothing runs the module for what it does, which may
-      // be to change the schema
+      case 'ExportAllDeclaration':
+        return loads(statement.source, statement.exportKind);
       case 'ImportDeclaration':
-        return statement.specifiers.length > 0 || statement.importKind === 'type';
+        return loads(statement.source, statement.importKind);
       case 'ExportNamedDeclaration':
-        return (
-          !statement.declaration ||
-          statement.declaration.type === 'TSInterfaceDeclaration' ||
-          statement.declaration.type === 'TSTypeAliasDeclaration'
-        );
+        return statement.source
+          ? loads(statement.source, statement.exportKind)
+          : !statement.declaration ||
+              statement.declaration.type === 'TSInterfaceDeclaration' ||
+              statement.declaration.type === 'TSTypeAliasDeclaration';
       case 'ExportDefaultDeclaration':
         return statement.declaration.type === 'Identifier';
       case 'ExpressionStatement': {
@@ -205,7 +218,9 @@ function exportedFrom(file: string, name: string, seen: Set<string>): Hop {
       // `export { default } from './x.js'`, and an import that oxc has already
       // folded into a re-export (`import x from './x.js'; export { x }`)
       if (entry.moduleRequest) {
-        return entry.importName.kind === 'Name' && entry.importName.name && forwardsOnly(parsed)
+        return entry.importName.kind === 'Name' &&
+          entry.importName.name &&
+          forwardsOnly(parsed, new Set([entry.moduleRequest.value]))
           ? follow(file, entry.moduleRequest.value, entry.importName.name, seen)
           : UNREADABLE;
       }
@@ -215,7 +230,7 @@ function exportedFrom(file: string, name: string, seen: Set<string>): Hop {
       const local = entry.localName.name;
       const imported = local ? importedAs(parsed, local) : undefined;
       if (imported) {
-        return imported.name === '*' || !forwardsOnly(parsed)
+        return imported.name === '*' || !forwardsOnly(parsed, new Set([imported.specifier]))
           ? UNREADABLE
           : follow(file, imported.specifier, imported.name, seen);
       }
@@ -256,7 +271,8 @@ function mainSchemas(parsed: ParsedModule): (string | undefined)[] {
     if (!first) {
       return true;
     }
-    if (first.type === 'SpreadElement') {
+    // a second argument is evaluated whatever `main()` does with it
+    if (first.type === 'SpreadElement' || node.arguments.length > 1) {
       names.push(undefined);
       return true;
     }
@@ -265,6 +281,19 @@ function mainSchemas(parsed: ParsedModule): (string | undefined)[] {
     let written: Expression | undefined = argument;
 
     if (argument.type === 'ObjectExpression') {
+      // `main()` reads the **last** `schema` key and a spread may bring one, where
+      // `plainProperty()` takes the first: two ways to say it are not read
+      const keyed = argument.properties.filter(
+        (property) => property.type !== 'SpreadElement' && propertyKey(property) === 'schema'
+      );
+      if (
+        keyed.length > 1 ||
+        argument.properties.some((property) => property.type === 'SpreadElement')
+      ) {
+        names.push(undefined);
+        return true;
+      }
+
       written = plainProperty(argument, 'schema')?.value as Expression | undefined;
 
       // `main({ argv })` hands over no schema, and a spread or a computed key may
@@ -327,12 +356,20 @@ export function findSchema(entry: string): FoundSchema {
 
   // no export, so the app starts itself and the object `main()` is given is it
   const mains = importBindings(parsed, RUNTIME, 'main');
-  if (!forwardsOnly(parsed, mains)) {
+  const named = mainSchemas(parsed);
+  const sources = new Set<string>();
+  for (const name of named) {
+    const imported = name === undefined ? undefined : importedAs(parsed, name);
+    if (imported) {
+      sources.add(imported.specifier);
+    }
+  }
+  if (!forwardsOnly(parsed, sources, mains)) {
     return here;
   }
 
   const files = new Set<string>();
-  for (const name of mainSchemas(parsed)) {
+  for (const name of named) {
     const imported = name === undefined ? undefined : importedAs(parsed, name);
     if (!imported) {
       files.add(entry);

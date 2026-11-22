@@ -119,6 +119,25 @@ describe('which module holds the schema', () => {
     expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
   });
 
+  it('should follow an entry that also holds directives, types and type-only imports', () => {
+    const root = appOf({
+      'src/index.ts': [
+        "'use strict';",
+        "import type { Schema } from './types.js';",
+        "import schema from './schema.js';",
+        'export type { Schema };',
+        'interface Options { readonly name: string }',
+        'type Name = Options["name"];',
+        'export type Both = Name | Options;',
+        'export default schema;',
+        '',
+      ].join('\n'),
+      'src/schema.ts': ASKS,
+    });
+
+    expect(whereIs(root, 'src/index.ts')).toBe('src/schema.ts');
+  });
+
   it('should follow what an entry hands to main() when it exports no schema', () => {
     for (const call of ['main({ schema })', 'main({ schema: schema })', 'main(schema)']) {
       const root = appOf({
@@ -192,6 +211,45 @@ describe('which module holds the schema', () => {
           "import './patch.js';\nimport schema from './schema.js';\nexport default schema;\n",
         'src/patch.js': "import schema from './schema.js';\nschema.commands = './commands';\n",
         'src/schema.js': ASKS,
+      },
+      'an entry that re-exports something from a module that changes the schema': {
+        'src/index.js':
+          "import schema from './schema.js';\nexport { ready } from './setup.js';\nexport default schema;\n",
+        'src/setup.js':
+          "import schema from './schema.js';\nschema.updateCheck = false;\nexport const ready = true;\n",
+        'src/schema.js': ASKS,
+      },
+      'an entry that imports a binding from a module that changes the schema': {
+        'src/index.js':
+          "import schema from './schema.js';\nimport { ready } from './setup.js';\nexport default schema;\nexport { ready };\n",
+        'src/setup.js':
+          "import schema from './schema.js';\nschema.updateCheck = false;\nexport const ready = true;\n",
+        'src/schema.js': ASKS,
+      },
+      'an entry that re-exports everything from a module that changes the schema': {
+        'src/index.js':
+          "import schema from './schema.js';\nexport * from './patch.js';\nexport default schema;\n",
+        'src/patch.js': "import schema from './schema.js';\nschema.commands = './x';\n",
+        'src/schema.js': ASKS,
+      },
+      'an export declared in a forwarding module, which may do anything': {
+        'src/index.js':
+          "import schema from './schema.js';\nexport const ready = Object.assign(schema, { commands: './x' });\nexport default schema;\n",
+        'src/schema.js': ASKS,
+      },
+      'a main() call with a second schema key': {
+        'src/index.js': `${RUNTIME}import a from './a.js';\nimport b from './b.js';\nmain({ schema: a, schema: b });\n`,
+        'src/a.js': ASKS,
+        'src/b.js': ASKS,
+      },
+      'a main() call with a spread that may bring a schema': {
+        'src/index.js': `${RUNTIME}import a from './a.js';\nimport options from './options.js';\nmain({ schema: a, ...options });\n`,
+        'src/a.js': ASKS,
+        'src/options.js': 'export default {};\n',
+      },
+      'a main() call with a second argument': {
+        'src/index.js': `${RUNTIME}import a from './a.js';\nmain({ schema: a }, patch(a));\n`,
+        'src/a.js': ASKS,
       },
       'a barrel that changes the schema it passes on': {
         'src/index.js': "export { default } from './mid.js';\n",

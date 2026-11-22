@@ -3143,7 +3143,14 @@ other is refused with numbers.
   of this. So the entry, and every module a re-export passes through, may hold
   imports, re-exports, `export default name` and type declarations only (the entry
   may also hold the `main()` call a `main()` follow is about), and one that holds
-  anything else is where the walk stops and answers the entry. That is also what
+  anything else is where the walk stops and answers the entry. **And every module
+  those statements load has to be one being followed**, because an import runs its
+  module whatever it binds: `import './patch.js'`, `export { ready } from
+  './setup.js'` and `import { type T } from './patch.ts'` each run a file that may
+  change the schema, which round 2 reproduced for the re-export. A type-only
+  import or re-export is erased and the runtime cannot know the schema, so those
+  pass. A `main()` call counts only with one argument, one `schema` key and no
+  spread, since `main()` reads the last key and evaluates every argument. That is also what
   makes the settings warning's "a built app uses ..." sentence safe: nothing on the
   way can have assigned to `settings` after the literal.
 
