@@ -3173,8 +3173,8 @@ other is refused with numbers.
   local name, so the module was read as writing its own schema, and every reader
   answered a file with no schema literal in it. `defaultName()` reads the name off
   the statement through `unwrapShallow()` -- `literals.ts`'s unwrapper, which gained
-  `TSTypeAssertion` for this (`shake.ts`'s `bare()` is its own matcher with its own
-  list and still lacks it, which is noted rather than changed here), so `main(<Schema>schema)` is followed too and every
+  `TSTypeAssertion` for this (`shake.ts`'s `bare()` had its own list and
+  lacked it, which SIG-574 fixed by deleting `bare()`), so `main(<Schema>schema)` is followed too and every
   other reader of it sees through `<T>{ ... }` as it already did `as`. A wrapper
   around anything that is not a bare name (a spread, a call, a member) is not a
   forward and still stops the walk, as the unwrapped one does, and the

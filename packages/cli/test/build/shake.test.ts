@@ -126,6 +126,8 @@ describe('the class evidence', () => {
       `const c = colour + (<string>'-red');`,
       `const c = (<string>(<unknown>'text-')!) + colour;`,
       `const c = ((<string>'text-') + colour) + other;`,
+      'const c = `${<string>"text-"}${colour}`;',
+      `let c = ''; c += <string>'-red';`,
     ]) {
       expect(evidenceOf(source).mayName('text-red'), source).toBe(true);
     }
