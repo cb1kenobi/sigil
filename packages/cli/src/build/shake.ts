@@ -436,8 +436,8 @@ function readFile(path: string, into: Evidence): void {
  *
  * ## Known is a string and nothing else
  *
- * `literalText()` answers for a string literal and for a template with no
- * interpolations, and for nothing else -- not a number, though `'p-' + 2` is
+ * `partsOf()` knows a string literal, a template, and a `+` chain or an untagged
+ * template of those, spliced in whole, and nothing else -- not a number, though `'p-' + 2` is
  * `p-2` and folding it would be tighter still. Tighter is where a mistake
  * *drops* a rule, so the conversions are left alone: an unknown part simply
  * ends the run and opens its neighbours, which is the safe answer for every
@@ -476,7 +476,7 @@ function collectLiterals(program: Node, into: Evidence): void {
     }
 
     if (node.type === 'BinaryExpression' && node.operator === '+') {
-      readRuns(flatten(node).map(literalText), into);
+      readRuns(partsOf(node), into);
       return true;
     }
 
@@ -486,9 +486,11 @@ function collectLiterals(program: Node, into: Evidence): void {
     // literal is in a declaration and only a dataflow could say it was ever
     // appended to. That is the documented unsound case rather than a shape to
     // add: this reads where a literal *sits*, and that one sits somewhere
-    // that says nothing
+    // that says nothing. The right side is read as the sequence it is, so
+    // `c += '-red' + x` and `` c += `-red${x}` `` open on both ends rather than
+    // being a closed `-red` after an unknown accumulator
     if (node.type === 'AssignmentExpression' && node.operator === '+=') {
-      readRuns([undefined, literalText(node.right as Node)], into);
+      readRuns([undefined, ...partsOf(node.right as Node)], into);
       return true;
     }
 
@@ -513,6 +515,10 @@ function collectLiterals(program: Node, into: Evidence): void {
 /**
  * A template's parts, in order: quasi, expression, quasi, and so on.
  *
+ * An expression of an untagged template is read through `partsOf()`, so a
+ * concatenation or a template inside an interpolation is spliced into the run
+ * rather than read as one unknown part.
+ *
  * @param node - The template.
  * @param isTagged - Whether a tag decides what it comes to.
  * @returns One entry per part, `undefined` where the text is not known.
@@ -529,7 +535,7 @@ function templateParts(node: Node, isTagged: boolean): (string | undefined)[] {
 
     const expression = template.expressions[at];
     if (expression) {
-      parts.push(isTagged ? undefined : literalText(expression));
+      parts.push(...(isTagged ? [undefined] : partsOf(expression)));
     }
   }
 
@@ -568,71 +574,62 @@ function readRuns(parts: readonly (string | undefined)[], into: Evidence): void 
 }
 
 /**
- * The string a node is, when it is one.
+ * The parts an expression is a sequence of, with the nested ones spliced in.
  *
- * Read through `unwrapShallow()`, which is the one list of the wrappers that
- * change nothing -- parentheses, `as`, `satisfies`, `<T>x` and `!`. Read
- * straight off the node an operand like `('text-' as string)` is not a
- * literal, the openness is never applied, and the walk later reads the string
- * as a closed token: a **dropped** rule rather than a kept one, which is the
- * direction this analysis does not trade in. A second list here is how
- * `<T>x` came to be missing from it while `literals.ts` had it.
+ * A `+` chain is its operands' parts one after another, an untagged template
+ * is its quasis and the parts of its interpolations, and a string literal is
+ * one known part. Anything else is one unknown part. So a chain or a template
+ * **inside** another opens and closes against what surrounds it exactly as it
+ * would have if it were written flat: `colour + ('-red' + x)` is
+ * `colour + '-red' + x`, and `` `${a}${`-red${x}`}` `` is `` `${a}-red${x}` ``.
+ * Read one operand at a time, the inner `-red` was a closed chunk with an
+ * unknown sitting beside it, and every rule the string could open at run time
+ * was shaken out -- the direction this analysis never errs in.
+ *
+ * Every operand is read through `unwrapShallow()`, which is the one list of the
+ * wrappers that change nothing -- parentheses, `as`, `satisfies`, `<T>x` and
+ * `!`. Read straight off the node an operand like `('text-' as string)` is not
+ * a literal, the openness is never applied, and the walk later reads the string
+ * as a closed token: a **dropped** rule rather than a kept one. A second list
+ * here is how `<T>x` came to be missing from it while `literals.ts` had it.
+ *
+ * A tagged template is a `TaggedTemplateExpression` and so is one unknown
+ * part: its value is whatever the tag returns.
+ *
+ * `+` is read as concatenation whatever its operands are. Where they are
+ * numbers it is not, and the parts it yields are unknown ones, which only ever
+ * open a neighbour.
  *
  * @param node - The expression, wrappers and all.
- * @returns Its text, or `undefined` when it is not a constant string.
+ * @returns Its parts, in source order, `undefined` where the text is not known.
  */
-function literalText(node: Node | undefined): string | undefined {
-  if (!node) {
-    return undefined;
-  }
-
+function partsOf(node: Node): (string | undefined)[] {
   const inner = unwrapShallow(node as Expression);
 
   if (isStringLiteral(inner)) {
-    return String(inner.value);
+    return [String(inner.value)];
   }
 
-  // a template with no interpolations is a string written the other way, and
-  // missing that is what made `` `text-` + colour `` drop every `text-*` rule
-  const template = inner as unknown as {
-    expressions?: Node[];
-    quasis?: { value: { cooked?: string | null; raw: string } }[];
-  };
-  if (inner.type === 'TemplateLiteral' && template.expressions?.length === 0) {
-    const only = template.quasis?.[0];
-    return only ? (only.value.cooked ?? only.value.raw) : '';
+  if (inner.type === 'BinaryExpression') {
+    const binary = inner as unknown as { left: Node; operator: string; right: Node };
+    if (binary.operator === '+') {
+      return [...partsOf(binary.left), ...partsOf(binary.right)];
+    }
   }
 
-  return undefined;
+  // a template is a string written the other way, and missing that is what
+  // made `` `text-` + colour `` drop every `text-*` rule. A tagged one is a
+  // `TaggedTemplateExpression` and never gets here
+  if (inner.type === 'TemplateLiteral') {
+    return templateParts(inner, false);
+  }
+
+  return [undefined];
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
 function isStringLiteral(node: Node): node is Node & { value: string } {
   return node.type === 'Literal' && typeof (node as { value?: unknown }).value === 'string';
-}
-
-/**
- * A `+` chain flattened left to right.
- *
- * `'a' + b + 'c'` parses as `('a' + b) + 'c'`, so the operands have to be
- * gathered before any of them can be told whether something unknown sits beside
- * it -- read off the nested shape, the `'a'` would look like the whole left
- * side of one addition rather than the start of three things joined.
- *
- * @param node - The outermost `+`.
- * @returns Its operands, in source order.
- */
-function flatten(node: Node): Node[] {
-  const expression = node as { left: Node; operator: string; right: Node };
-  const left = unwrapShallow(expression.left as Expression);
-
-  return [
-    ...(left.type === 'BinaryExpression' &&
-    (left as unknown as { operator: string }).operator === '+'
-      ? flatten(left)
-      : [expression.left]),
-    expression.right,
-  ];
 }
 
 /** What the utility sheet came to once the evidence had been applied. */
