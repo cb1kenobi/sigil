@@ -975,7 +975,7 @@ makes it testable with a fixture directory and no bundler at all.
   of being written. Also uncompiled, each silently, each the same function at run
   time: `const { ui } = t`; `(t).ui`, where the parentheses are around the object
   rather than the tag, so the unwrap does not reach them; `const ui = t.ui`;
-  `(ui as any)` and `(ui satisfies ...)`; `(0, ui)`; `ui!` and `t.ui!`, where the
+  `(ui as any)`, `(ui satisfies ...)` and `(ui<T>)`; `(t as any).ui`; `(0, ui)`; `ui!` and `t.ui!`, where the
   `!` erases; a dynamic `await import()`; and a specifier written with an escape
   -- `'@ttylabs/sigil/\u0074emplate'`, which oxc decodes, so `findTemplates()`
   finds the template while the substring fast path and the rolldown `code` filter
@@ -991,13 +991,33 @@ makes it testable with a fixture directory and no bundler at all.
   `(main as Main)(schema)` and `(utilitySheet!)()` are the same call at run time
   and a miss is silent, so the update-check reader, `main()` in the schema
   finder and the settings check, the utility-sheet rewrite and the plural key
-  reader each pass the callee through `unwrapShallow()` first. The tag readers
-  (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are left as the list
-  above says.
-  What stays missed, because it needs `unwrapShallow()` or the bindings to learn
-  something new: a wrapper on the _namespace_ (`(t as any).main(...)`,
-  `t!.main(...)`), and an instantiation expression, `(main<T>)(...)`, which
-  `unwrapShallow()` does not strip.
+  reader each ask `calleeName()` in `bindings.ts` rather than `bindingName()`.
+  The tag readers (`findTemplates()`, `translatedKey()`, `keysIn()`'s tag) are
+  left as the list above says, and `templates.test.ts` and `i18n-keys.test.ts`
+  pin that they still decline every wrapper below.
+
+  `calleeName()` reads the callee through `unwrapShallow()`, and the _object_ of a
+  namespace member through it too (SIG-589): `(t as any).main(...)`,
+  `t!.main(...)` and `(<any>t).main(...)` are `t.main(...)`. It is a helper
+  beside `bindingName()` rather than a change inside it, because the tag readers
+  ask `bindingName()` directly and a change there would have reversed the
+  decision above. `unwrapShallow()` strips an instantiation expression, `fn<T>`,
+  as well (SIG-588) -- type syntax that erases, like `as` -- so `(main<T>)(...)`
+  is seen, and every other caller of `unwrapShallow()` reads through it on a
+  value too. Each was checked: they all ask what a value _is_, and `x<T>` is `x`.
+
+  `?.` is the one wrapper that is **not** in `unwrapShallow()` (SIG-590), because
+  it can change a value, to `undefined`, and that helper is the list of wrappers
+  that change nothing. It is looked through only by `importCall()`, which returns
+  the call only when its callee is the import -- so every link the chain could
+  short-circuit at is on the import itself, `main?.(...)` or `t?.main(...)`, and
+  an import binding is never nullish. A chain that ends past the call,
+  `githubChecker()?.x`, is not the call. Only two readers needed it: the value of
+  a schema's `updateCheck` and an entry's forwarding statement in
+  `forwardsOnly()`, which look at one expression and ask whether it is the call.
+  The other three _walk_ to a `CallExpression` and reach the one inside the chain
+  on their own; their tests pin that rather than test a fix.
+
 - **Only the outermost template is claimed.** A `ui` written inside an
   interpolation stays interpreted, which is already recorded: an expression is
   not the compiler's to read, so it is printed back verbatim and the runtime tag

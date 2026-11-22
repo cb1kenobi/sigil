@@ -68,7 +68,7 @@
 
 import { quote } from '../template/emit.ts';
 import { generateUtilities, utilities, VARIANT_NAMES } from '../utilities/index.ts';
-import { bindingName, importBindings, reachable } from './bindings.ts';
+import { calleeName, importBindings, reachable } from './bindings.ts';
 import { choosePrefix } from './compile-templates.ts';
 import { landsAt } from './discover.ts';
 import { unwrapShallow } from './literals.ts';
@@ -747,7 +747,7 @@ export function shakeStyles(
     if (
       node.type === 'CallExpression' &&
       node.arguments.length === 0 &&
-      bindingName(unwrapShallow(node.callee as Expression), bindings) !== undefined
+      calleeName(node.callee as Expression, bindings) !== undefined
     ) {
       calls.push(node);
     }

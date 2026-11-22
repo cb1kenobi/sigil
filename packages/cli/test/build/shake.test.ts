@@ -917,3 +917,31 @@ describe.each([
     expect(out?.sites).toBe(1);
   });
 });
+
+// SIG-588, SIG-589: `fn<T>` is type syntax that erases, and so is a wrapper on the
+// namespace object of `s.utilitySheet()`, so each is the same call and was left
+// unshaken. SIG-590: an optional call is a `CallExpression` inside a chain, which
+// the walk reaches on its own -- pinned, and the splice covers the whole chain
+const DIRECT = "import { utilitySheet } from '@ttylabs/sigil/style';\n";
+const NAMESPACED = "import * as s from '@ttylabs/sigil/style';\n";
+
+describe.each([
+  ['an instantiation', DIRECT, '(utilitySheet<Type>)()'],
+  ['a namespace under as', NAMESPACED, '(s as any).utilitySheet()'],
+  ['a namespace under !', NAMESPACED, 's!.utilitySheet()'],
+  ['a namespace under <T>', NAMESPACED, '(<any>s).utilitySheet()'],
+  ['a namespace under satisfies', NAMESPACED, '(s satisfies object).utilitySheet()'],
+  ['an optional call', DIRECT, 'utilitySheet?.()'],
+  ['an optional namespace member', NAMESPACED, 's?.utilitySheet()'],
+])('utilitySheet() called through %s', (_what, preamble, call) => {
+  it('should still be replaced, whole', () => {
+    const out = shakeStyles(
+      '/app/src/view.ts',
+      `${preamble}export const v = ${call};\n`,
+      () => sheet
+    );
+
+    expect(out?.sites).toBe(1);
+    expect(out?.code).toContain('export const v = $csss();\n');
+  });
+});

@@ -21,6 +21,7 @@ function found(source: string, file = 'dev.ts'): string[] {
 }
 
 const RUNTIME = "import { main } from '@ttylabs/sigil';\n";
+const NAMESPACE = "import * as t from '@ttylabs/sigil';\n";
 
 describe('settings passed to main()', () => {
   it('should find them in the call, at the key', () => {
@@ -467,5 +468,30 @@ describe.each([
     expect(
       found(`${RUNTIME}await (${wrap('main')})({ schema, settings: { a: 1 } });`)
     ).toHaveLength(1);
+  });
+});
+
+// SIG-588, SIG-589: `fn<T>` is type syntax that erases, and so is a wrapper on the
+// namespace object of `t.main(...)` -- each is the same call, and each left the
+// warning silent. SIG-590: `?.` on an import never short-circuits; the walk
+// already reached the call inside the chain, and this pins that it still does
+describe.each([
+  ['an instantiation', RUNTIME, '(main<Type>)'],
+  ['a namespace under as', NAMESPACE, '(t as any).main'],
+  ['a namespace under !', NAMESPACE, 't!.main'],
+  ['a namespace under <T>', NAMESPACE, '(<any>t).main'],
+  ['a namespace under satisfies', NAMESPACE, '(t satisfies object).main'],
+  ['an optional call', RUNTIME, 'main?.'],
+  ['an optional namespace member', NAMESPACE, 't?.main'],
+])('a main() called through %s', (_what, preamble, callee) => {
+  it('should still have its settings found', () => {
+    expect(found(`${preamble}await ${callee}({ schema, settings: { a: 1 } });`)).toHaveLength(1);
+  });
+
+  it('should not take a name the module binds again for main()', () => {
+    const rebinds = 'function f(main: unknown, t: unknown) {}\n';
+    expect(found(`${preamble}${rebinds}await ${callee}({ schema, settings: { a: 1 } });`)).toEqual(
+      []
+    );
   });
 });

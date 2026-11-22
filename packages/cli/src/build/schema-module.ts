@@ -50,7 +50,13 @@
  * this only decides which file a reader opens.
  */
 
-import { bindingName, importBindings, importedAs, type ImportBindings } from './bindings.ts';
+import {
+  calleeName,
+  importBindings,
+  importCall,
+  importedAs,
+  type ImportBindings,
+} from './bindings.ts';
 import { EXTENSIONS, resolveSpecifier, RUNTIME } from './discover.ts';
 import { plainProperty, propertyKey, unwrapShallow } from './literals.ts';
 import { parseModule, type ParsedModule } from './parse-module.ts';
@@ -193,10 +199,7 @@ function forwardsOnly(
         if (call.type === 'AwaitExpression') {
           call = unwrapShallow(call.argument as Expression);
         }
-        return (
-          call.type === 'CallExpression' &&
-          bindingName(unwrapShallow(call.callee), mains) !== undefined
-        );
+        return importCall(call, [mains]) !== undefined;
       }
       default:
         return false;
@@ -294,10 +297,7 @@ function mainSchemas(parsed: ParsedModule): (string | undefined)[] {
 
   const names: (string | undefined)[] = [];
   walk(parsed.program, (node) => {
-    if (
-      node.type !== 'CallExpression' ||
-      bindingName(unwrapShallow(node.callee), mains) === undefined
-    ) {
+    if (node.type !== 'CallExpression' || calleeName(node.callee, mains) === undefined) {
       return true;
     }
 
