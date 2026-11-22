@@ -2,8 +2,8 @@ import {
   type Box,
   type LayoutNode,
   type LayoutResult,
-  layout,
-  resolve,
+  layoutTree,
+  resolveLength,
 } from '../../src/layout/index.js';
 import { declare, type Declarations, type Style } from '../../src/style/index.js';
 import { stringWidth } from '../../src/width/index.js';
@@ -114,7 +114,7 @@ export function render(
  * @returns The picture.
  */
 export function picture(node: LayoutNode, width: number, height: number): string {
-  return render(layout(node, { height, width }), width, height);
+  return render(layoutTree(node, { height, width }), width, height);
 }
 
 /** Every node's box, depth-first, for the assertions a picture cannot make. */
@@ -154,10 +154,10 @@ function offsetOf(node: LayoutResult, content: Box): { x: number; y: number } {
   }
 
   // `top` beats `bottom` and `left` beats `right`, as the engine resolves them
-  const left = resolve(style.left, content.width);
-  const right = resolve(style.right, content.width);
-  const top = resolve(style.top, content.height);
-  const bottom = resolve(style.bottom, content.height);
+  const left = resolveLength(style.left, content.width);
+  const right = resolveLength(style.right, content.width);
+  const top = resolveLength(style.top, content.height);
+  const bottom = resolveLength(style.bottom, content.height);
 
   return {
     x: left ?? (right === undefined ? 0 : -right),
@@ -245,7 +245,7 @@ function checkPacking(node: LayoutResult): void {
       : end
         ? own.marginRight
         : own.marginLeft;
-    return length.type === 'auto' ? undefined : (resolve(length, node.content.width) ?? 0);
+    return length.type === 'auto' ? undefined : (resolveLength(length, node.content.width) ?? 0);
   };
 
   // out of flow is out of the packing rule as well: it took no space, so the

@@ -74,7 +74,7 @@ import {
   packageRouteName,
   parseName,
   readPackage,
-} from '@ttylabs/sigil/routes';
+} from '@ttylabs/sigil/internal/routes';
 import { readFileSync, statSync } from 'node:fs';
 import nodePath, { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Expression, ObjectExpression, ObjectProperty, SpreadElement } from 'oxc-parser';

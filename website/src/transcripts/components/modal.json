@@ -23,10 +23,10 @@
         "type": "boolean"
       },
       {
-        "description": "What is said: a string, which wraps, or an element for anything else.",
+        "description": "What is said: a string, which wraps, an element for anything else, or a function that builds one.",
         "name": "body",
         "optional": true,
-        "type": "Element | string"
+        "type": "Element | string | (() => Element)"
       },
       {
         "description": "Whether a click on the screen outside the panel dismisses it. Defaults to `false`: a click that lands on nothing is more often a slip than a request.",
