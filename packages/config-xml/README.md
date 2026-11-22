@@ -298,11 +298,12 @@ rather than this store, and it is what `type` is for.
 
 The check is asked of the **merged document** rather than of what you passed, so
 that a key your write is not claiming cannot refuse a write that never touches
-it. Which means a file that already holds something XML cannot carry — a stray
-control character somebody pasted — refuses **every** write to that file, naming
-the character and the key. That is conservative on purpose: the alternative is
+it. Which means a file that already holds something XML cannot carry — a lone
+surrogate, or a `&#27;` reference to a control character — refuses **every** write
+to that file, naming the character and the key. That is conservative on purpose: the alternative is
 the store deliberately writing a document no conforming tool can read. Reading
-such a file is fine; only writing it back is refused.
+such a file is fine; only writing it back is refused. (A raw control character
+somebody pasted is not one of these: the read refuses it, as above.)
 
 ## Options
 

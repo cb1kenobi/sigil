@@ -79,11 +79,31 @@ describe('a document holding a C0 control character', () => {
     }
   });
 
-  it('should not echo the character, in the message or in the file name', () => {
-    const refused = said(`<config><a>${ESC}]0;PWNED${char(0x07)}</a></config>`, `a${ESC}b.xml`);
+  it('should not echo the character in the message', () => {
+    const refused = said(`<config><a>${ESC}]0;PWNED${char(0x07)}</a></config>`);
 
-    expect(refused).toContain('\\x1B');
+    expect(refused).toContain('\\x1B is not allowed');
     expect(refused).not.toMatch(/\p{Cc}/u);
+  });
+
+  // a file name holding a control character cannot be created on Windows, which
+  // is why `path-escape.test.ts` skips there too
+  it.skipIf(process.platform === 'win32')('should not echo one in the file name either', () => {
+    const refused = said(`<config><a>${ESC}</a></config>`, `a${ESC}b.xml`);
+
+    expect(refused).toContain('a\\x1Bb.xml');
+    expect(refused).not.toMatch(/\p{Cc}/u);
+  });
+
+  it('should not read a file of nothing but a control character as an empty config', () => {
+    // `trim()` counts the vertical tab and the form feed as whitespace and XML
+    // does not: the file was read as `{}` and a write replaced it
+    const vt = char(0x0b) + char(0x0c);
+    const path = file(vt);
+
+    expect(() => xml(path).readSync()).toThrow(/Failed to parse .*line 1, column 1/);
+    expect(() => xml(path).writeSync({ a: '1' })).toThrow(/Failed to parse/);
+    expect(read(path)).toBe(vt);
   });
 
   it('should count a line end of any kind once, and a code point as one column', () => {

@@ -36,6 +36,19 @@ interface ParsedDocument {
 }
 
 /**
+ * Whether a file holds nothing, which is an empty document rather than a parse
+ * error.
+ *
+ * `trim()` counts U+000B and U+000C as whitespace and XML does not, so a file of
+ * nothing but a vertical tab would be read as empty -- and a write would replace
+ * it -- where the same character beside a root is refused (SIG-581). A control
+ * character is not blank: it goes on to `parse()`, which says so.
+ */
+function isBlank(raw: string): boolean {
+  return !raw.trim() && firstControl(raw) === undefined;
+}
+
+/**
  * The encoding a document's XML declaration names, or nothing where it names
  * none or has no declaration.
  *
@@ -296,7 +309,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * the only thing in the JSON store's way.
    */
   const document = (raw: string | undefined): ConfigDocument => {
-    if (raw === undefined || !raw.trim()) {
+    if (raw === undefined || isBlank(raw)) {
       return { value: {} };
     }
 
@@ -335,7 +348,7 @@ export function xml(path: string, opts: XmlStoreOptions = {}): WritableConfigSto
    * with the file untouched.
    */
   const render: RenderText = (now, value, paths) => {
-    const blank = now === undefined || !now.trim();
+    const blank = now === undefined || isBlank(now);
     const { doc, shape } = blank ? fresh() : parseShaped(now as string);
     const el = doc.documentElement;
 

@@ -654,6 +654,12 @@ five things core had deliberately not published, which is the entry below.
   character in every place` is the test, and it sabotages: with `badChar()`
   taught to allow C0 it fails.
 
+- **A file of nothing but a control character is not an empty document.** The
+  blank test is `trim()`, which counts U+000B and U+000C as whitespace where XML
+  does not, so a file holding only one was read as `{}` and a write replaced it
+  -- found by review round 1. `isBlank()` asks `firstControl()` too, and the file
+  goes on to `parse()` and is refused like any other.
+
 - **What is left alone, recorded rather than silently missed.** A numeric
   character reference to a control character, `&#1;`, is not well-formed either
   (the `Legal Character` constraint) and `xmldom` reads it as the character; the
