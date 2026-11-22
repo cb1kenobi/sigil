@@ -10209,22 +10209,27 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   kept the dialog's elements alive with it. Measured as an effect over an app
   `State`, then `openModal()` and `close()`: a write afterwards ran it again, 2
   runs where 1 belongs. `body: () => Element` is called once, as the modal opens,
-  untracked, under a branch of **`getOwner()` when something is running** -- the
-  component's, when it is opened from a body -- **and otherwise the host's `owner`**,
-  which every `Renderer` has now and is its root owner. A bare element has neither
-  and the body is then built under a `createRoot()` of its own, whose effects run
-  through the default factory. The branch is disposed in `close()`, so every way a
+  under a branch of **the host's `owner`**, which every `Renderer` has
+  now and is its root owner -- wherever `openModal()` was called from, so the
+  dialog is the screen's and does not go when the component that opened it does
+  (a first draft preferred `getOwner()`, and a dialog left up by a component that
+  unmounted kept trapping the keys over a body whose effects had stopped, found by
+  review). A bare element has no owner and the body is built under a
+  `createRoot()` of its own, whose effects run through the default factory. The branch is disposed in `close()`, so every way a
   dialog ends does it: a button, Escape, `close()`, `dispose()` and the renderer
   going, which closes first. It is disposed **before** the panel leaves the tree
   and before the focus is handed back, so a cleanup still has its elements and an
   effect over the focus does not hear the dialog's own hand-back.
 
-  What a cleanup threw is held until `result` has settled and then raised, rather
-  than thrown from where it was found, because a throw from the middle of
+  What a cleanup threw goes to the renderer's `onError`, as any unmount's does,
+  with a renderer host. A bare element has no sink, and there it is held until
+  `result` has settled and then raised, because a throw from the middle of
   `close()` would leave the dialog's binding off, the panel in the tree and
   `result` pending. A function that throws, or answers something that is not an
-  element, disposes its branch first, so a refused call leaves nothing running --
-  and nothing open, since nothing has been attached by then. An element is still
+  element, disposes its branch first and nothing has been attached by then; a
+  throw from a _later_ step of opening -- a body that is itself a tree's root,
+  which `append()` refuses -- is not covered, and that already left the dialog's
+  input layer in place for an element body. An element is still
   accepted and still adopted as it was; nothing about it is disposed, and a body
   with anything reactive in it is the case the function is for.
 

@@ -74,17 +74,18 @@ function wire(input, ui, status) {
 
   const rename = async (row) => {
     const name = new State(row.text);
-    const field = TextField({ onSubmit: () => dialog.close(true), value: name });
-    ui.field = field;
     const dialog = openModal(ui.root, {
       actions: [{ label: 'Rename', value: true }, { label: 'Cancel' }],
-      body: field,
+      body: () => {
+        ui.field = TextField({ onSubmit: () => dialog.close(true), value: name });
+        return ui.field;
+      },
       input,
       title: `Rename ${row.text}`,
       width: 34,
     });
     // the field rather than the first button, which is where a rename starts
-    input.focus.focus(field);
+    input.focus.focus(ui.field);
     row.addClass('renaming');
     const answer = await dialog.result;
     row.removeClass('renaming');
