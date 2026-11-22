@@ -39,8 +39,8 @@ export interface AssertRgbaImageOptions {
  * between the encoder and whatever draws one. Refused rather than read as far
  * as it goes: a `data` one row short reads as `undefined`, which arithmetic
  * turns into a `NaN` that something else then throws about, far from the
- * mistake. Anything quoted from the argument has its control characters
- * escaped, because the message is printed to a terminal.
+ * mistake. Anything quoted from the argument goes through `escapeControls()`,
+ * because the message is printed to a terminal.
  *
  * The ceiling is IHDR's -- a chunk length, and so a PNG dimension, stops at
  * 2^31-1 -- and is no limit on a picture in practice: one that wide and a pixel

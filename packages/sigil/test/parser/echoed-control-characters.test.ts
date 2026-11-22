@@ -101,6 +101,28 @@ describe('a value echoed into an error message', () => {
     expect(err).toBe('Error: Invalid integer: o/n\\u{202E}\\u{200B}\\u{2028}x\n');
   });
 
+  it('should escape an invisible filler, a grapheme joiner and a variation selector (SIG-548)', async () => {
+    // none is in a format class: U+3164 and U+115F are letters drawn blank, U+034F
+    // is a mark and U+FE0F a selector, so two values that print alike could differ
+    const err = await stderrOf(['--n', 'o/n\u3164\u115f\u034f\ufe0f'], {
+      name: 'mycli',
+      options: { '--n <n>': { type: 'int' } },
+      run() {},
+    });
+
+    expect(err).toBe('Error: Invalid integer: o/n\\u{3164}\\u{115F}\\u{034F}\\u{FE0F}\n');
+  });
+
+  it('should escape a blank braille pattern, which draws as a space (SIG-557)', async () => {
+    const err = await stderrOf(['--n', 'o/n\u2800x'], {
+      name: 'mycli',
+      options: { '--n <n>': { type: 'int' } },
+      run() {},
+    });
+
+    expect(err).toBe('Error: Invalid integer: o/n\\u{2800}x\n');
+  });
+
   it('should escape a value from the environment', async () => {
     vi.stubEnv('SIG412_PORT', `${ESC}[31m9`);
 

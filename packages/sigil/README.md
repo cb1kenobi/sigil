@@ -175,7 +175,8 @@ The parser quotes argv and environment values in its messages —
 --mode` — and argv is not always typed by the person reading the error: a glob
 over a hostile file name, a wrapper forwarding a branch name, or an environment
 variable set from a file can all put an escape sequence there. So every value
-the framework echoes has its control characters written out as `\xNN`, and
+the framework echoes has its control characters written out as `\xNN` (and the
+invisible ones below as `\u{NNNN}`), and
 `mycli $'bu\e]0;PWNED\aild'` reports `Unexpected argument "bu\x1B]0;PWNED\x07ild"`
 rather than renaming the terminal's window. Every `\p{Cc}` is escaped, which is
 C0, `DEL` and C1, and that includes a tab and a newline: inside a quoted value a
@@ -186,8 +187,12 @@ not, is `\xAD`): a right-to-left override makes the
 terminal draw the rest of the line reversed, and a zero-width space is not
 drawn at all, so two values that print alike can differ. That includes the
 zero-width joiner, so a joined emoji in an echoed value shows `\u{200D}` between
-its parts. The no-break space and the other spaces are drawn and are left
-alone. Only the echoed value is escaped, never the message around it, so an
+its parts. So is every other character Unicode says is drawn as nothing,
+`\p{Default_Ignorable_Code_Point}`: the Hangul fillers, the combining grapheme
+joiner and the variation selectors, which include the U+FE0F that follows an
+emoji, so a heart there shows as the heart and then `\u{FE0F}`. So is the blank
+braille pattern, U+2800, which is drawn as a space but is not one. The no-break
+space and the other spaces are drawn and are left alone. Only the echoed value is escaped, never the message around it, so an
 error your own code throws keeps its colors.
 
 `escapeControls()` from `@ttylabs/sigil/error-handler` is that function. Use it
