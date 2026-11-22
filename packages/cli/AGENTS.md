@@ -3156,6 +3156,20 @@ other is refused with numbers.
   makes the settings warning's "a built app uses ..." sentence safe: nothing on the
   way can have assigned to `settings` after the literal.
 
+  **A TypeScript wrapper around the name forwards it (SIG-569).** `export default
+  schema satisfies Schema`, `schema as Schema` and `<Schema>schema` erase to
+  `export default schema`, and the walk stopped at them: oxc gives such an export no
+  local name, so the module was read as writing its own schema, and every reader
+  answered a file with no schema literal in it. `defaultName()` reads the name off
+  the statement through `unwrapShallow()` -- `literals.ts`'s unwrapper, which gained
+  `TSTypeAssertion` for this (`shake.ts`'s `bare()` is its own matcher with its own
+  list and still lacks it, which is noted rather than changed here), so `main(<Schema>schema)` is followed too and every
+  other reader of it sees through `<T>{ ... }` as it already did `as`. A wrapper
+  around anything that is not a bare name (a spread, a call, a member) is not a
+  forward and still stops the walk, as the unwrapped one does, and the
+  forwards-only rule is unchanged: a module that also does something to the schema
+  is the entry whether or not its `export default` is wrapped.
+
   **An entry that reaches its schema only through `main()` is checked like any
   other app, and is an `inspect()` error unless `--commands` was given.** A built
   app imports the entry for an export, so it would build and then stop at start with
