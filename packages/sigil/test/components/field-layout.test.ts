@@ -39,11 +39,19 @@ describe('the field layout', () => {
       // the dist graph stays small -- but an ejected copy's import is rewritten to
       // `@ttylabs/sigil/components/prompt`, which is the whole stack again (SIG-615)
       expect(source(name)).not.toMatch(/from '\.\/prompt\.js'/);
-      expect(source(name)).toMatch(/from '\.\/field-layout\.js'/);
+      expect(source(name)).toMatch(
+        /import \{[^}]*\blayoutField\b[^}]*\} from '\.\/field-layout\.js'/
+      );
     }
   );
 
   it('should have number() read layoutField() from field-layout.ts', () => {
-    expect(source('number')).toMatch(/layoutField\b[^;]*from '\.\/field-layout\.js'/s);
+    const text = source('number');
+
+    expect(text).toMatch(/import \{[^}]*\blayoutField\b[^}]*\} from '\.\/field-layout\.js'/);
+    // the import of the prompt module is the one statement that must not name it
+    for (const [, names] of text.matchAll(/import \{([^}]*)\} from '\.\/prompt\.js'/g)) {
+      expect(names).not.toMatch(/\b(?:layoutField|offsetIn)\b/);
+    }
   });
 });

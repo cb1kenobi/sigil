@@ -1630,8 +1630,10 @@ decided once, for all of them. The runs and the sabotage passes are in
   would leave the graph small and rewrite an ejected copy to the prompt subpath.
   The ceilings of the five entries this freed came down to about 2x what they now
   measure -- `code-view` 290 KiB, `diff` 340, `markdown` 365, `diff-view` 465,
-  `text-area` 450 -- which is what stops the stack coming back unnoticed behind a
-  ceiling that sat at 2x the old figure.
+  `text-area` 450. They bound ordinary growth and **do not catch the stack coming
+  back**: every old with-stack figure is under its new ceiling (`text-area` was
+  283,108 B against 460,800). What does is the `carriers` check for the prompt's
+  own message in `test/dist.test.ts`, which is why `text-area` is in its list.
 
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several

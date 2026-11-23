@@ -687,6 +687,7 @@ describe('what importing the package costs', () => {
       [...graph].join(', ')
     ).toEqual([]);
     expect(carriers(graph, 'themedCascade')).toEqual([]);
+    expect(carriers(graph, 'layoutField').length).toBeGreaterThan(0);
     expect(graphBytes(graph), [...graph].join(', ')).toBeLessThan(240 * 1024);
     expect(staticBuiltins(graph)).toEqual([]);
   });

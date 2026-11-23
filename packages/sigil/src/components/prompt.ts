@@ -1488,6 +1488,17 @@ export interface MultilineOptions extends PromptOptions, AccessibleOptions {
 }
 
 /**
+ * `lineStart()`, `lineEnd()` and `gutterOf()` are exported for a test and are
+ * deliberately *not* in the components barrel.
+ *
+ * They are the arithmetic a multiline prompt's keys and gutter are built on, and
+ * like the layout in `field-layout.ts` they are asserted directly rather than
+ * through the screen model, which holds characters and not styling. The layout
+ * itself moved out of this module in SIG-615 and is published; `fieldLayers()`,
+ * which draws it, is in the barrel too.
+ */
+
+/**
  * The offset the logical line holding `at` starts at.
  *
  * **Home, End, Ctrl-A, Ctrl-E, Ctrl-U and Ctrl-K are the logical line and not

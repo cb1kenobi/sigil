@@ -9,15 +9,12 @@ import { isSpaceCluster, snap } from './editing.js';
  * `layoutField()` and `offsetIn()` were written in `prompt.ts`, so the text area
  * -- which wraps and places its lines with exactly these two -- imported the whole
  * prompt stack to call them: `components/text-area` was 283,108 B over 45 modules
- * and `prompt` is 264,315 B over 41. `prompt.ts` re-exports every name it moved,
+ * and `prompt` was 264,315 B over 41 when this was measured. `prompt.ts` re-exports every name it moved,
  * so none changed, and `number()`, `multiline()` and the text area all import the
  * module they actually want.
  */
 
 /**
- * The field arithmetic below is exported for a test and is deliberately *not*
- * in the components barrel.
- *
  * What a multiline field claims is a coordinate -- a caret derived from an
  * offset, a goal column that survives a short row and a wide cluster -- and
  * those are functions of a string, an offset and a width. The screen model a
@@ -27,12 +24,12 @@ import { isSpaceCluster, snap } from './editing.js';
  * is asserted directly and the field is asserted through the screen, which is
  * the split `rowWindow()` and `thumbExtent()` already keep for the scroll box.
  *
- * `layoutField()`, `fieldLayers()` and the shapes they trade in are in the
- * barrel since SIG-201, and for one reason: `number()` is a registry entry, an
- * ejected copy imports only what is published, and it draws its field with
- * exactly these two. That makes `FieldLayout` a promise to the app that ejected
- * it -- narrow, and made on purpose; see "Ejecting `number`, `date` and the
- * palette" in this directory's `AGENTS.md`.
+ * `layoutField()`, `offsetIn()` and the shapes they trade in are in the barrel,
+ * and each has this module's subpath: `number()` and the text area are registry
+ * entries, an ejected copy imports only what is published, and both lay their
+ * field out with exactly these two. That makes `FieldLayout` a promise to the app
+ * that ejected it -- narrow, and made on purpose; see "Ejecting `number`, `date`
+ * and the palette" in this directory's `AGENTS.md`.
  */
 
 /** One cluster of a field's value, and where it was drawn. */
