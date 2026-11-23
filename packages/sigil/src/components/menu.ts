@@ -1176,8 +1176,14 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
       }
       try {
         checkMenuEntries(items);
-        truncate(-1);
+        // the new menu is built before the one it replaces is closed, because
+        // building it is where a check or radio mark is read and a mark may throw:
+        // the menu that was open is then left as it was, highlight and all
+        const before = levels.length;
         const level = push(items, at, o.side ?? 'bottom', o.minWidth ?? 0, -1);
+        for (const old of levels.splice(0, before)) {
+          old.popup.remove();
+        }
         highlight(level, o.initial ?? -1);
       } catch (error) {
         // the session took the keys and the mouse when it opened, and with no menu

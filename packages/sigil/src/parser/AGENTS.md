@@ -1321,11 +1321,31 @@ stays 1.
   `default: 'eight'` on an `int` is the schema's own mistake and stays the plain
   error it was -- `applyFallback()` is told which it is filling from, because the
   message is identical and nothing else distinguishes them. **The `choices` check
-  is the exception, and is recorded rather than closed:** it runs at judging time,
-  where `produced()` says which declaration wrote a value and not from which
-  source, so a `default` outside its own `choices` (and a value an `afterParse`
-  hook wrote) is `invalid-value` and exits 2. Closing it means recording the
-  source beside the writer for a message that is the same either way.
+  knows the source too (SIG-601),** which it did not at first: it runs at judging
+  time, where `produced()` says which declaration wrote a value and not from
+  which source, so a `default` outside its own `choices` was `invalid-value` and
+  exited 2 -- the user told they typed something wrong over a schema nothing they
+  type can satisfy. `applyFallback()` now records beside the writer the value a
+  `default` put on a destination (`defaults` in `parse.ts`), and `checkChoices()`
+  asks it. A value from argv is a `UsageError`. **A value from the environment is
+  a `UsageError` as well, and that is decided rather than defaulted:** the user
+  sets the variable, so it is as much theirs as a flag is, and a default declared
+  beside it changes nothing about whose the value is (`APP_MODE=nope` with
+  `default: 'a'` exits 2). A `default` outside its `choices` is a plain `Error`,
+  exit 1: `The default "z" for option --mode is not one of its choices`, naming the
+  first member that is outside, and **not a new class** -- whether "the schema is
+  wrong" earns one is SIG-602's question, and a plain `Error` is what every other
+  schema mistake already throws. It is raised only when the default is what is on
+  the destination: argv replacing it makes the parse fine, as it always was.
+  What is kept is the value by identity rather than a flag, so a value an
+  `afterParse` hook writes over a default is no longer the schema's and is judged
+  as a usage error, like every value with no known source; a list a hook edits in
+  place is the same object and stays the schema's, which is the limit -- and the
+  message then names a value the schema never declared. A hook that writes the
+  very same primitive the default was is not told apart either, and the answer
+  there is right by accident. Config
+  files are separate and unchanged: `createConfig()` throws its own plain
+  `Invalid value` for a default outside its choices.
 - **A string a `transform` returns is still judged by the type.** The wrap is on
   the coercion, so `transform: () => 'bug'` on an `int` is `invalid-value`
   whatever wrote the string. Narrower than wrapping the transform call itself,

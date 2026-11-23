@@ -1426,6 +1426,47 @@ describe('a template that cannot be compiled', () => {
       expect(process.exitCode, argv[0]).toBe(1);
     }
   }, 60_000);
+
+  it('should refuse an unknown prop on a box and a text before the app runs (SIG-614)', async () => {
+    // the cascade refused these on the first frame, as a style error, which is
+    // after the build had reported success. `check` and `build` read the same
+    // template and say the same line
+    const app = linkedFixture(join(fixtures, 'templated'), 'sigil-build-bad-prop-');
+    writeFileSync(
+      join(app, 'src', 'commands', 'greet.ts'),
+      [
+        "import { command, type AnyCommand } from '@ttylabs/sigil';",
+        "import { renderToString } from '@ttylabs/sigil/element';",
+        "import { ui } from '@ttylabs/sigil/template';",
+        '',
+        'const greet: AnyCommand = command({',
+        "  desc: 'Greet with props nothing reads',",
+        '  run() {',
+        '    process.stdout.write(renderToString(ui`<box padddding="1">x</box>`));',
+        '    process.stdout.write(renderToString(ui`<text colour="red">y</text>`));',
+        '  },',
+        '});',
+        '',
+        'export default greet;',
+        '',
+      ].join('\n')
+    );
+    const file = displayPath(join('src', 'commands', 'greet.ts'));
+
+    for (const argv of [
+      ['check', app],
+      ['build', app],
+    ]) {
+      process.exitCode = undefined;
+      const { err, out } = await sigil(...argv);
+
+      expect(err, argv[0]).toContain(`${file}:8:41: error: <box> has no prop \`padddding\``);
+      expect(err, argv[0]).toContain(`${file}:9:41: error: <text> has no prop \`colour\``);
+      expect(err, argv[0]).not.toMatch(FRAME);
+      expect(out, argv[0]).not.toMatch(FRAME);
+      expect(process.exitCode, argv[0]).toBe(1);
+    }
+  }, 60_000);
 });
 
 /**

@@ -104,6 +104,9 @@ const NUMBERS = Array.from({ length: 30 }, (_, i) => String(i + 1));
 /** `NUMBERS` with line 3 and line 25 changed: two hunks, far enough apart to stay two. */
 const TWO_HUNKS = NUMBERS.map((n) => (n === '3' ? 'three' : n === '25' ? 'twenty-five' : n));
 
+/** `NUMBERS` with line 3 and line 4 replaced: one hunk of two removals and two additions. */
+const FOUR_AND_THREE = NUMBERS.map((n) => (n === '3' ? 'three' : n === '4' ? 'four' : n));
+
 /** What a mounted client is driven with. */
 interface Mounted {
   readonly app: App;
@@ -318,6 +321,161 @@ for (const [syntax, App] of [
         await escape(client);
         expect(client.screen()).toMatch(/[▸>] \[1\] Files/);
         expect(client.screen()).toMatch(/space stage ·/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should stage only the lines picked in a hunk, and only the one under the cursor with none',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', FOUR_AND_THREE);
+        const client = await mount(App, repo);
+
+        // Enter starts the line cursor on `-3`, and Space with nothing picked stages it
+        await client.press('4', KEYS.enter, ' ');
+        expect(client.screen()).toMatch(/Staged 1 line of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 4)).toEqual(['1', '2', '4', '5']);
+
+        // what is left is a hunk of its own, `-4` `+three` `+four`: pick the two
+        // additions, leaving the removal, and stage those
+        await client.press(KEYS.enter, KEYS.down, KEYS.down, 'x', KEYS.up, 'x', ' ');
+        expect(client.screen()).toMatch(/Staged 2 lines of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 5)).toEqual([
+          '1',
+          '2',
+          '4',
+          'three',
+          'four',
+        ]);
+        expect(repo.git('diff')).toMatch(/-4/);
+        expect(repo.git('diff')).not.toMatch(/\+three/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should stage a range of lines picked with v, across an unchanged line',
+      async () => {
+        const repo = repository();
+        // line 2 and line 4 changed, with line 3 between them: one hunk, `-2` `+two`
+        // `3` `-4` `+four`
+        repo.write(
+          'a.txt',
+          NUMBERS.map((n) => (n === '2' ? 'two' : n === '4' ? 'four' : n))
+        );
+        const client = await mount(App, repo);
+
+        // v at `-2`, then down twice to `-4`: the range takes `-2`, `+two` and
+        // `-4` and steps over the context line between, and Space stages those three
+        await client.press('4', KEYS.enter, 'v', KEYS.down, KEYS.down, ' ');
+        expect(client.screen()).toMatch(/Staged 3 lines of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 5)).toEqual([
+          '1',
+          'two',
+          '3',
+          '5',
+          '6',
+        ]);
+        expect(repo.git('diff')).toMatch(/\+four/);
+        expect(repo.git('diff')).not.toMatch(/\+two/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should list the line keys in the footer while the cursor is on the lines, in place of the hunk keys',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', FOUR_AND_THREE);
+        const client = await mount(App, repo);
+        const footer = (): string => client.screen().split('\n').slice(-3).join('\n');
+
+        await client.press('4');
+        expect(footer()).toMatch(/space stage hunk/);
+        expect(footer()).toMatch(/enter lines/);
+        expect(footer()).toMatch(/next hunk/);
+
+        await client.press(KEYS.enter);
+        expect(footer()).toMatch(/space stage lines/);
+        expect(footer()).toMatch(/v range/);
+        expect(footer()).toMatch(/x pick/);
+        expect(footer()).not.toMatch(/next hunk/);
+
+        await client.press(KEYS.enter);
+        expect(footer()).toMatch(/space stage hunk/);
+        expect(footer()).not.toMatch(/v range/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should unstage only the lines picked in a staged hunk',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', FOUR_AND_THREE);
+        repo.git('add', 'a.txt');
+        const client = await mount(App, repo);
+
+        // `+three`, the third changed line, is the one unstaged: `-3` and `-4` stay deleted
+        await client.press('4', KEYS.enter, KEYS.down, KEYS.down, 'x', ' ');
+        expect(client.screen()).toMatch(/Unstaged 1 line of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 4)).toEqual(['1', '2', 'four', '5']);
+        expect(repo.git('diff')).toMatch(/\+three/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should say why a selection cannot be unstaged, rather than unstage something else',
+      async () => {
+        const repo = repository();
+        repo.write('c.txt', ['one', 'two']);
+        repo.git('add', 'c.txt');
+        const client = await mount(App, repo);
+
+        // part of a new file is not something git can take out of the index
+        await client.press('4', KEYS.enter, ' ');
+        expect(client.screen()).toMatch(/Cannot unstage part of a new file/);
+        expect(repo.git('diff', '--cached', '--name-only')).toBe('c.txt\n');
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should leave the lines with Escape before it leaves the pane, and say an untracked file is staged whole',
+      async () => {
+        const repo = repository();
+        repo.write('c.txt', ['new']);
+        const client = await mount(App, repo);
+
+        await client.press('4', KEYS.enter, ' ');
+        expect(client.screen()).toMatch(/staged whole/);
+        expect(repo.git('diff', '--cached', '--name-only')).toBe('');
+
+        // the first Escape leaves the lines, so Space is the hunk's again
+        await escape(client);
+        expect(client.screen()).toMatch(/[▸>] \[4\]/);
+        await client.press(' ');
+        expect(repo.git('diff', '--cached', '--name-only')).toBe('c.txt\n');
 
         await client.press('q');
         expect(await client.app.exited).toBe(0);

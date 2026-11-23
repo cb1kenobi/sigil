@@ -471,12 +471,31 @@ describe('a command name', () => {
   });
 });
 
-/** Runs `sigil new` in `dir`, piped. */
+/**
+ * Runs `sigil new` in `dir`, piped.
+ *
+ * With `--pm npm` unless the test says which manager it is about. A pnpm app asks
+ * the pnpm on the machine for its version, so that the scaffold can pin it, and
+ * that is a process of its own: measured, `sigil new demo --yes` took 2.9 s, 4.3 s
+ * and 3.1 s and the same with `--pm npm` 1.2 s, 1.5 s and 0.7 s, on a machine
+ * with a load average of 140. On Windows it goes through `cmd.exe` and
+ * `pnpm.cmd` as well, which is the likely reason `should set up no linter with --linter none`
+ * timed out at 10 seconds there while the suite ran nine other files beside it
+ * (SIG-627). Nothing in the tests that do not pass `--pm` is about pnpm, and the
+ * ones that are say so.
+ */
 function run(dir: string, ...argv: string[]) {
-  return spawnSync(process.execPath, [cli, 'new', ...argv, '--no-install', '--no-git'], {
-    cwd: dir,
-    encoding: 'utf-8',
-  });
+  const manager = argv.some((arg) => arg === '--pm' || arg.startsWith('--pm='))
+    ? []
+    : ['--pm', 'npm'];
+  return spawnSync(
+    process.execPath,
+    [cli, 'new', ...argv, ...manager, '--no-install', '--no-git'],
+    {
+      cwd: dir,
+      encoding: 'utf-8',
+    }
+  );
 }
 
 describe('the flags', () => {
