@@ -8516,7 +8516,9 @@ machine. Sort anything you print beside the surface with it, rather than with
 `localeCompare`, which reads the process locale.
 
 `descriptionLine(text)` is a description as one line: every run of whitespace
-one space, then every control character gone, then trimmed. It is what the
+one space, then every control character and every format character gone (the
+class `escapeControls()` names, so the bidi overrides, the zero-width characters,
+the joiners and variation selectors included), then trimmed. It is what the
 completion script and the markdown reference both print a `desc` with, since a
 description is one line wherever it is printed and a raw escape in a file is a
 sequence waiting for something to print it.

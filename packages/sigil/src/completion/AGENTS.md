@@ -1666,11 +1666,15 @@ dispatches between the printer and the installer.
   A control character has been taken out of the name since `programOf()` was
   written, for the reason its own comment gives: the printer and the installer
   must agree about what the name is, and a name each reduces the same way
-  does. Refusing a format character would add a second rule beside that one, and
-  would make an `--uninstall` of a script an earlier version wrote under such a
-  name fail where the stripped name finds it. What it costs is that the script
-  registers for `mycli` where the schema said otherwise -- and a name nobody
-  could type was never going to be invoked by the other spelling either.
+  does. Refusing a format character would add a second rule beside that one.
+  What it costs is that the script registers for `mycli` where the schema said
+  otherwise -- and a name nobody could type was never going to be invoked by the
+  other spelling either -- and that a script an earlier version installed under
+  the unstripped name is no longer found by `--uninstall`, which now looks for
+  the stripped one. Not tested, and read from the code. The stripping is not
+  uniform with the refusal beside it: `\s` matches U+FEFF and U+2028, so a name
+  holding one becomes a space and is refused as two words, where U+200B is
+  stripped and the name registers.
   **Escaping is not an option for the name**: `my\u{202E}cli` written into a
   `complete -F` is a different word to the shell, which is what SIG-592's
   escape is right for in an error and wrong for in a script.
@@ -1679,10 +1683,18 @@ dispatches between the printer and the installer.
   a Hangul filler or a variation selector goes from a description as well. A
   joined emoji loses its joiner and a heart its U+FE0F, which is what the
   class costs a description in a menu; the markdown reference prints through the
-  same function and pays the same. Not covered: a candidate **value** holding
+  same function and pays the same. It is not only emoji: the zero-width
+  non-joiner is a letter of Persian and of several Indic scripts, so `می‌خواهم`
+  loses a character that is spelling, and a soft hyphen goes too. Not covered: a candidate **value** holding
   one, which is dropped only for a control character -- a value is inserted into
   the command line, so cleaning it would type a token that is not the value.
-  Covered by `test/completion-format-chars.test.ts`, per shell. The printer's
+  **A command name, an alias and a choice are not covered either, and a U+202E in
+  one still reaches both scripts** -- measured on `go` + U+202E + `x`, an alias
+  and an option's choices. They pass through `typeable()`, which drops what holds
+  a control character; extending it is a decision of its own, since a command
+  is matched by the name argv gives and dropping one removes it from the menu.
+  Covered by `test/completion-format-chars.test.ts`, per shell; its bash
+  description case can only assert absence, since bash prints no description. The printer's
   static graph was 91,434 B over 26 modules and is 91,484 B over the same 26 as
   of SIG-610 -- `staticGraph()` over the `completion` chunk -- since
   `escape-controls.ts` was already in it and the change is one function there
