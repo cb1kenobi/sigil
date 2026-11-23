@@ -627,12 +627,13 @@ commit message in a text area. What it settled:
   `git.exe` there can also be a launcher for a second `git.exe`, which killing the
   first does not end. The two non-repository tests now wait for the diff pane's
   note, which the client writes after its last git, and the repository test waits
-  for the untracked file, which is after `status`, `for-each-ref` and `log`.
+  for the untracked file, which is after `status` and `for-each-ref` (`log` is
+  skipped on an unborn branch).
   What is **not** measured is the process itself: nothing could be reproduced off
   Windows -- on macOS no git outlives the entry in fifteen runs of either entry,
   with or without the wait -- so the cause is the code path plus the CI record.
-  The removal therefore lists `git.exe` and `node.exe` from `tasklist` when it
-  fails with `EBUSY`, so a recurrence names its holder in the failure rather than
+  The removal therefore lists the running `git.exe` processes, with their parent
+  and command line, when it fails on Windows, so a recurrence names its holder in the failure rather than
   being retried away. Nothing here changes what the client does on `q` on Windows,
   which is to kill the git it started and exit; whether the shim's child is left
   behind there is a question for a Windows machine.
