@@ -692,6 +692,23 @@ describe('runApp()', () => {
     }
   );
 
+  it('should say the app failed to start, not to read App.view in onMount(), once the component body has thrown (SIG-612)', () => {
+    const term = createTestTerminal({ columns: 30, rows: 6 });
+    let held: App | undefined;
+    expect(() =>
+      runApp(
+        () => {
+          held = useApp();
+          throw new Error('body broke');
+        },
+        { detect: false, terminal: term.terminal }
+      )
+    ).toThrow('body broke');
+    // no onMount() will ever run and no renderer will ever exist, so the advice
+    // the message gave while the body was being built is untrue from here on
+    expect(() => held?.view).toThrow('App.view is not there because the app failed to start');
+  });
+
   it('should drop every resize subscription when a stylesheet fails to parse', () => {
     const term = createTestTerminal({ columns: 30, rows: 6 });
     // counted at the terminal, which is what both the router and a full-screen
