@@ -38,35 +38,40 @@ const cpu = (): number => {
 };
 
 /**
- * The smallest step the CPU clock takes, in milliseconds, found by spinning on it
- * until it has moved a few times. A clock that never moved in the time allowed is
- * one with no step to speak of. Asked of the clock rather than of the platform
- * (SIG-649): `process.threadCpuUsage()` is microseconds on macOS and bills in
- * scheduler ticks on the Linux CI runners, which is four milliseconds a step, so
- * that a small read of 256 repeats came back as nothing at all -- `the clock read
- * nothing over 256 reads` on three Ubuntu jobs of one run -- and a span of three
- * milliseconds is less than one step of it. Windows is the same story in a
- * coarser tick, which is why it used to be named here; asking covers it and
- * whatever comes after it.
+ * The average step the CPU clock takes, in milliseconds, found by spinning on it
+ * until it has moved fifty times or forty milliseconds have gone, and dividing what
+ * it advanced by how often it moved. A clock that never moved has no step to speak
+ * of. Asked of the clock rather than of the platform (SIG-649):
+ * `process.threadCpuUsage()` is microseconds on macOS and bills in scheduler ticks
+ * on the Linux CI runners, which is four milliseconds a step, so that a small read
+ * of 256 repeats came back as nothing at all -- `the clock read nothing over 256
+ * reads` on three Ubuntu jobs of one run -- and a span of three milliseconds is less
+ * than one step of it. Windows is the same story in a coarser tick, which is why it
+ * used to be named here; asking covers it and whatever comes after it.
+ *
+ * An average and not the smallest step, because a clock that also moves a little
+ * between its ticks -- a context switch bills the thread the moment it happens --
+ * has one short step, and reading that as the clock's grain would pick a clock that
+ * reads zero over most spans. What the average says is how far the clock gets in
+ * the time it takes to move, which is what a span has to be more than.
  */
 function cpuStep(): number {
-  let last = cpu();
-  let step = Infinity;
+  const first = cpu();
+  let last = first;
   let moves = 0;
-  for (const end = performance.now() + 40; moves < 4 && performance.now() < end;) {
+  for (const end = performance.now() + 40; moves < 50 && performance.now() < end;) {
     const at = cpu();
     if (at !== last) {
-      step = Math.min(step, at - last);
       last = at;
       moves++;
     }
   }
-  return step;
+  return moves === 0 ? Infinity : (last - first) / moves;
 }
 
 /**
  * The finest step a clock may take and still be read over a span: a tenth of a
- * millisecond, thirty times under the smallest span asked for here.
+ * millisecond, ten times under the smallest span asked for here.
  */
 const FINEST = 0.1;
 

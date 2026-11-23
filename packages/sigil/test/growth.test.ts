@@ -51,24 +51,41 @@ describe('growthOf()', () => {
       vi.resetModules();
     });
 
-    it('should fall back to the wall clock rather than read nothing', async () => {
+    // each is a clock in microseconds, as `threadCpuUsage()` reports, that a span of
+    // three milliseconds cannot be read over
+    const CLOCKS: [string, (cpu: number) => number][] = [
       // four milliseconds a step, as the Linux CI runners keep it
-      const real = process.threadCpuUsage.bind(process);
-      vi.spyOn(process, 'threadCpuUsage').mockImplementation(() => {
-        const { system, user } = real();
-        return { system: 0, user: Math.floor((system + user) / 4000) * 4000 };
-      });
-      vi.resetModules();
-      const ticked = await import('./growth.js');
-      // under a tick clock `a` shape read for three milliseconds reads 0 or 4
-      const first = ticked.now();
-      let second = first;
-      for (const end = performance.now() + 5; performance.now() < end && second === first;) {
-        second = ticked.now();
+      ['four milliseconds a step', (cpu) => Math.floor(cpu / 4000) * 4000],
+      // the same, with one short step after each tick, as a clock that is also
+      // billed at a context switch would read: the smallest step is 50
+      // microseconds and the average is two milliseconds
+      [
+        'four milliseconds a step, and a short one between',
+        (cpu) => Math.floor(cpu / 4000) * 4000 + (cpu % 4000 >= 50 ? 50 : 0),
+      ],
+    ];
+
+    it.skipIf(typeof process.threadCpuUsage !== 'function').each(CLOCKS)(
+      'should fall back to the wall clock rather than read nothing: %s',
+      async (_name, tick) => {
+        const real = process.threadCpuUsage.bind(process);
+        vi.spyOn(process, 'threadCpuUsage').mockImplementation(() => {
+          const { system, user } = real();
+          return { system: 0, user: tick(system + user) };
+        });
+        vi.resetModules();
+        const ticked = await import('./growth.js');
+        // the wall clock moves in fractions of a millisecond; a tick clock reads
+        // nothing or a whole step
+        const first = ticked.now();
+        let second = first;
+        for (const end = performance.now() + 5; performance.now() < end && second === first;) {
+          second = ticked.now();
+        }
+        expect(second - first).toBeLessThan(1);
+        expect(second - first).toBeGreaterThan(0);
+        expect(ticked.growthOf(linear, text(256), text(2048), 8, 'ticks')).toBeLessThan(24);
       }
-      expect(second - first).toBeLessThan(4);
-      expect(second - first).toBeGreaterThan(0);
-      expect(ticked.growthOf(linear, text(256), text(2048), 8, 'ticks')).toBeLessThan(24);
-    });
+    );
   });
 });

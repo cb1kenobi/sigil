@@ -12223,12 +12223,14 @@ there is the bars, which are drawn on every line.
   over 256 reads`, in `highlight.test.ts` and in this file on three Ubuntu jobs --
   and the branch this one is stacked on (SIG-640) failed the same way on Ubuntu,
   so the flake was already in what this change shared. `growthOf()` therefore asks
-  the clock rather than the platform: it spins on it for up to 40 ms, and if the
-  smallest step is over a tenth of a millisecond it reads the wall clock instead.
+  the clock rather than the platform: it spins on it for up to 40 ms, and if its
+  average step is over a tenth of a millisecond it reads the wall clock instead.
+  Review round 2 found that the first version took the smallest step, which a
+  clock billed at context switches as well as ticks would make one short step of
+  50 microseconds; the average is what a span has to be more than.
   That covers Windows, which used to be named, and whatever comes next. On a tick
   clock the load fix is not there, and what is left is the old best of seven over
-  a span. `test/growth.test.ts` stubs a four-millisecond clock and fails without
-  the probe.
+  a span. `test/growth.test.ts` stubs two such clocks and fails without the probe.
 
   A CPU clock does nothing for a wall-clock budget, which is what a test timeout
   is, and **the budget is the fix for the timeout**: the file's `describe` carries
