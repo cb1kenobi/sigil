@@ -14532,7 +14532,7 @@ measurements, the review findings and the sabotage pass are in
   cursor per run length; and Markdown's searches are made once per document rather
   than per line. That last one was a review finding before any test ran: per line,
   a `[` with no `]` after it scanned to the end of the document from every line
-  that had one. `linear time` in `test/components/highlight.test.ts` reads fifty-two
+  that had one. `linear time` in `test/components/highlight.test.ts` reads sixty-two
   pathological inputs at 32K characters and at eight times that, best of seven
   with the sizes taking turns, and asks that the larger cost less than three times
   eight -- linear is eight and quadratic sixty-four. The backtick runs are read at
@@ -14548,7 +14548,9 @@ measurements, the review findings and the sabotage pass are in
   YAML, so a cost per line in `lexYaml` -- which is a cost per character on a line
   five characters long -- passed all of them. Every lexer that keeps state across
   lines now has a document of short lines in the list, YAML six, and `ts` one for
-  the shared script lexer's own reading of a line. A deliberate per-line quadratic
+  the shared script lexer's own reading of a line -- and, after review, a shape for
+  each branch of that state that a line can reach and the others cannot: a diff's
+  `+++` after its `---`, a here-document that is closed, a fence with a body. A deliberate per-line quadratic
   in `lexYaml` fails all six and a per-line one in each other lexer fails the
   shapes that lexer was given. The other half was `Math.max(best, 2)` on both
   sides: while a small read cost under about 0.75 ms the floor stood in for it, and
@@ -14561,7 +14563,12 @@ measurements, the review findings and the sabotage pass are in
   side as often as makes the same work, and what is compared is the cost of one
   read of each. That keeps what SIG-627 fixed -- CPU time, best of seven, the sizes
   taking turns -- and was run 20 times in a row and six more at a load average of
-  35 without a failure. `lexYaml` itself turned out to be linear on every shape.
+  35 without a failure. `lexYaml` itself turned out to be linear on every shape. The check found a
+  real quadratic elsewhere, in the shell lexer: here-documents were taken off the
+  queue of those opened on a line with `shift()`, which moves every entry after it,
+  so `<<a ` repeated on one line and closed by a line each cost the square of the
+  count past about 16,000 of them -- 55 ms at 197K characters and 941 ms at 786K.
+  It is walked by index now, and `<<a <<a ...` is in the list.
 - **Spans come out in order and never overlap, and two of one token that touch are
   one.** The order is what the text area's filing assumes ("a highlighter emits its
   spans in order, so that is almost always a step or two"), and the merge is why an

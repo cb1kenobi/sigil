@@ -559,7 +559,10 @@ describe('highlightCode()', () => {
         }
         return now() - start;
       };
-      // The small read is repeated until it fills the span, and the large one as
+      // The small read is repeated until it fills the span the first time it is
+      // asked, while the code is cold, which is a little more than it will fill
+      // once warm: the count is a way to a measurable span rather than a span
+      // itself. The large one is repeated as
       // often as makes the same amount of work, so neither side is read through a
       // clock's granularity and what is compared is the cost of one read of each.
       let smallReads = 1;
@@ -573,7 +576,12 @@ describe('highlightCode()', () => {
         bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
         bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
       }
-      return bestLarge / Math.max(bestSmall, Number.EPSILON);
+      // a clock that read nothing would make the ratio zero and the check pass for
+      // ever, so it is said aloud instead
+      expect(bestSmall, `${lang}: the clock read nothing over ${smallReads} reads`).toBeGreaterThan(
+        0
+      );
+      return bestLarge / bestSmall;
     };
 
     const repeat =
@@ -605,6 +613,13 @@ describe('highlightCode()', () => {
       ['sh', repeat('<<a\n')],
       ['sh', repeat('a \\\n')],
       ['sh', repeat('if a\n')],
+      ['sh', repeat('<<a\na\n')],
+      ['sh', repeat('(\n')],
+      // every here-document queued on one line, and then closed by a line each
+      [
+        'sh',
+        (size) => `${'<<a '.repeat(Math.ceil(size / 6))}\n${'a\n'.repeat(Math.ceil(size / 6))}`,
+      ],
       ['js', repeat('// a\n')],
       ['js', repeat('a\n/ b\n')],
       ['js', repeat('`${\n')],
@@ -631,6 +646,8 @@ describe('highlightCode()', () => {
       ['markdown', repeat('*a\n')],
       ['markdown', repeat('x\n')],
       ['markdown', repeat('```\n')],
+      ['markdown', (size) => `\`\`\`\n${'a\n'.repeat(Math.ceil(size / 2))}`],
+      ['markdown', repeat('<!--\n-->\n')],
       ['markdown', repeat('- a\n')],
       ['markdown', repeat('> a\n')],
       ['markdown', repeat('a\n===\n')],
@@ -653,6 +670,10 @@ describe('highlightCode()', () => {
       ],
       ['diff', repeat('--- a\n')],
       ['diff', repeat('-a\n')],
+      ['diff', repeat('+a\n')],
+      ['diff', repeat('--- a\n+++ b\n')],
+      ['diff', repeat('\\ No newline at end of file\n')],
+      ['diff', repeat('diff --git a b\n')],
       ['diff', repeat('@@ -1 +1 @@\n')],
     ];
 
