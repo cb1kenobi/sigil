@@ -1639,6 +1639,16 @@ dispatches between the printer and the installer.
   for per name. The recipes `instructions()` prints are given the escaped name:
   a name holding one is not a name anybody could type, so it is the printed form
   that is wrong rather than the escape.
+- **The printer's two errors are inert too (SIG-592).** `spec.ts` quotes the
+  program name in "is not a name a shell can register for" and `index.ts`
+  quotes the shell name in "Unknown shell", and both printed the value raw --
+  the printer is the half SIG-576 did not reach, since it is not the installer.
+  The name there has been through `programOf()`, so only a format character
+  survives, but a U+202E in a name that also holds whitespace is exactly the
+  name this message is for. `spec.ts` and `index.ts` now import
+  `util/escape-controls.js`, which was already in the printer's static graph
+  through the parser, so the import added no module to it; the byte figures are
+  in the PR. Covered by `test/completion-errors-inert.test.ts`.
 - **What is not covered.** The confirm and select prompts' own messages carry
   the escaped name as well, but nothing tests that: they are drawn by a canvas
   that strips what they hold, so the escape there is defence and a sabotage of it
