@@ -25,9 +25,13 @@ makes it testable with a fixture directory and no bundler at all.
   optimize a plugin they did not write, and it depends on how busy the machine
   was. A slow Windows runner put it in the summary `output-forms.test.ts` compares
   exactly. `checks: { bundlerTimings: false }` turns the check off rather than
-  filtering the log, so the build also stops measuring every hook. The warning
-  could not be provoked on rolldown 1.3.3 (its text is in the native binary), so
-  `test/build/bundle-timings.test.ts` asserts what the build handed `rolldown()`.
+  filtering the log, so the build also stops measuring every hook. It is
+  delivered at `close()` rather than at `write()`, and needs a build of about two
+  seconds or more -- a first attempt at provoking it read the logs too early and
+  concluded it could not be provoked, which was wrong.
+  `test/build/bundle-timings.test.ts` holds a build for three seconds, asserts the
+  warning comes with rolldown's defaults as a control, and that it does not come
+  with this build's.
 
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
