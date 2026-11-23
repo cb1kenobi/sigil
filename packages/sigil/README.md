@@ -8292,6 +8292,22 @@ catches, which kills the process with a raw stack and skips every bit of error
 handling the framework has. The default handler writes the message and sets the
 exit code; the renderer replaces it with the real one.
 
+The first run is the one exception to that: it happens where `effect()` is called,
+so a throw in it reaches the caller rather than the handler. The effect is kept —
+watched, and run again when a signal it read before throwing changes — when
+something else will dispose it: the effect whose body it was created in, or a
+caller that took the disposer through the `adopt` option. A bare top-level
+`effect()` has neither, so it is torn down and the throw is the caller's to
+handle.
+
+`effect(fn, { adopt })` calls `adopt(dispose)` with the disposer **before** the
+first run, which is the only way to hold it through a first run that throws,
+since a throw returns nothing. Most apps never need it: the renderer's
+`createEffect()` and `onMount()` use it to hand the disposer to the component's
+owner, which disposes it when the component goes. Reach for it only when you
+have your own owner, and dispose what you adopt — an adopter that never does
+leaks the effect.
+
 `createEffects()` gives an independent scope — its own watcher, scheduler, queue,
 and error handler — for when one global is not enough: two canvases with
 different frame loops, or a test that wants isolation.
