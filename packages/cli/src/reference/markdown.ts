@@ -686,24 +686,31 @@ function list(names: readonly string[]): string {
  * An example's text is the one string a page writes **verbatim**, and a fence of
  * exactly three backticks is one the content can close: an example whose text
  * held one broke out, after which the rest of the page was parsed as markdown.
- * Measured. The control characters go for the reason every other string's do --
- * a raw escape sequence in a committed file is a sequence waiting for something
- * to print it -- with the newline kept, because an example may legitimately be
- * more than one line and help prints one verbatim too.
+ * Measured. The control and format characters are escaped for the reason every
+ * other string's are kept out -- a raw escape sequence in a committed file is a
+ * sequence waiting for something to print it -- with the newline kept, because an
+ * example may legitimately be more than one line and help prints one verbatim
+ * too, and the tab kept, because it is an example's own indentation and the
+ * build's pass leaves it alone as formatting. A `\r\n` is one line break.
  *
  * @param text - The verbatim text.
  * @returns The fenced lines.
  */
 function fenced(text: string): string[] {
   // escaped rather than dropped, line by line so that the newline an example may
-  // legitimately hold is the one character `escapeControls()` is not asked
-  // about. The class is that function's, which is the format characters too: this
+  // legitimately hold, and the tab its indentation, are the characters
+  // `escapeControls()` is not asked about. The class is that function's, which is the format characters too: this
   // matched `\p{Cc}` alone, so a U+202E in an example went into the page raw
   // (SIG-643). Shown as `\u{202E}` because a reference is for reading, and an
   // example that cannot be typed as written is one a reader should be able to see
   const body = text
-    .split('\n')
-    .map((line) => escapeControls(line))
+    .split(/\r?\n/u)
+    .map((line) =>
+      line
+        .split('\t')
+        .map((part) => escapeControls(part))
+        .join('\t')
+    )
     .join('\n');
   // ` {0,3}` because CommonMark lets a **closing** fence be indented up to three
   // spaces, so a run at column 0 is not the whole of what can close one: an

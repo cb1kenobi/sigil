@@ -7361,6 +7361,13 @@ for a choice the completion menu would not offer.
 
 The program's name is **refused** under the full class, not escaped: what reaches
 a page is the name rather than a cleaned copy, and the message does not echo it.
+A newline or a tab inside a choice, a `hint` or an `env` name is in the class and
+is escaped (`\x0A`, `\x09`) rather than flattened: a hint that used to read as one
+spaced line now shows the escape, and a choice holding one -- dropped before --
+is listed. An example's text keeps its own newlines and tabs, and reads `\r\n` as
+one line break. After escaping, two choices that print the same (`a` + U+202E and
+the literal text `a\u{202E}`) are one entry in the page and the snapshot, so
+removing one of the pair is invisible to `--check`; that is the lossy price below.
 An empty choice is kept and the page spells it `""`, since `<>` reads as a list
 with nothing in it. Escaping is lossy in one direction only -- a choice that
 already holds the four characters `\u{202E}` is shown the same as one that holds

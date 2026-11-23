@@ -25,8 +25,8 @@
  * What is *not* re-derived is anything either already decides. `tokensFor()`,
  * `listedTokens()`, `segmentFor()` and `choiceTokens()` are imported from the
  * completion spec, because "which tokens reach this command", "which of them a
- * listing shows", "what its path is written with" and "what can be typed for
- * this choice" have one right answer each and two walks that each worked one
+ * listing shows", "what its path is written with" and "what a choice is
+ * spelled as" have one right answer each and two walks that each worked one
  * out would be two answers.
  *
  * ## It loads every module, and that is the one place that is right
@@ -87,7 +87,11 @@ import { escapeControls, withoutUnsafe } from '../util/escape-controls.js';
 
 /** One positional argument, in the place it is typed. */
 export interface SurfaceArgument {
-  /** The values it accepts, as argv has to spell them. Empty where any value will do. */
+  /**
+   * The values it accepts, as a reader can read them: each one as argv spells it, and
+   * **escaped** (`\u{202E}`, `\x0A`) where it holds a control or format character, so a
+   * list is never shorter than the declaration's (SIG-643). Empty where any value will do.
+   */
   readonly choices: readonly string[];
   /** What it is for, exactly as the declaration resolved it. */
   readonly desc?: string;
@@ -118,7 +122,11 @@ export interface SurfaceArgument {
 
 /** One option, as argv reaches it. */
 export interface SurfaceOption {
-  /** The values it accepts, as argv has to spell them. Empty where any value will do. */
+  /**
+   * The values it accepts, as a reader can read them: each one as argv spells it, and
+   * **escaped** (`\u{202E}`, `\x0A`) where it holds a control or format character, so a
+   * list is never shorter than the declaration's (SIG-643). Empty where any value will do.
+   */
   readonly choices: readonly string[];
   /**
    * What a value falls back to, where the declaration named one and it is not a

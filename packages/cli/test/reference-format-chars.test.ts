@@ -121,6 +121,20 @@ describe('a format character in the reference', () => {
     expect(doc).not.toMatch(UNSAFE);
   });
 
+  it("should keep an example's tab and read CRLF as one line break", async () => {
+    // `split('\n')` left a `\r` on every line, which `escapeControls()` then
+    // printed as `\x0D`; and a tab is an example's own indentation
+    const { doc } = await printed({
+      commands: {
+        go: { examples: [{ label: 'Go', text: 'mycli go \\\r\n\t--x\r\nmycli go y' }], run() {} },
+      },
+    });
+
+    expect(doc).toContain('mycli go \\\n\t--x\nmycli go y');
+    expect(doc).not.toContain('\\x0D');
+    expect(doc).not.toContain('\\x09');
+  });
+
   it('should print no command whose name holds one, and no raw name in the file names', async () => {
     const surface = await commandSurface({
       name: 'mycli',

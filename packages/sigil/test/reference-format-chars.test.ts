@@ -100,6 +100,14 @@ describe('a format character in the command surface', () => {
     expect((await option({ choices: [''] })).choices).toStrictEqual(['']);
   });
 
+  it('should list a choice once however it was declared', async () => {
+    // `declaredValues()` deduplicated before it filtered; the surface does it
+    // after escaping, so `1` and `'1'` are one entry still
+    const opt = await option({ choices: [1, '1', 2], type: 'int' });
+
+    expect(opt.choices).toStrictEqual(['1', '2']);
+  });
+
   it("should escape a positional argument's choices", async () => {
     const it = await commandSurface({
       name: 'mycli',
