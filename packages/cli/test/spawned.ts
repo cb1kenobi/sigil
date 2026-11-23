@@ -38,16 +38,18 @@ export interface Ran {
  * @param cwd - Where to run it, and what a failure names it relative to.
  * @param args - Its argv, after the script.
  * @param env - Variables to set on top of this process's environment.
+ * @param nodeArgs - Flags for node itself, before the script.
  * @returns Its exit code and both streams.
  */
 export function run(
   file: string,
   cwd: string,
   args: readonly string[] = [],
-  env: Readonly<Record<string, string>> = {}
+  env: Readonly<Record<string, string>> = {},
+  nodeArgs: readonly string[] = []
 ): Promise<Ran> {
   return new Promise((settle, fail) => {
-    const child = spawn(process.execPath, [file, ...args], {
+    const child = spawn(process.execPath, [...nodeArgs, file, ...args], {
       cwd,
       env: { ...process.env, COLUMNS: '80', ...env },
       stdio: ['ignore', 'pipe', 'pipe'],

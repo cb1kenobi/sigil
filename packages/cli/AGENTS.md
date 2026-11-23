@@ -2918,7 +2918,7 @@ other is refused with numbers.
   | `(dark ? 'text-' : dark ? 'bg-' : 'p-') + label`      | 8      | **49** |
   | `('text-' \|\| label) + label`                        | 8      | **25** |
   | `('text-' ?? label) + label`                          | 8      | **25** |
-  | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | 8      |
+  | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | **25** |
   | `(label \|\| 'text-') + label` (literal on the right) | 8      | **25** |
   | `(label ?? 'text-') + label` (literal on the right)   | 8      | **25** |
   | `(label \|\| 'text-' \|\| 'bg-') + label`             | 8      | **41** |
@@ -2929,8 +2929,28 @@ other is refused with numbers.
     once per text, each open and closed where the run is, so `'p-' + (w ? '2' :
     '4') + x` is the prefixes `p-2` and `p-4`. A branch that is itself a `?:` of
     literals counts, which is how `a ? 'x' : b ? 'y' : 'z'` is written, and a
-    template with no interpolation is a literal. One branch that is anything
-    else makes the whole `?:` an unknown part, as it always was.
+    template with no interpolation is a literal. A branch that is anything else
+    is the unknown alternative (SIG-624), below; a `?:` with **no** literal in
+    any branch is an unknown part, as it always was.
+  - **A `?:` with a literal in one branch and something else in the other is that
+    literal or something unknown** (SIG-624), which is the whole of what SIG-595
+    did for `||` said again for `?:`. `(dark ? 'text-' : x) + colour` dropped
+    every `text-*` rule while `(x || 'text-') + colour` kept them, and the two
+    are the same expression as far as what the source can produce goes. It is
+    the same part -- a choice holding an `undefined` -- through the same
+    `readRuns()`, so the cap and its `fresh` guard apply unchanged, and the
+    collector is one: `addAlternatives()` reads a `?:`, a `||` and a `??` the
+    same way down to whatever is none of them, so `a ? 'x' : b || 'y'` is `x`,
+    `y` or unknown. Measured with `sigil build` on the `styled` fixture, `(label ?
+    'text-' : label) + label` keeps **25 of 383** where it kept 8. A `?:` of
+    literals alone still carries no unknown, and `(a ? 'm' : 'l') || y` still
+    does, as before. It is also tighter in one place than the `?:` it
+    replaces: a branch that is a `||` or `??` with a literal on the left, as in
+    `'bg-' + (c ? ('text-' ?? z()) : '-red')`, was an unknown part and kept
+    `bg-*`, and is now the closed `bg-text-` and `bg--red` -- which is what the
+    expression builds, by the same rule `'x' || y` is `'x'`. Pinned by `should read a ?: with a literal in one branch as
+    that literal or something unknown` and, for the cost,
+    `shake-cost.test.ts`.
   - **A choice multiplies the run around it, so the product is capped at 16
     texts** (`MAX_RUN_TEXTS`). Forty `(a ? ' ' : ',') + ...` in a row is 2^40
     strings uncapped. Past the cap the choice is read as an unknown part, with
@@ -3003,6 +3023,69 @@ other is refused with numbers.
     The message `warnEmptyShake()` writes is unchanged: it is only printed when
     _everything_ was dropped, and naming the shapes there would say nothing to an
     app that dropped some.
+
+  **Nothing in the shake recurses on the tree, and the parser's own limit is
+  the one that is left** (SIG-625). A review probe fed it a right-nested `||`
+  chain 8,000 deep and it ended with nothing printed. Measured on macOS, node
+  24, the default 8 MB stack: that was **three** failures at three depths, and
+  only the last was the parser's.
+
+  | what                                                   | breaks at     | how it showed                                            |
+  | ------------------------------------------------------ | ------------- | -------------------------------------------------------- |
+  | `walk()`, `addParts()`, `addAlternatives()`, recursive | ~3,500 terms  | a `RangeError`, caught by `readFile()` and **swallowed** |
+  | `oxc-parser`, `(a \|\| (b \|\| ...))`                  | ~4,500 levels | **SIGSEGV, exit 139, nothing printed**                   |
+  | `oxc-parser`, nested arrays / `a ? b : c ? ...`        | ~7,900 levels | the same                                                 |
+  | `oxc-parser`, a template inside a template             | ~3,900 levels | the same                                                 |
+  | `oxc-parser`, flat `a \|\| b \|\| ...` / `a + b + ...` | ~57,700 terms | the same                                                 |
+
+  The first is the shake's and is fixed: `walk()` and the three readers under
+  `collectLiterals()` keep a stack of their own, so they reach as deep as the
+  parser does. What made it silent is worth more than the overflow, because it
+  was a `catch` around `collectLiterals()` meant for a file that does not parse:
+  it answered **any** failure with a raw scan of the whole file, every token
+  closed, so the rules the unread half of a file opened were dropped and nothing
+  was said -- `'bg-' + colour` after the chain kept no `bg-*`, measured at 3,000
+  levels. The `catch` is around the parse alone now, and a failure reading a tree
+  that did parse is an error naming the file. `main` overflows where this does not.
+
+  The rest is native and cannot be caught: a segmentation fault is not an
+  exception, and it ended a **build**, not only a probe -- a deep file nothing
+  imports, under `src/`, was enough, because the shake reads every file under the
+  root and `--no-shake` built the same app fine. So `readFile()` does not hand
+  the parser a file whose brackets nest past `MAX_NESTING` (512), counted
+  naively without reading strings, comments or regular expressions: that would
+  be a lexer, and a second parser is the wrong thing to be wrong in. It is read
+  by `readUnparsed()` instead, every token open on both ends, which keeps more
+  for a plain class. That is **not** the fallback a file that does not parse
+  gets -- tokens closed -- because that one drops the rules a literal beside an
+  unknown opens, and a file refused only for its depth is a file that parses. It
+  is still not a superset for a variant assembled across a literal `:`
+  (`'md' + ':' + 'flex'` is three unrelated tokens, since a lone `:` is not
+  counted as evidence, and `md:flex` is dropped): that is the safelist's, as it
+  is for a file that does not parse. A count that is too high refuses a file
+  that would have parsed, and it costs a lot -- 513 unbalanced `(` in strings
+  appended to a file kept 377 of 383 rules where it kept none, with no warning
+  naming the file. The repository's deepest naive count is 246 over 1,631
+  files, inflated by brackets in strings; that is why the ceiling is not
+  lower.
+
+  What it does **not** cover is depth with no brackets in it -- a flat `+` chain
+  past ~57,000 terms, a bare `?:` chain past ~7,900, an `if ... else if` chain
+  past ~6,400, `a = b = c` and `a => b => c` past ~7,900 -- nor nested function
+  bodies, which crash at about 3,450 on 8 MB, and nothing at all on a smaller
+  stack, which moves every number above down: under `ulimit -s 1024` the same
+  parser crashed at about 560 levels of the `||` chain and **420 nested function
+  bodies, which is below the ceiling of 512**. Whether Windows' main thread is
+  1 MB was not established. A file that deep is a data file rather than source, and
+  it is the parser's to report: **`sigil build` still ends with exit 139 if
+  discovery or rolldown reads such a file**, which is oxc's, and the shake can
+  only refuse to be the first thing that does. The tests keep clear of the
+  parser's limit on purpose, since a vitest worker has a bigger JavaScript stack
+  than a main thread and a native one that is not: a chain long enough to
+  overflow the old reader in-process is close to what crashes the parser. The
+  reader's limit is moved instead, by starting a child with `--stack-size` an
+  eighth of the default and a few hundred levels, which is under what a 1 MB
+  native stack parses (`shake-depth.test.ts`).
 
   It changes one documented limit, in `packages/sigil/src/style/AGENTS.md`:
   `` `${wide ? 'md:' : ''}flex-row` `` used to leave no evidence for

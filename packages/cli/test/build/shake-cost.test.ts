@@ -135,6 +135,26 @@ describe('the cost of a long chain', () => {
     expect(readCost(choices(1000)) / readCost(choices(500))).toBeLessThan(3);
   });
 
+  it('should read a chain of ?: terms with one unknown branch in linear operands', () => {
+    // SIG-624: `(v ? 'p-N' : x)` is a choice with an unknown alternative, as a
+    // `||` with a literal on the right is, and gets the same guard against 2^n
+    const choices = (n: number): string =>
+      `const c = ${Array.from({ length: n }, (_, i) => `(v${i} ? 'p-${i % 7}' : x${i})`).join(' + ')};`;
+    expect(growth(choices, 500)).toBeLessThan(3);
+  });
+
+  it('should read a run of ?: terms with an unknown branch in chunks linear in its terms', () => {
+    const choices = (n: number): string =>
+      `const c = ${Array.from({ length: n }, (_, i) => `(v${i} ? 'p-' : x${i})`).join(' + ')};`;
+    expect(readCost(choices(1000)) / readCost(choices(500))).toBeLessThan(3);
+  });
+
+  it('should read a nested ?: chain with an unknown end once, whatever its length', () => {
+    const nested = (n: number): string =>
+      `const c = (${Array.from({ length: n }, (_, i) => `v${i} ? 'p-${i % 7}' : `).join('')}x) + y;`;
+    expect(growth(nested, 500)).toBeLessThan(3);
+  });
+
   it('should read a left-nested || chain once, whatever its length', () => {
     const nested = (n: number): string =>
       `const c = (${Array.from({ length: n }, (_, i) => `v${i}`).join(' || ')} || 'p-2') + x;`;

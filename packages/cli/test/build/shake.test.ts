@@ -341,14 +341,56 @@ describe('the class evidence', () => {
     expect(evidence.mayName('outline-red')).toBe(false);
   });
 
-  it('should leave a ?: with a branch that is not a literal to the safelist', () => {
-    // the documented limit: this is a choice between `text-` and whatever `x`
-    // is, and a `x` that is not a literal in the source is what `build.safelist`
-    // is for. Only the literal is read, closed, as it always was
+  it('should read a ?: with a literal in one branch as that literal or something unknown', () => {
+    // SIG-624: `(dark ? 'text-' : x) + colour` was an unknown part because one
+    // branch was not a literal, so the `text-*` rules went with the rest and the
+    // app had to name them on the safelist. It is the shape SIG-595 reads for
+    // `||`: `text-` followed by something, or something followed by something
     for (const source of [
       `const c = (dark ? 'text-' : x) + colour;`,
+      `const c = (dark ? x : 'text-') + colour;`,
       `const c = (dark ? 'text-' : 'bg-' + y) + colour;`,
       `const c = (dark ? 'text-' : x ? 'bg-' : y) + colour;`,
+      `const c = (dark ? 'text-' : theme.fg || y) + colour;`,
+      `const c = (dark ? 'text-' as string : x) + colour;`,
+      `const c = (<string>(dark ? 'text-' : x)) + colour;`,
+      'const c = (dark ? `text-` : x) + colour;',
+      'const c = `${dark ? "text-" : x}${colour}`;',
+      `let c = ''; c += (dark ? 'text-' : x) + colour;`,
+      // beside other known parts, on either side
+      `const c = 'flex ' + (dark ? 'text-' : x) + colour;`,
+      `const c = (x || (dark ? 'text-' : y)) + colour;`,
+    ]) {
+      const evidence = evidenceOf(source);
+
+      expect(evidence.mayName('text-red'), source).toBe(true);
+      expect(evidence.mayName('border-red'), source).toBe(false);
+    }
+
+    // both literals of a chain with an unknown at its end are kept
+    const chain = evidenceOf(`const c = (a ? 'text-' : b ? 'bg-' : y) + colour;`);
+    expect(chain.mayName('text-red')).toBe(true);
+    expect(chain.mayName('bg-red')).toBe(true);
+    expect(chain.mayName('border-red')).toBe(false);
+  });
+
+  it('should read a branch that is a literal-left || as that literal, and no wider', () => {
+    // `'text-' ?? z()` is `text-` whatever `z` is, so the branch is the closed
+    // text it is, where it used to make the whole `?:` an unknown part
+    const evidence = evidenceOf(`const c = 'bg-' + (dark ? ('text-' ?? z()) : '-red');`);
+
+    expect(evidence.mayName('bg-text-')).toBe(true);
+    expect(evidence.mayName('bg--red')).toBe(true);
+    expect(evidence.mayName('bg-red')).toBe(false);
+  });
+
+  it('should leave a ?: with no literal in any branch to the safelist', () => {
+    // the documented limit that is left: with nothing known in either branch
+    // there is no text to read, which is what `build.safelist` is for
+    for (const source of [
+      `const c = (dark ? x : y) + colour;`,
+      `const c = (dark ? a + 'text-' : b && 'bg-') + colour;`,
+      `const c = (dark ? x : y ? z : w) + colour;`,
     ]) {
       expect(evidenceOf(source).mayName('text-red'), source).toBe(false);
     }
