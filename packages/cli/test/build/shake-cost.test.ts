@@ -24,6 +24,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /** How many times an operand has been unwrapped since the last `cost()`. */
 let calls = 0;
+/** How many chunks were read into the evidence, one `matchAll()` each. */
+let reads = 0;
 
 vi.mock('../../src/build/literals.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../src/build/literals.js')>();
@@ -48,6 +50,26 @@ afterEach(() => {
 /** A chain of `n` terms, every other one unknown. */
 function chain(n: number): string {
   return Array.from({ length: n }, (_, i) => (i % 2 ? `v${i}` : `'p-${i % 7}'`)).join(' + ');
+}
+
+/** How many chunks reading `source` read into the evidence. */
+function readCost(source: string): number {
+  const real = String.prototype.matchAll;
+  const spy = vi.spyOn(String.prototype, 'matchAll').mockImplementation(function (
+    this: string,
+    ...args: Parameters<typeof real>
+  ) {
+    reads++;
+    return real.apply(this, args);
+  });
+
+  try {
+    reads = 0;
+    cost(source);
+    return reads;
+  } finally {
+    spy.mockRestore();
+  }
 }
 
 /** How many operands reading `source` unwrapped. */
@@ -93,6 +115,30 @@ describe('the cost of a long chain', () => {
       return `const c = ${source};`;
     };
     expect(growth(deep, 200)).toBeLessThan(3);
+  });
+
+  it('should read a chain of || terms with a literal on the right in linear operands', () => {
+    // SIG-595: each `(v || 'p-N')` is a choice with an unknown alternative, and
+    // a run of n of them must not be 2^n texts or a read of every prefix
+    const choices = (n: number): string =>
+      `const c = ${Array.from({ length: n }, (_, i) => `(v${i} || 'p-${i % 7}')`).join(' + ')};`;
+    expect(growth(choices, 500)).toBeLessThan(3);
+  });
+
+  it('should read a run of right-hand literals in a number of chunks linear in its terms', () => {
+    // the operand count above does not see `readRuns()`: each `(v || 'p-')` adds
+    // a text to the run, and without the cap on them a term ends every text so
+    // far, which is a read per text per term -- cubic in the end, by the review of
+    // SIG-595. A count of the chunks read is what sees it
+    const choices = (n: number): string =>
+      `const c = ${Array.from({ length: n }, (_, i) => `(v${i} || 'p-')`).join(' + ')};`;
+    expect(readCost(choices(1000)) / readCost(choices(500))).toBeLessThan(3);
+  });
+
+  it('should read a left-nested || chain once, whatever its length', () => {
+    const nested = (n: number): string =>
+      `const c = (${Array.from({ length: n }, (_, i) => `v${i}`).join(' || ')} || 'p-2') + x;`;
+    expect(growth(nested, 500)).toBeLessThan(3);
   });
 
   it('should read each term about once, whatever the length', () => {

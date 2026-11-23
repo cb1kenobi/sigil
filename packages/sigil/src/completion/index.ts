@@ -61,6 +61,7 @@
  * 49.08 against 48.55 on a second run.
  */
 
+import { escapeControls } from '../util/escape-controls.js';
 import { bashScript } from './bash.js';
 import { SHELL_NAMES, type ShellName } from './shells.js';
 import { completionSpec, type CompletionSpec, type CompletionTarget } from './spec.js';
@@ -110,7 +111,7 @@ export async function completionScript(target: CompletionTarget, shell: string):
   // directly
   if (!Object.hasOwn(SHELLS, shell)) {
     throw new Error(
-      `Unknown shell "${shell}": sigil can generate completion for ${SHELL_NAMES.join(' and ')}.`
+      `Unknown shell "${escapeControls(shell)}": sigil can generate completion for ${SHELL_NAMES.join(' and ')}.`
     );
   }
 

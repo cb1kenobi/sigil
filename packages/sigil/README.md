@@ -2755,7 +2755,9 @@ assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
 them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
 `HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
 the fields they set, and `HandlerValue` is what any one may be (a function, or
-`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+`undefined` to clear it). `isReservedProp(name)` asks whether a name is one an
+element takes that is not a style property: `class`, `id`, `key`, the focus props and
+the hooks. `ElementPropsWithout<'onKey'>` is `ElementProps` with
 some hooks pinned to `undefined`, which is the type of a built-in component's
 `props` where the component sets that hook itself: a component refuses a handler
 for a hook it owns, at run time as well as in the type, rather than replace it
@@ -2808,6 +2810,7 @@ paint read changes and lays out again when one its measure read does -- in the
 `tracked` is a flag read once, when the element is built: bare is `true`,
 `tracked={false}` is plain, and a string or a function is a template error. Build
 it in a component, so the listening is let go with the owner.
+A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing.
 
 ```jsx
 const level = new State(3);
@@ -6363,8 +6366,10 @@ that element has gone, to the first focusable element that is left.
 focus are the router's. `actions` are the buttons (`OK` if there are none), each
 with a `label` and a `value`; Enter, Space or a click presses the focused one and
 `result` settles with its value. An empty list is allowed, and then the panel
-holds the focus itself. `initial` is which button starts focused, by position;
-`dismissible: false` makes Escape do nothing, for a dialog that must be answered;
+holds the focus itself. `initial` is what starts focused: a number is a button, by
+position, `'body'` is the first thing in the body that takes the focus, and an
+element is that element, which has to be in the body and to take the focus itself
+(a box around a field is not the field). `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
 `closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
 string, which wraps, an element, whose focusable parts join the trap, or **a
 function that builds one**. Use the function when the body has anything reactive
@@ -6375,6 +6380,33 @@ gone. A function is called once, as it opens, under an owner of its own that is
 disposed when the dialog closes, the way `Show` owns what it mounts.
 `handle.close(value)` and `handle.dispose()` close it from outside, and closing
 twice does nothing.
+
+**A dialog can be a form.** An action takes `disabled`, which is what a control's
+`disabled` takes -- a boolean, a `State`, a `Computed` or a function, read live --
+so Sign in can wait for the form to be valid. `onPress` replaces the `value`:
+pressing the button runs it and the dialog stays open until the handler calls
+`handle.close(answer)`, which is a submit that has to be checked first. And
+`default: true` marks the action Enter presses from a field that leaves Enter
+alone, only while it is enabled, the way a web page's default button works. A text
+field with an `onSubmit`, a text area, which keeps Enter as a newline, and a
+focused button take Enter for themselves. A field that is disabled keeps the focus
+and hands Enter on, so a form that disables its fields while it submits puts the
+same condition in the default action's `disabled`, or Enter submits twice. The buttons are built under the same
+owner as a `body` function, so a `disabled` that follows the app's state stops
+following it when the dialog closes.
+
+```js
+const dialog = openModal(view, {
+  actions: [
+    { default: true, disabled: () => !valid.get(), label: 'Sign in', onPress: signIn },
+    { label: 'Cancel' },
+  ],
+  body: () => TextField({ value: user }),
+  initial: 'body', // opens on the field, with the buttons still actions
+  input,
+  title: 'Sign in',
+});
+```
 
 Open a second one and the topmost owns the input; closing it hands the keys and
 the focus back to the one below.

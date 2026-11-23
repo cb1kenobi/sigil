@@ -77,8 +77,8 @@ export interface BuildConfig {
    * rule is dropped. This is how to say it anyway.
    *
    * That includes `.concat()` and `.join()`, a `?:` with a branch that is not a
-   * literal, and a literal on the right of `||` or `??`, `&&`, and a call to the app's own helper; the shake reads a `?:`
-   * of literals and a literal on the left of `||` or `??`. The list is in the
+   * literal, `&&`, and a call to the app's own helper; the shake reads a `?:`
+   * of literals and a literal on either side of `||` or `??`. The list is in the
    * README under "What the shake reads".
    */
   readonly safelist?: readonly string[];

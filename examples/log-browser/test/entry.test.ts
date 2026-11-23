@@ -6,7 +6,7 @@ import {
   ENTER_ALT_SCREEN,
 } from '@ttylabs/sigil/terminal';
 import { runOnTerminal } from '@ttylabs/sigil/testing';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -43,8 +43,16 @@ afterAll(() => {
   rmSync(cwd, { force: true, maxRetries: 5, recursive: true });
 });
 
-/** What the entry wrote, from its start to its exit on `q`. */
-async function started(file: string, flags: string[]): Promise<string> {
+/** A log file to read, which the simulated pods would never print a line of. */
+const log = join(cwd, 'app.log');
+writeFileSync(log, 'a line only the file holds\n');
+
+/** What the entry wrote, from its start to its exit on `q`, once the screen shows `shows`. */
+async function started(
+  file: string,
+  flags: string[],
+  { shows = /\S/ }: { shows?: RegExp } = {}
+): Promise<string> {
   if (file === bin) {
     expect(
       existsSync(file),
@@ -63,6 +71,7 @@ async function started(file: string, flags: string[]): Promise<string> {
     // the first frame, so that `q` is a key somebody has read. Longer than the
     // default: four cold node starts at once, on a runner that may be slow
     await running.waitFor(/\S/, { timeout: 20_000 });
+    await running.waitFor(shows, { timeout: 20_000 });
     await running.press('q');
     const ran = await running;
     expect(ran.err, 'nothing on stderr').toBe('');
@@ -90,6 +99,12 @@ describe('the entry', () => {
       expect(out, 'the app drew').toContain(ENTER_ALT_SCREEN);
       expect(out, 'no tracking mode').not.toContain(ENABLE_MOUSE_BUTTONS);
       expect(out, 'no mouse encoding').not.toContain(ENABLE_MOUSE_SGR);
+    }, 45_000);
+
+    it.concurrent(`should read the file it was given instead of the simulated pods: ${label}`, async () => {
+      // a `[file]` that did not reach `environment()` leaves the pods, none of
+      // which has this line
+      await started(file, [log], { shows: /a line only the file holds/ });
     }, 45_000);
   }
 });

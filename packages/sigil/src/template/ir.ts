@@ -60,6 +60,7 @@ import {
   type ElementProps,
   HANDLER_PROPS,
   isHandlerProp,
+  isReservedProp,
   type PropValue,
   raw,
   type RawOptions,
@@ -67,6 +68,8 @@ import {
 } from '../element/index.js';
 import { createEffect, trackedRaw } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
+import { isKnownProperty } from '../style/index.js';
+import { escapeControls } from '../util/escape-controls.js';
 
 /**
  * Where in the source a node was written.
@@ -700,7 +703,7 @@ export function textPart(child: IRNode): unknown {
  *
  * @param node - The element node.
  * @returns The measure, the paint, the `tracked` flag, and every other prop in order.
- * @throws If the node has children.
+ * @throws If the node has children, or a prop that nothing reads.
  */
 export function rawParts(node: IRElement): {
   readonly measure: unknown;
@@ -712,6 +715,15 @@ export function rawParts(node: IRElement): {
     throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
   }
 
+  for (const prop of node.props) {
+    // `undefined` is a prop nobody set -- what the JSX transform passes for an
+    // omitted attribute, and what `applyProp()` already skips -- so a name that
+    // nothing reads is refused only when it was given something
+    if (prop.value !== undefined) {
+      refuseRawProp(prop.name, node.loc);
+    }
+  }
+
   return {
     measure: node.props.find((prop) => prop.name === 'measure')?.value,
     paint: node.props.find((prop) => prop.name === 'paint')?.value,
@@ -720,6 +732,54 @@ export function rawParts(node: IRElement): {
     ),
     tracked: node.props.find((prop) => prop.name === 'tracked')?.value,
   };
+}
+
+/**
+ * What a `<raw>` takes: its three construction options, `ref`, and what any
+ * element takes.
+ *
+ * `measure`, `paint` and `tracked` are what a `raw` is built with and are read
+ * by `rawParts()`; the rest is a reserved prop, a handler or a style property.
+ */
+const RAW_OPTIONS = ['measure', 'paint', 'tracked'] as const;
+
+/**
+ * Refuses a `<raw>` prop that nothing reads.
+ *
+ * A prop that is none of the options, `ref`, a reserved name or a style property
+ * went to the cascade, which refuses an unknown one -- but on the first frame and
+ * as a style error, and a `<raw Tracked>` built a plain `raw()` meanwhile: the
+ * option it was reaching for was silently not read, which is the failure
+ * `tracked` exists to remove. Refused here, where the name and the position are
+ * still known, and in the one function both emitters ask, so a build and a run
+ * refuse the same set in the same words (SIG-599). Where the name is one of the
+ * options spelled wrong in case or by a dash, the message says which.
+ *
+ * @param name - The prop.
+ * @param loc - Where the element was written.
+ * @throws If nothing reads the prop.
+ */
+function refuseRawProp(name: string, loc?: SourceLocation): void {
+  // a near miss for a handler has a better sentence than this one can write
+  refuseHandlerName(name, undefined, loc);
+  if (
+    (RAW_OPTIONS as readonly string[]).includes(name) ||
+    name === 'ref' ||
+    isReservedProp(name) ||
+    isKnownProperty(name)
+  ) {
+    return;
+  }
+  const folded = name.replaceAll('-', '').toLowerCase();
+  const option = RAW_OPTIONS.find((candidate) => candidate === folded);
+  throw templateError(
+    `<raw> has no prop \`${escapeControls(name)}\`` +
+      (option === undefined
+        ? `. It takes ${RAW_OPTIONS.join(', ')}, \`ref\`, and what any element takes: ` +
+          'a style property, `class`, `id`, `key`, the focus props and the handlers'
+        : `: write \`${option}\`, which is spelled exactly that way`),
+    loc
+  );
 }
 
 /**

@@ -6,13 +6,13 @@ import {
   toDisplayText,
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
-import { type StyledOptions, themedCascade } from '../theme/index.js';
+import { type StyledOptions, themedCascade, TOKEN_ROLE } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
 import { ELLIPSIS, isBreakSpace, terminalWidth } from '../wrap/index.js';
 import { codeRun } from './code-view.js';
 import { colorLevelOf } from './color-level.js';
 import { unicodeSupported } from './note.js';
-import { type Highlighter, TOKEN_ROLE, tokensOf } from './prompt.js';
+import { type Highlighter, tokensOf } from './token.js';
 
 /** What one step of an edit script does. */
 export type DiffOp = 'add' | 'equal' | 'remove';

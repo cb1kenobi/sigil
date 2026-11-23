@@ -1024,7 +1024,8 @@ makes it testable with a fixture directory and no bundler at all.
 
   `updateCheck: wrap?.({ checker })` was missed too and is read now (SIG-591): an
   optional call to something that is _not_ a builder read as asking where the
-  plain `wrap({ checker })` reads as naming. The argument above does not carry
+  plain `wrap({ checker })` reads as naming (as `'wrapped'` since SIG-593, which
+  is the same refusal-free read with a warning). The argument above does not carry
   over -- `wrap` may be nullish, and then the value is `undefined` rather than
   the object -- so the answer is a different one. `objectLiteral()` takes
   `{ optional: true }` and looks through the chain **only for a caller that
@@ -1035,7 +1036,8 @@ makes it testable with a fixture directory and no bundler at all.
   is allowed to be wrong in. (It also suppresses the `import` signal for that
   app, as the plain `wrap({ checker })` already does: a nullish `wrap` plus a
   hand-written `check()` with no checker ships a binary whose check does
-  nothing. Recorded rather than fixed here.) The default stays off because every other caller of
+  nothing. Said at build time since SIG-593, under the entry on the import half
+  of the refusal.) The default stays off because every other caller of
   `objectLiteral()` would be wrong the other way, and each was checked rather
   than assumed: `extract.ts`'s `literalOf()` and `discover.ts`'s inline command,
   `commands` and unbaked-key readers bake a `desc`, a `hidden` or a subcommand tree out of
@@ -2899,7 +2901,10 @@ other is refused with numbers.
   suite's parallel load and a count does not.
 
   **`?:`, `||` and `??` are read when they are certain, and `.concat()` and
-  `.join()` are the safelist's** (SIG-578, decided by Chris). The ticket offered
+  `.join()` are the safelist's** (SIG-578, decided by Chris; a literal on the
+  right of `||` and `??` joined it in SIG-595, which he approved after the
+  first decision left it out -- the table and the bullet on it are the
+  current reading). The ticket offered
   three answers -- read the cheap ones, read all of them, read none -- and the
   first is taken. It is one case in `partsOf()` and `knownParts()` is where it
   lives. Measured with `sigil build` on a copy of `test/fixtures/styled/` whose
@@ -2914,7 +2919,9 @@ other is refused with numbers.
   | `('text-' \|\| label) + label`                        | 8      | **25** |
   | `('text-' ?? label) + label`                          | 8      | **25** |
   | `(dark ? 'text-' : label) + label` (a branch unknown) | 8      | 8      |
-  | `(label \|\| 'text-') + label` (literal on the right) | 8      | 8      |
+  | `(label \|\| 'text-') + label` (literal on the right) | 8      | **25** |
+  | `(label ?? 'text-') + label` (literal on the right)   | 8      | **25** |
+  | `(label \|\| 'text-' \|\| 'bg-') + label`             | 8      | **41** |
   | `'text-'.concat(label)`                               | 8      | 8      |
   | `['text', label].join('-')`                           | 8      | 8      |
   - **A `?:` whose every branch is a literal is a choice between those texts**,
@@ -2943,9 +2950,45 @@ other is refused with numbers.
   - **`'x' || y` and `'x' ?? y` are `'x'`**, because a non-empty literal is
     always truthy and a string is never nullish, so the right side is never the
     value. An **empty** literal on the left of `||` is falsy and the value _is_
-    the right side, which is not known, so it is left alone; `'' ?? y` is `''`
-    and is read. A literal on the **right** (`y || 'x'`) is not read: the value
-    is `y` whenever `y` is truthy, and what it is then is not known.
+    the right side, so the left is skipped and the right is read in its place:
+    `'' || y` is unknown and `'' || 'x'` is `'x'`. `'' ?? y` is `''` and is read.
+  - **A literal on the right, `y || 'x'` or `y ?? 'x'`, is `'x'` or whatever `y`
+    is** (SIG-595). The first decision left it out on the reasoning that the
+    value is `y` whenever `y` is truthy, which is true and not a reason: reading
+    it keeps more rules and never fewer, because `'x'` is one of the values the
+    expression can produce, and `(x || 'text-') + colour` is the commonest way
+    an app writes a default class prefix -- so it dropped every `text-*` rule
+    unless they were on the safelist. It is a choice with an unknown
+    alternative, and `readRuns()` reads the run around it **once with the
+    literal in it and once ended by an unknown part**: `(x || 'text-') + colour`
+    is the closed-left prefix `text-` and, from the other alternative, nothing
+    known at all, and `(x || 'a-') + 'red'` is `a-red` and an open-left `red`.
+    That is the one thing a choice of texts could not say, and the reason the
+    openness belongs to each text of a run rather than to the run. A `||` or
+    `??` nested on either side is read the same way, so `x || 'a' || 'b'` is
+    `a`, `b` or unknown, with every literal kept even where an earlier one is
+    always truthy; `&&` and a `?:` with an unknown branch are the unknown
+    alternative there as they are everywhere. It counts toward the cap above
+    (the unknown alternative is one more text), **but never costs a run more of
+    it than the unknown part it replaced did**: each text of a run is marked
+    `fresh` while it is what the run was before such a choice, and when the cap
+    would be passed the texts that are not are ended -- read open on the right,
+    as that unknown part would have ended them -- and the rest is what main kept.
+    Without it a right-hand literal doubled every choice after it, `(x || 'p ') +
+    (s ? 'sm' : m ? 'md' : 'lg') + (v ? ':' : w ? ':hover:' : ':focus:') +
+    'flex'` went past the cap, and `sm:flex` -- which the app really builds, when
+    `x` is unset -- was dropped (found by review round 1). Each side is read
+    once, so a chain of n of them is linear: `shake-cost.test.ts` pins the
+    operands unwrapped, and separately the chunks read, since the operand count
+    cannot see `readRuns()` growing a text per term -- uncapped that is
+    quadratic in reads, and was 55 s at 4,000 terms.
+  - **`'' || 'u'` is tighter, not only more kept.** It is the closed text `u`
+    where it was an unknown part that opened its neighbours: the value is
+    exactly `'u'`, so this is the same trade as `'a' + 'b' + c`, and
+    `should not read an empty left of || as the value` pins it.
+    The three rows above that name it are measured with `sigil build` on the
+    `styled` fixture; `'md:' + (label || 'flex-') + 'row'` keeps `md:flex-row`
+    and, because `label` may be `flex-col`, `md:*` as well.
   - **`.concat()` and `.join()` stay the safelist's.** A method's value is
     whatever the method returns, and the receiver here is a value this pass has
     not typed: `a.concat(b)` is a string for a string `a` and an array for an
@@ -7353,6 +7396,46 @@ measurements are in
   `sigil package` therefore lets `readSchemaUpdateCheck() === 'names'` satisfy
   the import signal too. What stays refused is the app that imports a builder and
   never gives it to `updateCheck`, which is pinned.
+
+  **A checker named through a call is warned about rather than refused, and the
+  warning is narrower than the refusal would be (SIG-593).** `wrap({ checker })`
+  and `wrap?.({ checker })` read as `'names'` and so lifted the import signal,
+  though the call may hand back something else or, with a nullish `wrap`,
+  nothing. An app that then calls `check()` itself with no checker ships a binary
+  whose check does nothing -- reproduced with `sigil package --runtime bun`: it
+  succeeded, said nothing, and the binary printed `{"current":"1.0.0"}` with no
+  `latest`. `readSchemaUpdateCheck()` now answers `'wrapped'` for a literal that
+  only a call hands over (`options !== expression`, so a builder call or a
+  literal written out stays `'names'`), and `wrappedCheckWarning()` is what
+  `sigil package` writes when the bundle reached the check, the schema is
+  `'wrapped'` and `sigil.json` declares no `updateCheck`. Declaring one is the
+  fix and the silence: it bakes the checker the hand-called `check()` reads.
+
+  Warning was chosen over keeping the import signal, which would refuse, because
+  the shape the signal was lifted for -- importing the builder to write
+  `updateCheck: wrap({ checker: githubChecker(...) })` -- is correct far more
+  often than it is empty, and this file's rule is that a false refusal stops a
+  correct build where a missed one costs a notice that never appears. A note on
+  stderr costs a correct app one line and a `sigil.json` entry. It is `package`
+  only: `sigil build` leaves a runtime to fall back on, and `check()`'s own
+  default there is npm. The warning cannot say whether `check()` is called --
+  the bundler's watch sees the specifier and not what was imported from it -- so
+  it fires for every wrapped schema whose bundle reaches `@ttylabs/sigil/updates`,
+  which is the limit. It goes through `writeNote()`, so `--quiet` silences it: a
+  release script that asked for no prose gets the hollow check with no word,
+  which is the ticket's own symptom in the one place binaries are made. Left,
+  because routing one note around `--quiet` is a decision about `--quiet` and not
+  about this.
+
+  **What stays missed, and is the larger hole: a confirmed `'names'` has it too.**
+  `updateCheck: githubChecker({ repo })` plus a hand-called `check()` with no
+  checker packages without a word and answers `{"current": ...}` just the same,
+  because the schema's checker is for the automatic check and `check()` reads only
+  its own `checker` option or the baked one. Closing it needs the import signal
+  to tell an import of `check` from an import of a builder, which is a read of
+  what each module imports from the specifier -- filed as SIG-609 rather than done here,
+  since warning on every confirmed `names` would put a warning on the documented
+  path.
 
 - **A checker the schema writes out is asked of `checkedChecker()` at build time,
   so the author is told where they are already looking (SIG-564).**

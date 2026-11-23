@@ -62,8 +62,11 @@ a row to tick or a button, and a double click on a row opens its menu.
   says so. Delete asks first, and the question opens on No.
 - **Light and dark are the app's, not the terminal's.** The terminal's own
   colours are the first theme. Light and Dark paint their own background, set
-  every role the framework draws with, and fill the menus, the dialog and the
-  toasts, so a light dashboard on a dark terminal is light all over.
+  the colour of each role the framework draws with, and fill the menus, the
+  dialog and the toasts, so a light dashboard on a dark terminal is light all
+  over. Each also tells the renderer which scheme it is with
+  `view.setColorScheme()`, so every `prefers-color-scheme` rule follows the theme
+  rather than the terminal; System hands the choice back.
 - **It fits the terminal it is given.** The sidebar starts collapsed under 100
   columns. On a short terminal the sparklines go first, then the chart, then the
   line under each figure, and the table keeps its rows; on a narrow one a column
@@ -97,6 +100,3 @@ Each is marked in the source.
 - **A card's badge follows its figure.** Each card hands `Badge` the label and the
   variant as functions over one `Computed`, and the badge rewrites its own text and
   classes when the figure moves.
-- **A theme restates every role.** The colour scheme a renderer reads is fixed
-  when it starts, so a theme that means light on a dark terminal cannot lean on the
-  framework's `prefers-color-scheme` defaults and sets each colour itself.

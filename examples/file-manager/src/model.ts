@@ -419,23 +419,17 @@ export function createModel(): Model {
     action: string
   ): Promise<string | undefined> => {
     const value = new State(initial);
-    let field: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: action, value: true },
         { label: 'Cancel', value: false },
       ],
-      body: () => {
-        field = TextField({ onSubmit: () => dialog.close(true), value });
-        return field;
-      },
+      body: () => TextField({ onSubmit: () => dialog.close(true), value }),
+      initial: 'body',
       input,
       title,
       width: 52,
     });
-    // `initial` names a button, so the field is focused once the dialog is open:
-    // SIG-337 is the ticket for a dialog that opens on a field in its body
-    input.focus.focus(field);
     const answer = await dialog.result;
     return answer ? value.get() : undefined;
   };
