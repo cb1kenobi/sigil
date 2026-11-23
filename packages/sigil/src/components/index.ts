@@ -31,6 +31,7 @@ export * from './subpaths/path.js';
 export * from './subpaths/file-picker.js';
 export * from './subpaths/prompt.js';
 export * from './subpaths/prompt-error.js';
+export * from './subpaths/field-layout.js';
 export * from './subpaths/token.js';
 export * from './subpaths/key-help.js';
 export * from './subpaths/mount.js';

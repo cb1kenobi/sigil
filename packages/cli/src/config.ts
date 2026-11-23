@@ -76,10 +76,10 @@ export interface BuildConfig {
    * an array that came from somewhere else -- leaves nothing behind and its
    * rule is dropped. This is how to say it anyway.
    *
-   * That includes `.concat()` and `.join()`, a `?:` with a branch that is not a
-   * literal, `&&`, and a call to the app's own helper; the shake reads a `?:`
-   * of literals and a literal on either side of `||` or `??`. The list is in the
-   * README under "What the shake reads".
+   * That includes `.concat()` and `.join()`, a `?:` with no literal in any
+   * branch, `&&`, and a call to the app's own helper; the shake reads a `?:`
+   * with a literal in a branch and a literal on either side of `||` or `??`.
+   * The list is in the README under "What the shake reads".
    */
   readonly safelist?: readonly string[];
   /**

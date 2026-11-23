@@ -1841,6 +1841,8 @@ the repository's own suite.
   and `frame()` paints an app's next frame now instead of waiting for it.
 - `Screen` and `screenStream()` replay what was written into a model of the
   screen, because a frame is a diff and its bytes do not say what is showing.
+  `screen.mouse` is which mouse reporting modes the program has on
+  (`{ buttons, motion, sgr }`), and all `false` once it has handed them back.
 
 ---
 
@@ -2780,7 +2782,7 @@ hand-written component that spreads `props` into its host and sets a hook there.
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
 `applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
 `appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
-`rawParts()`, `trackedFlag()` and `textPart()` -- which
+`rawParts()`, `refuseUnknownProps()`, `trackedFlag()` and `textPart()` -- which
 `sigil build`'s template compiler calls rather than restating, so a compiled
 template and an interpreted one cannot come to disagree about what a prop, a
 child or a `<raw>` means.
@@ -2810,7 +2812,7 @@ paint read changes and lays out again when one its measure read does -- in the
 `tracked` is a flag read once, when the element is built: bare is `true`,
 `tracked={false}` is plain, and a string or a function is a template error. Build
 it in a component, so the listening is let go with the owner.
-A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing.
+A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing. The same goes for a `<box>` or a `<text>`: `<box padddding>` is refused with its name where it is built, in the tag, in JSX and at `sigil build` and `sigil check`, rather than as a style error on the first frame.
 
 ```jsx
 const level = new State(3);
@@ -8342,6 +8344,22 @@ catches, which kills the process with a raw stack and skips every bit of error
 handling the framework has. The default handler writes the message and sets the
 exit code; the renderer replaces it with the real one.
 
+The first run is the one exception to that: it happens where `effect()` is called,
+so a throw in it reaches the caller rather than the handler. The effect is kept —
+watched, and run again when a signal it read before throwing changes — when
+something else will dispose it: the effect whose body it was created in, or a
+caller that took the disposer through the `adopt` option. A bare top-level
+`effect()` has neither, so it is torn down and the throw is the caller's to
+handle.
+
+`effect(fn, { adopt })` calls `adopt(dispose)` with the disposer **before** the
+first run, which is the only way to hold it through a first run that throws,
+since a throw returns nothing. Most apps never need it: the renderer's
+`createEffect()` and `onMount()` use it to hand the disposer to the component's
+owner, which disposes it when the component goes. Reach for it only when you
+have your own owner, and dispose what you adopt — an adopter that never does
+leaks the effect.
+
 `createEffects()` gives an independent scope — its own watcher, scheduler, queue,
 and error handler — for when one global is not enough: two canvases with
 different frame loops, or a test that wants isolation.
@@ -8566,7 +8584,9 @@ machine. Sort anything you print beside the surface with it, rather than with
 `localeCompare`, which reads the process locale.
 
 `descriptionLine(text)` is a description as one line: every run of whitespace
-one space, then every control character gone, then trimmed. It is what the
+one space, then every control character and every format character gone (the
+class `escapeControls()` names, so the bidi overrides, the zero-width characters,
+the joiners and variation selectors included), then trimmed. It is what the
 completion script and the markdown reference both print a `desc` with, since a
 description is one line wherever it is printed and a raw escape in a file is a
 sequence waiting for something to print it.

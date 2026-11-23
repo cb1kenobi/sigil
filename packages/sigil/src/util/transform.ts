@@ -377,15 +377,36 @@ export function assertChoices(
   value: unknown,
   label: string
 ): void {
+  const [outside] = outsideChoices(choices, value);
+  if (outside) {
+    throw new Error(__`Invalid value "${escapeControls(outside.value)}" for ${label}`);
+  }
+}
+
+/**
+ * The members of a value that are not among the allowed choices, in order.
+ *
+ * What `assertChoices()` asks, shared so that a caller which words its own
+ * refusal -- the parser does, for a `default`, which is the schema's mistake
+ * and not the user's -- reads membership from the one place that defines it.
+ * Each is boxed, since `undefined` can be a member of a list.
+ *
+ * @param choices - The allowed values, if the definition declared any.
+ * @param value - The resolved value, or each member of one that is a list.
+ * @returns Nothing when there are no choices or no value, else every member
+ * that `choices` does not include.
+ */
+export function outsideChoices(
+  choices: readonly unknown[] | undefined,
+  value: unknown
+): { value: unknown }[] {
   if (!Array.isArray(choices) || value === undefined) {
-    return;
+    return [];
   }
 
-  for (const v of Array.isArray(value) ? value : [value]) {
-    if (!choices.includes(v)) {
-      throw new Error(__`Invalid value "${escapeControls(v)}" for ${label}`);
-    }
-  }
+  return (Array.isArray(value) ? value : [value])
+    .filter((v) => !choices.includes(v))
+    .map((v) => ({ value: v }));
 }
 
 /**

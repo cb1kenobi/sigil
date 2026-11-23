@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -136,5 +137,54 @@ describe('the bootstrap', () => {
 
     expect(ran.status).toBe(0);
     expect(ran.stdout).toContain('Usage: buildable');
+  });
+});
+
+/**
+ * The bootstrap type-checks this package with its own `tsconfig.json`, and that
+ * one's `include` is `./test` -- the directory `update-check.test.ts` writes
+ * variants of an app into, `.ts` entries among them, for as long as that file
+ * runs (SIG-627). A variant is a schema written to be read rather than compiled
+ * (`<Type>true`), so while one existed any `sigil build` of this package failed
+ * with `TS2304: Cannot find name 'Type'`, and the bootstrap's builds run it twice.
+ * The one failure SIG-627 was filed over -- in a full local run, passing alone --
+ * had no message kept, so this is the mechanism that reproduces and not one
+ * observed: with that file in place `node src/sigil.ts build` exits 1 with that
+ * line, and with the directory excluded it exits 0.
+ *
+ * Asked of the compiler rather than of the JSON, since what has to hold is that
+ * the file is not in the program, and `exclude` is only one way of saying so.
+ */
+describe('the files the type check reads', () => {
+  it('should not include what update-check.test.ts writes while it runs', () => {
+    // beside `variants` and not in it: that file removes its own directory when
+    // it ends, which fails with ENOTEMPTY if this one is writing into it
+    const probe = 'tsconfig-excludes-this';
+    const dir = join(root, 'test', 'fixtures', 'updates', 'out', probe);
+    // the bin the manifest names, which `exports` does not let a specifier reach
+    const tsc = join(
+      dirname(createRequire(join(root, 'package.json')).resolve('typescript/package.json')),
+      'bin',
+      'tsc'
+    );
+
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'index.ts'), 'export default <Type>true;\n');
+    try {
+      const listed = spawnSync(process.execPath, [tsc, '--listFilesOnly', '-p', root], {
+        cwd: root,
+        encoding: 'utf-8',
+      });
+      expect(listed.status, listed.stderr).toBe(0);
+
+      // one file to a line, spelled the way the compiler spells a path -- which is
+      // forward-slashed on Windows -- so it is asked for by a name with no
+      // separator in it, and the control is that this is the right program at all
+      const files = listed.stdout.split('\n').map((line) => line.trim());
+      expect(files.some((line) => line.endsWith('sigil.ts'))).toBe(true);
+      expect(files.filter((line) => line.includes(probe))).toEqual([]);
+    } finally {
+      rmSync(dir, { force: true, maxRetries: 5, recursive: true });
+    }
   });
 });

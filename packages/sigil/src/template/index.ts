@@ -40,6 +40,7 @@ export {
   rawElement,
   rawParts,
   refuseHandlerName,
+  refuseUnknownProps,
   rootElement,
   type SourceLocation,
   splitRefs,

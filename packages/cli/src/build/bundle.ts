@@ -448,6 +448,18 @@ export async function bundleApp(options: BundleOptions): Promise<BundleResult> {
     : undefined;
 
   const bundle = await rolldown({
+    // rolldown warns when JavaScript callbacks -- plugin hooks and option
+    // callbacks -- take most of a build, as `[PLUGIN_TIMINGS] JavaScript callbacks
+    // ran for 3.4s of the 3.5s build (97%)`. Every callback in this build is the
+    // toolchain's own (`sigil:templates`, `sigil:update-check` and the rest of
+    // this list), so the warning is advice to a plugin author that nobody who
+    // reads it can act on -- an app's build was told to optimize a plugin it did
+    // not write -- and it is a fact about how busy the machine was, not about the
+    // app: a slow Windows runner put it in the summary `output-forms.test.ts`
+    // compares exactly (SIG-627). It is the check that is off rather than the
+    // log that is dropped, so the build also stops measuring every hook for a
+    // number nothing reads.
+    checks: { bundlerTimings: false },
     // left as imports rather than inlined. Rolldown does not report these as
     // unresolved, which is the point: an external is a deliberate answer to
     // "this cannot be inlined" and an unresolved import is the absence of one

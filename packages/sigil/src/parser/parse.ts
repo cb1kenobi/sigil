@@ -19,7 +19,7 @@ import { camelCase } from '../util/camel-case.js';
 import { envValue } from '../util/env-value.js';
 import { escapeControls } from '../util/escape-controls.js';
 import { splitTopic, topicSeparator } from '../util/topic.js';
-import { assertChoices, transformValue } from '../util/transform.js';
+import { assertChoices, outsideChoices, transformValue } from '../util/transform.js';
 import { asUsageError, UsageError } from '../util/usage-error.js';
 import { initCommand } from './command/init-command.js';
 import { loadCommand } from './command/load-command.js';
@@ -530,6 +530,68 @@ function produced(state: ParseState, dest: string, by: InternalOption | Internal
 }
 
 /**
+ * What a declared `default` put on each destination, by identity.
+ *
+ * The other half of knowing who wrote a value: `producers` says which
+ * declaration, and this says whether the schema or the user supplied it, which
+ * matters to one question -- who was wrong. A value outside `choices` that came
+ * from argv or the environment is the user's mistake, and one that is the
+ * `default` the schema declared is the schema's.
+ *
+ * The value is kept rather than a flag so that a hook which replaces what is on
+ * the destination takes it out of this: what a hook wrote is not what the schema
+ * declared, and is judged as a usage error, as every value without a known source
+ * is. (A list the hook edits in place is the same object, and stays the schema's.)
+ */
+const defaults = new WeakMap<ParseState, Map<string, unknown>>();
+
+/**
+ * Whether what is on a destination is still exactly what a `default` put there.
+ *
+ * @param state - The parse state.
+ * @param dest - The destination.
+ * @returns `true` when the schema supplied the value and nothing has replaced it.
+ */
+function isDeclaredDefault(state: ParseState, dest: string): boolean {
+  const map = defaults.get(state);
+  return map?.has(dest) === true && Object.is(map.get(dest), resolved(state, dest));
+}
+
+/**
+ * Judges a value against its `choices`, saying whose mistake a refusal is.
+ *
+ * A value from argv or the environment is the user's, and a `UsageError`. A
+ * `default` is the app's own declaration, and nobody typed it: the same
+ * refusal there would tell the user they got something wrong, with an exit code
+ * that says so, over a schema that cannot be satisfied by anything they do. That
+ * one is a plain `Error` naming the declaration and its default.
+ *
+ * @param state - The parse state.
+ * @param it - The option or argument whose `choices` apply.
+ * @param label - What the message calls it.
+ */
+function checkChoices(
+  state: ParseState,
+  it: InternalOption | InternalArgument,
+  label: string
+): void {
+  const { dest } = it[Internal];
+  const value = resolved(state, dest);
+
+  if (isDeclaredDefault(state, dest)) {
+    const [outside] = outsideChoices(it.choices, value);
+    if (outside) {
+      throw new Error(
+        __`The default "${escapeControls(outside.value)}" for ${label} is not one of its choices`
+      );
+    }
+    return;
+  }
+
+  fromArgv(() => assertChoices(it.choices, value, label));
+}
+
+/**
  * Whether this declaration is the one that wrote what is on its destination, which
  * is what accumulating onto a value requires: `multiple` extends its own array and
  * a counter increments its own number, never another declaration's.
@@ -688,6 +750,14 @@ function applyFallback(
   // `multiple` stays editable after init, so a hook could otherwise put it back
   state.argv[dest] = multiple && type !== 'count' && one ? [value] : value;
   produced(state, dest, it);
+
+  if (!fromEnv) {
+    let map = defaults.get(state);
+    if (!map) {
+      defaults.set(state, (map = new Map()));
+    }
+    map.set(dest, state.argv[dest]);
+  }
 }
 
 /**
@@ -1326,9 +1396,7 @@ export function validateArgs(state: ParseState): void {
 
   for (const arg of internal.args) {
     if (validates(state, arg, live)) {
-      fromArgv(() =>
-        assertChoices(arg.choices, resolved(state, arg[Internal].dest), __`argument <${arg.name}>`)
-      );
+      checkChoices(state, arg, __`argument <${arg.name}>`);
     }
   }
 }
@@ -1384,7 +1452,7 @@ export function validateOptions(state: ParseState): void {
   }
 
   for (const opt of all) {
-    const { choices, required } = opt;
+    const { required } = opt;
     const { dest, label } = opt[Internal];
     const value = resolved(state, dest);
     const typed = typedOptions.has(opt);
@@ -1398,7 +1466,7 @@ export function validateOptions(state: ParseState): void {
     // nearer context's option of the same destination -- and each of them has
     // its own `choices`, so a value belongs to whichever one wrote it
     if (validates(state, opt, live)) {
-      fromArgv(() => assertChoices(choices, value, __`option ${label}`));
+      checkChoices(state, opt, __`option ${label}`);
     }
   }
 

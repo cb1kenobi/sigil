@@ -332,6 +332,129 @@ describe('effect', () => {
     expect(runs).toBe(1);
   });
 
+  describe('an effect whose first run throws after reading a signal (SIG-611)', () => {
+    it('should run again when that signal changes, when the caller took the disposer', () => {
+      const seen: unknown[] = [];
+      const previous = setErrorHandler((err) => seen.push(err));
+      try {
+        const s = new State(0);
+        let runs = 0;
+        let stop: (() => void) | undefined;
+
+        expect(() =>
+          effect(
+            () => {
+              runs++;
+              if (s.get() === 0) {
+                throw new Error('first');
+              }
+            },
+            { adopt: (dispose) => (stop = dispose) }
+          )
+        ).toThrow('first');
+        expect(runs).toBe(1);
+
+        s.set(1);
+        flush();
+        // run again, and clean this time: nothing more was reported
+        expect(runs).toBe(2);
+        expect(seen).toEqual([]);
+
+        // and a later throw is reported, which is what makes it the same effect
+        s.set(0);
+        flush();
+        expect(runs).toBe(3);
+        expect((seen[0] as Error).message).toBe('first');
+
+        stop?.();
+        expect(hasSinks(s)).toBe(false);
+        s.set(1);
+        flush();
+        expect(runs).toBe(3);
+      } finally {
+        setErrorHandler(previous);
+      }
+    });
+
+    it('should hand the disposer over before the first run, so the owner holds it through a throw', () => {
+      const handed: unknown[] = [];
+      let ran = false;
+      expect(() =>
+        effect(
+          () => {
+            ran = handed.length === 1;
+            throw new Error('bang');
+          },
+          { adopt: (dispose) => handed.push(dispose) }
+        )
+      ).toThrow('bang');
+      expect(ran).toBe(true);
+      (handed[0] as () => void)();
+    });
+
+    it('should run again when it was created inside another effect, and die with it', () => {
+      const s = new State(0);
+      const trigger = new State(0);
+      let runs = 0;
+      const previous = setErrorHandler(() => {});
+      try {
+        const stop = effect(() => {
+          trigger.get();
+          try {
+            effect(() => {
+              runs++;
+              if (s.get() === 0) {
+                throw new Error('nested first');
+              }
+            });
+          } catch {
+            // the parent carries on, which is the case that matters: a child it
+            // made is its own to dispose, so it is not left unreachable
+          }
+        });
+        expect(runs).toBe(1);
+
+        s.set(1);
+        flush();
+        expect(runs).toBe(2);
+
+        // the parent re-running tears down its children, this one included, and
+        // makes a fresh one
+        trigger.set(1);
+        flush();
+        expect(runs).toBe(3);
+        expect(sinkCount(s)).toBe(1);
+
+        stop();
+        expect(hasSinks(s)).toBe(false);
+        s.set(2);
+        flush();
+        expect(runs).toBe(3);
+      } finally {
+        setErrorHandler(previous);
+      }
+    });
+
+    it('should still be torn down when nothing could ever dispose it', () => {
+      // a bare top-level effect: the throw is what the caller gets back, there is
+      // no disposer, and no owner -- so keeping it watched would be a leak for
+      // the life of the process. The test above this block pins the same thing
+      const s = new State(0);
+      let runs = 0;
+      expect(() =>
+        effect(() => {
+          runs++;
+          s.get();
+          throw new Error('bang');
+        })
+      ).toThrow('bang');
+      expect(sinkCount(s)).toBe(0);
+      s.set(1);
+      flush();
+      expect(runs).toBe(1);
+    });
+  });
+
   it('should refuse an async body', () => {
     // the cast is the point: TypeScript already refuses this, and the throw is
     // for the JavaScript callers and the inferred-async arrows it cannot catch
