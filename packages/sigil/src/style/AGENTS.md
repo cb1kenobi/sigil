@@ -136,7 +136,9 @@ is proved.
   is a light scheme whatever the terminal is, and the renderer read the scheme once,
   so every `prefers-color-scheme` rule was answering for the terminal while the
   screen was the theme's. A component that reads the scheme from its own options
-  rather than from the media context -- `qrcode()`'s polarity -- is not reached.
+  rather than from the media context is not reached, and `qrcode()`'s polarity was
+  one until SIG-604: an unpinned `qrcodeView()` now holds both polarities and lets
+  `@media (prefers-color-scheme)` pick, while the string `qrcode()` is a snapshot.
   `Renderer.setColorScheme(scheme | undefined)` is the whole API: the top of the
   chain, above `RenderOptions.colorScheme`, because it is the app's decision taken
   after the option, and `undefined` takes it back to what the chain below says --
