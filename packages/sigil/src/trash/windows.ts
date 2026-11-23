@@ -466,6 +466,21 @@ async function ask(
   return new Error(__`PowerShell answered ${JSON.stringify(out.trim())}`);
 }
 
+/**
+ * Whether a run's failure says PowerShell is in Constrained Language Mode, which
+ * is what an application control policy (AppLocker, WDAC) puts it in: the script
+ * cannot call a method on `[Console]` or `[Text.Encoding]`, nor `New-Object` a
+ * compiler, so neither script can ever run and a second start is spent for
+ * nothing. Read off the **error ID** -- `MethodInvocationNotSupportedInConstrainedLanguage`,
+ * `CannotCreateTypeConstrainedLanguage` -- which the formatted error carries on its
+ * `FullyQualifiedErrorId` line and which is not translated, where the sentence
+ * beside it is. A failure that does not say so is not this, and is retried as it
+ * always was.
+ */
+function constrained(err: Error): boolean {
+  return /ConstrainedLanguage/i.test(err.message);
+}
+
 /** Whether the item is still where it was: `lstat()`, so a link is asked about and not its target. */
 async function stillThere(path: string): Promise<boolean> {
   try {
@@ -506,6 +521,14 @@ export async function recycle(
 ): Promise<{ cache: CacheState; path: string }> {
   const asked = await ask(path, file, hash, load);
   if (asked instanceof Error) {
+    if (constrained(asked)) {
+      // neither script can run in this environment, so a second start would only
+      // fail the same way: say why, and keep what PowerShell said as the cause
+      throw new Error(
+        __`PowerShell is in Constrained Language Mode, which cannot run the script that moves an item to the Recycle Bin`,
+        { cause: asked }
+      );
+    }
     // no JSON: the script never got to say what happened to the item, which a
     // script that ran to the end always does, an error included -- so it was
     // stopped, or its text was refused. Asked again once, with the script that has

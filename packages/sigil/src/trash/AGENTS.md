@@ -284,7 +284,8 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
 
     Two things cost more than "the ordinary failure" and are not fixed. An
     environment where **every** run prints nothing -- PowerShell's Constrained
-    Language Mode is the likely one, where the script's own `catch` cannot write --
+    Language Mode was the likely one, where the script's own `catch` cannot write, and is
+    now answered without the retry (the entry below) --
     pays the second start (about 350 ms) on every failure; a missing
     `powershell.exe` is the same shape and cheap. And `run()` rejects on any
     non-zero exit and drops stdout, so a script that answered an `error` and then
@@ -293,6 +294,40 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
     JSON alone, and a retry of an answered failure is a second identical failure
     rather than a second move. Pinned in `trash-windows.test.ts`
     with PowerShell replaced; no CI machine can stop or block the first script.
+
+  - **Constrained Language Mode is not retried, and that is read off the error ID
+    in the first run's stderr** (SIG-628). The paragraph above called the CLM
+    environment a silent run, and it is not quite: stdout is empty, so there is no
+    JSON, but the run is not silent. Under an application control policy
+    (AppLocker, WDAC) PowerShell runs a script it was not signed into in
+    `ConstrainedLanguage`, which allows methods only on a short list of core types
+    ([about_Language_Modes](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_language_modes)).
+    The script's first `[Text.Encoding]::UTF8.GetBytes()` throws, and so does the
+    `[Console]::Out.Write()` in its own `catch`, so the error escapes the script:
+    a script-terminating error is exit code 1 (`about_PowerShell_exe`), and a
+    `-EncodedCommand` run with its streams redirected writes the formatted error
+    to stderr as CLIXML. That error carries `FullyQualifiedErrorId :
+    MethodInvocationNotSupportedInConstrainedLanguage` -- the id a forum report
+    quotes for a method call -- or, for `New-Object` of a compiler,
+    `CannotCreateTypeConstrainedLanguage`. `spawn.ts` puts stderr in the rejected
+    error's message, so `recycle()` tests it for `ConstrainedLanguage` before the
+    retry and throws `PowerShell is in Constrained Language Mode` with the run's
+    error as the `cause`. Neither script could ever run there -- the compile one
+    needs `New-Object` of a `CSharpCodeProvider` -- so the second start was never
+    worth anything, and it costs nothing to skip it where this does not apply: no
+    match is the retry as before.
+
+    **The id is matched and the sentence is not,** because the sentence ("Method
+    invocation is supported only on core types in this language mode") is
+    translated and the id is not; and **a silent run is still retried**, since
+    nothing in one tells a block from a kill. What is **not measured**: no CI
+    machine has CLM, and none was available to this change, so the stderr above is
+    the documentation and the forum report put together and has never been read off
+    a real run. The tests pin what is done with that text, not that PowerShell
+    writes it. If it never matches, the cost is the old one and nothing is
+    wrong; if a real CLM run is ever captured, replace the test's text with it.
+    The match cannot reach a failure that is not CLM -- an AMSI block names
+    `ScriptContainedMaliciousContent` -- which is the retry's whole purpose.
 
   - **What no test reaches is the script's own `catch` around the load,** since no
     runner can be made to refuse one. `trash-windows.test.ts` replaces PowerShell

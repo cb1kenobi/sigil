@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 469 keys, which is what a catalog has to carry to translate sigil's own
+ * 470 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -314,6 +314,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'PNG too large: {0}x{1} pixels is more than the {2} allowed',
   'PNG too large: {0}x{1} pixels is more than this runtime can hold',
   'PowerShell answered {0}',
+  'PowerShell is in Constrained Language Mode, which cannot run the script that moves an item to the Recycle Bin',
   'Present the result as JSON',
   'Present the result in this format',
   'Press Enter to open your editor',

@@ -326,6 +326,38 @@ describe('a first run that prints nothing', () => {
     expect(ran).toHaveBeenCalledTimes(2);
   });
 
+  describe('in Constrained Language Mode', () => {
+    // what `run()` rejects with: the formatted error PowerShell writes to stderr, after
+    // the file; the id line is the part that is not translated
+    const BLOCKED = new Error(
+      'powershell.exe failed: #< CLIXML <Objs><S S="Error">Cannot invoke method. Method invocation is supported only on core types in this language mode._x000D__x000A_</S>' +
+        '<S S="Error">    + FullyQualifiedErrorId : MethodInvocationNotSupportedInConstrainedLanguage_x000D__x000A_</S></Objs>'
+    );
+
+    it('should not start PowerShell a second time, and say why', async () => {
+      const file = item();
+      ran.mockRejectedValueOnce(BLOCKED);
+
+      const err = await recycle(file, undefined, 'k').catch((e: Error) => e);
+
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/Constrained Language Mode/);
+      expect((err as Error).cause).toBe(BLOCKED);
+      expect(ran).toHaveBeenCalledTimes(1);
+    });
+
+    it('should still ask again when the failure is any other, so a block it cannot name costs what it did', async () => {
+      const file = item();
+      ran.mockRejectedValueOnce(
+        new Error('powershell.exe failed: This script contains malicious content')
+      );
+      ran.mockResolvedValueOnce(reply('compiled', { path: 'x' }));
+
+      expect(await recycle(file, undefined, 'k')).toEqual({ cache: 'compiled', path: 'x' });
+      expect(ran).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('should not ask when the compile script is what printed nothing', async () => {
     const file = item();
     ran.mockRejectedValue(KILLED);
