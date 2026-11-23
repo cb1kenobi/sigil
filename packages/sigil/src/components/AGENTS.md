@@ -12216,8 +12216,19 @@ there is the bars, which are drawn on every line.
   `test/growth.ts`, which both files call. The same ratio, the same 24, the same
   sizes. Under 200 busy loops on 18 cores the old file failed `_*` and its
   siblings at 31.8 and 31.7 against 24 in two of three runs, and the new one
-  passed every run. Windows keeps the wall clock, which its CPU clock is too
-  coarse to replace, so the load fix is not Windows's.
+  passed every run. The CPU clock is not fine everywhere, and the first push of
+  this change found out how: `process.threadCpuUsage()` is microseconds on macOS
+  and bills in scheduler ticks on the Linux CI runners, about four milliseconds a
+  step. A small read repeated 256 times read as nothing, `the clock read nothing
+  over 256 reads`, in `highlight.test.ts` and in this file on three Ubuntu jobs --
+  and the branch this one is stacked on (SIG-640) failed the same way on Ubuntu,
+  so the flake was already in what this change shared. `growthOf()` therefore asks
+  the clock rather than the platform: it spins on it for up to 40 ms, and if the
+  smallest step is over a tenth of a millisecond it reads the wall clock instead.
+  That covers Windows, which used to be named, and whatever comes next. On a tick
+  clock the load fix is not there, and what is left is the old best of seven over
+  a span. `test/growth.test.ts` stubs a four-millisecond clock and fails without
+  the probe.
 
   A CPU clock does nothing for a wall-clock budget, which is what a test timeout
   is, and **the budget is the fix for the timeout**: the file's `describe` carries
