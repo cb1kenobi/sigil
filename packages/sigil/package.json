@@ -141,6 +141,10 @@
       "types": "./dist/components/editor.d.mts",
       "default": "./dist/components/editor.mjs"
     },
+    "./components/field-layout": {
+      "types": "./dist/components/field-layout.d.mts",
+      "default": "./dist/components/field-layout.mjs"
+    },
     "./components/file-picker": {
       "types": "./dist/components/file-picker.d.mts",
       "default": "./dist/components/file-picker.mjs"

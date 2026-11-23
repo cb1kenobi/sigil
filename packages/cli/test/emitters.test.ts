@@ -721,7 +721,7 @@ describe('what the build emitter writes', () => {
     expect(() => build(['<box>\n<text onMouse="x" /></box>'])).toThrow(/at line 2/);
   });
 
-  it('should refuse a spelling of a handler at build time, and leave a would-be event to run time', () => {
+  it('should refuse a spelling of a handler at build time, and an event nobody has', () => {
     // the half of the name check a compiler can answer from the IR: the spelling
     // is wrong whatever it is given. The sentence is the same one the interpreter
     // throws, so only a test that compiles *without running* can tell the two
@@ -730,10 +730,29 @@ describe('what the build emitter writes', () => {
       '`on-key` is not a handler name: write `onKey`'
     );
     expect(() => build(['<text onkey=', '>x</text>'], '() => {}')).toThrow(/write `onKey`/);
-    // `onClick=${x}` is only an error if x is a function, which a compiler cannot
-    // know, so it compiles and the printed call carries the position
-    const { source } = build(['<box onClick=', ' />'], 'maybe');
-    expect(source).toContain('$applyProp($e0, "onClick", (maybe), ');
+    // an `on*` name that is none of the seven is not an event this element has,
+    // and that does not depend on what it is given -- it used to be left to run
+    // time because only a function made it an error, and a value that is not one
+    // reached the cascade on the first frame (SIG-614)
+    expect(() => build(['<box onClick=', ' />'], 'maybe')).toThrow(
+      /`onClick` is not an event this element has/
+    );
+  });
+
+  it('should refuse a prop nothing reads at build time, on a box and on a text', () => {
+    expect(() => build(['<box padddding="1" />'])).toThrow(/<box> has no prop `padddding`/);
+    expect(() => build(['<box><text colour=', '>x</text></box>'], 'maybe')).toThrow(
+      /<text> has no prop `colour`/
+    );
+  });
+
+  it('should compile a prop that is a style property or a reserved name as it did', () => {
+    const { hoisted, source } = build(
+      ['<box padding="1" class="a" id="b" key="c" width=', ' />'],
+      '3'
+    );
+    expect(hoisted.join('\n')).toContain('"padding": "1"');
+    expect(source).toContain('$applyProp($e0, "width", (3))');
   });
 
   it('should refuse a ref written as a value', () => {
@@ -775,13 +794,6 @@ describe('what the build emitter writes', () => {
     expect(() => compile(ir, { prefix: '1x' })).toThrow(/identifier-safe/);
     expect(() => compile(ir, { prefix: 'a-b' })).toThrow(/identifier-safe/);
     expect(compile(ir, { prefix: '$sigil_' }).sources[0]).toBe('$sigil_text("hi")');
-  });
-
-  it('should write __proto__ as a computed key, which is the only name that needs one', () => {
-    // written plainly it is prototype sugar, so the object literal would have
-    // no own property of that name and the prop would be dropped on the way in
-    const { hoisted } = build(['<text __proto__="x">y</text>']);
-    expect(hoisted).toEqual(['const $s0 = Object.freeze({ ["__proto__"]: "x" });']);
   });
 
   it('should point an error at the line the template broke on', () => {

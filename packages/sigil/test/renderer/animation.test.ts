@@ -1,4 +1,5 @@
 import { createCanvas } from '../../src/canvas/index.js';
+import { rgbChannels } from '../../src/canvas/style.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createEffect, render, Show } from '../../src/renderer/index.js';
@@ -61,6 +62,7 @@ function harness(width = 24, height = 3) {
 
   return {
     backend: backend as never,
+    canvas,
     get painted() {
       return painted;
     },
@@ -1133,6 +1135,140 @@ describe('a sheet swapped under an animation', () => {
     expect((node!.style.left as { value: number }).value).toBe(3);
     // held, not restarted
     expect(view.animating).toBe(false);
+    view.dispose();
+  });
+});
+
+describe('a color transition across a change of color scheme', () => {
+  // the scheme is a media query's answer and `setColorScheme()` publishes it the way
+  // a resize does, so a `transition: color` has to walk from the old scheme's color
+  // to the new one's rather than snapping -- nothing said so until this
+  //
+  // this one pins the *computed* style only: the box's text child is painted in the
+  // target color from the first frame (an animated value is presented, not
+  // inherited), so what reaches the screen is pinned by the painted-cell test below
+  it('should walk the color between the two schemes rather than snapping', () => {
+    const h = harness();
+    const cascade = sheets(`
+      box { height: 1; color: #000000; transition: color 300ms linear }
+      @media (prefers-color-scheme: light) { box { color: #ffffff } }
+    `);
+
+    let node: Element;
+    const view = render(
+      () => {
+        node = box({}, text('x'));
+        return node;
+      },
+      {
+        backend: h.backend,
+        cascade,
+        colorLevel: 3,
+        colorScheme: 'dark',
+        effects,
+        reducedMotion: 'no-preference',
+        terminal: h.terminal,
+      }
+    );
+
+    const channel = (): number => {
+      const channels = rgbChannels(node!.style.color as number);
+      expect(channels, 'the color is not a 24-bit one').toBeDefined();
+      return channels![0];
+    };
+    expect(channel()).toBe(0);
+
+    view.setColorScheme('light');
+    const reds: number[] = [];
+    for (let at = 0; at <= 300; at += 50) {
+      vi.setSystemTime(at);
+      view.frame();
+      reds.push(channel());
+    }
+
+    // dark's color first, light's last, and frames between that are neither
+    expect(reds[0]).toBe(0);
+    expect(reds.at(-1)).toBe(255);
+    expect(
+      reds.some((r) => r > 0 && r < 255),
+      `no intermediate frame: ${reds.join(', ')}`
+    ).toBe(true);
+    expect(reds).toEqual([...reds].sort((a, b) => a - b));
+    expect(new Set(reds).size).toBeGreaterThan(3);
+
+    // and it is a transition that ends: nothing is left asking for frames
+    expect(view.animating).toBe(false);
+    view.dispose();
+  });
+
+  // `node.style` is what the cascade computed; the screen is what `paint()` drew. A
+  // frame that computed the mixed color and never marked the element for paint
+  // would leave the old color on the canvas until the transition ended, and the
+  // test above would read the right style the whole way
+  it('should paint the mixed color on the canvas mid-transition, not only compute it', () => {
+    const h = harness();
+    // the rule is on the `text` itself: an animated value is presented rather than
+    // inherited (see "Transitions and keyframe animations" in `src/style`), so a
+    // `box` that transitions does not drag the text it holds along with it
+    const cascade = sheets(`
+      text { color: #000000; transition: color 300ms linear }
+      @media (prefers-color-scheme: light) { text { color: #ffffff } }
+    `);
+
+    const view = render(() => text('x'), {
+      backend: h.backend,
+      cascade,
+      colorLevel: 3,
+      colorScheme: 'dark',
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    /** The red channel of the foreground the first cell was *painted* in. */
+    const painted = (): number => {
+      const { canvas } = h;
+      // the harness's `present()` is a no-op, so present here: `snapshot()` is the
+      // frame last presented and the only grid that can say what its indices mean
+      canvas.present();
+      const shot = canvas.snapshot();
+      expect(shot.charAt(0, 0), 'the glyph is not on the canvas').toBe('x');
+      const fg = shot.cellStyle(0, 0)?.fg;
+      expect(fg, 'the cell has no style').toBeDefined();
+      const channels = rgbChannels(fg!);
+      expect(channels, 'the painted color is not a 24-bit one').toBeDefined();
+      return channels![0];
+    };
+
+    vi.setSystemTime(0);
+    view.frame();
+    expect(painted()).toBe(0);
+
+    view.setColorScheme('light');
+    vi.setSystemTime(0);
+    view.frame();
+    const start = painted();
+    expect(start).toBe(0);
+
+    // the middle of the transition: neither scheme's color, and the canvas is not
+    // allowed to still be showing the one it started on
+    vi.setSystemTime(150);
+    view.frame();
+    const middle = painted();
+    // halfway through a linear 300ms, mixed in Oklab rather than in sRGB channels
+    // -- which is why black to white is 99 here and not 128 (measured). A range
+    // rather than the number, so a rounding change does not fail it, but narrow
+    // enough that a jump to the end color, or a stall at the start, does
+    expect(
+      middle,
+      `mid-transition frame painted ${middle}, the start was ${start}`
+    ).toBeGreaterThan(94);
+    expect(middle).toBeLessThan(104);
+
+    // and it lands on the new scheme's color on the canvas as well
+    vi.setSystemTime(300);
+    view.frame();
+    expect(painted()).toBe(255);
     view.dispose();
   });
 });

@@ -23,26 +23,31 @@ it does not select text, and copying a line out of a diff matters more than a
 click. With it, a click focuses a pane, picks a row of a list, and makes a hunk
 of the diff current, so Space then stages that hunk; the wheel scrolls.
 
-| Key              | Where    | Does                                                        |
-| ---------------- | -------- | ----------------------------------------------------------- |
-| `1` - `4`        | anywhere | Focus files, branches, commits or the diff                  |
-| Tab              | anywhere | The next pane                                               |
-| ↑ ↓, `j` `k`     | a list   | Move the selection; the diff follows it                     |
-| Enter            | a list   | Files and commits: open the diff. Branches: check it out    |
-| Space            | files    | Stage the file, or unstage it when nothing is left unstaged |
-| `a`              | files    | Stage everything, or unstage everything when all is staged  |
-| `d`              | files    | Discard the unstaged changes, or delete an untracked file   |
-| Space            | branches | Check the branch out                                        |
-| `n`              | branches | A new branch from `HEAD`, named in a dialog                 |
-| `D`              | branches | Delete the branch (`git branch -d`)                         |
-| `]` `[`, `n` `p` | the diff | The next and the previous hunk                              |
-| Space            | the diff | Stage the hunk, or unstage it under `Staged`                |
-| `w`              | the diff | Wrap long lines, or keep each on one row                    |
-| Left, Right      | the diff | Scroll sideways, while lines are kept on one row            |
-| Escape           | the diff | Back to the list it is showing                              |
-| `c`              | anywhere | Commit what is staged, with a message written in a dialog   |
-| `r`              | anywhere | Read the repository again                                   |
-| `q`              | anywhere | Quit, with 0                                                |
+| Key              | Where     | Does                                                         |
+| ---------------- | --------- | ------------------------------------------------------------ |
+| `1` - `4`        | anywhere  | Focus files, branches, commits or the diff                   |
+| Tab              | anywhere  | The next pane                                                |
+| ↑ ↓, `j` `k`     | a list    | Move the selection; the diff follows it                      |
+| Enter            | a list    | Files and commits: open the diff. Branches: check it out     |
+| Space            | files     | Stage the file, or unstage it when nothing is left unstaged  |
+| `a`              | files     | Stage everything, or unstage everything when all is staged   |
+| `d`              | files     | Discard the unstaged changes, or delete an untracked file    |
+| Space            | branches  | Check the branch out                                         |
+| `n`              | branches  | A new branch from `HEAD`, named in a dialog                  |
+| `D`              | branches  | Delete the branch (`git branch -d`)                          |
+| `]` `[`, `n` `p` | the diff  | The next and the previous hunk                               |
+| Space            | the diff  | Stage the hunk, or unstage it under `Staged`                 |
+| Enter            | the diff  | Take the cursor inside the hunk, onto its first changed line |
+| ↑ ↓, `x`, `a`    | the lines | Step over the changed lines; pick one; pick all or none      |
+| `v`              | the lines | Begin a range: ↑ ↓ then pick every changed line it covers    |
+| Space            | the lines | Stage the lines picked, or the one under the cursor          |
+| Enter, Escape    | the lines | Back to the hunk as a whole                                  |
+| `w`              | the diff  | Wrap long lines, or keep each on one row                     |
+| Left, Right      | the diff  | Scroll sideways, while lines are kept on one row             |
+| Escape           | the diff  | Back to the list it is showing                               |
+| `c`              | anywhere  | Commit what is staged, with a message written in a dialog    |
+| `r`              | anywhere  | Read the repository again                                    |
+| `q`              | anywhere  | Quit, with 0                                                 |
 
 The footer lists the keys of the pane that has the focus, so it changes as the
 focus moves. In the commit dialog Enter is a newline, Ctrl-S commits, and Escape
@@ -105,9 +110,26 @@ A patch longer than 4,000 lines is cut, and the hunk the cut went through is
 left out rather than offered to Space, since its header still counts the lines
 it lost.
 
+## Staging some of a hunk
+
+Enter in the diff pane takes the cursor inside the current hunk, and a second
+column of marks shows it: `▶` on the line, `●` on a line picked, `◉` on both. Up
+and down step over the changed lines, `x` picks one and `a` picks the hunk's all,
+`v` begins a range -- up and down then pick every changed line from where it began to
+the cursor, and `v` ends it -- and Space stages what is picked -- or the one line under the cursor where nothing
+is -- through `hunkLinesPatch()`, which writes the lines kept as a patch whose
+counts are its own: a line not picked is left as the index has it, so an unpicked
+addition is not in the patch and an unpicked removal is context. Under `Staged`
+the same keys unstage, with `--reverse`. Escape leaves the lines, and the diff is
+drawn unified while they are in play.
+
+An untracked file is staged whole, and says so. Where git cannot be given the
+lines asked for -- an addition after a last line that has no newline, without the
+line that ends the file -- the client says that instead of staging something else.
+
 ## Not yet
 
-- Line-by-line staging inside a hunk, stashes, rebases, remotes, and resolving a
+- Stashes, rebases, remotes, and resolving a
   conflict (Space marks a file resolved, which is `git add`).
 - Refreshing on its own: `r` reads the repository again, and every action does.
 - What the library does not do yet, and this does by hand: a dialog that opens

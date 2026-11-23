@@ -136,7 +136,9 @@ is proved.
   is a light scheme whatever the terminal is, and the renderer read the scheme once,
   so every `prefers-color-scheme` rule was answering for the terminal while the
   screen was the theme's. A component that reads the scheme from its own options
-  rather than from the media context -- `qrcode()`'s polarity -- is not reached.
+  rather than from the media context is not reached, and `qrcode()`'s polarity was
+  one until SIG-604: an unpinned `qrcodeView()` now holds both polarities and lets
+  `@media (prefers-color-scheme)` pick, while the string `qrcode()` is a snapshot.
   `Renderer.setColorScheme(scheme | undefined)` is the whole API: the top of the
   chain, above `RenderOptions.colorScheme`, because it is the app's decision taken
   after the option, and `undefined` takes it back to what the chain below says --
@@ -161,6 +163,16 @@ is proved.
   The scheme-aware halves cover what the framework sheet has one for -- the muted
   role, the text field and the debug pane -- and a theme gets the rest only by the
   framework growing more of them.
+  A `transition: color` animates across the change, through the frame's ordinary
+  restyle and not through `animator.touchMedia()`, which only re-decides whether
+  motion is allowed: pinned by `a color transition across a change of color scheme`
+  in `test/renderer/animation.test.ts` (SIG-605).
+  The same test file reads the **painted** cell as well as `node.style` (SIG-622):
+  the animator hands the frame the mixed style, and it is the frame's `needPaint`
+  term for `animated.paint` that gets it onto the canvas, so a computed style alone
+  cannot say the screen moved. Measured by dropping that term: the `node.style` test
+  stayed green and the painted-cell test failed. The rule has to be on the `text`
+  itself, because an animated value is presented rather than inherited.
 - **The renderer owns the live media context, so a scheme set on a cascade alone is
   lost.** `render(App, { cascade: themedCascade({ colorScheme: 'light' }) })` with no
   `RenderOptions.colorScheme` has that light context overwritten by the first
