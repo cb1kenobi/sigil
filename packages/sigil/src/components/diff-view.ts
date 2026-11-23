@@ -598,7 +598,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       drawn[at]?.lines?.[line]?.kind !== 'context' &&
       untrack(() => picking.cursor.get()) !== line
     ) {
-      anchor = undefined;
+      closeRange();
       picking.cursor.set(line);
     }
   };
@@ -622,6 +622,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     if (dragging?.began) {
       anchor = undefined;
     }
+    dragging = undefined;
+  };
+
+  /**
+   * Closes the open range for a reason of its own -- `v` again, `x`, `a`, a click, an
+   * app's write -- which ends a drag along with it: the range is what a drag's
+   * release would close, and `endDrag()` closing it afterwards would close a range
+   * the drag no longer owns.
+   */
+  const closeRange = (): void => {
+    anchor = undefined;
     dragging = undefined;
   };
 
@@ -720,6 +731,10 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       // motion with nothing held, which an app that reports hover is sent: the
       // release never came, and the drag is over
       endDrag();
+      return;
+    }
+    if (event.button !== 'left') {
+      // another button's drag is not this one's to continue
       return;
     }
     const spans = drawn[lit]?.lines ?? [];
@@ -957,17 +972,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         pickRange(at, changes);
       } else {
         // closing it keeps what it picked, and the next one starts from there
-        anchor = undefined;
+        closeRange();
       }
     } else if (name === 'x') {
-      anchor = undefined;
+      closeRange();
       const picked = new Set(untrack(() => picking.selected.get()));
       if (!picked.delete(at)) {
         picked.add(at);
       }
       picking.selected.set(picked);
     } else if (name === 'a') {
-      anchor = undefined;
+      closeRange();
       const picked = untrack(() => picking.selected.get());
       picking.selected.set(changes.every((line) => picked.has(line)) ? NONE : new Set(changes));
     } else {
@@ -1184,7 +1199,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
           at === undefined ||
           (anchor !== undefined && ranged && (ranged.cursor !== at || ranged.picks !== picked))
         ) {
-          anchor = undefined;
+          closeRange();
         }
         if (at === undefined && picking.selected.get().size > 0) {
           // the cursor is off the lines, however it got there: so are the picks

@@ -10252,13 +10252,21 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   view and the cursor's own reveal scrolls to it. That is the one place a drag
   scrolls, and it is left alone: it needs a wheel in the middle of a drag.
 
-  **Whatever takes the drag away closes the range it opened.** `endDrag()` is asked
-  when a new drawing replaces the rows, when the cursor leaves the lines (`resetLines()`
-  clears the drag with the anchor), on a press, and on motion with nothing held --
-  what an app reporting hover is sent when the release never came -- because the
-  release that would close the range finds no drag to close. Another button's press
-  is not the drag's to end, and a drag whose cursor an app wrote off the lines stops
-  following. Each is pinned by a test that fails without it.
+  **Whatever takes the drag away closes the range it opened, and whatever closes the
+  range takes the drag away.** `endDrag()` is asked when a new drawing replaces the
+  rows, when the cursor leaves the lines (`resetLines()` clears the drag with the
+  anchor), on a press, and on motion with nothing held -- what an app reporting
+  hover is sent when the release never came -- because the release that would
+  close the range finds no drag to close. The other direction is `closeRange()`,
+  which `v`, `x`, `a`, a click and an app's write all use: a drag whose release was
+  lost would otherwise still be remembered, and its `endDrag()` would close the
+  range `v` opened after it. Another button's press or motion is neither the
+  drag's to end nor to continue. What is not covered is a lost release with
+  nothing after it: no report reaches the view until the pointer is over a stop
+  row with motion reported, so the range stays open for the keys until something
+  above does happen. Each of the rest is pinned by a test that fails without it,
+  bar the `endDrag()` in the cursor-left branch of `moved()`, which is reached
+  only after something else has already closed the range.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the

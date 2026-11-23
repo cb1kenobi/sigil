@@ -1543,6 +1543,50 @@ describe('DiffView lines', () => {
       expect(sorted(selected.get())).toEqual([1, 2]);
     });
 
+    it('should not close a range v opened because a drag it lost was still remembered', () => {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      // a drag whose release never came, then v closes it and opens a range of its own
+      drag(root, '-two', ['+TWO'], false);
+      press(host, 'v');
+      press(host, 'down');
+      press(host, 'v');
+      expect(cursor.get()).toBe(4);
+      // a redraw, which ended the drag if it were still there
+      press(host, 'w');
+      picture(root, 30, 14);
+      press(host, 'down');
+
+      expect(cursor.get()).toBe(5);
+      expect(sorted(selected.get())).toEqual([1, 2, 4, 5]);
+    });
+
+    it('should not follow another button held over a drag whose release was lost', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      const target = rowWith(root, '-two');
+      target.onMouse?.(at('mousedown', rowY(root, '-two')));
+      target.onMouse?.(at('mousemove', rowY(root, '+TWO')));
+      // the right button now moves over the same rows
+      target.onMouse?.(at('mousemove', rowY(root, '+FOUR'), 'right'));
+      flush();
+
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
+    it('should close a range a lost release left open when the next press begins', () => {
+      const { host, root, selected } = mountLines();
+      press(host, 'enter');
+      drag(root, '-two', ['+TWO'], false);
+      const next = rowWith(root, '+FOUR');
+      next.onMouse?.(at('mousedown', rowY(root, '+FOUR')));
+      next.onMouse?.(at('mouseup', rowY(root, '+FOUR')));
+      flush();
+
+      press(host, 'down');
+      expect(sorted(selected.get())).toEqual([1, 2]);
+    });
+
     it('should end a drag on motion with nothing held, where the release never came', () => {
       const { cursor, root, selected } = mountLines({}, 14);
       const target = rowWith(root, '-two');
