@@ -62,6 +62,7 @@ function harness(width = 24, height = 3) {
 
   return {
     backend: backend as never,
+    canvas,
     get painted() {
       return painted;
     },
@@ -1142,6 +1143,10 @@ describe('a color transition across a change of color scheme', () => {
   // the scheme is a media query's answer and `setColorScheme()` publishes it the way
   // a resize does, so a `transition: color` has to walk from the old scheme's color
   // to the new one's rather than snapping -- nothing said so until this
+  //
+  // this one pins the *computed* style only: the box's text child is painted in the
+  // target color from the first frame (an animated value is presented, not
+  // inherited), so what reaches the screen is pinned by the painted-cell test below
   it('should walk the color between the two schemes rather than snapping', () => {
     const h = harness();
     const cascade = sheets(`
@@ -1222,7 +1227,7 @@ describe('a color transition across a change of color scheme', () => {
 
     /** The red channel of the foreground the first cell was *painted* in. */
     const painted = (): number => {
-      const canvas = (h.backend as { canvas: ReturnType<typeof createCanvas> }).canvas;
+      const { canvas } = h;
       // the harness's `present()` is a no-op, so present here: `snapshot()` is the
       // frame last presented and the only grid that can say what its indices mean
       canvas.present();
@@ -1243,17 +1248,22 @@ describe('a color transition across a change of color scheme', () => {
     vi.setSystemTime(0);
     view.frame();
     const start = painted();
+    expect(start).toBe(0);
 
     // the middle of the transition: neither scheme's color, and the canvas is not
     // allowed to still be showing the one it started on
     vi.setSystemTime(150);
     view.frame();
     const middle = painted();
+    // halfway through a linear 300ms, mixed in Oklab rather than in sRGB channels
+    // -- which is why black to white is 99 here and not 128 (measured). A range
+    // rather than the number, so a rounding change does not fail it, but narrow
+    // enough that a jump to the end color, or a stall at the start, does
     expect(
       middle,
       `mid-transition frame painted ${middle}, the start was ${start}`
-    ).toBeGreaterThan(start);
-    expect(middle).toBeLessThan(255);
+    ).toBeGreaterThan(94);
+    expect(middle).toBeLessThan(104);
 
     // and it lands on the new scheme's color on the canvas as well
     vi.setSystemTime(300);
