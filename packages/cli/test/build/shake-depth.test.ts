@@ -92,7 +92,7 @@ function probeFile(): string {
 }
 
 /**
- * What a scan of one file answers, in a process whose call stack is a fifth of
+ * What a scan of one file answers, in a process whose call stack is an eighth of
  * the usual size, so that the old recursive reader overflows at a few hundred
  * terms and the parser, which has its own native stack, is nowhere near its limit.
  *
@@ -114,7 +114,7 @@ async function shallowStack(source: string, names: string[]): Promise<boolean[]>
     ].join('\n')
   );
 
-  const ran = await run(script, dirname(script), [], {}, ['--stack-size=160']);
+  const ran = await run(script, dirname(script), [], {}, ['--stack-size=120']);
 
   expect(ran.stderr).toBe('');
   expect(ran.code).toBe(0);
@@ -166,7 +166,7 @@ describe('a chain nested deeper than the call stack', () => {
     // the regression named after the defect: the chain overflowed the reader, the
     // catch around it read the whole file closed, and `later`'s open `bg-` was
     // dropped with no word about it
-    const source = `const deep = ${flat('+', 3000)};\nconst later = 'bg-' + colour;\n`;
+    const source = `const deep = ${flat('+', 500)};\nconst later = 'bg-' + colour;\n`;
 
     expect(await shallowStack(source, ['bg-red', 'text-red', 'border-red'])).toEqual([
       true,
@@ -176,7 +176,7 @@ describe('a chain nested deeper than the call stack', () => {
   });
 
   it('should keep the rules after a left-nested `||` chain too deep to recurse', async () => {
-    const source = `const deep = (${flat('||', 3000)}) + colour;\nconst later = 'bg-' + colour;\n`;
+    const source = `const deep = (${flat('||', 500)}) + colour;\nconst later = 'bg-' + colour;\n`;
 
     expect(await shallowStack(source, ['bg-red', 'text-red', 'border-red'])).toEqual([
       true,
@@ -186,10 +186,10 @@ describe('a chain nested deeper than the call stack', () => {
   });
 
   it('should read a right-nested `?:` chain too deep to recurse', async () => {
-    const chain = Array.from({ length: 1500 }, (_, i) => `v${i} ? 'a${i}-' : `).join('');
+    const chain = Array.from({ length: 500 }, (_, i) => `v${i} ? 'a${i}-' : `).join('');
     const source = `const deep = (${chain}'text-') + colour;\nconst later = 'bg-' + colour;\n`;
 
-    expect(await shallowStack(source, ['a1499-red', 'text-red', 'bg-red', 'border-red'])).toEqual([
+    expect(await shallowStack(source, ['a499-red', 'text-red', 'bg-red', 'border-red'])).toEqual([
       true,
       true,
       true,

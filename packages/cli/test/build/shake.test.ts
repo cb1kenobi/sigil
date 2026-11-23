@@ -374,6 +374,16 @@ describe('the class evidence', () => {
     expect(chain.mayName('border-red')).toBe(false);
   });
 
+  it('should read a branch that is a literal-left || as that literal, and no wider', () => {
+    // `'text-' ?? z()` is `text-` whatever `z` is, so the branch is the closed
+    // text it is, where it used to make the whole `?:` an unknown part
+    const evidence = evidenceOf(`const c = 'bg-' + (dark ? ('text-' ?? z()) : '-red');`);
+
+    expect(evidence.mayName('bg-text-')).toBe(true);
+    expect(evidence.mayName('bg--red')).toBe(true);
+    expect(evidence.mayName('bg-red')).toBe(false);
+  });
+
   it('should leave a ?: with no literal in any branch to the safelist', () => {
     // the documented limit that is left: with nothing known in either branch
     // there is no text to read, which is what `build.safelist` is for

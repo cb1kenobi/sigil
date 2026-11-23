@@ -436,7 +436,7 @@ function readFile(path: string, into: Evidence): void {
     throw new Error(
       `Could not read ${escapeControls(path)} for the utility shake: ${escapeControls(
         error instanceof Error ? error.message : String(error)
-      )}. Set "build": { "shake": false } in sigil.json to build without it.`,
+      )}. \`--no-shake\`, or \`build.shake: false\` in sigil.json, builds without it.`,
       { cause: error }
     );
   }
@@ -452,12 +452,17 @@ function readFile(path: string, into: Evidence): void {
  * a template near 3,900; a flat `a || b || ...` or `a + b + ...` is a loop in the
  * parser and held to about 57,700 terms, a `a ? b : c ? ...` chain to about
  * 7,900. The limit is the stack's, so it moves with `ulimit -s`, and a platform
- * whose main thread has a smaller one -- Windows has 1 MB -- crashes at a
- * smaller depth that was not measured.
+ * whose main thread has a smaller one crashes at a smaller depth. Under
+ * `ulimit -s 1024` the same parser crashed at about 560 levels of the `||` chain,
+ * 710 nested objects, 950 arrays, 480 templates in templates, and **420 nested
+ * function bodies** -- the last below this ceiling. Whether Windows' main thread
+ * is 1 MB was not established.
  *
- * So this is a ceiling set far below the shallowest measured crash and far above
- * any code anybody writes -- the deepest naive count over this repository's 1,631
- * source files is 246, and that one is inflated by brackets inside strings. It is
+ * So this is a ceiling set far below the shallowest crash on the default stack
+ * and far above any code anybody writes -- the deepest naive count over this
+ * repository's 1,631 source files is 246, and that one is inflated by brackets
+ * inside strings. A lower ceiling would catch the 1 MB shapes and refuse real
+ * files, which costs more than it looks (see `readUnparsed()`). It is
  * a **count** and not a lexer, so an unbalanced bracket in a string or a comment
  * counts, and a file can be refused that would have parsed. That is the right
  * direction to be wrong in: such a file is read by `readUnparsed()`, which keeps
@@ -498,13 +503,25 @@ function nestingDepth(source: string): number {
  * Reads a file nothing parsed, keeping everything it could possibly name.
  *
  * Every token is read **open on both ends**, which matches anything that
- * contains it. That is a superset of what the file's tree would have said --
- * a literal beside an unknown is open on that side, and one beside nothing is
- * closed, which is matched by equality and by the open reading too. The
- * fallback for a file that does not parse reads its text closed instead, which
- * is not a superset: `'text-' + colour` is then the exact token `text-`, and the
- * `text-*` rules it opens are dropped. A file refused only for its depth parses
- * fine, so it is not given that.
+ * contains it. For a plain class that is a superset of what the file's tree
+ * would have said -- a literal beside an unknown is open on that side, and one
+ * beside nothing is closed, which is matched by equality and by the open
+ * reading too. The fallback for a file that does not parse reads its text closed
+ * instead, which is not a superset: `'text-' + colour` is then the exact token
+ * `text-`, and the `text-*` rules it opens are dropped. A file refused only for
+ * its depth parses fine, so it is not given that.
+ *
+ * It is **not** a superset for a variant assembled across a literal `:`. A
+ * qualified name is matched only against tokens that hold a `:` and a word, so
+ * `'md' + ':' + 'flex'` is `md:flex` to the parse and three unrelated tokens
+ * here, and the variant rule is dropped -- as it is for a file that does not
+ * parse, and for the same reason `Evidence.read()` does not count a lone `:`:
+ * it would keep every variant of every utility. That is the safelist's.
+ *
+ * What it costs is the other direction, and it is large: a refused file's every
+ * token is an infix, so one holding 513 unbalanced `(` in strings kept 377 of 383
+ * rules where it had kept none. The count that decides it is a ceiling and the
+ * rest of the tree is unaffected.
  *
  * @param source - The file's text.
  * @param into - Where the evidence goes.
