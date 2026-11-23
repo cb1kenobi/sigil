@@ -161,6 +161,10 @@ is proved.
   The scheme-aware halves cover what the framework sheet has one for -- the muted
   role, the text field and the debug pane -- and a theme gets the rest only by the
   framework growing more of them.
+  A `transition: color` animates across the change, through the frame's ordinary
+  restyle and not through `animator.touchMedia()`, which only re-decides whether
+  motion is allowed: pinned by `a color transition across a change of color scheme`
+  in `test/renderer/animation.test.ts` (SIG-605).
 - **The renderer owns the live media context, so a scheme set on a cascade alone is
   lost.** `render(App, { cascade: themedCascade({ colorScheme: 'light' }) })` with no
   `RenderOptions.colorScheme` has that light context overwritten by the first
