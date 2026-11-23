@@ -7779,16 +7779,22 @@ have.
 - **A line beats it on the plot, as it beats the rule.** The top cell of the
   pinned column is the highest value's wherever the pinned sample is the highest, so
   there the plot's marker is not drawn and the axis one is the answer. A chart with
-  `axis: false` has only the plot's, and loses it under a line there: a limit,
-  recorded rather than fixed, since moving the marker off the plot's top row would
-  make it a thing that wanders with the data.
+  `axis: false` has only the plot's, and loses it under a line there -- and under
+  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
+  within about nine columns of the rule is covered while the readout is shown. A
+  limit, recorded rather than fixed, since moving the marker off the plot's top row
+  would make it a thing that wanders with the data.
+- **The marker and Enter can disagree under `fit`.** The marker is compared by cell
+  and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
+  pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
+  rules stand on their own; the cell is the finest thing a reader can see.
 - **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
   because the rule is already the muted and the accent roles, and it is a colour
   nobody reads as "the keys go here". It is a segment of its own, not a run the
   blanks beside it join, so a theme that gives it a background paints one cell.
-  `LineLayout.pinned` carries it; the draw reads `pinned` before anything else and
-  unconditionally, since `back ?? pinned` short-circuits and a pin cleared while the
-  keyboard sample already said where the rule was would otherwise not redraw.
+  `LineLayout.pinned` carries it, and the draw reads the pin unconditionally: the
+  rule's `back ?? pinned` short-circuits, so without the marker's own read a pin
+  cleared while the keyboard sample already said where the rule was would not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 

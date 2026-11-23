@@ -2301,8 +2301,8 @@ export function LineChart(props: LineChartProps): Element {
     (size) => {
       const xLabels = read(props.xLabels);
       const hasFocus = crosshair !== undefined && focused();
-      // read first and always, so a pin set or cleared redraws a chart whose
-      // keyboard sample already says where the rule is
+      // read always, so a pin set or cleared redraws a chart whose keyboard
+      // sample already says where the rule is
       const pinnedAt = pinned?.get();
       const drawing = lineDrawing(plotSeries(list, props.role, props.fill), {
         ascii,

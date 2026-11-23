@@ -1369,6 +1369,36 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         expect(marks(m.screen())).toStrictEqual(before);
       });
 
+      it('should leave the marker off where the rule is in the pin cell, although another sample', async () => {
+        // fit puts seven samples in a cell, so a step to the next is the same cell
+        const m = await mount(() => ({
+          series: [{ data: Array.from({ length: 200 }, (_, i) => i % 7), label: 'API' }],
+        }));
+        await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.right);
+        expect(tick(m.screen())).toBe(3);
+        expect(marks(m.screen())[0]).toBe(-1);
+        await m.key(KEYS.end);
+        expect(marks(m.screen())[0]).toBe(3);
+      });
+
+      it('should keep the marker on the pinned sample when the data shrinks under it', async () => {
+        const data = new State(Array.from({ length: 100 }, (_, i) => i));
+        const m = await mount(() => ({ series: [{ data, label: 'API' }], step: 1 }));
+        await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+        // more than fit, so the oldest drawn is not the first sample, and the pin is
+        // still the oldest drawn when it was set at Home. (The clamp to the oldest is
+        // the rule's own and is reached only by a plot that narrows, which this cannot do.)
+        data.set(Array.from({ length: 60 }, (_, i) => i));
+        await m.key();
+        // the oldest drawn is where Home puts the rule, and a marker is where it is not
+        await m.blur();
+        await m.key(KEYS.tab, KEYS.home);
+        const oldest = tick(m.screen());
+        expect(oldest).toBeGreaterThan(-1);
+        await m.key(KEYS.end);
+        expect(marks(m.screen())[0]).toBe(oldest);
+      });
+
       it('should mark a pin on a chart with no axis, in the plot alone', async () => {
         const m = await mount(() => ({ axis: false, props: { height: 6, width: 30 } }));
         await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.home);

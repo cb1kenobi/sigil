@@ -5470,8 +5470,9 @@ picture.
 
   A pinned sample keeps its rule and readout on the chart while the focus is
   elsewhere and the pointer is not over it, in the muted role; a refocus starts
-  from it and the pointer still takes the rule while it moves. One pin per chart,
-  and Enter at another sample moves it. `vim` without a `crosshair` throws, and
+  from it and the pointer still takes the rule while it moves. While the rule is on
+  another sample the pin is marked with a `▼` on the plot and a `▲` on the axis
+  (`v` and `^` in ASCII). One pin per chart, and Enter at another sample moves it. `vim` without a `crosshair` throws, and
   `describeLineChart()` lists Home and End as `oldest` and `newest` and Enter as
   `pin`, and `h` and `l` after the arrows where the chart takes them.
 
