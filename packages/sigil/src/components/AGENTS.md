@@ -10305,13 +10305,19 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   edge replaces it with one the other way. **It stops where the hunk's
   own first or last line is in view**, since the range cannot go further and the
   rest of the diff is no business of a drag; the next move re-arms it. One row a
-  tick and no faster for a pointer further out is deliberate: twenty rows a second
+  tick and no faster for a pointer further out is deliberate (with `wrap` on, a line is
+  several rows, and the cursor's reveal brings the whole of the line the pointer is
+  over into view, so the view moves a line a tick rather than a row): twenty rows a second
   crosses a screenful in about a second, which is slow enough to stop on a line, and
   acceleration is a second rule to tune. The timer is cleared by `stopScroll()`,
   which is called from every place a drag stops being one -- the release, `endDrag()`,
   `closeRange()`, `resetLines()` -- and from `onCleanup()` when the view is disposed,
-  so no timer outlives a drag, a lost release or the view; a tick that finds the
-  drag gone, or the cursor off the lines, ends it as well. A wheel turn mid-drag takes the
+  so no timer outlives a drag, a lost release or the view. Three of those are
+  defensive rather than pinned: the call in `resetLines()` (every caller also writes
+  the cursor off the lines, and the cursor effect's `closeRange()` stops the repeat
+  first), and the two guards at the top of `scrollOnDrag()` and `scrollTick()` for a
+  drag that is gone or a view with no layout. They keep the one invariant that
+  `scrolling` never outlives `dragging`, and removing one fails no test. A wheel turn mid-drag takes the
   pressed row out of the tree, which keeps its parent and its handler (measured), so
   the moves still reach it and are read against the scroll as it now is -- and a
   context line under the pointer then resolves toward an anchor that may be off

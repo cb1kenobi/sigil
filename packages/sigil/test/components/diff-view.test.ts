@@ -1857,7 +1857,7 @@ describe('DiffView lines', () => {
         flush();
         tick(1);
 
-        // the first tick found nothing to follow and ended the drag
+        // the cursor effect closed the range, which took the repeat with it
         expect(vi.getTimerCount()).toBe(0);
         tick(5);
         expect(top(root)).toBeLessThanOrEqual(start + 1);
