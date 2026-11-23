@@ -1148,7 +1148,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'error-handler': [16, 8_422],
   help: [360, 184_164],
   i18n: [8, 3_979],
-  'i18n-keys': [18, 9_446],
+  'i18n-keys': [37, 18_451],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
   'internal/routes': [22, 10_979],

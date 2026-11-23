@@ -15,11 +15,12 @@ import { afterEach, describe, expect, it } from 'vitest';
  * The question was whether the session is left stuck, since SIG-463's entry says
  * Escape still closes it. It is not, and these are the proof over a real router and
  * a real renderer. What looked like a stuck session was the harness: a throw out of
- * a `data` listener of the test terminal's stdin, which is a `PassThrough`, wedges
- * that stream, so no later key reaches the router at all -- Down, Escape and every
- * other key included. That is the router without an `onError`, which is the caller's
- * to give one, and a real stdin has no such stream state to wedge: there the same
- * throw is an uncaught exception, which `runApp()` turns into a failed app (SIG-524).
+ * a `data` listener of the test terminal's stdin, which is a `PassThrough`, used to
+ * wedge that stream, so no later key reached the router at all -- Down, Escape and
+ * every other key included. SIG-619 made the test terminal catch that throw and hand
+ * it back from the `press()` that caused it, so later keys arrive. A real stdin has
+ * no such stream state to wedge: there the same throw is an uncaught exception, which
+ * `runApp()` turns into a failed app (SIG-524).
  */
 
 const routers: InputRouter[] = [];
@@ -213,10 +214,10 @@ describe.each(KINDS)('a submenu with %s that throws', (_name, build) => {
 });
 
 describe('the harness that made a throwing submenu look stuck', () => {
-  it('should deliver no later key once a throw has come out of the test terminal stdin', async () => {
-    // no `onError`: the throw escapes the router's `data` listener, through the
-    // `PassThrough` that is the test terminal's stdin, and that stream does not
-    // recover. The menu is untouched -- it never saw the keys that follow
+  it('should deliver a later key once a throw has come out of the test terminal stdin', async () => {
+    // no `onError`: the throw escapes the router's `data` listener. It used to wedge
+    // the `PassThrough` that is the test terminal's stdin, so `b` never arrived; since
+    // SIG-619 the throw rejects the `press()` that caused it and the stream carries on
     const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
     const field = text('Field', { focusable: true, id: 'field' });
     const root = box({ height: HEIGHT, position: 'relative', width: WIDTH }, field);
@@ -238,7 +239,7 @@ describe('the harness that made a throwing submenu look stuck', () => {
     await term.press('a');
     await expect(term.press('x')).rejects.toThrow(/handler threw/);
     await term.press('b');
-    expect(seen).toEqual(['a', 'x']);
+    expect(seen).toEqual(['a', 'x', 'b']);
   });
 });
 
