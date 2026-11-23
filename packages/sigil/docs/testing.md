@@ -570,7 +570,10 @@ those reach `onTimerError()` too when they are built over the same terminal --
 `terminal: ui.terminal`. They are the toast's `onClose` when its timeout ends, the
 clock's `now`, and the decrypt's `now`, `random` and `onDone`. A component built
 with no terminal is over the process's, which has no hook, and its throw is
-uncaught as it is in an app.
+uncaught as it is in an app. That includes a toast raised as
+`showToast(app.view, { message, onClose })`, which takes no terminal unless you
+pass one: give it `terminal: ui.terminal` in the test. A throw that is heard stops
+that timer, so do not `await` the clock's or the decrypt's `done` afterwards.
 
 `onTimerError()` returns a function that takes the handler off again. A router
 built with its own `onError` gets the throw there instead, and the hook hears
