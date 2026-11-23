@@ -232,7 +232,11 @@ the entry it belongs to.
   effect is reported on each later throw rather than hiding. And an `async` body is
   refused only _after_ its first run, so under an owner it is now kept and run
   again on each change, refused each time; before, the refusal ended it after one.
-  Both are a programmer error already reported by the throw.
+  Both are a programmer error already reported by the throw. An owner disposed
+  during a throwing first run counts as gone, so the effect is disposed with it
+  rather than kept; a first run that does not throw and disposes its owner is
+  registered on a dead owner and stays live, which it did before this and still
+  does -- the caller holds the disposer.
 
   It does not touch the run guard. Keeping the effect adds no run: the first run
   has already happened, the effect holds the same edges a throwing later run

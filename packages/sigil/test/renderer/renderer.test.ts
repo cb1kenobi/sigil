@@ -1269,18 +1269,23 @@ describe('an owned effect whose first run throws (SIG-611)', () => {
 
   it('should run the effect cleanup after what its first run registered on the owner', () => {
     // the owner's entry is made after the first run, as it was before this
-    // changed, so the teardown order of a non-throwing effect is untouched
+    // changed, so the teardown order of a non-throwing effect is untouched. What
+    // the first run puts on the *owner* has to be reached through
+    // `runWithOwner()`: an `onCleanup()` in the body joins the run's own list
     const order: string[] = [];
+    let owner: ReturnType<typeof getOwner>;
     const stop = createRoot((dispose) => {
+      owner = getOwner();
       onCleanup(() => order.push('before'));
       createEffect(() => {
         onCleanup(() => order.push('effect'));
+        runWithOwner(owner, () => onCleanup(() => order.push('registered by the run')));
       });
       onCleanup(() => order.push('after'));
       return dispose;
     }, effects.effect);
     stop();
-    expect(order).toEqual(['after', 'effect', 'before']);
+    expect(order).toEqual(['after', 'effect', 'registered by the run', 'before']);
   });
 
   it('should not keep an effect whose owner was disposed during its throwing first run', () => {
