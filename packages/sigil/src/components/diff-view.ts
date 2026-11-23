@@ -86,8 +86,10 @@ export interface DiffViewProps<T = unknown> {
    * which is then marked in a second column beside the hunk's own: `▶` on the
    * line, `●` on a line picked, `◉` on both, and `>`, `*` and `@` in ASCII. Up and
    * down step the cursor over the added and removed lines and scroll to keep it in
-   * view, `x` picks the line, `a` all of the hunk's, and Enter or Escape leaves
-   * the lines and drops the picks. `]` and `[` leave them too, as any move to
+   * view, `x` picks the line, `a` all of the hunk's, `v` begins a range -- up and
+   * down then pick every added or removed line from where it began to the cursor,
+   * as well as what was picked before -- and `v` again ends it, keeping the picks.
+   * Enter or Escape leaves the lines and drops the picks. `]` and `[` leave them too, as any move to
    * another hunk does. A click on a line of the current hunk moves the cursor to
    * it while it is on the lines.
    *
@@ -585,6 +587,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
       drawn[at]?.lines?.[line]?.kind !== 'context' &&
       untrack(() => picking.cursor.get()) !== line
     ) {
+      anchor = undefined;
       picking.cursor.set(line);
     }
   };
@@ -610,6 +613,38 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   };
 
   /**
+   * Where `v` began a range of lines, and what was picked before it: the picks
+   * while the range is open are `base` and the changed lines from `anchor` to the
+   * cursor. `undefined` while no range is open.
+   */
+  let anchor: number | undefined;
+  let base: ReadonlySet<number> = NONE;
+  /**
+   * What the open range last wrote -- the cursor it is at and the picks it made --
+   * so a write from anywhere else ends it: an app that moved the cursor or changed
+   * the picks has left the range's own arithmetic behind.
+   */
+  let ranged: { cursor: number; picks: ReadonlySet<number> } | undefined;
+
+  /**
+   * Picks the changed lines from the anchor to the cursor, over what was picked
+   * before the range began.
+   *
+   * @param to - The cursor's line.
+   * @param changes - The positions of the hunk's added and removed lines.
+   */
+  const pickRange = (to: number, changes: readonly number[]): void => {
+    if (!picking || anchor === undefined) {
+      return;
+    }
+    const low = Math.min(anchor, to);
+    const high = Math.max(anchor, to);
+    const picks = new Set([...base, ...changes.filter((line) => line >= low && line <= high)]);
+    ranged = { cursor: to, picks };
+    picking.selected.set(picks);
+  };
+
+  /**
    * Empties the line cursor and the picks, which belong to the hunk they were made
    * in: another hunk, new content or the cursor leaving the lines is a new subject.
    */
@@ -617,6 +652,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     if (!picking) {
       return;
     }
+    anchor = undefined;
+    ranged = undefined;
     untrack(() => {
       if (picking.cursor.get() !== undefined) {
         picking.cursor.set(undefined);
@@ -710,8 +747,8 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   };
 
   /**
-   * The keys of the line cursor: Enter to start, then up and down, `x`, `a`, and
-   * Enter or Escape to leave.
+   * The keys of the line cursor: Enter to start, then up and down, `x`, `a`, `v`
+   * for a range, and Enter or Escape to leave.
    *
    * @param event - The key.
    * @returns Whether it was the cursor's, and is stopped.
@@ -739,14 +776,27 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         name === 'down' ? changes.find((line) => line > at) : changes.findLast((line) => line < at);
       if (next !== undefined) {
         picking.cursor.set(next);
+        pickRange(next, changes);
+      }
+    } else if (name === 'v') {
+      if (anchor === undefined) {
+        // the range is the one line to begin with, over what was picked already
+        anchor = at;
+        base = untrack(() => picking.selected.get());
+        pickRange(at, changes);
+      } else {
+        // closing it keeps what it picked, and the next one starts from there
+        anchor = undefined;
       }
     } else if (name === 'x') {
+      anchor = undefined;
       const picked = new Set(untrack(() => picking.selected.get()));
       if (!picked.delete(at)) {
         picked.add(at);
       }
       picking.selected.set(picked);
     } else if (name === 'a') {
+      anchor = undefined;
       const picked = untrack(() => picking.selected.get());
       picking.selected.set(changes.every((line) => picked.has(line)) ? NONE : new Set(changes));
     } else {
@@ -957,6 +1007,13 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
         if (picking.cursor.get() !== at) {
           // brought to a line it can be on, which runs this again
           return;
+        }
+        const picked = picking.selected.get();
+        if (
+          at === undefined ||
+          (anchor !== undefined && ranged && (ranged.cursor !== at || ranged.picks !== picked))
+        ) {
+          anchor = undefined;
         }
         if (at === undefined && picking.selected.get().size > 0) {
           // the cursor is off the lines, however it got there: so are the picks

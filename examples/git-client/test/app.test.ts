@@ -361,6 +361,67 @@ for (const [syntax, App] of [
     );
 
     it(
+      'should stage a range of lines picked with v, across an unchanged line',
+      async () => {
+        const repo = repository();
+        // line 2 and line 4 changed, with line 3 between them: one hunk, `-2` `+two`
+        // `3` `-4` `+four`
+        repo.write(
+          'a.txt',
+          NUMBERS.map((n) => (n === '2' ? 'two' : n === '4' ? 'four' : n))
+        );
+        const client = await mount(App, repo);
+
+        // v at `-2`, then down twice to `-4`: the range takes `-2`, `+two` and
+        // `-4` and steps over the context line between, and Space stages those three
+        await client.press('4', KEYS.enter, 'v', KEYS.down, KEYS.down, ' ');
+        expect(client.screen()).toMatch(/Staged 3 lines of a\.txt/);
+        expect(repo.git('show', ':a.txt').split('\n').slice(0, 5)).toEqual([
+          '1',
+          'two',
+          '3',
+          '5',
+          '6',
+        ]);
+        expect(repo.git('diff')).toMatch(/\+four/);
+        expect(repo.git('diff')).not.toMatch(/\+two/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
+      'should list the line keys in the footer while the cursor is on the lines, in place of the hunk keys',
+      async () => {
+        const repo = repository();
+        repo.write('a.txt', FOUR_AND_THREE);
+        const client = await mount(App, repo);
+        const footer = (): string => client.screen().split('\n').slice(-3).join('\n');
+
+        await client.press('4');
+        expect(footer()).toMatch(/space stage hunk/);
+        expect(footer()).toMatch(/enter lines/);
+        expect(footer()).toMatch(/next hunk/);
+
+        await client.press(KEYS.enter);
+        expect(footer()).toMatch(/space stage lines/);
+        expect(footer()).toMatch(/v range/);
+        expect(footer()).toMatch(/x pick/);
+        expect(footer()).not.toMatch(/next hunk/);
+
+        await client.press(KEYS.enter);
+        expect(footer()).toMatch(/space stage hunk/);
+        expect(footer()).not.toMatch(/v range/);
+
+        await client.press('q');
+        expect(await client.app.exited).toBe(0);
+      },
+      LONG
+    );
+
+    it(
       'should unstage only the lines picked in a staged hunk',
       async () => {
         const repo = repository();

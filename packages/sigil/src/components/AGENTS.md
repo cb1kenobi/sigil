@@ -10230,8 +10230,24 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   lines only, clamped and claimed at an end; `x` picks and `a` picks all or none.
   A context line is never the cursor's, since it has nothing to pick, which is a
   narrower cursor than lazygit's and one that cannot rest on a line that does
-  nothing. Not done: a range (`v`, or shift and the arrows), which `a` and `x`
-  stand in for.
+  nothing.
+
+  **A range is `v`, and only `v` (SIG-606).** `v` anchors at the cursor and picks
+  that line, then up and down pick the added and removed lines from the anchor to
+  the cursor, over what was picked before the anchor -- so a range is picks, in
+  the same `selected` set `hunkLinesPatch()` takes, and staging one is staging
+  picks: there is no second patch writer, and a range over a context line picks
+  the changed lines either side of it and not the context line. Moving back
+  shrinks it, since the picks are recomputed from the anchor and the picks that
+  were there; `v` again closes it and keeps what it picked; `x`, `a`, a click on a
+  line and leaving the lines end it too, as does the app writing the cursor or
+  the picks out from under it (the view remembers what the range last wrote and
+  compares). The anchor is the view's own variable
+  rather than a third `State`, because nothing outside has a use for it: the
+  marks already show every line it picked. Shift and the arrows is not a second
+  spelling: a terminal reports no key release, so there is nothing to say when a
+  shift range ends, and `v` is lazygit's too. The line keys reject a modified key
+  as they did, so Shift and an arrow reaches the scroll box.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
@@ -10250,16 +10266,17 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   second column is a second cell on every row, so the room is one less; it exists
   only with `lines`, and a view without it is drawn as it was.
 
-  **The footer is not told about the line keys.** `describeDiffView()` lists `]`,
-  `[`, `w` and the arrows, and one more entry pushed the git client's `space stage
-  hunk` under its own toast in a 110-column terminal -- measured, by the test that
+  **`describeDiffView()` is not told about the line keys.** It lists `]`, `[`, `w`
+  and the arrows, and one more entry pushed the git client's `space stage hunk`
+  under its own toast in a 110-column terminal -- measured, by the test that
   asserts it. The marks say what the cursor is, and an app that wants a hint
-  writes one beside its own keys.
+  writes one beside its own keys; the git client swaps them for the line keys
+  while the cursor is on the lines (SIG-606, in `examples/AGENTS.md`).
 
 What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
-designed by guessing; staging a range of lines with one gesture; and folding a hunk away.
+designed by guessing; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 

@@ -673,10 +673,29 @@ commit message in a text area. What it settled:
   hands `m.diff.lines` -- the cursor and the picks, two `State`s -- to the view
   and reads them back on Space. It is an `Error` the writer throws that a toast
   says, rather than a patch of something else. An untracked file is staged whole,
-  since there is no index entry to apply a patch of lines to. The footer does not
-  list the line keys: the diff pane's row is already as wide as a 110-column
-  terminal leaves it, and one more entry pushed `space stage hunk` under the
-  toast.
+  since there is no index entry to apply a patch of lines to.
+
+  **A range is `v` in the view, and it feeds the same picks (SIG-606).** `v`
+  anchors and up and down pick every changed line to the cursor, so
+  `toggleLines()` stays what it was: it reads `lines.selected` and hands the set
+  to `hunkLinesPatch()`. The client owns none of it; a range across an unchanged
+  line is in `should stage a range of lines picked with v, across an unchanged
+  line`, run against a real git.
+
+  **The footer's diff entries follow where the cursor is, rather than adding to a
+  row that is full.** The pane's row was already as wide as a 110-column terminal
+  leaves it, and one more entry pushed `space stage hunk` under the toast. So the
+  hunk's keys and the line keys are never listed together: while the cursor is on
+  the hunk the footer says `] [ w`, `space stage hunk`, `enter lines` and
+  `esc back`, and while it is on the lines it says `space stage lines`, `v range`,
+  `x pick`, `a all`, `up/down line` and `esc done` in their place, since `]`,
+  `[`, `w` and scrolling do not apply to a cursor on a line (`]` leaves the
+  lines). It is one `createEffect()` over `lines.cursor !== undefined` that
+  describes the one set and puts the other away, scoped to the diff panel as
+  every other pane key is. Measured at 110 columns: both rows reach `q quit`;
+  the pane switch is cut from both, and the hunk row also loses `r refresh` to
+  the `enter lines` hint, which is the price of teaching the way in. And `should list the line keys in the footer while the cursor is on the lines,
+  in place of the hunk keys` holds it.
 
 - **The diff pane is a `DiffView` over blocks the model builds, and the model asks
   `diffStops()` what is under the cursor.** `blocksOf()` turns what the pane shows

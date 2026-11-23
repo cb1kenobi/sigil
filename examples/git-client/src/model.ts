@@ -934,10 +934,37 @@ export function createModel(): Model {
     say('branches', 'space', 'checkout');
     say('branches', 'n', 'new');
     say('branches', 'D', 'delete');
-    say('diff', 'space', 'stage hunk');
-    say('diff', 'escape', 'back', 1);
     off.push(describeListView(input, lists.files, lists.branches, lists.commits));
-    off.push(describeDiffView(input, given.diff));
+
+    // the diff pane lists the hunk's keys, and the line keys in their place while
+    // the cursor is on the lines: the row is as full as a 110-column terminal leaves
+    // it, and `]`, `w` and the scrolling do not apply to a cursor on a line
+    const onLines = new Computed(() => lines.cursor.get() !== undefined);
+    createEffect(() => {
+      const mine: (() => void)[] = [];
+      const own = (spec: string, description: string, priority: number): void => {
+        mine.push(input.describe(spec, { description, priority, scope: panels.diff }));
+      };
+      if (onLines.get()) {
+        own('space', 'stage lines', 4);
+        own('v', 'range', 3);
+        own('x', 'pick', 3);
+        own('a', 'all', 2);
+        own('up', 'line', 1);
+        own('down', 'line', 1);
+        own('escape', 'done', 1);
+      } else {
+        own('space', 'stage hunk', 3);
+        own('enter', 'lines', 2);
+        own('escape', 'back', 1);
+        mine.push(describeDiffView(input, given.diff));
+      }
+      onCleanup(() => {
+        for (const fn of mine) {
+          fn();
+        }
+      });
+    });
 
     // the app's own keys are fallbacks: they come after the focused element, so
     // a letter typed into a dialog's field is a letter, and they run with nothing

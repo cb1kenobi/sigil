@@ -39,6 +39,7 @@ of the diff current, so Space then stages that hunk; the wheel scrolls.
 | Space            | the diff  | Stage the hunk, or unstage it under `Staged`                 |
 | Enter            | the diff  | Take the cursor inside the hunk, onto its first changed line |
 | ↑ ↓, `x`, `a`    | the lines | Step over the changed lines; pick one; pick all or none      |
+| `v`              | the lines | Begin a range: ↑ ↓ then pick every changed line it covers    |
 | Space            | the lines | Stage the lines picked, or the one under the cursor          |
 | Enter, Escape    | the lines | Back to the hunk as a whole                                  |
 | `w`              | the diff  | Wrap long lines, or keep each on one row                     |
@@ -114,7 +115,8 @@ it lost.
 Enter in the diff pane takes the cursor inside the current hunk, and a second
 column of marks shows it: `▶` on the line, `●` on a line picked, `◉` on both. Up
 and down step over the changed lines, `x` picks one and `a` picks the hunk's all,
-and Space stages what is picked -- or the one line under the cursor where nothing
+`v` begins a range -- up and down then pick every changed line from where it began to
+the cursor, and `v` ends it -- and Space stages what is picked -- or the one line under the cursor where nothing
 is -- through `hunkLinesPatch()`, which writes the lines kept as a patch whose
 counts are its own: a line not picked is left as the index has it, so an unpicked
 addition is not in the patch and an unpicked removal is context. Under `Staged`
