@@ -453,14 +453,21 @@ was tested, and the sabotage pass, are in
   often as typed at, and `runApp()` leaves it off unless asked. The contract
   line above now says an entry may pass options.
 
-- **What is worked around, each with a ticket.** The login dialog's Sign in and
-  Cancel are in its body with `actions: []`, because an action cannot be disabled
-  and a dialog with actions opens on a button rather than on the first field
-  (SIG-337). The dialog used to borrow an owner as well -- it is opened from
-  `onPress`, which has none, so its body was built under a branch of the Account
-  section's owner and disposed when `result` settled, because the effect following
-  the focus otherwise ran for the rest of the app, which was measured. It is
-  `body: () => Element` now (SIG-335), and the form is built inside that function.
+- **The login dialog's buttons are `actions`.** Sign in carries `disabled` over the
+  form's validity and an `onPress` that runs the sign-in, since the answer may be
+  no and the dialog stays open for it; Cancel is an action with no value. It opens
+  with `initial: 'body'`, on the user name (SIG-337). They were in the body with
+  `actions: []` until then, because an action could not be disabled and a dialog
+  with actions opened on a button. The form's state is made before `openModal()` --
+  it is signals, and Sign in has to read it while the body is yet to be built --
+  and the fields and `touchOnLeave()`, which has an effect, are in the `body`
+  function (SIG-335), which the dialog's owner disposes with the buttons' own
+  effects. Sign in is not marked `default`: the password field's `onSubmit` takes
+  Enter first, and is what shows every error on an invalid one. The dialog used to
+  borrow an owner as well -- it is opened from `onPress`, which has none, so its
+  body was built under a branch of the Account section's owner and disposed when
+  `result` settled, because the effect following the focus otherwise ran for the
+  rest of the app, which was measured.
 
 - **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
   in and the Account section's two buttons each take one --
@@ -666,8 +673,8 @@ commit message in a text area. What it settled:
   (SIG-335), which replaced the client's own `owned()` helper
   (`runWithOwner(owner, createBranch)`, disposed when `result` settled). The
   commit dialog's key listing is an `onCleanup()` inside that function for the same
-  reason. SIG-337 is the ticket for opening on the field rather than on a button,
-  which the client does by focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
+  reason. The dialogs open on their field with `initial: 'body'` (SIG-337), which
+  replaced focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
   commit is Ctrl-S, an `onKey` on a box around the area, which the dialog's key
   walk reaches because the area leaves the chord alone. Escape keeps the draft.
 
@@ -961,7 +968,7 @@ in half blocks from the start.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
   log browser's workaround for SIG-384. The rename dialog's field is a `body`
-  function and is focused once the dialog is open (SIG-337), the git client's way.
+  function and the dialog opens on it with `initial: 'body'` (SIG-337).
 
 - **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
   client's rule since SIG-372, and with nothing in the model: the column a key
