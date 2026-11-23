@@ -271,9 +271,15 @@ that knowledge was undiscoverable from outside this repository.
   `write()` hands it back once the write has finished. So nothing is swallowed and
   nothing moves: `press()` rejects with the handler's own error and a direct
   `stdin.write()` throws it, from the same call as before, and the next key is
-  delivered. Only a `data` emitted _inside_ a `write()` is caught; one emitted
-  outside -- a stream resumed with chunks queued -- is not, since there is no call
-  to hand the error back through, and it throws as it did. A router **with** an
+  delivered. Only a `data` emitted _inside_ a `write()` is caught. A throw from
+  anywhere else -- a lone Escape, which the router holds for `ESCAPE_TIMEOUT` and
+  dispatches from a timer, a sequence's deadline, or a stream resumed with chunks
+  queued -- has no call to hand the error back through and is an uncaught
+  exception as it always was; the stream is still whole afterwards, and `press()`
+  does not reject for it. What the router drops after a throw is the router's own
+  rule and is unchanged: the rest of that read (`press('ab')` with a handler that
+  throws on `a` never dispatches `b`), and a second `data` listener added after
+  the router never sees the chunk. A router **with** an
   `onError` never reaches any of this: the throw is the router's, handed on, and
   nothing escapes.
 

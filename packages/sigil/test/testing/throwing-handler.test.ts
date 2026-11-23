@@ -1,5 +1,5 @@
 import { box } from '../../src/element/index.js';
-import { createInput } from '../../src/input/index.js';
+import { createInput, ESCAPE_TIMEOUT } from '../../src/input/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
 import { describe, expect, it } from 'vitest';
 
@@ -27,6 +27,26 @@ describe('a handler that throws over a test terminal', () => {
     await ui.press('y', KEYS.up);
 
     expect(seen).toEqual(['x', 'y', KEYS.up]);
+    input.stop();
+  });
+
+  it('should deliver a lone Escape after a throw, which is the key that read as a stuck app', async () => {
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const seen: string[] = [];
+    input.bind((event) => {
+      seen.push(event.key.sequence);
+      if (event.key.sequence === 'x') {
+        throw new Error('boom');
+      }
+    });
+
+    await expect(ui.press('x')).rejects.toThrow('boom');
+    await ui.press(KEYS.escape);
+    // a lone Escape is held for the timeout in case an Alt chord follows
+    await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 50));
+
+    expect(seen).toEqual(['x', KEYS.escape]);
     input.stop();
   });
 
