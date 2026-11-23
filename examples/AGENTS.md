@@ -1115,9 +1115,9 @@ dark -- built from sigil's own components, with its own data, names and colours.
   `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
   follows the theme rather than the terminal; the effect is made inside `onMount()`
   because `app.view` is not there while the body runs, and it re-runs on every theme
-  change there. (It used to wait on a `mounted` State in the body, on the belief that an
-  effect made in `onMount()` ran once and stopped. It did re-run: `App.view` threw on
-  the first frame, which SIG-603 fixed.)
+  change there. (It used to wait on a `mounted` State in the body, because an effect made in
+  `onMount()` ran once and stopped. That was not `onMount()`: `App.view` threw on the
+  first frame and the throw killed the effect, which SIG-603 fixed.)
   What it does not reach is a component that reads the scheme from its own options,
   `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
