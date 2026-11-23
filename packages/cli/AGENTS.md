@@ -3102,13 +3102,16 @@ other is refused with numbers.
   `--no-shake`, which keeps every rule anyway. Only `sigil build` says it;
   `sigil package` reads the same files the same way and is silent.
 
-  **The 1 MB-stack gap is still open, and its Windows depth is unmeasured.**
-  The measured depth is the macOS one above -- 420 nested function bodies under
-  `ulimit -s 1024`, below the ceiling -- and nothing was run on Windows, whose
-  main thread has a 1 MB stack by default. A test that deliberately crashes the
-  parser would be the only way to measure it, and the parser's own segfault
-  (SIG-639) is why none is written here: the guard's threshold is the one
-  fixture the tests use, a file just past it, and it never reaches the parser.
+  **The 1 MB-stack gap is still open, and nothing here measured it on
+  Windows.** The one measured depth is the macOS one below -- 420 nested
+  function bodies under `ulimit -s 1024`, which is under the ceiling -- and
+  whether Windows' main thread is 1 MB, and where the parser crashes on it, was
+  not established. Measuring it means feeding the parser a file deep enough to
+  crash it, in a spawned child on a Windows runner, which is SIG-639's
+  territory, and none of the tests written for the note above does it: they put
+  their brackets in strings so that the parser is never given anything deep. A
+  file in the gap still ends the build with exit 139, as the paragraph below
+  says; the note above only covers the files the guard does refuse.
 
   What it does **not** cover is depth with no brackets in it -- a flat `+` chain
   past ~57,000 terms, a bare `?:` chain past ~7,900, an `if ... else if` chain

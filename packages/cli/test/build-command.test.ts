@@ -535,8 +535,9 @@ describe('sigil build', () => {
 
       const notes = err.match(/src\/deep(er)?\.ts was read without parsing/g) ?? [];
       expect(notes).toHaveLength(2);
-      expect(err).toContain('src/deep.ts was read without parsing');
-      expect(err).toContain('src/deeper.ts was read without parsing');
+      // a note wraps, so a path and the words after it may be split by any whitespace
+      expect(err).toMatch(/src\/deep\.ts\s+was\s+read\s+without\s+parsing/);
+      expect(err).toMatch(/src\/deeper\.ts\s+was\s+read\s+without\s+parsing/);
       // measured rather than asserted by hand: the one-letter name `a` is
       // an infix of a quarter of the sheet, and a note wraps, so the words are
       // separated by any whitespace
@@ -578,6 +579,34 @@ describe('sigil build', () => {
       },
       60_000
     );
+
+    it('should say what a file keeps on its own, whatever else the app names', async () => {
+      // `bg-` beside an unknown opens every `bg-*` rule, and the deep file holds
+      // no such token: if its count were the whole evidence so far rather than
+      // its own, this would read as keeping them and the two builds would differ
+      const lone = linkedFixture(join(fixtures, 'opaque'), 'sigil-build-deep-lone-');
+      writeFileSync(join(lone, 'src', 'deep.ts'), deep);
+      const beside = linkedFixture(join(fixtures, 'opaque'), 'sigil-build-deep-beside-');
+      writeFileSync(join(beside, 'src', 'deep.ts'), deep);
+      writeFileSync(join(beside, 'src', 'aaa.ts'), `export const c = 'bg-' + colour;\n`);
+
+      const keeps = async (app: string): Promise<string | undefined> =>
+        /keeps\s+(\d+)\s+of/.exec((await sigil('build', app, '--out', out)).err)?.[1];
+
+      const alone = await keeps(lone);
+      expect(alone).toBeDefined();
+      expect(await keeps(beside)).toBe(alone);
+    }, 60_000);
+
+    it('should escape a bidi control in what a file is called, on every platform', async () => {
+      const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-bidi-');
+      writeFileSync(join(app, 'src', 'a\u202Eb.ts'), deep);
+
+      const { err } = await sigil('build', app, '--out', out);
+
+      expect(err).toContain('a\\u{202E}b.ts');
+      expect(err).not.toContain('\u202E');
+    }, 60_000);
 
     it('should say nothing under --quiet', async () => {
       const app = linkedFixture(join(fixtures, 'styled'), 'sigil-build-deep-quiet-');
