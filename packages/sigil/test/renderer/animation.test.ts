@@ -1195,4 +1195,70 @@ describe('a color transition across a change of color scheme', () => {
     expect(view.animating).toBe(false);
     view.dispose();
   });
+
+  // `node.style` is what the cascade computed; the screen is what `paint()` drew. A
+  // frame that computed the mixed color and never marked the element for paint
+  // would leave the old color on the canvas until the transition ended, and the
+  // test above would read the right style the whole way
+  it('should paint the mixed color on the canvas mid-transition, not only compute it', () => {
+    const h = harness();
+    // the rule is on the `text` itself: an animated value is presented rather than
+    // inherited (see "Transitions and keyframe animations" in `src/style`), so a
+    // `box` that transitions does not drag the text it holds along with it
+    const cascade = sheets(`
+      text { color: #000000; transition: color 300ms linear }
+      @media (prefers-color-scheme: light) { text { color: #ffffff } }
+    `);
+
+    const view = render(() => text('x'), {
+      backend: h.backend,
+      cascade,
+      colorLevel: 3,
+      colorScheme: 'dark',
+      effects,
+      reducedMotion: 'no-preference',
+      terminal: h.terminal,
+    });
+
+    /** The red channel of the foreground the first cell was *painted* in. */
+    const painted = (): number => {
+      const canvas = (h.backend as { canvas: ReturnType<typeof createCanvas> }).canvas;
+      // the harness's `present()` is a no-op, so present here: `snapshot()` is the
+      // frame last presented and the only grid that can say what its indices mean
+      canvas.present();
+      const shot = canvas.snapshot();
+      expect(shot.charAt(0, 0), 'the glyph is not on the canvas').toBe('x');
+      const fg = shot.cellStyle(0, 0)?.fg;
+      expect(fg, 'the cell has no style').toBeDefined();
+      const channels = rgbChannels(fg!);
+      expect(channels, 'the painted color is not a 24-bit one').toBeDefined();
+      return channels![0];
+    };
+
+    vi.setSystemTime(0);
+    view.frame();
+    expect(painted()).toBe(0);
+
+    view.setColorScheme('light');
+    vi.setSystemTime(0);
+    view.frame();
+    const start = painted();
+
+    // the middle of the transition: neither scheme's color, and the canvas is not
+    // allowed to still be showing the one it started on
+    vi.setSystemTime(150);
+    view.frame();
+    const middle = painted();
+    expect(
+      middle,
+      `mid-transition frame painted ${middle}, the start was ${start}`
+    ).toBeGreaterThan(start);
+    expect(middle).toBeLessThan(255);
+
+    // and it lands on the new scheme's color on the canvas as well
+    vi.setSystemTime(300);
+    view.frame();
+    expect(painted()).toBe(255);
+    view.dispose();
+  });
 });
