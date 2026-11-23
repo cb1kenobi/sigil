@@ -599,6 +599,8 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
    * early, so this is the conservative reading and not a fix for an observed fault.
    */
   let building: Renderer | undefined;
+  /** Set when the build threw: there is no renderer and there never will be one. */
+  let failedToStart = false;
   let input: InputRouter | undefined;
   /** The cascade the app draws through, once it has been built or taken. */
   let cascade: Cascade | undefined;
@@ -1027,9 +1029,11 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
       const renderer = view ?? building;
       if (renderer === undefined) {
         throw new Error(
-          interactive
-            ? 'App.view is not there while the component is being built: read it in onMount()'
-            : 'App.view is not there because runApp() refused to start without a terminal'
+          !interactive
+            ? 'App.view is not there because runApp() refused to start without a terminal'
+            : failedToStart
+              ? __`App.view is not there because the app failed to start: its component threw while it was being built`
+              : 'App.view is not there while the component is being built: read it in onMount()'
         );
       }
       return renderer;
@@ -1221,6 +1225,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
     // Either way the router is the one thing left, since `render()` never knew
     // about it
     running = false;
+    failedToStart = true;
     router.stop();
     process.removeListener('exit', onProcessExit);
     uncapture();

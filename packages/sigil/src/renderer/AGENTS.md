@@ -1250,6 +1250,11 @@ it.
   of `view` -- `reportError()`, `hold()`, `finish()` -- sees what it saw before; no
   difference from assigning it early was observed (round 1 compared full-screen and
   inline apps), so this is the conservative choice and not a fix for a fault. See `test/renderer/app.test.ts`.
+  **After a body that threw, the message says the app failed to start** (SIG-612): a
+  `view` kept from `useApp()` outlives the build, and "read it in `onMount()`" is untrue
+  once no renderer will ever exist and no `onMount()` will ever run. The catch under
+  `render()` sets a flag the getter reads; the other two messages are unchanged. The
+  new one goes through `__` with no slot, so there is nothing to escape.
 - **The mouse surface is late-bound, because the router asks where the canvas is
   the moment it is built.** That is before `render()` has made the backend, so the
   first ask finds nothing and answers the way a terminal that said nothing does --

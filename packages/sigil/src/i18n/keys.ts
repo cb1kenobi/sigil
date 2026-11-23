@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 469 keys, which is what a catalog has to carry to translate sigil's own
+ * 470 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -40,6 +40,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'Added a block to {0}',
   'Alias:',
   'Answer {0} or {1}',
+  'App.view is not there because the app failed to start: its component threw while it was being built',
   'Arguments:',
   'Back to the top',
   'Back to {0}',
