@@ -1688,9 +1688,11 @@ the message it is safe to branch on:
 a variable somebody exported is something somebody typed. A `default` the type
 rejects (`default: 'eight'` on an `int`) is a mistake in the schema rather than
 in the invocation, and stays a plain `Error`, as does everything an invalid
-schema throws. The one exception is `choices`: that check does not know what
-wrote the value, so a `default` outside its own `choices`, or a value an
-`afterParse` hook wrote there, is reported as `invalid-value` too.
+schema throws. `choices` follows the same rule: a `default` outside its own
+`choices` is a plain `Error` naming the option (`The default "z" for option
+--mode is not one of its choices`), while a value from argv or the environment
+outside them, or one an `afterParse` hook wrote over a default, is
+`invalid-value`.
 
 What `transform` and `run()` throw is yours: the parser cannot tell a
 `transform` rejecting a bad value from a `transform` with a bug in it, so it
