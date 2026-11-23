@@ -124,6 +124,19 @@ export class Screen {
   /** Whether the alternate buffer is in front. */
   alternate = false;
   /**
+   * Which mouse reporting modes are on, as the program has left them.
+   *
+   * `buttons` is button-event tracking (`ESC[?1002h`, what `mouse: true` asks
+   * for), `motion` is any-event tracking (`ESC[?1003h`, `{ motion: true }`), and
+   * `sgr` is the encoding the reports come back in (`ESC[?1006h`). Each is the
+   * state a terminal would be in now, so a program that handed the mouse back has
+   * all three `false`, the way `alternate` is `false` once it left the alternate
+   * screen. A fresh object on every read: holding one does not follow the screen.
+   */
+  get mouse(): { buttons: boolean; motion: boolean; sgr: boolean } {
+    return { ...this.#mouse };
+  }
+  /**
    * Whether the last graphic write filled the final column.
    *
    * A terminal writing the last column of a row does not advance past it -- it
@@ -176,6 +189,8 @@ export class Screen {
 
   /** Whether reverse video is in effect, which is what `lastInverse` is recorded on. */
   #inverse = false;
+
+  #mouse = { buttons: false, motion: false, sgr: false };
 
   /** A sequence that was cut off by the end of a chunk, waiting for the rest. */
   #held = '';
@@ -540,7 +555,8 @@ export class Screen {
         }
 
         if (priv === '?') {
-          // the private modes this models: the cursor and the alternate screen
+          // the private modes this models: the cursor, the alternate screen and
+          // the mouse
           if (params === '25') {
             this.cursorHidden = final === 'l';
           } else if (params === '1049' && final === 'h') {
@@ -565,6 +581,26 @@ export class Screen {
               this.row = Math.min(this.height - 1, this.#saved.row);
               this.column = Math.min(this.width - 1, this.#saved.column);
               this.#saved = undefined;
+            }
+          } else {
+            // a list may name several, `ESC[?1002;1006h`, and the three mouse
+            // modes are read from one, each on its own: a real terminal keeps one
+            // tracking mode at a time and this does not model that, since sigil
+            // writes exactly one of them. Any other mode, in a list or alone, is
+            // ignored as it always was -- the cursor and the alternate screen are
+            // read only when sent by themselves
+            for (const mode of params.split(';')) {
+              const name =
+                mode === '1002'
+                  ? 'buttons'
+                  : mode === '1003'
+                    ? 'motion'
+                    : mode === '1006'
+                      ? 'sgr'
+                      : undefined;
+              if (name !== undefined && (final === 'h' || final === 'l')) {
+                this.#mouse[name] = final === 'h';
+              }
             }
           }
           // and the deferred wrap is **left alone**: a mode change moves no

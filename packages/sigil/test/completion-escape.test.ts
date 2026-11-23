@@ -316,13 +316,15 @@ describe.skipIf(!POSIX)('the command, under a directory with a control character
 
   it('should escape a program name in the by-hand text, where nobody names a shell', async () => {
     const { runInstaller } = await import('../src/completion/interactive.js');
-    // a format character survives `programOf()`, which only strips what is a
-    // control character: it is what is left to make a line read differently
+    // `programOf()` takes the format character out as well since SIG-610, so
+    // the instructions are given the stripped name and the escape inside them is
+    // defence; a name that is not a program a shell could register is refused
+    // before any of this is printed
     const out = await stderrOf(async () => {
       await runInstaller(await state(`my${BIDI}cli`), { uninstall: false });
     });
 
-    expect(out).toContain('my\\u{202E}cli');
+    expect(out).toContain('mycli completion');
     expect(out).not.toContain(BIDI);
   });
 });

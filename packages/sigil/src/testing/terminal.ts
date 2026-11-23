@@ -321,6 +321,61 @@ export async function tick(times = 2): Promise<void> {
 }
 
 /**
+ * Makes a stream carry on after a `data` listener throws out of `write()`.
+ *
+ * A listener that throws unwinds through the stream's own `push()` and leaves the
+ * transform half-way through a chunk, and a `PassThrough` never recovers from it:
+ * every later write is buffered and no `data` is emitted again, Escape included.
+ * Over a test terminal that is a router with no `onError` and a handler that
+ * threw, and it reads exactly like the app being stuck (SIG-619).
+ *
+ * So the throw is caught where the listener is called, which leaves the stream
+ * whole, and handed back from `write()` once the write has finished -- the same
+ * place, and the same error, as before, so `press()` rejects and a direct
+ * `stdin.write()` throws. Only the first error of a write is kept: a stream
+ * emits one `data` per chunk, and a handler that wrote again from inside
+ * its own is the outermost write's to report. A `data` emitted outside a `write()`
+ * -- a stream resumed with chunks queued -- is left to throw as it did, since
+ * there is no call to hand it back through.
+ *
+ * @param stdin - The stream to patch, in place.
+ */
+function survivesAThrow(stdin: PassThrough): void {
+  const emit = stdin.emit.bind(stdin) as (event: string | symbol, ...args: unknown[]) => boolean;
+  const write = stdin.write.bind(stdin) as (...args: unknown[]) => boolean;
+  let writing = 0;
+  let failure: { error: unknown } | undefined;
+
+  stdin.emit = ((event: string | symbol, ...args: unknown[]): boolean => {
+    if (event !== 'data' || writing === 0) {
+      return emit(event, ...args);
+    }
+    try {
+      return emit(event, ...args);
+    } catch (error) {
+      failure ??= { error };
+      return true;
+    }
+  }) as typeof stdin.emit;
+
+  stdin.write = ((...args: unknown[]): boolean => {
+    writing++;
+    let accepted: boolean;
+    try {
+      accepted = write(...args);
+    } finally {
+      writing--;
+    }
+    if (writing === 0 && failure !== undefined) {
+      const { error } = failure;
+      failure = undefined;
+      throw error;
+    }
+    return accepted;
+  }) as typeof stdin.write;
+}
+
+/**
  * Builds a terminal over a screen model, with a keyboard.
  *
  * @param opts - The size, the colour level, and whether either end is a terminal.
@@ -349,6 +404,7 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
     stdin.rawMode = mode;
     return stdin;
   };
+  survivesAThrow(stdin);
 
   // a stub rather than `process`: see the note at the top of this file
   const proc = {

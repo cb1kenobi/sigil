@@ -30,14 +30,14 @@ async function state(schema: Schema) {
 
 describe('what a completion error echoes', () => {
   it('should escape the program name in the refusal to register for it', async () => {
-    // `programOf()` has already flattened every control character out of the
-    // name, so what reaches the message is a format character and the
-    // whitespace that makes the name unregisterable
+    // `programOf()` has already taken every control and format character out of
+    // the name (SIG-610), so what reaches the message is the whitespace that
+    // makes the name unregisterable, and the escape is defence
     const name = `my${BIDI}cli two`;
     const error = await completionSpec(await state({ name })).catch((e: unknown) => e as Error);
 
     expect(error).toBeInstanceOf(Error);
-    expect((error as Error).message).toContain('"my\\u{202E}cli two" is not a name');
+    expect((error as Error).message).toContain('"mycli two" is not a name');
     expect((error as Error).message).not.toContain(BIDI);
   });
 

@@ -43,7 +43,7 @@ afterAll(() => {
 
 describe('the entry', () => {
   for (const { file, label } of entries) {
-    it.concurrent(`should open the directory it was given rather than the working directory: ${label}`, async () => {
+    it.concurrent(`should open the dir it was given rather than the working directory: ${label}`, async () => {
       if (file === bin) {
         expect(
           existsSync(file),
