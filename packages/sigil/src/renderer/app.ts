@@ -1032,7 +1032,7 @@ export function runApp(component: () => Element, opts: AppOptions = {}): App {
           !interactive
             ? 'App.view is not there because runApp() refused to start without a terminal'
             : failedToStart
-              ? __`App.view is not there because the app failed to start: its component threw while it was being built`
+              ? 'App.view is not there because the app failed to start'
               : 'App.view is not there while the component is being built: read it in onMount()'
         );
       }

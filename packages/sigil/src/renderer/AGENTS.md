@@ -1250,11 +1250,15 @@ it.
   of `view` -- `reportError()`, `hold()`, `finish()` -- sees what it saw before; no
   difference from assigning it early was observed (round 1 compared full-screen and
   inline apps), so this is the conservative choice and not a fix for a fault. See `test/renderer/app.test.ts`.
-  **After a body that threw, the message says the app failed to start** (SIG-612): a
+  **After a failed build, the message says the app failed to start** (SIG-612): a
   `view` kept from `useApp()` outlives the build, and "read it in `onMount()`" is untrue
   once no renderer will ever exist and no `onMount()` will ever run. The catch under
-  `render()` sets a flag the getter reads; the other two messages are unchanged. The
-  new one goes through `__` with no slot, so there is nothing to escape.
+  `render()` sets a flag the getter reads; the other two messages are unchanged. It
+  says "failed to start" and not that the body threw, because that catch also takes
+  what the runner does after the body (a `quitKey` that is not one key). It is plain
+  English like its two siblings: its reader is a developer holding a stale handle, and
+  `src/i18n` leaves developer errors untranslated (the ticket asked for `__`, which
+  that decision refuses).
 - **The mouse surface is late-bound, because the router asks where the canvas is
   the moment it is built.** That is before `render()` has made the backend, so the
   first ask finds nothing and answers the way a terminal that said nothing does --

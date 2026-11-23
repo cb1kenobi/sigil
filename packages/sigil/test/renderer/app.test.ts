@@ -706,8 +706,7 @@ describe('runApp()', () => {
     ).toThrow('body broke');
     // no onMount() will ever run and no renderer will ever exist, so the advice
     // the message gave while the body was being built is untrue from here on
-    expect(() => held?.view).toThrow(/failed to start/);
-    expect(() => held?.view).not.toThrow(/onMount/);
+    expect(() => held?.view).toThrow('App.view is not there because the app failed to start');
   });
 
   it('should drop every resize subscription when a stylesheet fails to parse', () => {
