@@ -1107,6 +1107,19 @@ changes. The full before-and-after, the A/B runs and the sabotage passes are in
   ceiling stays at 640 KiB, 1.38x, because what this change took out of that
   entry was time and not bytes.
 
+  **SIG-635 re-measured all of them, and the figures had drifted both ways.**
+  Left at what SIG-328 and SIG-330 measured, the ceilings sat anywhere from 1.0x
+  to 2.3x of what their entries were: `i18n-keys` was already over its own and
+  failed on `main`, most of the component subpaths had grown about 10% and were
+  at 1.8x, and the few that stopped importing the prompt stack (`border-label`,
+  `overlay`, `element`, `note`) were at 2.1x to 2.3x of a smaller figure. Each
+  ceiling is `ceil(2 * measured / 1024)` KiB now, measured with `staticGraph()`
+  after `rm -rf dist registry && pnpm build --force` -- a turbo cache hit skips
+  the `rimraf`, so a stale file from another branch inflates a figure -- and the
+  figure beside it is as of that change. The 2x is the point, not a tolerance to
+  fit tightly: an entry that is open to growth in a pull request (the diff view,
+  a chart, a QR code) should not need its ceiling moved to land it.
+
 - **The lazy loads are pinned twice, statically and at run time.** `should not
   import ... at load` asserts each builtin is absent from the entry's static
   imports and still asked for through `getBuiltinModule()`; `should load none of

@@ -1020,158 +1020,163 @@ describe('the builtins an entry loads, and the ones it only asks for', () => {
 });
 
 /**
- * Every published entry's byte ceiling, about 2x what it measured as of SIG-328.
+ * Every published entry's byte ceiling, about 2x what it measured as of SIG-635.
  *
  * The convention every dedicated ceiling above already follows, extended to the
  * entries that had none -- which was most of them, so an entry could double and
- * nothing would say so. In KiB; what each measured is the second figure, and it
- * is a measurement **as of SIG-328** rather than a claim about the tree, which
- * is the root AGENTS.md's rule about byte figures -- and as of SIG-330 for the
- * `components/` subpaths, which that ticket added. The entries with a test of
- * their own keep it and are listed in `DEDICATED`, so that no entry has two
- * ceilings to disagree.
+ * nothing would say so. In KiB, rounded up from twice the measurement; what each
+ * measured is the second figure, and it is a measurement **as of SIG-635**
+ * rather than a claim about the tree, which is the root AGENTS.md's rule about
+ * byte figures. SIG-635 re-measured every one of them with `staticGraph()` after
+ * a clean `pnpm build --force`, because the figures had been left at what SIG-328
+ * and SIG-330 measured and the entries had since moved in both directions: most
+ * grew about 10% and a few, which no longer import the prompt stack, shrank by
+ * about as much. The comments beside an entry are the history of an earlier
+ * figure and say whose it was, so they are left as written. The entries with a
+ * test of their own keep it and are listed in `DEDICATED`, so that no entry has
+ * two ceilings to disagree.
  */
 const CEILINGS: Record<string, [kib: number, measured: number]> = {
-  ansi: [16, 7_790],
-  app: [400, 207_114],
-  canvas: [76, 38_777],
+  ansi: [17, 8_567],
+  app: [454, 231_980],
+  canvas: [82, 41_901],
   // a component's subpath, as of SIG-330: its own module and the stack it is
   // drawn with, which is most of every figure here
-  'components/autocomplete': [488, 248_844],
-  'components/badge': [316, 162_783],
+  'components/autocomplete': [535, 273_833],
+  'components/badge': [417, 213_490],
   // as of SIG-277, which added these three after the rest were measured
-  'components/border-label': [260, 133_586],
+  'components/border-label': [230, 117_674],
   // as of SIG-199, which added the four form controls and `control`, what they
   // share -- button, checkbox, control, radio-set and switch
-  'components/button': [388, 197_258],
-  'components/calendar': [484, 248_571],
+  'components/button': [420, 214_658],
+  'components/calendar': [538, 275_079],
   'components/catalog': [6, 2_800],
-  'components/chart': [396, 201_844],
-  'components/checkbox': [488, 248_863],
-  'components/clock': [384, 196_045],
+  'components/chart': [471, 241_107],
+  'components/checkbox': [529, 270_357],
+  'components/clock': [422, 216_010],
   // SIG-465, measured when it was added: 263,687 B, the view's module and
   // `tokensOf()` with the prompt stack it then lived in; SIG-597 moved it out and
   // the graph was 147,669 B, and SIG-615 brought the ceiling down to about 2x that
-  'components/code-view': [290, 147_726],
-  'components/collapsible': [380, 193_603],
+  'components/code-view': [291, 148_564],
+  'components/collapsible': [419, 214_437],
   // added when SIG-309 gave every component one colour-level rule
-  'components/color-level': [16, 7_639],
+  'components/color-level': [17, 8_371],
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
-  'components/control': [332, 168_553],
+  'components/control': [347, 177_632],
   // SIG-281, measured when it was added
-  'components/data-table': [464, 235_819],
-  'components/date': [496, 253_149],
-  'components/debug-overlay': [272, 140_286],
-  'components/decrypt': [384, 196_337],
-  'components/diff': [340, 172_847],
+  'components/data-table': [516, 263_936],
+  'components/date': [544, 278_157],
+  'components/debug-overlay': [366, 187_031],
+  'components/decrypt': [422, 215_995],
+  'components/diff': [344, 175_846],
   // SIG-367, measured when it was added: the diff's module and the scroll box's,
   // which it is built on
-  'components/diff-view': [465, 237_530],
+  'components/diff-view': [477, 243_835],
   // as of SIG-285, which added the menus and the overlay plumbing they share
-  'components/dropdown': [424, 216_762],
-  'components/editing': [12, 5_876],
-  'components/editor': [480, 245_196],
+  'components/dropdown': [467, 238_887],
+  'components/editing': [13, 6_224],
+  'components/editor': [529, 270_382],
   // SIG-615: the field layout alone, which the text area and `number()` both import
-  'components/field-layout': [240, 119_983],
-  'components/file-picker': [492, 252_742],
-  'components/fuzzy': [11, 5_500],
-  'components/group': [468, 240_621],
-  'components/group-multiselect': [476, 244_308],
+  'components/field-layout': [235, 120_035],
+  'components/file-picker': [544, 278_258],
+  'components/fuzzy': [12, 5_734],
+  'components/group': [520, 265_788],
+  'components/group-multiselect': [526, 269_187],
   // SIG-289, measured when it was added: the lexers and nothing else, since the
   // module imports only a type -- which is what lets a highlighter be imported
   // without the component stack it feeds
-  'components/highlight': [28, 14_145],
-  'components/image': [344, 176_806],
-  'components/key-help': [332, 169_903],
-  'components/keys': [6, 2_860],
-  'components/large-text': [324, 165_478],
-  'components/list': [472, 241_986],
+  'components/highlight': [28, 14_172],
+  'components/image': [374, 191_457],
+  'components/key-help': [354, 180_747],
+  'components/keys': [8, 3_678],
+  'components/large-text': [305, 155_807],
+  'components/list': [522, 267_131],
   // SIG-280, measured when it was added
-  'components/list-view': [408, 209_306],
-  'components/log': [488, 248_992],
-  'components/log-stream': [20, 10_089],
-  'components/markdown': [365, 186_038],
-  'components/markdown-parse': [32, 15_970],
-  'components/masked-text': [476, 243_856],
-  'components/menu': [416, 213_145],
-  'components/menubar': [424, 216_148],
-  'components/modal': [388, 198_373],
-  'components/mount': [372, 190_145],
-  'components/multi-progress': [384, 196_030],
-  'components/note': [316, 162_044],
-  'components/number': [480, 246_689],
-  'components/outline': [384, 195_717],
-  'components/overlay': [260, 132_920],
+  'components/list-view': [497, 254_016],
+  'components/log': [541, 276_815],
+  'components/log-stream': [25, 12_625],
+  'components/markdown': [365, 186_876],
+  'components/markdown-parse': [36, 18_263],
+  'components/masked-text': [526, 268_996],
+  'components/menu': [457, 233_952],
+  'components/menubar': [463, 236_981],
+  'components/modal': [441, 225_725],
+  'components/mount': [410, 209_821],
+  'components/multi-progress': [422, 215_808],
+  'components/note': [300, 153_477],
+  'components/number': [550, 281_458],
+  'components/outline': [423, 216_516],
+  'components/overlay': [230, 117_379],
   // added when SIG-305 gave seven components one way to refuse a hook they own
-  'components/owned-hooks': [9, 4_273],
-  'components/pager': [428, 219_265],
-  'components/paginator': [380, 194_228],
-  'components/palette': [492, 252_125],
-  'components/pane': [392, 201_988],
-  'components/panel': [384, 196_687],
-  'components/path': [484, 248_156],
-  'components/progress': [380, 193_936],
-  'components/prompt': [468, 240_102],
+  'components/owned-hooks': [11, 5_388],
+  'components/pager': [477, 243_970],
+  'components/paginator': [421, 215_042],
+  'components/palette': [543, 277_516],
+  'components/pane': [466, 238_516],
+  'components/panel': [418, 213_976],
+  'components/path': [535, 273_656],
+  'components/progress': [418, 213_934],
+  'components/prompt': [519, 265_496],
   'components/prompt-error': [1, 178],
-  'components/qrcode': [332, 169_062],
-  'components/radio-set': [492, 250_508],
-  'components/rule': [320, 163_424],
+  'components/qrcode': [312, 159_675],
+  'components/radio-set': [532, 272_287],
+  'components/rule': [303, 154_822],
   // SIG-280: a row is built under an owner of its own, which is the renderer's --
   // 174,349 B over 28 modules, from 136,485, and still under the ceiling it had
-  'components/scroll-box': [268, 136_485],
-  'components/select-key': [476, 243_021],
-  'components/select-row': [480, 245_393],
+  'components/scroll-box': [358, 182_955],
+  'components/select-key': [524, 268_207],
+  'components/select-row': [529, 270_725],
   // as of SIG-286, which added it
-  'components/slider': [392, 200_048],
-  'components/sort': [476, 242_891],
-  'components/spinner': [380, 194_847],
-  'components/switch': [488, 249_814],
-  'components/table': [316, 162_282],
-  'components/tabs': [384, 196_349],
-  'components/tasks': [400, 203_977],
-  'components/text-area': [450, 228_143],
-  'components/text-field': [472, 242_489],
-  'components/toast': [380, 195_187],
-  'components/toggle': [472, 241_207],
-  'components/token': [1, 655],
-  'components/tooltip': [380, 195_074],
-  'components/tree': [512, 262_589],
+  'components/slider': [427, 218_310],
+  'components/sort': [524, 268_072],
+  'components/spinner': [422, 215_629],
+  'components/switch': [530, 271_312],
+  'components/table': [300, 153_510],
+  'components/tabs': [428, 218_795],
+  'components/tasks': [439, 224_755],
+  'components/text-area': [448, 229_126],
+  'components/text-field': [526, 269_004],
+  'components/toast': [425, 217_177],
+  'components/toggle': [521, 266_357],
+  'components/token': [2, 655],
+  'components/tooltip': [425, 217_558],
+  'components/tree': [566, 289_620],
   // SIG-282, measured when it was added: the tree's module and the list view's,
   // which it is built on
-  'components/tree-list-view': [568, 289_948],
+  'components/tree-list-view': [623, 318_600],
   // SIG-480, measured when it was added: the treemap's module, `Pixels`, and the
   // renderer's `trackedRaw()`
-  'components/treemap': [352, 180_470],
-  'components/typewriter': [376, 192_912],
-  element: [256, 131_505],
-  'error-handler': [16, 8_422],
-  help: [360, 184_164],
-  i18n: [8, 3_979],
-  'i18n-keys': [18, 9_446],
+  'components/treemap': [495, 253_183],
+  'components/typewriter': [416, 212_588],
+  element: [229, 117_143],
+  'error-handler': [21, 10_554],
+  help: [344, 175_816],
+  i18n: [10, 5_094],
+  'i18n-keys': [37, 18_451],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
-  'internal/routes': [22, 10_979],
-  'jsx-dev-runtime': [336, 170_545],
-  'jsx-runtime': [336, 170_311],
-  layout: [26, 13_269],
+  'internal/routes': [32, 16_234],
+  'jsx-dev-runtime': [358, 183_070],
+  'jsx-runtime': [358, 182_836],
+  layout: [28, 14_064],
   paths: [4, 1_855],
-  reference: [82, 41_961],
-  renderer: [328, 166_513],
-  signals: [14, 6_776],
-  style: [148, 75_603],
-  template: [340, 174_120],
-  terminal: [30, 15_242],
-  testing: [100, 51_372],
-  theme: [188, 96_225],
-  themes: [8, 4_119],
+  reference: [101, 51_401],
+  renderer: [346, 176_845],
+  signals: [19, 9_268],
+  style: [157, 79_993],
+  template: [366, 186_942],
+  terminal: [34, 16_905],
+  testing: [118, 60_191],
+  theme: [208, 106_113],
+  themes: [9, 4_130],
   // SIG-481: most of it is the C# the Windows half hands PowerShell, which is a
   // string the minifier cannot shorten, and the rest is `__` and `baseDir()`
-  trash: [40, 20_737],
-  updates: [36, 18_536],
-  width: [8, 4_220],
+  trash: [55, 27_768],
+  updates: [45, 22_578],
+  width: [10, 4_960],
   which: [3, 1_446],
-  wrap: [18, 9_157],
+  wrap: [20, 10_152],
 };
 
 /** The entries whose ceiling is a test of its own, above. */
