@@ -4198,7 +4198,7 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   at 3 and shown at 0 drew padding with no inverse behind it, and a markdown link
   lost its URL altogether. SIG-629's answer was the right one for both, and its
   recorded cost holds for both: **a cascade without the framework's sheet draws
-  every form** (` PASS [PASS]`, and `docs (https://x)` after a hyperlink), pinned by
+  every form** (` PASS [PASS]`, and `docs docs (https://x)` for a hyperlink), pinned by
   a test for each. Four more exceptions in the sheet, `.sigil-badge-padded` and
   `.sigil-badge-bracketed` (the same pair `.sigil-qrcode-*` is) and
   `.sigil-markdown-hyperlinked` and `.sigil-markdown-url-bare`.
@@ -4209,7 +4209,9 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   wider than the label, so the width does not depend on the level. `Badge` is the
   row, so its `class` and `props` are the row's (with `overflow: hidden` under them,
   so a `width` or a shrink on the row clips the label as it did when the props were
-  on the one text) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
+  on the one text; a prop that is about the _text_ -- `href`, `text-overflow`,
+  `text-align`, `inverse`, `white-space` -- no longer reaches the label, and
+  nothing forwards it: it is a limit, and a theme class on the variant is the way) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
   now. `colorLevel` on `Badge` is accepted and not read. `badge()` the string is
   unchanged: it renders the same tree at `colorLevelOf(opts)` under the sheet.
   The rejected alternative was one `text` that picked its content at paint, which
@@ -4231,10 +4233,13 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   line ran a column over. Two words, as the facade has them, wrap as the facade does,
   and `should wrap a link exactly as the facade does` compares the two at seven widths
   and both levels. The cost is a copy of one word per link rather than of a document,
-  and one known difference: a URL wider than the line, directly followed by another
-  link's words with no space, is merged into one breakable text in the static form and
-  not here, because the second link's words carry an `href` the static form has not
-  got (width 10 and `[a](u)[b](v)`). A terminal that cannot draw a hyperlink, a
+  and two known differences at level 0, both in the corners of the static form's
+  own merging. A URL wider than the line followed with no space by other styled text
+  -- another link's words, inline code, an image -- is merged into one breakable text
+  in the static form and not here, because the neighbour's piece differs from the URL's
+  (width 10 and `[a](u)[b](v)`). And a URL holding a space is one word here, where
+  `emit()` splits the static form at it, so it wraps differently from the facade
+  unless the line is wide enough for it whole. Neither is pinned. A terminal that cannot draw a hyperlink, a
   relative link with no `baseUrl` and an autolink whose text is its URL are as they
   were: there is one form, so there is nothing to choose. The `markdown()` string
   facade draws at the level it was given and builds the form for it, so its output is

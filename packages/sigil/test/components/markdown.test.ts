@@ -1538,6 +1538,21 @@ describe('a markdownView() built at one level and shown at another', () => {
     }
   });
 
+  // the link's two halves are one piece above level 0 where they are in one style, so a word
+  // wider than the line breaks where the static form breaks it
+  it('should break a word a URL separated as the facade breaks it above level 0', () => {
+    for (const source of [
+      '[alphabet](https://u.v)[soupwords](https://u.v) x',
+      'longwordhere[](https://u.v)continues x',
+    ]) {
+      for (const width of [12, 16]) {
+        expect(shown(source, 0, 3, { width }), `${width}: ${source}`).to.equal(
+          markdown(source, { colorLevel: 3, env: {}, hyperlinks: true, platform: 'linux', width })
+        );
+      }
+    }
+  });
+
   it('should draw what the facade draws at the level it is shown at', () => {
     const source =
       'see [the docs](https://example.com/a), and **more** [here](https://example.com/b).';

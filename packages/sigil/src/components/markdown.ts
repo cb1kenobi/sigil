@@ -1099,7 +1099,20 @@ function wordViews(word: Word, room: number): Element[] {
   }
 
   const forms: Element[] = [];
-  const whole = word.filter((it) => it.mark !== true);
+  // the word as the static form has it above level 0: what the URL separated is
+  // one piece again where the two are in one style, as `emit()` has them
+  const whole: Piece[] = [];
+  for (const it of word) {
+    const last = whole.at(-1);
+    if (it.mark === true) {
+      continue;
+    }
+    if (last && last.classes === it.classes && last.href === it.href) {
+      whole[whole.length - 1] = { ...last, text: last.text + it.text };
+    } else {
+      whole.push(it);
+    }
+  }
   if (whole.length > 0) {
     forms.push(wordView(whole, room).addClass('sigil-markdown-hyperlinked'));
   }
