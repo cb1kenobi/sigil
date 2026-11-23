@@ -45,13 +45,17 @@ makes it testable with a fixture directory and no bundler at all.
   2.9 s never warned and 3.0 s did, in the loaded runs measured the ones that did
   not warn were the builds that ran 45 ms or more past a 3 s hold, and with the summary callback instrumented it was
   never even requested on a failure, which is the gate refusing before the callbacks are asked. Waiting
-  cannot make that impossible, only less likely, so the control holds four seconds
-  and, if that build did not warn, eight, and takes the first that does; the
+  cannot make that impossible, only less likely, so the control holds five seconds
+  and, if that build did not warn, ten, and takes the first that does; the
   sibling then holds as long as the control had to, so that its negative is made
   under a hold known to provoke the warning.
   One fixed hold on a machine with 30 busy processes over 18 cores failed 2 of 12
   at 3.5 s, 1 of 12 at 5 s and 0 of 12 at 6.5 s. A longer test timeout was never
   the fix: the build finishes on time and is judged not worth reporting.
+  It showed most on CI's macOS jobs, two of three on one run: a small shared
+  virtual machine, so the likeliest to pass 29 ms of link stage on this fixture's
+  graph. That is an inference -- the clock is not exposed -- and it is why the first
+  hold is five seconds rather than four.
 
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads

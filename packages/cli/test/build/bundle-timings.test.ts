@@ -23,13 +23,16 @@
  * a build with no plugin in it. So a hold of exactly three seconds sat on the
  * floor, and what a loaded machine takes away is the ratio: the link stage is a
  * few milliseconds on an idle one and tens of them when the process is starved,
- * so a four-second hold needs a link stage under 39 ms. That cannot be made
+ * so a five-second hold needs a link stage under 49 ms. That cannot be made
  * impossible by waiting, only less likely, which is why the control escalates
  * (`HOLDS`) instead of choosing one number: it stops at the first build that
- * warns, so an idle machine pays four seconds and a loaded one pays more rather
+ * warns, so an idle machine pays five seconds and a loaded one pays more rather
  * than failing. Measured on a macOS machine with 30 busy processes over 18
  * cores, one fixed hold failed 2 of 12 at 3.5 s, 1 of 12 at 5 s and 0 of 12 at
- * 6.5 s.
+ * 6.5 s. CI's macOS jobs are where it showed most (two of three failed on one
+ * run): a small shared virtual machine, whose link stage for this fixture's graph
+ * is the likeliest to pass 29 ms -- inferred, since rolldown does not expose that
+ * clock, and which is why the first hold is five seconds rather than four.
  */
 
 import { tempDir } from '../temp.js';
@@ -46,7 +49,7 @@ const logged: string[] = [];
  * ordinary case; the rest are for a machine so busy that the link stage took
  * more than a hundredth of it (see the file's header).
  */
-const HOLDS = [4000, 8000];
+const HOLDS = [5000, 10_000];
 
 /**
  * How long the next build holds for. The control raises it until a build warns and
