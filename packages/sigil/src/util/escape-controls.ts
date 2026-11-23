@@ -94,6 +94,27 @@ export function escapeControls(value: unknown): string {
 }
 
 /**
+ * A value with every character `escapeControls()` would escape taken out instead
+ * (SIG-610).
+ *
+ * The other answer to the same question, for text that is **written** rather
+ * than quoted in a message: a completion script is printed by a shell on every
+ * tab, so a U+202E in a description that went into one reversed the line it was
+ * drawn on, and escaping it there would change what the shell reads. It is the
+ * same class by construction -- the pattern is the one `escapeControls()` uses,
+ * not a second one that could drift from it.
+ *
+ * Nothing is collapsed or trimmed: a caller that wants one line says so
+ * around it, as `descriptionLine()` does.
+ *
+ * @param value - The text.
+ * @returns It with each control, format or default-ignorable character removed.
+ */
+export function withoutUnsafe(value: string): string {
+  return value.replaceAll(UNSAFE, '');
+}
+
+/**
  * An error Node raised, with its message made inert and nothing else about it
  * changed (SIG-571).
  *

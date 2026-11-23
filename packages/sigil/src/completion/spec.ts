@@ -209,7 +209,11 @@ const HAS_CONTROL = /\p{Cc}/u;
  * characters are left are dropped, which is the rule this repository keeps
  * everywhere: a raw escape sequence in a file something is about to print is a
  * sequence waiting to be executed, and a completion script is printed by the
- * shell on every tab.
+ * shell on every tab. Format characters go with them (SIG-610), the right-to-left
+ * override first: it is not a terminal's to act on but it reverses every line of
+ * the script it is in when the script is printed. This is also what reduces a
+ * program name, so the name a script registers for is the stripped one in
+ * every place it appears.
  *
  * Collapsing is not a substitute for quoting and is not treated as one: a quote
  * or a backtick survives this untouched, and each emitter escapes its own.
