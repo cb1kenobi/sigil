@@ -643,15 +643,16 @@ describe('what importing the package costs', () => {
     expect(staticBuiltins(graph)).toEqual([]);
   });
 
-  it.each(['code-view', 'diff', 'diff-view', 'markdown'])(
+  it.each(['code-view', 'diff', 'diff-view', 'markdown', 'text-area'])(
     'should not load the prompt stack to draw highlighted code through components/%s',
     (name) => {
       // SIG-597: `tokensOf()` and `PromptError` were written in `prompt.ts`, so a
       // code view, a diff and a markdown page imported the prompts -- `runPrompt()`,
       // the key reader, the terminal -- to turn a highlighter's spans into tokens.
       // The seam is `token.ts` now, and a value import of the prompt module from a
-      // component that only draws is what puts the stack back. `text-area` is not
-      // here: it still reaches `layoutField()` in `prompt.ts`, which is its own ticket
+      // component that only draws is what puts the stack back. `text-area` joined
+      // them with SIG-615, which moved `layoutField()` and `offsetIn()`, the last
+      // two things it took from `prompt.ts`, into `field-layout.ts`
       const graph = staticGraph(`components/${name}.mjs`);
 
       expect(carriers(graph, 'Input ended before the prompt was answered'), name).toEqual([]);
@@ -671,6 +672,22 @@ describe('what importing the package costs', () => {
     expect(carriers(graph, 'sigil-token')).not.toEqual([]);
     expect(carriers(graph, 'themedCascade')).toEqual([]);
     expect(graphBytes(graph), [...graph].join(', ')).toBeLessThan(2 * 1024);
+    expect(staticBuiltins(graph)).toEqual([]);
+  });
+
+  it('should keep the field layout free of the prompt stack, since the text area wraps with it', () => {
+    // SIG-615: `layoutField()` was written in `prompt.ts`, so `components/text-area`
+    // was 283,108 B over 45 modules and is 228,143 B over 38. What the layout needs
+    // is the canvas's cell width, the element tree's display text and the cluster
+    // walk, and none of it is a prompt
+    const graph = staticGraph('components/field-layout.mjs');
+
+    expect(
+      carriers(graph, 'Input ended before the prompt was answered'),
+      [...graph].join(', ')
+    ).toEqual([]);
+    expect(carriers(graph, 'themedCascade')).toEqual([]);
+    expect(graphBytes(graph), [...graph].join(', ')).toBeLessThan(240 * 1024);
     expect(staticBuiltins(graph)).toEqual([]);
   });
 
@@ -1033,8 +1050,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/clock': [384, 196_045],
   // SIG-465, measured when it was added: 263,687 B, the view's module and
   // `tokensOf()` with the prompt stack it then lived in; SIG-597 moved it out and
-  // the graph is 147,669 B. The ceiling has not come down with it
-  'components/code-view': [520, 263_687],
+  // the graph was 147,669 B, and SIG-615 brought the ceiling down to about 2x that
+  'components/code-view': [290, 147_726],
   'components/collapsible': [380, 193_603],
   // added when SIG-309 gave every component one colour-level rule
   'components/color-level': [16, 7_639],
@@ -1046,14 +1063,16 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/date': [496, 253_149],
   'components/debug-overlay': [272, 140_286],
   'components/decrypt': [384, 196_337],
-  'components/diff': [488, 249_598],
+  'components/diff': [340, 172_847],
   // SIG-367, measured when it was added: the diff's module and the scroll box's,
   // which it is built on
-  'components/diff-view': [544, 277_249],
+  'components/diff-view': [465, 237_530],
   // as of SIG-285, which added the menus and the overlay plumbing they share
   'components/dropdown': [424, 216_762],
   'components/editing': [12, 5_876],
   'components/editor': [480, 245_196],
+  // SIG-615: the field layout alone, which the text area and `number()` both import
+  'components/field-layout': [240, 119_983],
   'components/file-picker': [492, 252_742],
   'components/fuzzy': [11, 5_500],
   'components/group': [468, 240_621],
@@ -1071,7 +1090,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/list-view': [408, 209_306],
   'components/log': [488, 248_992],
   'components/log-stream': [20, 10_089],
-  'components/markdown': [516, 264_822],
+  'components/markdown': [365, 186_038],
   'components/markdown-parse': [32, 15_970],
   'components/masked-text': [476, 243_856],
   'components/menu': [416, 213_145],
@@ -1110,7 +1129,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/table': [316, 162_282],
   'components/tabs': [384, 196_349],
   'components/tasks': [400, 203_977],
-  'components/text-area': [512, 260_642],
+  'components/text-area': [450, 228_143],
   'components/text-field': [472, 242_489],
   'components/toast': [380, 195_187],
   'components/toggle': [472, 241_207],

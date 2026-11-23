@@ -26,11 +26,11 @@ import { terminal as defaultTerminal } from '../terminal/index.js';
 import { transformValue } from '../util/coerce.js';
 import { graphemes } from '../width/index.js';
 import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { layoutField } from './field-layout.js';
 import {
   type AccessibleOptions,
   promptAsLines,
   fieldLayers,
-  layoutField,
   listWindow,
   refusePrompt,
   promptAnswered,
