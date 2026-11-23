@@ -6,7 +6,7 @@ import { createInput, type InputRouter } from '../../src/input/index.js';
 import { runApp } from '../../src/renderer/app.js';
 import { createRoot } from '../../src/renderer/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
-import { escape, HEIGHT, move, picture, rowOf, surface, WIDTH } from './menu-harness.js';
+import { escape, HEIGHT, move, picture, press, rowOf, surface, WIDTH } from './menu-harness.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 /**
@@ -284,10 +284,8 @@ describe('a root menu with a mark that throws', () => {
 });
 
 describe('a menubar menu with a mark that throws', () => {
-  it('should close the bar, and leave the keys with the body, when a key moves to it', async () => {
-    // the menu is mixed, so `menuInitial()` never asks its marks and the throw comes
-    // from building its rows -- after the menu that was open has been truncated. With
-    // no level left Escape has nothing to close, so the session closes itself
+  /** A bar of File and a mixed View whose check mark throws while `failing` is set. */
+  function bar() {
     const term = createTestTerminal({ columns: WIDTH, rows: HEIGHT });
     const errors: unknown[] = [];
     const holder = box({ 'flex-direction': 'column', height: HEIGHT, width: WIDTH });
@@ -303,18 +301,29 @@ describe('a menubar menu with a mark that throws', () => {
     body.onKey = (event) => {
       seen.push(event.key.name);
     };
-    const bar = createRoot((dispose) => {
+    const state = { failing: true };
+    const menubar = createRoot((dispose) => {
       disposers.push(dispose);
       return Menubar<string>({
         ascii: false,
         input,
         menus: [
-          { items: [{ label: 'New', value: 'new' }], label: '&File' },
           {
+            items: [
+              { label: 'New', value: 'new' },
+              { label: 'Open', value: 'open' },
+            ],
+            label: '&File',
+          },
+          {
+            // mixed, so `menuInitial()` never asks the mark: it is read building the rows
             items: [
               {
                 check: () => {
-                  throw new Error('check threw');
+                  if (state.failing) {
+                    throw new Error('check threw');
+                  }
+                  return true;
                 },
                 label: 'Ruler',
                 value: 'ruler',
@@ -326,19 +335,80 @@ describe('a menubar menu with a mark that throws', () => {
         ],
       });
     });
-    holder.append(bar, body);
+    holder.append(menubar, body);
     picture(holder);
     input.focus.focus(body);
-    const control = menubarControl(bar);
-    control?.open(0);
-    picture(holder);
-    expect(control?.openIndex).toBe(0);
+    return { control: menubarControl(menubar), errors, holder, input, seen, state, term };
+  }
 
-    await term.press(KEYS.right);
-    expect(errors.map(String)).toEqual([expect.stringMatching(/check threw/)]);
-    expect(control?.openIndex).toBeUndefined();
-    expect(topLayer(input)).toBeUndefined();
-    await term.press('a');
-    expect(seen).toEqual(['a']);
+  it('should leave the menu that was open, and the bar, when a key moves to it', async () => {
+    const s = bar();
+    s.control?.open(0);
+    picture(s.holder);
+    await s.term.press(KEYS.down);
+    const before = picture(s.holder);
+    expect(before.find((line) => line.includes('❯'))).toContain('Open');
+
+    await s.term.press(KEYS.right);
+    expect(s.errors.map(String)).toEqual([expect.stringMatching(/check threw/)]);
+    // File is still the one open, with its highlight where it was
+    expect(s.control?.openIndex).toBe(0);
+    const after = picture(s.holder);
+    expect(after).toEqual(before);
+    expect(after[0]).toContain('[File]');
+    expect(after.some((line) => line.includes('Ruler'))).toBe(false);
+    expect(topLayer(s.input)).toBeDefined();
+
+    // the session still has the keys, and what threw not throwing is all it takes
+    await s.term.press(KEYS.up);
+    expect(picture(s.holder).find((line) => line.includes('❯'))).toContain('New');
+    s.state.failing = false;
+    await s.term.press(KEYS.right);
+    expect(s.errors).toHaveLength(1);
+    expect(s.control?.openIndex).toBe(1);
+    const switched = picture(s.holder);
+    expect(switched.some((line) => line.includes('Ruler'))).toBe(true);
+    // the menu it replaced is gone, not drawn under the new one
+    expect(switched.some((line) => line.includes('New') || line.includes('Open'))).toBe(false);
+
+    // and Escape closes the bar as it always did, handing the keys back
+    await escape(s.term);
+    expect(s.control?.openIndex).toBeUndefined();
+    expect(topLayer(s.input)).toBeUndefined();
+    await s.term.press('a');
+    expect(s.seen).toEqual(['a']);
+  });
+
+  it('should leave the menu that was open when the pointer moves to its title', async () => {
+    const s = bar();
+    s.control?.open(0);
+    const lines = picture(s.holder);
+    const x = lines[0]?.indexOf('View') ?? -1;
+    await s.term.press(move(x, 0));
+    expect(s.errors.map(String)).toEqual([expect.stringMatching(/check threw/)]);
+    expect(s.control?.openIndex).toBe(0);
+    expect(picture(s.holder)[0]).toContain('[File]');
+    expect(picture(s.holder).some((line) => line.includes('Ruler'))).toBe(false);
+    // every further move over the title throws again, as one over a submenu's row does
+    await s.term.press(move(x + 1, 0));
+    expect(s.errors).toHaveLength(2);
+    expect(s.control?.openIndex).toBe(0);
+    await escape(s.term);
+    expect(s.control?.openIndex).toBeUndefined();
+    expect(topLayer(s.input)).toBeUndefined();
+  });
+
+  it('should close the bar, and leave the keys with the body, when it is the first menu opened', async () => {
+    // with no menu open there is no level for Escape to close, so the session closes
+    // itself rather than swallow every key -- the bar is back as it was, not stuck
+    const s = bar();
+    const x = picture(s.holder)[0]?.indexOf('View') ?? -1;
+    await s.term.press(press(x, 0));
+    expect(s.errors.map(String)).toEqual([expect.stringMatching(/check threw/)]);
+    expect(s.control?.openIndex).toBeUndefined();
+    expect(topLayer(s.input)).toBeUndefined();
+    expect(picture(s.holder)[0]).not.toContain('[');
+    await s.term.press('a');
+    expect(s.seen).toEqual(['a']);
   });
 });
