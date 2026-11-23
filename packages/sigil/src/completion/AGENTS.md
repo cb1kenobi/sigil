@@ -585,7 +585,7 @@ command, wired beside `registerHelp()` and `registerVersion()`.
   nothing wrong with it.
 
 - **A name no shell can offer is dropped, which is `typeable()` met on a name
-  rather than on a value.** `oneLine()` and `typeable()` were applied to
+  rather than on a value (a format character joined the class in SIG-632, below).** `oneLine()` and `typeable()` were applied to
   descriptions and to `choices` and not to a command's own name or an option's
   spellings -- so a newline in a name broke the `_describe` element it was in,
   which is the thing `spec.ts` collapses descriptions for, and an escape in one

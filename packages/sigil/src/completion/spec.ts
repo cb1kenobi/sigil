@@ -158,7 +158,7 @@ export interface CompletionSubcommand {
    * the loaded command is read for its description and its options and never
    * for its name.
    *
-   * Not the name where that holds a control character, which no shell can
+   * Not the name where that holds a control or format character, which no shell can
    * type: then it is a spelling that reaches the command. See `segmentFor()`.
    */
   readonly name: string;
@@ -300,7 +300,7 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
  * The first branch of `valuesFor()`, lifted out because the command surface
  * asks the same question and must not answer it a second way: a `yesno` whose
  * choices are the booleans is reachable only by the words, and a choice holding
- * a control character is reachable by nothing. Two readers that each stringified
+ * a control or format character is reachable by nothing. Two readers that each stringified
  * a choice themselves would be two answers to "what can be typed here", which is
  * the one thing a reference and a completion script have to agree about.
  *
@@ -528,7 +528,7 @@ export function listedTokens(
  * The segment a command's argv path is written with: its name where a shell
  * can type it, and otherwise a spelling that reaches it.
  *
- * `tokensFor()` keeps a name holding a control character out of every list of
+ * `tokensFor()` keeps a name holding a control or format character out of every list of
  * what can be typed, and a command with nothing left is skipped -- but one that
  * also has a typeable alias, `` `two${ESC}lines, go` ``, keeps `go` and is
  * walked, and its *path* was still built from the name. So the raw `ESC` went

@@ -29,6 +29,18 @@ const LS = String.fromCodePoint(0x2028);
 /** What a script may not hold, named the way the source check names it. */
 const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/u;
 
+/**
+ * The whole class `escapeControls()` names, minus the controls a script is made
+ * of: wide enough to catch a variation selector and a blank braille pattern,
+ * which `FORMAT` does not, so a narrower hand-written pattern in `typeable()`
+ * would fail.
+ */
+const UNSAFE = /[\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u{2800}]/u;
+/** U+FE0F, the emoji variation selector: default-ignorable, and not `Cf`. */
+const VS16 = String.fromCodePoint(0xfe0f);
+/** U+2800, the blank braille pattern. */
+const BRAILLE = String.fromCodePoint(0x2800);
+
 const SHELLS = ['bash', 'zsh'] as const;
 
 async function script(schema: Schema, shell: (typeof SHELLS)[number]): Promise<string> {
@@ -119,14 +131,16 @@ describe('a format character in a completion script', () => {
   it.each(SHELLS)('should not reach the %s script from an alias', async (shell) => {
     const out = await script(
       {
-        commands: { go: { alias: [`g${BIDI}o`, 'run'], run(): void {} } },
+        commands: { go: { alias: [`zz${BIDI}q`, 'okay'], run(): void {} } },
         name: 'mycli',
       },
       shell
     );
 
     expect(out).not.toMatch(FORMAT);
-    expect(out).toContain('run');
+    expect(out).toContain('okay');
+    // dropped, not stripped: `zzq` would be a token that reaches nothing
+    expect(out).not.toContain('zzq');
   });
 
   it.each(SHELLS)('should not reach the %s script from a choice', async (shell) => {
@@ -149,5 +163,46 @@ describe('a format character in a completion script', () => {
     expect(out).toContain('safe');
     expect(out).not.toContain('quick');
     expect(out).not.toContain('slugg');
+  });
+
+  it.each(SHELLS)('should drop every unsafe class member from the %s script', async (shell) => {
+    // each is default-ignorable or a blank symbol and none is `\p{Cf}`, so a
+    // pattern narrower than `escapeControls()`'s lets it through
+    const out = await script(
+      {
+        commands: {
+          go: {
+            args: ['[where]'],
+            options: {
+              '--mode [m]': { choices: [`he${VS16}art`, `bl${BRAILLE}ank`, 'plain'], desc: 'm' },
+            },
+            run(): void {},
+          },
+        },
+        name: 'mycli',
+      },
+      shell
+    );
+
+    expect(out).not.toMatch(UNSAFE);
+    expect(out).toContain('plain');
+    expect(out).not.toContain('heart');
+    expect(out).not.toContain('blank');
+  });
+
+  it.each(SHELLS)('should not reach the %s script from a positional choice', async (shell) => {
+    const out = await script(
+      {
+        commands: {
+          go: { args: [{ choices: [`pu${BIDI}b`, 'www'], name: 'dir' }], run(): void {} },
+        },
+        name: 'mycli',
+      },
+      shell
+    );
+
+    expect(out).not.toMatch(FORMAT);
+    expect(out).toContain('www');
+    expect(out).not.toContain('pub');
   });
 });
