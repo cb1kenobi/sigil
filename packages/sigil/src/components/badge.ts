@@ -250,7 +250,7 @@ export function Badge(props: BadgeProps): Element {
 
   const forms = { bracketed: formText('bracketed'), padded: formText('padded') };
   const element = box(
-    { 'flex-direction': 'row', 'flex-shrink': 0, ...props.props },
+    { 'flex-direction': 'row', 'flex-shrink': 0, overflow: 'hidden', ...props.props },
     forms.padded,
     forms.bracketed
   );

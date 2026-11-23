@@ -163,8 +163,11 @@ interface Context {
 interface Piece {
   classes: string;
   href: string;
-  /** Whether a column goes before it, for a piece that is not a word of its own. */
-  lead?: boolean;
+  /**
+   * Whether it is a link's URL for level 0, which is not a piece of the word it
+   * sits in: it is the start of a word of its own in the form drawn there.
+   */
+  mark?: boolean;
   text: string;
 }
 
@@ -932,14 +935,14 @@ function words(runs: readonly MarkdownInline[], ctx: Context): Word[][] {
         walk(run.children, join(classes, 'sigil-markdown-link sigil-accent'), target.href, () => {
           const said = markdownText(run.children).trim();
           if (target.shown !== '' && target.shown !== said && target.href !== '') {
-            // both forms: the link above, which the sheet hides at level 0 where the
-            // hyperlink is dropped, and the URL there. A piece of the link's last word
-            // rather than a word of its own, so what follows the link -- a full stop,
-            // a comma -- stays against it above level 0, as it does with no URL at all
+            // both forms. The URL is marked where it falls, in the word the link ends
+            // in, and `wordViews()` makes the two words out of it: the link as it is
+            // above level 0, and what the static form is at level 0, where the URL
+            // starts a word of its own
             word.push({
-              classes: 'sigil-markdown-url sigil-markdown-url-bare sigil-muted',
+              classes: 'sigil-markdown-url sigil-muted',
               href: '',
-              lead: true,
+              mark: true,
               text: `(${target.shown})`,
             });
           } else if (target.shown !== '' && target.shown !== said) {
@@ -1068,11 +1071,55 @@ function flow(
         'flex-wrap': 'wrap',
         ...(justify === undefined ? {} : { 'justify-content': justify }),
       },
-      ...line.map((word) => wordView(word, room))
+      ...line.flatMap((word) => wordViews(word, room))
     )
   );
 
   return box({ class: classes, 'flex-direction': 'column', 'min-width': 0 }, ...rows);
+}
+
+/**
+ * A word, as the elements that draw it: one, or two forms of it where it holds a link's URL.
+ *
+ * A link in a view that follows the renderer's level is a word with a marked piece,
+ * the URL, in it. Above level 0 the word is drawn without that piece, so what
+ * follows the link -- a comma, a full stop -- stays against it. At level 0 the same
+ * word is cut where each URL falls, and the URL starts a word of its own, which is
+ * how the static form is laid out: the URL wraps as one word and takes the
+ * punctuation after it with it. The sheet shows one of the two; the one it hides
+ * takes no room, and no gap either.
+ *
+ * @param word - The word.
+ * @param room - The columns the line has.
+ * @returns The elements, in the order they are drawn.
+ */
+function wordViews(word: Word, room: number): Element[] {
+  if (!word.some((it) => it.mark === true)) {
+    return [wordView(word, room)];
+  }
+
+  const forms: Element[] = [];
+  const whole = word.filter((it) => it.mark !== true);
+  if (whole.length > 0) {
+    forms.push(wordView(whole, room).addClass('sigil-markdown-hyperlinked'));
+  }
+  let part: Piece[] = [];
+  const spelled: Piece[][] = [];
+  for (const it of word) {
+    if (it.mark === true) {
+      if (part.length > 0) {
+        spelled.push(part);
+      }
+      part = [{ ...it, mark: false }];
+    } else {
+      part.push(it);
+    }
+  }
+  spelled.push(part);
+  for (const each of spelled) {
+    forms.push(wordView(each, room).addClass('sigil-markdown-url-bare'));
+  }
+  return forms;
 }
 
 /**
@@ -1101,7 +1148,6 @@ function wordView(word: Word, room: number): Element {
   const piece = (it: Piece): Element =>
     textNode(it.text, {
       'min-width': 0,
-      ...(it.lead === true ? { 'margin-left': 1 } : {}),
       ...(it.classes === '' ? {} : { class: it.classes }),
       ...(it.href === '' ? {} : { href: it.href }),
     });

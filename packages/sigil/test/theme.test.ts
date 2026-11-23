@@ -61,7 +61,7 @@ describe('the framework sheet', () => {
    * built-ins share is a role by this test's own definition. A component puts it
    * on the part that shows its focus from `onFocusChange`.
    *
-   * The twenty exceptions are declared rather than discovered. Three are
+   * The twenty-one exceptions are declared rather than discovered. Three are
    * `inverse`, the focus role's declaration, and none is the focus:
    * `.sigil-caret` is a prompt's cursor, there whether or not anything has the
    * focus; `.sigil-badge` is how a role's colour becomes a background; and
@@ -83,8 +83,8 @@ describe('the framework sheet', () => {
    * scheme rather than a look, and `.sigil-qrcode-borrowed` is the box that holds
    * them in a painted code, shown at colour level 0 where the paint is dropped, and
    * `.sigil-qrcode-painted` is the painted body that box replaces there. And
-   * `.sigil-badge-padded`, `.sigil-badge-bracketed` and `.sigil-markdown-url-bare`
-   * are the same choice for a badge and for a link's URL: which form takes space
+   * `.sigil-badge-padded`, `.sigil-badge-bracketed`, `.sigil-markdown-hyperlinked` and
+   * `.sigil-markdown-url-bare` are the same choice for a badge and for a link: which form takes space
    * by the level the renderer draws at, a layout decision and not a look (SIG-644).
    * `.sigil-text-field` is a background a second time, for the overlay's
    * reason -- no role is one -- and because without it a field at rest is the same
@@ -100,7 +100,7 @@ describe('the framework sheet', () => {
    * `.sigil-treemap:focus` is the one keyed on a state: a focused map's outline is
    * green, a colour and only a colour, and no role is a focus that is a colour.
    */
-  it('should declare on a role, bar twenty exceptions that say why', () => {
+  it('should declare on a role, bar twenty-one exceptions that say why', () => {
     const ROLES = [
       '.sigil-accent',
       '.sigil-muted',
@@ -118,6 +118,7 @@ describe('the framework sheet', () => {
       '.sigil-caret',
       '.sigil-debug',
       '.sigil-markdown-em',
+      '.sigil-markdown-hyperlinked',
       '.sigil-markdown-link',
       '.sigil-markdown-strike',
       '.sigil-markdown-strong',

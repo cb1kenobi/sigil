@@ -262,7 +262,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-markdown-quote  .sigil-markdown-quote-bar  .sigil-markdown-quote-body
  *   .sigil-markdown-list  .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
  *   .sigil-markdown-item-body  .sigil-markdown-marker  .sigil-markdown-url
- *   .sigil-markdown-url-bare
+ *   .sigil-markdown-url-bare  .sigil-markdown-hyperlinked
  *   .sigil-markdown-image  .sigil-markdown-table  .sigil-markdown-table-rule
  *   .sigil-markdown-cell  .sigil-markdown-strike-marker  .sigil-markdown-task
  *   .sigil-markdown-task-done  .sigil-markdown-footnote-ref  .sigil-markdown-footnotes
@@ -360,13 +360,16 @@ export const FRAMEWORK_CSS = `
 
 /*
  * and which form of a link takes space, by the level the renderer draws at.
- * A link in a view holds both: its words as a hyperlink, and its URL in
- * parentheses as a piece of the last word, hidden here. At level 0 no escape
- * sequence is written, so the hyperlink goes nowhere and the URL is what says
- * where the link points -- which the level the *view* was built at cannot say,
- * because a view is built before the renderer that draws it (SIG-644). A
- * layout choice and not a look, so an exception rather than a role.
+ * A link in a view holds both: the words as a hyperlink, and the words with the
+ * URL in parentheses after them. At level 0 no escape sequence is written, so the
+ * hyperlink goes nowhere and the URL is what says where the link points -- which
+ * the level the *view* was built at cannot say, because a view is built before the
+ * renderer that draws it (SIG-644). A layout choice and not a look, so an
+ * exception rather than a role.
  */
+@media (color-level: 0) {
+  .sigil-markdown-hyperlinked { display: none }
+}
 .sigil-markdown-url-bare { display: none }
 @media (color-level: 0) {
   .sigil-markdown-url-bare { display: flex }

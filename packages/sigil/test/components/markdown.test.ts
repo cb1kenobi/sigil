@@ -1517,6 +1517,27 @@ describe('a markdownView() built at one level and shown at another', () => {
     expect(strip(shown('a [b](https://x.y), c.', 3, 3))).to.equal('a b, c.');
   });
 
+  // the view lays out the same words the facade does at each level, so a link wraps
+  // where it did: the URL a word of its own at level 0, and a comma against the link above it
+  it('should wrap a link exactly as the facade does, at every width and both levels', () => {
+    const sources = [
+      'aaaa bbbb cccc [the docs here](https://example.com/abcdefg), then more words follow.',
+      'x [y](https://e.co/1234) and [docs ](https://example.com) x, [](https://q.io) b [a](https://u.v) [b](https://w.x).',
+      '- see [the **guide**](https://example.com/guide) now\n\n> quoted [link](https://example.com/q).\n\n# [Head](https://h.io)',
+    ];
+    for (const source of sources) {
+      for (const width of [10, 14, 20, 21, 30, 40, 63]) {
+        for (const level of [0, 3] as const) {
+          const opts = { env: {}, hyperlinks: true, platform: 'linux', width } as const;
+          expect(
+            shown(source, level === 0 ? 3 : 0, level, { width }),
+            `${level} at ${width}: ${source}`
+          ).to.equal(markdown(source, { ...opts, colorLevel: level }));
+        }
+      }
+    }
+  });
+
   it('should draw what the facade draws at the level it is shown at', () => {
     const source =
       'see [the docs](https://example.com/a), and **more** [here](https://example.com/b).';
@@ -1566,7 +1587,7 @@ describe('a markdownView() built at one level and shown at another', () => {
       width: 40,
     });
     expect(strip(renderToString(element, { colorLevel: 3, width }))).to.equal(
-      'docs (https://example.com)'
+      'docs docs (https://example.com)'
     );
   });
 

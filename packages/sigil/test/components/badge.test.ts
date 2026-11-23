@@ -1,7 +1,7 @@
 import { strip } from '../../src/ansi/index.js';
 import { Badge, badge, badgeView } from '../../src/components/badge.js';
 import { table } from '../../src/components/table.js';
-import { box, type Element, renderToLines } from '../../src/element/index.js';
+import { box, type Element, renderToLines, text as textNode } from '../../src/element/index.js';
 import { createRoot, render } from '../../src/renderer/index.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
@@ -359,6 +359,17 @@ describe('a badge built at one level and shown at another', () => {
       const [line] = renderToLines(element, { cascade: themedCascade(), colorLevel, width: 20 });
       expect(stringWidth(line.trimEnd()), `level ${colorLevel}`).to.equal(width);
     }
+  });
+
+  it('should clip the label at a width its props give, as one text did', () => {
+    const row = box(
+      { 'flex-direction': 'row' },
+      Badge({ label: 'PASS', props: { width: 3 } }),
+      textNode('|')
+    );
+    expect(
+      renderToLines(row, { cascade: themedCascade(), colorLevel: 0, width: 20 })[0]?.trimEnd()
+    ).to.equal('[PA|');
   });
 
   it('should draw both forms where the cascade has no sheet', () => {
