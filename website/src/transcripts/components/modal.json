@@ -43,11 +43,11 @@
         "type": "boolean"
       },
       {
-        "description": "Which button holds the focus when it opens, by position. Defaults to the first.",
-        "default": "the first",
+        "description": "What holds the focus when it opens. Defaults to the first button.",
+        "default": "the first button",
         "name": "initial",
         "optional": true,
-        "type": "number"
+        "type": "number | \"body\" | Element"
       },
       {
         "description": "The panel's own props: a margin, a class. Geometry only, never a colour.",

@@ -1399,6 +1399,68 @@ describe('runApp()', () => {
     });
     expect((thrown as Error).message).toMatch(/onMount/);
   });
+
+  it('should answer view in an onMount() of the first frame, which is the place the refusal says to read it', () => {
+    const read: unknown[] = [];
+    let thrown: unknown;
+    const { app } = start(() => {
+      const self = useApp();
+      onMount(() => {
+        try {
+          read.push(self.view);
+        } catch (error) {
+          thrown = error;
+        }
+      });
+      return text('x');
+    });
+
+    expect(thrown).toBeUndefined();
+    expect(read).toHaveLength(1);
+    // the renderer `runApp()` goes on to hold, not another one
+    expect(read[0]).toBe(app.view);
+  });
+
+  it('should keep an effect that reads view in an onMount() of the first frame running', async () => {
+    const source = new State('a');
+    const seen: string[] = [];
+    const { app } = start(() => {
+      const self = useApp();
+      onMount(() => {
+        createEffect(() => {
+          const value = source.get();
+          // the read that threw on the first run, which left the effect with
+          // nothing to re-run on
+          void self.view;
+          seen.push(value);
+        });
+      });
+      return text('x');
+    });
+
+    expect(seen).toEqual(['a']);
+    source.set('b');
+    app.view.frame();
+    expect(seen).toEqual(['a', 'b']);
+    expect(app.running).toBe(true);
+  });
+
+  it('should still report an error from a first-frame onMount() after the screen is back, now that view is readable there', async () => {
+    const { app, term } = start(() => {
+      const self = useApp();
+      onMount(() => {
+        void self.view;
+        throw new Error('mount broke after view');
+      });
+      return text('still up');
+    });
+    app.view.frame();
+
+    expect(term.lines.join('\n')).not.toContain('mount broke after view');
+    app.exit();
+    await app.exited;
+    expect(term.lines.join('\n')).toContain('mount broke after view');
+  });
 });
 
 describe('the README example', () => {

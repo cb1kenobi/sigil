@@ -54,6 +54,7 @@ import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
 import { createEffect } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
+import { TOKEN_ROLE } from '../theme/index.js';
 import { stringWidth } from '../width/index.js';
 import { controlCondition, type ControlCondition } from './control.js';
 import {
@@ -70,16 +71,9 @@ import {
   wordBefore,
 } from './editing.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
-import {
-  type FieldRow,
-  type Highlighter,
-  type HighlightSpan,
-  layoutField,
-  offsetIn,
-  TOKEN_ROLE,
-  tokensOf,
-} from './prompt.js';
+import { type FieldRow, layoutField, offsetIn } from './prompt.js';
 import { wheelStep } from './scroll-box.js';
+import { type Highlighter, type HighlightSpan, tokenClasses, tokensOf } from './token.js';
 
 /** Where the caret is: a line, and an offset into that line. */
 export interface TextAreaCaret {
@@ -622,7 +616,6 @@ export function TextArea(props: TextAreaProps = {}): Element {
   const tokenLayers = new Map<string, Element>();
 
   function tokenLayer(token: string): Element {
-    const role = TOKEN_ROLE.get(token);
     return raw(
       {
         drawsText: true,
@@ -633,7 +626,7 @@ export function TextArea(props: TextAreaProps = {}): Element {
       },
       {
         bottom: 0,
-        class: `sigil-token sigil-token-${token}${role ? ` ${role}` : ''}`,
+        class: tokenClasses(token, TOKEN_ROLE.get(token)),
         left: 0,
         position: 'absolute',
         right: 0,

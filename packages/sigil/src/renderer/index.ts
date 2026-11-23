@@ -326,6 +326,19 @@ export interface RenderOptions {
    * `AggregateError`.
    */
   onError?: (error: unknown) => void;
+  /**
+   * Called with the renderer before the first frame is painted, which is before
+   * `render()` has returned it.
+   *
+   * What a caller that has to hand the renderer to something running *on* that
+   * first frame needs: an `onMount()` callback fires inside `render()`, so a
+   * `view` the caller assigns from the return value is not there yet. The
+   * renderer is complete when this is called -- it is the object `render()` goes
+   * on to return -- but nothing has been drawn, so it is a handle to keep and not
+   * a screen to read. It must not throw: a throw here leaves `render()` with
+   * nothing torn down, which a throw from the component's body does not.
+   */
+  onReady?: (renderer: Renderer) => void;
   /** The terminal. Defaults to the process's. */
   terminal?: Terminal;
 }
@@ -1620,11 +1633,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     return found;
   }
 
-  // the first frame is synchronous, so `render()` returns with something on
-  // screen rather than with a timer pending
-  runFrame();
-
-  return {
+  const renderer: Renderer = {
     get animating() {
       return animator.active;
     },
@@ -1709,4 +1718,15 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
     tree,
   };
+
+  // handed over before the first frame rather than after it, because that frame
+  // drains the `onMount()` callbacks and one of them may be reading `App.view`:
+  // the return value is not anybody's yet at that point
+  opts.onReady?.(renderer);
+
+  // the first frame is synchronous, so `render()` returns with something on
+  // screen rather than with a timer pending
+  runFrame();
+
+  return renderer;
 }
