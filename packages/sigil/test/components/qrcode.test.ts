@@ -988,6 +988,55 @@ describe('the scheme a tree follows', () => {
     expect(first!.length).to.be.greaterThan(width);
   });
 
+  // SIG-621, pinned as a limit rather than a fix. The media level is the only live
+  // one -- `readMedia()` re-reads the environment on a resize when nobody named a
+  // level -- and a painted code takes its level from its options when it is built,
+  // so a level that falls to 0 afterwards leaves it drawing the form that was right
+  // at the level it was built at. This fails the day the level is made live, which
+  // is the day the AGENTS.md entry has to change
+  it('should keep the form it was built at when the media level falls to 0 afterwards', () => {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    vi.stubEnv('COLORFGBG', '');
+    vi.stubEnv('FORCE_COLOR', '3');
+    const ui = createTestTerminal({ columns: 40, rows: 30 });
+    const cascade = themedCascade();
+    const { element } = qrcodeView('x', { colorLevel: 3, paint: true });
+    const view = render(() => element, {
+      cascade,
+      frameMs: 0,
+      // a terminal that names no level, which is what a real one leaves unsaid
+      terminal: Object.create(ui.terminal, { colorLevel: { value: undefined } }),
+    });
+    const code = encodeQr('x');
+    const shown = () => drawn(ui.viewport.filter(Boolean)).filter(Boolean);
+    const painted = drawn(qrLines(code, { invert: false })).filter(Boolean);
+    const borrowed = drawn(qrLines(code, { invert: true })).filter(Boolean);
+    expect(cascade.media.colorLevel, 'the level it came up at').to.equal(3);
+    expect(shown(), 'painted').to.deep.equal(painted);
+
+    vi.stubEnv('FORCE_COLOR', '0');
+    ui.resize(41, 30);
+    view.frame();
+    expect(cascade.media.colorLevel, 'the level the resize read').to.equal(0);
+    expect(borrowed).to.not.deep.equal(painted);
+    expect(shown(), 'still the form built at level 3').to.deep.equal(painted);
+    view.dispose();
+  });
+
+  // the one thing a `detect()` reply can do to the level is raise it above zero, and
+  // it must not move a painted code, which only asks whether the level is above 0
+  it('should draw a painted code the same at every level above 0', () => {
+    const lines = (level: 1 | 2 | 3) =>
+      renderToString(qrcodeView('x', { colorLevel: level, paint: true }).element, {
+        cascade: themedCascade(),
+        colorLevel: level,
+        colorScheme: 'dark',
+        width: 40,
+      });
+    expect(strip(lines(2)), '2 against 1').to.equal(strip(lines(1)));
+    expect(strip(lines(3)), '3 against 2').to.equal(strip(lines(2)));
+  });
+
   it('should leave a scheme the caller named alone when the renderer changes its own', () => {
     vi.stubEnv('SIGIL_COLOR_SCHEME', '');
     vi.stubEnv('COLORFGBG', '');

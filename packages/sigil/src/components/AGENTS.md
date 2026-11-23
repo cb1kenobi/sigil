@@ -4103,9 +4103,28 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
   draws both bodies**, there being no rule to hide either -- `themedCascade()` is
   the cascade every built-in is styled by, and a caller who built their own names
-  the scheme. **The level is not live**: a painted code's level still comes from
-  `colorLevelOf()` at build, since the ticket is about the scheme. The two rules are
-  exceptions in `should declare on a role, bar fifteen exceptions that say why`:
+  the scheme. **The level is not live, and it was measured rather than assumed
+  (SIG-621)**: a painted code's level still comes from `colorLevelOf()` at build.
+  Nothing an app calls changes the level a renderer resolves at. `detect()` only
+  ever _raises_ it, and never off or onto `0` -- `refineColorLevel()` refuses a
+  floor of zero and `detect()` asks again against the level on screen -- and a
+  painted code asks one question of its level, whether it is above `0`, so a reply
+  moving 2 to 3 moves no cell (`should draw a painted code the same at every level
+  above 0`). What does move it across `0` is `readMedia()` re-reading the
+  environment on a resize, and only where **nobody named a level**: not the
+  renderer's `colorLevel`, not the terminal's, not an `ansi` -- so it takes
+  `NO_COLOR` or `FORCE_COLOR` being changed in the process while the app runs.
+  Measured: built at 3, the environment set to 0 and the terminal resized, the media
+  level reads 0 and the painted body, which is the form for a level above 0, stays
+  on a dark scheme where level 0 wants the inverted one (`should keep the form it was
+  built at when the media level falls to 0 afterwards`, which is the pin, and fails
+  the day this is made live). It is left because making it live is not free: the
+  painted code would hold both polarities too and the sheet would choose by
+  `@media (color-level)` as well as by scheme, which is three more selectors in the
+  sheet's exception list, and a cascade without the framework's sheet would draw
+  both bodies of a painted code that today draws one -- a working case traded for
+  a trigger with no API behind it. An app that does change the environment under a running renderer and wants a painted code to follow it builds
+  the view again, which is a new `qrcodeView()` call and costs nothing. The two rules are exceptions in `should declare on a role, bar fifteen exceptions that say why`:
   they are which polarity takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
