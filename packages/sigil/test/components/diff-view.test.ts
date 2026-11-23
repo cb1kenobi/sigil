@@ -1917,6 +1917,14 @@ describe('DiffView lines', () => {
         const report = (kind: 'down' | 'move' | 'up', y: number): string =>
           `\x1b[<${kind === 'move' ? 32 : 0};${COLUMN};${y + 1}${kind === 'up' ? 'm' : 'M'}`;
 
+        let routers: { stop(): void }[] = [];
+        afterEach(() => {
+          for (const router of routers) {
+            router.stop();
+          }
+          routers = [];
+        });
+
         beforeEach(() => {
           // only the repeat is faked: the test terminal's `press()` waits on
           // `setImmediate`, which a clock that faked it would never fire
@@ -1940,6 +1948,7 @@ describe('DiffView lines', () => {
             root: view.root,
             terminal: term.terminal,
           });
+          routers.push(input);
           return { ...view, input, term };
         }
 
@@ -1972,7 +1981,9 @@ describe('DiffView lines', () => {
           expect(vi.getTimerCount()).toBe(0);
           picture(root, WIDTH, HEIGHT);
           const back = cursor.get() ?? 0;
-          expect(back).toBeLessThan(shown + 6);
+          // the scroll is 8 by now, so row 2 of the view is line 7: read against the
+          // scroll the press was made at (2) it would be line 1
+          expect(back).toBe(7);
           expect(selected.get().size).toBe(back + 1);
           // and out again, which re-arms it
           await term.press(report('move', HEIGHT + 6));
@@ -1980,7 +1991,7 @@ describe('DiffView lines', () => {
           expect(vi.getTimerCount()).toBe(1);
           // the move clamps to the last row in view, and the repeat goes on from there
           const edge = cursor.get() ?? 0;
-          expect(edge).toBeGreaterThan(back);
+          expect(edge).toBe(12);
           tick(2);
           expect(cursor.get()).toBe(edge + 2);
 
@@ -2001,7 +2012,6 @@ describe('DiffView lines', () => {
           flush();
           expect(cursor.get()).toBe(picked);
           expect(selected.get().size).toBe(picked);
-          input.stop();
         });
       });
     });
