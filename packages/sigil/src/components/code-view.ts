@@ -29,7 +29,7 @@ import {
 } from '../element/index.js';
 import { TOKEN_ROLE } from '../theme/index.js';
 import { graphemes, stringWidth } from '../width/index.js';
-import { type Highlighter, tokensOf } from './prompt.js';
+import { type Highlighter, tokenClasses, tokensOf } from './token.js';
 
 /** What `codeRun()` is told about the text it draws. */
 export interface CodeRunOptions {
@@ -63,11 +63,9 @@ export function codeRun(
 ): Element {
   const classes: string[] = opts.class ? [opts.class] : [];
   if (token !== undefined) {
-    classes.push('sigil-token', `sigil-token-${token}`);
-  }
-  const role = opts.role ?? (token === undefined ? undefined : TOKEN_ROLE.get(token));
-  if (role) {
-    classes.push(role);
+    classes.push(tokenClasses(token, opts.role ?? TOKEN_ROLE.get(token)));
+  } else if (opts.role) {
+    classes.push(opts.role);
   }
   return textNode(value, {
     class: classes.join(' '),
