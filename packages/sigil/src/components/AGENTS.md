@@ -9852,6 +9852,41 @@ exported beside them as pure functions.
   files (`{ files }`) as its third kind of input, so a patch that is shown and
   then staged is read once. The git client example is the caller this waited for,
   and its own reader, `splitPatch()`, is gone.
+- **`hunkLinesPatch()` writes some of a hunk's lines, and the file the patch is
+  applied to decides what an unpicked line becomes (SIG-473).** A line not
+  selected is left as that file has it: staging applies to the index, which holds
+  the old side, so an unpicked **add** is not written and an unpicked **remove** is
+  context; `reverse` applies to the new side, so the two trade places. The old
+  side's count is therefore the hunk's own when staging and the new side's when
+  unstaging, and the other side's count and start are written from the rows,
+  anchored on the side applied to -- an empty side starts at the line before, as
+  `@@ -0,0` does. The start is only a hint: `git apply` searches for the lines, so
+  a hunk staged after an earlier one was left out lands wherever its context is,
+  which `should stage a line far down a file after one earlier lines left
+  unstaged` runs against a real git. `git apply` also insists a hunk with no
+  trailing context ends the file, and the writer only ever adds context -- a
+  removal made context -- so a hunk that was at the end of a file still is.
+  Every case in `test/components/diff-lines-patch.test.ts` that stages is run
+  through `git apply --cached` in a temp repository: only additions, only
+  removals, a replacement either half, CRLF, a new file, and
+  `\ No newline at end of file`. The rows are written from `source` where it
+  lines up with `lines` and from the lines where it does not or is absent, which
+  keeps a `\r`; a blank context line that lost its space is written with one.
+
+  Two selections are an `Error`, because a patch cannot say them and the
+  alternative is writing a different change than the one asked for. A line with no
+  newline ends its side, so an unpicked removal of one becomes a context line that
+  ends both -- and picking a line added after it (`-a` `\ No newline`, `+a`, `+b`
+  over a file that gained its newline, with only `+b` picked) would write a line
+  after the end of the file. `git add -p` has the same case as a hunk it cannot
+  split. And a deleted file staged part-way is not a deletion, nor is a new file
+  part-way unstaged a creation, so those are all or nothing: the header would need
+  rewriting, which is the kind of thing that is guessed wrong once. A hunk with no
+  context lines (`-U0`) is written with none, as `hunkPatch()` writes it: no
+  context is added, and what `git apply` makes of it is the same from both. Nothing selected is
+  `undefined` rather than an empty patch, so a caller cannot hand git something it
+  would call "no valid patches".
+
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -10150,14 +10185,50 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   that, for a `w`, a new width or refreshed content, reveals the current stop as
   it always has, clicked or not: that is the drawing's rule, and a reader who
   scrolled with the arrows meets it the same way. A double click is two clicks, since
-  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
-  row handler and read the line under it, which this leaves room for: the
-  handler is per row already.
+  there is no `onActivate` to call. A line cursor (SIG-473) takes the same
+  row handler and reads the line under it, as the entry below says.
+
+- **A line cursor inside the hunk, and the lines picked, are two `State`s the app
+  hands in (SIG-473).** `lines: { cursor, selected }`. The cursor is a position
+  in the current stop's hunk's `lines`, `undefined` while the cursor is on the
+  hunk, and the picks are a `Set` of positions -- which is what `hunkLinesPatch()`
+  takes, so the hand-off is `diffStops(content)[current]` and these. States rather
+  than a callback for the reason `current` is one: the app that stages on Space
+  reads them where Space is bound. Enter starts it on the first added or removed
+  line and Enter or Escape leave; up and down step over the added and removed
+  lines only, clamped and claimed at an end; `x` picks and `a` picks all or none.
+  A context line is never the cursor's, since it has nothing to pick, which is a
+  narrower cursor than lazygit's and one that cannot rest on a line that does
+  nothing. Not done: a range (`v`, or shift and the arrows), which `a` and `x`
+  stand in for.
+
+  **The line state belongs to one hunk and is emptied whenever the subject
+  changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
+  content changes, or the cursor leaves the lines. A position means nothing in
+  another hunk, and staging renumbers every hunk after, so keeping a pick across
+  a refresh is picking a different line. The content test is by identity, so an
+  app whose `content` function builds a fresh array on every call resets the
+  lines on every wrap switch; the git client's `Computed` is stable. A redraw for
+  a width, `w`, or a sideways scroll does not reset anything.
+
+  **A view with `lines` is drawn unified, whatever `layout` says.** Side by side
+  a removed line and the added line it is paired with share a row, so a mark in
+  that row would mark two lines and a pick of one would read as both. `diffView()`
+  reports each line's rows as `hunks[].lines` (ranges over `element.children`,
+  overlapping side by side), which the view reads in place of any class. The
+  second column is a second cell on every row, so the room is one less; it exists
+  only with `lines`, and a view without it is drawn as it was.
+
+  **The footer is not told about the line keys.** `describeDiffView()` lists `]`,
+  `[`, `w` and the arrows, and one more entry pushed the git client's `space stage
+  hunk` under its own toast in a 110-column terminal -- measured, by the test that
+  asserts it. The marks say what the cursor is, and an app that wants a hint
+  writes one beside its own keys.
 
 What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
-designed by guessing; staging part of a hunk; and folding a hunk away.
+designed by guessing; staging a range of lines with one gesture; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
