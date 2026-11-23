@@ -172,6 +172,7 @@ export {
   updateCheckDefine,
   UPDATE_CHECK_DEFINE,
   UPDATE_CHECK_SPECIFIER,
+  wrappedCheckWarning,
   type BakedUpdateCheckOptions,
   type UpdateCheckUse,
 } from './update-check.ts';
