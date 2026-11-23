@@ -20,28 +20,48 @@ import { visitorKeys } from 'oxc-parser';
 /**
  * Walks a tree, letting the visitor stop a branch.
  *
+ * Pre-order, children in `visitorKeys` order, and **with a stack of its own**
+ * rather than the call stack's (SIG-625). A recursive walk overflowed at about
+ * 3,500 levels -- a `+` or `||` chain of that many terms is a left-nested tree
+ * that deep -- and a `RangeError` out of a build step is a failure somebody has
+ * to be told about, which the shake's reader was not: it caught everything and
+ * fell back to a raw token scan, so the rules the unread half of the file opened
+ * were dropped and the build said nothing. What reads a tree now reaches as deep
+ * as the parser does, which is the limit that matters.
+ *
  * @param node - Where to start.
  * @param visit - Called per node; returning `false` skips its children.
  */
 export function walk(node: Node, visit: (node: Node) => boolean): void {
-  if (!visit(node)) {
-    return;
-  }
+  const pending: Node[] = [node];
 
-  for (const key of visitorKeys[node.type] ?? []) {
-    const child = (node as unknown as Record<string, unknown>)[key];
-
-    if (Array.isArray(child)) {
-      for (const each of child) {
-        if (isNode(each)) {
-          walk(each, visit);
-        }
-      }
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    if (!visit(next)) {
       continue;
     }
 
-    if (isNode(child)) {
-      walk(child, visit);
+    // the children in order, then pushed back to front so the first is popped
+    // first: the order a recursive walk would have visited them in
+    const children: Node[] = [];
+    for (const key of visitorKeys[next.type] ?? []) {
+      const child = (next as unknown as Record<string, unknown>)[key];
+
+      if (Array.isArray(child)) {
+        for (const each of child) {
+          if (isNode(each)) {
+            children.push(each);
+          }
+        }
+        continue;
+      }
+
+      if (isNode(child)) {
+        children.push(child);
+      }
+    }
+
+    for (let at = children.length - 1; at >= 0; at--) {
+      pending.push(children[at] as Node);
     }
   }
 }

@@ -74,6 +74,7 @@ import { landsAt } from './discover.ts';
 import { unwrapShallow } from './literals.ts';
 import { MODULE_RE, parseModule } from './parse-module.ts';
 import { walk } from './walk.ts';
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import MagicString from 'magic-string';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -404,10 +405,113 @@ function readFile(path: string, into: Evidence): void {
     return;
   }
 
+  // before the parser, because it is the one thing here nothing can catch: oxc
+  // overflows its **native** stack on a deep enough tree and takes the whole
+  // process down with a SIGSEGV -- exit 139, nothing printed, and not a
+  // `RangeError` any `catch` sees (SIG-625). It is also read for every file under
+  // the root, imported or not, so a module nothing references could end a build
+  // that was fine without the shake
+  if (nestingDepth(source) > MAX_NESTING) {
+    readUnparsed(source, into);
+    return;
+  }
+
+  let program: Node;
   try {
-    collectLiterals(parseModule(path, source).program, into);
+    program = parseModule(path, source).program;
   } catch {
     into.read({ openLeft: false, openRight: false, text: source });
+    return;
+  }
+
+  // not inside the `catch` above, which is for a file that does not parse. This
+  // used to share it, so a failure *reading a tree that parsed* -- a stack
+  // overflow was the one that happened -- fell back to the raw scan as well,
+  // silently, with whatever the walk had read before it threw still in the
+  // evidence and every open end after it lost (SIG-625). A failure here is the
+  // build's own and is reported as one, naming the file
+  try {
+    collectLiterals(program, into);
+  } catch (error) {
+    throw new Error(
+      `Could not read ${escapeControls(path)} for the utility shake: ${escapeControls(
+        error instanceof Error ? error.message : String(error)
+      )}. Set "build": { "shake": false } in sigil.json to build without it.`,
+      { cause: error }
+    );
+  }
+}
+
+/**
+ * The most nested brackets a file may hold and still be handed to the parser.
+ *
+ * `oxc-parser` is native and recurses on the machine's stack, and a tree past
+ * its limit is a segmentation fault, not an error. Measured on macOS with node
+ * 24 and the default 8 MB stack, a `||` chain written `(a || (b || ...))` crashed
+ * between 4,494 and 4,500 levels, nested arrays near 7,900, and a template inside
+ * a template near 3,900; a flat `a || b || ...` or `a + b + ...` is a loop in the
+ * parser and held to about 57,700 terms, a `a ? b : c ? ...` chain to about
+ * 7,900. The limit is the stack's, so it moves with `ulimit -s`, and a platform
+ * whose main thread has a smaller one -- Windows has 1 MB -- crashes at a
+ * smaller depth that was not measured.
+ *
+ * So this is a ceiling set far below the shallowest measured crash and far above
+ * any code anybody writes -- the deepest naive count over this repository's 1,631
+ * source files is 246, and that one is inflated by brackets inside strings. It is
+ * a **count** and not a lexer, so an unbalanced bracket in a string or a comment
+ * counts, and a file can be refused that would have parsed. That is the right
+ * direction to be wrong in: such a file is read by `readUnparsed()`, which keeps
+ * more rather than less. What it does not cover is a depth with no brackets in
+ * it, which is the flat and ternary chains above and which the parser handles to
+ * tens of thousands.
+ */
+const MAX_NESTING = 512;
+
+/**
+ * How deeply brackets nest in a source, counted without reading it.
+ *
+ * `(`, `[` and `{` open one and their closers close one, and a closer with
+ * nothing open is ignored. Strings, comments and regular expressions are not
+ * skipped, which is the point: skipping them is a lexer, and a lexer is a second
+ * parser that can be wrong about the one file this exists for.
+ *
+ * @param source - The file's text.
+ * @returns The deepest the count reached.
+ */
+function nestingDepth(source: string): number {
+  let depth = 0;
+  let deepest = 0;
+
+  for (let at = 0; at < source.length; at++) {
+    const code = source.charCodeAt(at);
+    if (code === 0x28 || code === 0x5b || code === 0x7b) {
+      deepest = Math.max(deepest, ++depth);
+    } else if ((code === 0x29 || code === 0x5d || code === 0x7d) && depth > 0) {
+      depth--;
+    }
+  }
+
+  return deepest;
+}
+
+/**
+ * Reads a file nothing parsed, keeping everything it could possibly name.
+ *
+ * Every token is read **open on both ends**, which matches anything that
+ * contains it. That is a superset of what the file's tree would have said --
+ * a literal beside an unknown is open on that side, and one beside nothing is
+ * closed, which is matched by equality and by the open reading too. The
+ * fallback for a file that does not parse reads its text closed instead, which
+ * is not a superset: `'text-' + colour` is then the exact token `text-`, and the
+ * `text-*` rules it opens are dropped. A file refused only for its depth parses
+ * fine, so it is not given that.
+ *
+ * @param source - The file's text.
+ * @param into - Where the evidence goes.
+ */
+function readUnparsed(source: string, into: Evidence): void {
+  for (const match of source.matchAll(TOKEN_RE)) {
+    into.read({ openLeft: true, openRight: true, text: match[0] });
   }
 }
 
@@ -449,10 +553,11 @@ function readFile(path: string, into: Evidence): void {
  * since the right side can never be the value. A literal on the *right* of one
  * is a choice too, between the literal and the unknown left side (SIG-595):
  * `(x || 'text-') + colour` is `text-` followed by something, or something
- * followed by something. Every other shape of the kind -- a `?:` with a branch
- * that is not a literal, `.concat()`, `.join()` -- is an unknown part and the
- * safelist's, and the list an author can read without this file is in
- * `packages/cli/README.md`.
+ * followed by something. A `?:` with a literal in one branch and something
+ * unknown in the other is the same shape (SIG-624). Every other shape of the
+ * kind -- a `?:` with no literal in any branch, `.concat()`, `.join()` -- is an
+ * unknown part and the safelist's, and the list an author can read without this
+ * file is in `packages/cli/README.md`.
  *
  * ## A tagged template is not a concatenation
  *
@@ -546,29 +651,45 @@ function collectLiterals(program: Node, into: Evidence): void {
  */
 function templateParts(node: Node, isTagged: boolean, spliced: Set<Node>): Part[] {
   const parts: Part[] = [];
-  addTemplateParts(node, isTagged, spliced, parts);
+
+  for (const item of templateItems(node, isTagged)) {
+    if ('part' in item) {
+      parts.push(item.part);
+    } else {
+      addParts(item, spliced, parts);
+    }
+  }
+
   return parts;
 }
 
-/** `templateParts()`, appending to a list instead of making one. */
-function addTemplateParts(node: Node, isTagged: boolean, spliced: Set<Node>, parts: Part[]): void {
+/** What `addParts()` has yet to read: an expression, or a part already known. */
+type Pending = Node | { readonly part: Part };
+
+/**
+ * A template's quasis and interpolations in order, the quasis as parts.
+ *
+ * An interpolation of a tagged template is one unknown part, since the tag
+ * decides what it comes to; of an untagged one it is the expression, for the
+ * caller to read.
+ */
+function templateItems(node: Node, isTagged: boolean): Pending[] {
   const template = node as unknown as {
     expressions: Node[];
     quasis: { value: { cooked?: string | null; raw: string } }[];
   };
+  const items: Pending[] = [];
 
   for (const [at, quasi] of template.quasis.entries()) {
-    parts.push(quasi.value.cooked ?? quasi.value.raw);
+    items.push({ part: quasi.value.cooked ?? quasi.value.raw });
 
     const expression = template.expressions[at];
     if (expression) {
-      if (isTagged) {
-        parts.push(undefined);
-      } else {
-        addParts(expression, spliced, parts);
-      }
+      items.push(isTagged ? { part: undefined } : expression);
     }
   }
+
+  return items;
 }
 
 /**
@@ -742,8 +863,9 @@ interface RunState {
  * A tagged template is a `TaggedTemplateExpression` and so is one unknown
  * part: its value is whatever the tag returns.
  *
- * A `?:` of literals is one part holding every text it can be, and a `||` or
- * `??` over a literal is that literal, for the reason `knownParts()` gives.
+ * A `?:` with a literal in it is one part holding every text it can be, and a
+ * `||` or `??` over a literal is that literal, for the reason `knownParts()`
+ * gives.
  *
  * `+` is read as concatenation whatever its operands are. Where they are
  * numbers it is not, and the parts it yields are unknown ones, which only ever
@@ -765,45 +887,62 @@ function partsOf(node: Node, spliced: Set<Node>): Part[] {
  * `partsOf()`, appending to a list instead of making one, so that a chain of n
  * terms is n pushes rather than a copy of every prefix of it. Every `+` and
  * untagged template it reads into is recorded in `spliced`.
+ *
+ * It keeps its own stack of what is left to read rather than calling itself, for
+ * the reason `walk()` does (SIG-625): a `+` chain is nested to its own length on
+ * the left, and the recursive form overflowed the call stack at about 3,500
+ * terms. The order is the recursive one's, an operand's parts before the next
+ * operand's.
  */
 function addParts(node: Node, spliced: Set<Node>, parts: Part[]): void {
-  const inner = unwrapShallow(node as Expression);
+  const pending: Pending[] = [node];
 
-  if (isStringLiteral(inner)) {
-    parts.push(String(inner.value));
-    return;
-  }
-
-  // a `?:` of literals is a choice between them, and a `||` or `??` over a
-  // literal is that literal, or that literal and something unknown when the
-  // literal is on the right. Neither is spliced: its operands are not part of
-  // the sequence, so the walk reads them as it always has
-  const known = knownParts(inner);
-  if (known !== undefined) {
-    parts.push(known);
-    return;
-  }
-
-  if (inner.type === 'BinaryExpression') {
-    const binary = inner as unknown as { left: Node; operator: string; right: Node };
-    if (binary.operator === '+') {
-      spliced.add(inner);
-      addParts(binary.left, spliced, parts);
-      addParts(binary.right, spliced, parts);
-      return;
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    if ('part' in next) {
+      parts.push(next.part);
+      continue;
     }
-  }
 
-  // a template is a string written the other way, and missing that is what
-  // made `` `text-` + colour `` drop every `text-*` rule. A tagged one is a
-  // `TaggedTemplateExpression` and never gets here
-  if (inner.type === 'TemplateLiteral') {
-    spliced.add(inner);
-    addTemplateParts(inner, false, spliced, parts);
-    return;
-  }
+    const inner = unwrapShallow(next as Expression);
 
-  parts.push(undefined);
+    if (isStringLiteral(inner)) {
+      parts.push(String(inner.value));
+      continue;
+    }
+
+    // a `?:`, `||` or `??` with a literal in it is a choice between what it can
+    // be, with the unknown among them where a branch is not a literal (SIG-578,
+    // SIG-595, SIG-624). It is not spliced: its operands are not part of the
+    // sequence, so the walk reads them as it always has
+    const known = knownParts(inner);
+    if (known !== undefined) {
+      parts.push(known);
+      continue;
+    }
+
+    if (inner.type === 'BinaryExpression') {
+      const binary = inner as unknown as { left: Node; operator: string; right: Node };
+      if (binary.operator === '+') {
+        spliced.add(inner);
+        pending.push(binary.right, binary.left);
+        continue;
+      }
+    }
+
+    // a template is a string written the other way, and missing that is what
+    // made `` `text-` + colour `` drop every `text-*` rule. A tagged one is a
+    // `TaggedTemplateExpression` and never gets here
+    if (inner.type === 'TemplateLiteral') {
+      spliced.add(inner);
+      const items = templateItems(inner, false);
+      for (let at = items.length - 1; at >= 0; at--) {
+        pending.push(items[at] as Pending);
+      }
+      continue;
+    }
+
+    parts.push(undefined);
+  }
 }
 
 /**
@@ -833,35 +972,7 @@ function literalText(node: Node): string | undefined {
 }
 
 /**
- * Every text a `?:` can be, when each of its branches is a literal -- or itself
- * a `?:` of them, which is how `a ? 'x' : b ? 'y' : 'z'` is written.
- *
- * @param node - The expression, wrappers already taken off.
- * @returns The texts without repeats, or `undefined` when a branch is not one.
- */
-function choiceTexts(node: Node): string[] | undefined {
-  const texts = new Set<string>();
-  return addChoiceTexts(node, texts) ? [...texts] : undefined;
-}
-
-/** `choiceTexts()`, adding to one set rather than copying a tail per level. */
-function addChoiceTexts(node: Node, into: Set<string>): boolean {
-  const inner = unwrapShallow(node as Expression);
-  const text = literalText(inner);
-  if (text !== undefined) {
-    into.add(text);
-    return true;
-  }
-
-  return (
-    inner.type === 'ConditionalExpression' &&
-    addChoiceTexts(inner.consequent, into) &&
-    addChoiceTexts(inner.alternate, into)
-  );
-}
-
-/**
- * The part a `?:`, `||` or `??` is, when what it needs to be one is a literal.
+ * The part a `?:`, `||` or `??` is, when it has a literal in it to be one.
  *
  * `a ? 'x' : 'y'` is a choice between two known texts. `'x' || y` is `'x'`,
  * since a literal that is not empty is always truthy, and `'x' ?? y` is `'x'`
@@ -874,91 +985,96 @@ function addChoiceTexts(node: Node, into: Set<string>): boolean {
  * read once with the literal in it and once ended by an unknown part, and what
  * follows an unknown part is open on the left as it always is.
  *
+ * A `?:` is the same shape (SIG-624): `dark ? 'text-' : x` is `'text-'` or
+ * whatever `x` is, and was an unknown part while one branch was not a literal,
+ * so `(dark ? 'text-' : x) + colour` dropped every `text-*` rule. Which branch
+ * runs is the condition's to say and this never asks it, so a `?:` is every
+ * branch it has, and a branch that is itself a `?:`, `||` or `??` is read the
+ * same way, down to whatever is neither.
+ *
  * @param node - The expression, wrappers already taken off.
  * @returns The part, or `undefined` when this is not a shape that is read.
  */
 function knownParts(node: Node): Part {
-  if (node.type === 'ConditionalExpression') {
-    const texts = choiceTexts(node);
-    return texts?.length === 1 ? texts[0] : texts;
-  }
-
-  if (node.type === 'LogicalExpression') {
-    const operator = (node as unknown as { operator: string }).operator;
-    if (operator === '||' || operator === '??') {
-      const alternatives = new Set<string | undefined>();
-      addAlternatives(node, alternatives);
-      const texts = [...alternatives];
-      if (!texts.some((text) => text !== undefined)) {
-        return undefined;
-      }
-
-      if (texts.length === 1) {
-        return texts[0];
-      }
-
-      // a choice between several texts that main read as one unknown part -- a
-      // `?:` on the left of `||`, say -- keeps that part as an alternative, so
-      // it is `fresh` for the cap and cannot spend more of it than that part
-      // did. It is a superset of what the expression is, which is the direction
-      // this errs in
-      return texts.includes(undefined) ? texts : [...texts, undefined];
+  const conditional = node.type === 'ConditionalExpression';
+  if (!conditional) {
+    const operator =
+      node.type === 'LogicalExpression' ? (node as unknown as { operator: string }).operator : '';
+    if (operator !== '||' && operator !== '??') {
+      return undefined;
     }
   }
 
-  return undefined;
+  const alternatives = new Set<string | undefined>();
+  addAlternatives(node, alternatives);
+  const texts = [...alternatives];
+  if (!texts.some((text) => text !== undefined)) {
+    return undefined;
+  }
+
+  if (texts.length === 1) {
+    return texts[0];
+  }
+
+  // a `||` or `??` with several known texts and nothing unknown -- a `?:` on the
+  // left of it, say -- is a choice between texts that main read as one unknown
+  // part, so it keeps that part as an alternative: it is `fresh` for the cap and
+  // cannot spend more of it than that part did. It is a superset of what the
+  // expression is, which is the direction this errs in. A `?:` of literals was
+  // never an unknown part, and stays exactly the texts it is
+  return conditional || texts.includes(undefined) ? texts : [...texts, undefined];
 }
 
 /**
  * Every text an expression can be, with `undefined` among them where it can be
  * something this does not read -- the alternatives `knownParts()` makes a part
- * of for a `||` or a `??`.
+ * of for a `?:`, a `||` or a `??`.
  *
- * A literal on the left decides the whole of it where it cannot be skipped, so
- * only it is added; a side that is anything else is the unknown alternative, and
- * a `||` or `??` nested on either side is read the same way, so that
- * `x || 'a' || 'b'` is `a`, `b` or `x`. `&&` is one of the shapes that is not
- * read, and is the unknown alternative here too.
+ * A literal on the left of a `||` or `??` decides the whole of it where it
+ * cannot be skipped, so only it is added; a side that is anything else is the
+ * unknown alternative, and a `?:`, `||` or `??` nested on either side is read the
+ * same way, so that `x || 'a' || 'b'` is `a`, `b` or `x`. `&&` is one of the
+ * shapes that is not read, and is the unknown alternative here too.
+ *
+ * It keeps a stack of its own, since a chain of these nests as deep as it is long
+ * (SIG-625): a recursive read overflowed at about 3,500 of them.
  */
 function addAlternatives(node: Node, into: Set<string | undefined>): void {
-  const inner = unwrapShallow(node as Expression);
+  const pending: Node[] = [node];
 
-  const text = literalText(inner);
-  if (text !== undefined) {
-    into.add(text);
-    return;
-  }
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const inner = unwrapShallow(next as Expression);
 
-  if (inner.type === 'ConditionalExpression') {
-    const texts = choiceTexts(inner);
-    if (texts) {
-      for (const choice of texts) {
-        into.add(choice);
-      }
-    } else {
-      into.add(undefined);
+    const text = literalText(inner);
+    if (text !== undefined) {
+      into.add(text);
+      continue;
     }
-    return;
-  }
 
-  if (inner.type === 'LogicalExpression') {
-    const logical = inner as unknown as { left: Node; operator: string; right: Node };
-    if (logical.operator === '||' || logical.operator === '??') {
-      const left = literalText(unwrapShallow(logical.left as Expression));
-      if (left !== undefined && (logical.operator === '??' || left !== '')) {
-        into.add(left);
-      } else if (left === '') {
-        // falsy, so the right side is the value and the left never is
-        addAlternatives(logical.right, into);
-      } else {
-        addAlternatives(logical.left, into);
-        addAlternatives(logical.right, into);
-      }
-      return;
+    if (inner.type === 'ConditionalExpression') {
+      // the consequent is read first, so the texts come out in source order
+      pending.push(inner.alternate, inner.consequent);
+      continue;
     }
-  }
 
-  into.add(undefined);
+    if (inner.type === 'LogicalExpression') {
+      const logical = inner as unknown as { left: Node; operator: string; right: Node };
+      if (logical.operator === '||' || logical.operator === '??') {
+        const left = literalText(unwrapShallow(logical.left as Expression));
+        if (left !== undefined && (logical.operator === '??' || left !== '')) {
+          into.add(left);
+        } else if (left === '') {
+          // falsy, so the right side is the value and the left never is
+          pending.push(logical.right);
+        } else {
+          pending.push(logical.right, logical.left);
+        }
+        continue;
+      }
+    }
+
+    into.add(undefined);
+  }
 }
 
 /** Whether a node is a string literal, which oxc spells as a `Literal`. */
