@@ -845,7 +845,21 @@ function emitComponent(node: IRElement, component: ComponentRef): Element {
   const props: Record<string, unknown> = {};
   for (const { name, value } of node.props) {
     refuseExpr(value, node.loc);
-    props[name] = value;
+    if (name === '__proto__') {
+      // an assignment reaches `Object.prototype`'s setter, which sets the
+      // prototype of a value that is an object or `null` and ignores the rest --
+      // so the component was handed nothing under that name. The build emitter
+      // writes a computed key for the same reason, and the two hand over an own
+      // property (SIG-634)
+      Object.defineProperty(props, name, {
+        configurable: true,
+        enumerable: true,
+        value,
+        writable: true,
+      });
+    } else {
+      props[name] = value;
+    }
   }
 
   // whitespace-only text between a component's tags is dropped, which a host

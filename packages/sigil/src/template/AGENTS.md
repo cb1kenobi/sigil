@@ -428,17 +428,25 @@ the entry it belongs to.
   search and is `sigil build`'s to do. An empty prefix is refused outright,
   because it hands back bare imports -- the first bug again -- and it is what a
   caller reaches by passing something falsy rather than by meaning it.
-- **`__proto__` is written as a computed key, and it is hardening rather than a
-  fix.** Written plainly or quoted it is prototype sugar, so
-  `Object.freeze({ "__proto__": "x" })` has no own property of that name and the
-  prop would be dropped on the way into the constructor. Nothing observable
-  depends on it today: `Element`'s prop store is a plain object, so the
-  interpreted path's `#props["__proto__"] = "x"` is swallowed by
-  `Object.prototype`'s setter and both paths end up with nothing -- measured,
-  not reasoned. It is closed anyway because the rule this repo already records
-  for the parser's registries is that a name really can be `__proto__`, and the
-  day that store becomes null-prototype is the day this becomes a divergence
-  nobody would be looking for here.
+- **A component prop named `__proto__` is passed, as an own property, on both
+  paths (SIG-634).** Written plainly or quoted it is prototype sugar in an object
+  literal, and assigned it reaches `Object.prototype`'s setter: either way an
+  object value became the prototype of the props and any other value vanished, so
+  the component was never handed the prop. Measured before the fix, and the
+  ticket's premise that the two paths disagreed was not true -- both dropped it,
+  the same way, which is why nothing noticed. Refusing it was the other answer
+  and is what a host element does (SIG-614), but a host has a fixed vocabulary
+  and a component's props are its own: nothing makes the name wrong there, and a
+  silent drop is the defect either way. So the build emitter writes a computed
+  key, `["__proto__"]: x`, through `propertyKey()` in `emit.ts`, and
+  `emitComponent()` defines the property rather than assigning it. `propertyKey()`
+  is the one helper for an object key the toolchain prints, so
+  `generate.ts`'s `quoteKey()` asks it too: a command is named after its file and
+  a `__proto__.js` was registered under the prototype, which is the same defect in
+  the tree `sigil build` generates. Pinned by two corpus entries in
+  `packages/cli/test/template-corpus.ts` (a `scope.Echo` component reports
+  whether it arrived as an own property), by `tag.test.ts` for the interpreted
+  half alone, and by `tree.test.ts` for the command.
 - **`compile()` takes a module's templates, not one template.** Imports, the
   hoisted block and the prefix are all facts about a _module_; compiling one
   template at a time made the caller merge all three, and merging is where one

@@ -384,6 +384,25 @@ describe('generating a command tree', () => {
     expect(source).to.contain('"my-cmd": {');
   });
 
+  it('should keep a command named __proto__ as a key, which no literal spelling otherwise does', () => {
+    // `{ __proto__: x }` and `{ "__proto__": x }` both set the prototype and add
+    // nothing, so the command was registered nowhere (SIG-634)
+    const source = generateCommands(
+      {
+        commands: [
+          { commands: [], kind: 'module', module: '/app/commands/__proto__.js', name: '__proto__' },
+        ],
+        diagnostics: [],
+      },
+      { from: '/app' }
+    );
+    const commands = evaluate(source);
+
+    expect(Object.hasOwn(commands, '__proto__')).to.equal(true);
+    expect(typeof commands['__proto__'].load).to.equal('function');
+    expect(Object.getPrototypeOf(commands)).to.equal(Object.prototype);
+  });
+
   it('should escape a description rather than trusting it', () => {
     // a description is somebody's prose: a quote, a backslash and a newline
     // are all things it may hold and all things that would break the literal
