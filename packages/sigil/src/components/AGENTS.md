@@ -7800,15 +7800,30 @@ have.
   (`drawing.pinned` is `undefined` for both, and where the rule is in the pin's
   cell). It applies with an axis too, since the top cell is the marker's there as
   well.
-  **A limit, recorded rather than fixed:** where neither side of the widened area
-  has room for the bubble, `placeTooltip()` clamps it inside the screen, which
-  covers the pin, or the rule, again -- a narrow terminal with a wide readout. That
-  is the tooltip's own rule that covering the anchor beats being cut off, and
-  changing it would change every tooltip. The reach is an estimate from the words, so
-  a bubble the screen squeezes is narrower than it says, which only keeps it a few
-  cells further out. The SIG-636 tests in `test/components/chart-live.test.ts` pin the reach exactly,
-  the widest line, `maxWidth`, a line under the pin, and `side: 'top'`; each fails
-  with its rule taken out.
+  **Where neither side has room, the words are cut, and the pin gives way before the
+  rule does (SIG-646).** `placeTooltip()` clamps a bubble inside the screen when
+  neither side of its area fits it, which covers the pin or the rule again -- a narrow
+  terminal with a wide readout -- and that is the tooltip's own rule, that covering the
+  anchor beats being cut off. Changing it would change every tooltip, so the chart
+  answers instead, in `follow()`: it knows the room, which is the larger of what lies
+  left and right of the area against the root's box, and where that is less than the
+  bubble's reach it cuts each line of the readout to the room less the border and
+  padding, with an ellipsis. Cut and not wrapped, so a readout stays a line to a series
+  and a bubble is never taller than it was. Two steps, in order: past the widened area
+  where the room beside it takes more than `MIN_READOUT` (3) cells of words, which keeps
+  both the pin and the rule in sight; else beside the rule alone, where the pin is under
+  the bubble if it lies in the way -- the rule is what the readout reads, and a bubble
+  that hid it would be reading nothing. It applies to a rule with no pin as well, which
+  is the same clamp, and not to `side: 'top'` or `'bottom'`. `MIN_READOUT` is a constant
+  of the chart's own for the reason the 40 above is. The room is read from the last
+  layout's boxes, as the area is, so a terminal narrowed with the chart's own size
+  unchanged is cut at the next drawing and not before. The reach is still an estimate
+  from the words, so a bubble the screen squeezes is narrower than it says, which only
+  keeps it a few cells further out. The SIG-636 tests in
+  `test/components/chart-live.test.ts` pin the reach exactly, the widest line,
+  `maxWidth`, a line under the pin, and `side: 'top'`; the SIG-646 ones pin the cut past
+  the pin, the fall back to the rule, a rule with no pin, and a readout that fits being
+  left as said; each fails with its rule taken out.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
