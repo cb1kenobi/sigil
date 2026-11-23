@@ -1108,16 +1108,19 @@ changes. The full before-and-after, the A/B runs and the sabotage passes are in
   entry was time and not bytes.
 
   **SIG-635 re-measured all of them, and the figures had drifted both ways.**
-  Left at what SIG-328 and SIG-330 measured, the ceilings sat anywhere from 1.0x
-  to 2.3x of what their entries were: `i18n-keys` was already over its own and
-  failed on `main`, most of the component subpaths had grown about 10% and were
-  at 1.8x, and the few that stopped importing the prompt stack (`border-label`,
-  `overlay`, `element`, `note`) were at 2.1x to 2.3x of a smaller figure. Each
-  ceiling is `ceil(2 * measured / 1024)` KiB now, measured with `staticGraph()`
-  after `rm -rf dist registry && pnpm build --force` -- a turbo cache hit skips
-  the `rimraf`, so a stale file from another branch inflates a figure -- and the
-  figure beside it is as of that change. The 2x is the point, not a tolerance to
-  fit tightly: an entry that is open to growth in a pull request (the diff view,
+  Left at what SIG-328 and SIG-330 measured, the ceilings sat from 1.0x to 2.3x
+  of what their entries were, apart from the tiny ones rounded up to a whole KiB:
+  `i18n-keys` was already over its own and failed on `main` (it doubled, which is
+  the generated key table), most of the component subpaths had grown about 10%
+  and were at 1.8x, a few had grown more (`internal/routes`, `treemap`,
+  `debug-overlay`, `scroll-box`, at 1.4x to 1.5x), and a few had shrunk by 5% to
+  14% and were at 2.1x to 2.3x (`border-label`, `overlay`, `element`, `note`).
+  Each ceiling is `ceil(2 * measured / 1024)` KiB now, measured with
+  `staticGraph()` after `rm -rf dist registry && pnpm build --force`: a clean
+  build is not needed for the figure itself, since the graph only follows
+  imports from the entry, but a stale `dist/` is what inflates the test count
+  beside it. The figure beside each ceiling is as of that change. The 2x is the
+  point, not a tolerance to fit tightly: an entry that is open to growth in a pull request (the diff view,
   a chart, a QR code) should not need its ceiling moved to land it.
 
 - **The lazy loads are pinned twice, statically and at run time.** `should not

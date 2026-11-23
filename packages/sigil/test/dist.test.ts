@@ -1030,8 +1030,8 @@ describe('the builtins an entry loads, and the ones it only asks for', () => {
  * byte figures. SIG-635 re-measured every one of them with `staticGraph()` after
  * a clean `pnpm build --force`, because the figures had been left at what SIG-328
  * and SIG-330 measured and the entries had since moved in both directions: most
- * grew about 10% and a few, which no longer import the prompt stack, shrank by
- * about as much. The comments beside an entry are the history of an earlier
+ * grew, by about 10% and by as much as 95% for `i18n-keys`, and a few shrank by
+ * 5% to 14%. The comments beside an entry are the history of an earlier
  * figure and say whose it was, so they are left as written. The entries with a
  * test of their own keep it and are listed in `DEDICATED`, so that no entry has
  * two ceilings to disagree.
@@ -1054,7 +1054,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/chart': [471, 241_107],
   'components/checkbox': [529, 270_357],
   'components/clock': [422, 216_010],
-  // SIG-465, measured when it was added: 263,687 B, the view's module and
+  // added by SIG-465: 263,687 B, the view's module and
   // `tokensOf()` with the prompt stack it then lived in; SIG-597 moved it out and
   // the graph was 147,669 B, and SIG-615 brought the ceiling down to about 2x that
   'components/code-view': [291, 148_564],
@@ -1064,13 +1064,13 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   // added when SIG-310 split the ring and the console patch out of the overlay
   'components/console-capture': [4, 1_573],
   'components/control': [347, 177_632],
-  // SIG-281, measured when it was added
+  // added by SIG-281
   'components/data-table': [516, 263_936],
   'components/date': [544, 278_157],
   'components/debug-overlay': [366, 187_031],
   'components/decrypt': [422, 215_995],
   'components/diff': [344, 175_846],
-  // SIG-367, measured when it was added: the diff's module and the scroll box's,
+  // added by SIG-367: the diff's module and the scroll box's,
   // which it is built on
   'components/diff-view': [477, 243_835],
   // as of SIG-285, which added the menus and the overlay plumbing they share
@@ -1083,7 +1083,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/fuzzy': [12, 5_734],
   'components/group': [520, 265_788],
   'components/group-multiselect': [526, 269_187],
-  // SIG-289, measured when it was added: the lexers and nothing else, since the
+  // added by SIG-289: the lexers and nothing else, since the
   // module imports only a type -- which is what lets a highlighter be imported
   // without the component stack it feeds
   'components/highlight': [28, 14_172],
@@ -1092,7 +1092,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/keys': [8, 3_678],
   'components/large-text': [305, 155_807],
   'components/list': [522, 267_131],
-  // SIG-280, measured when it was added
+  // added by SIG-280
   'components/list-view': [497, 254_016],
   'components/log': [541, 276_815],
   'components/log-stream': [25, 12_625],
@@ -1122,8 +1122,8 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/qrcode': [312, 159_675],
   'components/radio-set': [532, 272_287],
   'components/rule': [303, 154_822],
-  // SIG-280: a row is built under an owner of its own, which is the renderer's --
-  // 174,349 B over 28 modules, from 136,485, and still under the ceiling it had
+  // SIG-280 made a row be built under an owner of its own, which is the renderer's --
+  // 174,349 B over 28 modules, from 136,485, which was under the ceiling it had then
   'components/scroll-box': [358, 182_955],
   'components/select-key': [524, 268_207],
   'components/select-row': [529, 270_725],
@@ -1142,10 +1142,10 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/token': [2, 655],
   'components/tooltip': [425, 217_558],
   'components/tree': [566, 289_620],
-  // SIG-282, measured when it was added: the tree's module and the list view's,
+  // added by SIG-282: the tree's module and the list view's,
   // which it is built on
   'components/tree-list-view': [623, 318_600],
-  // SIG-480, measured when it was added: the treemap's module, `Pixels`, and the
+  // added by SIG-480: the treemap's module, `Pixels`, and the
   // renderer's `trackedRaw()`
   'components/treemap': [495, 253_183],
   'components/typewriter': [416, 212_588],
