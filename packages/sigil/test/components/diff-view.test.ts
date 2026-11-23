@@ -23,10 +23,11 @@ import {
   type KeyEvent,
   type MouseEvent,
 } from '../../src/input/index.js';
+import { createRoot } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
 import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The diff view: `diffView()` in a scroll box, sized by it, with a cursor on the
@@ -1671,6 +1672,243 @@ describe('DiffView lines', () => {
       drag(root, '-two', ['+FOUR']);
       expect(cursor.get()).toBeUndefined();
       expect(selected.get().size).toBe(0);
+    });
+
+    describe('held past an edge of the view', () => {
+      // one hunk of twelve removed lines and twelve added, in a view of eight rows
+      const TALL = [
+        'diff --git a/a.txt b/a.txt',
+        'index 1111111..2222222 100644',
+        '--- a/a.txt',
+        '+++ b/a.txt',
+        '@@ -1,12 +1,12 @@',
+        ...Array.from({ length: 12 }, (_, at) => `-a${String(at).padStart(2, '0')}`),
+        ...Array.from({ length: 12 }, (_, at) => `+b${String(at).padStart(2, '0')}`),
+        '',
+      ].join('\n');
+      const HEIGHT = 8;
+      /** The view's scroll box, which owns the offset. */
+      const top = (root: Element): number =>
+        every(root).find((each) => each.scroll !== undefined)?.scroll?.y ?? 0;
+
+      function mountTall(): ReturnType<typeof mountLines> {
+        const view = mountLines({ content: { patch: TALL } }, HEIGHT);
+        press(view.host, 'enter');
+        picture(view.root, 30, HEIGHT);
+        return view;
+      }
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      /** Presses on a row, then moves to a canvas row, and leaves the pointer there. */
+      function hold(root: Element, label: string, y: number): Element {
+        const target = rowWith(root, label);
+        target.onMouse?.(at('mousedown', rowY(root, label)));
+        target.onMouse?.(at('mousemove', y));
+        flush();
+        return target;
+      }
+
+      /** Lets the repeat run for a number of its ticks, flushing as the app would. */
+      function tick(count: number): void {
+        for (let each = 0; each < count; each++) {
+          vi.advanceTimersByTime(50);
+          flush();
+        }
+      }
+
+      it('should scroll and extend the range while a drag is held past the bottom', () => {
+        const { cursor, root, selected } = mountTall();
+        const start = top(root);
+
+        hold(root, '-a00', HEIGHT + 6);
+        // the move itself clamps to the rows in view, as it always did
+        const shown = cursor.get() ?? 0;
+        expect(selected.get().size).toBe(shown + 1);
+        expect(top(root)).toBe(start);
+
+        tick(3);
+        expect(top(root)).toBe(start + 3);
+        expect(cursor.get()).toBe(shown + 3);
+        expect(selected.get().size).toBe(shown + 4);
+        expect(vi.getTimerCount()).toBe(1);
+
+        // held on to the hunk's last line, where the range cannot go further
+        tick(60);
+        expect(cursor.get()).toBe(23);
+        expect(selected.get().size).toBe(24);
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should scroll and extend the range while a drag is held past the top', () => {
+        const { cursor, host, root, selected } = mountTall();
+        for (let each = 0; each < 23; each++) {
+          press(host, 'down');
+        }
+        picture(root, 30, HEIGHT);
+        expect(cursor.get()).toBe(23);
+        const scrolled = top(root);
+        expect(scrolled).toBeGreaterThan(0);
+
+        hold(root, '+b11', -4);
+        const shown = cursor.get() ?? 0;
+        expect(selected.get().size).toBe(24 - shown);
+
+        tick(2);
+        expect(top(root)).toBe(scrolled - 2);
+        expect(cursor.get()).toBe(shown - 2);
+
+        tick(60);
+        expect(picture(root, 30, HEIGHT)).toContain('▌◉-a00');
+        expect(cursor.get()).toBe(0);
+        expect(selected.get().size).toBe(24);
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should stop scrolling when the pointer comes back onto the rows', () => {
+        const { cursor, root } = mountTall();
+        const start = top(root);
+        const target = hold(root, '-a00', HEIGHT + 6);
+        tick(2);
+        const at2 = top(root);
+        expect(at2).toBe(start + 2);
+
+        target.onMouse?.(at('mousemove', 2));
+        flush();
+        expect(vi.getTimerCount()).toBe(0);
+        const line = cursor.get();
+        tick(10);
+        expect(top(root)).toBe(at2);
+        expect(cursor.get()).toBe(line);
+      });
+
+      it('should turn round when the pointer crosses to the other edge', () => {
+        const { root } = mountTall();
+        const start = top(root);
+        const target = hold(root, '-a00', HEIGHT + 6);
+        tick(4);
+        expect(top(root)).toBe(start + 4);
+
+        target.onMouse?.(at('mousemove', -2));
+        flush();
+        tick(2);
+        expect(top(root)).toBe(start + 2);
+        // one repeat the whole time, not one a crossing
+        expect(vi.getTimerCount()).toBe(1);
+      });
+
+      it('should stop scrolling at the release, and keep what it picked', () => {
+        const { cursor, root, selected } = mountTall();
+        const start = top(root);
+        const target = hold(root, '-a00', HEIGHT + 6);
+        tick(2);
+        const picked = selected.get().size;
+        target.onMouse?.(at('mouseup', HEIGHT + 6));
+        flush();
+
+        expect(vi.getTimerCount()).toBe(0);
+        tick(10);
+        expect(top(root)).toBe(start + 2);
+        expect(selected.get().size).toBe(picked);
+        expect(cursor.get()).toBe(picked - 1);
+      });
+
+      it('should stop scrolling when the release was lost and the pointer reports hover', () => {
+        const { root } = mountTall();
+        const start = top(root);
+        const target = hold(root, '-a00', HEIGHT + 6);
+        tick(1);
+        target.onMouse?.({ ...at('mousemove', HEIGHT + 6), button: undefined });
+        flush();
+
+        expect(vi.getTimerCount()).toBe(0);
+        tick(5);
+        expect(top(root)).toBe(start + 1);
+      });
+
+      it('should stop scrolling when another press ends the drag', () => {
+        const { root } = mountTall();
+        const target = hold(root, '-a00', HEIGHT + 6);
+        target.onMouse?.(at('mousedown', 0));
+        flush();
+
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should stop scrolling when v closes the range under the drag', () => {
+        const { host, root } = mountTall();
+        hold(root, '-a00', HEIGHT + 6);
+        expect(vi.getTimerCount()).toBe(1);
+
+        press(host, 'v');
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should stop scrolling when the cursor leaves the lines mid-drag', () => {
+        const { cursor, root } = mountTall();
+        const start = top(root);
+        hold(root, '-a00', HEIGHT + 6);
+        cursor.set(undefined);
+        flush();
+        tick(1);
+
+        // the first tick found nothing to follow and ended the drag
+        expect(vi.getTimerCount()).toBe(0);
+        tick(5);
+        expect(top(root)).toBeLessThanOrEqual(start + 1);
+      });
+
+      it('should stop scrolling when the current hunk changes mid-drag', () => {
+        const { current, host, root } = mountLines({}, 14);
+        press(host, 'enter');
+        hold(root, '-two', 14 + 6);
+        expect(vi.getTimerCount()).toBe(1);
+
+        // the lines belong to one hunk, and a drag over them goes with it
+        current.set(1);
+        flush();
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should not scroll for another button held past the edge', () => {
+        const { root } = mountTall();
+        const target = rowWith(root, '-a00');
+        target.onMouse?.(at('mousedown', rowY(root, '-a00')));
+        target.onMouse?.(at('mousemove', HEIGHT + 6, 'right'));
+        flush();
+
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it('should not scroll for a pointer that was never held past an edge', () => {
+        const { root } = mountTall();
+        const start = top(root);
+        const target = rowWith(root, '-a00');
+        target.onMouse?.(at('mousedown', rowY(root, '-a00')));
+        target.onMouse?.(at('mousemove', rowY(root, '-a03')));
+        tick(5);
+
+        expect(vi.getTimerCount()).toBe(0);
+        expect(top(root)).toBe(start);
+      });
+
+      it('should leave no timer when the view is disposed mid-drag', () => {
+        let dispose: () => void = () => {};
+        const view = createRoot((off) => {
+          dispose = off;
+          return mountTall();
+        });
+        hold(view.root, '-a00', HEIGHT + 6);
+        expect(vi.getTimerCount()).toBe(1);
+
+        dispose();
+        expect(vi.getTimerCount()).toBe(0);
+      });
     });
   });
 

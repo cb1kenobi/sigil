@@ -10286,22 +10286,39 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   armed, so every press clears it. Release closes the range and keeps the picks,
   as the second `v` does.
 
-  **It clamps rather than scrolls, which was the ticket's to choose.** The pointer's
-  row is read against the viewport's content box and its scroll, clamped to the
-  rows in view, and then to the hunk's first and last line; a context line under
-  the pointer is the changed line nearest it on the anchor's side, so dragging down
-  over `three` ends on the line above it and dragging up ends on the line below,
-  which is where `v` and the arrows would stop. A captured drag reports rows off
-  the canvas, so the clamp is what makes a drag off the edge pick as far as the
-  view shows. Scrolling would take a timer for a pointer held still off the edge,
-  motion reports arriving only when it moves. A hunk taller than the view is
-  dragged as far as it shows and `v` or the wheel does the rest. A wheel turn
-  mid-drag takes the pressed row out of the tree, which keeps its parent and its
-  handler (measured), so the moves still reach it and are read against the scroll
-  as it now is -- and a context line under the pointer then resolves toward an
-  anchor that may be off screen, so the cursor can land on a changed line out of
-  view and the cursor's own reveal scrolls to it. That is the one place a drag
-  scrolls, and it is left alone: it needs a wheel in the middle of a drag.
+  **It clamps to the rows in view, and a pointer held past an edge scrolls them
+  (SIG-637).** The pointer's row is read against the viewport's content box and its
+  scroll, clamped to the rows in view, and then to the hunk's first and last line; a
+  context line under the pointer is the changed line nearest it on the anchor's
+  side, so dragging down over `three` ends on the line above it and dragging up ends
+  on the line below, which is where `v` and the arrows would stop. A captured drag
+  reports rows off the canvas, so the clamp is what makes a move off the edge pick as
+  far as the view shows -- and what a move past the edge does besides is arm a
+  timer. The first answer, SIG-623's, was to clamp and leave the rest of a hunk
+  taller than the view to `v` or the wheel, because a pointer held still sends no
+  motion reports and scrolling under it takes a timer; this is that timer. A move
+  above the top or below the bottom of the content box starts a `setInterval` of 50
+  ms, unref'd, which each tick scrolls one row toward that edge and then runs the
+  same `follow()` a move runs, at the row the pointer was last reported at -- now
+  over another line -- so there is one way to compute the range whether the pointer
+  moved or the view did. A move back onto the rows stops it; a move past the other
+  edge replaces it with one the other way. **It stops where the hunk's
+  own first or last line is in view**, since the range cannot go further and the
+  rest of the diff is no business of a drag; the next move re-arms it. One row a
+  tick and no faster for a pointer further out is deliberate: twenty rows a second
+  crosses a screenful in about a second, which is slow enough to stop on a line, and
+  acceleration is a second rule to tune. The timer is cleared by `stopScroll()`,
+  which is called from every place a drag stops being one -- the release, `endDrag()`,
+  `closeRange()`, `resetLines()` -- and from `onCleanup()` when the view is disposed,
+  so no timer outlives a drag, a lost release or the view; a tick that finds the
+  drag gone, or the cursor off the lines, ends it as well. A wheel turn mid-drag takes the
+  pressed row out of the tree, which keeps its parent and its handler (measured), so
+  the moves still reach it and are read against the scroll as it now is -- and a
+  context line under the pointer then resolves toward an anchor that may be off
+  screen, so the cursor can land on a changed line out of view and the cursor's own
+  reveal scrolls to it. Tested with fake timers, drag past each edge, hold, back onto
+  the rows, release, hover with no release, a press, `v`, the cursor leaving, and
+  disposal, each asserting `vi.getTimerCount()`.
 
   **Whatever takes the drag away closes the range it opened, and whatever closes the
   range takes the drag away.** `endDrag()` is asked when a new drawing replaces the
@@ -10315,7 +10332,10 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   drag's to end nor to continue. What is not covered is a lost release with
   nothing after it: no report reaches the view until the pointer is over a stop
   row with motion reported, so the range stays open for the keys until something
-  above does happen. Each of the rest is pinned by a test that fails without it,
+  above does happen. A lost release with the pointer
+  held past an edge keeps the repeat going, which is the cost of it: it scrolls
+  to the hunk's edge, extending the range as it goes, and stops there -- bounded,
+  never a timer that outlives the hunk, and any key that closes the range ends it. Each of the rest is pinned by a test that fails without it,
   bar the `endDrag()` in the cursor-left branch of `moved()`, which is reached
   only after something else has already closed the range.
 
