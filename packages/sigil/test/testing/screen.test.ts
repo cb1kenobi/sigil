@@ -541,3 +541,59 @@ describe('the screen model as it was', () => {
     expect(screen.width).toBe(10);
   });
 });
+
+describe('the mouse modes on a screen', () => {
+  const off = { buttons: false, motion: false, sgr: false };
+
+  it('should report none until something turns one on', () => {
+    expect(new Screen(4, 2).mouse).toEqual(off);
+  });
+
+  it('should report button tracking and the encoding, and give them back', () => {
+    const screen = new Screen(4, 2);
+
+    screen.write(`${ESC}[?1006h${ESC}[?1002h`);
+    expect(screen.mouse).toEqual({ buttons: true, motion: false, sgr: true });
+
+    screen.write(`${ESC}[?1002l${ESC}[?1006l`);
+    expect(screen.mouse).toEqual(off);
+  });
+
+  it('should report motion tracking apart from button tracking', () => {
+    const screen = new Screen(4, 2);
+
+    screen.write(`${ESC}[?1003h`);
+    expect(screen.mouse).toEqual({ buttons: false, motion: true, sgr: false });
+
+    screen.write(`${ESC}[?1003l`);
+    expect(screen.mouse).toEqual(off);
+  });
+
+  it('should read a mode list, and leave the modes it does not name alone', () => {
+    const screen = new Screen(4, 2);
+
+    screen.write(`${ESC}[?1000;1002;1006h`);
+    expect(screen.mouse).toEqual({ buttons: true, motion: false, sgr: true });
+
+    screen.write(`${ESC}[?1006l`);
+    expect(screen.mouse).toEqual({ buttons: true, motion: false, sgr: false });
+  });
+
+  it('should keep the mouse across the alternate screen and the cursor', () => {
+    const screen = new Screen(4, 2);
+
+    screen.write(`${ESC}[?1002h${ESC}[?1049h${ESC}[?25l${ESC}[?1049l${ESC}[?25h`);
+
+    expect(screen.mouse.buttons).toBe(true);
+  });
+
+  it('should hand out a snapshot, so a held value does not follow the screen', () => {
+    const screen = new Screen(4, 2);
+    const before = screen.mouse;
+
+    screen.write(`${ESC}[?1002h`);
+
+    expect(before).toEqual(off);
+    expect(screen.mouse.buttons).toBe(true);
+  });
+});

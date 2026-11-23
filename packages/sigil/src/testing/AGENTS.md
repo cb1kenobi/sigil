@@ -546,6 +546,26 @@ dependency.
   right way round. The harness runs its entries with `detect` on, so the queries
   go out and nobody answers, which is the real case for a CI run with no terminal.
 
+- **`Screen.mouse` is the state the terminal is in, and not a log of what was
+  asked (SIG-616).** Three booleans -- `buttons` (`?1002`), `motion` (`?1003`)
+  and `sgr` (`?1006`), the only mouse modes sigil writes -- read the way
+  `alternate` and `cursorHidden` are: on at `h`, off at `l`, so an app that handed
+  the mouse back reads all `false`. That is the property a test wants twice, once
+  while the app runs (`waitFor()` the first frame, read it) and once after it
+  quit, and it is why it is not a history: a history cannot say "handed back",
+  which is the half of the claim an app that leaves the mouse on a user's shell
+  breaks. It is read **while the app runs** because the enable is written before
+  the first frame, which is what lets one `waitFor(/\S/)` be the whole
+  synchronization. A mode list (`ESC[?1000;1002h`) is split, so a sequence that
+  names several is read as each; anything but those three is ignored, as every
+  private mode this model does not keep always was, and `1000` in particular is
+  not modelled because nothing here writes it. `mouse` is a getter returning a
+  fresh object, so a value held across a write does not follow the screen, and
+  there is nothing to assign: the model's own writes are the only thing that
+  moves it. Before this the example tests each copied a harness to read
+  `ENABLE_MOUSE_*` off the child's bytes with `indexOf`, which asserted the
+  sequence was written and said nothing about the state it left.
+
 - **What it cannot give a program, and does not claim to.** No mode: nothing is
   cooked or raw, nothing echoes, Ctrl-C is a byte and not a signal. Raw mode is
   recorded on the **child's** `process.stdin.isRaw`, which the parent cannot read;
