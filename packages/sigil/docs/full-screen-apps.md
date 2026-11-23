@@ -429,7 +429,8 @@ component goes away.
 In a template, write `tracked` on the `<raw>`: `<raw tracked measure={...} paint={...} />`
 in JSX, and the same inside a `ui` tag. It builds the same element, so nothing else
 has to listen for the signals the paint reads. A `<raw>` without it stays a plain
-one.
+one. A prop a `<raw>` does not take, such as `Tracked` or `trackd`, is refused with
+its name rather than ignored.
 
 ## Names and files from outside the app
 

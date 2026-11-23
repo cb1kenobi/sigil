@@ -379,4 +379,18 @@ export const REFUSALS: readonly RefusalEntry[] = [
     name: 'a tracked raw whose flag is a function',
     template: `<raw tracked=\${2} measure=\${0} paint=\${1} />`,
   },
+  {
+    exprs: ['() => ({ height: 1, width: 3 })', '() => {}'],
+    message:
+      '<raw> has no prop `Tracked`: write `tracked`, which is spelled exactly that way (at line 1)',
+    name: 'a raw whose tracked is capitalized, which built a plain one',
+    template: `<raw Tracked measure=\${0} paint=\${1} />`,
+  },
+  {
+    exprs: ['() => ({ height: 1, width: 3 })', '() => {}'],
+    message:
+      '<raw> has no prop `trackd`. It takes measure, paint, tracked, `ref`, and what any element takes: a style property, `class`, `id`, `key`, the focus props and the handlers (at line 1)',
+    name: 'a raw with a misspelled tracked',
+    template: `<raw trackd measure=\${0} paint=\${1} />`,
+  },
 ];

@@ -8,16 +8,16 @@
  * form refused has to say why. Tab and Shift-Tab stay inside the dialog, and
  * Escape or Cancel close it with no answer.
  *
- * The dialog's buttons are in the body rather than in `openModal()`'s `actions`,
- * because an action cannot be disabled and the dialog would open with the focus
- * on a button rather than on the first field (SIG-337).
+ * The buttons are `openModal()`'s `actions`: Sign in is disabled by the form and
+ * runs the sign-in itself rather than settling the dialog, since the answer may be
+ * no; Cancel settles it with nothing. `initial: 'body'` opens it on the user name
+ * (SIG-337).
  */
 
 import type { Account } from './account.ts';
 import { type Login, LOGIN_CHECKS } from './checks.ts';
 import { createForm, touchOnLeave } from './form.ts';
 import { Problem } from './rows.tsx';
-import { Button } from '@ttylabs/sigil/components/button';
 import { type ModalHandle, type ModalHost, openModal } from '@ttylabs/sigil/components/modal';
 import { TextField } from '@ttylabs/sigil/components/text-field';
 import type { Element } from '@ttylabs/sigil/element';
@@ -43,65 +43,67 @@ export const LOGIN_REFUSED = 'That user name and password do not match';
 /**
  * Opens the login dialog.
  *
- * The form is built by the dialog's `body` function, so everything in it belongs
- * to an owner that `openModal()` disposes when the dialog closes: its effects, one
- * of which follows the router's focus, stop with it rather than running for as
- * long as the app does. A button's `onPress` has no owner to build under, which
- * is what a body function is for (SIG-335).
+ * The form's state is made here, before the dialog: it is signals and nothing
+ * else, and the dialog's Sign in has to read whether it is valid while the body
+ * that holds the fields is still to be built. What is built by the dialog's `body`
+ * function is everything with an effect in it, which `openModal()` disposes when
+ * the dialog closes: the fields, and `touchOnLeave()`, which follows the router's
+ * focus and would otherwise run for as long as the app does. A button's `onPress`
+ * has no owner to build under, which is what a body function is for (SIG-335).
  *
  * @param opts - The account, the renderer and the router.
  * @returns The dialog, whose `result` is the user name signed in, or `undefined`.
  */
 export function openLogin({ account, host, input }: LoginOptions): ModalHandle<string> {
-  // a dialog's own buttons are in its body, so the handle is needed by the
-  // handlers built before it exists
+  const form = createForm<Login>({ password: '', user: '' }, LOGIN_CHECKS);
+  const { password, user } = form.fields;
+  /** Whether a sign-in is on its way, which holds the fields and the button. */
+  const busy = new State(false);
+  /** What the last attempt was told, which is about the form rather than one field. */
+  const refused = new State('');
+  // the dialog's own handle and the field a refusal moves the focus to, which are
+  // made after the handlers that use them
   let dialog: ModalHandle<string> | undefined;
+  let passwordField: Element | undefined;
+
+  // no guard against a second submit while one is on its way: the fields and
+  // the button are disabled for as long as `busy` is, so nothing can call this
+  const submit = async (): Promise<void> => {
+    if (!form.valid.get()) {
+      // Enter in the password field is a submit the button would not have
+      // allowed, and the form says why in every field at once
+      form.touch();
+      return;
+    }
+    const { password: secret, user: name } = form.values();
+    busy.set(true);
+    refused.set('');
+    let ok = false;
+    try {
+      ok = await account.signIn(name.trim(), secret);
+    } catch (err) {
+      refused.set(`Could not sign in: ${(err as Error).message}`);
+    }
+    busy.set(false);
+    if (dialog?.open !== true) {
+      // closed while the answer was on its way: nobody is waiting for it
+      return;
+    }
+    if (ok) {
+      dialog.close(name.trim());
+      return;
+    }
+    if (refused.get() === '') {
+      refused.set(LOGIN_REFUSED);
+    }
+    // the password goes and the user name stays, and the focus goes where the
+    // next thing to type is
+    password.value.set('');
+    password.touched.set(false);
+    input.focus.focus(passwordField);
+  };
 
   const build = (): Element => {
-    const form = createForm<Login>({ password: '', user: '' }, LOGIN_CHECKS);
-    const { password, user } = form.fields;
-    /** Whether a sign-in is on its way, which holds the fields and the button. */
-    const busy = new State(false);
-    /** What the last attempt was told, which is about the form rather than one field. */
-    const refused = new State('');
-
-    // no guard against a second submit while one is on its way: the fields and
-    // the button are disabled for as long as `busy` is, so nothing can call this
-    const submit = async (): Promise<void> => {
-      if (!form.valid.get()) {
-        // Enter in the password field is a submit the button would not have
-        // allowed, and the form says why in every field at once
-        form.touch();
-        return;
-      }
-      const { password: secret, user: name } = form.values();
-      busy.set(true);
-      refused.set('');
-      let ok = false;
-      try {
-        ok = await account.signIn(name.trim(), secret);
-      } catch (err) {
-        refused.set(`Could not sign in: ${(err as Error).message}`);
-      }
-      busy.set(false);
-      if (dialog?.open !== true) {
-        // closed while the answer was on its way: nobody is waiting for it
-        return;
-      }
-      if (ok) {
-        dialog.close(name.trim());
-        return;
-      }
-      if (refused.get() === '') {
-        refused.set(LOGIN_REFUSED);
-      }
-      // the password goes and the user name stays, and the focus goes where the
-      // next thing to type is
-      password.value.set('');
-      password.touched.set(false);
-      input.focus.focus(passwordField);
-    };
-
     const userField = TextField({
       disabled: busy,
       onChange: () => refused.set(''),
@@ -109,7 +111,7 @@ export function openLogin({ account, host, input }: LoginOptions): ModalHandle<s
       placeholder: 'your user name',
       value: user.value,
     });
-    const passwordField = TextField({
+    passwordField = TextField({
       disabled: busy,
       mask: '•',
       onChange: () => refused.set(''),
@@ -125,14 +127,7 @@ export function openLogin({ account, host, input }: LoginOptions): ModalHandle<s
       ])
     );
 
-    const signIn = Button({
-      disabled: () => busy.get() || !form.valid.get(),
-      label: 'Sign in',
-      onPress: () => void submit(),
-    });
-    const cancel = Button({ label: 'Cancel', onPress: () => dialog?.close() });
-
-    const body: Element = (
+    return (
       <box class="login">
         <text class="login-hint sigil-muted">{LOGIN_HINT}</text>
         <text>User name</text>
@@ -144,21 +139,21 @@ export function openLogin({ account, host, input }: LoginOptions): ModalHandle<s
         <text class={() => (busy.get() ? 'login-status sigil-muted' : 'login-status sigil-error')}>
           {() => (busy.get() ? 'Signing in...' : refused.get())}
         </text>
-        <box class="login-actions">
-          {signIn}
-          {cancel}
-        </box>
       </box>
     );
-
-    return body;
   };
 
-  // no actions: with none, the dialog starts the focus on the first thing in the
-  // body that takes it, which is the user name
   dialog = openModal<string>(host, {
-    actions: [],
+    actions: [
+      {
+        disabled: () => busy.get() || !form.valid.get(),
+        label: 'Sign in',
+        onPress: () => void submit(),
+      },
+      { label: 'Cancel' },
+    ],
     body: build,
+    initial: 'body',
     input,
     title: 'Sign in',
     width: 46,

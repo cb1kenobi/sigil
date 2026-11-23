@@ -903,6 +903,7 @@ export const HELPERS: Readonly<Record<string, readonly string[]>> = {
     'runLinePrompt',
     'runPrompt',
     'setPromptNote',
+    'tokenClasses',
     'tokensOf',
     'topLayer',
     'writeLine',
