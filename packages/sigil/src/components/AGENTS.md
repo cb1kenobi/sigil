@@ -10244,12 +10244,21 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   the canvas, so the clamp is what makes a drag off the edge pick as far as the
   view shows. Scrolling would take a timer for a pointer held still off the edge,
   motion reports arriving only when it moves. A hunk taller than the view is
-  dragged as far as it shows and `v` or the wheel does the rest, and the wheel does
-  work mid-drag: the row pressed is out of the tree once the view scrolls past it,
-  but it keeps its parent and its handler, so the moves still reach it (measured
-  rather than assumed, since the rows are a virtual window) and are read against
-  the scroll as it now is. A new drawing ends a drag, since it makes new rows
-  and leaves the pressed one meaning nothing.
+  dragged as far as it shows and `v` or the wheel does the rest. A wheel turn
+  mid-drag takes the pressed row out of the tree, which keeps its parent and its
+  handler (measured), so the moves still reach it and are read against the scroll
+  as it now is -- and a context line under the pointer then resolves toward an
+  anchor that may be off screen, so the cursor can land on a changed line out of
+  view and the cursor's own reveal scrolls to it. That is the one place a drag
+  scrolls, and it is left alone: it needs a wheel in the middle of a drag.
+
+  **Whatever takes the drag away closes the range it opened.** `endDrag()` is asked
+  when a new drawing replaces the rows, when the cursor leaves the lines (`resetLines()`
+  clears the drag with the anchor), on a press, and on motion with nothing held --
+  what an app reporting hover is sent when the release never came -- because the
+  release that would close the range finds no drag to close. Another button's press
+  is not the drag's to end, and a drag whose cursor an app wrote off the lines stops
+  following. Each is pinned by a test that fails without it.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the

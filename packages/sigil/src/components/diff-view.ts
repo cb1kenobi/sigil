@@ -493,7 +493,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
 
     // new rows: the one the press landed on is not in the tree any more, so a drag
     // that began on it has nothing to follow
-    dragging = undefined;
+    endDrag();
     overflow = widest;
     lines = rows;
     runs = reaches;
@@ -613,6 +613,19 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
   let dragged = false;
 
   /**
+   * Ends a drag where it stands: a range it opened is closed, keeping its picks, as
+   * the release would have. Whatever takes the drag's row or the cursor's lines away
+   * asks this, because the release that would close the range will not find the
+   * drag.
+   */
+  const endDrag = (): void => {
+    if (dragging?.began) {
+      anchor = undefined;
+    }
+    dragging = undefined;
+  };
+
+  /**
    * Routes a report on a row to what it is for. A press captures the pointer, so
    * the moves and the release of a drag arrive at the row it landed on wherever the
    * pointer has got to.
@@ -640,13 +653,16 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
    * the press is not stopped, so it still focuses the view.
    */
   const pressed = (event: MouseEvent, at: number, line?: number): void => {
+    // another button's press is not this drag's to end
+    if (event.button !== 'left') {
+      return;
+    }
     // every press starts afresh, so a release that never came cannot leave the
     // next click swallowed
-    dragging = undefined;
+    endDrag();
     dragged = false;
     if (
       !picking ||
-      event.button !== 'left' ||
       line === undefined ||
       at !== lit ||
       untrack(() => picking.cursor.get()) === undefined ||
@@ -700,11 +716,17 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     if (!picking || !dragging) {
       return;
     }
+    if (event.button === undefined) {
+      // motion with nothing held, which an app that reports hover is sent: the
+      // release never came, and the drag is over
+      endDrag();
+      return;
+    }
     const spans = drawn[lit]?.lines ?? [];
     const cursor = untrack(() => picking.cursor.get());
     if (cursor === undefined || spans[dragging.line] === undefined) {
       // the cursor left the lines, or the hunk is another one: nothing to follow
-      dragging = undefined;
+      endDrag();
       return;
     }
     const to = lineAt(event.y, dragging.line);
@@ -802,6 +824,7 @@ export function DiffView<T = unknown>(props: DiffViewProps<T>): Element {
     }
     anchor = undefined;
     ranged = undefined;
+    dragging = undefined;
     untrack(() => {
       if (picking.cursor.get() !== undefined) {
         picking.cursor.set(undefined);
