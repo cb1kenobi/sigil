@@ -13,6 +13,20 @@ the entry it belongs to.
 
 ### Updates
 
+- **The suite serves its own registry, and nothing in it asks a real one
+  (SIG-627).** Three tests asked registry.npmjs.org for `snooplogg` through a real
+  worker, and the worker has five seconds: they failed with `Update worker timed
+  out` on a macOS runner whose answer came late, over changes that touched
+  nothing of the kind. What they check -- that a worker `check()` spawned fetches
+  a URL over TLS and that the parent reads a version out of what came back -- is
+  none of the registry's, so the other end is `test/self-signed.ts`: a
+  certificate for `127.0.0.1` written as DER by hand, since node makes keys and
+  not certificates and `openssl` is not on every runner's `PATH`, trusted by the
+  worker through `NODE_EXTRA_CA_CERTS`, which it inherits. The worker is still a
+  real process doing a real handshake. Sabotaged by leaving the variable unset:
+  all three fail with `self-signed certificate`, so the trust is what is being
+  used. This also makes the "verified by hand against the real endpoint, never
+  from the suite" entry above literally true again.
 - **A package name is percent-encoded into the registry URL and out of the cache
   filename.** It is one path segment and it is not a filename, and a scoped name
   -- which is what this framework publishes under -- was wrong as both.

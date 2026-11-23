@@ -168,10 +168,51 @@ the entry it belongs to.
   gets the generic sentence, because that half of it needs a value the compiler
   does not have. A prop whose value is `undefined` is not refused, which is what
   the JSX transform passes for an omitted attribute, and the name is escaped
-  where it is echoed. Only `<raw>`: `<box padddding>` still reaches the cascade,
-  which is the same behaviour for the same reason and is not changed here. Pinned by
+  where it is echoed. Pinned by
   `a prop a <raw> does not take` in `test/template/tracked-raw.test.ts` and by two
   entries in `REFUSALS`, which hold the compiled path to the same sentence.
+
+- **A `<box>` and a `<text>` refuse one too, from the same function (SIG-614).**
+  SIG-599 left `<box padddding>` to the cascade, "the same behaviour for the same
+  reason", and it was the same defect without the worse half: the build said
+  nothing and the app failed with a `StyleError` on its first frame. The refusal is
+  now `refuseUnknownProps()`, which `rawParts()` calls for a raw and `emitBox()`,
+  `emitText()` and the compiler's `#box()` and `#text()` call for the others, so
+  the tag, JSX and `sigil build` and `sigil check` -- which compile every template
+  they find -- refuse the same set in the same words. The set is still
+  `isReservedProp()` plus `isKnownProperty()`, the runtime's own two questions, so
+  there is no list in the toolchain to fall out of step: nothing was duplicated,
+  and the toolchain already imported both through `@ttylabs/sigil/template`, which
+  reaches `style` for the raw. The first thing done was to run it over every
+  template in `examples/` (JSX and the `ui` tag), `demos/` and `website/` -- 141
+  JSX elements and the seven modules that hold `ui` templates -- and it refused
+  none, which is the claim "everything the runtime accepts is still accepted"
+  measured rather than read. What it did refuse, once the corpus ran, is a
+  `<text __proto__="x">`: the prop store swallowed it without a word (a plain
+  object's `__proto__` setter), so it built and did nothing, and the corpus case
+  and the `key()` function that wrote it as a computed key were both there to
+  keep two emitters agreeing about a prop neither used. It is a refusal now, which
+  is the better answer, and `key()` has no caller that can reach its branch.
+  An `on*` name that is none of the seven **and has the shape of an event** --
+  `on`, `onClick`, `on-click` -- is refused as "not an event this element has"
+  whatever it is given, for a box, a text and a raw: that is a change from "only
+  given a function", which existed because the compiler cannot know a value, and
+  says nothing about a name -- no style property starts with `on`, so a string
+  under `onClick` was only ever an unknown property found late. `only` and `once`
+  have no such shape and get the ordinary sentence. A component's props are the
+  component's and are not asked. **`href` is refused, and that is a behavior
+  change on one path.** On the interpreted path it already was: `#apply()` reads
+  `href` but `RESERVED` does not name it, so `setProp('href')` stores a style
+  property the cascade rejects. On the **compiled** path a static
+  `<text href="...">` is lifted into the constructor, which does go through
+  `#apply()`, so it built and drew an OSC 8 link -- and is now a build error. It
+  was never typed (`ReservedProps` does not offer `href`) and the interpreted run of
+  the same template threw, so no app could run both ways; the fix that makes it a
+  feature is adding `href` to `RESERVED` and `ReservedProps`, which is a decision
+  about `text` and not about this check, and is left for its own ticket. Pinned by `test/template/unknown-prop.test.ts` for the tag and
+  JSX, by four entries in `REFUSALS` for the compiled path, and by `should refuse an
+  unknown prop on a box and a text before the app runs` in `packages/cli/test/build-command.test.ts` for `check`
+  and `build`.
 
 - **The IR is not serializable, and that is the expression decision rather than
   a second one.** An expression is opaque JavaScript, so `${() => count()}` is a
@@ -509,8 +550,9 @@ the entry it belongs to.
   name given a function** -- including a prop named just `on` -- is "not an event this element has", listing the seven;
   only the interpreter knows the value, so that half is a run-time error in a
   compiled template, with the same words and position. A non-function under such
-  a name is not its business: it reaches the cascade, which refuses an unknown
-  property at the first style resolve. Safe because **no style property starts
+  a name was not its business and reached the cascade, which refused an unknown
+  property at the first style resolve; it is `refuseUnknownProps()`'s since
+  SIG-614, which says the same sentence at build time. Safe because **no style property starts
   with `on`** -- `props.test.ts` asserts it over the property table, so a future
   property that does fails there rather than being refused as an event.
   `REFUSALS` in `packages/cli/test/template-corpus.ts` holds the cases and

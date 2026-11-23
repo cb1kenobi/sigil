@@ -309,6 +309,13 @@ function disposeBody(owned: Owned<unknown> | undefined): { readonly error: unkno
  * @returns The handle.
  */
 export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>): ModalHandle<T> {
+  // untracked as a whole: it reads the router's focus (what to give back) and then
+  // writes it (the initial focus), so an effect that opened a modal depended on a
+  // signal it set and ran again until the run guard stopped it (SIG-596)
+  return untrack(() => openModalUntracked(host, opts));
+}
+
+function openModalUntracked<T>(host: ModalHost, opts: ModalOptions<T>): ModalHandle<T> {
   refuseOwnedHooks('openModal', opts?.props, ['onPaste']);
   const root = host instanceof Element ? host : host?.root;
   if (!(root instanceof Element)) {
@@ -525,7 +532,16 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   const inside = (scope: Element): Element[] =>
     input.focus.ring().filter((element) => scope.contains(element));
 
+  /**
+   * Closes the dialog, untracked as a whole: it reads the focus to know whether to
+   * hand it back and then hands it back, so an effect that closed a modal would
+   * otherwise be left reading what it wrote (SIG-596).
+   */
   function close(value?: T): void {
+    untrack(() => finish(value));
+  }
+
+  function finish(value?: T): void {
     if (!open) {
       return;
     }

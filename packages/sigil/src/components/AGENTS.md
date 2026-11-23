@@ -1612,8 +1612,28 @@ decided once, for all of them. The runs and the sabotage passes are in
   sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
   each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
   is the theme's and importing it would put the theme behind a module that is 655 B
-  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
-  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+  without it.
+
+  `field-layout` is the third, and it is what `text-area.ts` still imported from
+  `prompt.ts` (SIG-615): `layoutField()`, `offsetIn()` and the four shapes they
+  trade in -- `FieldCell`, `FieldRow`, `FieldLayout` and `FieldFrame`. As it
+  landed, `components/text-area` was 283,108 B over 45 modules and is 228,143 B over
+  38, with no prompt chunk in it; the layout alone is 119,983 B over 16, which is
+  the canvas, the element tree and the width tables rather than anything a prompt
+  does. Same shape as the two above: `prompt.ts` re-exports every name, the prompt
+  facade still publishes them, and `number()` imports `layoutField()` from the new
+  module. `fieldLayers()`, `tokenLayer()`, `gutterOf()`, `lineStart()` and
+  `lineEnd()` stay in `prompt.ts` -- the text area calls none of them, and they are
+  what draws a prompt's field rather than what lays it out. `text-area` is in the
+  dist test's list and the source check in `field-layout.test.ts` holds the other
+  half: a re-export is transparent to the bundler, so an import from `./prompt.js`
+  would leave the graph small and rewrite an ejected copy to the prompt subpath.
+  The ceilings of the five entries this freed came down to about 2x what they now
+  measure -- `code-view` 290 KiB, `diff` 340, `markdown` 365, `diff-view` 465,
+  `text-area` 450. They bound ordinary growth and **do not catch the stack coming
+  back**: every old with-stack figure is under its new ceiling (`text-area` was
+  283,108 B against 460,800). What does is the `carriers` check for the prompt's
+  own message in `test/dist.test.ts`, which is why `text-area` is in its list.
 
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
@@ -9911,6 +9931,41 @@ exported beside them as pure functions.
   files (`{ files }`) as its third kind of input, so a patch that is shown and
   then staged is read once. The git client example is the caller this waited for,
   and its own reader, `splitPatch()`, is gone.
+- **`hunkLinesPatch()` writes some of a hunk's lines, and the file the patch is
+  applied to decides what an unpicked line becomes (SIG-473).** A line not
+  selected is left as that file has it: staging applies to the index, which holds
+  the old side, so an unpicked **add** is not written and an unpicked **remove** is
+  context; `reverse` applies to the new side, so the two trade places. The old
+  side's count is therefore the hunk's own when staging and the new side's when
+  unstaging, and the other side's count and start are written from the rows,
+  anchored on the side applied to -- an empty side starts at the line before, as
+  `@@ -0,0` does. The start is only a hint: `git apply` searches for the lines, so
+  a hunk staged after an earlier one was left out lands wherever its context is,
+  which `should stage a line far down a file after one earlier lines left
+  unstaged` runs against a real git. `git apply` also insists a hunk with no
+  trailing context ends the file, and the writer only ever adds context -- a
+  removal made context -- so a hunk that was at the end of a file still is.
+  Every case in `test/components/diff-lines-patch.test.ts` that stages is run
+  through `git apply --cached` in a temp repository: only additions, only
+  removals, a replacement either half, CRLF, a new file, and
+  `\ No newline at end of file`. The rows are written from `source` where it
+  lines up with `lines` and from the lines where it does not or is absent, which
+  keeps a `\r`; a blank context line that lost its space is written with one.
+
+  Two selections are an `Error`, because a patch cannot say them and the
+  alternative is writing a different change than the one asked for. A line with no
+  newline ends its side, so an unpicked removal of one becomes a context line that
+  ends both -- and picking a line added after it (`-a` `\ No newline`, `+a`, `+b`
+  over a file that gained its newline, with only `+b` picked) would write a line
+  after the end of the file. `git add -p` has the same case as a hunk it cannot
+  split. And a deleted file staged part-way is not a deletion, nor is a new file
+  part-way unstaged a creation, so those are all or nothing: the header would need
+  rewriting, which is the kind of thing that is guessed wrong once. A hunk with no
+  context lines (`-U0`) is written with none, as `hunkPatch()` writes it: no
+  context is added, and what `git apply` makes of it is the same from both. Nothing selected is
+  `undefined` rather than an empty patch, so a caller cannot hand git something it
+  would call "no valid patches".
+
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -10209,14 +10264,67 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   that, for a `w`, a new width or refreshed content, reveals the current stop as
   it always has, clicked or not: that is the drawing's rule, and a reader who
   scrolled with the arrows meets it the same way. A double click is two clicks, since
-  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
-  row handler and read the line under it, which this leaves room for: the
-  handler is per row already.
+  there is no `onActivate` to call. A line cursor (SIG-473) takes the same
+  row handler and reads the line under it, as the entry below says.
+
+- **A line cursor inside the hunk, and the lines picked, are two `State`s the app
+  hands in (SIG-473).** `lines: { cursor, selected }`. The cursor is a position
+  in the current stop's hunk's `lines`, `undefined` while the cursor is on the
+  hunk, and the picks are a `Set` of positions -- which is what `hunkLinesPatch()`
+  takes, so the hand-off is `diffStops(content)[current]` and these. States rather
+  than a callback for the reason `current` is one: the app that stages on Space
+  reads them where Space is bound. Enter starts it on the first added or removed
+  line and Enter or Escape leave; up and down step over the added and removed
+  lines only, clamped and claimed at an end; `x` picks and `a` picks all or none.
+  A context line is never the cursor's, since it has nothing to pick, which is a
+  narrower cursor than lazygit's and one that cannot rest on a line that does
+  nothing.
+
+  **A range is `v`, and only `v` (SIG-606).** `v` anchors at the cursor and picks
+  that line, then up and down pick the added and removed lines from the anchor to
+  the cursor, over what was picked before the anchor -- so a range is picks, in
+  the same `selected` set `hunkLinesPatch()` takes, and staging one is staging
+  picks: there is no second patch writer, and a range over a context line picks
+  the changed lines either side of it and not the context line. Moving back
+  shrinks it, since the picks are recomputed from the anchor and the picks that
+  were there; `v` again closes it and keeps what it picked; `x`, `a`, a click on a
+  line and leaving the lines end it too, as does the app writing the cursor or
+  the picks out from under it (the view remembers what the range last wrote and
+  compares). The anchor is the view's own variable
+  rather than a third `State`, because nothing outside has a use for it: the
+  marks already show every line it picked. Shift and the arrows is not a second
+  spelling: a terminal reports no key release, so there is nothing to say when a
+  shift range ends, and `v` is lazygit's too. The line keys reject a modified key
+  as they did, so Shift and an arrow reaches the scroll box.
+
+  **The line state belongs to one hunk and is emptied whenever the subject
+  changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
+  content changes, or the cursor leaves the lines. A position means nothing in
+  another hunk, and staging renumbers every hunk after, so keeping a pick across
+  a refresh is picking a different line. The content test is by identity, so an
+  app whose `content` function builds a fresh array on every call resets the
+  lines on every wrap switch; the git client's `Computed` is stable. A redraw for
+  a width, `w`, or a sideways scroll does not reset anything.
+
+  **A view with `lines` is drawn unified, whatever `layout` says.** Side by side
+  a removed line and the added line it is paired with share a row, so a mark in
+  that row would mark two lines and a pick of one would read as both. `diffView()`
+  reports each line's rows as `hunks[].lines` (ranges over `element.children`,
+  overlapping side by side), which the view reads in place of any class. The
+  second column is a second cell on every row, so the room is one less; it exists
+  only with `lines`, and a view without it is drawn as it was.
+
+  **`describeDiffView()` is not told about the line keys.** It lists `]`, `[`, `w`
+  and the arrows, and one more entry pushed the git client's `space stage hunk`
+  under its own toast in a 110-column terminal -- measured, by the test that
+  asserts it. The marks say what the cursor is, and an app that wants a hint
+  writes one beside its own keys; the git client swaps them for the line keys
+  while the cursor is on the lines (SIG-606, in `examples/AGENTS.md`).
 
 What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
-designed by guessing; staging part of a hunk; and folding a hunk away.
+designed by guessing; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
@@ -10496,6 +10604,27 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   every error on an invalid Enter, which a disabled default could not. The git
   client's and the file manager's `ask()` dialogs and the commit dialog dropped
   their `input.focus.focus(field)` after `openModal()` for `initial: 'body'`.
+
+- **`openModal()` is called untracked as a whole, because it reads the router's
+  focus and then writes it.** SIG-596. It reads `input.focus.current` to remember
+  what to give back, and `claimFocus()` then moves the focus, so an effect like
+  `if (show.get()) openModal(...)` depended on a signal it had just set and ran
+  again until the run guard stopped it: measured as 101 runs on an element host
+  and 301 over three focus moves, where 1 per `show` change belongs -- for a
+  function body and an element body alike. The body function and the buttons were
+  already built untracked (SIG-335), which is why that entry's own test could only
+  see the sinks of what the body read and not this. The public function is now a
+  one-line `untrack()` over the real one rather than an `untrack()` on each read,
+  since every read in it (the focus, a `disabled` condition's first answer, the
+  ring) is the dialog's own and none is something the opener should follow. A
+  write inside an untracked call is still a write: the focus moves as before.
+  `close()` is the same shape and is untracked the same way (review found it: read
+  the focus to decide whether to hand it back, then hand it back, so an effect that
+  closed a modal ran 3 times where 2 belong).
+  `openMenu()`, `showToast()` and `attachTooltip()` were probed with the same
+  effect and run twice (the `show` change and nothing more), so the loop is the
+  modal's alone. Covered by `an effect that opens a modal` in
+  `test/components/modal.test.ts`, which fails without the `untrack()`.
 
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
@@ -12669,6 +12798,43 @@ exception per widget. This is the one answer, and every widget below follows it.
   and Escape still closing it; catching it would be the menu deciding what an app
   bug means.
 
+**That claim was measured rather than assumed (SIG-600), for a throwing `initial`
+and a throwing check or radio mark alike.** Both are read before the submenu is
+added to the chain -- `descend()` asks `initial` before it touches a level, and
+a mark is read while `push()` builds the rows, before `levels.push()` -- so a
+throw leaves the parent as it was, with its highlight, and Escape, Down and a
+later try all work. With an `onError` on the router that reports and carries on
+that is what a test sees, and under `runApp()` the throw is SIG-524's and ends
+the app with 1. What looked like a stuck session in a test is the harness: with
+**no** `onError` a throw escapes the router's `data` listener through the test
+terminal's stdin, a `PassThrough`, which does not recover, so every later key is
+lost and Escape included, whatever the menu did. A test that provokes a throwing
+callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
+no guard was added to `descend()` because it has nothing to protect. Two limits,
+stated rather than left to be found. From the pointer the hover has already moved
+the highlight onto the row that threw, and every further move over it throws
+again, which is moot under `runApp()` where the first one ends the app.
+
+A **root** menu was the other case, and SIG-618 closed it without asking a mark any
+earlier. A menubar's mixed menu is not asked by `menuInitial()`, so its marks are
+read building the rows -- which `root()` used to do after truncating the menu that
+was open, leaving no level for Escape and closing the whole session, bar and all.
+`root()` now builds the new menu first and closes the old one after, so a mark that
+throws leaves the menu that was open exactly as it was, highlight and all, and the
+menubar sets `current` and the bracketed title only once the menu is in. The throw
+goes out through the key or the pointer that moved to it, as a submenu's does. With
+**no** menu open -- the first one opened, by F10, a mnemonic or a press -- a mark
+that throws still closes the session: there is no level for Escape to close, and a
+session holding the input with none would swallow every key. That is the bar closed
+as it was before, not a bar stuck. The sentences above saying a menubar asks a
+function "before a session takes the input" are true of `initial` and of a radio
+group, not of a check mark, and no mark is asked before the session now either: the
+change is the order of building and closing, and the one thing a menu that does not
+throw could see of it is `openIndex` read from inside a mark function, which now
+answers with the title that was open while the new menu is built. From the pointer,
+every further move over a throwing title throws again, as one over a submenu's row
+does. `menu-throws.test.ts` pins it through `Menubar`, by key and by pointer.
+
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The
   dashboard's Theme and the menu demo's Sort by each drew a `●` into a hint by
@@ -14126,7 +14292,8 @@ was reached, the measurements and the sabotage pass are in
   change how every `multiline()` answer looks, which is a ticket of its own and
   not one to take inside this one. `offsetIn()` joined the prompt subpath for it,
   which is the `layoutField()` precedent: an ejected text area imports only what is
-  published.
+  published. Both moved to `field-layout.ts` in SIG-615, so the area no longer
+  imports the prompt module at all.
 - **The value is an array of lines, not a rope, and only the lines on screen are
   laid out and painted.** An edit joins just the lines it spans into the string an
   `editing.ts` function reads and splits the answer back, so a backspace at the

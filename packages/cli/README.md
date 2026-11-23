@@ -374,15 +374,17 @@ name it in `safelist`.
 
 **What the shake reads, and what it leaves to `safelist`.** A string your source
 builds is read where it is written out. Besides a literal and a template, the
-shake reads a `+` chain, a `+=`, a `?:` whose branches are all literals
-(`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule, and
-`'p-' + (wide ? '2' : '4') + x` keeps `p-2*` and `p-4*` rather than every `p-*`),
+shake reads a `+` chain, a `+=`, a `?:` with a literal in a branch
+(`(dark ? 'text-' : 'bg-') + colour` keeps every `text-*` and `bg-*` rule,
+`'p-' + (wide ? '2' : '4') + x` keeps `p-2*` and `p-4*` rather than every `p-*`,
+and `(dark ? 'text-' : theme) + colour` keeps `text-*` as well as whatever
+`theme` is, which is not known),
 a `||` or `??` whose left side is a literal (`('text-' || x) + colour`), and one
 whose right side is (`(x || 'text-') + colour` keeps `text-*` as well as whatever
 `x` is, which is not known).
 It does **not** read, and these need `safelist` or `--no-shake`:
 
-- a `?:` with a branch that is not a literal: `(dark ? 'text-' : theme) + colour`
+- a `?:` with no literal in any branch: `(dark ? prefix : theme) + colour`
 - `&&`: `(dark && 'text-') + colour`
 - `.concat()`: `'text-'.concat(colour)`
 - `.join()`: `['text', colour].join('-')`
