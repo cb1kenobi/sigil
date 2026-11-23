@@ -306,7 +306,7 @@ export function stepsMatching(workflow: Workflow, pattern: RegExp): string[] {
  */
 export function usesOf(lines: string[]): string[] {
   return lines.flatMap((line) => {
-    const value = /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1];
+    const value = /^\s*(?:-\s+)?uses:\s*(.*)$/.exec(line)?.[1];
     return value === undefined ? [] : [value];
   });
 }
@@ -346,7 +346,7 @@ export function unpinned(value: string): string | undefined {
   if (/^(?:\.|\$)\//.test(value)) {
     return /^(?:\.|\$)\/[^\s@]*(?:\s+#.*)?$/.test(value)
       ? undefined
-      : 'a local action has no ref to pin, so an `@` in its path is refused';
+      : 'a local action has no ref to pin, so an `@` or a space in its path is refused';
   }
   return /^[\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(value)
     ? undefined

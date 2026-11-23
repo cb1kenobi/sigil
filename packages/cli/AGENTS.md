@@ -4740,8 +4740,10 @@ people's software and will move.
     refused rather than guessed at. The repository's own workflows and the
     scaffold's use remote actions only, so neither other shape is exercised by a
     real file; `a pinned uses:` in `workflow.test.ts` is a case per shape,
-    including the tag-only container, and each was sabotaged by loosening its
-    branch.
+    including the tag-only container, and each refusal asserts _which_ branch
+    refused it. Each branch, each anchor and the digest's length and algorithm
+    were sabotaged one at a time and each failed a test; `usesOf()` reads a
+    `-` followed by any number of spaces, as the rest of the reader does.
 - **Which package manager is a question about the machine, and it used to be
   answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
   argument that a question whose answer is already on the table is not worth

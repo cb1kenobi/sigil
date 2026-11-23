@@ -116,25 +116,57 @@ describe('a pinned `uses:` (SIG-626)', () => {
     expect(unpinned(value)).toBeUndefined();
   });
 
+  const remote = /commit SHA/;
+  const local = /local action/;
+  const container = /by digest/;
+  const longSha = `sha256:${'b'.repeat(65)}`;
+
   it.each([
-    ['a remote action on a tag', 'actions/checkout@v4'],
-    ['a remote action on a branch', 'actions/checkout@main'],
-    ['a remote action with no ref', 'actions/checkout'],
-    ['a remote action pinned but with no release named', `actions/checkout@${sha}`],
-    ['a remote action with a short SHA', `actions/checkout@${'a'.repeat(7)} # v4.2.0`],
-    ['a remote action with a 41 digit SHA', `actions/checkout@${sha}a # v4.2.0`],
-    ['a quoted value', `"actions/checkout@${sha} # v4.2.0"`],
-    ['a container with a tag only', 'docker://alpine:3.19'],
-    ['a container with no tag at all', 'docker://ghcr.io/OWNER/IMAGE_NAME'],
-    ['a container with a registry and a tag only', 'docker://gcr.io/cloud-builders/gradle:latest'],
-    ['a container with a short digest', `docker://alpine@sha256:${'b'.repeat(63)}`],
-    ['a container with an md5 in place of a digest', `docker://alpine@md5:${'b'.repeat(32)}`],
-    ['a container with an upper case digest', `docker://alpine@sha256:${'B'.repeat(64)}`],
-    ['a container with nothing after the scheme', 'docker://'],
-    ['a local action that carries a ref', './.github/actions/setup@v1'],
-    ['the self reference that carries a ref', '$/.github/actions/setup@v1'],
-  ])('should refuse %s', (_name, value) => {
-    expect(unpinned(value)).toEqual(expect.any(String));
+    ['a remote action on a tag', 'actions/checkout@v4', remote],
+    ['a remote action on a branch', 'actions/checkout@main', remote],
+    ['a remote action with no ref', 'actions/checkout', remote],
+    ['a remote action pinned but with no release named', `actions/checkout@${sha}`, remote],
+    ['a remote action with a short SHA', `actions/checkout@${'a'.repeat(7)} # v4.2.0`, remote],
+    ['a remote action with a 41 digit SHA', `actions/checkout@${sha}a # v4.2.0`, remote],
+    ['a remote action with no owner', `checkout@${sha} # v4.2.0`, remote],
+    ['a remote action after other text', `a b/c@${sha} # v1.2.3`, remote],
+    ['a remote action with a pre-release tag', `actions/checkout@${sha} # v4.2.0-beta`, remote],
+    ['a remote action with trailing text', `actions/checkout@${sha} # v4.2.0 `, remote],
+    ['a quoted value', `"actions/checkout@${sha} # v4.2.0"`, remote],
+    ['a container with a tag only', 'docker://alpine:3.19', container],
+    ['a container with no tag at all', 'docker://ghcr.io/OWNER/IMAGE_NAME', container],
+    [
+      'a container with a registry and a tag',
+      'docker://gcr.io/cloud-builders/gradle:latest',
+      container,
+    ],
+    ['a container with a short digest', `docker://alpine@sha256:${'b'.repeat(63)}`, container],
+    ['a container with a 65 digit digest', `docker://alpine@${longSha}`, container],
+    ['a container with another algorithm', `docker://alpine@sha512:${'b'.repeat(64)}`, container],
+    [
+      'a container with an md5 in place of a digest',
+      `docker://alpine@md5:${'b'.repeat(32)}`,
+      container,
+    ],
+    [
+      'a container with an upper case digest',
+      `docker://alpine@sha256:${'B'.repeat(64)}`,
+      container,
+    ],
+    ['a container with text after its digest', `docker://alpine@${digest}junk`, container],
+    ['a container with no image', `docker://@${digest}`, container],
+    ['a container with nothing after the scheme', 'docker://', container],
+    ['a container whose comment holds the digest', `docker://alpine:3.19 # @${digest}`, container],
+    ['a local action that carries a ref', './.github/actions/setup@v1', local],
+    ['a local action with a space in its path', './my action', local],
+    ['the self reference that carries a ref', '$/.github/actions/setup@v1', local],
+  ])('should refuse %s', (_name, value, reason) => {
+    expect(unpinned(value)).toMatch(reason);
+  });
+
+  it('should read an unpinned `uses:` written after a wide dash', () => {
+    const text = job('      -   uses: actions/checkout@v4');
+    expect(usesOf(allLines(readWorkflow(text)))).toStrictEqual(['actions/checkout@v4']);
   });
 
   it('should read every `uses:` of a workflow, a job-level one included', () => {
