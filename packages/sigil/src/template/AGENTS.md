@@ -438,15 +438,19 @@ the entry it belongs to.
   and is what a host element does (SIG-614), but a host has a fixed vocabulary
   and a component's props are its own: nothing makes the name wrong there, and a
   silent drop is the defect either way. So the build emitter writes a computed
-  key, `["__proto__"]: x`, through `propertyKey()` in `emit.ts`, and
-  `emitComponent()` defines the property rather than assigning it. `propertyKey()`
+  key, `["__proto__"]: x`, through `objectKey()` in `emit.ts`, and
+  `emitComponent()` defines the property rather than assigning it. `objectKey()`
   is the one helper for an object key the toolchain prints, so
-  `generate.ts`'s `quoteKey()` asks it too: a command is named after its file and
-  a `__proto__.js` was registered under the prototype, which is the same defect in
-  the tree `sigil build` generates. Pinned by two corpus entries in
+  `generate.ts`'s `quoteKey()` asks it too: a package whose manifest names it
+  `__proto__` is a command the runtime registers (a walked `__proto__.js` is not,
+  since a name starting `_` is private), and it was printed as prototype sugar.
+  The other half is `readInline()` in `discover.ts`, which now skips an inline
+  `{ __proto__: x }` in a `commands` literal: from source that key declares
+  nothing, and printing a command of that name as an own key would have given
+  the built app one the source never had. Pinned by two corpus entries in
   `packages/cli/test/template-corpus.ts` (a `scope.Echo` component reports
   whether it arrived as an own property), by `tag.test.ts` for the interpreted
-  half alone, and by `tree.test.ts` for the command.
+  half alone, and by `tree.test.ts` and `discover.test.ts` for the commands.
 - **`compile()` takes a module's templates, not one template.** Imports, the
   hoisted block and the prefix are all facts about a _module_; compiling one
   template at a time made the caller merge all three, and merging is where one

@@ -502,7 +502,7 @@ class Printer {
    */
   #component(node: IRElement, callee: string): string {
     const entries = node.props.map(
-      (prop) => `${propertyKey(prop.name)}: ${this.#source(prop.value)}`
+      (prop) => `${objectKey(prop.name)}: ${this.#source(prop.value)}`
     );
 
     // the same children `emit()` hands over, dropped by the same function: a
@@ -623,7 +623,7 @@ class Printer {
       if (prop.value instanceof Expr) {
         rest.push(prop);
       } else if (prop.value !== undefined) {
-        statics.push(`${propertyKey(prop.name)}: ${literal(prop.value)}`);
+        statics.push(`${objectKey(prop.name)}: ${literal(prop.value)}`);
       }
     }
 
@@ -800,7 +800,7 @@ export function quote(value: string): string {
  * @param name - The name.
  * @returns A key that makes `name` an own property of the literal it is in.
  */
-export function propertyKey(name: string): string {
+export function objectKey(name: string): string {
   return name === '__proto__' ? `[${quote(name)}]` : quote(name);
 }
 

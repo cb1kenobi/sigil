@@ -62,7 +62,7 @@
  * module it never reads.
  */
 
-import { escapeUnseen, propertyKey, quote } from '../template/emit.ts';
+import { escapeUnseen, objectKey, quote } from '../template/emit.ts';
 import { RUNTIME } from './discover.ts';
 import { TAG_EXPORT } from './i18n.ts';
 import type { ResolvedCommand, ResolvedTree } from './tree.ts';
@@ -246,13 +246,13 @@ export function specifier(from: string, module: string): string {
  * A command name is whatever a file was called, so it may be anything a file
  * name can be -- `my-command` is the ordinary case and is not an identifier,
  * and `__proto__` is the one that is not a key in a literal at all, bare or
- * quoted, so `propertyKey()` writes it computed (SIG-634).
+ * quoted, so `objectKey()` writes it computed (SIG-634).
  *
  * @param name - The key.
  * @returns It, bare or quoted.
  */
 function quoteKey(name: string): string {
-  return name !== '__proto__' && /^[A-Za-z_$][\w$]*$/.test(name) ? name : propertyKey(name);
+  return name !== '__proto__' && /^[A-Za-z_$][\w$]*$/.test(name) ? name : objectKey(name);
 }
 
 /**

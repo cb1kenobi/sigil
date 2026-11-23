@@ -384,19 +384,20 @@ describe('generating a command tree', () => {
     expect(source).to.contain('"my-cmd": {');
   });
 
-  it('should keep a command named __proto__ as a key, which no literal spelling otherwise does', () => {
+  it('should keep a package named __proto__ as a key, which no literal spelling otherwise does', () => {
     // `{ __proto__: x }` and `{ "__proto__": x }` both set the prototype and add
-    // nothing, so the command was registered nowhere (SIG-634)
-    const source = generateCommands(
-      {
-        commands: [
-          { commands: [], kind: 'module', module: '/app/commands/__proto__.js', name: '__proto__' },
-        ],
-        diagnostics: [],
-      },
-      { from: '/app' }
+    // nothing, so the command was registered nowhere (SIG-634). A walked
+    // `__proto__.js` cannot reach this -- a name starting `_` is private -- but a
+    // package whose manifest says `__proto__` is a route the runtime registers
+    const dir = tempDir('sigil-tree-proto-');
+    mkdirSync(join(dir, 'pkg'), { recursive: true });
+    writeFileSync(join(dir, 'pkg', 'index.mjs'), "export default { desc: 'a', run() {} };\n");
+    writeFileSync(
+      join(dir, 'pkg', 'package.json'),
+      JSON.stringify({ main: 'index.mjs', name: '__proto__', type: 'module' })
     );
-    const commands = evaluate(source);
+
+    const commands = evaluate(generateCommands(resolveCommandTree(dir), { from: dir }));
 
     expect(Object.hasOwn(commands, '__proto__')).to.equal(true);
     expect(typeof commands['__proto__'].load).to.equal('function');
