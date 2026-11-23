@@ -1612,8 +1612,28 @@ decided once, for all of them. The runs and the sabotage passes are in
   sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
   each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
   is the theme's and importing it would put the theme behind a module that is 655 B
-  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
-  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+  without it.
+
+  `field-layout` is the third, and it is what `text-area.ts` still imported from
+  `prompt.ts` (SIG-615): `layoutField()`, `offsetIn()` and the four shapes they
+  trade in -- `FieldCell`, `FieldRow`, `FieldLayout` and `FieldFrame`. As it
+  landed, `components/text-area` was 283,108 B over 45 modules and is 228,143 B over
+  38, with no prompt chunk in it; the layout alone is 119,983 B over 16, which is
+  the canvas, the element tree and the width tables rather than anything a prompt
+  does. Same shape as the two above: `prompt.ts` re-exports every name, the prompt
+  facade still publishes them, and `number()` imports `layoutField()` from the new
+  module. `fieldLayers()`, `tokenLayer()`, `gutterOf()`, `lineStart()` and
+  `lineEnd()` stay in `prompt.ts` -- the text area calls none of them, and they are
+  what draws a prompt's field rather than what lays it out. `text-area` is in the
+  dist test's list and the source check in `field-layout.test.ts` holds the other
+  half: a re-export is transparent to the bundler, so an import from `./prompt.js`
+  would leave the graph small and rewrite an ejected copy to the prompt subpath.
+  The ceilings of the five entries this freed came down to about 2x what they now
+  measure -- `code-view` 290 KiB, `diff` 340, `markdown` 365, `diff-view` 465,
+  `text-area` 450. They bound ordinary growth and **do not catch the stack coming
+  back**: every old with-stack figure is under its new ceiling (`text-area` was
+  283,108 B against 460,800). What does is the `carriers` check for the prompt's
+  own message in `test/dist.test.ts`, which is why `text-area` is in its list.
 
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
@@ -14244,7 +14264,8 @@ was reached, the measurements and the sabotage pass are in
   change how every `multiline()` answer looks, which is a ticket of its own and
   not one to take inside this one. `offsetIn()` joined the prompt subpath for it,
   which is the `layoutField()` precedent: an ejected text area imports only what is
-  published.
+  published. Both moved to `field-layout.ts` in SIG-615, so the area no longer
+  imports the prompt module at all.
 - **The value is an array of lines, not a rope, and only the lines on screen are
   laid out and painted.** An edit joins just the lines it spans into the string an
   `editing.ts` function reads and splits the answer back, so a backspace at the
