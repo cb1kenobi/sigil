@@ -12819,11 +12819,12 @@ a mark is read while `push()` builds the rows, before `levels.push()` -- so a
 throw leaves the parent as it was, with its highlight, and Escape, Down and a
 later try all work. With an `onError` on the router that reports and carries on
 that is what a test sees, and under `runApp()` the throw is SIG-524's and ends
-the app with 1. What looked like a stuck session in a test is the harness: with
-**no** `onError` a throw escapes the router's `data` listener through the test
-terminal's stdin, a `PassThrough`, which does not recover, so every later key is
-lost and Escape included, whatever the menu did. A test that provokes a throwing
-callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
+the app with 1. What looked like a stuck session in a test was the harness: with
+**no** `onError` a throw escaped the router's `data` listener through the test
+terminal's stdin, a `PassThrough`, which did not recover, so every later key was
+lost and Escape included, whatever the menu did. SIG-619 fixed the harness: the
+throw now rejects the `press()` that caused it and later keys arrive, so
+`menu-throws.test.ts` asserts the later key is delivered. It pins both halves;
 no guard was added to `descend()` because it has nothing to protect. Two limits,
 stated rather than left to be found. From the pointer the hover has already moved
 the highlight onto the row that threw, and every further move over it throws
