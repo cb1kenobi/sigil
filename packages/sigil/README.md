@@ -4844,6 +4844,29 @@ execFileSync('git', ['apply', '--cached', '-'], { input: hunkPatch(file, file.hu
 A hunk that was not read from a patch, such as one from `diffHunks()`, is written
 from its lines and its file's names.
 
+`hunkLinesPatch(file, hunk, selected, { reverse })` writes some of a hunk's lines
+instead -- `git add -p`'s `e`, which is lazygit's line staging. `selected` names lines
+of `hunk.lines` by position. A selected added or removed line is written as it is;
+one that is not is left as the file the patch applies to has it, so an added line is
+dropped and a removed line is written as context, and the counts are written again
+from what is left. `reverse` is for unstaging with `git apply --cached --reverse`,
+where the file applied to is the hunk's new side and the two kinds trade places. It
+returns `undefined` where no added or removed line is selected, and throws where a
+patch cannot say what was asked: a line added after one that has no newline and was
+not selected, and part of a file the patch creates or deletes (`new file mode`
+with `reverse`, `deleted file mode` without). No context is added, so
+a hunk read with none (`-U0`) is written with none, as `hunkPatch()` writes it.
+
+```js
+import { hunkLinesPatch } from '@ttylabs/sigil/components/diff';
+
+// the first line of the hunk's changes, and nothing else
+const changed = file.hunks[0].lines.findIndex((line) => line.kind !== 'context');
+execFileSync('git', ['apply', '--cached', '-'], {
+  input: hunkLinesPatch(file, file.hunks[0], [changed]),
+});
+```
+
 `highlight` is the seam every component shares, so `highlight: highlightCode` is
 enough. It is called with a whole side of the diff -- the old text and the new
 text, or the two sides of a hunk when the input is a patch -- so a span can run
@@ -4893,11 +4916,34 @@ back to the start of the lines. The line numbers and the markers stay put, and s
 do the `---`, `+++` and `@@` rows, which say which file and where.
 `describeDiffView(router, view)` describes the keys for a `keyHelp()` footer.
 
+Give it `lines` -- a `{ cursor, selected }` pair of `State`s -- and the cursor can go
+inside the current hunk, which is how part of one is staged. Enter puts it on the hunk's
+first added or removed line, and a second column of marks shows it: `▶` on the line,
+`●` on a line picked, `◉` on both (`>`, `*` and `@` in ASCII). Up and down step it over
+the added and removed lines, scrolling to keep it in view; `x` picks the line and `a`
+picks every line of the hunk, or none where all are; Enter or Escape leaves the lines
+and drops the picks, as moving to another hunk or new content does; a click on a line
+of the current hunk moves the cursor to it. The view is drawn unified whatever
+`layout` says, since side by side a removed line and the added line beside it share a
+row. `selected` is positions in the current hunk's `lines`, which is what
+`hunkLinesPatch()` takes:
+
+```js
+const lines = { cursor: new State(undefined), selected: new State(new Set()) };
+const view = DiffView({ content, current, lines });
+
+// Space: stage the picked lines of the hunk under the cursor, or the one line
+const stop = diffStops(content.get())[current.get()];
+const picked = lines.selected.get().size ? lines.selected.get() : [lines.cursor.get()];
+stage(hunkLinesPatch(stop.file, stop.hunk, picked)); // git apply --cached -
+```
+
 | Prop        | Meaning                                                                            |
 | ----------- | ---------------------------------------------------------------------------------- |
 | `content`   | One diff (two texts, `{ patch }` or `{ files }`) or blocks; a `State` to change it |
 | `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
 | `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
+| `lines`     | `{ cursor, selected }` `State`s: a line cursor and picks inside the current hunk   |
 | `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
 | `position`  | A `State` the view writes `{ x, y, maxX, width }` to: where it is scrolled to      |
 | `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
