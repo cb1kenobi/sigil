@@ -17,6 +17,8 @@ import {
   readWorkflow,
   runBlocks,
   stepsMatching,
+  unpinned,
+  usesOf,
   withInlineRunExpression,
   withSecretAfterSteps,
 } from './workflow.ts';
@@ -698,18 +700,14 @@ describe('the release workflow', () => {
     it.each(['npm', 'pnpm', 'vlt'] as const)(
       'should pin every action to a commit SHA and name its release, for %s',
       (manager) => {
-        // the same shape `the workflows` in cli.test.ts holds this repository's
-        // own to: a tag can be moved, and this job runs the app's devDependencies
-        // beside a token that can write to the repository
-        const uses = code(workflow({ manager })).flatMap((line) => {
-          const value = /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1];
-          return value === undefined ? [] : [value];
-        });
+        // the same rule `the workflows` in cli.test.ts holds this repository's
+        // own to, from the same function (`unpinned()`): a tag can be moved, and
+        // this job runs the app's devDependencies beside a token that can write
+        // to the repository
+        const uses = usesOf(code(workflow({ manager })));
 
         expect(uses.length).toBe(3);
-        expect(
-          uses.filter((use) => !/^[\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(use))
-        ).toStrictEqual([]);
+        expect(uses.filter((use) => unpinned(use) !== undefined)).toStrictEqual([]);
         // and they are the table's, so the comment and the SHA cannot part
         expect(uses.sort()).toStrictEqual(
           Object.values(ACTIONS)

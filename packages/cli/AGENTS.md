@@ -4713,6 +4713,37 @@ people's software and will move.
     installs`, `the pnpm sigil new reads off the machine` and `the Dependabot
     config` in `new.test.ts`, each sabotaged: an unpinned action, a dropped
     `--ignore-scripts` and a dropped `persist-credentials` each fail one.
+- **"This `uses:` is pinned" has one definition, `unpinned()` in
+  `test/workflow.ts`, over three shapes (SIG-626).** `cli.test.ts` held this
+  repository's workflows to one regex and `new.test.ts` held the scaffolded one
+  to another, anchored differently, and neither had a case for the other forms
+  GitHub accepts -- so a `uses: ./local` or a `uses: docker://alpine:3.19`
+  passed or failed by what the pattern happened to match. Both read `usesOf()`
+  and ask `unpinned()` now; it returns the reason, or `undefined`.
+  - **A remote action** is `owner/repo[/path]@<40 hex digits> # vN.N.N`: the
+    commit is what is trusted and the comment is what Dependabot and a reader
+    see the release by. Unchanged from SIG-356 and SIG-418.
+  - **A local action, `./path` or the `$/path` self reference, needs no pin.**
+    It is code in the checkout the job is already running, so there is nothing
+    to move. An `@ref` on one is **refused**: it reads as a pin and pins
+    nothing, so it is a mistake to say so, not a form to accept.
+  - **A container, `docker://image`, is pinned by `@sha256:` and 64 lower case
+    hex digits, and a tag alone is refused.** A tag can be moved exactly as a git
+    tag can, and the examples in GitHub's own syntax reference for `docker://`
+    are all tags or no tag at all -- the reference does not mention a digest
+    there, so the digest form is the ordinary image reference, which the
+    runner hands to the container engine, rather than a documented GitHub
+    feature. `image:tag@sha256:...` is accepted, the digest being what decides
+    what runs. No `# vN.N.N` comment is demanded: an image has no release of
+    that shape to name.
+  - Anything else -- a quoted value, a branch, a bare `owner/repo` -- is
+    refused rather than guessed at. The repository's own workflows and the
+    scaffold's use remote actions only, so neither other shape is exercised by a
+    real file; `a pinned uses:` in `workflow.test.ts` is a case per shape,
+    including the tag-only container, and each refusal asserts _which_ branch
+    refused it. Each branch, each anchor and the digest's length and algorithm
+    were sabotaged one at a time and each failed a test; `usesOf()` reads a
+    `-` followed by any number of spaces, as the rest of the reader does.
 - **Which package manager is a question about the machine, and it used to be
   answered by asking the wrong thing.** It read `npm_config_user_agent`, on the
   argument that a question whose answer is already on the table is not worth

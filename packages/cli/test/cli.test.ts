@@ -6,6 +6,8 @@ import {
   outsideSteps,
   readWorkflow,
   runBlocks,
+  unpinned,
+  usesOf,
   withInlineRunExpression,
   withSecretAfterSteps,
 } from './workflow.ts';
@@ -501,15 +503,16 @@ describe('@ttylabs/cli', () => {
 
     it('should pin every action to a commit SHA and name its release', () => {
       const uses = workflows.flatMap(({ file, workflow }) =>
-        allLines(workflow)
-          .map((line) => /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1])
-          .filter((value) => value !== undefined)
-          .map((value) => `${file}: ${value}`)
+        usesOf(allLines(workflow)).map((value) => ({ file, value }))
       );
 
       expect(uses.length).toBeGreaterThan(5);
+      // the one definition of "pinned", which `new.test.ts` holds the
+      // scaffolded workflow to as well (SIG-626)
       expect(
-        uses.filter((use) => !/: [\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(use))
+        uses
+          .filter(({ value }) => unpinned(value) !== undefined)
+          .map((u) => `${u.file}: ${u.value}`)
       ).toStrictEqual([]);
     });
 
