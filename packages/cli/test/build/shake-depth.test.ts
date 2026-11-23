@@ -34,7 +34,7 @@ import { walk } from '../../src/build/walk.js';
 import { run } from '../spawned.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Node } from 'oxc-parser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -228,6 +228,28 @@ describe('a file nested deeper than the parser can be trusted with', () => {
     expect(evidence.mayName('text-red')).toBe(true);
     expect(evidence.mayName('p-2')).toBe(true);
     expect(evidence.mayName('border-red')).toBe(false);
+  });
+
+  it('should record a file it did not parse, with what it keeps alone (SIG-638)', () => {
+    const source = `const c = ${'('.repeat(600)}'text-'${')'.repeat(600)};\n`;
+    const root = tree(source, 'src/deep.ts');
+    const { unparsed } = scanClassEvidence(root);
+
+    expect(unparsed.map((file) => basename(file.path))).toEqual(['deep.ts']);
+    // `text-` is an infix of the text-* rules and of no other, and `const` and
+    // `c` are tokens too, so what it keeps is a count and not a guess
+    expect(unparsed[0]?.kept).toBeGreaterThan(0);
+    expect(unparsed[0]?.kept).toBeLessThan(unparsed[0]?.total ?? 0);
+  });
+
+  it('should record nothing for a file at the ceiling, which parses', () => {
+    // the ceiling is 512 and a file at it is still handed to the parser. Built
+    // from `(` inside strings, which the count reads and the parser does not
+    // nest, so the parser is never near its own limit: 511 of them and the
+    // array's `[` make 512
+    const source = `export const a = [${Array.from({ length: 511 }, () => `':('`).join(', ')}];\n`;
+
+    expect(scanClassEvidence(tree(source)).unparsed).toEqual([]);
   });
 
   it('should not end the process on a right-nested `||` chain 20,000 deep', async () => {

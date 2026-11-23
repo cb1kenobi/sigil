@@ -3079,10 +3079,36 @@ other is refused with numbers.
   counted as evidence, and `md:flex` is dropped): that is the safelist's, as it
   is for a file that does not parse. A count that is too high refuses a file
   that would have parsed, and it costs a lot -- 513 unbalanced `(` in strings
-  appended to a file kept 377 of 383 rules where it kept none, with no warning
-  naming the file. The repository's deepest naive count is 246 over 1,631
-  files, inflated by brackets in strings; that is why the ceiling is not
-  lower.
+  appended to a file kept 377 of 383 rules where it kept none. The repository's
+  deepest naive count is 246 over 1,631 files, inflated by brackets in strings;
+  that is why the ceiling is not lower.
+
+  **That cost is said, once per file** (SIG-638). `sigil build` prints a note
+  naming each file it read without parsing, why, and what the file keeps **on
+  its own**: `scanClassEvidence()` reads the file into a scratch `Evidence`
+  holding nothing else and counts the rules that answers `mayName()` for, so
+  `src/deep.ts ... keeps 377 of 383 utility rules`. On its own is an upper
+  bound on what it added, since the rest of the app may have kept some of the
+  same rules, and it is what can be named per file where the summary's count is
+  one sum over all of them. It goes through `writeNote()` beside
+  `warnEmptyShake()`, a note rather than a diagnostic for that function's
+  reason -- the build's own finding about the app's whole sheet, with no line to
+  point at -- so it is dropped under `--quiet` and is not counted in the
+  summary's warnings. The path is shown relative to the app root through
+  `displayPath()` and is escaped, since a file can be named anything and a pipe
+  does not strip a control character the way a canvas does. `build.safelist` is
+  deliberately not offered as the fix: it adds rules and this is about having
+  too many. What does work is making the file shallow enough to parse, or
+  `--no-shake`, which keeps every rule anyway. Only `sigil build` says it;
+  `sigil package` reads the same files the same way and is silent.
+
+  **The 1 MB-stack gap is still open, and its Windows depth is unmeasured.**
+  The measured depth is the macOS one above -- 420 nested function bodies under
+  `ulimit -s 1024`, below the ceiling -- and nothing was run on Windows, whose
+  main thread has a 1 MB stack by default. A test that deliberately crashes the
+  parser would be the only way to measure it, and the parser's own segfault
+  (SIG-639) is why none is written here: the guard's threshold is the one
+  fixture the tests use, a file just past it, and it never reaches the parser.
 
   What it does **not** cover is depth with no brackets in it -- a flat `+` chain
   past ~57,000 terms, a bare `?:` chain past ~7,900, an `if ... else if` chain
