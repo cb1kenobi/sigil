@@ -63,6 +63,13 @@
         "type": "AbortSignal"
       },
       {
+        "description": "The terminal this runs over. Defaults to the process's.",
+        "default": "the process's",
+        "name": "terminal",
+        "optional": true,
+        "type": "Terminal"
+      },
+      {
         "description": "What to decrypt.",
         "name": "text",
         "optional": true,
@@ -79,7 +86,6 @@
       "quiet",
       "reducedMotion",
       "sheets",
-      "terminal",
       "theme"
     ],
     "signature": "function decrypt(text: string, opts?: DecryptOptions): Promise<void>"

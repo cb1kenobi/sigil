@@ -1036,9 +1036,10 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
   /** How often a hidden cell redraws once cells are resolving. Defaults to 50ms. */
   revealInterval?: number;
   /**
-   * The terminal a test is driving, so that a throw from `now`, `random` or `onDone`
-   * in the timer reaches `onTimerError()` there (SIG-642). Nothing else reads it:
-   * the facade's own `terminal` is `MountOptions`'s, and is the same one.
+   * The terminal this runs over. Defaults to the process's.
+   *
+   * Under a test terminal, a throw from `now`, `random` or `onDone` in the timer
+   * reaches that terminal's `onTimerError()` rather than being an uncaught exception.
    */
   terminal?: Terminal;
 }
