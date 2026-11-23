@@ -1633,22 +1633,61 @@ dispatches between the printer and the installer.
   old `dash` would read it as a literal: it is the form for the two shells this
   module installs for, and the rare path that needs it.
 - **The program name is escaped too, though `programOf()` has already taken the
-  control characters out of it.** What it leaves is the format characters -- a
-  U+202E in a name reverses the line it is printed on -- so the escape is what is
-  left to do, and the one rule is applied at every use rather than being argued
-  for per name. The recipes `instructions()` prints are given the escaped name:
+  control characters out of it.** What it left, until SIG-610, was the format
+  characters -- a U+202E in a name reverses the line it is printed on -- so the
+  escape was what was left to do. It is defence now, since `programOf()` strips
+  those as well, and the one rule is applied at every use rather than being
+  argued for per name. The recipes `instructions()` prints are given the escaped name:
   a name holding one is not a name anybody could type, so it is the printed form
   that is wrong rather than the escape.
 - **The printer's two errors are inert too (SIG-592).** `spec.ts` quotes the
   program name in "is not a name a shell can register for" and `index.ts`
   quotes the shell name in "Unknown shell", and both printed the value raw --
   the printer is the half SIG-576 did not reach, since it is not the installer.
-  The name there has been through `programOf()`, so only a format character
-  survives, but a U+202E in a name that also holds whitespace is exactly the
-  name this message is for. `spec.ts` and `index.ts` now import
+  The name there had been through `programOf()`, so only a format character
+  survived, and a U+202E in a name that also holds whitespace was exactly the
+  name this message is for. SIG-610 strips those too, which leaves the escape as
+  defence, and `completion-errors-inert.test.ts` asserts the stripped name. `spec.ts` and `index.ts` now import
   `util/escape-controls.js`, which was already in the printer's static graph
   through the parser, so the import added no module to it; the byte figures are
   in the PR. Covered by `test/completion-errors-inert.test.ts`.
+- **A format character in a program name or a description is stripped, not
+  refused and not escaped (SIG-610).** `oneLine()` took out `\p{Cc}` and nothing
+  else, so a schema `name` of `my` + U+202E + `cli` -- no whitespace, so
+  `registerable()` accepted it -- went into the header comments, `complete -F`
+  and `#compdef` as written, and `app completion bash` printed lines the
+  terminal drew reversed. A `desc` did the same. `descriptionLine()` now takes
+  out the class `escapeControls()` names (`withoutUnsafe()`, the same pattern
+  rather than a second one), and `programOf()` is `oneLine()`, so one change
+  covers the descriptions, the name in all of its places, and the installer's
+  path and marker, which are derived from the same function.
+
+  **Stripped rather than refused, because the name was already being stripped.**
+  A control character has been taken out of the name since `programOf()` was
+  written, for the reason its own comment gives: the printer and the installer
+  must agree about what the name is, and a name each reduces the same way
+  does. Refusing a format character would add a second rule beside that one, and
+  would make an `--uninstall` of a script an earlier version wrote under such a
+  name fail where the stripped name finds it. What it costs is that the script
+  registers for `mycli` where the schema said otherwise -- and a name nobody
+  could type was never going to be invoked by the other spelling either.
+  **Escaping is not an option for the name**: `my\u{202E}cli` written into a
+  `complete -F` is a different word to the shell, which is what SIG-592's
+  escape is right for in an error and wrong for in a script.
+
+  The class is the full `escapeControls()` one rather than `\p{Cf}` alone, so
+  a Hangul filler or a variation selector goes from a description as well. A
+  joined emoji loses its joiner and a heart its U+FE0F, which is what the
+  class costs a description in a menu; the markdown reference prints through the
+  same function and pays the same. Not covered: a candidate **value** holding
+  one, which is dropped only for a control character -- a value is inserted into
+  the command line, so cleaning it would type a token that is not the value.
+  Covered by `test/completion-format-chars.test.ts`, per shell. The printer's
+  static graph was 91,434 B over 26 modules and is 91,484 B over the same 26 as
+  of SIG-610 -- `staticGraph()` over the `completion` chunk -- since
+  `escape-controls.ts` was already in it and the change is one function there
+  and a line in `descriptionLine()`. Well inside the ceiling `dist.test.ts` holds.
+
 - **What is not covered.** The confirm and select prompts' own messages carry
   the escaped name as well, but nothing tests that: they are drawn by a canvas
   that strips what they hold, so the escape there is defence and a sabotage of it
