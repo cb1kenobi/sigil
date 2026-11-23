@@ -74,8 +74,8 @@ is proved.
 - **`SIGIL_COLOR_SCHEME` is the user's override, and it settles the ticket's open
   question in four places rather than two.** Yes, there is an explicit override, and
   it is the user's as well as the app's -- `NO_COLOR`'s direction. The order is
-  `RenderOptions.colorScheme`, then `SIGIL_COLOR_SCHEME`, then an OSC 11 reply, then
-  `COLORFGBG`, then dark, and each step down is less specific knowledge about the
+  `Renderer.setColorScheme()`, then `RenderOptions.colorScheme`, then
+  `SIGIL_COLOR_SCHEME`, then an OSC 11 reply, then `COLORFGBG`, then dark, and each step down is less specific knowledge about the
   same question. An app is on top because it may be _painting its own background_,
   so a named scheme is a fact about its output rather than a guess at the terminal.
   The user is next because what they are correcting is the detection. The reply is
@@ -131,6 +131,36 @@ is proved.
   the refinement and whose answer therefore cannot move. Asking the chain before and
   after recording is one mechanism where two guards used to be, and it deleted the
   `opts.colorScheme === undefined` conjunct that had been standing in for half of it.
+- **An app can change the scheme at runtime, and the choice sits above every
+  detected source (SIG-461).** A theme that paints a light page over a dark terminal
+  is a light scheme whatever the terminal is, and the renderer read the scheme once,
+  so every `prefers-color-scheme` rule was answering for the terminal while the
+  screen was the theme's. A component that reads the scheme from its own options
+  rather than from the media context -- `qrcode()`'s polarity -- is not reached.
+  `Renderer.setColorScheme(scheme | undefined)` is the whole API: the top of the
+  chain, above `RenderOptions.colorScheme`, because it is the app's decision taken
+  after the option, and `undefined` takes it back to what the chain below says --
+  option included, a reply recorded in the meantime included. A variable of its own
+  rather than a write to `opts.colorScheme`, so that clearing has something to
+  return to. It publishes through `publishMedia()`, which is the path a resize and a
+  `detect()` reply already take -- a full re-match, a layout and a repaint -- and
+  asks the chain before and after, as `detect()` does, so naming the scheme already
+  in force costs no frame. A method on the renderer rather than a signal option:
+  an app that wants it reactive writes the effect, as the dashboard does over its
+  theme, and the renderer stays a thing that is told. Not on `App`, which has
+  `view` for everything about the renderer. Pinned by `changing the scheme at
+  runtime` in `test/renderer/renderer.test.ts`, which restyles an element through a
+  `prefers-color-scheme` rule and sees the next frame differ.
+  It cannot be called before the renderer exists, so an app that _starts_ on a
+  non-terminal scheme paints its first frame in the terminal's: it passes
+  `colorScheme` to `runApp()` as well. The dashboard starts on System, so it is not
+  affected.
+  What it does not do is make a palette index right on a page the app painted: the
+  framework's roles are the terminal's own colours, chosen for the terminal's
+  background, so a theme that paints its own page still states its role colours.
+  The scheme-aware halves cover what the framework sheet has one for -- the muted
+  role, the text field and the debug pane -- and a theme gets the rest only by the
+  framework growing more of them.
 - **The renderer owns the live media context, so a scheme set on a cascade alone is
   lost.** `render(App, { cascade: themedCascade({ colorScheme: 'light' }) })` with no
   `RenderOptions.colorScheme` has that light context overwritten by the first
