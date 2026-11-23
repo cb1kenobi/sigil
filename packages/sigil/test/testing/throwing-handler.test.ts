@@ -1,7 +1,12 @@
 import { box } from '../../src/element/index.js';
-import { createInput, ESCAPE_TIMEOUT } from '../../src/input/index.js';
+import {
+  createInput,
+  ESCAPE_TIMEOUT,
+  PASTE_TIMEOUT,
+  SEQUENCE_TIMEOUT,
+} from '../../src/input/index.js';
 import { createTestTerminal, KEYS } from '../../src/testing/index.js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * A handler that throws, over a test terminal whose router has no `onError`.
@@ -84,5 +89,144 @@ describe('a handler that throws over a test terminal', () => {
 
     expect(errors).toHaveLength(2);
     input.stop();
+  });
+});
+
+/**
+ * A throw from one of the router's own timers, which no `write()` is there to
+ * hand back (SIG-631).
+ *
+ * The hold on a lone Escape, a sequence's deadline and a paste that never ended
+ * each dispatch from a timer, so a handler that throws there was an uncaught
+ * exception and `press()` had already resolved. `onTimerError()` is the hook a
+ * test hears it through.
+ */
+describe('a handler that throws from a router timer over a test terminal', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should hand a throw from the lone-Escape hold to onTimerError', async () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    const seen: string[] = [];
+    input.bind((event) => {
+      seen.push(event.key.sequence);
+      if (event.key.sequence === KEYS.escape) {
+        throw new Error('boom');
+      }
+    });
+
+    ui.stdin.write(KEYS.escape);
+    expect(errors).toEqual([]);
+    vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+
+    expect(errors).toEqual([new Error('boom')]);
+    // and the session carries on
+    ui.stdin.write('y');
+    expect(seen).toEqual([KEYS.escape, 'y']);
+    input.stop();
+  });
+
+  it('should hand a throw from a key sequence deadline to onTimerError', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    // `g` is a binding and a prefix of `g g`, so it waits to see which was meant
+    input.bind('g', () => {
+      throw new Error('boom');
+    });
+    input.bind('g g', () => {});
+
+    ui.stdin.write('g');
+    expect(errors).toEqual([]);
+    vi.advanceTimersByTime(SEQUENCE_TIMEOUT);
+
+    expect(errors).toEqual([new Error('boom')]);
+    input.stop();
+  });
+
+  it('should hand a throw from a paste that never ended to onTimerError', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    input.onPaste(() => {
+      throw new Error('boom');
+    });
+
+    ui.stdin.write(`${KEYS.escape}[200~half`);
+    expect(errors).toEqual([]);
+    vi.advanceTimersByTime(PASTE_TIMEOUT);
+
+    expect(errors).toEqual([new Error('boom')]);
+    input.stop();
+  });
+
+  it('should leave the throw uncaught where no test is listening, as it is in an app', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    input.bind(() => {
+      throw new Error('boom');
+    });
+
+    ui.stdin.write(KEYS.escape);
+
+    expect(() => vi.advanceTimersByTime(ESCAPE_TIMEOUT)).toThrow('boom');
+    input.stop();
+  });
+
+  it('should stop hearing once the handler is taken off', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    const off = ui.onTimerError((error) => void errors.push(error));
+    input.bind(() => {
+      throw new Error('boom');
+    });
+    off();
+
+    ui.stdin.write(KEYS.escape);
+
+    expect(() => vi.advanceTimersByTime(ESCAPE_TIMEOUT)).toThrow('boom');
+    expect(errors).toEqual([]);
+    input.stop();
+  });
+
+  it('should give a router that has an onError the throw, and the hook nothing', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const routed: unknown[] = [];
+    const heard: unknown[] = [];
+    const input = createInput({
+      onError: (error) => void routed.push(error),
+      root: box({}),
+      terminal: ui.terminal,
+    });
+    ui.onTimerError((error) => void heard.push(error));
+    input.bind(() => {
+      throw new Error('boom');
+    });
+
+    ui.stdin.write(KEYS.escape);
+    vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+
+    expect(routed).toEqual([new Error('boom')]);
+    expect(heard).toEqual([]);
+    input.stop();
+  });
+
+  it('should refuse a handler that is not a function', () => {
+    const ui = createTestTerminal();
+
+    expect(() => ui.onTimerError(undefined as never)).toThrow('onTimerError() takes a function');
   });
 });

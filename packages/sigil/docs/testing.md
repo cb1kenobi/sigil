@@ -538,6 +538,28 @@ waits for the prompt to act on each one, so the next assertion sees the result.
   follows the Escape. `press()` does not wait that long, so press another key
   after it, or advance the clock.
 
+**When a handler throws.** A key handler that throws does not stop the session.
+`press()` rejects with the handler's own error, so `rejects.toThrow()` on the
+call is how a test says it threw, and the keys after it are still delivered. The router's own timers are the exception, because nothing is
+waiting on them: the hold on a lone Escape, a key sequence's deadline and a paste
+that never ended act on their own once the timeout has passed, long after
+`press()` resolved. A throw from one of those is an uncaught exception, as it is
+in an app, unless the test registers `ui.onTimerError()` first:
+
+```ts
+const errors: unknown[] = [];
+ui.onTimerError((error) => void errors.push(error));
+
+await ui.press(KEYS.escape);
+vi.advanceTimersByTime(ESCAPE_TIMEOUT); // the hold ends, and the handler throws
+
+expect(errors).toEqual([new Error('boom')]);
+```
+
+`onTimerError()` returns a function that takes the handler off again. A router
+built with its own `onError` gets the throw there instead, and the hook hears
+nothing.
+
 `tick()` lets pending work run, which is what `press()` does after each read.
 Use it before the first key, as above, or after writing to `ui.stdin` yourself.
 

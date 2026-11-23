@@ -274,9 +274,10 @@ that knowledge was undiscoverable from outside this repository.
   delivered. Only a `data` emitted _inside_ a `write()` is caught. A throw from
   anywhere else -- a lone Escape, which the router holds for `ESCAPE_TIMEOUT` and
   dispatches from a timer, a sequence's deadline, or a stream resumed with chunks
-  queued -- has no call to hand the error back through and is an uncaught
-  exception as it always was; the stream is still whole afterwards, and `press()`
-  does not reject for it. What the router drops after a throw is the router's own
+  queued -- has no call to hand the error back through, and `press()` does not
+  reject for it. A **timer's** throw is the next entry's (SIG-631); a stream
+  resumed with chunks queued is still an uncaught exception as it always was,
+  with the stream whole afterwards. What the router drops after a throw is the router's own
   rule and is unchanged: the rest of that read (`press('ab')` with a handler that
   throws on `a` never dispatches `b`), and a second `data` listener added after
   the router never sees the chunk. A router **with** an
@@ -288,6 +289,40 @@ that knowledge was undiscoverable from outside this repository.
   that it threw. Pinned in `test/testing/throwing-handler.test.ts`; the sabotage
   is removing the `survivesAThrow()` call, which fails the first two tests there
   with the second key never seen.
+
+- **A throw from one of the router's own timers reaches the test through
+  `onTimerError()`, and with none registered it is uncaught as it always was
+  (SIG-631).** SIG-619 covers a `data` emitted inside a `write()`. The router also
+  acts from three timers -- the hold on a lone Escape, a key sequence's deadline,
+  and a paste that never ended -- and a throw from one has no `write()` to come
+  back through: `press()` resolved after its own `tick()`, long before a 50 ms
+  hold fires, so it cannot reject for it.
+
+  The two shapes the ticket named were a rejection of the `press()` that started
+  the timer and a hook on the fixture, and the hook is the one taken because the
+  rejection is not available: there is no promise left to reject, and making
+  `press()` wait out `ESCAPE_TIMEOUT` would change what it costs every test to
+  catch the few that throw. `ui.onTimerError(handler)` returns an `off`, and the
+  router's `timed()` wrapper around those three callbacks hands the throw to a
+  function the fixture put on the stream under
+  `Symbol.for('@ttylabs/sigil/input/timer-error')` -- a registry symbol, because
+  the testing entry imports nothing of the router's and a shared constant would
+  have made it. The router reads it **where the throw happens**, so a handler
+  registered after `createInput()` is the one asked.
+
+  **The hook exists on the stream only while a handler is registered, and that is
+  the load-bearing half.** A router with no hook lets the throw go as before, so a
+  test that never asked still fails on the uncaught exception rather than passing
+  over an error nothing reported; the alternative, collecting errors into an
+  array by default, would have turned a loud failure into a silent one for every
+  existing test. A router **with** an `onError` never reaches the hook: the throw
+  is the router's and goes there, which is the rule above. Nothing about an app
+  moves -- under `runApp()` the stream carries no such property and a timer's
+  throw is SIG-524's, as it was. Only entries a timer starts are wrapped; a key,
+  a paste or a resize still has its caller to go back through.
+
+  Pinned in `test/testing/throwing-handler.test.ts`; the sabotage is making
+  `timed()` ignore the hook, which fails the three tests that name a timer.
 
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
