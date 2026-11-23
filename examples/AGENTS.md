@@ -174,6 +174,44 @@ the `ui` tag run by plain `node`.
   the example built, and says which command makes it. An example that adds the
   flag adds the file.
 
+  SIG-594 made that sentence a check and finished the set. `should test the mouse
+  from the entry, when the entry turns it on` in `packages/cli/test/examples.test.ts`
+  reads `src/index.ts` and `src/ui.*`, comments stripped, and fails for an example
+  whose entry says `mouse` at all -- the `--mouse` flag, or a `mouse` option handed
+  to `runApp()` in any spelling -- and has no `test/entry.test.ts` naming
+  `ENABLE_MOUSE_BUTTONS` or `ENABLE_MOUSE_MOTION` and, where there is a `src/ui.*`,
+  that file too, since it spells the flag separately from the bin. The second half
+  of the trigger is there because the dashboard, the settings screen and the
+  visualizer have no flag and the same unrun line. Every example that turns the
+  mouse on has one now: the editor (the flag), and the three above (always on, so
+  the test asserts the mode as well as the fact: `true` is `?1002h` and not
+  `?1003h`, `{ motion: true }` is `?1003h`, and each is handed back). The same
+  files check that the positional reaches its provider, which was the other half of
+  the entry nothing ran: `dir` for the editor, the visualizer, the git client and
+  the file manager (whose file has that and nothing else, it having no mouse),
+  `[file]` for the log browser, each run from a directory that is not the one it is
+  given, so the screen can only show the argument. The positional is not guarded
+  the way the mouse is -- an example that takes one and has no entry test is not
+  found by the suite, only by somebody asking. Sabotaged per line: each `mouse`
+  option removed, made constant and changed in mode, and each positional dropped,
+  fails exactly the test written for it.
+
+  The harness around those tests -- spawn, first frame, `q`, read the bytes -- is
+  copied into each file rather than shared, which is a decision and not an
+  oversight, and the reason is that an example is a unit somebody copies, with its
+  tests beside it, as SIG-522 left it. It is not that nowhere else would work:
+  `packages/cli/test/examples.test.ts` already spawns every entry over a terminal,
+  and a table beside its `KEYED` asserting on `ran.out` would cover both entries of
+  every example with no copy -- at the cost of the tests leaving the example, and
+  of a new example owing a row there instead of a file. A loose file in `examples/`
+  is not an answer: `vitest.config.ts` reads every entry of `examples/*` as a
+  project, so it is parsed as a config. What would be one definition inside the
+  example is a published one -- the mouse modes a `runOnTerminal()` run turned on,
+  read by `Screen` the way `alternate` and `cursorHidden` are -- which is an
+  addition to `@ttylabs/sigil/testing` and its guide, not to an example. The copies
+  have drifted a little already (the size of the terminal, `it` against
+  `it.concurrent`); nothing depends on either.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
@@ -1067,13 +1105,19 @@ dark -- built from sigil's own components, with its own data, names and colours.
 - **System, Light and Dark, and the two named ones paint their own background.**
   `System` is no theme sheet: the framework's roles over the terminal's colours,
   light or dark as it reports. `Light` and `Dark` are the app saying which it is,
-  which `prefers-color-scheme` cannot say -- it asks what the _terminal_ is, and the
-  renderer fixes that at start -- so each sheet fills `.sigil-app`, sets every role
-  (one left out would fall back to a default chosen for the terminal's scheme, a
-  dim grey meant for black drawn on white), and fills the menu, the dialog, the
+  which the renderer's detection cannot say -- it knows what the _terminal_ is -- so
+  each sheet fills `.sigil-app`, sets the colour of every role (the framework's are
+  palette indices chosen for the terminal's background, which a page that paints its
+  own is the case they are wrong for), and fills the menu, the dialog, the
   toast and the tooltip, which are drawn on the root in the terminal's own colours
   otherwise and would punch a black hole in a white screen. Truecolor, since an
-  app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
+  app's own theme may use it. Each also names a `scheme` and an effect hands it to
+  `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
+  follows the theme rather than the terminal; it waits on a `mounted` State because
+  `app.view` is not there while the body runs, and an effect created inside
+  `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
+  What it does not reach is a component that reads the scheme from its own options,
+  `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
   The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
   (SIG-523): the menu draws the `●` and opens on the theme in use because it is a

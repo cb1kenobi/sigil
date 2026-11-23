@@ -1,5 +1,14 @@
 import { readSigilConfig } from '../src/config.js';
 import { run, schema, version } from '../src/index.js';
+import {
+  allLines,
+  expressionsInRun,
+  outsideSteps,
+  readWorkflow,
+  runBlocks,
+  withInlineRunExpression,
+  withSecretAfterSteps,
+} from './workflow.ts';
 import { readRoutes } from '@ttylabs/sigil/internal/routes';
 import { spawnSync } from 'node:child_process';
 import {
@@ -466,71 +475,24 @@ describe('@ttylabs/cli', () => {
    * that runs with the job's token, and the publish job's token can publish.
    * So the same rule as the manifests, plus the three ways a workflow hands an
    * attacker the token. Read line by line rather than through a YAML parser,
-   * which this package does not have; the shapes asserted on are the ones the
-   * two workflows actually use, and each assertion first checks it found
-   * something to assert on.
+   * which this package does not have, by the reader `new.test.ts` holds the
+   * scaffolded release workflow to as well (`workflow.ts`); the shapes asserted
+   * on are the ones the two workflows actually use, and each assertion first
+   * checks it found something to assert on.
    */
   describe('the workflows', () => {
     const dir = resolve(root, '../../.github/workflows');
     const workflows = readdirSync(dir)
       .filter((file) => /\.ya?ml$/.test(file))
-      .map((file) => ({ file, lines: readFileSync(join(dir, file), 'utf-8').split(/\r?\n/) }));
-
-    const indent = (line: string) => line.length - line.trimStart().length;
-
-    /** Every `run:` value, including the lines of a block scalar under it. */
-    function runBlocks(lines: string[]): string[] {
-      const blocks: string[] = [];
-      lines.forEach((line, i) => {
-        const match = /^(\s*)(- )?run:(.*)$/.exec(line);
-        if (!match) return;
-        const key = match[1].length + (match[2] ? 2 : 0);
-        const block = [match[3]];
-        for (let j = i + 1; j < lines.length; j++) {
-          if (lines[j].trim() !== '' && indent(lines[j]) <= key) break;
-          block.push(lines[j]);
-        }
-        blocks.push(block.join('\n'));
+      .map((file) => {
+        const text = readFileSync(join(dir, file), 'utf-8');
+        return { file, text, workflow: readWorkflow(text) };
       });
-      return blocks;
-    }
 
-    /**
-     * Each job's lines, by name, without comment lines -- a comment saying
-     * `archive: false` is not the setting, and a comment is where this file's
-     * own explanations of every one of these lines live.
-     */
-    function jobs(lines: string[]): Map<string, string[]> {
-      const byName = new Map<string, string[]>();
-      const start = lines.indexOf('jobs:');
-      let current: string[] | undefined;
-      for (const line of lines.slice(start + 1)) {
-        const name = /^ {2}([\w-]+):\s*$/.exec(line);
-        if (name) byName.set(name[1], (current = []));
-        else if (/^\S/.test(line)) current = undefined;
-        else if (!/^\s*#/.test(line)) current?.push(line);
-      }
-      return byName;
-    }
-
-    /** A job's steps, in order, each with its name and its lines. */
-    function steps(job: string[]): { name: string; lines: string[] }[] {
-      const found: { name: string; lines: string[] }[] = [];
-      for (const line of job) {
-        if (/^ {6}- /.test(line)) found.push({ name: '', lines: [] });
-        const step = found.at(-1);
-        if (!step) continue;
-        step.lines.push(line);
-        const name = /^ {6}(?:- | {2})name:\s*(.*)$/.exec(line);
-        if (name && step.name === '') step.name = name[1];
-      }
-      return found;
-    }
-
-    const publishJobs = jobs(workflows.find(({ file }) => file === 'publish.yml')?.lines ?? []);
-    const buildJob = publishJobs.get('build') ?? [];
-    const publishJob = publishJobs.get('publish') ?? [];
-    const publishSteps = steps(publishJob);
+    const publishJobs = workflows.find(({ file }) => file === 'publish.yml')?.workflow.jobs;
+    const buildJob = publishJobs?.get('build')?.lines ?? [];
+    const publishJob = publishJobs?.get('publish')?.lines ?? [];
+    const publishSteps = publishJobs?.get('publish')?.steps ?? [];
     const step = (name: string) => publishSteps.find((s) => s.name === name)?.lines ?? [];
 
     it('should find both workflows', () => {
@@ -538,8 +500,8 @@ describe('@ttylabs/cli', () => {
     });
 
     it('should pin every action to a commit SHA and name its release', () => {
-      const uses = workflows.flatMap(({ file, lines }) =>
-        lines
+      const uses = workflows.flatMap(({ file, workflow }) =>
+        allLines(workflow)
           .map((line) => /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1])
           .filter((value) => value !== undefined)
           .map((value) => `${file}: ${value}`)
@@ -554,20 +516,27 @@ describe('@ttylabs/cli', () => {
     it('should put no expression inside a run block', () => {
       // an expression is pasted into the script text before the shell parses
       // it, so a value holding a quote becomes shell; pass it through `env`
-      for (const { file, lines } of workflows) {
-        const blocks = runBlocks(lines);
-        expect(blocks.length, file).toBeGreaterThan(0);
-        expect(
-          blocks.filter((block) => block.includes('${{')),
-          file
-        ).toStrictEqual([]);
+      for (const { file, workflow } of workflows) {
+        expect(runBlocks(allLines(workflow)).length, file).toBeGreaterThan(0);
+        expect(expressionsInRun(workflow), file).toStrictEqual([]);
+      }
+    });
+
+    it('should refuse an inline `- run:` step holding an expression, in each workflow', () => {
+      // a step that opens with `run:` has no `name:`, so nothing keyed by name
+      // finds it: the check has to be asked of every step
+      for (const { file, text } of workflows) {
+        expect(expressionsInRun(readWorkflow(text)), file).toStrictEqual([]);
+        const found = expressionsInRun(readWorkflow(withInlineRunExpression(text)));
+        expect(found, file).toHaveLength(1);
+        expect(found[0], file).toContain('- run: echo');
       }
     });
 
     it('should read secrets in the publish job of the publish workflow and nowhere else', () => {
-      const reads = workflows.flatMap(({ file, lines }) =>
-        [...jobs(lines)].flatMap(([job, body]) =>
-          body.some((line) => line.includes('secrets.')) ? [`${file} ${job}`] : []
+      const reads = workflows.flatMap(({ file, workflow }) =>
+        [...workflow.jobs.values()].flatMap(({ name, lines }) =>
+          lines.some((line) => line.includes('secrets.')) ? [`${file} ${name}`] : []
         )
       );
 
@@ -578,24 +547,35 @@ describe('@ttylabs/cli', () => {
           .filter((s) => s.lines.some((line) => line.includes('secrets.')))
           .map((s) => s.name)
       ).toStrictEqual(['Check the token can publish', 'Publish to npm']);
-      // and no secret is read outside a job, where every job would get it
-      for (const { file, lines } of workflows) {
-        const outside = lines.slice(0, lines.indexOf('jobs:'));
-        expect(
-          outside.filter((line) => line.includes('secrets.')),
-          file
-        ).toStrictEqual([]);
+      // and no secret is read anywhere but in one of those steps: not outside a
+      // job, where every job would get it, and not in a job's own keys, before
+      // its steps or after them, where every step would
+      for (const { file, workflow } of workflows) {
+        expect(outsideSteps(workflow, /secrets\./), file).toStrictEqual([]);
+      }
+    });
+
+    it('should refuse a secret a job holds after its steps, in each workflow', () => {
+      // the shape that was attributed to the last step: a key that follows the
+      // steps list is the job's, and gives every step the secret
+      for (const { file, text } of workflows) {
+        expect(outsideSteps(readWorkflow(text), /secrets\./), file).toStrictEqual([]);
+        const [found, ...rest] = outsideSteps(
+          readWorkflow(withSecretAfterSteps(text)),
+          /secrets\./
+        );
+        expect(found, file).toContain('after its steps');
+        expect(rest, file).toStrictEqual([]);
       }
     });
 
     it('should give id-token to the publish job alone, after the build job', () => {
-      const grants = workflows.flatMap(({ file, lines }) => [
-        ...lines
-          .slice(0, lines.indexOf('jobs:'))
-          .filter((line) => !/^\s*#/.test(line) && line.includes('id-token'))
+      const grants = workflows.flatMap(({ file, workflow }) => [
+        ...workflow.outside
+          .filter((line) => line.includes('id-token'))
           .map(() => `${file} (every job)`),
-        ...[...jobs(lines)].flatMap(([job, body]) =>
-          body.some((line) => line.includes('id-token')) ? [`${file} ${job}`] : []
+        ...[...workflow.jobs.values()].flatMap(({ name, lines }) =>
+          lines.some((line) => line.includes('id-token')) ? [`${file} ${name}`] : []
         ),
       ]);
 
@@ -603,8 +583,8 @@ describe('@ttylabs/cli', () => {
       expect(publishJob).toContain('    needs: build');
       // neither job needs git credentials, and the build job's archive must not
       // be able to carry them
-      const checkouts = [...publishJobs.values()]
-        .flatMap(steps)
+      const checkouts = [...(publishJobs?.values() ?? [])]
+        .flatMap((job) => job.steps)
         .filter((s) => s.lines.some((line) => line.includes('uses: actions/checkout@')));
       expect(checkouts).toHaveLength(2);
       for (const checkout of checkouts) {

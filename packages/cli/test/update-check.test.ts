@@ -9,6 +9,7 @@ import {
   resolveCommandTree,
   updateCheckDefine,
   UPDATE_CHECK_DEFINE,
+  wrappedCheckWarning,
 } from '../src/build/index.ts';
 import { binaryName, hostTarget } from '../src/build/index.ts';
 import { objectLiteral } from '../src/build/literals.ts';
@@ -934,6 +935,8 @@ describe('whether the schema names its own checker', () => {
   // nullish, and then the schema has no `updateCheck` at all -- so reading it as
   // the options it wraps costs a declaration the build did not demand, which is
   // the direction this reader errs in. `wrap({ checker })` already read as naming
+  // -- as `'wrapped'` since SIG-593, which is the same refusal-free answer with a
+  // warning behind it, because the call is the one thing that may not return it
   describe("an optional call to a wrapper of the app's own", () => {
     const wrapper = 'const wrap = <T>(options: T) => options;';
     const readsWrapped = (body: string): ReturnType<typeof readSchemaUpdateCheck> =>
@@ -952,8 +955,35 @@ describe('whether the schema names its own checker', () => {
         'wrap(wrap?.({ checker: githubChecker({ repo: "a/b" }) }))',
       ],
       ['an optional member call', 'ns?.wrap({ checker: githubChecker({ repo: "a/b" }) })'],
-    ])('should read %s as naming its checker', (_what, value) => {
+    ])('should read %s as naming its checker through a call', (_what, value) => {
+      expect(readsWrapped(`updateCheck: ${value}`)).toBe('wrapped');
+    });
+
+    // SIG-593: the call is what makes it unconfirmed, so a literal is not
+    it.each([
+      ['a builder given bare', 'githubChecker({ repo: "a/b" })'],
+      ['the options', '{ checker: githubChecker({ repo: "a/b" }) }'],
+      [
+        'the options in parentheses, as and satisfies',
+        '({ checker: x } as object) satisfies object',
+      ],
+      ['a checker written out', '{ type: "x", path: ["v"], url: "https://e.com" }'],
+      ['a builder called optionally', 'githubChecker?.({ repo: "a/b" })'],
+    ])('should still read %s as naming its checker, confirmed', (_what, value) => {
       expect(readsWrapped(`updateCheck: ${value}`)).toBe('names');
+    });
+
+    // two schemas in one module: the weaker answer is the module's, in either order
+    it.each([
+      ['confirmed first', 'githubChecker({ repo: "a/b" })', 'wrap?.({ checker: githubChecker() })'],
+      ['confirmed last', 'wrap?.({ checker: githubChecker() })', 'githubChecker({ repo: "a/b" })'],
+    ])('should answer wrapped when one of two schemas is unconfirmed, %s', (_what, one, two) => {
+      const entry = entryOf(
+        `updateCheck: ${one}`,
+        `${builders}\n${wrapper}\nexport const other = { name: 'o', commands: './commands', updateCheck: ${two} };`,
+        'index.ts'
+      );
+      expect(readSchemaUpdateCheck(entry)).toBe('wrapped');
     });
 
     it('should still read one that names nothing as asking, optional or not', () => {
@@ -1345,6 +1375,36 @@ describe('what the refusal says', () => {
   });
 });
 
+// SIG-593: a schema that names its checker through a call of the app's own is not
+// refused for importing the check, because `updateCheck: githubChecker(...)` imports
+// the builder and nothing else -- but `wrap?.({ checker })` is `undefined` when `wrap`
+// is, and an app that then calls `check()` itself with no checker ships a binary
+// whose update check does nothing, with the build saying nothing at all
+describe('a checker named through a call the build cannot read', () => {
+  it('should warn when the app imports the check and says nothing in sigil.json', () => {
+    const warning = wrappedCheckWarning({}, true, 'wrapped');
+    expect(warning).toContain('through a call');
+    expect(warning).toContain('@ttylabs/sigil/updates');
+    expect(warning).toContain('"updateCheck"');
+  });
+
+  it.each([
+    ['sigil.json declares where to look', { updateCheck: { type: 'none' } }, true, 'wrapped'],
+    [
+      'sigil.json declares a checker',
+      { updateCheck: { repo: 'a/b', type: 'github' } },
+      true,
+      'wrapped',
+    ],
+    ['the bundle never reached the check', {}, false, 'wrapped'],
+    ['the checker is confirmed', {}, true, 'names'],
+    ['the schema asks and says nothing, which is refused instead', {}, true, 'asks'],
+    ['the schema does not ask', {}, true, undefined],
+  ] as const)('should say nothing when %s', (_what, config, imported, schema) => {
+    expect(wrappedCheckWarning(config as SigilConfig, imported, schema)).toBeUndefined();
+  });
+});
+
 describe('a packaged binary that asks in its schema', () => {
   const source = [
     'export default {',
@@ -1409,6 +1469,63 @@ describe('a packaged binary that asks in its schema', () => {
     },
     180000
   );
+
+  // SIG-593: the empty check, end to end. `wrap` is nullish at run time, so the
+  // schema ends with no `updateCheck` and the hand-called `check()` has no checker:
+  // the binary's check does nothing, and the build used to say nothing either
+  describe.skipIf(!hasBun)('naming its checker through a call, and calling check() by hand', () => {
+    const entry = (): string =>
+      [
+        "import { check, githubChecker } from '@ttylabs/sigil/updates';",
+        'const wrap = process.env.WRAP ? (options) => options : undefined;',
+        'export default {',
+        "  name: 'fixture-wrapped',",
+        "  version: '1.0.0',",
+        "  updateCheck: wrap?.({ checker: githubChecker({ repo: 'acme/mycli' }) }),",
+        '  async run() {',
+        "    const result = await check({ packageName: 'fixture-wrapped', packageVersion: '1.0.0', wait: true });",
+        '    process.stdout.write(`${JSON.stringify(result)}\\n`);',
+        '  },',
+        '};',
+        '',
+      ].join('\n');
+
+    const flat = (text: string): string => text.replace(/\s+/g, ' ');
+
+    async function packaged(name: string, config?: unknown) {
+      const root = variant(name, config, entry());
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        const binary = join(out, binaryName('fixture-updates', hostTarget()));
+        const ran = code
+          ? undefined
+          : spawnSync(binary, [], { encoding: 'utf-8', env: { ...process.env, WRAP: '' } });
+        return { code, err, ran };
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
+    }
+
+    it('should warn that the check may be empty, and still package', async () => {
+      const { code, err, ran } = await packaged('wrapped-empty');
+      expect(code, err).toBeFalsy();
+      // `writeNote()` wraps to `COLUMNS`, which can break a phrase across a line
+      expect(flat(err)).toContain('through a call');
+      expect(flat(err)).toContain('"updateCheck"');
+
+      // the defect the warning is about: a check that ran and found nothing to look at
+      expect(ran?.stdout).toBe('{"current":"1.0.0"}\n');
+    }, 180000);
+
+    it('should say nothing once sigil.json says where to look', async () => {
+      const { code, err } = await packaged('wrapped-declared', {
+        updateCheck: { repo: 'acme/mycli', type: 'github' },
+      });
+      expect(code, err).toBeFalsy();
+      expect(flat(err)).not.toContain('through a call');
+    }, 180000);
+  });
 
   // the other direction, because relaxing a refusal is only safe if the one
   // case it was written for still gets it: switching the check on, importing

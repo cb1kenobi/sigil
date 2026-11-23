@@ -643,6 +643,37 @@ describe('what importing the package costs', () => {
     expect(staticBuiltins(graph)).toEqual([]);
   });
 
+  it.each(['code-view', 'diff', 'diff-view', 'markdown'])(
+    'should not load the prompt stack to draw highlighted code through components/%s',
+    (name) => {
+      // SIG-597: `tokensOf()` and `PromptError` were written in `prompt.ts`, so a
+      // code view, a diff and a markdown page imported the prompts -- `runPrompt()`,
+      // the key reader, the terminal -- to turn a highlighter's spans into tokens.
+      // The seam is `token.ts` now, and a value import of the prompt module from a
+      // component that only draws is what puts the stack back. `text-area` is not
+      // here: it still reaches `layoutField()` in `prompt.ts`, which is its own ticket
+      const graph = staticGraph(`components/${name}.mjs`);
+
+      expect(carriers(graph, 'Input ended before the prompt was answered'), name).toEqual([]);
+      // the presence half, so the marker cannot go stale and pass forever
+      expect(
+        carriers(staticGraph('components/prompt.mjs'), 'Input ended before the prompt was answered')
+      ).not.toEqual([]);
+    }
+  );
+
+  it('should keep the token seam to the two modules it is, with no theme behind it', () => {
+    // `components/token` is `tokensOf()` and the class spelling, and throws the
+    // `PromptError` in its own module; the theme's `TOKEN_ROLE` is asked for by
+    // the caller rather than imported, which is what keeps this one small
+    const graph = staticGraph('components/token.mjs');
+
+    expect(carriers(graph, 'sigil-token')).not.toEqual([]);
+    expect(carriers(graph, 'themedCascade')).toEqual([]);
+    expect(graphBytes(graph), [...graph].join(', ')).toBeLessThan(2 * 1024);
+    expect(staticBuiltins(graph)).toEqual([]);
+  });
+
   it('should keep the suggest subpath free of anything a browser cannot load', () => {
     // `@ttylabs/sigil/suggest` exists so that the website's 404 page can ask the
     // parser's own "did you mean" rule in the browser. The parser's module
@@ -1000,9 +1031,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/chart': [396, 201_844],
   'components/checkbox': [488, 248_863],
   'components/clock': [384, 196_045],
-  // SIG-465, measured when it was added: the view's module and `tokensOf()`, which
-  // brings the prompt stack it lives in -- the same stack `markdown()` and `diff()`
-  // already pay for, and the reason it is not the 14 kB `highlight` is
+  // SIG-465, measured when it was added: 263,687 B, the view's module and
+  // `tokensOf()` with the prompt stack it then lived in; SIG-597 moved it out and
+  // the graph is 147,669 B. The ceiling has not come down with it
   'components/code-view': [520, 263_687],
   'components/collapsible': [380, 193_603],
   // added when SIG-309 gave every component one colour-level rule
@@ -1062,6 +1093,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/path': [484, 248_156],
   'components/progress': [380, 193_936],
   'components/prompt': [468, 240_102],
+  'components/prompt-error': [1, 178],
   'components/qrcode': [332, 169_062],
   'components/radio-set': [492, 250_508],
   'components/rule': [320, 163_424],
@@ -1082,6 +1114,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'components/text-field': [472, 242_489],
   'components/toast': [380, 195_187],
   'components/toggle': [472, 241_207],
+  'components/token': [1, 655],
   'components/tooltip': [380, 195_074],
   'components/tree': [512, 262_589],
   // SIG-282, measured when it was added: the tree's module and the list view's,
