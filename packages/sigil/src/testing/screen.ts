@@ -583,8 +583,12 @@ export class Screen {
               this.#saved = undefined;
             }
           } else {
-            // a mode list may name several, `ESC[?1002;1006h`, and only the
-            // mouse's are kept: any other is ignored, as it always was
+            // a list may name several, `ESC[?1002;1006h`, and the three mouse
+            // modes are read from one, each on its own: a real terminal keeps one
+            // tracking mode at a time and this does not model that, since sigil
+            // writes exactly one of them. Any other mode, in a list or alone, is
+            // ignored as it always was -- the cursor and the alternate screen are
+            // read only when sent by themselves
             for (const mode of params.split(';')) {
               const name =
                 mode === '1002'

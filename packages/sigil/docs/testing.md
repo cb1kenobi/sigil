@@ -388,7 +388,10 @@ Read it back with:
   (`ESC[?1003h`), and `sgr` is the encoding the reports come back in
   (`ESC[?1006h`). It is the state the terminal is in now, so an app that handed
   the mouse back reads all `false`, the way `alternate` does once it has left the
-  alternate screen. Each read is a fresh object.
+  alternate screen. Each read is a fresh object. Only those three modes are
+  read, each on its own: `ESC[?1000h`, which sigil never writes, shows as nothing,
+  and a terminal that keeps one tracking mode at a time is not modelled, so a
+  program that turns on both `buttons` and `motion` reads as both.
 
 It models the sequences sigil writes: cursor movement, erasing, the alternate
 screen, the cursor's visibility, and OSC 52. The questions a program asks the

@@ -300,7 +300,8 @@ function entrySources(example: Example): string[] {
  * bracket or a comma and a pattern that stopped at the first `]` would read half
  * of one: strings are skipped as strings, and only an element of the array itself
  * (a format string) or a `name` of an object in it counts. An `args` that is not
- * written out in the entry -- imported, spread -- reads as none, which is the
+ * written out in the entry -- imported, spread, held in a local constant, a
+ * `{ name }` shorthand -- reads as none, which is the
  * limit of reading source, and why `an entry that declares a positional` below
  * insists the reader still finds some in the examples that are known to have one.
  */
@@ -497,14 +498,19 @@ describe('the examples', () => {
           existsSync(test),
           `${example.name}'s entry declares ${declared.join(', ')} and ${relative(root, test)} does not exist: it spawns the entry with the argument and looks for it on screen`
         ).toBe(true);
-        const text = readFileSync(test, 'utf-8');
+        // comments stripped, so that a test commented out is a test removed
+        const text = readFileSync(test, 'utf-8')
+          .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+          .replaceAll(/^\s*\/\/.*$/gm, '');
         expect(text, 'the entry test passes an argument').toMatch(/\bargv\b/);
         const titles = [
           ...text.matchAll(/\bit(?:\.concurrent)?\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g),
         ].map((match) => match[2]);
         for (const name of declared) {
           expect(
-            titles.some((title) => new RegExp(`\\b${name}\\b`).test(title)),
+            titles.some((title) =>
+              new RegExp(`\\b${name.replaceAll(/\W/g, '\\$&')}\\b`).test(title)
+            ),
             `${example.name}'s entry declares the positional ${name} and no test in ${relative(root, test)} is titled with it: add one that runs the entry with ${name} and waits for it on screen`
           ).toBe(true);
         }

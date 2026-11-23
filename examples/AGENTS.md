@@ -202,7 +202,10 @@ the `ui` tag run by plain `node`.
   `file`) and fails for an example that declares one without a
   `test/entry.test.ts` holding an `it` **titled with that word**, such as `should
   open the dir it was given rather than the working directory`, and an `argv` it
-  passes, and the `ui` twin spawned too. The title is how a test says which
+  passes, and the `ui` twin spawned too. The `argv` and the `ui` twin are sanity
+  checks, which the entry test's own mouse tests satisfy as well; the title is what
+  carries the guard, and comments in the test file are stripped before it looks,
+  so a test commented out is a test removed. The title is how a test says which
   argument it is for, and it is the guard's limit as well: it finds a test that
   claims the argument and cannot find one that claims it and does not pass it, so
   a title and a body that disagree are a review's to catch, not the suite's. The
