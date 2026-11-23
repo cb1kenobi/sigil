@@ -1201,6 +1201,71 @@ describe('an owned effect stopped by hand', () => {
   });
 });
 
+describe('an owned effect whose first run throws (SIG-611)', () => {
+  it('should run again when a signal it read changes, and stop with its owner', () => {
+    const source = new State('a');
+    const seen: string[] = [];
+    const reported: unknown[] = [];
+    effects.setErrorHandler((error) => reported.push(error));
+    let owner: ReturnType<typeof getOwner>;
+    const stop = createRoot((dispose) => {
+      owner = getOwner();
+      return dispose;
+    }, effects.effect);
+
+    // the shape of an `onMount()` callback: it runs under the owner, outside any
+    // effect, and what it throws is collected by whoever ran it
+    expect(() =>
+      runWithOwner(owner, () =>
+        createEffect(() => {
+          seen.push(source.get());
+          if (seen.length === 1) {
+            throw new Error('first run');
+          }
+        })
+      )
+    ).toThrow('first run');
+    expect(seen).toEqual(['a']);
+
+    source.set('b');
+    effects.flush();
+    expect(seen).toEqual(['a', 'b']);
+    expect(reported).toEqual([]);
+
+    stop();
+    expect(sinkCount(source)).toBe(0);
+    source.set('c');
+    effects.flush();
+    expect(seen).toEqual(['a', 'b']);
+  });
+
+  it('should be disposed with a component whose body threw after making it', () => {
+    const h = harness();
+    const source = new State(0);
+    let runs = 0;
+    expect(() =>
+      render(
+        () => {
+          createEffect(() => {
+            runs++;
+            source.get();
+            throw new Error('first run');
+          });
+          return text('x');
+        },
+        { backend: h.backend, effects, terminal: h.terminal }
+      )
+    ).toThrow('first run');
+
+    expect(runs).toBe(1);
+    // the failed mount gave everything back, the effect included
+    expect(sinkCount(source)).toBe(0);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+  });
+});
+
 describe('Show', () => {
   it('should close a branch whose own effect cleared the condition', () => {
     // the branch is built inside `Show`'s effect, so the write landed on a run

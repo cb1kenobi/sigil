@@ -1445,6 +1445,35 @@ describe('runApp()', () => {
     expect(app.running).toBe(true);
   });
 
+  it('should run an onMount() effect again when its first run read a signal and then threw (SIG-611)', async () => {
+    const source = new State('a');
+    const seen: string[] = [];
+    const { app, term } = start(() => {
+      onMount(() => {
+        createEffect(() => {
+          seen.push(source.get());
+          if (seen.length === 1) {
+            throw new Error('mount effect broke');
+          }
+        });
+      });
+      return text('x');
+    });
+    app.view.frame();
+    expect(seen).toEqual(['a']);
+
+    source.set('b');
+    app.view.frame();
+    // it went quiet for good before the fix: the throw tore the effect down
+    expect(seen).toEqual(['a', 'b']);
+    expect(app.running).toBe(true);
+
+    app.exit();
+    await app.exited;
+    // reported once, from the run that threw
+    expect(term.lines.join('\n')).toContain('mount effect broke');
+  });
+
   it('should still report an error from a first-frame onMount() after the screen is back, now that view is readable there', async () => {
     const { app, term } = start(() => {
       const self = useApp();

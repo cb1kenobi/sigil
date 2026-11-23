@@ -17,7 +17,7 @@
  */
 
 import { adoptIntoRun, currentRun } from '../signals/effect.js';
-import { effect as defaultEffect, unowned, untrack } from '../signals/index.js';
+import { effect as defaultEffect, type EffectOptions, unowned, untrack } from '../signals/index.js';
 import { raise, refuseAsync } from '../signals/raise.js';
 
 /** What a component is: a function of props that builds one element. */
@@ -35,7 +35,7 @@ export interface Owner {
 }
 
 /** The effect factory an owner tree runs its effects through. */
-export type EffectFactory = (fn: () => void | Cleanup) => Cleanup;
+export type EffectFactory = (fn: () => void | Cleanup, options?: EffectOptions) => Cleanup;
 
 class OwnerNode implements Owner {
   readonly children = new Set<OwnerNode>();
@@ -352,63 +352,69 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
   const run = owner?.root().effects ?? defaultEffect;
   const owned = inBody === 0;
 
-  const dispose = run(() => {
-    const cleanups: Cleanup[] = [];
-    const previousOwner = current;
-    const previousCleanups = runCleanups;
-    const previousRun = runOf;
-    current = owner;
-    runCleanups = cleanups;
-    runOf = currentRun();
-    inBody++;
+  const dispose = run(
+    () => {
+      const cleanups: Cleanup[] = [];
+      const previousOwner = current;
+      const previousCleanups = runCleanups;
+      const previousRun = runOf;
+      current = owner;
+      runCleanups = cleanups;
+      runOf = currentRun();
+      inBody++;
 
-    let returned: void | Cleanup;
-    try {
+      let returned: void | Cleanup;
       try {
-        returned = fn();
-      } finally {
-        current = previousOwner;
-        runCleanups = previousCleanups;
-        runOf = previousRun;
-        inBody--;
+        try {
+          returned = fn();
+        } finally {
+          current = previousOwner;
+          runCleanups = previousCleanups;
+          runOf = previousRun;
+          inBody--;
+        }
+
+        if (typeof returned === 'function') {
+          cleanups.push(returned);
+        } else {
+          // the same refusal the signals layer makes, and it has to be made here
+          // too: this wrapper always returns a function, so the check downstream
+          // can no longer see what the body returned
+          refuseAsync(returned);
+        }
+      } catch (error) {
+        // a run that failed hands the signals layer no cleanup, so what it had
+        // registered before the throw -- an `onCleanup()`, the scope a
+        // `provideContext()` opened and every effect in it -- went out of scope
+        // with this list and never ran, not on the next run and not at unmount.
+        // It runs here, after the owner is put back so that nothing it does
+        // registers into the run it is undoing, and the throw goes on as it was,
+        // joined by what the cleanups threw where they threw anything
+        raise([error, ...runAll(cleanups)], 'Errors in a failed effect run and its cleanups');
+        // not reached: `raise()` throws whenever it is handed anything
+        throw error;
       }
 
-      if (typeof returned === 'function') {
-        cleanups.push(returned);
-      } else {
-        // the same refusal the signals layer makes, and it has to be made here
-        // too: this wrapper always returns a function, so the check downstream
-        // can no longer see what the body returned
-        refuseAsync(returned);
-      }
-    } catch (error) {
-      // a run that failed hands the signals layer no cleanup, so what it had
-      // registered before the throw -- an `onCleanup()`, the scope a
-      // `provideContext()` opened and every effect in it -- went out of scope
-      // with this list and never ran, not on the next run and not at unmount.
-      // It runs here, after the owner is put back so that nothing it does
-      // registers into the run it is undoing, and the throw goes on as it was,
-      // joined by what the cleanups threw where they threw anything
-      raise([error, ...runAll(cleanups)], 'Errors in a failed effect run and its cleanups');
-      // not reached: `raise()` throws whenever it is handed anything
-      throw error;
-    }
-
-    // raised rather than returned, because this is the cleanup the *signals*
-    // layer holds and that layer reports a throw from one on a re-run and raises
-    // it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
-    // written inside an effect body -- which is where an unsubscribe belongs --
-    // failed in silence, while the same call in a component body was reported
-    return cleanups.length > 0
-      ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
-      : undefined;
-  });
+      // raised rather than returned, because this is the cleanup the *signals*
+      // layer holds and that layer reports a throw from one on a re-run and raises
+      // it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
+      // written inside an effect body -- which is where an unsubscribe belongs --
+      // failed in silence, while the same call in a component body was reported
+      return cleanups.length > 0
+        ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
+        : undefined;
+    },
+    // handed to the owner before the first run rather than after it, because a
+    // first run that throws returns nothing -- and an effect that read a signal
+    // and then threw would be torn down, never to run again. Registered, it is
+    // disposed with the owner like any other and stays live meanwhile (SIG-611)
+    owned && owner ? { adopt: (stop) => owner.cleanups.push(stop) } : undefined
+  );
 
   if (!owned || !owner) {
     return dispose;
   }
 
-  owner.cleanups.push(dispose);
   // handed back as a disposer that also takes itself off the owner, because the
   // entry is a closure over the computed, the body and its cleanups, and an
   // owner that lives as long as the app -- the root, borrowed through

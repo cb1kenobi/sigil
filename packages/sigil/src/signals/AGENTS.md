@@ -200,6 +200,42 @@ the entry it belongs to.
   and which the renderer replaces with the real handler. The watcher is re-armed
   either way: one bad effect silently ending all future reactivity is worse than
   a loud failure.
+- **An effect whose first run throws stays live when something will dispose it,
+  and is torn down when nothing would (SIG-611).** The first run is the only one
+  whose throw goes to the caller of `effect()` rather than to the error handler,
+  and it used to end the effect unconditionally: unwatched, its edges dropped,
+  so a signal it had read before throwing never ran it again. A later run that
+  threw kept its edges, so the same body behaved differently depending on which
+  run it failed on -- and `app.view` inside an `onMount()` of the first frame
+  threw once and then went quiet for good (SIG-603), with nothing saying which
+  signals it had lost. The teardown is right for exactly one case, which is the
+  reason it was written: a throw hands back no disposer, so an effect nobody
+  holds that stays watched leaks for the life of the process. Whether somebody
+  holds it is the question, and there are two ways to say yes. An effect created
+  inside another effect's body is in that effect's `children`, which its next run
+  and its disposal empty, so it is kept. And `effect(fn, { adopt })` hands the
+  disposer to the caller _before_ the first run, which is what the renderer's
+  `createEffect()` does with its owner -- the owner's cleanups are disposed with
+  it, so an effect made in an `onMount()` or a component body is kept and goes
+  with the component. The throw still reaches the caller in both, so a failed
+  component or a failed `onMount()` is still reported by whoever ran it. A bare
+  top-level `effect()` with neither has no one to dispose it and is still torn
+  down, **by design and not a gap**: the only alternative is a leak, and the
+  caller is told by the throw itself. `adopt` is not a way to opt out of
+  disposal -- an adopter that never disposes leaks it, as it would any other.
+
+  It does not touch the run guard. Keeping the effect adds no run: the first run
+  has already happened, the effect holds the same edges a throwing later run
+  keeps, and a flush reads it as `CLEAN` holding the cached error exactly as
+  before. So an effect that throws on every run does not loop -- it runs once per
+  change to a signal it read, and is reported once per run, which is what a
+  throwing later run was already doing. One that writes the signal it read before
+  throwing is the existing cycle, bounded by `MAX_PASSES`. See
+  `an effect whose first run throws after reading a signal` in
+  `test/signals/effect.test.ts`, `an owned effect whose first run throws` in
+  `test/renderer/renderer.test.ts`, and the `onMount()` one in
+  `test/renderer/app.test.ts`.
+
 - **A `flush()` run from inside a notify callback is allowed; a read from the
   callback itself is not.** A scheduler may run its flush synchronously, which is
   what a frame loop driving its own timing does. That is only compatible with the

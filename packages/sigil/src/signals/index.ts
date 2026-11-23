@@ -51,6 +51,7 @@ export {
   createEffects,
   effect,
   type EffectErrorHandler,
+  type EffectOptions,
   type Effects,
   type Flush,
   flush,
