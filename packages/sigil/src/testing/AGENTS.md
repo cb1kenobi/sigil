@@ -251,6 +251,44 @@ that knowledge was undiscoverable from outside this repository.
   All fifteen pass, which is worth knowing: the four that had literals were the
   four nobody would get wrong.
 
+- **A throw out of a key handler leaves the test terminal's stdin working, and
+  the test still sees it (SIG-619).** A router with no `onError` lets a throw
+  escape its `data` listener, which unwinds through the `PassThrough`'s own
+  `push()` and leaves the transform half-way through a chunk. That stream never
+  recovers: every later write is buffered and no `data` is emitted again, Escape
+  included -- so in a test it is indistinguishable from the app being stuck,
+  which is what SIG-600 spent a review round on before finding it was the harness
+  and not the menu. Under `runApp()` it is SIG-524's throw and ends the app, so
+  only tests are affected.
+
+  Two fixes were open. **Routers built over the fixture getting an `onError`** is
+  refused because the fixture does not build the router -- a test calls
+  `createInput({ terminal })` itself, so there is nothing to hand an option to --
+  and because an `onError` that reports and carries on is a _second answer_ to what
+  a throw means, where the router's own is that without one it escapes. **The stdin
+  surviving the throw** is the one taken: `createTestTerminal()` catches a throw
+  where the `data` listener is called, which leaves the stream whole, and
+  `write()` hands it back once the write has finished. So nothing is swallowed and
+  nothing moves: `press()` rejects with the handler's own error and a direct
+  `stdin.write()` throws it, from the same call as before, and the next key is
+  delivered. Only a `data` emitted _inside_ a `write()` is caught. A throw from
+  anywhere else -- a lone Escape, which the router holds for `ESCAPE_TIMEOUT` and
+  dispatches from a timer, a sequence's deadline, or a stream resumed with chunks
+  queued -- has no call to hand the error back through and is an uncaught
+  exception as it always was; the stream is still whole afterwards, and `press()`
+  does not reject for it. What the router drops after a throw is the router's own
+  rule and is unchanged: the rest of that read (`press('ab')` with a handler that
+  throws on `a` never dispatches `b`), and a second `data` listener added after
+  the router never sees the chunk. A router **with** an
+  `onError` never reaches any of this: the throw is the router's, handed on, and
+  nothing escapes.
+
+  A test that provokes a throwing callback therefore needs no `onError` to keep
+  the session alive, and a `rejects.toThrow()` on the `press()` is the way to say
+  that it threw. Pinned in `test/testing/throwing-handler.test.ts`; the sabotage
+  is removing the `survivesAThrow()` call, which fails the first two tests there
+  with the second key never seen.
+
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
 #### The screen model's wide-cluster defect is fixed, not documented
