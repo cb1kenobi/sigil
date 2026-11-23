@@ -2322,10 +2322,10 @@ export function LineChart(props: LineChartProps): Element {
             );
       if (beside && words !== '' && room(span) < reach) {
         const rule = { from: at.column, width: 1 };
-        // the widened span, if the room beside it fits more than a few cells of
-        // words; else the rule alone, with at least that much said
+        // the widened span, if the room beside it fits at least a few cells of
+        // words; else the rule alone, cut to whatever room it has
         span = room(span) - 4 >= MIN_READOUT ? span : rule;
-        const cap = Math.max(MIN_READOUT, room(span) - 4);
+        const cap = Math.max(1, room(span) - 4);
         if (widest(words) > cap) {
           words = words
             .split('\n')

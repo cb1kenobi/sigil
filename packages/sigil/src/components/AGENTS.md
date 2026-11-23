@@ -7810,11 +7810,13 @@ have.
   bubble's reach it cuts each line of the readout to the room less the border and
   padding, with an ellipsis. Cut and not wrapped, so a readout stays a line to a series
   and a bubble is never taller than it was. Two steps, in order: past the widened area
-  where the room beside it takes more than `MIN_READOUT` (3) cells of words, which keeps
+  where the room beside it takes at least `MIN_READOUT` (3) cells of words, which keeps
   both the pin and the rule in sight; else beside the rule alone, where the pin is under
   the bubble if it lies in the way -- the rule is what the readout reads, and a bubble
-  that hid it would be reading nothing. It applies to a rule with no pin as well, which
-  is the same clamp, and not to `side: 'top'` or `'bottom'`. `MIN_READOUT` is a constant
+  that hid it would be reading nothing, so the cut goes down to one cell of words (an
+  ellipsis) where the screen leaves the rule almost no room. It applies to a rule with no pin as well, which
+  is the same clamp, and not to `side: 'top'` or `'bottom'`. A line that was already wider than the bubble's
+  cap, and wrapped, is cut too once the room is under the reach. `MIN_READOUT` is a constant
   of the chart's own for the reason the 40 above is. The room is read from the last
   layout's boxes, as the area is, so a terminal narrowed with the chart's own size
   unchanged is cut at the next drawing and not before. The reach is still an estimate

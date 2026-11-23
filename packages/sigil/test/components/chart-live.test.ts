@@ -1551,6 +1551,75 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           expect((m.screen()[2] ?? '')[29]).not.toBe(' ');
         });
 
+        it('should go past the pin for 3 cells of words and fall back to the rule for fewer', async () => {
+          // the span is columns 0 to 29 and the room past it is the screen less 30
+          const seven = await mountWide(37);
+          await seven.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          expect((seven.screen()[0] ?? '').indexOf('╭')).toBe(30);
+          expect(seven.screen()[1]).toContain('│ xx… │');
+          const six = await mountWide(36);
+          await six.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          expect((six.screen()[0] ?? '').indexOf('╭')).toBe(0);
+          expect((six.screen()[0] ?? '').indexOf('╮')).toBe(28);
+        });
+
+        it('should leave the words of a bubble above or below the plot, which covers neither', async () => {
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: { input, side: 'bottom', text: () => wide },
+            props: { height: 6, width: 30 },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          expect(m.screen().join('\n')).toContain(wide);
+          expect(m.screen().join('\n')).not.toContain('…');
+        });
+
+        it('should measure the room from where the chart is on the screen', async () => {
+          // the chart starts in column 6, so the rule is in column 6 and the pin in 25:
+          // 14 cells of room past them, and not the 20 it would be at column 0
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => wide },
+            props: { height: 6, 'margin-left': 6, width: 30 },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(25);
+          expect(top.indexOf('╭')).toBe(26);
+          expect(top.indexOf('╮')).toBe(39);
+        });
+
+        it('should measure the room to the left of the chart from the screen too', async () => {
+          // the chart starts in column 6 and the rule is its newest, in screen column 35,
+          // the pin in 25: the bubble goes to their left, which has 25 cells
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => wide },
+            props: { height: 6, 'margin-left': 6, width: 30 },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.end);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(25);
+          expect(top.indexOf('╭')).toBe(0);
+          expect(top.indexOf('╮')).toBe(24);
+        });
+
+        it('should cut a readout to a cell where the screen leaves the rule almost none', async () => {
+          // 10 columns: the rule is in column 3 with 3 cells to its left and 6 to its right
+          const m = await mount(
+            (input) => ({
+              axis: false,
+              crosshair: { input, text: () => wide },
+              props: { height: 6, width: 10 },
+            }),
+            0,
+            10
+          );
+          await m.key(KEYS.tab, KEYS.home, KEYS.right);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(4);
+          expect((m.screen()[2] ?? '')[3]).not.toBe(' ');
+        });
+
         it('should leave a readout that fits as it was said', async () => {
           const m = await mountWide(40, 'x'.repeat(10));
           await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
