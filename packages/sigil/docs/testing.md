@@ -547,14 +547,23 @@ that never ended act on their own once the timeout has passed, long after
 in an app, unless the test registers `ui.onTimerError()` first:
 
 ```ts
+import { ESCAPE_TIMEOUT } from '@ttylabs/sigil/input';
+
+vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 const errors: unknown[] = [];
 ui.onTimerError((error) => void errors.push(error));
 
-await ui.press(KEYS.escape);
+ui.stdin.write(KEYS.escape);
 vi.advanceTimersByTime(ESCAPE_TIMEOUT); // the hold ends, and the handler throws
 
 expect(errors).toEqual([new Error('boom')]);
 ```
+
+`press()` waits with `setImmediate`, which vitest's fake timers replace unless
+told otherwise, so the example fakes only `setTimeout` and `clearTimeout` and
+writes the Escape to `ui.stdin` itself. Waiting out the real timeout works too.
+If a handler registered here throws, that error replaces the original one and
+the handlers after it are not called.
 
 `onTimerError()` returns a function that takes the handler off again. A router
 built with its own `onError` gets the throw there instead, and the hook hears

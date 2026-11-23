@@ -169,6 +169,67 @@ describe('a handler that throws from a router timer over a test terminal', () =>
     input.stop();
   });
 
+  it('should hand a throw from a paste whose start marker ended the read to onTimerError', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    input.onPaste(() => {
+      throw new Error('boom');
+    });
+
+    // the timer is armed where the marker is read, which is not where content is
+    ui.stdin.write(`${KEYS.escape}[200~`);
+    vi.advanceTimersByTime(PASTE_TIMEOUT);
+
+    expect(errors).toEqual([new Error('boom')]);
+    input.stop();
+  });
+
+  it('should hand a throw from the Escape hold a query leaves behind to onTimerError', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const errors: unknown[] = [];
+    ui.onTimerError((error) => void errors.push(error));
+    input.bind(() => {
+      throw new Error('boom');
+    });
+
+    // a control string held for a query that is outstanding is on no timer; it
+    // goes on the key timeout when the query settles
+    void input.query({ timeout: 100, until: () => false, write: '?' });
+    ui.stdin.write(`${KEYS.escape}]52;c;`);
+    vi.advanceTimersByTime(100);
+    expect(errors).toEqual([]);
+    vi.advanceTimersByTime(ESCAPE_TIMEOUT);
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]).toEqual(new Error('boom'));
+    input.stop();
+  });
+
+  it('should let a handler that throws replace the error and starve the later ones', () => {
+    vi.useFakeTimers();
+    const ui = createTestTerminal();
+    const input = createInput({ root: box({}), terminal: ui.terminal });
+    const later: unknown[] = [];
+    ui.onTimerError(() => {
+      throw new Error('hook');
+    });
+    ui.onTimerError((error) => void later.push(error));
+    input.bind(() => {
+      throw new Error('boom');
+    });
+
+    ui.stdin.write(KEYS.escape);
+
+    expect(() => vi.advanceTimersByTime(ESCAPE_TIMEOUT)).toThrow('hook');
+    expect(later).toEqual([]);
+    input.stop();
+  });
+
   it('should leave the throw uncaught where no test is listening, as it is in an app', () => {
     vi.useFakeTimers();
     const ui = createTestTerminal();

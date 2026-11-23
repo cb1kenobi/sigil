@@ -293,8 +293,8 @@ that knowledge was undiscoverable from outside this repository.
 - **A throw from one of the router's own timers reaches the test through
   `onTimerError()`, and with none registered it is uncaught as it always was
   (SIG-631).** SIG-619 covers a `data` emitted inside a `write()`. The router also
-  acts from three timers -- the hold on a lone Escape, a key sequence's deadline,
-  and a paste that never ended -- and a throw from one has no `write()` to come
+  acts from timers -- the hold on a lone Escape, a key sequence's deadline, and a
+  paste that never ended, five places that arm one between them -- and a throw from one has no `write()` to come
   back through: `press()` resolved after its own `tick()`, long before a 50 ms
   hold fires, so it cannot reject for it.
 
@@ -303,7 +303,7 @@ that knowledge was undiscoverable from outside this repository.
   rejection is not available: there is no promise left to reject, and making
   `press()` wait out `ESCAPE_TIMEOUT` would change what it costs every test to
   catch the few that throw. `ui.onTimerError(handler)` returns an `off`, and the
-  router's `timed()` wrapper around those three callbacks hands the throw to a
+  router's `timed()` wrapper around those callbacks hands the throw to a
   function the fixture put on the stream under
   `Symbol.for('@ttylabs/sigil/input/timer-error')` -- a registry symbol, because
   the testing entry imports nothing of the router's and a shared constant would
@@ -318,11 +318,17 @@ that knowledge was undiscoverable from outside this repository.
   existing test. A router **with** an `onError` never reaches the hook: the throw
   is the router's and goes there, which is the rule above. Nothing about an app
   moves -- under `runApp()` the stream carries no such property and a timer's
-  throw is SIG-524's, as it was. Only entries a timer starts are wrapped; a key,
+  throw is SIG-524's, as it was. A handler registered here that throws replaces the
+  original error and the handlers after it are not called, which is the rule an
+  `onError` that throws already follows; the router does not catch it again. A
+  **new timer** in the router has to be armed through `timed()`, or its throw is
+  uncaught whatever a test registered -- the five sites are each pinned.
+  Only entries a timer starts are wrapped; a key,
   a paste or a resize still has its caller to go back through.
 
   Pinned in `test/testing/throwing-handler.test.ts`; the sabotage is making
-  `timed()` ignore the hook, which fails the three tests that name a timer.
+  `timed()` ignore the hook, which fails the tests that name a timer, and
+  unwrapping any one arm site fails its own.
 
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
