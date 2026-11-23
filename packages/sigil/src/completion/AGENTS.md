@@ -1727,9 +1727,18 @@ dispatches between the printer and the installer.
   **This was a decision the ticket left open and is recorded for confirmation**:
   stripping is the alternative if a menu entry for such a choice is wanted more
   than a correct one. The command reference reads the same function, so it lists
-  neither the name nor the stripped form. Covered per shell, for a name, an alias
-  and a choice, by `test/completion-format-chars.test.ts`; sabotaging `typeable()`
-  back to `\p{Cc}` fails all six.
+  neither the name nor the stripped form -- **and for a choice that states a
+  wrong constraint**: `choicesOf()` gets an empty list where every choice was
+  dropped, which the markdown prints as the hint placeholder, so a page says any
+  value is accepted where the parser enforces a list. The same shape existed for a
+  control character, which was never typeable; it now reaches typeable text such
+  as a Persian value or a heart with U+FE0F. Left as it is rather than giving the
+  reference its own answer, since two readers disagreeing about what can be typed
+  is what `tokensFor()` is shared to prevent, and filed as its own ticket.
+  Covered per shell, for a name, an alias, a choice, a positional choice and the
+  whole class, by `test/completion-format-chars.test.ts`; sabotaging `typeable()`
+  back to `\p{Cc}` fails the first six and a narrower `\p{Cf}` pattern fails the
+  whole-class pair.
 
 - **What is not covered.** The confirm and select prompts' own messages carry
   the escaped name as well, but nothing tests that: they are drawn by a canvas
