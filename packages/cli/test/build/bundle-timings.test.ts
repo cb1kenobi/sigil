@@ -48,7 +48,11 @@ const logged: string[] = [];
  */
 const HOLDS = [4000, 8000];
 
-/** How long the next build holds for, which the control raises and the second test leaves. */
+/**
+ * How long the next build holds for. The control raises it until a build warns and
+ * leaves it there, so the second test holds as long as the one that was shown to
+ * provoke the warning -- a shorter hold could pass that test for want of one.
+ */
 let hold = HOLDS[0];
 
 /** Holds the build for `hold`, once, without using the CPU -- the warning counts the wait. */
@@ -125,7 +129,6 @@ describe('the checks a build asks rolldown for', () => {
       }
     } finally {
       control = false;
-      hold = HOLDS[0];
     }
 
     expect(logged).toContain('PLUGIN_TIMINGS');
