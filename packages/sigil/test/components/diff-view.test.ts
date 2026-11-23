@@ -11,6 +11,7 @@ import {
   diffHunks,
   diffStops,
   diffView,
+  hunkLinesPatch,
   hunkPatch,
   parsePatch,
 } from '../../src/components/diff.js';
@@ -940,5 +941,371 @@ describe('describeDiffView()', () => {
 
   it('should refuse an element DiffView() did not build', () => {
     expect(() => describeDiffView({ describe: () => () => {} }, box())).toThrow(/DiffView/);
+  });
+});
+
+/** One hunk with two edits and a context line between them, and a second hunk after. */
+const LINES_PATCH = [
+  'diff --git a/a.txt b/a.txt',
+  'index 1111111..2222222 100644',
+  '--- a/a.txt',
+  '+++ b/a.txt',
+  '@@ -1,4 +1,4 @@',
+  ' one',
+  '-two',
+  '+TWO',
+  ' three',
+  '-four',
+  '+FOUR',
+  '@@ -20,3 +20,3 @@',
+  ' twenty',
+  '-twenty-one',
+  '+TWENTY-ONE',
+  ' twenty-two',
+  '',
+].join('\n');
+
+/** A view with a line cursor, and the states it writes. */
+function mountLines(
+  props: Partial<DiffViewProps> = {},
+  height = 14
+): {
+  current: State<number>;
+  cursor: State<number | undefined>;
+  host: Element;
+  root: Element;
+  selected: State<ReadonlySet<number>>;
+} {
+  const cursor = new State<number | undefined>(undefined);
+  const selected = new State<ReadonlySet<number>>(new Set());
+  const current = new State(0);
+  const view = mount(
+    { content: { patch: LINES_PATCH }, current, lines: { cursor, selected }, ...props },
+    height
+  );
+  // laid out once, which is what gives the view a width to draw at
+  picture(view.root, 30, height);
+  return { current, cursor, selected, ...view };
+}
+
+describe('DiffView lines', () => {
+  it('should draw a second column of marks, and take no key until Enter', () => {
+    const { cursor, host, root } = mountLines();
+
+    expect(picture(root, 30, 14).slice(2, 9)).toEqual([
+      '▌ @@ -1,4 +1,4 @@',
+      '▌  one',
+      '▌ -two',
+      '▌ +TWO',
+      '▌  three',
+      '▌ -four',
+      '▌ +FOUR',
+    ]);
+    // none of the line keys is claimed outside the lines
+    for (const name of ['x', 'a', 'escape']) {
+      expect(press(host, name)).toBe(false);
+    }
+    expect(cursor.get()).toBeUndefined();
+  });
+
+  it('should put the cursor on the first changed line with Enter, and mark it', () => {
+    const { cursor, host, root } = mountLines();
+
+    expect(press(host, 'enter')).toBe(true);
+    expect(cursor.get()).toBe(1);
+    expect(picture(root, 30, 14).slice(3, 9)).toEqual([
+      '▌  one',
+      '▌▶-two',
+      '▌ +TWO',
+      '▌  three',
+      '▌ -four',
+      '▌ +FOUR',
+    ]);
+  });
+
+  it('should step the cursor over changed lines only, and claim the key at an end', () => {
+    const { cursor, host } = mountLines();
+    press(host, 'enter');
+
+    const seen: (number | undefined)[] = [];
+    for (const name of ['down', 'down', 'down', 'down', 'down', 'up', 'up', 'up', 'up', 'up']) {
+      expect(press(host, name)).toBe(true);
+      seen.push(cursor.get());
+    }
+    // line 3 is context and is stepped over, both ways, and the ends hold
+    expect(seen).toEqual([2, 4, 5, 5, 5, 4, 2, 1, 1, 1]);
+  });
+
+  it('should pick lines with x, all of them with a, and show both with the cursor', () => {
+    const { cursor, host, root, selected } = mountLines();
+    press(host, 'enter');
+
+    press(host, 'x');
+    expect([...selected.get()]).toEqual([1]);
+    expect(picture(root, 30, 14).slice(4, 6)).toEqual(['▌◉-two', '▌ +TWO']);
+
+    press(host, 'down');
+    expect(picture(root, 30, 14).slice(4, 6)).toEqual(['▌●-two', '▌▶+TWO']);
+
+    press(host, 'x');
+    press(host, 'x');
+    expect([...selected.get()]).toEqual([1]);
+
+    press(host, 'a');
+    expect([...selected.get()].sort()).toEqual([1, 2, 4, 5]);
+    press(host, 'a');
+    expect([...selected.get()]).toEqual([]);
+    expect(cursor.get()).toBe(2);
+  });
+
+  it('should leave the lines with Enter or Escape, dropping the picks', () => {
+    for (const name of ['enter', 'escape']) {
+      const { cursor, host, root, selected } = mountLines();
+      press(host, 'enter');
+      press(host, 'x');
+
+      expect(press(host, name)).toBe(true);
+      expect(cursor.get()).toBeUndefined();
+      expect(selected.get().size).toBe(0);
+      expect(picture(root, 30, 14).slice(3, 6)).toEqual(['▌  one', '▌ -two', '▌ +TWO']);
+    }
+  });
+
+  it('should leave the lines on a move to another hunk, which the picks belong to', () => {
+    const { current, cursor, host, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'x');
+
+    expect(press(host, ']')).toBe(true);
+    expect(current.get()).toBe(1);
+    expect(cursor.get()).toBeUndefined();
+    expect(selected.get().size).toBe(0);
+  });
+
+  it('should start on the new hunk with Enter, with picks of its own', () => {
+    const { current, cursor, host, selected } = mountLines();
+    press(host, ']');
+    press(host, 'enter');
+    press(host, 'x');
+
+    expect(current.get()).toBe(1);
+    expect(cursor.get()).toBe(1);
+    expect([...selected.get()]).toEqual([1]);
+  });
+
+  it('should drop the picks when the content changes, for the hunks are others', () => {
+    const content = new State<DiffViewContent>({ patch: LINES_PATCH });
+    const { cursor, host, selected } = mountLines({ content });
+    press(host, 'enter');
+    press(host, 'x');
+
+    content.set({ patch: LINES_PATCH });
+    flush();
+    expect(cursor.get()).toBeUndefined();
+    expect(selected.get().size).toBe(0);
+  });
+
+  it('should keep the lines through a redraw of the same content, a width or a wrap switch', () => {
+    const { cursor, host, root, selected } = mountLines();
+    picture(root, 30, 14);
+    press(host, 'enter');
+    press(host, 'x');
+
+    picture(root, 24, 14);
+    press(host, 'w');
+    picture(root, 40, 14);
+    expect(cursor.get()).toBe(1);
+    expect([...selected.get()]).toEqual([1]);
+    expect(picture(root, 40, 14).slice(4, 5)).toEqual(['▌◉-two']);
+  });
+
+  it('should bring a cursor an app wrote to the nearest changed line, or to none', () => {
+    const { cursor, host, root } = mountLines();
+    press(host, 'enter');
+
+    cursor.set(3);
+    flush();
+    expect(cursor.get()).toBe(2);
+    cursor.set(99);
+    flush();
+    expect(cursor.get()).toBe(5);
+    cursor.set(-4);
+    flush();
+    expect(cursor.get()).toBe(1);
+    expect(picture(root, 30, 14).filter((row) => row.includes('▶'))).toEqual(['▌▶-two']);
+  });
+
+  it('should give a cursor on prose or a hunk with no changes nowhere to be', () => {
+    const blocks: DiffBlock[] = [
+      { stop: true, text: 'logo.png: binary' },
+      { diff: { patch: LINES_PATCH } },
+    ];
+    const { cursor, host, selected } = mountLines({ content: blocks });
+
+    // the first stop is prose, and Enter is not the cursor's there
+    expect(press(host, 'enter')).toBe(false);
+    cursor.set(1);
+    flush();
+    expect(cursor.get()).toBeUndefined();
+    expect(selected.get().size).toBe(0);
+  });
+
+  it('should move the cursor with a click on a line of the current hunk, in the lines', () => {
+    const { current, cursor, host, root } = mountLines();
+
+    // not in the lines: the click is the hunk's, as it was
+    clickRow(root, '+TWO');
+    expect(cursor.get()).toBeUndefined();
+
+    press(host, 'enter');
+    clickRow(root, '+FOUR');
+    expect(cursor.get()).toBe(5);
+    clickRow(root, ' one');
+    // a context line is no place for it
+    expect(cursor.get()).toBe(5);
+
+    // another hunk is made current, and the lines are left
+    clickRow(root, '-twenty-one');
+    expect(current.get()).toBe(1);
+    expect(cursor.get()).toBeUndefined();
+  });
+
+  it('should scroll the cursor into view as it steps', () => {
+    const many = [
+      '--- a/a.txt',
+      '+++ b/a.txt',
+      '@@ -1,12 +1,12 @@',
+      ...Array.from({ length: 6 }, (_, at) => ` c${at}`),
+      '-last',
+      '+LAST',
+      ...Array.from({ length: 4 }, (_, at) => ` d${at}`),
+      '',
+    ].join('\n');
+    // two changed lines at the bottom of a hunk taller than the view
+    const { cursor, host, root } = mountLines({ content: { patch: many } }, 6);
+    picture(root, 30, 6);
+
+    press(host, 'enter');
+    expect(cursor.get()).toBe(6);
+    expect(picture(root, 30, 6).some((row) => row.includes('▶-last'))).toBe(true);
+    press(host, 'down');
+    expect(picture(root, 30, 6).some((row) => row.includes('▶+LAST'))).toBe(true);
+  });
+
+  it('should draw unified whatever layout it is asked for, since a cursor is on one line', () => {
+    const { host, root } = mountLines({ layout: 'side-by-side' });
+    press(host, 'enter');
+
+    const rows = picture(root, 100, 14);
+    expect(rows.some((row) => row.includes('│'))).toBe(false);
+    expect(rows).toContain('▌▶-two');
+  });
+
+  it('should mark the lines in ASCII, which colour level 0 is left with', () => {
+    const { host, root } = mountLines({ ascii: true });
+    press(host, 'enter');
+    press(host, 'x');
+    press(host, 'down');
+    expect(picture(root, 30, 14).slice(4, 6)).toEqual(['>*-two', '>>+TWO']);
+
+    press(host, 'up');
+    expect(picture(root, 30, 14).slice(4, 5)).toEqual(['>@-two']);
+  });
+
+  it('should leave Enter, x and a alone in a view with no lines', () => {
+    const { host } = mount({ content: { patch: LINES_PATCH } }, 14);
+
+    for (const name of ['enter', 'x', 'a', 'escape']) {
+      expect(press(host, name)).toBe(false);
+    }
+  });
+
+  it('should stage what was picked, through the stop under the cursor', () => {
+    const content: DiffViewContent = { patch: LINES_PATCH };
+    const { current, host, selected } = mountLines({ content });
+    press(host, 'enter');
+    press(host, 'x');
+    press(host, 'down');
+    press(host, 'down');
+    press(host, 'down');
+    press(host, 'x');
+
+    const stop = diffStops(content)[current.get()]!;
+    // the first replacement's removed line and the second's added line
+    expect([...selected.get()]).toEqual([1, 5]);
+    expect(hunkLinesPatch(stop.file!, stop.hunk!, selected.get())).toContain(
+      '@@ -1,4 +1,4 @@\n one\n-two\n three\n four\n+FOUR\n'
+    );
+  });
+
+  it('should settle a cursor written before the first drawing, once there are lines', () => {
+    const cursor = new State<number | undefined>(0);
+    const selected = new State<ReadonlySet<number>>(new Set());
+    const { root } = mount({ content: { patch: LINES_PATCH }, lines: { cursor, selected } }, 14);
+
+    picture(root, 30, 14);
+    flush();
+    // line 0 is context, so the first changed line is the nearest
+    expect(cursor.get()).toBe(1);
+    expect(picture(root, 30, 14).some((row) => row.includes('▶-two'))).toBe(true);
+  });
+
+  it('should drop the picks when the cursor leaves the lines any way at all', () => {
+    const { cursor, host, root, selected } = mountLines();
+    press(host, 'enter');
+    press(host, 'x');
+
+    cursor.set(undefined);
+    flush();
+    expect(selected.get().size).toBe(0);
+    expect(picture(root, 30, 14).some((row) => row.includes('●'))).toBe(false);
+  });
+
+  it('should leave a key with Shift to the app, as the arrows are left', () => {
+    const { host, selected } = mountLines();
+    press(host, 'enter');
+
+    expect(press(host, 'x', { shift: true })).toBe(false);
+    expect(selected.get().size).toBe(0);
+  });
+
+  it('should take the room for two marks off every row, wrapping a line one cell sooner', () => {
+    const patch = ['--- a/f', '+++ b/f', '@@ -1 +1 @@', '-x', `+${'y'.repeat(28)}`, ''].join('\n');
+    const rows = (props: Partial<DiffViewProps>): number =>
+      picture(mount({ content: { patch }, ...props }, 8).root, 30, 8).filter((row) =>
+        row.includes('y')
+      ).length;
+
+    expect(rows({})).toBe(1);
+    expect(
+      rows({
+        lines: {
+          cursor: new State<number | undefined>(undefined),
+          selected: new State<ReadonlySet<number>>(new Set()),
+        },
+      })
+    ).toBe(2);
+  });
+
+  it('should keep the cursor in view when a redraw reveals the hunk, which is taller than the view', () => {
+    const body = Array.from({ length: 30 }, (_, at) => [`-old${at}`, `+new${at}`]).flat();
+    const patch = ['--- a/f', '+++ b/f', '@@ -1,30 +1,30 @@', ...body, ''].join('\n');
+    const { host, root } = mountLines({ content: { patch } }, 8);
+    press(host, 'enter');
+    for (let at = 0; at < 20; at++) {
+      press(host, 'down');
+    }
+    expect(picture(root, 30, 8).some((row) => row.includes('▶'))).toBe(true);
+
+    // another width draws every row again, and the hunk is shown from its start
+    expect(picture(root, 24, 8).some((row) => row.includes('▶'))).toBe(true);
+    press(host, 'w');
+    expect(picture(root, 30, 8).some((row) => row.includes('▶'))).toBe(true);
+  });
+
+  it('should refuse lines that are not two States', () => {
+    expect(() => DiffView({ content: { patch: LINES_PATCH }, lines: {} as never })).toThrow(
+      TypeError
+    );
   });
 });

@@ -40,7 +40,7 @@
         "type": "string"
       },
       {
-        "description": "`diffView()`'s `layout`: side by side where the width allows it.",
+        "description": "`diffView()`'s `layout`: side by side where the width allows it. A view with `lines` is always drawn unified, since a removed line and the added line beside it share a row side by side, and a cursor is on one line.",
         "name": "layout",
         "optional": true,
         "type": "DiffLayout"
@@ -50,6 +50,12 @@
         "name": "lineNumbers",
         "optional": true,
         "type": "boolean"
+      },
+      {
+        "description": "A line cursor inside the current hunk, and the lines picked with it, for an app that acts on part of a hunk -- staging some of its lines. Without it there is only the cursor on hunks, and the keys below are left alone.",
+        "name": "lines",
+        "optional": true,
+        "type": "DiffViewLines"
       },
       {
         "description": "A `State` the view writes where it is scrolled to, for a status line or a border to show. Written when it changes, never read.",
