@@ -7788,7 +7788,12 @@ have.
   `dismissed` clears only when the pointer, the focus and the hold have all gone,
   so a pin that outlasted the other two made one Escape -- the dashboard's search
   field clearing, a menu closing -- kill the readout until unpinned. The app asked
-  for the bubble to stay, and Enter again is how a reader takes it away. It is the
+  for the bubble to stay, and Enter again is how a reader takes it away. The other
+  order had the same stuck state: an Escape pressed **before** a pin set
+  `dismissed` while nothing held, and the pin then kept it set, so the pinned
+  readout never showed. A hold that starts is a new reason to show the bubble, so
+  `update()` clears `dismissed` when the hold goes from off to on
+  (`should show a pinned readout after an Escape pressed before the pin`). It is the
   one change outside the chart;
   the chart sets it (`LineChartCrosshair` omits it, as it omits `area`), and no
   other component does.
