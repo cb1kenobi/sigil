@@ -245,18 +245,13 @@ function buildOwned<V>(host: ModalHost, build: () => V): Owned<V> {
   const make = (): V => untrack(build);
   if (parent === undefined) {
     // `createRoot()` is what a fixture owns a handful of effects with, and its
-    // disposer raises what a cleanup threw. The parts are built through it so that
-    // a throw from `build` is the one thing left to give back by hand
+    // disposer raises what a cleanup threw. A throw from `build` disposes the
+    // owner on its way out, so there is nothing left to give back by hand
     let off: (() => void) | undefined;
-    try {
-      value = createRoot((done) => {
-        off = done;
-        return make();
-      });
-    } catch (error) {
-      off?.();
-      throw error;
-    }
+    value = createRoot((done) => {
+      off = done;
+      return make();
+    });
     dispose = off as () => void;
   } else {
     const branch = runWithOwner(parent, createBranch);

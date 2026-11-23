@@ -1394,6 +1394,98 @@ describe('a createRoot() whose body throws (SIG-630)', () => {
     expect((thrown as AggregateError).errors).toEqual([failure, cleanup]);
   });
 
+  it('should not make the caller depend on a signal a failed root cleanup read', () => {
+    // the cleanups of the failed root ran after the root's own untracked, owned
+    // run had ended, so a cleanup that read a signal made whatever effect was
+    // creating the root a sink of it
+    const source = new State(0);
+    let outerRuns = 0;
+    effects.effect(() => {
+      outerRuns++;
+      try {
+        createRoot(() => {
+          onCleanup(() => void source.get());
+          throw new Error('body');
+        }, effects.effect);
+      } catch {
+        // the body's own throw
+      }
+    });
+    expect(outerRuns).toBe(1);
+    source.set(1);
+    effects.flush();
+    expect(outerRuns).toBe(1);
+  });
+
+  it('should dispose a branch and a context scope the body built before it threw', () => {
+    const source = new State(0);
+    const theme = createContext('plain');
+    let branchRuns = 0;
+    let scopeRuns = 0;
+    expect(() =>
+      createRoot(() => {
+        const branch = createBranch();
+        runWithOwner(branch.owner, () =>
+          createEffect(() => {
+            branchRuns++;
+            source.get();
+          })
+        );
+        provideContext(theme, 'dark', () =>
+          createEffect(() => {
+            scopeRuns++;
+            source.get();
+          })
+        );
+        throw new Error('body');
+      }, effects.effect)
+    ).toThrow('body');
+
+    source.set(1);
+    effects.flush();
+    expect([branchRuns, scopeRuns]).toEqual([1, 1]);
+    expect(sinkCount(source)).toBe(0);
+  });
+
+  it('should dispose an effect whose own first run threw, which the owner had kept (SIG-611)', () => {
+    const source = new State(0);
+    let runs = 0;
+    const failure = new Error('first run');
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        createEffect(() => {
+          runs++;
+          source.get();
+          throw failure;
+        });
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(failure);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+    expect(sinkCount(source)).toBe(0);
+  });
+
+  it.each([undefined, null, 0, 'text', Object.create(null)])(
+    'should rethrow a body that threw %s as it was',
+    (value) => {
+      let thrown: unknown = 'not thrown';
+      try {
+        createRoot(() => {
+          throw value;
+        }, effects.effect);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBe(value);
+    }
+  );
+
   it('should leave a body that disposed its own owner before throwing alone', () => {
     let cleanups = 0;
     const failure = new Error('body');

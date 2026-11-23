@@ -299,7 +299,13 @@ the entry it belongs to.
   first, like a failed effect run is (SIG-611's neighbour), and the throw goes on
   as the same object. What a cleanup threw joins it: an `AggregateError` of the
   body's error and theirs, never one in place of the other, which is only ever
-  the case when a cleanup threw as well. A body that disposed its own owner and
+  the case when a cleanup threw as well. The disposal runs inside the root's own
+  untracked, owned run rather than after it, so a cleanup that reads a signal does
+  not subscribe the caller's effect. An effect whose own first run threw is kept
+  by the owner (SIG-611) and then disposed with it here, because a root nobody
+  can reach again is the case SIG-611 says nothing would dispose it for. An
+  `async` body has not thrown when it returns a rejected promise, so it is not
+  covered. A body that disposed its own owner and
   then threw is a no-op the second time. `render()` calls `createHeldRoot()`
   instead, which keeps the old shape on purpose: its catch gives the screen back
   _first_ and only then runs the cleanups, reporting what they threw through

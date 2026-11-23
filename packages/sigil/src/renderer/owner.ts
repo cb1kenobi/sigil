@@ -163,7 +163,8 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
  * **A body that throws disposes the owner first** (SIG-630): the caller is never
  * handed the disposer, so nothing else would. The throw still reaches the caller
  * as it was, unless a cleanup threw as well, when it is an `AggregateError` of
- * both.
+ * both. A body that returns a rejected promise has not thrown, so an `async` body
+ * is not covered.
  *
  * @param fn - Handed the disposer for the owner it is running under.
  * @param effects - The effect factory this tree runs through. Defaults to the
@@ -205,22 +206,30 @@ function buildRoot<T>(
   owner.effects = effects;
   owner.mounts = [];
   owner.report = report;
-  try {
-    return untrack(() => runWithOwner(owner, () => fn(() => disposeOwner(owner, true))));
-  } catch (error) {
-    if (!disposeOnThrow) {
-      throw error;
-    }
-    // the caller never receives the disposer from a body that threw, so nothing
-    // would ever dispose this owner: an effect the body made before the throw
-    // kept running, holding whatever it read, for the life of the process
-    // (SIG-630). Disposed before the throw leaves, as a failed effect run is,
-    // and the throw goes on as it was -- joined by what the cleanups threw where
-    // they threw anything. A body that already disposed the owner is a no-op
-    raise([error, ...disposeOwner(owner, false)], 'Errors in a failed root and its cleanups');
-    // not reached: `raise()` throws whenever it is handed anything
-    throw error;
-  }
+  return untrack(() =>
+    runWithOwner(owner, () => {
+      try {
+        return fn(() => disposeOwner(owner, true));
+      } catch (error) {
+        if (!disposeOnThrow) {
+          throw error;
+        }
+        // the caller never receives the disposer from a body that threw, so
+        // nothing would ever dispose this owner: an effect the body made before
+        // the throw kept running, holding whatever it read, for the life of the
+        // process (SIG-630). Disposed before the throw leaves, as a failed effect
+        // run is, and the throw goes on as it was -- joined by what the cleanups
+        // threw where they threw anything. A body that already disposed the owner
+        // is a no-op. Inside the untracked, owned run rather than after it, so a
+        // cleanup that reads a signal does not make the caller's effect a sink of
+        // it, and one that registers another lands on this owner, already
+        // disposed, rather than on the caller's
+        raise([error, ...disposeOwner(owner, false)], 'Errors in a failed root and its cleanups');
+        // not reached: `raise()` throws whenever it is handed anything
+        throw error;
+      }
+    })
+  );
 }
 
 /**
