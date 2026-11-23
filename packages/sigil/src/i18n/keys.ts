@@ -8,7 +8,7 @@
 /**
  * Every message the framework itself can print, keyed on its English.
  *
- * 464 keys, which is what a catalog has to carry to translate sigil's own
+ * 470 keys, which is what a catalog has to carry to translate sigil's own
  * output whole. `sigil check` reads this to say which of them an app's
  * catalogs are missing -- and the other way round, so a reworded English
  * sentence shows up as one missing key and one orphan rather than as silence.
@@ -104,12 +104,16 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected a menuClass to be a string of class names',
   'Expected a menubar input to be a router',
   'Expected a menubar menu to have a label',
+  'Expected a modal action default to be a boolean',
+  'Expected a modal action onPress to be a function',
   'Expected a modal action to have a label',
+  'Expected a modal action to have a value or an onPress, not both',
   'Expected a modal body function to return an element',
   'Expected a modal body to be a string, an element or a function',
   'Expected a modal host to be an element or a renderer',
   'Expected a modal input to be a router',
   'Expected a modal title to be a string',
+  'Expected a modal to have one default action at most',
   'Expected a pane size to be a number of cells',
   'Expected a panel titleAlign to be left, center or right',
   'Expected a panel {0} to be a string or a function',
@@ -211,8 +215,10 @@ export const SIGIL_KEYS: readonly string[] = [
   'Expected menu items to be an array',
   'Expected menubar menus to be an array',
   'Expected min to be no later than max',
+  'Expected modal action disabled to be a boolean, a State, a Computed or a function',
   'Expected modal actions to be an array',
-  'Expected modal initial to be the position of an action',
+  'Expected modal initial to be an element in the body',
+  "Expected modal initial to be the position of an action, 'body' or an element in the body",
   'Expected pane collapsed to be a boolean or a State',
   'Expected pane edge to be end or start',
   'Expected pane max to be at least min',

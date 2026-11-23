@@ -236,7 +236,8 @@ export interface RenderOptions {
    *
    * The top of four sources, and the order is "more specific knowledge about the
    * same question": this, then `SIGIL_COLOR_SCHEME`, then a reply to an OSC 11
-   * query where `detect()` was called, then `COLORFGBG`, then dark. Unlike
+   * query where `detect()` was called, then `COLORFGBG`, then dark -- with
+   * `setColorScheme()` above all of them, for an app that changes its mind. Unlike
    * `colorLevel` a value named here is **not** overruled by a reply, because
    * nothing fills this in on a caller's behalf -- an app that names one may be
    * painting its own background, so it is stating a fact about its output rather
@@ -325,6 +326,19 @@ export interface RenderOptions {
    * `AggregateError`.
    */
   onError?: (error: unknown) => void;
+  /**
+   * Called with the renderer before the first frame is painted, which is before
+   * `render()` has returned it.
+   *
+   * What a caller that has to hand the renderer to something running *on* that
+   * first frame needs: an `onMount()` callback fires inside `render()`, so a
+   * `view` the caller assigns from the return value is not there yet. The
+   * renderer is complete when this is called -- it is the object `render()` goes
+   * on to return -- but nothing has been drawn, so it is a handle to keep and not
+   * a screen to read. It must not throw: a throw here leaves `render()` with
+   * nothing torn down, which a throw from the component's body does not.
+   */
+  onReady?: (renderer: Renderer) => void;
   /** The terminal. Defaults to the process's. */
   terminal?: Terminal;
 }
@@ -431,6 +445,32 @@ export interface Renderer {
   frame(): void;
   /** Asks for a frame, for a mutation a signal did not make. */
   invalidate(): void;
+  /**
+   * Changes the color scheme this renderer resolves `@media (prefers-color-scheme)`
+   * against, for as long as it is mounted.
+   *
+   * What an app calls when it changes what it draws against: a theme that paints a
+   * light page over a dark terminal is a light scheme whatever the terminal is,
+   * and nothing the renderer detected can say so. It is the top of the chain --
+   * above the `colorScheme` option, the user's `SIGIL_COLOR_SCHEME`, a reply to
+   * `detect()` and `COLORFGBG` -- because it is the app's own decision, taken after
+   * everything the option could have known, and the one source that has to be able
+   * to overrule the option it was given at the start.
+   *
+   * `undefined` takes the decision back: the scheme is whatever the chain below
+   * says, as though this had never been called. A reply that arrives while a scheme
+   * is set is still recorded and takes effect then, so a terminal that answered
+   * during a light theme is not forgotten when the theme goes.
+   *
+   * The restyle is a media-context change, the same one a resize and a `detect()`
+   * reply publish: a full re-match, a layout and a repaint on the next frame, and
+   * only when the answer actually moved. Setting the scheme the chain already
+   * resolves to costs nothing, and so does a call after `dispose()`.
+   *
+   * @param scheme - The scheme to resolve against, or `undefined` for what was
+   *   detected.
+   */
+  setColorScheme(scheme: ColorScheme | undefined): void;
   /**
    * Calls back once, when this renderer goes -- by `dispose()`, or by a frame
    * that failed.
@@ -631,6 +671,15 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
   let refined: { colorLevel?: ColorLevel; colorScheme?: ColorScheme } = {};
 
   /**
+   * What the app chose with `setColorScheme()`, above every other source.
+   *
+   * Its own variable rather than a write to `opts.colorScheme`, so that `undefined`
+   * has somewhere to go back to: the option is the app's decision at mount and
+   * this is its decision since, and clearing the second must leave the first.
+   */
+  let chosen: ColorScheme | undefined;
+
+  /**
    * The scheme, from the most specific source that has an answer.
    *
    * A function rather than an expression inside `readMedia()` because `detect()`
@@ -640,7 +689,12 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
    */
   function scheme(): ColorScheme {
     return (
-      opts.colorScheme ?? forcedScheme() ?? refined.colorScheme ?? schemeFromTerminalEnv() ?? 'dark'
+      chosen ??
+      opts.colorScheme ??
+      forcedScheme() ??
+      refined.colorScheme ??
+      schemeFromTerminalEnv() ??
+      'dark'
     );
   }
 
@@ -1494,6 +1548,21 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     requestFrame();
   }
 
+  function setColorScheme(next: ColorScheme | undefined): void {
+    if (disposed || failed) {
+      return;
+    }
+    // asked of the whole chain on both sides, for the reason `detect()` asks it
+    // twice: whether this is a *change* is a question about what the media
+    // context resolves to, and a scheme named over the one already in force, or
+    // cleared under one the chain agrees with, repaints nothing
+    const before = scheme();
+    chosen = next;
+    if (scheme() !== before) {
+      publishMedia();
+    }
+  }
+
   async function detect(input: InputRouter, options: DetectOptions = {}): Promise<Capabilities> {
     if (disposed || failed) {
       // a probe against a renderer that has gone would write a query nothing
@@ -1564,11 +1633,7 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
     return found;
   }
 
-  // the first frame is synchronous, so `render()` returns with something on
-  // screen rather than with a timer pending
-  runFrame();
-
-  return {
+  const renderer: Renderer = {
     get animating() {
       return animator.active;
     },
@@ -1612,6 +1677,8 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       };
     },
 
+    setColorScheme,
+
     onFrame(handler: FrameHandler): () => void {
       frameHandlers.add(handler);
       return () => {
@@ -1651,4 +1718,15 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
 
     tree,
   };
+
+  // handed over before the first frame rather than after it, because that frame
+  // drains the `onMount()` callbacks and one of them may be reading `App.view`:
+  // the return value is not anybody's yet at that point
+  opts.onReady?.(renderer);
+
+  // the first frame is synchronous, so `render()` returns with something on
+  // screen rather than with a timer pending
+  runFrame();
+
+  return renderer;
 }
