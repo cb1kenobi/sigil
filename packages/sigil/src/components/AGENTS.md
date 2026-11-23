@@ -12203,6 +12203,28 @@ there is the bars, which are drawn on every line.
   the boxes above it. The parse-time `growth()` tests are left on the clock; they
   have never failed, and a parse has no call to count.
 
+- **The parse-time `growth()` tests were left on the clock, and one timed out
+  (SIG-649).** The sentence above said they had never failed. A macOS runner then
+  timed `a link that never closes` out at the default ten seconds -- the same run
+  passed on Linux and Windows -- and the file had failed once in a full local run
+  of two builders. Both came from reading the wall clock: the highlighter's
+  linear-time check had already moved to CPU time with a span for the small side
+  (SIG-627, SIG-640) and this file had not, so it was its own second copy of a
+  measurement whose fixes had landed in the first. It is one function now,
+  `growthOf()` in `test/growth.ts`, and both files call it. The same ratio, the
+  same 24, the same sizes. Under 200 busy loops on 18 cores, the old file failed
+  `_*` and its siblings at 31.8 and 31.7 against 24 in two of three runs, and the
+  new one passed every run of the file together with `highlight.test.ts`.
+
+  What a CPU clock cannot give is a wall-clock budget, which is what a test
+  timeout is, so the file's `describe` carries `BUDGET` (60 s). It is
+  not a limit on how long a linear read takes, which the ratio asks and no budget
+  can: it is six times the default so that a starved runner fails on a quadratic
+  and on nothing else. A synchronous parse cannot be timed out, so it hides no
+  hang. The sizes were left alone because the work is smaller than it was: the
+  small side is read to fill 3 ms and the large side as often as makes the same
+  work, instead of seven whole reads of each.
+
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms
   under 99 quotes, on both builds. Every level of quote asks `interrupts()` of

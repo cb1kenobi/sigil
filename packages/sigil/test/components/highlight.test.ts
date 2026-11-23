@@ -5,6 +5,7 @@ import { type HighlightSpan, multiline, tokensOf } from '../../src/components/pr
 import { TextArea } from '../../src/components/text-area.js';
 import { renderToString } from '../../src/element/index.js';
 import { FRAMEWORK_CSS, TOKEN_ROLE, themedCascade } from '../../src/theme/index.js';
+import { growthOf } from '../growth.js';
 import { screenSetup, tick } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
@@ -511,78 +512,21 @@ describe('highlightCode()', () => {
     // sides of a ratio alike. Best of seven, the sides taking turns, for the
     // reasons `markdown-malformed.test.ts` gives.
     //
-    // And in CPU time rather than wall time where the platform can say it
-    // (SIG-627). A wall-clock best of seven survives a stall that lands on some of
-    // the runs and not a machine that is oversubscribed for the whole test: a
-    // macOS runner read the linear diff at `39.3` against a bound of 24, and a
-    // laptop at a load average of 140 failed a different shape in five of eight
-    // runs of this file -- `js` `a / `, `markdown` `*a`, `sh` `"$` -- each of them
-    // linear. Being descheduled costs a measurement its wait however long it was,
-    // and the small side is a tenth of a millisecond, which fits between two
-    // preemptions where a large one does not, so load inflates the larger read
-    // alone. `process.threadCpuUsage()` is this thread's time on a CPU, which a
-    // wait is not part of. Windows reports it from the scheduler's tick, which is
-    // a few milliseconds, too coarse to tell sixty-four from eight on the
-    // smallest shapes, so it keeps the wall clock there.
+    // The measurement is `growthOf()` in `test/growth.ts`, shared with
+    // `markdown-malformed.test.ts` (SIG-649): CPU time rather than wall time
+    // (SIG-627), and a span rather than a floor (SIG-640). The reasons are written
+    // there, beside the code they are about.
     const SIZE = 32 * 1024;
 
-    /** Milliseconds this thread has spent running, or on the wall clock where that is too coarse to read. */
-    const now: () => number =
-      process.platform === 'win32' || typeof process.threadCpuUsage !== 'function'
-        ? () => performance.now()
-        : () => {
-            const { system, user } = process.threadCpuUsage();
-            return (system + user) / 1000;
-          };
-
-    /**
-     * The shortest span a measurement is taken over, in milliseconds. A read of one
-     * short line is a few hundredths of one, which is under what a clock can tell
-     * from none, and this used to be answered by a floor of two milliseconds on
-     * both sides (SIG-640): while the smaller read cost less than about 0.75 ms the
-     * floor stood in for it, and a larger one that grew by up to twice the allowed
-     * ratio of the real one passed. A floor moves the measurement; reading the same
-     * text enough times to fill the span is what makes it one. A cap on the count
-     * keeps a clock that reads zero from asking for ever.
-     */
-    const SPAN = 3;
-    const MOST_READS = 4096;
-
     /** How much more a document `factor` times the size costs to highlight. */
-    const growth = (lang: string, make: (size: number) => string, factor: number): number => {
-      const small = make(SIZE);
-      const large = make(SIZE * factor);
-      const time = (code: string, reads: number): number => {
-        const start = now();
-        for (let read = 0; read < reads; read++) {
-          highlightCode(code, lang);
-        }
-        return now() - start;
-      };
-      // The small read is repeated until it fills the span the first time it is
-      // asked, while the code is cold, which is a little more than it will fill
-      // once warm: the count is a way to a measurable span rather than a span
-      // itself. The large one is repeated as
-      // often as makes the same amount of work, so neither side is read through a
-      // clock's granularity and what is compared is the cost of one read of each.
-      let smallReads = 1;
-      while (time(small, smallReads) < SPAN && smallReads < MOST_READS) {
-        smallReads *= 2;
-      }
-      const largeReads = Math.max(1, Math.round(smallReads / factor));
-      let bestSmall = Infinity;
-      let bestLarge = Infinity;
-      for (let run = 0; run < 7; run++) {
-        bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
-        bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
-      }
-      // a clock that read nothing would make the ratio zero and the check pass for
-      // ever, so it is said aloud instead
-      expect(bestSmall, `${lang}: the clock read nothing over ${smallReads} reads`).toBeGreaterThan(
-        0
+    const growth = (lang: string, make: (size: number) => string, factor: number): number =>
+      growthOf(
+        (code) => highlightCode(code, lang),
+        make(SIZE),
+        make(SIZE * factor),
+        factor,
+        `${lang}: ${make(12).slice(0, 12)}...`
       );
-      return bestLarge / bestSmall;
-    };
 
     const repeat =
       (unit: string) =>
