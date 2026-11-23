@@ -84,6 +84,7 @@ import {
   reportDiagnostics,
   resolveOut,
   utilityRules,
+  warnUnparsed,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
@@ -345,6 +346,9 @@ const pkg: AnyCommand = command({
       if (unconfirmed) {
         writeNote([unconfirmed], process.stderr);
       }
+      // after the refusals above, so an app that is not going to be packaged
+      // is not also told what its sheet would have cost
+      warnUnparsed(result.styles, found.app.root);
 
       // emptied only now, once the graph says whether `out` holds a module
       // only the bundle reads -- after every refusal that can come before the
