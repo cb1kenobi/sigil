@@ -2782,7 +2782,7 @@ hand-written component that spreads `props` into its host and sets a hook there.
 The `ui` tag, its parser, and the emitter's leaves -- `applyProp()`,
 `applyRef()`, `splitRefs()`, `refuseHandlerName()`, `applyText()`,
 `appendValue()`, `rawElement()`, `rootElement()`, `componentChildren()`,
-`rawParts()`, `trackedFlag()` and `textPart()` -- which
+`rawParts()`, `refuseUnknownProps()`, `trackedFlag()` and `textPart()` -- which
 `sigil build`'s template compiler calls rather than restating, so a compiled
 template and an interpreted one cannot come to disagree about what a prop, a
 child or a `<raw>` means.
@@ -2812,7 +2812,7 @@ paint read changes and lays out again when one its measure read does -- in the
 `tracked` is a flag read once, when the element is built: bare is `true`,
 `tracked={false}` is plain, and a string or a function is a template error. Build
 it in a component, so the listening is let go with the owner.
-A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing.
+A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing. The same goes for a `<box>` or a `<text>`: `<box padddding>` is refused with its name where it is built, in the tag, in JSX and at `sigil build` and `sigil check`, rather than as a style error on the first frame.
 
 ```jsx
 const level = new State(3);

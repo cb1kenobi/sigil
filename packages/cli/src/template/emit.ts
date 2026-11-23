@@ -74,6 +74,7 @@ import {
   type IRProp,
   rawParts,
   refuseHandlerName,
+  refuseUnknownProps,
   type SourceLocation,
   splitRefs,
   templateError,
@@ -356,6 +357,8 @@ class Printer {
    * @returns The name it was bound to.
    */
   #box(node: IRElement): string {
+    // the build-time half of the name check, for the reason `rawParts()` does it for a raw
+    refuseUnknownProps(node);
     const name = this.#name();
     const { props, refs } = splitRefs(node.props);
     const statics = this.#statics(props, node.loc);
@@ -390,6 +393,7 @@ class Printer {
    * @returns The expression, or the name it was bound to.
    */
   #text(node: IRElement): string {
+    refuseUnknownProps(node);
     const { props, refs } = splitRefs(node.props);
     const statics = this.#statics(props, node.loc);
     const make = this.#use(this.#element, 'text');
@@ -587,8 +591,8 @@ class Printer {
     // argument that throws when the screen is first built
     for (const prop of props) {
       // the half of the name check a compiler can answer: a spelling of a handler
-      // is wrong whatever it is given, where a function under some other `on*`
-      // name is the interpreter's to refuse, since only it knows the value
+      // is wrong whatever it is given. A name that is none of the seven is
+      // `refuseUnknownProps()`'s, which the caller has already asked
       refuseHandlerName(prop.name, undefined, at);
       if (isHandlerProp(prop.name) && !(prop.value instanceof Expr) && prop.value !== undefined) {
         throw templateError(
@@ -617,7 +621,7 @@ class Printer {
       if (prop.value instanceof Expr) {
         rest.push(prop);
       } else if (prop.value !== undefined) {
-        statics.push(`${key(prop.name)}: ${literal(prop.value)}`);
+        statics.push(`${quote(prop.name)}: ${literal(prop.value)}`);
       }
     }
 
@@ -743,30 +747,6 @@ function loc(at: SourceLocation | undefined): string {
   }
   const file = at.file === undefined ? '' : `file: ${quote(at.file)}, `;
   return `{ column: ${at.column}, ${file}line: ${at.line} }`;
-}
-
-/**
- * A prop name, as a key in an object literal.
- *
- * `__proto__` is the one name that is not a key: written plainly or quoted it
- * is prototype sugar, so `{ "__proto__": "x" }` has no own property of that
- * name at all and the prop would be dropped on the way into the constructor. A
- * computed key is an ordinary own property, which is what every other name
- * already gets.
- *
- * Nothing observable depends on it today -- `Element`'s prop store is a plain
- * object, so the interpreted path's `#props["__proto__"] = "x"` is swallowed by
- * `Object.prototype`'s setter and both paths end up with nothing. It is closed
- * anyway, because the rule AGENTS.md already records for the parser's
- * registries is that a name really can be `__proto__`, and the day that store
- * becomes null-prototype is the day this becomes a divergence nobody is looking
- * for.
- *
- * @param name - The prop name.
- * @returns The key, computed only where it has to be.
- */
-function key(name: string): string {
-  return name === '__proto__' ? `[${quote(name)}]` : quote(name);
 }
 
 /**

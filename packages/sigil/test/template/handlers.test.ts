@@ -8,7 +8,7 @@
  * `jsxs()`, which is what the transform emits; the tag is called directly.
  */
 
-import { box, type Element, HANDLER_PROPS, renderToString, text } from '../../src/element/index.js';
+import { box, type Element, HANDLER_PROPS, text } from '../../src/element/index.js';
 import { createInput } from '../../src/input/index.js';
 import { createEffect, createRoot, onCleanup } from '../../src/renderer/index.js';
 import { flush, State } from '../../src/signals/index.js';
@@ -223,16 +223,16 @@ describe('a near miss for a handler name', () => {
     );
   });
 
-  it('should let a name that is not a function reach the cascade, which refuses it', () => {
-    // not the near-miss rule's: a value is never called, and the cascade already
-    // says what is wrong with a property it does not know
-    // at the first style resolve, where every unknown property is refused
-    expect(() =>
-      renderToString(
-        inRoot(() => ui`<box onClick="x" />`),
-        { colorLevel: 0, width: 10 }
-      )
-    ).toThrow(/Unknown property/);
+  it('should refuse a name that is not a function as an event too, when built (SIG-614)', () => {
+    // it used to reach the cascade, which refused it as an unknown property on
+    // the first style resolve -- when the app was already running. No style
+    // property starts with `on`, so it is an event spelled wrong whatever it holds
+    expect(() => inRoot(() => ui`<box onClick="x" />`)).toThrow(
+      /`onClick` is not an event this element has/
+    );
+    expect(() => inRoot(() => jsx('box', { onClick: 'x' }))).toThrow(
+      /`onClick` is not an event this element has/
+    );
   });
 
   it('should leave a component alone, which reads its props as it likes', () => {
