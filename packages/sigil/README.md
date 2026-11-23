@@ -5377,7 +5377,8 @@ theme hooks, each with `-row` and `-part` classes inside; a line chart's series 
 `.sigil-chart-series-1` and up, its legend `.sigil-chart-legend`, a shade
 `.sigil-chart-area` beside its series' classes, and a crosshair
 `.sigil-chart-crosshair`, with `.sigil-chart-crosshair-focus` and `.sigil-accent`
-beside it while the chart has the focus. A bar takes
+beside it while the chart has the focus, and the marker of a pinned sample the rule is
+elsewhere from `.sigil-chart-pin` beside `.sigil-warn`. A bar takes
 a `role` of its own in `{ label, value, role }`, over the chart's.
 
 ##### Live charts

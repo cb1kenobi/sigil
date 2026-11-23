@@ -905,6 +905,11 @@ interface LineLayout extends ScaleOptions {
    * crosshair; `undefined` draws none.
    */
   readonly pointer?: number;
+  /**
+   * How many samples before the newest the pinned one is, or `undefined` for none.
+   * Marked on the plot and the axis wherever the crosshair is not.
+   */
+  readonly pinned?: number;
   readonly step: number | 'fit';
   /** How wide the whole chart is. */
   readonly width: number;
@@ -966,6 +971,12 @@ const CROSSHAIR_CLASSES = 'sigil-chart-crosshair sigil-muted';
  * one, and a hook of its own.
  */
 const CROSSHAIR_FOCUS_CLASSES = 'sigil-chart-crosshair sigil-chart-crosshair-focus sigil-accent';
+
+/**
+ * The classes the pin's marker takes: its hook, and the warn role, which is neither
+ * the muted rule nor the accent the focus is shown in.
+ */
+const PIN_CLASSES = 'sigil-chart-pin sigil-warn';
 
 /**
  * Which dots of a braille cell are set, as the bits `Dots` keeps them in.
@@ -1209,6 +1220,17 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     (layout.back === undefined || longest === 0
       ? undefined
       : Math.max(oldest, longest - 1 - layout.back));
+  // the pinned sample, clamped to the oldest drawn as the keyboard's is, and
+  // marked in its own cell -- except where the rule stands in that cell, which
+  // already marks it
+  const pin =
+    layout.pinned === undefined || longest === 0
+      ? undefined
+      : Math.max(oldest, longest - 1 - layout.pinned);
+  const pinColumn =
+    pin === undefined || (crosshair !== undefined && across(crosshair) >> 1 === across(pin) >> 1)
+      ? -1
+      : across(pin) >> 1;
   const cross = new Dots(plotWidth, height);
   if (crosshair !== undefined) {
     for (let y = 0; y < cross.dotHeight; y++) {
@@ -1234,6 +1256,10 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
       const { classes, glyph } = cellOf(x, y);
       const run = runs.at(-1);
       if (run === undefined) {
+        runs.push({ classes, text: glyph });
+      } else if (classes === PIN_CLASSES || run.classes === PIN_CLASSES) {
+        // the marker is one cell of its own: blanks beside it are not in its
+        // role, which a theme may give a background
         runs.push({ classes, text: glyph });
       } else if (classes === undefined || classes === run.classes) {
         run.text += glyph;
@@ -1272,6 +1298,10 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
         glyph: plain ? '*' : braille(lines | maskAt(areas[owner], x, y)),
       };
     }
+    // the top cell of the pinned column, where no line is
+    if (x === pinColumn && y === 0) {
+      return { classes: PIN_CLASSES, glyph: plain ? 'v' : '▼' };
+    }
     const rule = maskAt(cross, x, y);
     if (rule !== 0) {
       return {
@@ -1296,9 +1326,19 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
     // marked where the x labels are read
     const at = crosshair === undefined ? -1 : Math.floor(across(crosshair) / 2);
     const rule = Array.from({ length: plotWidth }, (_, x) =>
-      x === at ? (plain ? '+' : '┴') : plain ? '-' : '─'
-    ).join('');
-    rows.push([{ text: `${' '.repeat(gutter)} ${plain ? '+' : '└'}${rule}` }]);
+      x === at ? (plain ? '+' : '┴') : x === pinColumn ? ' ' : plain ? '-' : '─'
+    );
+    const left = `${' '.repeat(gutter)} ${plain ? '+' : '└'}`;
+    if (pinColumn < 0) {
+      rows.push([{ text: `${left}${rule.join('')}` }]);
+    } else {
+      // the pin's marker is a segment of its own, to take its classes
+      rows.push([
+        { text: `${left}${rule.slice(0, pinColumn).join('')}` },
+        { role: PIN_CLASSES, text: plain ? '^' : '▲' },
+        { text: rule.slice(pinColumn + 1).join('') },
+      ]);
+    }
 
     const [start, end] = layout.xLabels ?? ['', ''];
     if (start !== '' || end !== '') {
@@ -1821,7 +1861,8 @@ export interface CrosshairLineChartProps extends LineChartBase {
    * Home and End jump to the oldest and newest sample drawn, and Enter pins the
    * sample the rule is on, so that it stands there, with its readout, while the
    * chart has not the focus and the pointer is not over it; Enter again unpins
-   * it. A refocus starts at the pinned sample.
+   * it. A refocus starts at the pinned sample, and while the rule is on another
+   * the pin is marked on the plot and the axis (`.sigil-chart-pin`).
    */
   crosshair: LineChartCrosshair;
   /** The chart's own props, without the two hooks it owns. */
@@ -2260,16 +2301,20 @@ export function LineChart(props: LineChartProps): Element {
     (size) => {
       const xLabels = read(props.xLabels);
       const hasFocus = crosshair !== undefined && focused();
+      // read first and always, so a pin set or cleared redraws a chart whose
+      // keyboard sample already says where the rule is
+      const pinnedAt = pinned?.get();
       const drawing = lineDrawing(plotSeries(list, props.role, props.fill), {
         ascii,
         axis,
-        back: hasFocus ? (back?.get() ?? pinned?.get() ?? 0) : pinned?.get(),
+        back: hasFocus ? (back?.get() ?? pinnedAt ?? 0) : pinnedAt,
         focused: hasFocus,
         format,
         height: Math.max(1, size.height - extra(xLabels)),
         legend,
         max: props.max,
         min: props.min,
+        pinned: pinnedAt,
         pointer: pointer?.get(),
         step,
         width: size.width,

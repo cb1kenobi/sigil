@@ -1288,6 +1288,95 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       expect(tick(m.screen())).toBe(-1);
     });
 
+    describe('the pin marker (SIG-620)', () => {
+      /** The columns of the pin's marker on the axis row, and on the plot's top row. */
+      const marks = (screen: string[]) => [
+        (screen[4] ?? '').indexOf('▲'),
+        (screen[0] ?? '').indexOf('▼'),
+      ];
+      /** Every segment of the chart that carries the theme hook. */
+      const pinSegments = (chart: Element): Element[] =>
+        chart.children.flatMap((child) => [
+          ...(child.classes.includes('sigil-chart-pin') ? [child] : []),
+          ...pinSegments(child),
+        ]);
+
+      it('should mark a pinned sample on the axis and the plot while the rule is elsewhere', async () => {
+        const m = await mount();
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter);
+        // the rule is on the pin, which it already marks
+        expect(marks(m.screen())).toStrictEqual([-1, -1]);
+        await m.key(KEYS.home);
+        expect(tick(m.screen())).toBe(3);
+        expect(marks(m.screen())).toStrictEqual([20, 20]);
+        // and it goes under a blur, which returns the rule to the pin
+        await m.blur();
+        expect(marks(m.screen())).toStrictEqual([-1, -1]);
+        expect(tick(m.screen())).toBe(20);
+      });
+
+      it('should show it from a pointer elsewhere, and leave it where the pointer is on the pin', async () => {
+        const m = await mount();
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter);
+        await m.blur();
+        await m.move(3, 2);
+        expect(marks(m.screen())).toStrictEqual([20, 20]);
+        await m.move(20, 2);
+        expect(marks(m.screen())).toStrictEqual([-1, -1]);
+      });
+
+      it('should take the marker away when the pin is cleared, and not bring it back elsewhere', async () => {
+        const m = await mount();
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.end);
+        expect(marks(m.screen())[0]).toBe(20);
+        // Enter on another sample moves the pin: one marker, never two
+        await m.key(KEYS.home, KEYS.enter, KEYS.right);
+        expect(marks(m.screen())[0]).toBe(3);
+        // and Enter on the pin clears it, with the rule on the pin
+        await m.key(KEYS.left, KEYS.enter, KEYS.right);
+        expect(marks(m.screen())).toStrictEqual([-1, -1]);
+        await m.blur();
+        expect(marks(m.screen()).concat(tick(m.screen()))).toStrictEqual([-1, -1, -1]);
+      });
+
+      it('should draw it in a class a theme can style, and in ASCII at colour level 0', async () => {
+        const m = await mount(() => ({ ascii: true }));
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.home);
+        const screen = m.screen();
+        expect((screen[4] ?? '').indexOf('^')).toBe(20);
+        expect((screen[0] ?? '').indexOf('v')).toBe(20);
+        expect(pinSegments(m.chart).map((el) => el.text)).toStrictEqual(['v', '^']);
+        expect(pinSegments(m.chart)[0]?.classes).toContain('sigil-warn');
+      });
+
+      it('should leave a line where it is, and mark the axis alone where a line is in the cell', async () => {
+        // the newest sample is the highest, so its top cell is the line's
+        const m = await mount();
+        await m.key(KEYS.tab, KEYS.enter, KEYS.home);
+        const screen = m.screen();
+        expect((screen[4] ?? '').indexOf('▲')).toBe(29);
+        expect((screen[0] ?? '').indexOf('▼')).toBe(-1);
+      });
+
+      it('should keep a marker on the same place on the screen as samples are pushed', async () => {
+        const series = new Series(8, [1, 5, 3, 8]);
+        const m = await mount(() => ({ series: [{ data: series, label: 'API' }], step: 4 }));
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.home);
+        const before = marks(m.screen());
+        expect(before[0]).toBeGreaterThan(-1);
+        series.push(9);
+        await m.key();
+        expect(marks(m.screen())).toStrictEqual(before);
+      });
+
+      it('should mark a pin on a chart with no axis, in the plot alone', async () => {
+        const m = await mount(() => ({ axis: false, props: { height: 6, width: 30 } }));
+        await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.home);
+        expect(m.screen().join('\n')).toContain('▼');
+        expect(m.screen().join('\n')).not.toContain('▲');
+      });
+    });
+
     it('should claim Enter, Home and End while it has the focus', async () => {
       const seen: string[] = [];
       const term = createTestTerminal({ colorLevel: 0, columns: 40, rows: 8 });

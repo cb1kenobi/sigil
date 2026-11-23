@@ -7725,8 +7725,8 @@ have.
   keyboard's sample and returns to the pin, so the effect that forgot it still does
   and `pinned` is the one fallback beneath it. The pointer wins while it moves, as
   it does over the keyboard, and gives the rule back to the pin when it leaves.
-  A limit, recorded rather than fixed: while the chart is focused and the rule has
-  moved off the pin, nothing shows where the pin is; it is seen again on blur.
+  The limit this recorded -- while the chart is focused and the rule has moved off
+  the pin, nothing shows where the pin is -- is closed by SIG-620 below.
 - **The readout stands through the tooltip's new `hold`.** The bubble was shown by
   the pointer or the focus and nothing else, so a pin had no readout once the focus
   went. `TooltipOptions.hold` is a function that returns `true` for a third reason
@@ -7763,6 +7763,32 @@ have.
   footer keeps the pin over the movement keys. The
   dashboard's chart footer is therefore longer by those words; its tests are
   re-read for it rather than assumed.
+
+### A pinned sample is marked where the rule is not (SIG-620)
+
+- **The marker is a cell on the plot's top row and a tick on the axis, both in the
+  pinned sample's column, and drawn only where the rule is in another one.** `▼` on
+  the plot and `▲` in the axis row, `v` and `^` in ASCII, so it needs no colour to
+  be seen. Where the rule stands on the pin's cell it already marks it -- with the
+  `┴` tick and the rule -- and a second glyph there would only hide that, so the
+  marker is the answer to "where is the pin" and goes the moment the answer is "under
+  the rule". It is compared by cell column rather than by sample, because under
+  `step: 'fit'` two samples can share one cell and the rule in it is the pin's.
+  The pin is clamped to the oldest drawn as the rule is, so one that scrolled off the
+  left is marked on the left edge.
+- **A line beats it on the plot, as it beats the rule.** The top cell of the
+  pinned column is the highest value's wherever the pinned sample is the highest, so
+  there the plot's marker is not drawn and the axis one is the answer. A chart with
+  `axis: false` has only the plot's, and loses it under a line there: a limit,
+  recorded rather than fixed, since moving the marker off the plot's top row would
+  make it a thing that wanders with the data.
+- **`sigil-chart-pin`, with `sigil-warn` beside it,** is the theme hook: the warn role
+  because the rule is already the muted and the accent roles, and it is a colour
+  nobody reads as "the keys go here". It is a segment of its own, not a run the
+  blanks beside it join, so a theme that gives it a background paints one cell.
+  `LineLayout.pinned` carries it; the draw reads `pinned` before anything else and
+  unconditionally, since `back ?? pinned` short-circuits and a pin cleared while the
+  keyboard sample already said where the rule was would otherwise not redraw.
 
 ### An image: a picture fitted to the box it got, in half blocks (SIG-326)
 
