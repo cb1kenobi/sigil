@@ -286,6 +286,20 @@ const RESERVED = new Set([
   ...HANDLER_PROPS,
 ]);
 
+/**
+ * Whether a prop name is one of the ones that are not style properties.
+ *
+ * Exported for the question `isHandlerProp()` is exported for: a template has to
+ * know which names an element takes that the cascade never sees, and the list is
+ * `RESERVED` and nowhere else. Case sensitive, as `setProp()` is.
+ *
+ * @param name - The prop.
+ * @returns True for `class`, `id`, `key`, the three focus props and the seven hooks.
+ */
+export function isReservedProp(name: string): boolean {
+  return RESERVED.has(name);
+}
+
 export type PropValue = boolean | number | string | undefined;
 
 /**

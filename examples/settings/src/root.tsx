@@ -104,7 +104,6 @@ export const stylesheet = `
   .login .problem { margin-left: 0 }
   .login-hint { margin-bottom: 1 }
   .login-status { height: 1 }
-  .login-actions { flex-direction: row; justify-content: flex-end; column-gap: 1; margin-top: 1 }
 `;
 
 /**

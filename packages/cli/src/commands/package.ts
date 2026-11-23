@@ -39,6 +39,7 @@ import {
   bunTargetRuntime,
   bunVersion,
   readSchemaUpdateCheck,
+  wrappedCheckWarning,
   compileWithBun,
   compileWithNode,
   type CompileResult,
@@ -328,13 +329,22 @@ const pkg: AnyCommand = command({
       //
       // A schema that names its own checker has said where to look, and
       // importing the builder it names it with is what put the specifier in
-      // the graph -- so that import is not a second thing to declare
+      // the graph -- so that import is not a second thing to declare. One that
+      // names it through a call of the app's own is not refused for it either,
+      // but is warned, because that call may not hand the checker back
       const schemaCheck = readSchemaUpdateCheck(found.app.entry);
       assertUpdateCheckDeclared(
         sigilConfig,
-        (result.usesUpdateCheck && schemaCheck !== 'names' && 'import') ||
+        (result.usesUpdateCheck &&
+          schemaCheck !== 'names' &&
+          schemaCheck !== 'wrapped' &&
+          'import') ||
           (schemaCheck === 'asks' && 'schema')
       );
+      const unconfirmed = wrappedCheckWarning(sigilConfig, result.usesUpdateCheck, schemaCheck);
+      if (unconfirmed) {
+        writeNote([unconfirmed], process.stderr);
+      }
 
       // emptied only now, once the graph says whether `out` holds a module
       // only the bundle reads -- after every refusal that can come before the

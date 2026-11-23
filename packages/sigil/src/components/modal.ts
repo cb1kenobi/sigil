@@ -39,6 +39,7 @@ import type { InputRouter, KeyEvent, MouseEvent, PasteEvent } from '../input/ind
 import { createBranch, createRoot, type Owner, runWithOwner } from '../renderer/index.js';
 import { untrack } from '../signals/index.js';
 import { Button } from './button.js';
+import { type ControlCondition, controlCondition } from './control.js';
 import { decodeKeys, isAbort, type Key } from './keys.js';
 import { labelLine, unicodeSupported } from './note.js';
 import { holdInput, opaqueFill, rootOf } from './overlay.js';
@@ -46,8 +47,32 @@ import { refuseOwnedHooks } from './owned-hooks.js';
 
 /** One button along the bottom of the dialog. */
 export interface ModalAction<T = unknown> {
+  /**
+   * Whether the button refuses to be pressed, which is what a form's submit is
+   * until the form is valid. Takes what a control's `disabled` takes: a boolean, a
+   * `State`, a `Computed` or a function, read live. Defaults to `false`.
+   *
+   * It is read inside an effect that belongs to the dialog, so it follows what it
+   * reads for as long as the dialog is open and not a moment longer.
+   */
+  disabled?: ControlCondition;
+  /**
+   * Whether Enter presses this button when whatever has the focus leaves Enter
+   * alone -- a field with no `onSubmit`, a checkbox, the panel -- the web's default
+   * button. Not while it is disabled. At most one action may be the default, and
+   * a button or a text area that takes Enter for itself keeps it.
+   */
+  default?: boolean;
   /** What the button says. */
   label: string;
+  /**
+   * What pressing the button does, in place of settling the dialog. The dialog
+   * stays open until the handler calls `close()` on the handle, which is what a
+   * submit that has to be checked first wants. An action has a `value` or an
+   * `onPress`, and not both: a value settles the dialog, and so would a handler
+   * that did.
+   */
+  onPress?: () => void;
   /** What the modal's `result` settles with when the button is pressed. */
   value?: T;
 }
@@ -76,6 +101,11 @@ export interface ModalOptions<T = undefined> {
    *
    * An empty list is allowed, and then the dialog takes the focus itself, so it
    * still holds the keys and Escape still dismisses it.
+   *
+   * A button can be `disabled`, can be the `default` that Enter presses from a
+   * field, and can run an `onPress` of its own in place of settling the dialog --
+   * which is what a form's submit is. They are built under the dialog's owner, as a
+   * `body` function is.
    */
   actions?: readonly ModalAction<T>[];
   /**
@@ -122,11 +152,18 @@ export interface ModalOptions<T = undefined> {
    */
   dismissible?: boolean;
   /**
-   * Which button holds the focus when it opens, by position. Defaults to the first.
+   * What holds the focus when it opens. Defaults to the first button.
    *
-   * The way a destructive confirm starts on "No".
+   * A number is the position of a button, the way a destructive confirm starts on
+   * "No". `'body'` is the first thing in the body that takes the focus, which is
+   * how a form opens on its first field while its buttons stay `actions`. An
+   * element is that element, which has to be in the body -- so it is the form for a
+   * body that is an element, since a `body` function builds its fields after the
+   * caller has anything to name. Whatever is chosen but cannot take the focus --
+   * a disabled button, a body with nothing focusable in it -- leaves it on the
+   * first thing in the dialog that can.
    */
-  initial?: number;
+  initial?: number | 'body' | Element;
   /** The router the keys come from, which is also where the focus lives. */
   input: InputRouter;
   /** The panel's own props: a margin, a class. Geometry only, never a colour. */
@@ -169,21 +206,25 @@ const Z_INDEX = 900;
 /** The room a panel gets when nobody says. */
 const WIDTH = 50;
 
-/** A body a function built, and the owner that built it. */
-interface OwnedBody {
-  /** Disposes the owner, and with it every effect and cleanup the body made. */
+/** What a function built under the dialog's owner, and what disposes that owner. */
+interface Owned<V> {
+  /** Disposes the owner, and with it every effect and cleanup it made. */
   dispose(): void;
-  readonly element: Element;
+  readonly value: V;
 }
 
 /**
- * Runs a `body` function under an owner that is the modal's to dispose.
+ * Runs what builds the dialog's parts under an owner that is the modal's to dispose.
+ *
+ * That is the body function and every button: a button's `disabled` is read in an
+ * effect, and one that follows the app's state would otherwise outlive the dialog
+ * exactly as a body's does.
  *
  * The parent is the host's own owner, which a renderer always has: the dialog is
  * the screen's and not the component's that happened to open it, so it is not
  * disposed when that component goes while the dialog is still up -- which would
  * leave it trapping the keys over a body whose effects had stopped. A bare element
- * has no owner, and then the body gets a root of its own: its effects run through
+ * has no owner, and then the parts get a root of their own: its effects run through
  * the default factory, which is all a host with no renderer behind it could mean.
  *
  * Untracked, because the function is the dialog's and not the caller's: one that
@@ -192,29 +233,23 @@ interface OwnedBody {
  * consumer, which is why `createRoot()` untracks as well.
  *
  * @param host - What `openModal()` was given.
- * @param build - The body function.
- * @returns The element and what disposes its owner.
- * @throws What `build` threw, or a `TypeError` for an answer that is not an element;
- *   the owner is disposed first, so a call that failed here leaves nothing running.
+ * @param build - What makes the parts.
+ * @returns What `build` made and what disposes its owner.
+ * @throws What `build` threw; the owner is disposed first, so a call that failed
+ *   here leaves nothing running.
  */
-function buildOwned(host: ModalHost, build: () => Element): OwnedBody {
+function buildOwned<V>(host: ModalHost, build: () => V): Owned<V> {
   const parent = host instanceof Element ? undefined : host.owner;
   let dispose: () => void;
-  let element: Element;
-  const make = (): Element => {
-    const made = untrack(build);
-    if (!(made instanceof Element)) {
-      throw new TypeError(__`Expected a modal body function to return an element`);
-    }
-    return made;
-  };
+  let value: V;
+  const make = (): V => untrack(build);
   if (parent === undefined) {
     // `createRoot()` is what a fixture owns a handful of effects with, and its
-    // disposer raises what a cleanup threw. The body is built through it so that
+    // disposer raises what a cleanup threw. The parts are built through it so that
     // a throw from `build` is the one thing left to give back by hand
     let off: (() => void) | undefined;
     try {
-      element = createRoot((done) => {
+      value = createRoot((done) => {
         off = done;
         return make();
       });
@@ -226,24 +261,33 @@ function buildOwned(host: ModalHost, build: () => Element): OwnedBody {
   } else {
     const branch = runWithOwner(parent, createBranch);
     try {
-      element = runWithOwner(branch.owner, make);
+      value = runWithOwner(branch.owner, make);
     } catch (error) {
       branch.dispose();
       throw error;
     }
     dispose = branch.dispose;
   }
-  return { dispose, element };
+  return { dispose, value };
+}
+
+/** A `body` function's answer, which has to be an element. */
+function bodyElement(build: () => Element): Element {
+  const made = build();
+  if (!(made instanceof Element)) {
+    throw new TypeError(__`Expected a modal body function to return an element`);
+  }
+  return made;
 }
 
 /**
- * Disposes a body's owner, holding on to what that threw.
+ * Disposes the dialog's owner, holding on to what that threw.
  *
- * @param owned - The body, if it was built by a function.
+ * @param owned - What the dialog's parts were built under.
  * @returns The error, boxed so that a thrown `undefined` is still one; `undefined`
  *   when nothing was thrown.
  */
-function disposeBody(owned: OwnedBody | undefined): { readonly error: unknown } | undefined {
+function disposeBody(owned: Owned<unknown> | undefined): { readonly error: unknown } | undefined {
   try {
     owned?.dispose();
   } catch (error) {
@@ -290,35 +334,95 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   if (!Array.isArray(actions)) {
     throw new TypeError(__`Expected modal actions to be an array`);
   }
+  let defaults = 0;
   for (const action of actions) {
     // blank is no label either: a button refuses one, and the message here says
     // which part of a modal was wrong
     if (typeof action?.label !== 'string' || labelLine(action.label) === '') {
       throw new TypeError(__`Expected a modal action to have a label`);
     }
+    if (action.onPress !== undefined && typeof action.onPress !== 'function') {
+      throw new TypeError(__`Expected a modal action onPress to be a function`);
+    }
+    // a value settles the dialog and so would a handler that settled it: one
+    // answer for a button to give, not two
+    if (action.onPress !== undefined && action.value !== undefined) {
+      throw new TypeError(__`Expected a modal action to have a value or an onPress, not both`);
+    }
+    if (action.default !== undefined && typeof action.default !== 'boolean') {
+      throw new TypeError(__`Expected a modal action default to be a boolean`);
+    }
+    // two would be one chosen by registration order, which is nobody's decision
+    if (action.default === true && ++defaults > 1) {
+      throw new TypeError(__`Expected a modal to have one default action at most`);
+    }
   }
   const initial = opts.initial ?? 0;
-  if (
+  if (initial instanceof Element) {
+    // an element body is known now, and is checked before anything adopts it: the
+    // body box reparents it, and a call refused after that would have taken it out
+    // of wherever the caller had it. A function's tree does not exist yet, so that
+    // one is checked once it is built
+    if (
+      typeof opts.body !== 'function' &&
+      !(opts.body instanceof Element && opts.body.contains(initial))
+    ) {
+      throw new TypeError(__`Expected modal initial to be an element in the body`);
+    }
+  } else if (initial === 'body') {
+    // always something to ask for: a body with nothing focusable is the fallback
+  } else if (
+    typeof initial !== 'number' ||
     !Number.isInteger(initial) ||
     initial < 0 ||
     (actions.length > 0 && initial >= actions.length)
   ) {
-    throw new TypeError(__`Expected modal initial to be the position of an action`);
+    throw new TypeError(
+      __`Expected modal initial to be the position of an action, 'body' or an element in the body`
+    );
   }
   const dismissible = opts.dismissible !== false;
+  // read live, here as well as by the button: Enter presses the default only while
+  // it is enabled, and the button's own refusal is not what a key that never
+  // reached the button asks. The message is the modal's, which is what names the part
+  const conditions = actions.map((action) =>
+    controlCondition(
+      action.disabled,
+      __`Expected modal action disabled to be a boolean, a State, a Computed or a function`
+    )
+  );
 
   // -- the tree -------------------------------------------------------------
 
-  // a `Button` each (SIG-199): Enter, Space and a left click press it, and its
-  // focus is its own -- the brackets and the focus role on the label, drawn from
-  // the element's `onFocusChange` rather than from the router's focus signal
-  const buttons = actions.map((action) =>
-    Button({
-      label: action.label,
-      onPress: () => close(action.value),
-      props: { class: 'sigil-modal-action' },
-    })
-  );
+  /** What an action does when it is pressed, by a click, a key or the default. */
+  const press = (action: ModalAction<T>): void => {
+    if (action.onPress === undefined) {
+      close(action.value);
+    } else {
+      action.onPress();
+    }
+  };
+
+  // built under the dialog's owner, with the body function: a `Button` each
+  // (SIG-199) -- Enter, Space and a left click press it, and its focus is its own,
+  // the brackets and the focus role on the label, drawn from the element's
+  // `onFocusChange` rather than from the router's focus signal -- and a button's
+  // `disabled` is read in an effect, which has to go when the dialog does. Built
+  // here rather than with the validation above, after the checks that can refuse
+  // the call have run: a body function has made effects by the time it returns, so
+  // a call refused for a bad option should not have run it
+  const owned = buildOwned(host, () => ({
+    body: typeof opts.body === 'function' ? bodyElement(opts.body) : undefined,
+    buttons: actions.map((action, at) =>
+      Button({
+        disabled: conditions[at],
+        label: action.label,
+        onPress: () => press(action),
+        props: { class: 'sigil-modal-action' },
+      })
+    ),
+  }));
+  const { buttons } = owned.value;
 
   const border = (opts.ascii ?? !unicodeSupported()) ? 'ascii' : 'round';
   const panel = box({
@@ -347,22 +451,22 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   if (opts.title !== undefined) {
     panel.append(textNode(opts.title, { class: 'sigil-modal-title sigil-heading' }));
   }
-  // built here rather than with the validation above, after the checks that can
-  // refuse the call have run: a body function has made an owner and effects by the
-  // time it returns, so a call refused for a bad option should not have run it
-  let owned: OwnedBody | undefined;
-  if (typeof opts.body === 'function') {
-    owned = buildOwned(host, opts.body);
-  }
+  let bodyBox: Element | undefined;
   if (opts.body !== undefined) {
-    const body =
+    bodyBox =
       typeof opts.body === 'string'
         ? textNode(opts.body, { class: 'sigil-modal-body' })
         : box(
             { class: 'sigil-modal-body', 'flex-direction': 'column' },
-            owned?.element ?? (opts.body as Element)
+            owned.value.body ?? (opts.body as Element)
           );
-    panel.append(body);
+    panel.append(bodyBox);
+  }
+  if (initial instanceof Element && !(bodyBox?.contains(initial) ?? false)) {
+    // nothing is attached to the router yet, so what is left to give back is the
+    // owner the buttons and the body were built under
+    disposeBody(owned);
+    throw new TypeError(__`Expected modal initial to be an element in the body`);
   }
   if (buttons.length > 0) {
     panel.append(
@@ -514,9 +618,22 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
     input.focus.focus(ring[to]);
   }
 
-  /** The initial focus: the chosen button, else the first thing focusable, else the panel. */
+  /**
+   * The initial focus: what `initial` names, else the first thing focusable, else
+   * the panel. What it names but cannot be focused -- a disabled button, a body
+   * with nothing in it that takes the focus -- is not a reason to leave the focus
+   * outside the dialog.
+   */
   function claimFocus(): void {
-    const first = buttons[initial] ?? inside(panel)[0];
+    const chosen =
+      initial instanceof Element
+        ? initial
+        : initial === 'body'
+          ? bodyBox === undefined
+            ? undefined
+            : inside(bodyBox)[0]
+          : buttons[initial];
+    const first = chosen?.focusable === true ? chosen : inside(panel)[0];
     if (first !== undefined) {
       input.focus.focus(first);
       return;
@@ -526,13 +643,33 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   }
 
   /**
+   * Presses the default action, if Enter is a key that does and it is enabled.
+   *
+   * What reaches here is a key the focused element and everything up to the panel
+   * left alone, so a button, a text area and a field with an `onSubmit` -- each of
+   * which takes Enter for itself -- are never overruled. A modifier makes it
+   * another key, as it does for a button, and a paste is not a keystroke.
+   */
+  function pressDefault(key: Key, paste: boolean): void {
+    if (paste || key.name !== 'enter' || key.ctrl || key.meta || key.shift) {
+      return;
+    }
+    const at = actions.findIndex((action) => action.default === true);
+    if (at !== -1 && !conditions[at].get()) {
+      press(actions[at]);
+    }
+  }
+
+  /**
    * Hands a key to the focused element and its ancestors up to the panel.
    *
    * The router's own walk would carry on to the root, and the sequence trie sits
    * before it -- both are what is below. So the walk is done here, over an event
    * that says what the router's would have, and the real one is stopped.
+   *
+   * @returns Whether anything on the way took the key.
    */
-  function deliver(key: Key, paste: boolean, target: Element): void {
+  function deliver(key: Key, paste: boolean, target: Element): boolean {
     let stopped = false;
     let current: Element | undefined = target;
     const mirror: KeyEvent = {
@@ -557,6 +694,7 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
       }
       current = current.parent;
     }
+    return stopped;
   }
 
   const offKey = input.bind((event: KeyEvent) => {
@@ -593,8 +731,8 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
       claimFocus();
       at = input.focus.current.get();
     }
-    if (at !== undefined) {
-      deliver(event.key, event.paste, at);
+    if (at !== undefined && !deliver(event.key, event.paste, at) && open) {
+      pressDefault(event.key, event.paste);
     }
     event.stop();
   });
@@ -624,10 +762,11 @@ export function openModal<T = undefined>(host: ModalHost, opts: ModalOptions<T>)
   // what the footer lists while this is up: the keys it answers itself, in place of
   // the app's, which its binding takes before they are reached. Asked once, as it
   // opens, when the tree can say what is focusable inside it. Tab is listed only
-  // where there is somewhere to go. Enter presses the focused button and nothing
-  // the modal does, so it is listed only where it can only mean that: a field in
-  // the body takes Enter for itself -- a newline, a submit -- and a footer saying
-  // "select" over it would be the lie this listing exists to remove
+  // where there is somewhere to go. Enter presses the focused button, so it is
+  // listed only where it can only mean that: a field in the body takes Enter for
+  // itself -- a newline, a submit -- or leaves it to the default action, and a
+  // footer saying "select" over either would be the lie this listing exists to
+  // remove
   const focusable = inside(panel);
   if (focusable.length > 1) {
     layer.describe('tab', { description: __`next`, priority: 1 });

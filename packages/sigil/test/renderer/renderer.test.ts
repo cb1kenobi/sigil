@@ -22,6 +22,7 @@ import {
   onMount,
   provideContext,
   render,
+  type Renderer,
   runWithOwner,
   Show,
   trackedRaw,
@@ -1945,6 +1946,32 @@ describe('For, placing a reorder', () => {
     expect(before.slice(4998).every((row) => row.parent === undefined)).toBe(true);
     expect(l.gone).toEqual(['x', 'x']);
     expect(l.moves).not.toHaveBeenCalled();
+  });
+});
+
+describe('RenderOptions.onReady()', () => {
+  it("should hand over the renderer before the first frame's onMount() runs, and return the same one", () => {
+    const h = harness();
+    const order: string[] = [];
+    let ready: Renderer | undefined;
+    const view = render(
+      () => {
+        onMount(() => order.push(`mounted, ready=${ready !== undefined}`));
+        return box({}, text('hi'));
+      },
+      {
+        backend: h.backend,
+        effects,
+        onReady: (made) => {
+          order.push(`ready, mounted=${made.mounted}`);
+          ready = made;
+        },
+        terminal: h.terminal,
+      }
+    );
+
+    expect(order).toEqual(['ready, mounted=true', 'mounted, ready=true']);
+    expect(ready).toBe(view);
   });
 });
 
