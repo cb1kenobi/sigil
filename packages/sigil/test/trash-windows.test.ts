@@ -327,6 +327,9 @@ describe('a first run that prints nothing', () => {
   });
 
   describe('in Constrained Language Mode', () => {
+    const MESSAGE =
+      'PowerShell is in Constrained Language Mode, which cannot run the script that moves an item to the Recycle Bin';
+
     // what `run()` rejects with: the formatted error PowerShell writes to stderr, after
     // the file; the id line is the part that is not translated
     const BLOCKED = new Error(
@@ -340,10 +343,36 @@ describe('a first run that prints nothing', () => {
 
       const err = await recycle(file, undefined, 'k').catch((e: Error) => e);
 
-      expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toMatch(/Constrained Language Mode/);
+      expect((err as Error).message).toBe(MESSAGE);
       expect((err as Error).cause).toBe(BLOCKED);
       expect(ran).toHaveBeenCalledTimes(1);
+    });
+
+    // PowerShell wraps a formatted error at the console buffer's width and each piece is its
+    // own element, so the id that ends a 79 character line is split by any narrower one
+    it('should find the id when a narrow console wrapped it across elements', async () => {
+      const file = item();
+      ran.mockRejectedValueOnce(
+        new Error(
+          'powershell.exe failed: #< CLIXML <Objs><S S="Error">    + FullyQualifiedErrorId : MethodInvocationNotSupportedInConstrainedLang_x000D__x000A_</S>' +
+            '<S S="Error">uage_x000D__x000A_</S></Objs>'
+        )
+      );
+
+      await expect(recycle(file, undefined, 'k')).rejects.toThrow(MESSAGE);
+      expect(ran).toHaveBeenCalledTimes(1);
+    });
+
+    it('should say why for the compile run too, and for an item that is already gone', async () => {
+      ran.mockRejectedValueOnce(BLOCKED);
+      await expect(recycle(item(), undefined, 'k', 'compile')).rejects.toThrow(MESSAGE);
+
+      ran.mockRejectedValueOnce(BLOCKED);
+      await expect(
+        recycle(join(tempDir('sigil-trash-win-'), 'gone.txt'), undefined, 'k')
+      ).rejects.toThrow(MESSAGE);
+
+      expect(ran).toHaveBeenCalledTimes(2);
     });
 
     it('should still ask again when the failure is any other, so a block it cannot name costs what it did', async () => {
@@ -355,6 +384,24 @@ describe('a first run that prints nothing', () => {
 
       expect(await recycle(file, undefined, 'k')).toEqual({ cache: 'compiled', path: 'x' });
       expect(ran).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not take a path that holds the word, or output that quotes the id, for the mode', async () => {
+      const file = item();
+      // a failed run whose message is stdout (stderr was empty) carrying a path
+      ran.mockRejectedValueOnce(
+        new Error('powershell.exe failed: C:\\ConstrainedLanguage\\a.txt, ConstrainedLanguage mode')
+      );
+      ran.mockResolvedValueOnce(reply('compiled', { path: 'x' }));
+      expect(await recycle(file, undefined, 'k')).toEqual({ cache: 'compiled', path: 'x' });
+
+      // a run that exited cleanly with other output is `PowerShell answered`, which is
+      // never read for the id, whatever it quotes
+      ran.mockResolvedValueOnce('MethodInvocationNotSupportedInConstrainedLanguage');
+      ran.mockResolvedValueOnce(reply('compiled', { path: 'y' }));
+      expect(await recycle(file, undefined, 'k')).toEqual({ cache: 'compiled', path: 'y' });
+
+      expect(ran).toHaveBeenCalledTimes(4);
     });
   });
 
