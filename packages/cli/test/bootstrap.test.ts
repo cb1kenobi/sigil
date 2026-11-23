@@ -184,7 +184,7 @@ describe('the files the type check reads', () => {
       expect(files.some((line) => line.endsWith('sigil.ts'))).toBe(true);
       expect(files.filter((line) => line.includes(probe))).toEqual([]);
     } finally {
-      rmSync(dir, { force: true, recursive: true });
+      rmSync(dir, { force: true, maxRetries: 5, recursive: true });
     }
   });
 });

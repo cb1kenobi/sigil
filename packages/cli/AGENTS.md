@@ -18,6 +18,17 @@ none of which runs any of it, and then rolldown. The bundler is stage five and
 is not written yet; everything below produces source and data, which is what
 makes it testable with a fixture directory and no bundler at all.
 
+- **A build does not ask rolldown for its plugin timings (SIG-627).** rolldown
+  warns when JavaScript callbacks take most of a build -- `[PLUGIN_TIMINGS]
+  JavaScript callbacks ran for 3.4s of the 3.5s build (97%)` -- and every callback
+  in this build is the toolchain's own, so it tells whoever builds an app to
+  optimize a plugin they did not write, and it depends on how busy the machine
+  was. A slow Windows runner put it in the summary `output-forms.test.ts` compares
+  exactly. `checks: { bundlerTimings: false }` turns the check off rather than
+  filtering the log, so the build also stops measuring every hook. The warning
+  could not be provoked on rolldown 1.3.3 (its text is in the native binary), so
+  `test/build/bundle-timings.test.ts` asserts what the build handed `rolldown()`.
+
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
   every level ahead of time. They have to agree _exactly_ -- an app that routes
