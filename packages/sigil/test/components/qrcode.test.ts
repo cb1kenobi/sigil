@@ -988,14 +988,37 @@ describe('the scheme a tree follows', () => {
     expect(first!.length).to.be.greaterThan(width);
   });
 
-  // SIG-621, pinned as a limit rather than a fix. The media level is the only live
-  // one -- `readMedia()` re-reads the environment on a resize when nobody named a
-  // level -- and a painted code takes its level from its options when it is built,
-  // so a level that falls to 0 afterwards leaves it drawing the form that was right
-  // at the level it was built at. Fails if the painted form starts following the
-  // media level; a live design that kept an explicitly named level pinned would not
-  // fail it, and would be the place to add an unnamed-level case
-  it('should keep the form it was built at when the media level falls to 0 afterwards', () => {
+  /**
+   * Mounts a painted code built at one level under a renderer resolving another, on
+   * a dark scheme, and returns what a screen shows beside the two forms to compare it
+   * with.
+   */
+  function mountPainted(built: 0 | 3, shownAt: 0 | 3) {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    vi.stubEnv('COLORFGBG', '');
+    const ui = createTestTerminal({ columns: 40, colorLevel: shownAt, rows: 30 });
+    const { element } = qrcodeView('x', { colorLevel: built, paint: true });
+    const view = render(() => element, {
+      cascade: themedCascade(),
+      colorLevel: shownAt,
+      frameMs: 0,
+      terminal: ui.terminal,
+    });
+    const code = encodeQr('x');
+    return {
+      borrowed: drawn(qrLines(code, { invert: true })).filter(Boolean),
+      painted: drawn(qrLines(code, { invert: false })).filter(Boolean),
+      shown: () => drawn(ui.viewport.filter(Boolean)).filter(Boolean),
+      view,
+    };
+  }
+
+  // SIG-629. The level a painted code is drawn at is the renderer's, because the
+  // sheet chooses between the two forms by `@media (color-level)` -- so a media level
+  // that falls to 0 afterwards, which `readMedia()` does when the environment
+  // changes and nobody named a level, moves the code with it. This was pinned the
+  // other way by SIG-621, as a limit
+  it('should follow the media level when it falls to 0 afterwards', () => {
     vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
     vi.stubEnv('COLORFGBG', '');
     vi.stubEnv('FORCE_COLOR', '3');
@@ -1020,29 +1043,65 @@ describe('the scheme a tree follows', () => {
     view.frame();
     expect(cascade.media.colorLevel, 'the level the resize read').to.equal(0);
     expect(borrowed).to.not.deep.equal(painted);
-    expect(shown(), 'still the form built at level 3').to.deep.equal(painted);
+    expect(shown(), 'the form for level 0 on a dark scheme').to.deep.equal(borrowed);
     view.dispose();
   });
 
-  // the other direction, and the worse one, and it needs no environment change at all:
-  // a view built at 0 holds both bodies, both wearing the paint class, and a renderer
-  // at a level above 0 on a dark scheme shows the inverted one -- black on white, a
+  // the defect: a view built at 0 holds both bodies wearing the paint class, and a
+  // renderer above 0 on a dark scheme showed the inverted one -- black on white, a
   // negative the borrowed polarity was never meant to be drawn painted
-  it('should draw the inverted body when a code built at level 0 is mounted above it', () => {
-    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
-    vi.stubEnv('COLORFGBG', '');
-    const ui = createTestTerminal({ columns: 40, colorLevel: 3, rows: 30 });
-    const { element } = qrcodeView('x', { colorLevel: 0, paint: true });
-    const view = render(() => element, {
+  it('should draw the painted body when a code built at level 0 is mounted above it', () => {
+    const m = mountPainted(0, 3);
+    expect(m.shown()).to.deep.equal(m.painted);
+    m.view.dispose();
+  });
+
+  // and the other direction, which needed no environment change either: the
+  // renderer at 0 drew a painted body, with every colour dropped, on a dark scheme
+  it('should draw the borrowed body when a code built at level 3 is mounted at 0', () => {
+    const m = mountPainted(3, 0);
+    expect(m.borrowed).to.not.deep.equal(m.painted);
+    expect(m.shown()).to.deep.equal(m.borrowed);
+    m.view.dispose();
+  });
+
+  it('should hold one body per level and never draw both of them', () => {
+    for (const [built, shownAt] of [
+      [0, 0],
+      [0, 3],
+      [3, 0],
+      [3, 3],
+    ] as const) {
+      const m = mountPainted(built, shownAt);
+      expect(m.shown(), `built ${built}, shown ${shownAt}`).to.deep.equal(
+        shownAt === 0 ? m.borrowed : m.painted
+      );
+      m.view.dispose();
+    }
+  });
+
+  // a caller's own `invert` is their answer at every level and has no borrowed form
+  // to fall back to, so the level must not hide it
+  it('should keep a painted code the caller inverted at level 0', () => {
+    const { element, width } = qrcodeView('x', { invert: true, paint: true });
+    const out = renderToString(element, {
       cascade: themedCascade(),
-      colorLevel: 3,
-      frameMs: 0,
-      terminal: ui.terminal,
+      colorLevel: 0,
+      colorScheme: 'dark',
+      width,
     });
-    const code = encodeQr('x');
-    const shown = drawn(ui.viewport.filter(Boolean)).filter(Boolean);
-    expect(shown).to.deep.equal(drawn(qrLines(code, { invert: true })).filter(Boolean));
-    view.dispose();
+    expect(drawn(out.split('\n')).filter(Boolean)).to.deep.equal(
+      drawn(qrLines(encodeQr('x'), { invert: true })).filter(Boolean)
+    );
+  });
+
+  // the cost of the design, pinned so that it is a decision: a painted view carries
+  // both forms and a cascade without the framework's sheet has no rule to hide one
+  it('should draw every body of a painted code where the cascade has no sheet', () => {
+    const { element, width } = qrcodeView('x', { colorLevel: 3, paint: true });
+    const out = renderToString(element, { colorLevel: 3, width: width * 3 });
+    const [first] = out.split('\n');
+    expect(strip(first!).length).to.be.greaterThan(width);
   });
 
   // the one thing a `detect()` reply can do to the level is raise it above zero, and

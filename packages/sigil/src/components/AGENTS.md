@@ -4123,38 +4123,64 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
   draws both bodies**, there being no rule to hide either -- `themedCascade()` is
   the cascade every built-in is styled by, and a caller who built their own names
-  the scheme. **The level is not live, and it was measured rather than assumed
-  (SIG-621)**: a painted code's level still comes from `colorLevelOf()` at build.
-  Nothing an app calls sets the level a renderer resolves at. `detect()` only
-  _raises_ it, and never off or onto `0` -- `refineColorLevel()` refuses a floor of
-  zero and `detect()` asks again against the level on screen -- and a painted code
-  asks one question of its level, whether it is above `0`, so a reply moving 2 to 3
-  moves no cell (`should draw a painted code the same at every level above 0`).
-  What does move it across `0` is `readMedia()` re-reading the environment, which
-  every `publishMedia()` does -- a resize, `setColorScheme()`, or a reply that moved
-  something -- and only where nothing named a level (not the renderer's
-  `colorLevel`, not the terminal's) and no `detect()` reply has been recorded over
-  it. So it takes `NO_COLOR` or `FORCE_COLOR` being changed in the process while the
-  app runs. Measured: built at 3, the environment set to 0 and the terminal
-  resized, the media level reads 0 and the painted body, which is the form for a
-  level above 0, stays on a dark scheme where level 0 wants the inverted one
-  (`should keep the form it was built at when the media level falls to 0
-  afterwards`).
+  the scheme. **The level is the renderer's, and a painted code asks the sheet for it
+  (SIG-629; SIG-621 measured it and recorded a limit)**. What moves the level a
+  renderer resolves at was measured under SIG-621 and still holds: nothing an app
+  calls sets it. `detect()` only _raises_ it, and never off or onto `0` --
+  `refineColorLevel()` refuses a floor of zero and `detect()` asks again against the
+  level on screen -- and a painted code asks one question of its level, whether it
+  is above `0`, so a reply moving 2 to 3 moves no cell (`should draw a painted code
+  the same at every level above 0`). What does move it across `0` is `readMedia()`
+  re-reading the environment, which every `publishMedia()` does -- a resize,
+  `setColorScheme()`, or a reply that moved something -- and only where nothing
+  named a level and no `detect()` reply has been recorded over it, so it takes
+  `NO_COLOR` or `FORCE_COLOR` being changed in the process while the app runs.
 
-  The view's level and the renderer's are two reads, and they can disagree from the
-  first frame with no environment change: `render({ colorLevel: 0 })` over a view
-  built at 3 draws the painted form at level 0, and a view built at 0 under a
-  renderer above it draws the inverted body wearing the paint class -- black on
-  white, a negative (`should draw the inverted body when a code built at level 0 is
-  mounted above it`). That is `table()` and `largeText()`'s own limit and is
-  unchanged here; the fix for both it and liveness is the same
-  `@media (color-level)` choice in the sheet, and it is not taken because the painted
-  code would hold both polarities too, which is more selectors on the sheet's
-  exception list, and a cascade without the framework's sheet would draw both bodies
-  of a painted code that today draws one. Name the same level for the view and the
-  renderer, and rebuild the view if the environment changes under a running app.
-  The two rules are exceptions in `should declare on a role, bar fifteen exceptions that say why`:
-  they are which polarity takes space, not a look. Pinned by `the scheme a tree
+  A painted code used to take its level from `colorLevelOf()` at build, and that
+  read and the renderer's disagreed from the first frame with no environment
+  change: `render({ colorLevel: 0 })` over a view built at 3 drew the painted form
+  at level 0, and a view built at 0 under a renderer above it drew the inverted
+  body wearing the paint class -- black on white, a negative. Reading the
+  renderer's level at mount was the other design and is not available:
+  `qrcodeView()` returns an `Element` rather than a component, `render()` provides
+  no context a builder could read, and only `runApp()` has an `App`. So the sheet
+  chooses, by `@media (color-level: 0)`. A painted code with no `invert` holds the
+  painted body (`.sigil-qrcode-painted`, the dark modules on its own white) and a box
+  `.sigil-qrcode-borrowed` holding what an unpainted code would hold -- both
+  polarities, or the one a `colorScheme` pinned -- and at level 0 the sheet hides the
+  first and shows the second. The painted body is the light-scheme lines, so it is
+  right above 0 on either scheme; the borrowed bodies wear no paint class.
+  `qrcodeView()` reads no level any more, so `colorLevel` and `ansi` on a view change
+  nothing about what it holds, and a media level that falls to 0 afterwards moves
+  the code with it (`should follow the media level when it falls to 0 afterwards`,
+  which pinned the opposite under SIG-621). The string facade is untouched:
+  `qrcode()` renders the same tree at `colorLevelOf(opts)`.
+
+  **The cost, taken on purpose: a cascade without the framework's sheet draws every
+  body of a painted code**, where it used to draw one when a level above 0 was
+  named (`should draw every body of a painted code where the cascade has no sheet`).
+  It was already so for an unpainted, unpinned code; `themedCascade()` is the
+  cascade every built-in is styled by, and a caller who built their own and wants
+  one body names `invert`. On the sheet it is two new exceptions,
+  `.sigil-qrcode-borrowed` and `.sigil-qrcode-painted`, the second being what hides
+  at level 0. It is a class of its own rather than a `display: none` on
+  `.sigil-qrcode-paint`, because that class is also on a code the caller inverted,
+  which has no borrowed form to fall back to and has to stay drawn at level 0
+  (`should keep a painted code the caller inverted at level 0`).
+
+  **`table()` and `largeText()` do not share the limit.** The limit was a view that
+  made its _content_ from the level it was built at. `tableView()` and
+  `largeTextView()` read none: only the facades call `colorLevelOf()`, to hand it to
+  `renderToString()`, so a view's level is the cascade's alone and one built at a
+  level and shown at another draws what the facade does at the second (`should draw
+  at the level it is shown at, whatever level it was built at`, in `display.test.ts`
+  and `large-text.test.ts`, each with a control that the level changes the output).
+  The one view found that does read a level is `badgeView()` (its brackets), and a
+  `badgeView()` in a table cell is the same limit in a smaller place -- already
+  recorded on `TableCellView`, and not changed here.
+
+  The four rules are exceptions in `should declare on a role, bar seventeen exceptions that say why`:
+  they are which form takes space, not a look. Pinned by `the scheme a tree
   follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
   flips `setColorScheme()`.
 
