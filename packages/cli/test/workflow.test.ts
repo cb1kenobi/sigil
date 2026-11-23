@@ -1,4 +1,12 @@
-import { allLines, expressionsInRun, outsideSteps, readWorkflow, runBlocks } from './workflow.ts';
+import {
+  allLines,
+  expressionsInRun,
+  outsideSteps,
+  readWorkflow,
+  runBlocks,
+  unpinned,
+  usesOf,
+} from './workflow.ts';
 import { describe, expect, it } from 'vitest';
 
 /** A workflow with one job whose steps are the given lines, at the usual indents. */
@@ -86,6 +94,67 @@ describe('the workflow reader', () => {
     expect(check?.steps.map((step) => step.name)).toStrictEqual(['- run: echo hi']);
     expect(outsideSteps(wf, /secrets\./)).toStrictEqual([
       'job check, after its steps: X: ${{ secrets.X }}',
+    ]);
+  });
+});
+
+describe('a pinned `uses:` (SIG-626)', () => {
+  const sha = 'a'.repeat(40);
+  const digest = `sha256:${'b'.repeat(64)}`;
+
+  it.each([
+    ['a remote action pinned to a commit, naming its release', `actions/checkout@${sha} # v4.2.0`],
+    ['a remote action in a subdirectory', `github/codeql-action/init@${sha} # v3.1.0`],
+    ['a local action', './.github/actions/setup'],
+    ['a local action at the root', './'],
+    ['a local action with a comment', './tools/act # ours'],
+    ['the self reference', '$/.github/actions/setup'],
+    ['a container pinned by digest', `docker://alpine@${digest}`],
+    ['a container with a registry and a port', `docker://localhost:5000/team/img@${digest}`],
+    ['a container with a tag beside its digest', `docker://alpine:3.19@${digest} # 3.19`],
+  ])('should accept %s', (_name, value) => {
+    expect(unpinned(value)).toBeUndefined();
+  });
+
+  it.each([
+    ['a remote action on a tag', 'actions/checkout@v4'],
+    ['a remote action on a branch', 'actions/checkout@main'],
+    ['a remote action with no ref', 'actions/checkout'],
+    ['a remote action pinned but with no release named', `actions/checkout@${sha}`],
+    ['a remote action with a short SHA', `actions/checkout@${'a'.repeat(7)} # v4.2.0`],
+    ['a remote action with a 41 digit SHA', `actions/checkout@${sha}a # v4.2.0`],
+    ['a quoted value', `"actions/checkout@${sha} # v4.2.0"`],
+    ['a container with a tag only', 'docker://alpine:3.19'],
+    ['a container with no tag at all', 'docker://ghcr.io/OWNER/IMAGE_NAME'],
+    ['a container with a registry and a tag only', 'docker://gcr.io/cloud-builders/gradle:latest'],
+    ['a container with a short digest', `docker://alpine@sha256:${'b'.repeat(63)}`],
+    ['a container with an md5 in place of a digest', `docker://alpine@md5:${'b'.repeat(32)}`],
+    ['a container with an upper case digest', `docker://alpine@sha256:${'B'.repeat(64)}`],
+    ['a container with nothing after the scheme', 'docker://'],
+    ['a local action that carries a ref', './.github/actions/setup@v1'],
+    ['the self reference that carries a ref', '$/.github/actions/setup@v1'],
+  ])('should refuse %s', (_name, value) => {
+    expect(unpinned(value)).toEqual(expect.any(String));
+  });
+
+  it('should read every `uses:` of a workflow, a job-level one included', () => {
+    const text = [
+      'name: T',
+      'on: push',
+      'jobs:',
+      '  call:',
+      '    uses: ./.github/workflows/other.yml',
+      '  check:',
+      '    runs-on: ubuntu-latest',
+      '    steps:',
+      '      - uses: docker://alpine:3.19',
+      '      - name: x',
+      '        uses: ./local',
+    ].join('\n');
+    expect(usesOf(allLines(readWorkflow(text)))).toStrictEqual([
+      './.github/workflows/other.yml',
+      'docker://alpine:3.19',
+      './local',
     ]);
   });
 });

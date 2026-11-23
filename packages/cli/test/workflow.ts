@@ -296,6 +296,64 @@ export function stepsMatching(workflow: Workflow, pattern: RegExp): string[] {
 }
 
 /**
+ * Every `uses:` value in some lines, as written and comment included.
+ *
+ * Asked of **every** line the reader has, a job's own `uses:` (a reusable
+ * workflow) and `- uses:` alike, so the answer is the same whichever file asks.
+ *
+ * @param lines - Any of a workflow's lines, as `allLines()` returns them.
+ * @returns One string per `uses:`, in order.
+ */
+export function usesOf(lines: string[]): string[] {
+  return lines.flatMap((line) => {
+    const value = /^\s*(?:- )?uses:\s*(.*)$/.exec(line)?.[1];
+    return value === undefined ? [] : [value];
+  });
+}
+
+/**
+ * Why a `uses:` value is not pinned, or `undefined` when it is.
+ *
+ * One definition for both test files (SIG-626), over the three shapes GitHub
+ * accepts:
+ *
+ * - A **remote action** is `owner/repo[/path]@<40 hex digits>` followed by
+ *   `# vX.Y.Z`: a tag can be moved, so the commit is what is trusted, and the
+ *   comment is what a reader -- and a Dependabot bump -- can see the release by.
+ * - A **local action**, `./path` (or the `$/path` self reference GitHub's docs
+ *   now recommend), is code in the checkout the workflow is already running
+ *   from, so there is nothing to pin and a pin would be a mistake: an `@ref`
+ *   on one is refused, since it reads as a pin and pins nothing.
+ * - A **container**, `docker://image`, is pinned by a digest, `@sha256:` and 64
+ *   hex digits. GitHub's own examples for it are all tags, or no tag at all,
+ *   and a tag can be moved exactly as a git one can -- so a tag with no digest
+ *   is refused. `image:tag@sha256:...` is accepted: the digest decides what
+ *   runs and the tag is there for the reader. No release comment is required,
+ *   as an image has no `vX.Y.Z` of its own to name.
+ *
+ * Anything else -- a quoted value, a bare `owner/repo`, a branch -- is refused
+ * rather than guessed at.
+ *
+ * @param value - What follows `uses:`, as `usesOf()` returns it.
+ * @returns The reason, or `undefined` when the value is pinned or needs none.
+ */
+export function unpinned(value: string): string | undefined {
+  if (value.startsWith('docker://')) {
+    return /^docker:\/\/[\w][\w.:/-]*@sha256:[0-9a-f]{64}(?:\s+#.*)?$/.test(value)
+      ? undefined
+      : 'a container is pinned by digest, `docker://image@sha256:<64 hex digits>`';
+  }
+  if (/^(?:\.|\$)\//.test(value)) {
+    return /^(?:\.|\$)\/[^\s@]*(?:\s+#.*)?$/.test(value)
+      ? undefined
+      : 'a local action has no ref to pin, so an `@` in its path is refused';
+  }
+  return /^[\w.-]+\/[\w./-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+$/.test(value)
+    ? undefined
+    : 'an action is pinned to a 40 digit commit SHA and names its release, `# vX.Y.Z`';
+}
+
+/**
  * A copy of a workflow with a secret in a job-level `env:` placed **after** its
  * steps, the last key of the last job. For the tests of the checks: a check
  * that cannot see this has a hole the shape fits through.
