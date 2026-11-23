@@ -43,6 +43,7 @@ import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
 import { descriptionLine } from '../util/description-line.js';
+import { escapeControls } from '../util/escape-controls.js';
 import { registerable } from './install.js';
 
 /** Where the tree is, which is what a parse already produced. */
@@ -643,7 +644,7 @@ export async function completionSpec(target: CompletionTarget): Promise<Completi
     throw new Error(
       `Cannot generate a completion script: ${
         program
-          ? `"${program}" is not a name a shell can register for`
+          ? `"${escapeControls(program)}" is not a name a shell can register for`
           : 'this app declares no name'
       }, and a script has to name the command it completes for. Set "name" on the schema to what a user types, which is one word and does not begin with a dash.`
     );

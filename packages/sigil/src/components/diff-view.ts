@@ -35,8 +35,8 @@ import {
 } from './diff.js';
 import { unicodeSupported } from './note.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
-import type { Highlighter } from './prompt.js';
 import { ScrollBox, scrollControl, type ScrollControl } from './scroll-box.js';
+import type { Highlighter } from './token.js';
 
 export interface DiffViewProps<T = unknown> {
   /** Whether the hunk mark is drawn in ASCII. Defaults to what the terminal can show. */

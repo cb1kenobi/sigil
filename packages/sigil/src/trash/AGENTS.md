@@ -223,7 +223,7 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
   rebuild. The script answers `loadRefused` and stops **before** `Recycle()` runs,
   so nothing has moved and asking again cannot move the item twice, and before the
   cache is written, so a helper that cannot be loaded is never sealed and kept.
-  `recycle()` then asks once more with `SIGIL_TRASH_MODE=compile`, which reads and
+  `recycle()` then asks once more with the compile script, which reads and
   writes no cache and reports `compiled`; a refusal answered to that is thrown,
   never retried.
 
@@ -254,13 +254,49 @@ as `sigil/trash-<16 hex>.bin`, named for the SHA-256 of the C#.
     trashing N items leaves N for the hour. The sweep is pinned by a Windows test
     with a backdated directory, a fresh one and one named like ours but not made
     by us.
-  - **What is not handled:** an endpoint product that blocks the script's text
-    before it runs, or kills the process, gives no JSON, and `run()` rejects --
-    that is not retried, because a process killed after the move would then be
-    asked to move an item that is gone, and report that as the failure.
+  - **A first run that prints no JSON is retried once, with the compile script,
+    and a run that printed anything is not** (SIG-598). The two are told apart by
+    what the script does: it answers in JSON for everything it can reach, an error
+    and a refusal to delete included, so a run that ends with none was stopped
+    before it could say -- killed, or its text refused by a product that scans the
+    script before it runs, which `Assembly.Load` in a script handed over
+    `-EncodedCommand` is what such a scan looks for. A file that cannot be recycled
+    is an `error` answer and is never asked twice, so the ordinary failure costs
+    what it always did.
+
+    The compile script is a **separate script** and not the same one with a mode
+    in the environment (it was, in SIG-517): the retry is only worth making with
+    text that does not hold the first's `Assembly]::Load(` call, and
+    `SIGIL_TRASH_MODE` is gone with it. It is not free of the word: `LoadFrom(`
+    begins with `Load`, so a scanner that matches that prefix alone stops both
+    scripts and every call pays two starts and still fails. That is inherent to
+    loading from a file, and the test pins the call with its parenthesis.
+
+    It is asked only **while the item is still where it was** (`lstat()`). The
+    earlier reason for not retrying stands for a run killed after the move: the
+    item is gone, a second run would be asked to move what is not there and report
+    that as the failure, so there is none and the first failure is thrown -- which
+    is the answer this had before, for a move that did happen. It cannot tell a
+    move from the item having been removed by something else, and says the same
+    for both. Not remembered for the process, for the reason a refusal is not.
+    Once is the limit: a second run that prints nothing throws its own message
+    (the first's is dropped), and one that answers is read like any answer.
+
+    Two things cost more than "the ordinary failure" and are not fixed. An
+    environment where **every** run prints nothing -- PowerShell's Constrained
+    Language Mode is the likely one, where the script's own `catch` cannot write --
+    pays the second start (about 350 ms) on every failure; a missing
+    `powershell.exe` is the same shape and cheap. And `run()` rejects on any
+    non-zero exit and drops stdout, so a script that answered an `error` and then
+    crashed at teardown reads as no JSON and is asked once more, with the item
+    still there. Both are the price of telling "stopped" from "answered" by the
+    JSON alone, and a retry of an answered failure is a second identical failure
+    rather than a second move. Pinned in `trash-windows.test.ts`
+    with PowerShell replaced; no CI machine can stop or block the first script.
+
   - **What no test reaches is the script's own `catch` around the load,** since no
     runner can be made to refuse one. `trash-windows.test.ts` replaces PowerShell
-    to pin the second ask, its mode, its errors and that it stops there, and reads
+    to pin the second ask, its script, its errors and that it stops there, and reads
     the script for the order -- the refusal caught before anything is kept, and
     the compile mode loading from a file, reading and writing no cache. The Windows
     jobs run the compile mode itself, asked for directly, and check that it

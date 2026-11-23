@@ -742,22 +742,16 @@ export function createModel(): Model {
     action: string
   ): Promise<string | undefined> => {
     const value = new State('');
-    let field: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: action, value: true },
         { label: 'Cancel', value: false },
       ],
-      body: () => {
-        field = TextField({ onSubmit: () => dialog.close(true), placeholder, value });
-        return field;
-      },
+      body: () => TextField({ onSubmit: () => dialog.close(true), placeholder, value }),
+      initial: 'body',
       input,
       title,
     });
-    // `initial` names a button, so the field is focused once the dialog is open:
-    // SIG-337 is the ticket for a dialog that opens on a field in its body
-    input.focus.focus(field);
     const answer = await dialog.result;
     return answer ? value.get().trim() : undefined;
   };
@@ -809,21 +803,19 @@ export function createModel(): Model {
       toast('Nothing is staged: Space on a file stages it', 'warning');
       return;
     }
-    let area: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: 'Commit', value: true },
         { label: 'Cancel', value: false },
       ],
       body: () => {
-        area = TextArea({
-          placeholder: 'What this commit does',
-          props: { height: 6 },
-          value: draft,
-        });
         const body = box(
           { 'flex-direction': 'column' },
-          area,
+          TextArea({
+            placeholder: 'What this commit does',
+            props: { height: 6 },
+            value: draft,
+          }),
           text('Ctrl-S commits · Esc keeps the draft for later', {
             class: 'sigil-muted',
             'margin-top': 1,
@@ -843,11 +835,11 @@ export function createModel(): Model {
         onCleanup(input.describe('ctrl+s', { description: 'commit', priority: 4, scope: body }));
         return body;
       },
+      initial: 'body',
       input,
       title: 'Commit',
       width: 64,
     });
-    input.focus.focus(area);
     const answer = await dialog.result;
     if (!answer) {
       return;

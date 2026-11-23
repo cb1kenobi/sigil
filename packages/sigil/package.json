@@ -277,6 +277,10 @@
       "types": "./dist/components/prompt.d.mts",
       "default": "./dist/components/prompt.mjs"
     },
+    "./components/prompt-error": {
+      "types": "./dist/components/prompt-error.d.mts",
+      "default": "./dist/components/prompt-error.mjs"
+    },
     "./components/qrcode": {
       "types": "./dist/components/qrcode.d.mts",
       "default": "./dist/components/qrcode.mjs"
@@ -344,6 +348,10 @@
     "./components/toggle": {
       "types": "./dist/components/toggle.d.mts",
       "default": "./dist/components/toggle.mjs"
+    },
+    "./components/token": {
+      "types": "./dist/components/token.d.mts",
+      "default": "./dist/components/token.mjs"
     },
     "./components/tooltip": {
       "types": "./dist/components/tooltip.d.mts",

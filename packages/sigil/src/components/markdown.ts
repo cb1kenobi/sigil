@@ -38,9 +38,9 @@ import {
   markdownText,
 } from './markdown-parse.js';
 import { unicodeSupported } from './note.js';
-import { type Highlighter, tokensOf } from './prompt.js';
 import { ruleView } from './rule.js';
 import { type Column, tableRowView, tableWidths } from './table.js';
+import { type Highlighter, tokensOf } from './token.js';
 
 export interface MarkdownOptions extends StyledOptions {
   /**

@@ -1596,6 +1596,25 @@ decided once, for all of them. The runs and the sabotage passes are in
   Moving the names out of the overlay's facade was tried first and failed the
   website's check that a page's subpath exports what the page lists.
 
+  `token` and `prompt-error` are the next two, for the registry's reason
+  (SIG-597); the barrel already had every name but `tokenClasses()`. `tokensOf()` and
+  `PromptError` were written in `prompt.ts`, so a code view, a diff and a
+  markdown page imported the whole prompt stack -- about 116 KB of `components/
+  code-view`'s 264 KB graph -- to turn a highlighter's spans into tokens. They are
+  modules of their own now and `prompt.ts` re-exports every name it moved, so
+  `PromptError` is one class from either path. Both facades export the same
+  bindings, which is the `console-capture` rule. A **value** imported from `prompt`
+  by a component that only draws puts the stack back, and `should not load the
+  prompt stack to draw highlighted code` in `test/dist.test.ts` is the check --
+  sabotaged with a call to `refusePrompt()`, because a re-export of `tokensOf()`
+  through `prompt.ts` is transparent to the bundler and does not trip it.
+  `tokenClasses(token, role)` is the one spelling of `sigil-token
+  sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
+  each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
+  is the theme's and importing it would put the theme behind a module that is 655 B
+  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
+  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
   things -- `prompt.ts` the six prompts and the plumbing under them, `chart.ts`
@@ -10417,6 +10436,79 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   published member, and it is for exactly this -- a component that has to build
   under an owner from a place with none, holding only the renderer.
 
+- **A dialog that is a form: an action can be disabled, `initial` can name the
+  body, and Enter can press a default.** SIG-337. The settings example's login
+  put Sign in and Cancel in its body with `actions: []`, because an action could
+  not be disabled and a dialog with actions opened on a button; that lost what
+  `actions` is for -- the `.sigil-modal-actions` row, the answer settling `result`
+  without a handler, and `initial`. All three of Chris's decisions on the ticket
+  are in.
+
+  `ModalAction.disabled` is a `ControlCondition`, SIG-334's, and is read twice:
+  by the `Button`, which draws it, and by the modal, because Enter pressing the
+  default asks "is it enabled" about a key that never reached the button. Both
+  read the same live condition, so they cannot disagree. `initial` is a position
+  as it was, `'body'` -- the first focusable thing inside the body box -- or an
+  element, which has to be in the body and is refused with the owner already
+  disposed when it is not (nothing is attached to the router before that check).
+  It is the form for an element body only: a `body` function builds its fields
+  after the caller has anything to name, so a form dialog built that way says
+  `'body'`. Whatever it names that cannot take the focus -- a disabled button, a
+  body of words -- falls back to the first focusable thing in the panel rather than
+  leaving the focus outside, the rule an `actions: []` dialog already followed.
+
+  **The default is what the key walk leaves.** After the focused element and its
+  ancestors up to the panel have had Enter, an unclaimed one presses the default
+  action, if there is one and it is enabled. So a text field with an `onSubmit`, a
+  text area (Enter is a newline) and a focused button keep Enter, and a field with
+  no `onSubmit`, a checkbox and the panel itself give it up. That is the web's
+  default button, and it needs no knowledge of what is inside the body. A
+  modifier makes it another key, as it does for a `Button`, and a paste is not a
+  keystroke, so a pasted newline presses nothing. A **disabled field that still has
+  the focus** hands Enter on like any control that is not using it, so a form that
+  disables its fields while a submit is on its way has to put the same condition in
+  the default's `disabled`, and `should press the default for a disabled field`
+  pins that this is what happens rather than something the dialog guesses at; the
+  settings login's Sign in reads `busy` for that reason. The `ctrl`, `meta`,
+  `shift` and paste guards in `pressDefault()` are reachable only by an event the
+  decoder cannot build -- the legacy encoding has no Ctrl-Enter or Shift-Enter, and
+  a paste ends at the panel before the binding -- so only the Alt case is pinned;
+  they are there because a `Button` ignores the same keys and a router with a
+  richer decoder would otherwise press the default on one. Two defaults are refused where
+  the dialog is built, for the reason two `default` commands are: picking one is
+  picking by registration order. The footer does not list Enter for it, since what
+  Enter does depends on what has the focus and the listing is asked once.
+
+  **An action with an `onPress` does not settle the dialog, and has no `value`.**
+  Not on the ticket and forced by the example: Sign in has to ask the account,
+  and a refusal keeps the dialog open with a message in it, which a button that
+  closes on press cannot do. The handler gets no handle -- the caller has the one
+  `openModal()` returned -- and settles by calling `close()` itself. A `value`
+  beside it is refused, the way a path beside a `run` is: a value settles the
+  dialog and so would the handler. `default` does not need it and `onPress` does
+  not need `default`; they were wanted together by the one caller.
+
+  **The buttons are built under the dialog's owner, with the body function.** A
+  button's `disabled` is read in an effect, and one that reads the app's state
+  was the SIG-335 leak again, in the one place that entry did not look: the
+  buttons were built by `openModal()` itself, unowned, so a Sign in over a form's
+  `valid` went on running after the dialog closed. `buildOwned()` takes any build
+  now and a modal always has an owner -- a branch of the renderer's, or a root of
+  its own for a bare element -- which costs one branch per dialog and is disposed
+  by the same `close()`. Measured by a `disabled` function that records its reads,
+  then `close()`, then a write: a read after the close is the failure, and
+  `should stop the effect that reads it when the dialog closes` fails without the
+  disposal and passes with it.
+
+  What the settings login does with it: the form's state (`createForm()`, `busy`)
+  is made before `openModal()`, since it is signals with no effect in it and the
+  action's `disabled` has to read it while the body is yet to be built; the body
+  function holds the fields and `touchOnLeave()`, which is the part with an effect.
+  Sign in is not the `default`: the password field's own `onSubmit` is what shows
+  every error on an invalid Enter, which a disabled default could not. The git
+  client's and the file manager's `ask()` dialogs and the commit dialog dropped
+  their `input.focus.focus(field)` after `openModal()` for `initial: 'body'`.
+
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
   declared `width`, capped at the screen, and grows in height); announcing a
@@ -14429,10 +14521,10 @@ root file's rule is one definition per helper, across a package boundary too.
   trims it. Not changed here, because a caller that wants the empty line -- an
   editor -- needs it.
 - **It is not on by default anywhere, and costs what `markdown()` costs.** It
-  imports `tokensOf()`, which lives in `prompt.ts` with `PromptError`, so its
-  graph is the prompt stack's, 263,687 B as it landed, against `highlight`'s
-  14 kB. Moving the validator out of the prompt module would lighten four
-  components and is a change of its own.
+  imports `tokensOf()`, which lived in `prompt.ts` with `PromptError`, so its
+  graph was the prompt stack's: 263,687 B as it landed, against `highlight`'s
+  14 kB. SIG-597 moved the validator out of the prompt module into `token.ts`,
+  and the graph is 147,669 B without the prompts.
 
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 
