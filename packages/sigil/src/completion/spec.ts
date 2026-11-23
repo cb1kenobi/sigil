@@ -314,7 +314,28 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
  * @returns The tokens, deduplicated, in declaration order.
  */
 export function declaredValues(type: string, choices: readonly unknown[]): string[] {
-  return dedupe(choices.map((choice) => tokenFor(choice, type)).filter(typeable));
+  return dedupe(choiceTokens(type, choices).filter(typeable));
+}
+
+/**
+ * Every declared choice as it is spelled, **including the ones no shell can
+ * offer** (SIG-643).
+ *
+ * `declaredValues()` is a question about what can be typed and drops what
+ * cannot, which is right for a menu and wrong for a page: a list whose every
+ * entry was dropped reads as no list, so a reference printed the hint
+ * placeholder and said any value is accepted where the parser enforces the
+ * list. The command surface asks this one and shows what it cannot type
+ * escaped, so the list a reader sees is the list the parser holds. The
+ * stringification is the same function, so the two cannot disagree about what a
+ * choice is written as.
+ *
+ * @param type - The data type a value is coerced with.
+ * @param choices - The declared list.
+ * @returns The tokens in declaration order, repeats included.
+ */
+export function choiceTokens(type: string, choices: readonly unknown[]): string[] {
+  return choices.map((choice) => tokenFor(choice, type));
 }
 
 /**

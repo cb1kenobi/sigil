@@ -21,16 +21,20 @@
  * `choices`, a description: each is a string an app wrote, and a reference is a
  * file somebody commits. So a cell's bars are escaped by `table()`, a code span
  * is fenced long enough by `code()`, a verbatim block is fenced by `fenced()`,
- * and every one of them flattens its whitespace and drops the control
- * characters -- which is this repository's own rule about what ships: a raw
+ * and every one of them flattens its whitespace and keeps the control and format
+ * characters out -- which is this repository's own rule about what ships: a raw
  * escape sequence in a committed file is a sequence waiting for something to
- * print it.
+ * print it. Out is two things: a description and a name are stripped by
+ * `descriptionLine()`, while a value the surface escaped already -- a choice, a
+ * hint, an `env` name -- and a verbatim example are shown as `\x1B` or
+ * `\u{202E}`, because a reader is meant to see those (SIG-643).
  *
  * Prose is the one that needs more: a description is **text**, because help
  * prints it as it stands, and `text()` is what keeps it text once a markdown
  * renderer has it -- a `<platform>` is not an HTML tag.
  */
 
+import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { formatValue, listedSpellings } from '@ttylabs/sigil/help';
 import {
   type CommandSurface,
@@ -49,17 +53,6 @@ import {
  * silently sharing a page: see `listed()`.
  */
 const JOIN = '-';
-
-/**
- * Every C0, `DEL` and C1 character, which is what `\p{Cc}` is.
- *
- * Named by the property rather than enumerated, which is the rule the build's
- * own escape pass records: a class of escapes trips `no-control-regex` and the
- * answer is not a suppression a formatter can detach from the line it was
- * written over. A newline is in the set and is handed back by the one caller
- * that keeps it.
- */
-const CONTROL = /\p{Cc}/gu;
 
 /**
  * What can open inline markup, or be read as an escape, in a line of prose.
@@ -378,7 +371,10 @@ function placeholder(
   name: string,
   choices: readonly string[]
 ): string {
-  const inner = (choices.length > 0 ? choices.join('|') : name) + (multiple ? '...' : '');
+  // an empty choice is spelled `""`, since `<|a>` and `<>` read as a missing one
+  // and the surface keeps it: a list is never shown as no list (SIG-643)
+  const shown = choices.map((choice) => (choice === '' ? '""' : choice));
+  const inner = (shown.length > 0 ? shown.join('|') : name) + (multiple ? '...' : '');
   return required ? `<${inner}>` : `[${inner}]`;
 }
 
@@ -699,7 +695,16 @@ function list(names: readonly string[]): string {
  * @returns The fenced lines.
  */
 function fenced(text: string): string[] {
-  const body = text.replaceAll(CONTROL, (c) => (c === '\n' ? c : ''));
+  // escaped rather than dropped, line by line so that the newline an example may
+  // legitimately hold is the one character `escapeControls()` is not asked
+  // about. The class is that function's, which is the format characters too: this
+  // matched `\p{Cc}` alone, so a U+202E in an example went into the page raw
+  // (SIG-643). Shown as `\u{202E}` because a reference is for reading, and an
+  // example that cannot be typed as written is one a reader should be able to see
+  const body = text
+    .split('\n')
+    .map((line) => escapeControls(line))
+    .join('\n');
   // ` {0,3}` because CommonMark lets a **closing** fence be indented up to three
   // spaces, so a run at column 0 is not the whole of what can close one: an
   // example holding `see\n   ```\ndone` closed the block at the indented run
