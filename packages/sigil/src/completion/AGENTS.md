@@ -1684,8 +1684,9 @@ dispatches between the printer and the installer.
   joined emoji loses its joiner and a heart its U+FE0F, which is what the
   class costs a description in a menu; the markdown reference prints through the
   same function and pays the same. It is not only emoji: the zero-width
-  non-joiner is a letter of Persian and of several Indic scripts, so `می‌خواهم`
-  loses a character that is spelling, and a soft hyphen goes too. Not covered: a candidate **value** holding
+  non-joiner is a letter of Persian and of several Indic scripts, so a Persian
+  verb loses the U+200C inside it, which is spelling rather than decoration, and
+  a soft hyphen goes too. Not covered: a candidate **value** holding
   one, which is dropped only for a control character -- a value is inserted into
   the command line, so cleaning it would type a token that is not the value.
   **A command name, an alias and a choice are not covered either, and a U+202E in
