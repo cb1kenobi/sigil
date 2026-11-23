@@ -453,7 +453,14 @@ async function ask(
       }
     );
   } catch (err) {
-    return err as Error;
+    // only a run that failed is read: the other error below quotes what the script
+    // printed, which can hold the item's own path
+    return constrained((err as Error).message)
+      ? new Blocked(
+          __`PowerShell is in Constrained Language Mode, which cannot run the script that moves an item to the Recycle Bin`,
+          { cause: err }
+        )
+      : (err as Error);
   }
   try {
     const reply = JSON.parse(out.trim());
@@ -464,6 +471,40 @@ async function ask(
     // not JSON
   }
   return new Error(__`PowerShell answered ${JSON.stringify(out.trim())}`);
+}
+
+/**
+ * The run that PowerShell's Constrained Language Mode stopped: what `recycle()`
+ * throws for it, so that it is told from every other failure by what it is and not
+ * by text read a second time.
+ */
+class Blocked extends Error {}
+
+/**
+ * Whether the stderr of a failed run says PowerShell is in Constrained Language
+ * Mode, which is what an application control policy (AppLocker, WDAC) puts it in.
+ * Neither script can run there, so a second start is spent for nothing.
+ *
+ * Both scripts end in the same `catch`, which writes with `[Console]::Out.Write()`,
+ * and that is a method call on a type CLM does not allow: every earlier failure is
+ * caught by it, so the error that escapes is that one, with the id
+ * `MethodInvocationNotSupportedInConstrainedLanguage`. `CannotCreateType...` is the
+ * id `New-Object` of a compiler gets and is matched too, for a script that lets it
+ * out. The **id** is read, because it is not translated and the sentence beside it
+ * is.
+ *
+ * The text is normalised first, because PowerShell wraps a formatted error at the
+ * width of the console buffer and each piece is its own CLIXML `<S S="Error">`
+ * element -- an id that ends a 79 character line is split by any width under that.
+ * The tags, the `_x000D_` escapes and every space are taken out, which joins the
+ * pieces back; the match is then case sensitive and starts at a word boundary.
+ */
+function constrained(said: string): boolean {
+  const text = said
+    .replace(/<[^>]*>/g, '')
+    .replace(/_x[0-9A-Fa-f]{4}_/g, '')
+    .replace(/\s+/g, '');
+  return /\b(?:MethodInvocationNotSupportedIn|CannotCreateType)ConstrainedLanguage/.test(text);
 }
 
 /** Whether the item is still where it was: `lstat()`, so a link is asked about and not its target. */
@@ -506,6 +547,11 @@ export async function recycle(
 ): Promise<{ cache: CacheState; path: string }> {
   const asked = await ask(path, file, hash, load);
   if (asked instanceof Error) {
+    if (asked instanceof Blocked) {
+      // neither script can run in this environment, so a second start would only
+      // fail the same way
+      throw asked;
+    }
     // no JSON: the script never got to say what happened to the item, which a
     // script that ran to the end always does, an error included -- so it was
     // stopped, or its text was refused. Asked again once, with the script that has

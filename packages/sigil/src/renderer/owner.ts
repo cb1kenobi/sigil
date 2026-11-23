@@ -17,7 +17,7 @@
  */
 
 import { adoptIntoRun, currentRun } from '../signals/effect.js';
-import { effect as defaultEffect, unowned, untrack } from '../signals/index.js';
+import { effect as defaultEffect, type EffectOptions, unowned, untrack } from '../signals/index.js';
 import { raise, refuseAsync } from '../signals/raise.js';
 
 /** What a component is: a function of props that builds one element. */
@@ -35,7 +35,7 @@ export interface Owner {
 }
 
 /** The effect factory an owner tree runs its effects through. */
-export type EffectFactory = (fn: () => void | Cleanup) => Cleanup;
+export type EffectFactory = (fn: () => void | Cleanup, options?: EffectOptions) => Cleanup;
 
 class OwnerNode implements Owner {
   readonly children = new Set<OwnerNode>();
@@ -352,7 +352,7 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
   const run = owner?.root().effects ?? defaultEffect;
   const owned = inBody === 0;
 
-  const dispose = run(() => {
+  const body = (): void | Cleanup => {
     const cleanups: Cleanup[] = [];
     const previousOwner = current;
     const previousCleanups = runCleanups;
@@ -402,7 +402,29 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
     return cleanups.length > 0
       ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
       : undefined;
-  });
+  };
+
+  // taken before the first run, because a run that throws returns nothing -- and
+  // an effect that read a signal and then threw would be torn down, never to run
+  // again (SIG-611). Given one, the signals layer keeps it live through the
+  // throw, which makes it this function's to hand to the owner. A factory that
+  // ignores the option never calls it and gets the old behaviour
+  let held: Cleanup | undefined;
+  let dispose: Cleanup;
+  try {
+    dispose = run(body, owned && owner ? { adopt: (stop) => (held = stop) } : undefined);
+  } catch (error) {
+    if (held) {
+      if (owner?.disposed) {
+        // the owner went during the run, so nothing is left that would ever
+        // dispose it -- and what is kept is only kept for that owner's sake
+        held();
+      } else {
+        owner?.cleanups.push(held);
+      }
+    }
+    throw error;
+  }
 
   if (!owned || !owner) {
     return dispose;

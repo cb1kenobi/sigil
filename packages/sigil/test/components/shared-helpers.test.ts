@@ -293,6 +293,9 @@ describe('one definition of each', () => {
     // `tokenClasses()` in `token.ts`; the prompt's layer and the text area's wrote it
     // out beside the code view's until SIG-597
     ['the classes of a run of code in a token', /sigil-token-\$\{/],
+    // `field-layout.ts`; `prompt.ts` held it until SIG-615 and re-exports it
+    ['the wrap of a field into rows of cells', /function layoutField\b/],
+    ['the column a vertical move aims at', /function offsetIn\b/],
     ['the message for too many ticked', /__`Choose at most/],
     ['the message for too few ticked', /__`Choose at least \$/],
   ])('should define %s in one place', (_, pattern) => {

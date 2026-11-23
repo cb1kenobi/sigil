@@ -16,6 +16,24 @@ export type Flush = () => void;
  */
 export type Scheduler = (flush: Flush) => void;
 
+/**
+ * What a caller may say about an effect it is creating.
+ */
+export interface EffectOptions {
+  /**
+   * Hands the disposer to the caller *before* the first run, so that a first run
+   * that throws can leave the effect live.
+   *
+   * An effect whose first run throws has no disposer to give back -- the throw
+   * is what `effect()` returns -- and one nothing can dispose must not stay
+   * watched, so it is torn down. A caller that has somewhere that will dispose
+   * it, and says so by taking the disposer here, is the one case where that is
+   * not needed: the effect stays, and runs again when a signal it read before
+   * the throw changes, the same as one whose later run throws.
+   */
+  adopt?: (dispose: () => void) => void;
+}
+
 /** Reports an error an effect threw. See `setErrorHandler()`. */
 export type EffectErrorHandler = (error: unknown) => void;
 
@@ -69,9 +87,10 @@ export interface Effects {
    * Runs `fn` now, and again whenever a signal it read has changed.
    *
    * @param fn - What to run. May return a cleanup.
+   * @param options - What the caller says about the effect.
    * @returns Disposes the effect, running any pending cleanup.
    */
-  effect(fn: () => void | (() => void)): () => void;
+  effect(fn: () => void | (() => void), options?: EffectOptions): () => void;
   /** Runs every effect that has gone stale, now. */
   flush(): void;
   /**
@@ -362,7 +381,7 @@ export function createEffects(): Effects {
     return false;
   }
 
-  function effect(fn: () => void | (() => void)): () => void {
+  function effect(fn: () => void | (() => void), options?: EffectOptions): () => void {
     let cleanup: (() => void) | undefined;
     let disposed = false;
 
@@ -506,6 +525,10 @@ export function createEffects(): Effects {
 
     watcher.watch(computed);
 
+    // handed over before the first run, which is the whole point: a run that
+    // throws never returns the disposer, so this is the only chance to give it
+    options?.adopt?.(dispose);
+
     try {
       // counted across the whole run rather than around the body alone,
       // because the body returning is not the run finishing: the commit and
@@ -536,6 +559,16 @@ export function createEffects(): Effects {
         }
       }
     } catch (err) {
+      if (parent || options?.adopt) {
+        // something else will dispose it: the effect whose body this was made
+        // in, which tears its children down on its next run and when it goes,
+        // or the owner the caller handed the disposer to. So nothing leaks, and
+        // the effect is what a later run that threw would have been -- watched,
+        // armed, and run again when a signal it read changes. It
+        // had read some before it threw, and the edges are kept (SIG-611)
+        parent?.add(dispose);
+        throw err;
+      }
       // a throw leaves no disposer with the caller, so nothing could ever
       // unwatch it -- it would re-run on every later change, forever
       watcher.unwatch(computed);
@@ -677,8 +710,8 @@ export function unowned<T>(fn: () => T): T {
   }
 }
 
-export function effect(fn: () => void | (() => void)): () => void {
-  return defaultEffects.effect(fn);
+export function effect(fn: () => void | (() => void), options?: EffectOptions): () => void {
+  return defaultEffects.effect(fn, options);
 }
 
 /** Runs every effect that has gone stale, now. */

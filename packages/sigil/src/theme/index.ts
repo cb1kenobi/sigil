@@ -458,8 +458,17 @@ export const FRAMEWORK_CSS = `
  * scheme is read along with the level and a pipe is not unconditionally inverted.
  * That is the component's decision rather than this sheet's, because which glyph
  * is drawn is content.
+ *
+ * Content, so a code that nobody pinned carries both polarities as two bodies and
+ * the sheet shows the one that matches the scheme -- the dark one by default, and
+ * the light one inside the media block below. That is the one place a tree can ask
+ * what the scheme is *now* without a renderer to hand: setColorScheme() on the
+ * renderer writes the media context, the restyle that follows is what swaps the bodies, and
+ * nothing in the component listens. Two declarations about which one takes space,
+ * and neither is a look, which is why they are exceptions rather than a role.
  */
 .sigil-qrcode-paint { color: black; background-color: white }
+.sigil-qrcode-on-light { display: none }
 
 /*
  * And the light half, which is three rules now and was six declarations.
@@ -511,6 +520,8 @@ export const FRAMEWORK_CSS = `
   .sigil-muted { dim: false; color: gray }
   .sigil-debug { background-color: white }
   .sigil-text-field { background-color: white }
+  .sigil-qrcode-on-dark { display: none }
+  .sigil-qrcode-on-light { display: flex }
 }
 
 `;

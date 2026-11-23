@@ -1612,8 +1612,28 @@ decided once, for all of them. The runs and the sabotage passes are in
   sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
   each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
   is the theme's and importing it would put the theme behind a module that is 655 B
-  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
-  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+  without it.
+
+  `field-layout` is the third, and it is what `text-area.ts` still imported from
+  `prompt.ts` (SIG-615): `layoutField()`, `offsetIn()` and the four shapes they
+  trade in -- `FieldCell`, `FieldRow`, `FieldLayout` and `FieldFrame`. As it
+  landed, `components/text-area` was 283,108 B over 45 modules and is 228,143 B over
+  38, with no prompt chunk in it; the layout alone is 119,983 B over 16, which is
+  the canvas, the element tree and the width tables rather than anything a prompt
+  does. Same shape as the two above: `prompt.ts` re-exports every name, the prompt
+  facade still publishes them, and `number()` imports `layoutField()` from the new
+  module. `fieldLayers()`, `tokenLayer()`, `gutterOf()`, `lineStart()` and
+  `lineEnd()` stay in `prompt.ts` -- the text area calls none of them, and they are
+  what draws a prompt's field rather than what lays it out. `text-area` is in the
+  dist test's list and the source check in `field-layout.test.ts` holds the other
+  half: a re-export is transparent to the bundler, so an import from `./prompt.js`
+  would leave the graph small and rewrite an ejected copy to the prompt subpath.
+  The ceilings of the five entries this freed came down to about 2x what they now
+  measure -- `code-view` 290 KiB, `diff` 340, `markdown` 365, `diff-view` 465,
+  `text-area` 450. They bound ordinary growth and **do not catch the stack coming
+  back**: every old with-stack figure is under its new ceiling (`text-area` was
+  283,108 B against 460,800). What does is the `carriers` check for the prompt's
+  own message in `test/dist.test.ts`, which is why `text-area` is in its list.
 
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
@@ -4078,6 +4098,37 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   `themedCascade()` defaults it through, so the two cannot come to disagree about
   the same destination. `invert` overrides both, for a caller who knows something
   the level and the scheme do not say.
+
+- **An unpinned code follows the scheme of whatever draws it, because the sheet
+  chooses between two bodies (SIG-604).** `Renderer.setColorScheme()` (SIG-461)
+  writes the media context, and the polarity was read from `opts.colorScheme ??
+  schemeFromEnv()` when the tree was built -- so after a scheme change a code kept
+  the polarity of the old one, which a scanner may not read. With no `invert`, no
+  painted level above 0 and no `colorScheme`, `qrcodeView()` now puts **both**
+  polarities in the box as two texts, `.sigil-qrcode-on-dark` and
+  `.sigil-qrcode-on-light`, and the framework sheet shows one by
+  `@media (prefers-color-scheme)`. Nothing listens for anything: the restyle a
+  scheme change already causes is what swaps them, so there is one answer to what
+  the scheme is and the code cannot disagree with the rest of the screen. The two
+  forms are the same size, which is what makes `display: none` on one of them safe.
+  Naming a scheme, an `invert` or `paint` above level 0 still pins one body and
+  nothing follows the renderer, which is what a caller who named one is asking for.
+  The reading is `display`, not `inverse`, for the reason above: which glyph is
+  drawn is content.
+
+  Three limits, all deliberate. **`qrcode()` the string is a snapshot**: it has no
+  renderer to ask and may be called where there is none, so it reads
+  `schemeFromEnv()` as it always did and pins what it found; a caller that has
+  changed the scheme passes it as `colorScheme`, and one that wants a code that
+  follows puts `qrcodeView()` in a tree. **A cascade without the framework's sheet
+  draws both bodies**, there being no rule to hide either -- `themedCascade()` is
+  the cascade every built-in is styled by, and a caller who built their own names
+  the scheme. **The level is not live**: a painted code's level still comes from
+  `colorLevelOf()` at build, since the ticket is about the scheme. The two rules are
+  exceptions in `should declare on a role, bar fifteen exceptions that say why`:
+  they are which polarity takes space, not a look. Pinned by `the scheme a tree
+  follows` in `test/components/qrcode.test.ts`, which mounts a real renderer and
+  flips `setColorScheme()`.
 
 - **The right-hand quiet zone survives because of the background, and the two
   halves of that are different mechanisms.** `renderToString()` drops a trailing
@@ -10273,8 +10324,24 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   lines only, clamped and claimed at an end; `x` picks and `a` picks all or none.
   A context line is never the cursor's, since it has nothing to pick, which is a
   narrower cursor than lazygit's and one that cannot rest on a line that does
-  nothing. Not done: a range (`v`, or shift and the arrows), which `a` and `x`
-  stand in for.
+  nothing.
+
+  **A range is `v`, and only `v` (SIG-606).** `v` anchors at the cursor and picks
+  that line, then up and down pick the added and removed lines from the anchor to
+  the cursor, over what was picked before the anchor -- so a range is picks, in
+  the same `selected` set `hunkLinesPatch()` takes, and staging one is staging
+  picks: there is no second patch writer, and a range over a context line picks
+  the changed lines either side of it and not the context line. Moving back
+  shrinks it, since the picks are recomputed from the anchor and the picks that
+  were there; `v` again closes it and keeps what it picked; `x`, `a`, a click on a
+  line and leaving the lines end it too, as does the app writing the cursor or
+  the picks out from under it (the view remembers what the range last wrote and
+  compares). The anchor is the view's own variable
+  rather than a third `State`, because nothing outside has a use for it: the
+  marks already show every line it picked. Shift and the arrows is not a second
+  spelling: a terminal reports no key release, so there is nothing to say when a
+  shift range ends, and `v` is lazygit's too. The line keys reject a modified key
+  as they did, so Shift and an arrow reaches the scroll box.
 
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
@@ -10293,16 +10360,17 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   second column is a second cell on every row, so the room is one less; it exists
   only with `lines`, and a view without it is drawn as it was.
 
-  **The footer is not told about the line keys.** `describeDiffView()` lists `]`,
-  `[`, `w` and the arrows, and one more entry pushed the git client's `space stage
-  hunk` under its own toast in a 110-column terminal -- measured, by the test that
+  **`describeDiffView()` is not told about the line keys.** It lists `]`, `[`, `w`
+  and the arrows, and one more entry pushed the git client's `space stage hunk`
+  under its own toast in a 110-column terminal -- measured, by the test that
   asserts it. The marks say what the cursor is, and an app that wants a hint
-  writes one beside its own keys.
+  writes one beside its own keys; the git client swaps them for the line keys
+  while the cursor is on the lines (SIG-606, in `examples/AGENTS.md`).
 
 What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
-designed by guessing; staging a range of lines with one gesture; and folding a hunk away.
+designed by guessing; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
@@ -10582,6 +10650,27 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   every error on an invalid Enter, which a disabled default could not. The git
   client's and the file manager's `ask()` dialogs and the commit dialog dropped
   their `input.focus.focus(field)` after `openModal()` for `initial: 'body'`.
+
+- **`openModal()` is called untracked as a whole, because it reads the router's
+  focus and then writes it.** SIG-596. It reads `input.focus.current` to remember
+  what to give back, and `claimFocus()` then moves the focus, so an effect like
+  `if (show.get()) openModal(...)` depended on a signal it had just set and ran
+  again until the run guard stopped it: measured as 101 runs on an element host
+  and 301 over three focus moves, where 1 per `show` change belongs -- for a
+  function body and an element body alike. The body function and the buttons were
+  already built untracked (SIG-335), which is why that entry's own test could only
+  see the sinks of what the body read and not this. The public function is now a
+  one-line `untrack()` over the real one rather than an `untrack()` on each read,
+  since every read in it (the focus, a `disabled` condition's first answer, the
+  ring) is the dialog's own and none is something the opener should follow. A
+  write inside an untracked call is still a write: the focus moves as before.
+  `close()` is the same shape and is untracked the same way (review found it: read
+  the focus to decide whether to hand it back, then hand it back, so an effect that
+  closed a modal ran 3 times where 2 belong).
+  `openMenu()`, `showToast()` and `attachTooltip()` were probed with the same
+  effect and run twice (the `show` change and nothing more), so the loop is the
+  modal's alone. Covered by `an effect that opens a modal` in
+  `test/components/modal.test.ts`, which fails without the `untrack()`.
 
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
@@ -12770,14 +12859,27 @@ callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
 no guard was added to `descend()` because it has nothing to protect. Two limits,
 stated rather than left to be found. From the pointer the hover has already moved
 the highlight onto the row that threw, and every further move over it throws
-again, which is moot under `runApp()` where the first one ends the app. And a
-**root** menu is the other case: a menubar's menu whose mark throws is not asked
-by `menuInitial()` when the menu is mixed, so it throws from `push()` after the
-menu that was open has been truncated, with no level left for Escape to close --
-`root()` then closes the whole session, bar and all, rather than leave one that
-swallows every key. The sentences above saying a menubar asks a function "before
-a session takes the input" are true of `initial` and of a radio group, not of a
-check mark.
+again, which is moot under `runApp()` where the first one ends the app.
+
+A **root** menu was the other case, and SIG-618 closed it without asking a mark any
+earlier. A menubar's mixed menu is not asked by `menuInitial()`, so its marks are
+read building the rows -- which `root()` used to do after truncating the menu that
+was open, leaving no level for Escape and closing the whole session, bar and all.
+`root()` now builds the new menu first and closes the old one after, so a mark that
+throws leaves the menu that was open exactly as it was, highlight and all, and the
+menubar sets `current` and the bracketed title only once the menu is in. The throw
+goes out through the key or the pointer that moved to it, as a submenu's does. With
+**no** menu open -- the first one opened, by F10, a mnemonic or a press -- a mark
+that throws still closes the session: there is no level for Escape to close, and a
+session holding the input with none would swallow every key. That is the bar closed
+as it was before, not a bar stuck. The sentences above saying a menubar asks a
+function "before a session takes the input" are true of `initial` and of a radio
+group, not of a check mark, and no mark is asked before the session now either: the
+change is the order of building and closing, and the one thing a menu that does not
+throw could see of it is `openIndex` read from inside a mark function, which now
+answers with the title that was open while the new menu is built. From the pointer,
+every further move over a throwing title throws again, as one over a submenu's row
+does. `menu-throws.test.ts` pins it through `Menubar`, by key and by pointer.
 
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The
@@ -14236,7 +14338,8 @@ was reached, the measurements and the sabotage pass are in
   change how every `multiline()` answer looks, which is a ticket of its own and
   not one to take inside this one. `offsetIn()` joined the prompt subpath for it,
   which is the `layoutField()` precedent: an ejected text area imports only what is
-  published.
+  published. Both moved to `field-layout.ts` in SIG-615, so the area no longer
+  imports the prompt module at all.
 - **The value is an array of lines, not a rope, and only the lines on screen are
   laid out and painted.** An edit joins just the lines it spans into the string an
   `editing.ts` function reads and splits the answer back, so a backspace at the

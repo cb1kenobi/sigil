@@ -1,4 +1,5 @@
 import { createCanvas } from '../../src/canvas/index.js';
+import { rgbChannels } from '../../src/canvas/style.js';
 import { ScrollBox } from '../../src/components/scroll-box.js';
 import { box, type Element, text } from '../../src/element/index.js';
 import { createEffect, render, Show } from '../../src/renderer/index.js';
@@ -1132,6 +1133,65 @@ describe('a sheet swapped under an animation', () => {
     view.frame();
     expect((node!.style.left as { value: number }).value).toBe(3);
     // held, not restarted
+    expect(view.animating).toBe(false);
+    view.dispose();
+  });
+});
+
+describe('a color transition across a change of color scheme', () => {
+  // the scheme is a media query's answer and `setColorScheme()` publishes it the way
+  // a resize does, so a `transition: color` has to walk from the old scheme's color
+  // to the new one's rather than snapping -- nothing said so until this
+  it('should walk the color between the two schemes rather than snapping', () => {
+    const h = harness();
+    const cascade = sheets(`
+      box { height: 1; color: #000000; transition: color 300ms linear }
+      @media (prefers-color-scheme: light) { box { color: #ffffff } }
+    `);
+
+    let node: Element;
+    const view = render(
+      () => {
+        node = box({}, text('x'));
+        return node;
+      },
+      {
+        backend: h.backend,
+        cascade,
+        colorLevel: 3,
+        colorScheme: 'dark',
+        effects,
+        reducedMotion: 'no-preference',
+        terminal: h.terminal,
+      }
+    );
+
+    const channel = (): number => {
+      const channels = rgbChannels(node!.style.color as number);
+      expect(channels, 'the color is not a 24-bit one').toBeDefined();
+      return channels![0];
+    };
+    expect(channel()).toBe(0);
+
+    view.setColorScheme('light');
+    const reds: number[] = [];
+    for (let at = 0; at <= 300; at += 50) {
+      vi.setSystemTime(at);
+      view.frame();
+      reds.push(channel());
+    }
+
+    // dark's color first, light's last, and frames between that are neither
+    expect(reds[0]).toBe(0);
+    expect(reds.at(-1)).toBe(255);
+    expect(
+      reds.some((r) => r > 0 && r < 255),
+      `no intermediate frame: ${reds.join(', ')}`
+    ).toBe(true);
+    expect(reds).toEqual([...reds].sort((a, b) => a - b));
+    expect(new Set(reds).size).toBeGreaterThan(3);
+
+    // and it is a transition that ends: nothing is left asking for frames
     expect(view.animating).toBe(false);
     view.dispose();
   });

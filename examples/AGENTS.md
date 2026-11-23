@@ -178,8 +178,8 @@ the `ui` tag run by plain `node`.
   from the entry, when the entry turns it on` in `packages/cli/test/examples.test.ts`
   reads `src/index.ts` and `src/ui.*`, comments stripped, and fails for an example
   whose entry says `mouse` at all -- the `--mouse` flag, or a `mouse` option handed
-  to `runApp()` in any spelling -- and has no `test/entry.test.ts` naming
-  `ENABLE_MOUSE_BUTTONS` or `ENABLE_MOUSE_MOTION` and, where there is a `src/ui.*`,
+  to `runApp()` in any spelling -- and has no `test/entry.test.ts` reading
+  `screen.mouse` and, where there is a `src/ui.*`,
   that file too, since it spells the flag separately from the bin. The second half
   of the trigger is there because the dashboard, the settings screen and the
   visualizer have no flag and the same unrun line. Every example that turns the
@@ -190,26 +190,49 @@ the `ui` tag run by plain `node`.
   the entry nothing ran: `dir` for the editor, the visualizer, the git client and
   the file manager (whose file has that and nothing else, it having no mouse),
   `[file]` for the log browser, each run from a directory that is not the one it is
-  given, so the screen can only show the argument. The positional is not guarded
-  the way the mouse is -- an example that takes one and has no entry test is not
-  found by the suite, only by somebody asking. Sabotaged per line: each `mouse`
+  given, so the screen can only show the argument. Sabotaged per line: each `mouse`
   option removed, made constant and changed in mode, and each positional dropped,
   fails exactly the test written for it.
 
-  The harness around those tests -- spawn, first frame, `q`, read the bytes -- is
-  copied into each file rather than shared, which is a decision and not an
-  oversight, and the reason is that an example is a unit somebody copies, with its
-  tests beside it, as SIG-522 left it. It is not that nowhere else would work:
+  The positional is guarded the same way (SIG-617). `should test each positional
+  argument from the entry, when the entry declares one`, beside the mouse guard
+  and reading the same `entrySources()` -- `src/index.ts` and `src/ui.*`, comments
+  stripped -- walks each `args: [...]` literal for what it declares (an object's
+  `name`, or a format string, with `<>`, `[]` and `...` taken off, so `'[file]'` is
+  `file`) and fails for an example that declares one without a
+  `test/entry.test.ts` holding an `it` **titled with that word**, such as `should
+  open the dir it was given rather than the working directory`, and an `argv` it
+  passes, and the `ui` twin spawned too. The `argv` and the `ui` twin are sanity
+  checks, which the entry test's own mouse tests satisfy as well; the title is what
+  carries the guard, and comments in the test file are stripped before it looks,
+  so a test commented out is a test removed. The title is how a test says which
+  argument it is for, and it is the guard's limit as well: it finds a test that
+  claims the argument and cannot find one that claims it and does not pass it, so
+  a title and a body that disagree are a review's to catch, not the suite's. The
+  reader is source text and so cannot see an `args` that is imported or spread; the
+  guard's own tests pin it over each spelling it reads, and over the five examples
+  that really declare one, so a reader that stopped matching fails rather than
+  letting every example through. Every example that declares a positional had its
+  test already from SIG-594; the guard's first run found none missing, and removing
+  or retitling any of them fails it, as does adding an `args` to an example with no
+  entry test, which was measured on the log browser and on the settings screen.
+
+  What is copied into each entry test is the spawn, first frame and `q`, and that
+  is a decision and not an oversight: an example is a unit somebody copies, with
+  its tests beside it, as SIG-522 left it. It is not that nowhere else would work:
   `packages/cli/test/examples.test.ts` already spawns every entry over a terminal,
-  and a table beside its `KEYED` asserting on `ran.out` would cover both entries of
-  every example with no copy -- at the cost of the tests leaving the example, and
-  of a new example owing a row there instead of a file. A loose file in `examples/`
-  is not an answer: `vitest.config.ts` reads every entry of `examples/*` as a
-  project, so it is parsed as a config. What would be one definition inside the
-  example is a published one -- the mouse modes a `runOnTerminal()` run turned on,
-  read by `Screen` the way `alternate` and `cursorHidden` are -- which is an
-  addition to `@ttylabs/sigil/testing` and its guide, not to an example. The copies
-  have drifted a little already (the size of the terminal, `it` against
+  and a table beside its `KEYED` would cover both entries of every example with no
+  copy -- at the cost of the tests leaving the example, and of a new example owing
+  a row there instead of a file. A loose file in `examples/` is not an answer:
+  `vitest.config.ts` reads every entry of `examples/*` as a project, so it is
+  parsed as a config. What _was_ copied, and is not now, is reading which mouse
+  modes the run turned on: SIG-616 published that as `Screen.mouse` in
+  `@ttylabs/sigil/testing`, which the tests read the way `alternate` is read -- on
+  after the first frame, off after `q` -- instead of searching the child's bytes
+  for `ENABLE_MOUSE_*` with `indexOf`, each file carrying its own. The bytes said
+  the sequence was written; the screen says what state it left, which is the claim
+  ("handed back") the byte search could only approximate by ordering. The copies
+  of the harness have drifted a little (the size of the terminal, `it` against
   `it.concurrent`); nothing depends on either.
 
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
@@ -673,10 +696,29 @@ commit message in a text area. What it settled:
   hands `m.diff.lines` -- the cursor and the picks, two `State`s -- to the view
   and reads them back on Space. It is an `Error` the writer throws that a toast
   says, rather than a patch of something else. An untracked file is staged whole,
-  since there is no index entry to apply a patch of lines to. The footer does not
-  list the line keys: the diff pane's row is already as wide as a 110-column
-  terminal leaves it, and one more entry pushed `space stage hunk` under the
-  toast.
+  since there is no index entry to apply a patch of lines to.
+
+  **A range is `v` in the view, and it feeds the same picks (SIG-606).** `v`
+  anchors and up and down pick every changed line to the cursor, so
+  `toggleLines()` stays what it was: it reads `lines.selected` and hands the set
+  to `hunkLinesPatch()`. The client owns none of it; a range across an unchanged
+  line is in `should stage a range of lines picked with v, across an unchanged
+  line`, run against a real git.
+
+  **The footer's diff entries follow where the cursor is, rather than adding to a
+  row that is full.** The pane's row was already as wide as a 110-column terminal
+  leaves it, and one more entry pushed `space stage hunk` under the toast. So the
+  hunk's keys and the line keys are never listed together: while the cursor is on
+  the hunk the footer says `] [ w`, `space stage hunk`, `enter lines` and
+  `esc back`, and while it is on the lines it says `space stage lines`, `v range`,
+  `x pick`, `a all`, `up/down line` and `esc done` in their place, since `]`,
+  `[`, `w` and scrolling do not apply to a cursor on a line (`]` leaves the
+  lines). It is one `createEffect()` over `lines.cursor !== undefined` that
+  describes the one set and puts the other away, scoped to the diff panel as
+  every other pane key is. Measured at 110 columns: both rows reach `q quit`;
+  the pane switch is cut from both, and the hunk row also loses `r refresh` to
+  the `enter lines` hint, which is the price of teaching the way in. And `should list the line keys in the footer while the cursor is on the lines,
+  in place of the hunk keys` holds it.
 
 - **The diff pane is a `DiffView` over blocks the model builds, and the model asks
   `diffStops()` what is under the cursor.** `blocksOf()` turns what the pane shows
@@ -1127,8 +1169,8 @@ dark -- built from sigil's own components, with its own data, names and colours.
   follows the theme rather than the terminal; it waits on a `mounted` State because
   `app.view` is not there while the body runs, and an effect created inside
   `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
-  What it does not reach is a component that reads the scheme from its own options,
-  `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
+  What it does not reach is a component that reads the scheme from its own options;
+  `qrcode()` the string is one, while `qrcodeView()` in a tree follows it (SIG-604). Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
   The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
   (SIG-523): the menu draws the `●` and opens on the theme in use because it is a

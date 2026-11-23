@@ -10,6 +10,7 @@ import {
 import { cacheFileName, distTagsURL } from '../src/updates/registry.js';
 import { workerSource } from '../src/updates/worker-source.js';
 import { fetchJSON, MAX_BODY_BYTES, WORKER_ARGV, WORKER_ENTRY } from '../src/updates/worker.js';
+import { selfSigned } from './self-signed.js';
 import { tempDir } from './temp.js';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -59,6 +60,62 @@ function runWorker(env: Record<string, string>): Promise<{ code: number | null; 
   });
 }
 
+/**
+ * A registry of the test's own: an HTTPS server on `127.0.0.1` that answers every
+ * request with `body`, trusted by every process this test file spawns.
+ *
+ * These tests asked the real registry for `snooplogg` through a real worker, and
+ * the worker has five seconds -- so three of them failed with `Update worker timed
+ * out` on a macOS runner whose answer from the network came late, over a change
+ * that touched nothing of the kind (SIG-627). What they check is that a worker
+ * spawned by `check()` fetches a URL and the parent reads a version out of what
+ * came back, and none of that is the registry's. The worker is still a real
+ * process with a real TLS handshake; only the other end is here. `registryURL`
+ * is what points the npm checker at it, the same option an app with a private
+ * registry sets.
+ *
+ * Trust reaches the worker through `NODE_EXTRA_CA_CERTS`, which node reads when
+ * a process starts and which the worker inherits from this one. It is set for as
+ * long as the server is open and put back by `close()`.
+ */
+async function serveRegistry(body: unknown): Promise<{
+  close: () => Promise<void>;
+  registryURL: string;
+  requests: () => number;
+}> {
+  const { cert, key } = selfSigned();
+  const caFile = join(await generateTmpDir(), 'registry-ca.pem');
+  writeFileSync(caFile, cert);
+
+  let requests = 0;
+  const server = https.createServer({ cert, key }, (_req, res) => {
+    requests++;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+
+  const before = process.env.NODE_EXTRA_CA_CERTS;
+  process.env.NODE_EXTRA_CA_CERTS = caFile;
+
+  return {
+    close: async () => {
+      if (before === undefined) {
+        delete process.env.NODE_EXTRA_CA_CERTS;
+      } else {
+        process.env.NODE_EXTRA_CA_CERTS = before;
+      }
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    },
+    registryURL: `https://127.0.0.1:${port}`,
+    requests: () => requests,
+  };
+}
+
 describe('updates', () => {
   describe('Error Handling', () => {
     it('should error if cache directory is invalid', async () => {
@@ -74,32 +131,43 @@ describe('updates', () => {
   // returning
   describe('Fire and forget', () => {
     it('should return without waiting on the worker', async () => {
-      const result = await check({
-        cacheDir: await generateTmpDir(),
-        packageName: 'snooplogg',
-        packageVersion: '1.0.0',
-      });
+      const registry = await serveRegistry({ latest: '9.9.9' });
+      try {
+        const result = await check({
+          cacheDir: await generateTmpDir(),
+          packageName: 'snooplogg',
+          packageVersion: '1.0.0',
+          registryURL: registry.registryURL,
+        });
 
-      // the worker is still running, so there is nothing to report but what
-      // this call already had -- which is the point of the default path
-      expect(result.current).to.equal('1.0.0');
-      expect(result.latest).to.equal(undefined);
+        // the worker is still running, so there is nothing to report but what
+        // this call already had -- which is the point of the default path
+        expect(result.current).to.equal('1.0.0');
+        expect(result.latest).to.equal(undefined);
+      } finally {
+        await registry.close();
+      }
     });
   });
 
   describe('Check Latest', () => {
     it('should check latest version', async () => {
-      const result = await check({
-        cacheDir: await generateTmpDir(),
-        packageName: 'snooplogg',
-        packageVersion: '1.0.0',
-        wait: true,
-      });
+      const registry = await serveRegistry({ latest: '9.9.9' });
+      try {
+        const result = await check({
+          cacheDir: await generateTmpDir(),
+          packageName: 'snooplogg',
+          packageVersion: '1.0.0',
+          registryURL: registry.registryURL,
+          wait: true,
+        });
 
-      // assert the shape, not a specific version: `latest` is whatever
-      // the registry currently serves and will change without notice
-      expect(result.current).to.equal('1.0.0');
-      expect(result.latest).to.match(/^\d+\.\d+\.\d+/);
+        expect(result.current).to.equal('1.0.0');
+        expect(result.latest).to.equal('9.9.9');
+        expect(registry.requests()).to.equal(1);
+      } finally {
+        await registry.close();
+      }
     });
   });
 
@@ -1332,15 +1400,23 @@ describe('updates', () => {
       const file = join(cacheDir, cacheFileName('snooplogg', 'latest'));
       writeFileSync(file, JSON.stringify({ ts: Date.now(), version: '9.9.9' }));
 
-      const result = await check({
-        cacheDir,
-        packageName: 'snooplogg',
-        packageVersion: '1.0.0',
-        wait: true,
-      });
+      const registry = await serveRegistry({ latest: '2.0.0' });
+      try {
+        const result = await check({
+          cacheDir,
+          packageName: 'snooplogg',
+          packageVersion: '1.0.0',
+          registryURL: registry.registryURL,
+          wait: true,
+        });
 
-      expect(result.latest).to.match(/^\d+\.\d+\.\d+/);
-      expect(JSON.parse(readFileSync(file, 'utf-8')).body).to.be.an('object');
+        // it went and asked, and what it read is the answer and not the `9.9.9`
+        // the old file held
+        expect(result.latest).to.equal('2.0.0');
+        expect(JSON.parse(readFileSync(file, 'utf-8')).body).to.deep.equal({ latest: '2.0.0' });
+      } finally {
+        await registry.close();
+      }
     });
 
     it('should be refreshed when the checker changed under it', async () => {
@@ -1354,15 +1430,22 @@ describe('updates', () => {
       const file = join(cacheDir, cacheFileName('snooplogg', 'latest'));
       writeFileSync(file, JSON.stringify({ body: { tag_name: 'v9.9.9' }, ts: Date.now() }));
 
-      const result = await check({
-        cacheDir,
-        packageName: 'snooplogg',
-        packageVersion: '1.0.0',
-        wait: true,
-      });
+      const registry = await serveRegistry({ latest: '2.0.0' });
+      try {
+        const result = await check({
+          cacheDir,
+          packageName: 'snooplogg',
+          packageVersion: '1.0.0',
+          registryURL: registry.registryURL,
+          wait: true,
+        });
 
-      // it went and asked rather than answering `undefined` for a day
-      expect(result.latest).to.match(/^\d+\.\d+\.\d+/);
+        // it went and asked rather than answering `undefined` for a day
+        expect(result.latest).to.equal('2.0.0');
+        expect(registry.requests()).to.equal(1);
+      } finally {
+        await registry.close();
+      }
     });
   });
 
