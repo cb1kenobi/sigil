@@ -199,9 +199,10 @@ interface Drawing {
   readonly crosshair?: CrosshairAt;
   readonly kind: string;
   /**
-   * The cell column, from the chart's left edge, of a pinned sample the rule is
-   * not on: where a pin's marker is, and what the readout's bubble keeps clear of.
-   * `undefined` with no pin, and where the rule stands in the pin's cell.
+   * The cell column, from the chart's left edge, of the plot marker of a pinned
+   * sample the rule is not on: what the readout's bubble keeps clear of.
+   * `undefined` with no pin, where the rule stands in the pin's cell, and where a
+   * line has the top cell.
    */
   readonly pinned?: number;
   readonly rows: readonly Row[];
@@ -1380,7 +1381,8 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
             }),
           },
     kind: 'line',
-    pinned: pinColumn < 0 ? undefined : plotLeft + pinColumn,
+    // not where a line has the top cell, which draws no marker for a bubble to cover
+    pinned: pinColumn < 0 || maskAt(union, pinColumn, 0) !== 0 ? undefined : plotLeft + pinColumn,
     rows,
     samples: longest === 0 ? undefined : { count: longest, first: oldest },
   };
@@ -2278,10 +2280,10 @@ export function LineChart(props: LineChartProps): Element {
     // under it: the rule's cell is widened to take in the pin's, which puts the
     // bubble past the pin on the far side, and past the rule where it flips. Above
     // or below the rule the bubble is not over the plot's top row, so it stays put
-    // (the tooltip's own default cap is not repeated here: text wider than it wraps
-    // to a narrower bubble than this says, which only keeps the bubble further out)
+    // (40 is the tooltip's default cap, repeated because a chart is ejectable and
+    // cannot import it: past it the text wraps, and a bubble wider than it is not)
     const reach = Math.min(
-      crosshair.maxWidth ?? Number.POSITIVE_INFINITY,
+      crosshair.maxWidth ?? 40,
       4 + Math.max(0, ...words.split('\n').map((line) => stringWidth(line)))
     );
     const pin = drawing.pinned;
