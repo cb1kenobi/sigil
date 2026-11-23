@@ -1113,9 +1113,11 @@ dark -- built from sigil's own components, with its own data, names and colours.
   otherwise and would punch a black hole in a white screen. Truecolor, since an
   app's own theme may use it. Each also names a `scheme` and an effect hands it to
   `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
-  follows the theme rather than the terminal; it waits on a `mounted` State because
-  `app.view` is not there while the body runs, and an effect created inside
-  `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
+  follows the theme rather than the terminal; the effect is made inside `onMount()`
+  because `app.view` is not there while the body runs, and it re-runs on every theme
+  change there. (It used to wait on a `mounted` State in the body, on the belief that an
+  effect made in `onMount()` ran once and stopped. It did re-run: `App.view` threw on
+  the first frame, which SIG-603 fixed.)
   What it does not reach is a component that reads the scheme from its own options,
   `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
