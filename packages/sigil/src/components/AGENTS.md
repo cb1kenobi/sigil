@@ -12207,23 +12207,30 @@ there is the bars, which are drawn on every line.
   (SIG-649).** The sentence above said they had never failed. A macOS runner then
   timed `a link that never closes` out at the default ten seconds -- the same run
   passed on Linux and Windows -- and the file had failed once in a full local run
-  of two builders. Both came from reading the wall clock: the highlighter's
-  linear-time check had already moved to CPU time with a span for the small side
-  (SIG-627, SIG-640) and this file had not, so it was its own second copy of a
-  measurement whose fixes had landed in the first. It is one function now,
-  `growthOf()` in `test/growth.ts`, and both files call it. The same ratio, the
-  same 24, the same sizes. Under 200 busy loops on 18 cores, the old file failed
-  `_*` and its siblings at 31.8 and 31.7 against 24 in two of three runs, and the
-  new one passed every run of the file together with `highlight.test.ts`.
+  of two builders. The timeout itself was not reproduced: the file takes about
+  0.7 s idle. What was reproduced is the other half of the same cause, the ratio
+  failing under load, because this file read the wall clock while the
+  highlighter's linear-time check had already moved to CPU time with a span for
+  the small side (SIG-627, SIG-640). It was a second copy of a measurement whose
+  fixes had landed in the first, and it is one function now, `growthOf()` in
+  `test/growth.ts`, which both files call. The same ratio, the same 24, the same
+  sizes. Under 200 busy loops on 18 cores the old file failed `_*` and its
+  siblings at 31.8 and 31.7 against 24 in two of three runs, and the new one
+  passed every run. Windows keeps the wall clock, which its CPU clock is too
+  coarse to replace, so the load fix is not Windows's.
 
-  What a CPU clock cannot give is a wall-clock budget, which is what a test
-  timeout is, so the file's `describe` carries `BUDGET` (60 s). It is
-  not a limit on how long a linear read takes, which the ratio asks and no budget
-  can: it is six times the default so that a starved runner fails on a quadratic
-  and on nothing else. A synchronous parse cannot be timed out, so it hides no
-  hang. The sizes were left alone because the work is smaller than it was: the
-  small side is read to fill 3 ms and the large side as often as makes the same
-  work, instead of seven whole reads of each.
+  A CPU clock does nothing for a wall-clock budget, which is what a test timeout
+  is, and **the budget is the fix for the timeout**: the file's `describe` carries
+  `BUDGET` (120 s), twelve times the default. It is not a limit on how long a
+  linear read takes, which the ratio asks and no budget can; it is there so that a
+  starved runner fails on a quadratic and on nothing else, and a synchronous parse
+  cannot be timed out, so it hides no hang. The work is not smaller than it was.
+  The shared span of 3 ms on the small side made the file do about two and a half
+  times its old work (1.6 s against 0.6 s idle, measured on review), which is why
+  `growthOf()` takes a `span` and this file asks for 1 ms: its smallest document
+  already costs a good part of one, and it is now about 0.7 s, which takes about 1,000
+  times its 110 ms to reach the budget where the old one took about 110 times its
+  91 ms to reach ten seconds, and 430 times for the slowest test, the emphasis one.
 
 - **The ticket's other lazy figure, 0.54 s for 128 KB, was the parser, and is
   left.** `parseMarkdown()` of 64,000 lazy lines took 8 ms unquoted and 493 ms

@@ -509,8 +509,7 @@ describe('highlightCode()', () => {
     // read took 1.7 s and 2.3 s on macOS runners, while a quadratic made of one
     // `indexOf()` per opener, which runs at memory speed, read the same million in
     // 2.4 s on a laptop without coverage. Coverage and a slow runner scale both
-    // sides of a ratio alike. Best of seven, the sides taking turns, for the
-    // reasons `markdown-malformed.test.ts` gives.
+    // sides of a ratio alike.
     //
     // The measurement is `growthOf()` in `test/growth.ts`, shared with
     // `markdown-malformed.test.ts` (SIG-649): CPU time rather than wall time

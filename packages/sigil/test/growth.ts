@@ -52,14 +52,17 @@ export const MOST_READS = 4096;
  * How much more `large` costs `read` than `small` does, where `large` is `factor`
  * times the size: linear is `factor` and quadratic its square. `label` names the
  * shape if the clock reads nothing, which is said aloud because a ratio of zero
- * would pass for ever.
+ * would pass for ever. `span` is how much of the clock the small side is read to
+ * fill: the shapes whose small read is already a millisecond of it can ask for
+ * less, and the work grows with it on both sides, seven times over.
  */
 export function growthOf(
   read: (text: string) => unknown,
   small: string,
   large: string,
   factor: number,
-  label = ''
+  label = '',
+  span: number = SPAN
 ): number {
   const time = (text: string, reads: number): number => {
     const start = now();
@@ -72,7 +75,7 @@ export function growthOf(
   // asked, while the code is cold, which is a little more than it will fill once
   // warm: the count is a way to a measurable span rather than a span itself.
   let smallReads = 1;
-  while (time(small, smallReads) < SPAN && smallReads < MOST_READS) {
+  while (time(small, smallReads) < span && smallReads < MOST_READS) {
     smallReads *= 2;
   }
   const largeReads = Math.max(1, Math.round(smallReads / factor));

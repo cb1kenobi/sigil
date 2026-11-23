@@ -34,21 +34,30 @@ import { describe, expect, it } from 'vitest';
  * not a duration, and a duration failed them once in a loaded full run.
  */
 
+/**
+ * How much of the clock the small side is read to fill, in milliseconds. The
+ * highlighter reads documents of a few short lines and needs three; the smallest
+ * document here is a few kilobytes and costs a good part of one on its own, and
+ * the work is seven reads of each side, so the shared default would have made this
+ * file do about two and a half times what it did before.
+ */
+const SPAN = 1;
+
 /** How much more a document eight times the size costs to read. */
 function growth(make: (size: number) => string, size: number): number {
-  return growthOf(parseMarkdown, make(size), make(size * 8), 8, make(12).slice(0, 12));
+  return growthOf(parseMarkdown, make(size), make(size * 8), 8, make(12).slice(0, 12), SPAN);
 }
 
 /**
  * A budget for every test in this file. What the linear-time ones assert is a
  * ratio, which no clock speed moves, so this is not a limit on how long linear
- * takes: it is the default's ten seconds made six times wider, so that a runner
+ * takes: it is the default's ten seconds made twelve times wider, so that a runner
  * that is slow for want of a core -- one of these tests timed out at ten on a
  * macOS runner (SIG-649), where the same run passed on Linux and Windows -- fails
  * on a quadratic and on nothing else. A synchronous parse cannot be timed out
  * anyway, so a quadratic bad enough to hang is not made worse by it.
  */
-const BUDGET = 60_000;
+const BUDGET = 120_000;
 
 /**
  * How much more measuring drawing `large` takes than drawing `small`: how many
