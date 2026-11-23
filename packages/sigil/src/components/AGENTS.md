@@ -10218,6 +10218,39 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   shift range ends, and `v` is lazygit's too. The line keys reject a modified key
   as they did, so Shift and an arrow reaches the scroll box.
 
+  **A drag over lines is the same range, and the view's own (SIG-623).** A press on
+  an added or removed line of the current hunk, while the cursor is on the lines,
+  records the line and nothing else: it is not stopped, so it still focuses the
+  view, and a plain click is still only the click that moves the cursor. The
+  pointer leaving that line is what begins the range -- the anchor is the line
+  pressed, the base is what was picked, and each move after it is `pickRange()` to
+  the line under the pointer, which is `v` and a step, so there is no second way to
+  compute a range. The handler is on the rows, where the click's already is: a press
+  captures the pointer, so the moves and the release reach the row it landed on
+  wherever the pointer has got to, and `mouseOn()` routes by kind. Once the range
+  has begun the moves and the release are stopped, and **so is the click that
+  follows**, which is the trap `05-drag.js` found -- a release on the row pressed
+  lands the click on that row, and `clicked()` swallows one click after a drag
+  began. A release that makes no click (off the canvas) would leave that flag
+  armed, so every press clears it. Release closes the range and keeps the picks,
+  as the second `v` does.
+
+  **It clamps rather than scrolls, which was the ticket's to choose.** The pointer's
+  row is read against the viewport's content box and its scroll, clamped to the
+  rows in view, and then to the hunk's first and last line; a context line under
+  the pointer is the changed line nearest it on the anchor's side, so dragging down
+  over `three` ends on the line above it and dragging up ends on the line below,
+  which is where `v` and the arrows would stop. A captured drag reports rows off
+  the canvas, so the clamp is what makes a drag off the edge pick as far as the
+  view shows. Scrolling would take a timer for a pointer held still off the edge,
+  motion reports arriving only when it moves. A hunk taller than the view is
+  dragged as far as it shows and `v` or the wheel does the rest, and the wheel does
+  work mid-drag: the row pressed is out of the tree once the view scrolls past it,
+  but it keeps its parent and its handler, so the moves still reach it (measured
+  rather than assumed, since the rows are a virtual window) and are read against
+  the scroll as it now is. A new drawing ends a drag, since it makes new rows
+  and leaves the pressed one meaning nothing.
+
   **The line state belongs to one hunk and is emptied whenever the subject
   changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
   content changes, or the cursor leaves the lines. A position means nothing in

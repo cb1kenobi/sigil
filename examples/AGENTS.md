@@ -680,7 +680,11 @@ commit message in a text area. What it settled:
   `toggleLines()` stays what it was: it reads `lines.selected` and hands the set
   to `hunkLinesPatch()`. The client owns none of it; a range across an unchanged
   line is in `should stage a range of lines picked with v, across an unchanged
-  line`, run against a real git.
+  line`, run against a real git. Dragging the mouse over lines picks the same range
+  (SIG-623), and the client owns none of that either: `should stage a range of lines
+  dragged over with the mouse, the range v would pick` sends the press, the motion and
+  the release through the real router, and `should unstage a range of lines picked with
+  v, under Staged` is the other half of the same path.
 
   **The footer's diff entries follow where the cursor is, rather than adding to a
   row that is full.** The pane's row was already as wide as a 110-column terminal
