@@ -3107,7 +3107,9 @@ other is refused with numbers.
   going to be packaged is not also told what its sheet would have cost, and
   before anything is compiled. It is tested with a stub `node` that fails
   `--build-sea`, so no compiler is needed and the test is skipped on Windows
-  with the other tests that use one.
+  with the other tests that use one. That run ends before the summary, so
+  "not counted as a warning" is not asserted for `package`: it holds because a
+  note never touches the counts, and `build`'s test reaches its summary.
 
   **The 1 MB-stack gap is still open, and nothing here measured it on
   Windows.** The one measured depth is the macOS one below -- 420 nested

@@ -1525,8 +1525,6 @@ describe('sigil package', () => {
         expect(err).toMatch(/src\/deep\.ts\s+was\s+read\s+without\s+parsing/);
         expect(err).toMatch(/keeps\s+\d+\s+of\s+383\s+utility\s+rules/);
         expect(err).toContain('--no-shake');
-        // a note and not a diagnostic: it is not one of the summary's warnings
-        expect(err).not.toMatch(/\d+\s+warnings?\b/);
       }, 120_000);
 
       it('should say nothing about a file under the ceiling', async () => {
