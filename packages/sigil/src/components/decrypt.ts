@@ -32,9 +32,9 @@
 import { strip } from '../ansi/index.js';
 import { cellWidth, type Random, seeded } from '../canvas/index.js';
 import { box, cellStyle, type Element, type RawPaint, toDisplayText } from '../element/index.js';
-import { createEffect, onCleanup, trackedRaw } from '../renderer/index.js';
+import { createEffect, onCleanup, timed, trackedRaw } from '../renderer/index.js';
 import { State } from '../signals/index.js';
-import { terminal as defaultTerminal } from '../terminal/index.js';
+import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
 import { cutAt, isBreakSpace, type TruncateMode } from '../wrap/index.js';
 import { type Mounted, type MountOptions, mountLive, writeLine } from './mount.js';
@@ -1035,6 +1035,12 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
   onDone?: () => void;
   /** How often a hidden cell redraws once cells are resolving. Defaults to 50ms. */
   revealInterval?: number;
+  /**
+   * The terminal a test is driving, so that a throw from `now`, `random` or `onDone`
+   * in the timer reaches `onTimerError()` there (SIG-642). Nothing else reads it:
+   * the facade's own `terminal` is `MountOptions`'s, and is the same one.
+   */
+  terminal?: Terminal;
 }
 
 /**
@@ -1098,13 +1104,19 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
         return;
       }
 
-      timer = setTimeout(step, at < jumble ? fast : slow);
+      timer = setTimeout(onTimer, at < jumble ? fast : slow);
       if (!opts.hold) {
         // a decrypt is not a reason to stay alive -- unless somebody is awaiting
         // this one, which is what `hold` says and why it is the facade that sets it
         timer.unref?.();
       }
     };
+
+    // `now`, `random` and `onDone` are the caller's, and this is where they run
+    // from a timer: a throw is an uncaught exception unless a test terminal is
+    // listening for it (SIG-642). The first frame, below, is an effect body's and
+    // is reported through the machinery that answers for a component that throws
+    const onTimer = timed(opts.terminal?.stdin, step);
 
     // the first frame now rather than one tick from now: a decrypt that showed
     // the real text for one frame before hiding it has given the answer away

@@ -330,6 +330,60 @@ that knowledge was undiscoverable from outside this repository.
   `timed()` ignore the hook, which fails the tests that name a timer, and
   unwrapping any one arm site fails its own.
 
+- **A component's own timer reaches `onTimerError()` too, through the same
+  `timed()`, when it calls a function the app supplied (SIG-642).** SIG-631 stopped
+  at the router. A component arms timers of its own, and the ones that run app code
+  were an uncaught exception in a test exactly as the router's were. The list was
+  confirmed by reading every `setTimeout` and `setInterval` under `src/`, not by
+  the grep the ticket started from, and it is **three components**:
+
+  | Component                               | What the timer runs         | The app's callbacks in it                                                |
+  | --------------------------------------- | --------------------------- | ------------------------------------------------------------------------ |
+  | `toast.ts`, the timeout                 | `close('timeout')`          | `onClose`                                                                |
+  | `clock.ts`, the redraw and the deadline | `bump()`, `arm()`, `finish` | `now`, read by `spent()` and `left()`                                    |
+  | `decrypt.ts`, each step                 | `step()`                    | `now`, `random`, and `onDone` where `decryptReveal()` is called directly |
+
+  **The seam is `timed(on, run)` in `src/util/timed.ts`, which is the function the
+  router's own `timed()` now calls**, with `TIMER_ERROR` beside it for the fixture
+  to set. A component has no router and so no `stdin` of its own, but every one of
+  these takes `terminal`, and `terminal.stdin` is the stream `createTestTerminal()`
+  put the hook on -- so each arms its timer with `timed(opts.terminal?.stdin, ...)`
+  and a test hears the throw by building the component over `ui.terminal`, which
+  it already has to for the component to be live. It is a leaf, a module of its
+  own rather than a line in `util/timer.ts`, so that the config entry, which reads
+  that one for `MAX_TIMER_DELAY`, does not carry it. It is re-exported from
+  `@ttylabs/sigil/renderer` beside `MAX_TIMER_DELAY` for the reason recorded under
+  "Where each lives" in `src/components/AGENTS.md`: an ejected toast, clock or
+  decrypt imports it from the subpath it already imports, and the copy loads
+  nothing more. `DecryptRevealOptions` gained an optional `terminal` for it, which
+  is `MountOptions`' own and is what the facade already spreads in.
+
+  **A component given no terminal is an uncaught exception, as it was.** The
+  default is the process's, whose stdin carries no hook, and that is the right
+  answer for an app and for a test that never asked. The hook is read where the
+  throw happens, so `onTimerError()` may be registered after the component is built.
+  **A new component timer that calls an option is armed through `timed()`**, or its
+  throw is uncaught whatever a test registered; the six arm sites are each pinned in
+  `test/testing/component-timer-throws.test.ts`, and unwrapping any one fails its own.
+
+  **Left out, and why.** Each of these was read, not skipped:
+  - `typewriter.ts`'s timer runs no app code. `pace` is the app's and is asked for
+    every chunk up front, inside the effect body, which is where its throw is
+    already reported (the comment above `held` says so); the timer only writes a
+    signal and arms the next.
+  - `tooltip.ts`'s timer calls `show()`, which builds a bubble from a string and
+    appends it. `area` and the bubble's `props` handlers run later, from a layout
+    or an event, and a throw there has its own path.
+  - `spinner.ts`'s and `tasks.ts`'s intervals write a frame signal, and `tasks.ts`'s
+    `pause()` resolves a promise. There is no callback of the app's to throw.
+  - Not components: the renderer's frame loop (a throw from a frame is SIG-524's and
+    `runApp()`'s `onError`), the config watcher's debounce and probe, and the update
+    check's worker timeout, each of which has an error path of its own.
+  - **An effect is not a timer and is the larger gap.** A component whose callback
+    runs from an effect the scheduler flushes in a microtask -- the clock's `format`,
+    for one -- throws there, and that is the signals layer's reporting and not this
+    one's. It is worth a ticket of its own if it turns out to be uncaught in a test.
+
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
 #### The screen model's wide-cluster defect is fixed, not documented

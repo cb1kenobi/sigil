@@ -5,6 +5,7 @@ import {
   type OutputStream,
   type Terminal,
 } from '../terminal/index.js';
+import { TIMER_ERROR } from '../util/timed.js';
 import { Screen, screenStream } from './screen.js';
 import { PassThrough } from 'node:stream';
 
@@ -113,6 +114,10 @@ export interface TestTerminal {
    * is an uncaught exception unless something is listening here. Where a router
    * has no `onError`, that is what this is for; where it has one, the throw is
    * the router's and goes there.
+   *
+   * A component's own timer is heard here too where it calls something the app
+   * gave it and was built over this terminal: the toast's `onClose`, the clock's
+   * `now`, and the decrypt's `now`, `random` and `onDone` (SIG-642).
    *
    * With no handler registered nothing changes: the throw is uncaught, as it is
    * in an app. Register one before advancing the clock, or waiting out the
@@ -394,13 +399,6 @@ function survivesAThrow(stdin: PassThrough): void {
     return accepted;
   }) as typeof stdin.write;
 }
-
-/**
- * Where the router looks for a throw from one of its timers: see `timed()` in
- * `input/index.ts`. A registry symbol, so that this entry imports nothing of the
- * router's.
- */
-const TIMER_ERROR = Symbol.for('@ttylabs/sigil/input/timer-error');
 
 /**
  * Lets a test hear a throw from a router's timer, for as long as it is listening.
