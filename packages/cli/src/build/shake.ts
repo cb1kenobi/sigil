@@ -487,8 +487,9 @@ function readFile(path: string, into: Evidence): void {
  * whose main thread has a smaller one crashes at a smaller depth. Under
  * `ulimit -s 1024` the same parser crashed at about 560 levels of the `||` chain,
  * 710 nested objects, 950 arrays, 480 templates in templates, and **420 nested
- * function bodies** -- the last below this ceiling. Whether Windows' main thread
- * is 1 MB was not established.
+ * function bodies** -- the last below this ceiling. That is a stack somebody
+ * chose and not Windows' default, which parsed 3,000 nested function bodies and
+ * crashed at 4,000 on node 22, 24 and 26 (see `packages/cli/AGENTS.md`).
  *
  * So this is a ceiling set far below the shallowest crash on the default stack
  * and far above any code anybody writes -- the deepest naive count over this

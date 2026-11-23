@@ -3102,16 +3102,25 @@ other is refused with numbers.
   `--no-shake`, which keeps every rule anyway. Only `sigil build` says it;
   `sigil package` reads the same files the same way and is silent.
 
-  **The 1 MB-stack gap is still open, and nothing here measured it on
-  Windows.** The one measured depth is the macOS one below -- 420 nested
-  function bodies under `ulimit -s 1024`, which is under the ceiling -- and
-  whether Windows' main thread is 1 MB, and where the parser crashes on it, was
-  not established. Measuring it means feeding the parser a file deep enough to
-  crash it, in a spawned child on a Windows runner, which is SIG-639's
-  territory, and none of the tests written for the note above does it: they put
-  their brackets in strings so that the parser is never given anything deep. A
-  file in the gap still ends the build with exit 139, as the paragraph below
-  says; the note above only covers the files the guard does refuse.
+  **Windows was measured, and its default stack is not the 1 MB one**
+  (SIG-638). A throwaway test spawned one `node` per depth on the Windows runner
+  and recorded each child's exit status, so that a native crash was a number
+  rather than a dead test run. On node 22, 24 and 26, `win32 x64`, with the
+  default main thread: nested function bodies parsed at 256, 384, 420, 512, 768,
+  1,024, 1,536, 2,048 and **3,000** levels, and crashed at **4,000** with exit
+  status `3221225725`, which is `0xC00000FD`, a stack overflow; a right-nested
+  `||` chain parsed at every depth tried, up to **4,500**. The same script on
+  macOS, node 24, crashed at 4,000 function bodies too, so Windows is where the
+  default 8 MB figures below already were, to within the resolution of that
+  probe -- the crash is somewhere between 3,000 and 4,000 and was not
+  bisected. The ceiling of 512 is therefore about six times under it, and the
+  guard covers Windows' default stack. The "1 MB" in the gap below is a **small
+  stack someone chose** (`ulimit -s 1024`, a thread started with a small stack
+  size), not a platform default, and **420 nested function bodies under it
+  remain a gap**: a file nested between about 420 and 512 is parsed, and on such
+  a stack ends the build. The probe was removed rather than kept, because the
+  number it prints is the parser's and the platform's and not ours, and a test
+  asserting it would fail the day oxc changes.
 
   What it does **not** cover is depth with no brackets in it -- a flat `+` chain
   past ~57,000 terms, a bare `?:` chain past ~7,900, an `if ... else if` chain
@@ -3119,8 +3128,8 @@ other is refused with numbers.
   bodies, which crash at about 3,450 on 8 MB, and nothing at all on a smaller
   stack, which moves every number above down: under `ulimit -s 1024` the same
   parser crashed at about 560 levels of the `||` chain and **420 nested function
-  bodies, which is below the ceiling of 512**. Whether Windows' main thread is
-  1 MB was not established. A file that deep is a data file rather than source, and
+  bodies, which is below the ceiling of 512**. Windows' default is not that
+  stack (see above). A file that deep is a data file rather than source, and
   it is the parser's to report: **`sigil build` still ends with exit 139 if
   discovery or rolldown reads such a file**, which is oxc's, and the shake can
   only refuse to be the first thing that does. The tests keep clear of the
