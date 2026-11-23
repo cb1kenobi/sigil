@@ -181,6 +181,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-pane  .sigil-pane-body  .sigil-pane-edge
  *   .sigil-badge  .sigil-badge-neutral  .sigil-badge-success
  *   .sigil-badge-warning  .sigil-badge-error  .sigil-badge-info
+ *   .sigil-badge-padded  .sigil-badge-bracketed
  *   .sigil-key-help  .sigil-key-help-key  .sigil-key-help-desc
  *   .sigil-key-help-sep  .sigil-key-help-more  .sigil-key-help-group
  *   .sigil-key-help-row
@@ -261,6 +262,7 @@ export const FRAMEWORK_CSS = `
  *   .sigil-markdown-quote  .sigil-markdown-quote-bar  .sigil-markdown-quote-body
  *   .sigil-markdown-list  .sigil-markdown-ol  .sigil-markdown-ul  .sigil-markdown-item
  *   .sigil-markdown-item-body  .sigil-markdown-marker  .sigil-markdown-url
+ *   .sigil-markdown-url-bare
  *   .sigil-markdown-image  .sigil-markdown-table  .sigil-markdown-table-rule
  *   .sigil-markdown-cell  .sigil-markdown-strike-marker  .sigil-markdown-task
  *   .sigil-markdown-task-done  .sigil-markdown-footnote-ref  .sigil-markdown-footnotes
@@ -357,6 +359,20 @@ export const FRAMEWORK_CSS = `
 .sigil-markdown-strike { strikethrough: true }
 
 /*
+ * and which form of a link takes space, by the level the renderer draws at.
+ * A link in a view holds both: its words as a hyperlink, and its URL in
+ * parentheses as a piece of the last word, hidden here. At level 0 no escape
+ * sequence is written, so the hyperlink goes nowhere and the URL is what says
+ * where the link points -- which the level the *view* was built at cannot say,
+ * because a view is built before the renderer that draws it (SIG-644). A
+ * layout choice and not a look, so an exception rather than a role.
+ */
+.sigil-markdown-url-bare { display: none }
+@media (color-level: 0) {
+  .sigil-markdown-url-bare { display: flex }
+}
+
+/*
  * a panel
  *
  * The fifteenth declared exception to the role rule, and the one that is a layout
@@ -435,6 +451,21 @@ export const FRAMEWORK_CSS = `
  * the component draws brackets there instead of padding.
  */
 .sigil-badge { inverse: true }
+
+/*
+ * and which of a badge's two forms takes space. A badge holds both: the label
+ * padded with a column each side, which the inverse above paints, and the label
+ * in brackets, which is what sets it apart where there is no inverse. Which
+ * characters are drawn is content, and the level that decides it is the
+ * renderer's rather than the one the badge was built at (SIG-644), so the sheet
+ * chooses by @media (color-level: 0). Both are two columns, so which one is
+ * shown moves nothing.
+ */
+.sigil-badge-bracketed { display: none }
+@media (color-level: 0) {
+  .sigil-badge-padded { display: none }
+  .sigil-badge-bracketed { display: flex }
+}
 
 /*
  * a QR code

@@ -4692,7 +4692,8 @@ is no colour option: the colours are the theme's.
 Where there is no colour -- a pipe, `NO_COLOR` -- the inverse is gone and padding
 alone would leave `PASS` indistinguishable from the text beside it, so the padding
 becomes brackets: `[PASS]`. Both take two columns, so a badge is the same width
-either way. Escape sequences and line breaks in the label are dropped, and an empty
+either way. A badge holds both forms and the framework's sheet shows one by the level
+the renderer draws at, so it is right whatever level it was built at. Escape sequences and line breaks in the label are dropped, and an empty
 label draws nothing.
 
 `badge()` returns a string and the caller does the writing, which puts it on the
@@ -4701,9 +4702,8 @@ result side of `--quiet`, like `table()` and `note()`. **In a table, use
 `badge()` string would print as literal characters. A `table()` cell may be any
 `{ element, width }` -- a `TableCellView` -- and the table sizes the column by the
 `width`, aligns the tree by the column's `align`, and cuts it at the column's
-`maxWidth`. Pass the same `colorLevel` (or `ansi`) to the badge and the table if
-you override one: the level is what picks brackets or padding, and a badge built
-for one level and drawn at another is still legible but not the same shape.
+`maxWidth`. A cascade built without the framework's sheet draws both forms, as
+` PASS [PASS]`.
 
 **`Badge` is the live form**, for a badge that changes -- a trend, a build status:
 
@@ -4717,11 +4717,11 @@ Badge({
 ```
 
 `label` and `variant` each take a value, a `State` or a `Computed`, or a function
-of signals, as a chart's data does. It is one `text` element written to in place
-when what it reads changes -- its text and its variant classes, nothing rebuilt --
-and what it draws is `badgeView()`'s, padding and level 0 brackets included. Plain
-values start no effect. `colorLevel` is fixed for its life, and `class` and `props`
-are its own.
+of signals, as a chart's data does. It is one box holding the two forms, written to in
+place when what it reads changes -- their text and their variant classes, nothing
+rebuilt -- and what it draws is `badgeView()`'s, padding and level 0 brackets
+included. Plain values start no effect. `colorLevel` is not read, since the
+renderer's level decides, and `class` and `props` are the box's own.
 
 #### Rule
 
@@ -5036,7 +5036,10 @@ parentheses, so a pipe, a log or an unknown terminal still says where a link goe
 kitty, Windows Terminal, foot, Alacritty, Konsole and the VTE terminals say yes,
 `FORCE_HYPERLINK` overrides it, and **an unknown terminal is a no**, because a wrong
 yes loses the URL and a wrong no only shows it. Colour level 0 always writes the
-URL out. A relative link is resolved against `baseUrl` and is otherwise shown and
+URL out -- and for `markdownView()` that is the level the renderer draws at, not the
+one the view was built at: a link holds both forms and the framework's sheet shows
+the URL at level 0. A link in a table is the exception, because a column is as wide
+as what is drawn in it, so it is decided at the level the view was built at. A relative link is resolved against `baseUrl` and is otherwise shown and
 not linked, and a `#fragment` link is its words alone. An image is its alt text,
 linked to the picture where links are drawn.
 

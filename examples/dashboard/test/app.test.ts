@@ -189,13 +189,18 @@ describe('the range', () => {
     const badges = (): string[] => s.line('from ').match(/\[[^\]]+\]/g) ?? [];
     const before = badges();
     expect(before.length).toBe(4);
-    const elements = withClass(s.app.view.root, 'sigil-badge');
-    expect(elements.length).toBe(4);
+    // a badge holds its padded text and its bracketed one, and the sheet shows one
+    const forms = (): Element[] => [
+      ...withClass(s.app.view.root, 'sigil-badge-padded'),
+      ...withClass(s.app.view.root, 'sigil-badge-bracketed'),
+    ];
+    const elements = forms();
+    expect(elements.length).toBe(8);
 
     await s.press('r');
 
     // the same four elements, written to rather than replaced
-    expect(withClass(s.app.view.root, 'sigil-badge')).toEqual(elements);
+    expect(forms()).toEqual(elements);
 
     const after = badges();
     expect(after.length).toBe(4);

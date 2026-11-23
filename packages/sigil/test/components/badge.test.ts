@@ -2,8 +2,9 @@ import { strip } from '../../src/ansi/index.js';
 import { Badge, badge, badgeView } from '../../src/components/badge.js';
 import { table } from '../../src/components/table.js';
 import { box, type Element, renderToLines } from '../../src/element/index.js';
-import { createRoot } from '../../src/renderer/index.js';
+import { createRoot, render } from '../../src/renderer/index.js';
 import { Computed, flush, State } from '../../src/signals/index.js';
+import { createTestTerminal } from '../../src/testing/index.js';
 import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { describe, expect, it } from 'vitest';
@@ -164,6 +165,11 @@ function drawn(root: Element, colorLevel: 0 | 1, width = 20): string[] {
   return renderToLines(root, { cascade: themedCascade(), colorLevel, width });
 }
 
+/** The two texts a badge holds, the padded form and then the bracketed one. */
+function formsOf(el: Element): [Element, Element] {
+  return [el.children[0], el.children[1]];
+}
+
 describe('Badge()', () => {
   it('should draw what badgeView() draws for the same label and variant', () => {
     for (const colorLevel of [0, 1] as const) {
@@ -180,7 +186,7 @@ describe('Badge()', () => {
     }
   });
 
-  it('should be one text element, with no effect, when given plain values', () => {
+  it('should be a box of two texts, with no effect, when given plain values', () => {
     let effects = 0;
     const el = createRoot(
       () => Badge({ colorLevel: 1, label: 'beta', variant: 'info' }),
@@ -191,8 +197,14 @@ describe('Badge()', () => {
     );
 
     expect(effects).to.equal(0);
-    expect(el.type).to.equal('text');
-    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+    expect(el.type).to.equal('box');
+    for (const form of formsOf(el)) {
+      expect(form.type).to.equal('text');
+      expect(form.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+    }
+    expect(
+      formsOf(el).map((form) => form.classes.find((c) => /-(padded|bracketed)$/.test(c)))
+    ).to.deep.equal(['sigil-badge-padded', 'sigil-badge-bracketed']);
   });
 
   it('should follow a State for its label and its variant', async () => {
@@ -222,15 +234,17 @@ describe('Badge()', () => {
     const root = box({}, el);
 
     expect(drawn(root, 0)[0]?.trimEnd()).to.equal('[+4%]');
-    expect(el.classes).to.include('sigil-success');
+    expect(formsOf(el)[0].classes).to.include('sigil-success');
 
     change.set(-2);
     await flush();
 
     expect(drawn(root, 0)[0]?.trimEnd()).to.equal('[-2%]');
-    expect(el.classes).to.include('sigil-error');
-    expect(el.classes).not.to.include('sigil-success');
-    expect(el.classes).not.to.include('sigil-badge-success');
+    for (const form of formsOf(el)) {
+      expect(form.classes).to.include('sigil-error');
+      expect(form.classes).not.to.include('sigil-success');
+      expect(form.classes).not.to.include('sigil-badge-success');
+    }
   });
 
   it('should leave the variant a function does not change as it was', async () => {
@@ -239,7 +253,9 @@ describe('Badge()', () => {
     label.set('b');
     await flush();
 
-    expect(el.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+    for (const form of formsOf(el)) {
+      expect(form.classes).to.include.members(['sigil-badge', 'sigil-badge-info', 'sigil-info']);
+    }
   });
 
   it('should draw nothing for a label that becomes empty, and a badge again after', async () => {
@@ -266,14 +282,15 @@ describe('Badge()', () => {
     variant.set('error');
     await flush();
 
-    expect(el.classes).to.include.members(['trend', 'wide', 'sigil-error']);
+    expect(el.classes).to.include.members(['trend', 'wide']);
+    expect(formsOf(el)[0].classes).to.include('sigil-error');
     expect(el.props['flex-shrink']).to.equal(1);
   });
 
   it('should read an undefined variant from a signal as neutral, like an omitted one', () => {
     const el = Badge({ colorLevel: 1, label: 'x', variant: () => undefined as never });
 
-    expect(el.classes).to.include('sigil-badge-neutral');
+    expect(formsOf(el)[1].classes).to.include('sigil-badge-neutral');
   });
 
   it('should refuse a variant it does not know', () => {
@@ -295,5 +312,58 @@ describe('Badge()', () => {
     await flush();
 
     expect(drawn(box({}, el as Element), 0)[0]?.trimEnd()).to.equal('[a]');
+  });
+});
+
+// SIG-644. A badge's form is the level the renderer draws at, not the one it was
+// built at: both forms are in the tree and the framework's sheet shows one by
+// `@media (color-level: 0)`.
+describe('a badge built at one level and shown at another', () => {
+  /** What a renderer drawing at `shownAt` shows of a badge made by `make`. */
+  function shown(make: () => Element, shownAt: 0 | 3): string {
+    const ui = createTestTerminal({ columns: 20, colorLevel: shownAt, rows: 3 });
+    const view = render(make, {
+      cascade: themedCascade(),
+      colorLevel: shownAt,
+      frameMs: 0,
+      terminal: ui.terminal,
+    });
+    const first = strip(ui.viewport[0] ?? '').trimEnd();
+    view.dispose();
+    return first;
+  }
+
+  it.each([
+    [0, 3, ' PASS'],
+    [3, 0, '[PASS]'],
+    [0, 0, '[PASS]'],
+    [3, 3, ' PASS'],
+  ] as const)('should draw badgeView() built at %i as the form for %i', (built, shownAt, line) => {
+    expect(
+      shown(() => badgeView('PASS', { colorLevel: built, variant: 'success' }).element, shownAt)
+    ).to.equal(line);
+  });
+
+  it.each([
+    [0, 3, ' PASS'],
+    [3, 0, '[PASS]'],
+  ] as const)('should draw Badge() built at %i as the form for %i', (built, shownAt, line) => {
+    expect(
+      shown(() => Badge({ colorLevel: built, label: 'PASS', variant: 'success' }), shownAt)
+    ).to.equal(line);
+  });
+
+  it('should draw one form and never both, and be as wide at either level', () => {
+    const { element, width } = badgeView('PASS');
+    for (const colorLevel of [0, 3] as const) {
+      const [line] = renderToLines(element, { cascade: themedCascade(), colorLevel, width: 20 });
+      expect(stringWidth(line.trimEnd()), `level ${colorLevel}`).to.equal(width);
+    }
+  });
+
+  it('should draw both forms where the cascade has no sheet', () => {
+    const { element } = badgeView('PASS');
+    const [line] = renderToLines(element, { colorLevel: 0, width: 20 });
+    expect(line.trimEnd()).to.equal(' PASS [PASS]');
   });
 });

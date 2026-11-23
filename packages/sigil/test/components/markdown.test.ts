@@ -10,6 +10,9 @@ import {
   parseMarkdown,
 } from '../../src/components/index.js';
 import { type Element, renderToString } from '../../src/element/index.js';
+import { render } from '../../src/renderer/index.js';
+import { createTestTerminal } from '../../src/testing/index.js';
+import { themedCascade } from '../../src/theme/index.js';
 import { stringWidth } from '../../src/width/index.js';
 import { wrap } from '../../src/wrap/index.js';
 import { describe, expect, it } from 'vitest';
@@ -1469,5 +1472,109 @@ describe('markdownView()', () => {
       '• one',
       '  ◦ two three four five six',
     ]);
+  });
+});
+
+// SIG-644. A link's form is the level the renderer draws at, not the one the view was
+// built at: the view holds the hyperlink and the URL, and the framework's sheet shows
+// the URL by `@media (color-level: 0)`.
+describe('a markdownView() built at one level and shown at another', () => {
+  /** A view over `source` built at `built`, drawn by the framework's sheet at `shownAt`. */
+  function shown(source: string, built: 0 | 3, shownAt: 0 | 3, opts: MarkdownOptions = {}): string {
+    const { element, width } = markdownView(source, {
+      colorLevel: built,
+      env: {},
+      hyperlinks: true,
+      platform: 'linux',
+      width: 40,
+      ...opts,
+    });
+    return renderToString(element, {
+      cascade: themedCascade(),
+      colorLevel: shownAt,
+      width,
+    });
+  }
+
+  it.each([
+    [3, 0],
+    [0, 0],
+  ] as const)('should write the URL out when built at %i and shown at %i', (built, shownAt) => {
+    const out = shown('see [docs](https://example.com).', built, shownAt);
+    expect(out).to.equal('see docs (https://example.com).');
+  });
+
+  it.each([
+    [0, 3],
+    [3, 3],
+  ] as const)('should draw the link when built at %i and shown at %i', (built, shownAt) => {
+    const out = shown('see [docs](https://example.com).', built, shownAt);
+    expect(out).to.include(osc8('https://example.com'));
+    expect(strip(out)).to.equal('see docs.');
+  });
+
+  it('should leave a comma against the link where there is a hyperlink', () => {
+    expect(strip(shown('a [b](https://x.y), c.', 3, 3))).to.equal('a b, c.');
+  });
+
+  it('should draw what the facade draws at the level it is shown at', () => {
+    const source =
+      'see [the docs](https://example.com/a), and **more** [here](https://example.com/b).';
+    for (const level of [0, 3] as const) {
+      expect(shown(source, level === 0 ? 3 : 0, level), `level ${level}`).to.equal(
+        markdown(source, {
+          colorLevel: level,
+          env: {},
+          hyperlinks: true,
+          platform: 'linux',
+          width: 40,
+        })
+      );
+    }
+  });
+
+  it('should keep a link the terminal cannot hyperlink as its URL at every level', () => {
+    expect(strip(shown('[docs](https://example.com)', 3, 3, { hyperlinks: false }))).to.equal(
+      'docs (https://example.com)'
+    );
+  });
+
+  it('should follow a renderer whose level is not the one the view was built at', () => {
+    const { element } = markdownView('[docs](https://example.com)', {
+      colorLevel: 3,
+      env: {},
+      hyperlinks: true,
+      platform: 'linux',
+      width: 40,
+    });
+    const ui = createTestTerminal({ columns: 40, colorLevel: 0, rows: 3 });
+    const view = render(() => element, {
+      cascade: themedCascade(),
+      colorLevel: 0,
+      frameMs: 0,
+      terminal: ui.terminal,
+    });
+    expect(strip(ui.viewport[0] ?? '').trimEnd()).to.equal('docs (https://example.com)');
+    view.dispose();
+  });
+
+  it('should draw both where the cascade has no sheet', () => {
+    const { element, width } = markdownView('[docs](https://example.com)', {
+      env: {},
+      hyperlinks: true,
+      platform: 'linux',
+      width: 40,
+    });
+    expect(strip(renderToString(element, { colorLevel: 3, width }))).to.equal(
+      'docs (https://example.com)'
+    );
+  });
+
+  // a column is as wide as what is drawn in it, so a cell cannot hold a URL that only
+  // some levels draw: its links keep the level the view was built at
+  it('should decide a link in a table at the level the view was built at', () => {
+    const source = '| a |\n| - |\n| [x](https://e.co) |';
+    expect(strip(shown(source, 3, 0))).to.not.include('e.co');
+    expect(strip(shown(source, 0, 3))).to.include('e.co');
   });
 });

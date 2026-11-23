@@ -1,5 +1,6 @@
 import { type ColorLevel } from '../ansi/index.js';
 import {
+  box,
   type Element,
   type ElementProps,
   renderToString,
@@ -38,66 +39,123 @@ const ROLES: Record<Exclude<BadgeVariant, 'neutral'>, string> = {
 
 /** What a badge draws, as `badgeView()` and `Badge()` both need it. */
 interface BadgeParts {
-  /** The text, padding or brackets included. */
-  content: string;
-  /** The classes the element carries, as separate names. */
+  /** The label, with nothing around it: `''` for no badge. */
+  body: string;
+  /** The classes each form carries, as separate names. */
   classes: string[];
+}
+
+/** The two forms a badge holds, and what each says. */
+interface BadgeForms {
+  /** The label in brackets, which the sheet shows at colour level 0. */
+  bracketed: string;
+  /** The label with a column each side, which the sheet shows above it. */
+  padded: string;
 }
 
 /**
  * Works out what a badge says and which classes it wears.
  *
  * The one place that decides it, so the static view and the live component cannot
- * disagree about the padding, the brackets or the role.
+ * disagree about the label or the role.
  *
  * @param label - The label, as the caller wrote it.
  * @param variant - Which role colours it.
- * @param level - The colour level the brackets are decided at.
- * @returns The content and the classes.
+ * @returns The label and the classes.
  */
-function badgeParts(label: string, variant: BadgeVariant, level: ColorLevel): BadgeParts {
-  const body = labelLine(label);
-  // an empty label is no badge, rather than a coloured gap two columns wide
-  const [open, close] = body === '' ? ['', ''] : level === 0 ? ['[', ']'] : [' ', ' '];
+function badgeParts(label: string, variant: BadgeVariant): BadgeParts {
   const classes = ['sigil-badge', `sigil-badge-${variant}`];
   if (variant !== 'neutral') {
     classes.push(ROLES[variant]);
   }
-  return { classes, content: `${open}${body}${close}` };
+  return { body: labelLine(label), classes };
+}
+
+/**
+ * What each of a badge's two forms says.
+ *
+ * An empty label is no badge, rather than a coloured gap two columns wide.
+ *
+ * @param body - The label.
+ * @returns The padded form and the bracketed one.
+ */
+function badgeForms(body: string): BadgeForms {
+  return body === ''
+    ? { bracketed: '', padded: '' }
+    : { bracketed: `[${body}]`, padded: ` ${body} ` };
+}
+
+/** One of a badge's two forms, as a `nowrap` text. */
+function formText(which: 'bracketed' | 'padded'): Element {
+  return textNode('', {
+    class: `sigil-badge-${which}`,
+    'flex-shrink': 0,
+    'white-space': 'nowrap',
+  });
+}
+
+/**
+ * Writes what a badge says into its two texts, and swaps their classes.
+ *
+ * @param forms - The padded text and the bracketed one.
+ * @param parts - The label and the classes.
+ * @param worn - The classes the last call put on, which a change takes off.
+ * @returns The classes it put on, for the next call.
+ */
+function dressForms(
+  forms: Record<'bracketed' | 'padded', Element>,
+  { body, classes }: BadgeParts,
+  worn: readonly string[]
+): string[] {
+  const said = badgeForms(body);
+  for (const which of ['bracketed', 'padded'] as const) {
+    const text = forms[which];
+    text.setText(said[which]);
+    for (const name of worn) {
+      if (!classes.includes(name)) {
+        text.removeClass(name);
+      }
+    }
+    for (const name of classes) {
+      text.addClass(name);
+    }
+  }
+  return classes;
 }
 
 /**
  * Builds the element tree for a badge.
  *
- * A single `nowrap` text, and the padding is part of it. A `text` drops the
- * whitespace at the end of a line unless it is `nowrap`, and padding paints
- * nothing -- the paint pass fills the cells of a glyph and not the empty ones
- * around it -- so a column either side of the label has to be a space in the
- * label for the inverse to reach it.
+ * Two `nowrap` texts in a row, and the sheet shows one of them. The padding is
+ * part of the text: a `text` drops the whitespace at the end of a line unless it
+ * is `nowrap`, and padding paints nothing -- the paint pass fills the cells of a
+ * glyph and not the empty ones around it -- so a column either side of the label
+ * has to be a space in the label for the inverse to reach it.
  *
- * What a badge is at colour level 0 is decided here and not in the sheet, because
- * which characters are drawn is content: with no colour the inverse is gone and a
- * padded `PASS` is just `PASS` with spaces around it, so the padding becomes
- * brackets and the label is still set apart. Both are two columns, so the width
- * does not depend on the level.
+ * What a badge is at colour level 0 is decided by the sheet, by the level the
+ * renderer draws at: which characters are drawn is content, but the level is not
+ * one this function can know, because a view is built before whatever draws it.
+ * With no colour the inverse is gone and a padded `PASS` is just `PASS` with
+ * spaces around it, so the other text holds brackets and is the one drawn there --
+ * and the label is still set apart. Both are two columns, so the width does not
+ * depend on the level. A cascade without the framework's sheet draws both
+ * (SIG-644).
  *
  * @param label - The label. Escape sequences and line breaks are dropped.
- * @param opts - The variant, and the level the brackets are decided at.
+ * @param opts - The variant.
  * @returns The tree, and how wide it is.
  */
 export function badgeView(
   label: string,
   opts: BadgeOptions = {}
 ): { element: Element; width: number } {
-  const { classes, content } = badgeParts(label, opts.variant ?? 'neutral', colorLevelOf(opts));
+  const parts = badgeParts(label, opts.variant ?? 'neutral');
+  const forms = { bracketed: formText('bracketed'), padded: formText('padded') };
+  dressForms(forms, parts, []);
 
   return {
-    element: textNode(content, {
-      class: classes.join(' '),
-      'flex-shrink': 0,
-      'white-space': 'nowrap',
-    }),
-    width: stringWidth(content),
+    element: box({ 'flex-direction': 'row', 'flex-shrink': 0 }, forms.padded, forms.bracketed),
+    width: stringWidth(badgeForms(parts.body).padded),
   };
 }
 
@@ -112,16 +170,17 @@ export function badgeView(
 export type BadgeSource<T> = T | { get(): T } | (() => T);
 
 export interface BadgeProps {
-  /** Extra classes for the badge, beside the ones its variant gives it. */
+  /** Extra classes for the badge's box. The variant's classes are on the two texts inside it. */
   class?: string;
   /**
-   * How much colour to resolve for, which decides padding or brackets. Defaults to
-   * the process's, as `badgeView()` does. Fixed for the badge's life.
+   * Not read. Padding or brackets is decided by the level the renderer draws at, by
+   * the framework's sheet, so a badge follows it whatever it was built at (SIG-644).
+   * Kept so a caller that passed it still type-checks.
    */
   colorLevel?: ColorLevel;
   /** The label. Escape sequences and line breaks are dropped, and an empty one draws nothing. */
   label: BadgeSource<string>;
-  /** The badge's own props: a margin, a flex factor. They win over the defaults. */
+  /** The badge's own props: a margin, a flex factor. They win over the defaults, and are on its box. */
   props?: ElementProps;
   /** Which role colours the badge. Defaults to `neutral`. */
   variant?: BadgeSource<BadgeVariant>;
@@ -165,7 +224,8 @@ function read<T>(source: BadgeSource<T>): T {
  * brackets and the role classes are the same.
  *
  * @param props - The label, the variant, and the element's own props.
- * @returns The badge, a single `text`.
+ * @returns The badge: a row holding the padded text and the bracketed one, of which
+ * the sheet shows one by the level the renderer draws at.
  * @throws If `variant` is not one of the five, when it is first read. A signal that
  * later holds one that is not is reported by the effect, which keeps what the badge
  * last drew until a valid one arrives.
@@ -176,7 +236,6 @@ export function Badge(props: BadgeProps): Element {
     (typeof source === 'object' &&
       source !== null &&
       typeof (source as { get?: unknown }).get === 'function');
-  const level = colorLevelOf(props);
 
   /** What the sources say now, validated. */
   const parts = (): BadgeParts => {
@@ -186,34 +245,25 @@ export function Badge(props: BadgeProps): Element {
         `Expected a badge variant to be neutral, success, warning, error or info, not ${String(variant)}`
       );
     }
-    return badgeParts(String(read(props.label) ?? ''), variant, level);
+    return badgeParts(String(read(props.label) ?? ''), variant);
   };
 
-  const first = live(props.label) || live(props.variant) ? undefined : parts();
-  const element = textNode(first?.content ?? '', {
-    'flex-shrink': 0,
-    'white-space': 'nowrap',
-    ...props.props,
-  });
-  /** The classes the sources gave it, so the next change can take them off. */
+  const forms = { bracketed: formText('bracketed'), padded: formText('padded') };
+  const element = box(
+    { 'flex-direction': 'row', 'flex-shrink': 0, ...props.props },
+    forms.padded,
+    forms.bracketed
+  );
+  /** The classes the sources gave the texts, so the next change can take them off. */
   let worn: string[] = [];
-  const dress = ({ classes, content }: BadgeParts): void => {
-    element.setText(content);
-    for (const name of worn) {
-      if (!classes.includes(name)) {
-        element.removeClass(name);
-      }
-    }
-    for (const name of classes) {
-      element.addClass(name);
-    }
-    worn = classes;
+  const dress = (next: BadgeParts): void => {
+    worn = dressForms(forms, next, worn);
   };
 
-  if (first !== undefined) {
-    dress(first);
-  } else {
+  if (live(props.label) || live(props.variant)) {
     createEffect(() => dress(parts()));
+  } else {
+    dress(parts());
   }
   for (const name of String(props.class ?? '')
     .split(/\s+/)
