@@ -508,6 +508,32 @@ describe('runOnTerminal() with a terminal on stdin', () => {
     expect(run.screen.cursorHidden).toBe(false);
   });
 
+  it('should show which mouse modes a program has on, and that it handed them back', async () => {
+    const run = runOnTerminal({
+      source: `
+        const ESC = String.fromCharCode(27);
+        process.stdin.setRawMode(true);
+        process.stdin.setEncoding('utf8');
+        process.stdout.write(ESC + '[?1006h' + ESC + '[?1003h' + 'ready');
+        process.stdin.on('data', () => {
+          process.stdout.write(ESC + '[?1003l' + ESC + '[?1006l');
+          process.exit(0);
+        });
+      `,
+      stdin: true,
+    });
+    try {
+      await run.waitFor('ready');
+      expect(run.screen.mouse).toEqual({ buttons: false, motion: true, sgr: true });
+
+      await run.press('q');
+      await run;
+      expect(run.screen.mouse).toEqual({ buttons: false, motion: false, sgr: false });
+    } finally {
+      run.kill();
+    }
+  });
+
   it('should read the screen with a pattern as well as with text', async () => {
     const run = runOnTerminal({ source: FULLSCREEN, stdin: true });
     await run.waitFor(/^re+ady$/m);

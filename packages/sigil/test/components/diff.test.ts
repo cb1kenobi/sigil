@@ -707,6 +707,37 @@ describe('diff()', () => {
     });
   });
 
+  describe('the rows of each line', () => {
+    it('should say which rows each line of a hunk took, a pair sharing its rows side by side', () => {
+      const input = { new: 'a\nB\nc\n', old: 'a\nb\nc\n' };
+
+      const unified = diffView(input, { layout: 'unified', lineNumbers: false, width: 80 });
+      expect(unified.hunks[0]!.lines).to.deep.equal([
+        { end: 2, first: 1 },
+        { end: 3, first: 2 },
+        { end: 4, first: 3 },
+        { end: 5, first: 4 },
+      ]);
+
+      const wide = diffView(input, { layout: 'side-by-side', lineNumbers: false, width: 80 });
+      const [, removed, added] = wide.hunks[0]!.lines;
+      expect(wide.layout).to.equal('side-by-side');
+      expect(removed).to.deep.equal(added);
+      expect(removed).to.deep.equal({ end: 3, first: 2 });
+    });
+
+    it('should give a folded line every row it folded onto', () => {
+      const tree = diffView(
+        { new: `${'y'.repeat(30)}\n`, old: 'x\n' },
+        { layout: 'unified', lineNumbers: false, wrap: 'columns', width: 12 }
+      );
+      const [removed, added] = tree.hunks[0]!.lines;
+
+      expect(removed).to.deep.equal({ end: 2, first: 1 });
+      expect(added!.end - added!.first).toBeGreaterThan(1);
+    });
+  });
+
   describe('side by side', () => {
     const opts: DiffOptions = { layout: 'side-by-side', width: DIFF_SIDE_BY_SIDE_MIN_WIDTH };
 

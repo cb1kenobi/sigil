@@ -70,8 +70,8 @@ import {
   wordAfter,
   wordBefore,
 } from './editing.js';
+import { type FieldRow, layoutField, offsetIn } from './field-layout.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
-import { type FieldRow, layoutField, offsetIn } from './prompt.js';
 import { wheelStep } from './scroll-box.js';
 import { type Highlighter, type HighlightSpan, tokenClasses, tokensOf } from './token.js';
 
