@@ -359,6 +359,8 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
   let follow: (() => void) | undefined;
   /** Escape was pressed, and nothing has left since. */
   let dismissed = false;
+  /** Whether the app held the bubble at the last `update()`, so a hold starting is seen. */
+  let wasHolding = false;
 
   /** What the bubble says. One element for the tooltip's life, moved into each bubble. */
   const label = textNode(opts.text, { class: 'sigil-tooltip-text' });
@@ -530,6 +532,13 @@ export function attachTooltip(anchor: Element, opts: TooltipOptions): TooltipHan
     // read first and always, so that the effect running this tracks it even when the
     // pointer or the focus is the reason it is running
     const holding = held();
+    // a hold that starts is the app asking for the bubble now, so an Escape pressed
+    // before it is not still in force: a pin made after an Escape would otherwise
+    // keep `dismissed` set for as long as it stood, its readout never shown
+    if (holding && !wasHolding) {
+      dismissed = false;
+    }
+    wasHolding = holding;
     if (!hovered() && !focused() && !holding) {
       dismissed = false;
       remove();

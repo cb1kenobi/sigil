@@ -1262,6 +1262,22 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
       expect(m.screen().join('\n')).toContain('│ API 5 │');
     });
 
+    it('should show a pinned readout after an Escape pressed before the pin', async () => {
+      const m = await mount();
+      await m.key(KEYS.tab, KEYS.left);
+      expect(m.screen().join('\n')).toContain('│ API 3 │');
+      // Escape while nothing holds the bubble dismisses it, as Escape does
+      await m.key(KEYS.escape);
+      await new Promise((resolve) => setTimeout(resolve, ESCAPE_TIMEOUT + 20));
+      await m.key();
+      expect(m.screen().join('\n')).not.toContain('│ API 3 │');
+      // and the pin that follows is a new reason to show it, which the Escape before
+      // it does not outlast
+      await m.key(KEYS.enter);
+      await m.blur();
+      expect(m.screen().join('\n')).toContain('│ API 3 │');
+    });
+
     it("should pin the sample the pointer's rule is on, where the pointer moved last", async () => {
       const m = await mount();
       await m.key(KEYS.tab);
