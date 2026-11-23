@@ -479,7 +479,7 @@ describe('a command name', () => {
  * that is a process of its own: measured, `sigil new demo --yes` took 2.9 s, 4.3 s
  * and 3.1 s and the same with `--pm npm` 1.2 s, 1.5 s and 0.7 s, on a machine
  * with a load average of 140. On Windows it goes through `cmd.exe` and
- * `pnpm.cmd` as well, which is why `should set up no linter with --linter none`
+ * `pnpm.cmd` as well, which is the likely reason `should set up no linter with --linter none`
  * timed out at 10 seconds there while the suite ran nine other files beside it
  * (SIG-627). Nothing in the tests that do not pass `--pm` is about pnpm, and the
  * ones that are say so.
