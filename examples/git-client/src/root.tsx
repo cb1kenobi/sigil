@@ -92,6 +92,7 @@ export function App(): Element {
     <DiffView
       content={m.diff.blocks}
       current={m.diff.cursor}
+      lines={m.diff.lines}
       position={m.diff.position}
       props={{ class: 'diff-pane' }}
     />

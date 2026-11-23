@@ -667,6 +667,17 @@ commit message in a text area. What it settled:
   the cut went through is dropped rather than offered to Space, since its header
   still counts lines it no longer has.
 
+- **Some of a hunk is staged through `DiffView`'s `lines`, and `hunkLinesPatch()`
+  writes it (SIG-473).** Enter in the diff pane takes the cursor inside the hunk
+  and Space then stages the lines picked, or the one under the cursor: the model
+  hands `m.diff.lines` -- the cursor and the picks, two `State`s -- to the view
+  and reads them back on Space. It is an `Error` the writer throws that a toast
+  says, rather than a patch of something else. An untracked file is staged whole,
+  since there is no index entry to apply a patch of lines to. The footer does not
+  list the line keys: the diff pane's row is already as wide as a 110-column
+  terminal leaves it, and one more entry pushed `space stage hunk` under the
+  toast.
+
 - **The diff pane is a `DiffView` over blocks the model builds, and the model asks
   `diffStops()` what is under the cursor.** `blocksOf()` turns what the pane shows
   into the view's blocks: each section's heading and prose, each patch file as a
