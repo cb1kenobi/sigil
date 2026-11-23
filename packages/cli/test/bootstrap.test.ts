@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -136,5 +137,65 @@ describe('the bootstrap', () => {
 
     expect(ran.status).toBe(0);
     expect(ran.stdout).toContain('Usage: buildable');
+  });
+});
+
+/**
+ * The bootstrap type-checks this package with its own `tsconfig.json`, and that
+ * one's `include` is `./test` -- the directory `update-check.test.ts` writes
+ * variants of an app into, `.ts` entries among them, for as long as that file
+ * runs (SIG-627). A variant is a schema written to be read rather than compiled
+ * (`<Type>true`), so while one existed any `sigil build` of this package failed
+ * with `TS2304: Cannot find name 'Type'`, and `should build an app with the stage
+ * 2 binary` and the two builds before it were failing on whichever run happened
+ * to overlap -- once in a full local run, and it passed alone. Measured, not
+ * inferred: with that one file in place `node src/sigil.ts build` exits 1 with
+ * exactly that error, and with it excluded it does not.
+ *
+ * Asked of the compiler rather than of the JSON, since what has to hold is that
+ * the file is not in the program, and `exclude` is only one way of saying so.
+ */
+describe('the files the type check reads', () => {
+  it('should not include what update-check.test.ts writes while it runs', () => {
+    const variant = join(
+      root,
+      'test',
+      'fixtures',
+      'updates',
+      'out',
+      'variants',
+      'tsconfig-excludes-this'
+    );
+    const file = join(variant, 'src', 'index.ts');
+    // the bin the manifest names, which `exports` does not let a specifier reach
+    const tsc = join(
+      dirname(createRequire(join(root, 'package.json')).resolve('typescript/package.json')),
+      'bin',
+      'tsc'
+    );
+
+    mkdirSync(join(variant, 'src'), { recursive: true });
+    writeFileSync(file, 'export default <Type>true;\n');
+    try {
+      const listed = spawnSync(process.execPath, [tsc, '--listFilesOnly', '-p', root], {
+        cwd: root,
+        encoding: 'utf-8',
+      });
+
+      expect(listed.status, listed.stderr).toBe(0);
+      // the list is the program's files, one an absolute path to a line, and the
+      // control is that it is the right program at all
+      const files = listed.stdout.split('\n').map((line) => line.trim());
+      expect(files.some((line) => line.endsWith(`${sep}src${sep}sigil.ts`))).toBe(true);
+      expect(files.includes(file)).toBe(false);
+    } finally {
+      rmSync(
+        join(root, 'test', 'fixtures', 'updates', 'out', 'variants', 'tsconfig-excludes-this'),
+        {
+          force: true,
+          recursive: true,
+        }
+      );
+    }
   });
 });
