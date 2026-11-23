@@ -14532,7 +14532,7 @@ measurements, the review findings and the sabotage pass are in
   cursor per run length; and Markdown's searches are made once per document rather
   than per line. That last one was a review finding before any test ran: per line,
   a `[` with no `]` after it scanned to the end of the document from every line
-  that had one. `linear time` in `test/components/highlight.test.ts` reads thirty
+  that had one. `linear time` in `test/components/highlight.test.ts` reads fifty-two
   pathological inputs at 32K characters and at eight times that, best of seven
   with the sizes taking turns, and asks that the larger cost less than three times
   eight -- linear is eight and quadratic sixty-four. The backtick runs are read at
@@ -14543,6 +14543,25 @@ measurements, the review findings and the sabotage pass are in
   macOS runners, while a quadratic made of one `indexOf()` per opener reads the
   same million in 2.4 s on a laptop without coverage. No deadline separates two
   ranges that overlap, and a ratio is what coverage and a slow runner leave alone.
+- **The linear-time check reads lines as well as characters, and its small side
+  is a span rather than a floor (SIG-640).** Thirty shapes were all one line for
+  YAML, so a cost per line in `lexYaml` -- which is a cost per character on a line
+  five characters long -- passed all of them. Every lexer that keeps state across
+  lines now has a document of short lines in the list, YAML six, and `ts` one for
+  the shared script lexer's own reading of a line. A deliberate per-line quadratic
+  in `lexYaml` fails all six and a per-line one in each other lexer fails the
+  shapes that lexer was given. The other half was `Math.max(best, 2)` on both
+  sides: while a small read cost under about 0.75 ms the floor stood in for it, and
+  a large one up to twice the allowed ratio of the real one passed. Measured with
+  the old formula against a quadratic in `lexYaml` made small enough to sit under
+  it, the six line shapes grew 14 to 45 times at eight times the size, the old
+  check caught one of them and the new one catches five. The floor is gone, and what replaces it
+  is reading the same text enough times that the clock has something to read: the
+  small side is repeated until it fills 3 ms of the clock the test uses, the large
+  side as often as makes the same work, and what is compared is the cost of one
+  read of each. That keeps what SIG-627 fixed -- CPU time, best of seven, the sizes
+  taking turns -- and was run 20 times in a row and six more at a load average of
+  35 without a failure. `lexYaml` itself turned out to be linear on every shape.
 - **Spans come out in order and never overlap, and two of one token that touch are
   one.** The order is what the text area's filing assumes ("a highlighter emits its
   spans in order, so that is almost always a step or two"), and the merge is why an

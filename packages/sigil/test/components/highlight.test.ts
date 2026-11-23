@@ -535,22 +535,45 @@ describe('highlightCode()', () => {
             return (system + user) / 1000;
           };
 
+    /**
+     * The shortest span a measurement is taken over, in milliseconds. A read of one
+     * short line is a few hundredths of one, which is under what a clock can tell
+     * from none, and this used to be answered by a floor of two milliseconds on
+     * both sides (SIG-640): while the smaller read cost less than about 0.75 ms the
+     * floor stood in for it, and a larger one that grew by up to twice the allowed
+     * ratio of the real one passed. A floor moves the measurement; reading the same
+     * text enough times to fill the span is what makes it one. A cap on the count
+     * keeps a clock that reads zero from asking for ever.
+     */
+    const SPAN = 3;
+    const MOST_READS = 4096;
+
     /** How much more a document `factor` times the size costs to highlight. */
     const growth = (lang: string, make: (size: number) => string, factor: number): number => {
       const small = make(SIZE);
       const large = make(SIZE * factor);
-      const time = (code: string): number => {
+      const time = (code: string, reads: number): number => {
         const start = now();
-        highlightCode(code, lang);
+        for (let read = 0; read < reads; read++) {
+          highlightCode(code, lang);
+        }
         return now() - start;
       };
+      // The small read is repeated until it fills the span, and the large one as
+      // often as makes the same amount of work, so neither side is read through a
+      // clock's granularity and what is compared is the cost of one read of each.
+      let smallReads = 1;
+      while (time(small, smallReads) < SPAN && smallReads < MOST_READS) {
+        smallReads *= 2;
+      }
+      const largeReads = Math.max(1, Math.round(smallReads / factor));
       let bestSmall = Infinity;
       let bestLarge = Infinity;
       for (let run = 0; run < 7; run++) {
-        bestSmall = Math.min(bestSmall, time(small));
-        bestLarge = Math.min(bestLarge, time(large));
+        bestSmall = Math.min(bestSmall, time(small, smallReads) / smallReads);
+        bestLarge = Math.min(bestLarge, time(large, largeReads) / largeReads);
       }
-      return Math.max(bestLarge, 2) / Math.max(bestSmall, 2);
+      return bestLarge / Math.max(bestSmall, Number.EPSILON);
     };
 
     const repeat =
@@ -575,10 +598,29 @@ describe('highlightCode()', () => {
       ['sh', repeat('a[ ')],
       ['sh', repeat('<<')],
       ['sh', repeat('$(')],
+      // a line is where a lexer's state turns over, so each one that keeps state
+      // across lines is given a document of short lines (SIG-640): one line is
+      // all the shapes above give it, and a cost per line is a cost per input
+      // character on a line that long
+      ['sh', repeat('<<a\n')],
+      ['sh', repeat('a \\\n')],
+      ['sh', repeat('if a\n')],
+      ['js', repeat('// a\n')],
+      ['js', repeat('a\n/ b\n')],
+      ['js', repeat('`${\n')],
+      ['ts', repeat('type a\n')],
+      ['json', repeat('"a"\n')],
+      ['json', repeat('// a\n')],
       ['yaml', repeat('a:a')],
       ['yaml', repeat('  ')],
       ['yaml', repeat('{"')],
       ['yaml', repeat('- ')],
+      ['yaml', repeat('a: b\n')],
+      ['yaml', repeat('- - a\n')],
+      ['yaml', repeat('a: |\n  b\n')],
+      ['yaml', repeat('"a\n')],
+      ['yaml', repeat('a: [\n')],
+      ['yaml', repeat('# a\n---\n')],
       ['markdown', repeat('[')],
       ['markdown', repeat('*')],
       ['markdown', repeat('_a')],
@@ -588,6 +630,12 @@ describe('highlightCode()', () => {
       ['markdown', repeat('[a\n')],
       ['markdown', repeat('*a\n')],
       ['markdown', repeat('x\n')],
+      ['markdown', repeat('```\n')],
+      ['markdown', repeat('- a\n')],
+      ['markdown', repeat('> a\n')],
+      ['markdown', repeat('a\n===\n')],
+      ['markdown', repeat('`a\n')],
+      ['markdown', repeat('# a\n')],
       // a run of each length, so every opener is unclosed and a search per opener
       // is a scan of the rest of the line. There are only a square root of the
       // size of them, so that search is n^1.5, which grows 23-fold at eight times
@@ -604,6 +652,8 @@ describe('highlightCode()', () => {
         64,
       ],
       ['diff', repeat('--- a\n')],
+      ['diff', repeat('-a\n')],
+      ['diff', repeat('@@ -1 +1 @@\n')],
     ];
 
     it.each(PATHOLOGICAL)('should read %s %#  in linear time', (lang, make, factor = 8) => {
