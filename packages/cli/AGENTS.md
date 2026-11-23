@@ -29,9 +29,33 @@ makes it testable with a fixture directory and no bundler at all.
   delivered at `close()` rather than at `write()`, and needs a build of about two
   seconds or more -- a first attempt at provoking it read the logs too early and
   concluded it could not be provoked, which was wrong.
-  `test/build/bundle-timings.test.ts` holds a build for three seconds, asserts the
-  warning comes with rolldown's defaults as a control, and that it does not come
-  with this build's.
+  `test/build/bundle-timings.test.ts` holds a build, asserts the warning comes
+  with rolldown's defaults as a control, and that it does not come with this
+  build's.
+
+  **What provokes it is not a share of the build (SIG-648).** The report prints
+  `%build`, but the gate is `BuildTimings::is_plugin_bound()` in rolldown's own
+  source: the build ran at least **3 s** on rolldown's clock, and non-link time is
+  more than **100 times the link stage**, and then some callback row has to be a
+  second or more (`MIN_ROW_MS`), which a single held `transform` always is. The
+  link stage is the one stretch with no plugin in it, so it is what machine load
+  grows -- a few milliseconds idle, past 30 ms when the process is starved -- and a
+  hold of exactly three seconds had no margin on the floor and needed a link stage
+  under 29 ms. Seen in rolldown 1.3.3 by reading the source, then by bisecting:
+  2.9 s never warned and 3.0 s did, in the loaded runs measured the ones that did
+  not warn were the builds that ran 45 ms or more past a 3 s hold, and with the summary callback instrumented it was
+  never even requested on a failure, which is the gate refusing before the callbacks are asked. Waiting
+  cannot make that impossible, only less likely, so the control holds five seconds
+  and, if that build did not warn, ten, and takes the first that does; the
+  sibling then holds as long as the control had to, so that its negative is made
+  under a hold known to provoke the warning.
+  One fixed hold on a machine with 30 busy processes over 18 cores failed 2 of 12
+  at 3.5 s, 1 of 12 at 5 s and 0 of 12 at 6.5 s. A longer test timeout was never
+  the fix: the build finishes on time and is judged not worth reporting.
+  It showed most on CI's macOS jobs, two of three on one run: a small shared
+  virtual machine, so the likeliest to pass 29 ms of link stage on this fixture's
+  graph. That is an inference -- the clock is not exposed -- and it is why the first
+  hold is five seconds rather than four.
 
 - **The route rules live in `@ttylabs/sigil/internal/routes`, because there are two
   walks.** The runtime's reads one level when argv names it; the build's reads
