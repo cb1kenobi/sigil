@@ -10326,6 +10326,15 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   the rows, release, hover with no release, a press, `v`, the cursor leaving, and
   disposal, each asserting `vi.getTimerCount()`.
 
+  Those call the row's handler, which is the half a router cannot break; the other
+  half is pinned once through `createInput()` over a real tree (SIG-647): a press, a
+  motion off the canvas, ticks until the pressed row is out of the tree, a move back
+  onto the rows and out again, and the release, each as the SGR report the terminal
+  sends. The clock fakes `setInterval` and `clearInterval` and nothing else, because
+  the test terminal's `press()` waits on `setImmediate`. Sabotaged both ways: a router
+  that drops a captured move for an element no longer under the root fails it at the
+  move, and one that drops only the release fails it at the release.
+
   **Whatever takes the drag away closes the range it opened, and whatever closes the
   range takes the drag away.** `endDrag()` is asked when a new drawing replaces the
   rows, when the cursor leaves the lines (`resetLines()` clears the drag with the
