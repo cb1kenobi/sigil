@@ -319,6 +319,7 @@ export const SIGIL_KEYS: readonly string[] = [
   'PNG too large: {0}x{1} pixels is more than the {2} allowed',
   'PNG too large: {0}x{1} pixels is more than this runtime can hold',
   'PowerShell answered {0}',
+  'PowerShell is in Constrained Language Mode, which cannot run the script that moves an item to the Recycle Bin',
   'Present the result as JSON',
   'Present the result in this format',
   'Press Enter to open your editor',
