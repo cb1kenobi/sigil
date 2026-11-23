@@ -467,7 +467,7 @@ export const FRAMEWORK_CSS = `
  * the light one inside the media block below. That is the one place a tree can ask
  * what the scheme is *now* without a renderer to hand: setColorScheme() on the
  * renderer writes the media context, the restyle that follows is what swaps the bodies, and
- * nothing in the component listens. Four declarations about which one takes space,
+ * nothing in the component listens. Four selectors that decide which form takes space,
  * and none is a look, which is why they are exceptions rather than a role.
  */
 .sigil-qrcode-paint { color: black; background-color: white }

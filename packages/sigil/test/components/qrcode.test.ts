@@ -1080,6 +1080,48 @@ describe('the scheme a tree follows', () => {
     }
   });
 
+  // at level 0 the paint is dropped and the borrowed form is all that is left, so a
+  // painted code must draw exactly what an unpainted one does -- on either scheme,
+  // which pins the nested box as layout-neutral
+  it('should draw a painted code at level 0 as an unpainted one on either scheme', () => {
+    for (const colorScheme of ['dark', 'light'] as const) {
+      const draw = (paint: boolean) => {
+        const { element, width } = qrcodeView('x', { paint });
+        return renderToString(element, {
+          cascade: themedCascade(),
+          colorLevel: 0,
+          colorScheme,
+          width,
+        });
+      };
+      expect(draw(true), colorScheme).to.equal(draw(false));
+    }
+  });
+
+  it('should leave a painted code with a named scheme to the level alone', () => {
+    const code = encodeQr('x');
+    for (const colorScheme of ['dark', 'light'] as const) {
+      const { element, width } = qrcodeView('x', { colorScheme, paint: true });
+      const at = (colorLevel: 0 | 3) =>
+        drawn(
+          strip(
+            renderToString(element, {
+              cascade: themedCascade(),
+              colorLevel,
+              colorScheme: colorScheme === 'dark' ? 'light' : 'dark',
+              width,
+            })
+          ).split('\n')
+        ).filter(Boolean);
+      expect(at(0), `${colorScheme} at 0`).to.deep.equal(
+        drawn(qrLines(code, { invert: colorScheme === 'dark' })).filter(Boolean)
+      );
+      expect(at(3), `${colorScheme} at 3`).to.deep.equal(
+        drawn(qrLines(code, { invert: false })).filter(Boolean)
+      );
+    }
+  });
+
   // a caller's own `invert` is their answer at every level and has no borrowed form
   // to fall back to, so the level must not hide it
   it('should keep a painted code the caller inverted at level 0', () => {

@@ -1479,7 +1479,7 @@ function pinnedPolarity(opts: QrViewOptions): boolean | undefined {
  * for anything, and the scheme is one answer rather than a second read of the
  * environment. A cascade that does not carry the framework's sheet has no rule to
  * hide either body and draws both -- every body, for a painted code -- and one that
- * wants a single body names the scheme and, painted, an `invert`.
+ * wants a single body names the scheme, or an `invert` when it is painted.
  * The scheme a tree is drawn against is the media context's, and
  * `renderToString()` fills that from `colorScheme` or else the cascade's own.
  *

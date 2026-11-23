@@ -4161,7 +4161,7 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   named (`should draw every body of a painted code where the cascade has no sheet`).
   It was already so for an unpainted, unpinned code; `themedCascade()` is the
   cascade every built-in is styled by, and a caller who built their own and wants
-  one body names `invert`. On the sheet it is two new exceptions,
+  one body names `invert` when it is painted, and the scheme when it is not. On the sheet it is two new exceptions,
   `.sigil-qrcode-borrowed` and `.sigil-qrcode-painted`, the second being what hides
   at level 0. It is a class of its own rather than a `display: none` on
   `.sigil-qrcode-paint`, because that class is also on a code the caller inverted,
@@ -4175,9 +4175,16 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   level and shown at another draws what the facade does at the second (`should draw
   at the level it is shown at, whatever level it was built at`, in `display.test.ts`
   and `large-text.test.ts`, each with a control that the level changes the output).
-  The one view found that does read a level is `badgeView()` (its brackets), and a
-  `badgeView()` in a table cell is the same limit in a smaller place -- already
-  recorded on `TableCellView`, and not changed here.
+  Views that do read a level when they are built, and so have the SIG-629 limit in
+  full, are `badgeView()` (its brackets) and `markdownView()` (it keeps an OSC 8
+  link only above level 0, so a view built at 3 and shown at 0 loses the URL
+  altogether). Neither is changed here; a `badgeView()` in a table cell is
+  already recorded on `TableCellView`. `imageView()` reads the level at paint time,
+  which is live, so a paint-time read of the renderer's level does exist; a
+  builder-time one does not, and that is what ruled the mount-time design out.
+  Descendant selectors on the painted code are unchanged, but a child selector
+  (`.sigil-qrcode > .sigil-qrcode-body`) no longer reaches the borrowed bodies,
+  which are one box deeper.
 
   The four rules are exceptions in `should declare on a role, bar seventeen exceptions that say why`:
   they are which form takes space, not a look. Pinned by `the scheme a tree
