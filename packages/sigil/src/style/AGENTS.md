@@ -167,6 +167,12 @@ is proved.
   restyle and not through `animator.touchMedia()`, which only re-decides whether
   motion is allowed: pinned by `a color transition across a change of color scheme`
   in `test/renderer/animation.test.ts` (SIG-605).
+  The same test file reads the **painted** cell as well as `node.style` (SIG-622):
+  the animator hands the frame the mixed style, and it is the frame's `needPaint`
+  term for `animated.paint` that gets it onto the canvas, so a computed style alone
+  cannot say the screen moved. Measured by dropping that term: the `node.style` test
+  stayed green and the painted-cell test failed. The rule has to be on the `text`
+  itself, because an animated value is presented rather than inherited.
 - **The renderer owns the live media context, so a scheme set on a cascade alone is
   lost.** `render(App, { cascade: themedCascade({ colorScheme: 'light' }) })` with no
   `RenderOptions.colorScheme` has that light context overwritten by the first
