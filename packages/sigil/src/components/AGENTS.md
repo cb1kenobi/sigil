@@ -12533,14 +12533,24 @@ callback gives the router an `onError`. `menu-throws.test.ts` pins both halves;
 no guard was added to `descend()` because it has nothing to protect. Two limits,
 stated rather than left to be found. From the pointer the hover has already moved
 the highlight onto the row that threw, and every further move over it throws
-again, which is moot under `runApp()` where the first one ends the app. And a
-**root** menu is the other case: a menubar's menu whose mark throws is not asked
-by `menuInitial()` when the menu is mixed, so it throws from `push()` after the
-menu that was open has been truncated, with no level left for Escape to close --
-`root()` then closes the whole session, bar and all, rather than leave one that
-swallows every key. The sentences above saying a menubar asks a function "before
-a session takes the input" are true of `initial` and of a radio group, not of a
-check mark.
+again, which is moot under `runApp()` where the first one ends the app.
+
+A **root** menu was the other case, and SIG-618 closed it without asking a mark any
+earlier. A menubar's mixed menu is not asked by `menuInitial()`, so its marks are
+read building the rows -- which `root()` used to do after truncating the menu that
+was open, leaving no level for Escape and closing the whole session, bar and all.
+`root()` now builds the new menu first and closes the old one after, so a mark that
+throws leaves the menu that was open exactly as it was, highlight and all, and the
+menubar sets `current` and the bracketed title only once the menu is in. The throw
+goes out through the key or the pointer that moved to it, as a submenu's does. With
+**no** menu open -- the first one opened, by F10, a mnemonic or a press -- a mark
+that throws still closes the session: there is no level for Escape to close, and a
+session holding the input with none would swallow every key. That is the bar closed
+as it was before, not a bar stuck. The sentences above saying a menubar asks a
+function "before a session takes the input" are true of `initial` and of a radio
+group, not of a check mark, and no mark is asked before the session now either: the
+change is the order of building and closing, which a menu that does not throw
+cannot see. `menu-throws.test.ts` pins it through `Menubar`, by key and by pointer.
 
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The

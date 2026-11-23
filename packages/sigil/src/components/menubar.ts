@@ -266,9 +266,12 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
         },
       });
     }
+    session.root(menu.items, title.element, { initial, side: 'bottom' });
+    // after the menu is in, so one that throws leaves the title that was open
+    // marked as it was -- or, with none open, closes the session, whose `onClose`
+    // has already put the bar back
     current = index;
     mark(index);
-    session.root(menu.items, title.element, { initial, side: 'bottom' });
   }
 
   for (const [index, title] of titles.entries()) {
