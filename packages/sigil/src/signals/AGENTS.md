@@ -224,6 +224,16 @@ the entry it belongs to.
   caller is told by the throw itself. `adopt` is not a way to opt out of
   disposal -- an adopter that never disposes leaks it, as it would any other.
 
+  Two limits are known and left. An effect kept through a throw is held for
+  as long as its owner is: a handler borrowing the root through `runWithOwner()`
+  that creates one which throws, five times, holds five live effects until the app
+  ends, because the caller got the throw and not the disposer that would take
+  each off the owner. That is what a component's own effects are too, and the
+  effect is reported on each later throw rather than hiding. And an `async` body is
+  refused only _after_ its first run, so under an owner it is now kept and run
+  again on each change, refused each time; before, the refusal ended it after one.
+  Both are a programmer error already reported by the throw.
+
   It does not touch the run guard. Keeping the effect adds no run: the first run
   has already happened, the effect holds the same edges a throwing later run
   keeps, and a flush reads it as `CLEAN` holding the cached error exactly as

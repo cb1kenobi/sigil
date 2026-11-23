@@ -352,69 +352,85 @@ export function createEffect(fn: () => void | Cleanup): Cleanup {
   const run = owner?.root().effects ?? defaultEffect;
   const owned = inBody === 0;
 
-  const dispose = run(
-    () => {
-      const cleanups: Cleanup[] = [];
-      const previousOwner = current;
-      const previousCleanups = runCleanups;
-      const previousRun = runOf;
-      current = owner;
-      runCleanups = cleanups;
-      runOf = currentRun();
-      inBody++;
+  const body = (): void | Cleanup => {
+    const cleanups: Cleanup[] = [];
+    const previousOwner = current;
+    const previousCleanups = runCleanups;
+    const previousRun = runOf;
+    current = owner;
+    runCleanups = cleanups;
+    runOf = currentRun();
+    inBody++;
 
-      let returned: void | Cleanup;
+    let returned: void | Cleanup;
+    try {
       try {
-        try {
-          returned = fn();
-        } finally {
-          current = previousOwner;
-          runCleanups = previousCleanups;
-          runOf = previousRun;
-          inBody--;
-        }
-
-        if (typeof returned === 'function') {
-          cleanups.push(returned);
-        } else {
-          // the same refusal the signals layer makes, and it has to be made here
-          // too: this wrapper always returns a function, so the check downstream
-          // can no longer see what the body returned
-          refuseAsync(returned);
-        }
-      } catch (error) {
-        // a run that failed hands the signals layer no cleanup, so what it had
-        // registered before the throw -- an `onCleanup()`, the scope a
-        // `provideContext()` opened and every effect in it -- went out of scope
-        // with this list and never ran, not on the next run and not at unmount.
-        // It runs here, after the owner is put back so that nothing it does
-        // registers into the run it is undoing, and the throw goes on as it was,
-        // joined by what the cleanups threw where they threw anything
-        raise([error, ...runAll(cleanups)], 'Errors in a failed effect run and its cleanups');
-        // not reached: `raise()` throws whenever it is handed anything
-        throw error;
+        returned = fn();
+      } finally {
+        current = previousOwner;
+        runCleanups = previousCleanups;
+        runOf = previousRun;
+        inBody--;
       }
 
-      // raised rather than returned, because this is the cleanup the *signals*
-      // layer holds and that layer reports a throw from one on a re-run and raises
-      // it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
-      // written inside an effect body -- which is where an unsubscribe belongs --
-      // failed in silence, while the same call in a component body was reported
-      return cleanups.length > 0
-        ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
-        : undefined;
-    },
-    // handed to the owner before the first run rather than after it, because a
-    // first run that throws returns nothing -- and an effect that read a signal
-    // and then threw would be torn down, never to run again. Registered, it is
-    // disposed with the owner like any other and stays live meanwhile (SIG-611)
-    owned && owner ? { adopt: (stop) => owner.cleanups.push(stop) } : undefined
-  );
+      if (typeof returned === 'function') {
+        cleanups.push(returned);
+      } else {
+        // the same refusal the signals layer makes, and it has to be made here
+        // too: this wrapper always returns a function, so the check downstream
+        // can no longer see what the body returned
+        refuseAsync(returned);
+      }
+    } catch (error) {
+      // a run that failed hands the signals layer no cleanup, so what it had
+      // registered before the throw -- an `onCleanup()`, the scope a
+      // `provideContext()` opened and every effect in it -- went out of scope
+      // with this list and never ran, not on the next run and not at unmount.
+      // It runs here, after the owner is put back so that nothing it does
+      // registers into the run it is undoing, and the throw goes on as it was,
+      // joined by what the cleanups threw where they threw anything
+      raise([error, ...runAll(cleanups)], 'Errors in a failed effect run and its cleanups');
+      // not reached: `raise()` throws whenever it is handed anything
+      throw error;
+    }
+
+    // raised rather than returned, because this is the cleanup the *signals*
+    // layer holds and that layer reports a throw from one on a re-run and raises
+    // it at `dispose()`. Handing back the array swallowed it: an `onCleanup()`
+    // written inside an effect body -- which is where an unsubscribe belongs --
+    // failed in silence, while the same call in a component body was reported
+    return cleanups.length > 0
+      ? () => raise(runAll(cleanups), 'Errors in an effect cleanup')
+      : undefined;
+  };
+
+  // taken before the first run, because a run that throws returns nothing -- and
+  // an effect that read a signal and then threw would be torn down, never to run
+  // again (SIG-611). Given one, the signals layer keeps it live through the
+  // throw, which makes it this function's to hand to the owner. A factory that
+  // ignores the option never calls it and gets the old behaviour
+  let held: Cleanup | undefined;
+  let dispose: Cleanup;
+  try {
+    dispose = run(body, owned && owner ? { adopt: (stop) => (held = stop) } : undefined);
+  } catch (error) {
+    if (held) {
+      if (owner?.disposed) {
+        // the owner went during the run, so nothing is left that would ever
+        // dispose it -- and what is kept is only kept for that owner's sake
+        held();
+      } else {
+        owner?.cleanups.push(held);
+      }
+    }
+    throw error;
+  }
 
   if (!owned || !owner) {
     return dispose;
   }
 
+  owner.cleanups.push(dispose);
   // handed back as a disposer that also takes itself off the owner, because the
   // entry is a closure over the computed, the body and its cleanups, and an
   // owner that lives as long as the app -- the root, borrowed through

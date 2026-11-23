@@ -1239,6 +1239,76 @@ describe('an owned effect whose first run throws (SIG-611)', () => {
     expect(seen).toEqual(['a', 'b']);
   });
 
+  it('should still be held by its owner when the effect factory ignores the options', () => {
+    // `EffectFactory` gained an optional second parameter, and a factory written
+    // before it that forwards only `fn` is still a valid one: the owner has to
+    // hold what that factory returns, as it always did
+    const source = new State(0);
+    let runs = 0;
+    const stop = createRoot(
+      (dispose) => {
+        createEffect(() => {
+          runs++;
+          source.get();
+        });
+        return dispose;
+      },
+      (fn) => effects.effect(fn)
+    );
+
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(2);
+
+    stop();
+    source.set(2);
+    effects.flush();
+    expect(runs).toBe(2);
+    expect(sinkCount(source)).toBe(0);
+  });
+
+  it('should run the effect cleanup after what its first run registered on the owner', () => {
+    // the owner's entry is made after the first run, as it was before this
+    // changed, so the teardown order of a non-throwing effect is untouched
+    const order: string[] = [];
+    const stop = createRoot((dispose) => {
+      onCleanup(() => order.push('before'));
+      createEffect(() => {
+        onCleanup(() => order.push('effect'));
+      });
+      onCleanup(() => order.push('after'));
+      return dispose;
+    }, effects.effect);
+    stop();
+    expect(order).toEqual(['after', 'effect', 'before']);
+  });
+
+  it('should not keep an effect whose owner was disposed during its throwing first run', () => {
+    const source = new State(0);
+    let runs = 0;
+    let owner: ReturnType<typeof getOwner>;
+    const stop = createRoot((dispose) => {
+      owner = getOwner();
+      return dispose;
+    }, effects.effect);
+
+    expect(() =>
+      runWithOwner(owner, () =>
+        createEffect(() => {
+          runs++;
+          source.get();
+          stop();
+          throw new Error('first run');
+        })
+      )
+    ).toThrow('first run');
+
+    expect(sinkCount(source)).toBe(0);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+  });
+
   it('should be disposed with a component whose body threw after making it', () => {
     const h = harness();
     const source = new State(0);
