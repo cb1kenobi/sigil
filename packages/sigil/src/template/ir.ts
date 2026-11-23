@@ -792,10 +792,11 @@ function refuseHostProp(type: string, name: string, loc?: SourceLocation): void 
   if (options.includes(name) || name === 'ref' || isReservedProp(name) || isKnownProperty(name)) {
     return;
   }
-  // no style property starts with `on` (`test/template/props.test.ts` pins it), so
-  // whatever does is an event spelled wrong, and says so whether or not it was
-  // given a function -- the build cannot know that, and the answer is the same
-  if (name.startsWith('on')) {
+  // no style property starts with `on`, so `onClick` and `on-click` are events
+  // spelled wrong, and say so whether or not they were given a function -- the
+  // build cannot know that, and the answer is the same. Only the shapes of an
+  // event name: `only` and `once` are props nothing reads and get that sentence
+  if (/^on(?:$|[A-Z-])/.test(name)) {
     throw refusedEvent(name, loc);
   }
   const folded = name.replaceAll('-', '').toLowerCase();

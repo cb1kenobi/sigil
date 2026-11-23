@@ -115,9 +115,11 @@ describe('the sentence for a refused prop', () => {
     expect(() => ui`<box onClick=${() => {}} />`).toThrow(/is not an event this element has/);
     // given a string, which no build could have called, and which reached the
     // cascade as an unknown property on the first frame
-    expect(() => ui`<text onclick="go">x</text>`).toThrow(
-      /`onclick` is not an event this element has/
+    expect(() => ui`<text on-click="go">x</text>`).toThrow(
+      /`on-click` is not an event this element has/
     );
+    // a name that only begins with the letters is not an event
+    expect(() => ui`<box only="x" />`).toThrow(/<box> has no prop `only`/);
   });
 
   it('should refuse the first prop that nothing reads, in the order they were written', () => {

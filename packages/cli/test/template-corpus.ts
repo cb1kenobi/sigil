@@ -405,9 +405,9 @@ export const REFUSALS: readonly RefusalEntry[] = [
   {
     exprs: [],
     message:
-      '`onclick` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
+      '`on-click` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
     name: 'an event written as a string, which no build could have called',
-    template: `<box onclick="go" />`,
+    template: `<box on-click="go" />`,
   },
   {
     exprs: [],

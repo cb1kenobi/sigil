@@ -193,19 +193,25 @@ the entry it belongs to.
   and the `key()` function that wrote it as a computed key were both there to
   keep two emitters agreeing about a prop neither used. It is a refusal now, which
   is the better answer, and `key()` has no caller that can reach its branch.
-  An `on*` name that is none of the seven is refused as "not an event this element
-  has" **whatever it is given**, for a box, a text and a raw: that is a change
-  from "only given a function", which existed because the compiler cannot know a
-  value, and says nothing about a name -- no style property starts with `on`, so a
-  string under `onClick` was only ever an unknown property found late. A
-  component's props are the component's and are not asked. `href` is refused, as
-  it was at the first frame: it is read by `#apply()` and is not in `RESERVED`, so
-  `setProp('href')` has always stored it as a style property the cascade then
-  rejects; `ReservedProps` does not offer it either, so no typed template writes
-  one -- a gap in `href` rather than a decision about this check, left alone and
-  worth a ticket. Pinned by `test/template/unknown-prop.test.ts` for the tag and
-  JSX, by four entries in `REFUSALS` for the compiled path, and by `an unknown prop
-  on a box and a text` in `packages/cli/test/build-command.test.ts` for `check`
+  An `on*` name that is none of the seven **and has the shape of an event** --
+  `on`, `onClick`, `on-click` -- is refused as "not an event this element has"
+  whatever it is given, for a box, a text and a raw: that is a change from "only
+  given a function", which existed because the compiler cannot know a value, and
+  says nothing about a name -- no style property starts with `on`, so a string
+  under `onClick` was only ever an unknown property found late. `only` and `once`
+  have no such shape and get the ordinary sentence. A component's props are the
+  component's and are not asked. **`href` is refused, and that is a behavior
+  change on one path.** On the interpreted path it already was: `#apply()` reads
+  `href` but `RESERVED` does not name it, so `setProp('href')` stores a style
+  property the cascade rejects. On the **compiled** path a static
+  `<text href="...">` is lifted into the constructor, which does go through
+  `#apply()`, so it built and drew an OSC 8 link -- and is now a build error. It
+  was never typed (`ReservedProps` does not offer `href`) and the interpreted run of
+  the same template threw, so no app could run both ways; the fix that makes it a
+  feature is adding `href` to `RESERVED` and `ReservedProps`, which is a decision
+  about `text` and not about this check, and is left for its own ticket. Pinned by `test/template/unknown-prop.test.ts` for the tag and
+  JSX, by four entries in `REFUSALS` for the compiled path, and by `should refuse an
+  unknown prop on a box and a text before the app runs` in `packages/cli/test/build-command.test.ts` for `check`
   and `build`.
 
 - **The IR is not serializable, and that is the expression decision rather than

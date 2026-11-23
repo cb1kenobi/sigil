@@ -591,8 +591,8 @@ class Printer {
     // argument that throws when the screen is first built
     for (const prop of props) {
       // the half of the name check a compiler can answer: a spelling of a handler
-      // is wrong whatever it is given, where a function under some other `on*`
-      // name is the interpreter's to refuse, since only it knows the value
+      // is wrong whatever it is given. A name that is none of the seven is
+      // `refuseUnknownProps()`'s, which the caller has already asked
       refuseHandlerName(prop.name, undefined, at);
       if (isHandlerProp(prop.name) && !(prop.value instanceof Expr) && prop.value !== undefined) {
         throw templateError(
