@@ -1405,6 +1405,55 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         expect(m.screen().join('\n')).toContain('▼');
         expect(m.screen().join('\n')).not.toContain('▲');
       });
+
+      describe('the readout beside it, with no axis row to fall back on (SIG-636)', () => {
+        const words = 'a readout wide';
+        /** A chart with no axis, whose readout is as wide as `words` says. */
+        const mountBare = (say = words) =>
+          mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => say },
+            props: { height: 6, width: 30 },
+          }));
+
+        it('should put the bubble past a pin it would cover, so the marker shows', async () => {
+          const m = await mountBare();
+          // the pin is the second sample, in column 10, and the rule goes back to the first
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.enter, KEYS.home);
+          expect(tick(m.screen())).toBe(-1);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(10);
+          // and the bubble starts in the next column, rather than beside the rule
+          expect(top.indexOf('╭')).toBe(11);
+        });
+
+        it('should put it past the rule where it flips, so a pin on the far side shows', async () => {
+          const m = await mountBare();
+          // the newest sample is the rule, with 10 columns to its right on the screen
+          // and a bubble of 18, so it goes to its left -- over the pin at column 19
+          await m.key(KEYS.tab, KEYS.left, KEYS.enter, KEYS.end);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          // the bubble ends before the pin, with the rule on the other side of it
+          expect(top.indexOf('╮')).toBeLessThan(19);
+          expect(top.indexOf('╮')).toBeGreaterThan(-1);
+        });
+
+        it('should leave the bubble against the rule where the pin is out of its reach', async () => {
+          // a bubble of 6 ends at column 6, and the pin is in column 19
+          const m = await mountBare('ab');
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          expect(top.indexOf('╭')).toBe(1);
+        });
+
+        it('should leave the bubble where it was with no pin to keep clear of', async () => {
+          const m = await mountBare();
+          await m.key(KEYS.tab, KEYS.home);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(1);
+        });
+      });
     });
 
     it('should claim Enter, Home and End while it has the focus', async () => {

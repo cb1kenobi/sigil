@@ -198,6 +198,12 @@ interface Drawing {
   /** Where a line chart drew its crosshair, and what is under it. */
   readonly crosshair?: CrosshairAt;
   readonly kind: string;
+  /**
+   * The cell column, from the chart's left edge, of a pinned sample the rule is
+   * not on: where a pin's marker is, and what the readout's bubble keeps clear of.
+   * `undefined` with no pin, and where the rule stands in the pin's cell.
+   */
+  readonly pinned?: number;
   readonly rows: readonly Row[];
   /**
    * The samples a line chart drew, whether or not a crosshair stands on one: how
@@ -1374,6 +1380,7 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
             }),
           },
     kind: 'line',
+    pinned: pinColumn < 0 ? undefined : plotLeft + pinColumn,
     rows,
     samples: longest === 0 ? undefined : { count: longest, first: oldest },
   };
@@ -2267,10 +2274,38 @@ export function LineChart(props: LineChartProps): Element {
     }
     const outer = host?.box;
     const inner = body?.box ?? outer;
+    // the bubble is placed beside the rule, so a pin within its reach would be
+    // under it: the rule's cell is widened to take in the pin's, which puts the
+    // bubble past the pin on the far side, and past the rule where it flips. Above
+    // or below the rule the bubble is not over the plot's top row, so it stays put
+    // (the tooltip's own default cap is not repeated here: text wider than it wraps
+    // to a narrower bubble than this says, which only keeps the bubble further out)
+    const reach = Math.min(
+      crosshair.maxWidth ?? Number.POSITIVE_INFINITY,
+      4 + Math.max(0, ...words.split('\n').map((line) => stringWidth(line)))
+    );
+    const pin = drawing.pinned;
+    const beside =
+      crosshair.side === undefined || crosshair.side === 'right' || crosshair.side === 'left';
+    const span =
+      at !== undefined &&
+      pin !== undefined &&
+      beside &&
+      words !== '' &&
+      Math.abs(pin - at.column) <= reach
+        ? { from: Math.min(pin, at.column), width: Math.abs(pin - at.column) + 1 }
+        : at === undefined
+          ? undefined
+          : { from: at.column, width: 1 };
     const next =
-      at === undefined || outer === undefined || inner === undefined
+      at === undefined || outer === undefined || inner === undefined || span === undefined
         ? undefined
-        : { height: at.rows, width: 1, x: at.column + inner.x - outer.x, y: inner.y - outer.y };
+        : {
+            height: at.rows,
+            width: span.width,
+            x: span.from + inner.x - outer.x,
+            y: inner.y - outer.y,
+          };
     const was = untrack(() => pointed.get());
     if (
       next?.x !== was?.x ||

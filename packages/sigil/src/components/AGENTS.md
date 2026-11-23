@@ -7779,11 +7779,30 @@ have.
 - **A line beats it on the plot, as it beats the rule.** The top cell of the
   pinned column is the highest value's wherever the pinned sample is the highest, so
   there the plot's marker is not drawn and the axis one is the answer. A chart with
-  `axis: false` has only the plot's, and loses it under a line there -- and under
-  the readout's bubble, which sits beside the rule over the plot's top rows, so a pin
-  within about nine columns of the rule is covered while the readout is shown. A
-  limit, recorded rather than fixed, since moving the marker off the plot's top row
-  would make it a thing that wanders with the data.
+  `axis: false` has only the plot's, and loses it under a line there, which is a
+  limit: moving the marker off the plot's top row would make it a thing that wanders
+  with the data. The readout's bubble is not a second one -- see the next entry.
+- **The readout's bubble keeps clear of the pin (SIG-636).** The bubble sits beside
+  the rule over the plot's top rows, so a pin within its width of the rule was under
+  it while the readout showed, and with no axis row nothing else said where the pin
+  was. The tooltip's `area` is the rule's cell, and `follow()` widens it to take in
+  the pin's cell when the pin is within the bubble's reach: the bubble's own width,
+  from the readout's widest line plus the border and padding, capped at the
+  crosshair's `maxWidth` where one is given -- the tooltip's default of 40 is not
+  repeated, because a chart is ejectable and cannot import the constant, so a
+  readout wider than that wraps to a narrower bubble than the estimate. A bubble placed on the right then starts past the pin, and
+  one that flips to the left ends before it, because the tooltip places it beside
+  the area and the area runs from the one to the other. Nothing moves when the pin
+  is out of reach, so a pin far from the rule leaves the bubble flush against it as
+  it was. The reach is an estimate from the words, an upper bound where the bubble is
+  squeezed by the screen, so the cost of a wrong guess is a bubble a few cells
+  further out and never one over the pin. It is not asked of `side: 'top'` or
+  `'bottom'`, where the bubble is above or below the plot and covers none of its
+  cells. It applies with an axis too, since the top cell is the marker's there as
+  well. `drawing.pinned` carries the marked cell column, and is `undefined` where
+  the rule stands in the pin's cell. `should put the bubble past a pin it would
+  cover` and `should put it past the rule where it flips` in
+  `test/components/chart-live.test.ts` fail without the widening.
 - **The marker and Enter can disagree under `fit`.** The marker is compared by cell
   and Enter by sample (SIG-607), so with the rule on a neighbour of the pin in the
   pin's cell no marker shows and Enter moves the pin rather than clearing it. Both
