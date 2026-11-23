@@ -12542,8 +12542,6 @@ swallows every key. The sentences above saying a menubar asks a function "before
 a session takes the input" are true of `initial` and of a radio group, not of a
 check mark.
 
-> > > > > > > origin/main
-
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The
   dashboard's Theme and the menu demo's Sort by each drew a `●` into a hint by
