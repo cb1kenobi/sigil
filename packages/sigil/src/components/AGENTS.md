@@ -12549,8 +12549,11 @@ session holding the input with none would swallow every key. That is the bar clo
 as it was before, not a bar stuck. The sentences above saying a menubar asks a
 function "before a session takes the input" are true of `initial` and of a radio
 group, not of a check mark, and no mark is asked before the session now either: the
-change is the order of building and closing, which a menu that does not throw
-cannot see. `menu-throws.test.ts` pins it through `Menubar`, by key and by pointer.
+change is the order of building and closing, and the one thing a menu that does not
+throw could see of it is `openIndex` read from inside a mark function, which now
+answers with the title that was open while the new menu is built. From the pointer,
+every further move over a throwing title throws again, as one over a submenu's row
+does. `menu-throws.test.ts` pins it through `Menubar`, by key and by pointer.
 
 - **A check item and a radio item are two properties, read by the app's own
   state, and a radio group is the menu's default highlight (SIG-523).** The

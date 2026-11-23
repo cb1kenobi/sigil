@@ -366,7 +366,10 @@ describe('a menubar menu with a mark that throws', () => {
     await s.term.press(KEYS.right);
     expect(s.errors).toHaveLength(1);
     expect(s.control?.openIndex).toBe(1);
-    expect(picture(s.holder).some((line) => line.includes('Ruler'))).toBe(true);
+    const switched = picture(s.holder);
+    expect(switched.some((line) => line.includes('Ruler'))).toBe(true);
+    // the menu it replaced is gone, not drawn under the new one
+    expect(switched.some((line) => line.includes('New') || line.includes('Open'))).toBe(false);
 
     // and Escape closes the bar as it always did, handing the keys back
     await escape(s.term);
@@ -386,6 +389,10 @@ describe('a menubar menu with a mark that throws', () => {
     expect(s.control?.openIndex).toBe(0);
     expect(picture(s.holder)[0]).toContain('[File]');
     expect(picture(s.holder).some((line) => line.includes('Ruler'))).toBe(false);
+    // every further move over the title throws again, as one over a submenu's row does
+    await s.term.press(move(x + 1, 0));
+    expect(s.errors).toHaveLength(2);
+    expect(s.control?.openIndex).toBe(0);
     await escape(s.term);
     expect(s.control?.openIndex).toBeUndefined();
     expect(topLayer(s.input)).toBeUndefined();
