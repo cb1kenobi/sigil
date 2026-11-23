@@ -2755,7 +2755,9 @@ assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
 them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
 `HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
 the fields they set, and `HandlerValue` is what any one may be (a function, or
-`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+`undefined` to clear it). `isReservedProp(name)` asks whether a name is one an
+element takes that is not a style property: `class`, `id`, `key`, the focus props and
+the hooks. `ElementPropsWithout<'onKey'>` is `ElementProps` with
 some hooks pinned to `undefined`, which is the type of a built-in component's
 `props` where the component sets that hook itself: a component refuses a handler
 for a hook it owns, at run time as well as in the type, rather than replace it
@@ -2808,6 +2810,7 @@ paint read changes and lays out again when one its measure read does -- in the
 `tracked` is a flag read once, when the element is built: bare is `true`,
 `tracked={false}` is plain, and a string or a function is a template error. Build
 it in a component, so the listening is let go with the owner.
+A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing.
 
 ```jsx
 const level = new State(3);
