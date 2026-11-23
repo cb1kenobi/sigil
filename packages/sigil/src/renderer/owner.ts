@@ -160,6 +160,11 @@ export function runWithOwner<T>(owner: Owner | undefined, fn: () => T): T {
  * spinner started from an effect then re-ran that effect on every later
  * `s.text = ...` (SIG-321). A root has nothing above it, at either level.
  *
+ * **A body that throws disposes the owner first** (SIG-630): the caller is never
+ * handed the disposer, so nothing else would. The throw still reaches the caller
+ * as it was, unless a cleanup threw as well, when it is an `AggregateError` of
+ * both.
+ *
  * @param fn - Handed the disposer for the owner it is running under.
  * @param effects - The effect factory this tree runs through. Defaults to the
  *   module's `effect()`.
@@ -170,11 +175,52 @@ export function createRoot<T>(
   effects?: EffectFactory,
   report?: (error: unknown) => void
 ): T {
+  return buildRoot(fn, effects, report, true);
+}
+
+/**
+ * `createRoot()` for a caller that tears the owner down itself when the body
+ * throws, which is `render()`: it gives the screen back first and only then runs
+ * the cleanups, and reports what they threw through `onError`, so an owner
+ * disposed on the way out would put those in the wrong order and in the wrong
+ * place. Internal: not re-exported from the renderer's `index.ts`.
+ *
+ * @returns Whatever `fn` returned.
+ */
+export function createHeldRoot<T>(
+  fn: (dispose: Cleanup) => T,
+  effects?: EffectFactory,
+  report?: (error: unknown) => void
+): T {
+  return buildRoot(fn, effects, report, false);
+}
+
+function buildRoot<T>(
+  fn: (dispose: Cleanup) => T,
+  effects: EffectFactory | undefined,
+  report: ((error: unknown) => void) | undefined,
+  disposeOnThrow: boolean
+): T {
   const owner = new OwnerNode(undefined);
   owner.effects = effects;
   owner.mounts = [];
   owner.report = report;
-  return untrack(() => runWithOwner(owner, () => fn(() => disposeOwner(owner, true))));
+  try {
+    return untrack(() => runWithOwner(owner, () => fn(() => disposeOwner(owner, true))));
+  } catch (error) {
+    if (!disposeOnThrow) {
+      throw error;
+    }
+    // the caller never receives the disposer from a body that threw, so nothing
+    // would ever dispose this owner: an effect the body made before the throw
+    // kept running, holding whatever it read, for the life of the process
+    // (SIG-630). Disposed before the throw leaves, as a failed effect run is,
+    // and the throw goes on as it was -- joined by what the cleanups threw where
+    // they threw anything. A body that already disposed the owner is a no-op
+    raise([error, ...disposeOwner(owner, false)], 'Errors in a failed root and its cleanups');
+    // not reached: `raise()` throws whenever it is handed anything
+    throw error;
+  }
 }
 
 /**

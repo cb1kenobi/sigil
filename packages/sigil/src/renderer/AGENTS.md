@@ -291,6 +291,24 @@ the entry it belongs to.
   `Show` already say `untrack()` where they mean it. The inner effects were never
   parented to the caller -- `unowned()` saw to that -- and a test now says so:
   the renderer keeps its effects when the effect that started it runs again.
+- **A `createRoot()` whose body throws disposes its owner before the throw leaves
+  (SIG-630), and `render()` is the one caller that is not given that.** The
+  disposer is the caller's and a body that threw never hands it back, so an
+  effect made before the throw stayed live, holding what it had read, for the
+  life of the process -- with nothing able to reach it. The owner is disposed
+  first, like a failed effect run is (SIG-611's neighbour), and the throw goes on
+  as the same object. What a cleanup threw joins it: an `AggregateError` of the
+  body's error and theirs, never one in place of the other, which is only ever
+  the case when a cleanup threw as well. A body that disposed its own owner and
+  then threw is a no-op the second time. `render()` calls `createHeldRoot()`
+  instead, which keeps the old shape on purpose: its catch gives the screen back
+  _first_ and only then runs the cleanups, reporting what they threw through
+  `onError` -- `stop`, `restore`, `reported` -- so an owner already disposed on
+  the way out would run user cleanups against a screen still in raw mode and put
+  their errors in the throw rather than the reporter. `createHeldRoot()` is not
+  exported from the renderer's `index.ts`. See `a createRoot() whose body throws`
+  in `test/renderer/renderer.test.ts`; the `an onError that throws during a
+  teardown` tests are what fail when `render()` is moved onto `createRoot()`.
 - **`onMount` fires after a frame, not at the end of the body.** The useful thing
   to do there is read what the component came out as, and `element.box` has no
   answer until something has laid it out -- so a callback that ran at the end of

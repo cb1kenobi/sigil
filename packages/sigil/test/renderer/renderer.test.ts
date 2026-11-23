@@ -1341,6 +1341,73 @@ describe('an owned effect whose first run throws (SIG-611)', () => {
   });
 });
 
+describe('a createRoot() whose body throws (SIG-630)', () => {
+  it('should dispose the effects the body made before it threw, and rethrow the same error', () => {
+    // nobody is handed the disposer from a body that threw, so the owner stayed
+    // live and the effect kept running on every write to `source`
+    const source = new State(0);
+    let runs = 0;
+    const failure = new Error('body');
+
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        createEffect(() => {
+          runs++;
+          source.get();
+        });
+        throw failure;
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(failure);
+    expect(runs).toBe(1);
+    expect(sinkCount(source)).toBe(0);
+    source.set(1);
+    effects.flush();
+    expect(runs).toBe(1);
+  });
+
+  it('should run the cleanups the body registered, and report one that threw with the error', () => {
+    const order: string[] = [];
+    const failure = new Error('body');
+    const cleanup = new Error('cleanup');
+
+    let thrown: unknown;
+    try {
+      createRoot(() => {
+        onCleanup(() => order.push('first'));
+        onCleanup(() => {
+          throw cleanup;
+        });
+        onCleanup(() => order.push('last'));
+        throw failure;
+      }, effects.effect);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(order).toEqual(['last', 'first']);
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([failure, cleanup]);
+  });
+
+  it('should leave a body that disposed its own owner before throwing alone', () => {
+    let cleanups = 0;
+    const failure = new Error('body');
+    expect(() =>
+      createRoot((dispose) => {
+        onCleanup(() => cleanups++);
+        dispose();
+        throw failure;
+      }, effects.effect)
+    ).toThrow(failure);
+    expect(cleanups).toBe(1);
+  });
+});
+
 describe('Show', () => {
   it('should close a branch whose own effect cleared the condition', () => {
     // the branch is built inside `Show`'s effect, so the write landed on a run
