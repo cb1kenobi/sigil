@@ -22,6 +22,7 @@ import {
   onMount,
   provideContext,
   render,
+  type Renderer,
   runWithOwner,
   Show,
   trackedRaw,
@@ -1948,6 +1949,32 @@ describe('For, placing a reorder', () => {
   });
 });
 
+describe('RenderOptions.onReady()', () => {
+  it("should hand over the renderer before the first frame's onMount() runs, and return the same one", () => {
+    const h = harness();
+    const order: string[] = [];
+    let ready: Renderer | undefined;
+    const view = render(
+      () => {
+        onMount(() => order.push(`mounted, ready=${ready !== undefined}`));
+        return box({}, text('hi'));
+      },
+      {
+        backend: h.backend,
+        effects,
+        onReady: (made) => {
+          order.push(`ready, mounted=${made.mounted}`);
+          ready = made;
+        },
+        terminal: h.terminal,
+      }
+    );
+
+    expect(order).toEqual(['ready, mounted=true', 'mounted, ready=true']);
+    expect(ready).toBe(view);
+  });
+});
+
 describe('Renderer.onDispose()', () => {
   /** A renderer whose cleanup, screen restore and reports land in one list. */
   function mounted() {
@@ -3729,6 +3756,140 @@ describe('learning the background', () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(m.root()?.style.color).toBe(COLOR[m.at]);
     m.view.dispose();
+  });
+});
+
+describe('changing the scheme at runtime', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const SHEET = `
+    box { color: gray }
+    @media (prefers-color-scheme: light) { box { color: blue } }
+  `;
+  /** Gray for dark, blue for light: the colour that says which half applied. */
+  const COLOR = { dark: 8, light: 4 } as const;
+
+  /**
+   * Mounts with the scheme named, or with neither variable set when it is not: no
+   * variable on this machine decides the start or what clearing a choice returns to.
+   */
+  function mount(colorScheme: 'dark' | 'light' | undefined) {
+    vi.stubEnv('SIGIL_COLOR_SCHEME', '');
+    vi.stubEnv('COLORFGBG', '');
+    const h = harness(20, 4);
+    let root: Element | undefined;
+    const view = render(
+      () => {
+        root = box({}, text('x'));
+        return root;
+      },
+      {
+        backend: h.backend,
+        cascade: new Cascade([parseStylesheet(SHEET)]),
+        colorLevel: 2,
+        ...(colorScheme ? { colorScheme } : {}),
+        effects,
+        frameMs: 0,
+        terminal: h.terminal,
+      }
+    );
+    return { h, root: () => root, view };
+  }
+
+  // the defect: a light theme on a dark terminal could not tell the renderer, so the
+  // sheet's light half never applied and the theme had to restate every role
+  it('should restyle on the next frame when the app changes the scheme', () => {
+    const m = mount('dark');
+    expect(m.root()?.style.color).toBe(COLOR.dark);
+
+    const painted = m.h.painted;
+    m.view.setColorScheme('light');
+    m.view.frame();
+    expect(m.root()?.style.color, 'the light half did not apply').toBe(COLOR.light);
+    expect(m.h.painted, 'nothing repainted').toBeGreaterThan(painted);
+    m.view.dispose();
+  });
+
+  // the app's later decision beats the app's earlier one, which is the option
+  it('should go back to what the chain says when the app takes its choice back', () => {
+    const m = mount('dark');
+    m.view.setColorScheme('light');
+    m.view.frame();
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.root()?.style.color, 'clearing it lost the option underneath').toBe(COLOR.dark);
+    m.view.dispose();
+  });
+
+  it('should beat a reply from the terminal and keep that reply for when it is cleared', async () => {
+    const m = mount(undefined);
+    const start = m.root()?.style.color === COLOR.light ? 'light' : 'dark';
+    const other = start === 'light' ? 'dark' : 'light';
+    const replying = (background: string) =>
+      ({
+        query() {
+          return Promise.resolve(
+            [`\u001b]11;${background}\u0007`, `\u001b[?62;c`]
+              .map((it) => parseCapabilityResponse(it))
+              .filter((it) => it !== undefined)
+          );
+        },
+      }) as never;
+
+    m.view.setColorScheme(start);
+    // a terminal saying the opposite, while the app has chosen
+    await m.view.detect(replying(other === 'light' ? 'rgb:fdfd/f6f6/e3e3' : 'rgb:1c1c/1c1c/1c1c'), {
+      background: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(m.root()?.style.color, 'a reply overruled the app').toBe(COLOR[start]);
+
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.root()?.style.color, 'the reply was forgotten').toBe(COLOR[other]);
+    m.view.dispose();
+  });
+
+  it('should keep the choice across a resize', () => {
+    const m = mount('dark');
+    m.view.setColorScheme('light');
+    m.h.resize(40, 24);
+    m.view.frame();
+    expect(m.root()?.style.color, 'a resize undid the choice').toBe(COLOR.light);
+    m.view.dispose();
+  });
+
+  it('should ask for no frame when the scheme in force does not change', () => {
+    const m = mount('dark');
+    const painted = m.h.painted;
+    m.view.setColorScheme('dark');
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.h.painted, 'a scheme that changed nothing repainted').to.equal(painted);
+    m.view.dispose();
+  });
+
+  // the order the JSDoc and AGENTS.md state, and the one pair "where the scheme comes
+  // from" cannot walk: the user's variable is above everything detected, and the
+  // app's own later choice is above the user
+  it('should beat the user’s SIGIL_COLOR_SCHEME, and give it back when cleared', () => {
+    const m = mount(undefined);
+    vi.stubEnv('SIGIL_COLOR_SCHEME', 'dark');
+    m.view.setColorScheme('light');
+    m.view.frame();
+    expect(m.root()?.style.color, 'the variable outranked the app').toBe(COLOR.light);
+    m.view.setColorScheme(undefined);
+    m.view.frame();
+    expect(m.root()?.style.color, 'the variable was lost').toBe(COLOR.dark);
+    m.view.dispose();
+  });
+
+  it('should do nothing after the renderer has gone', () => {
+    const m = mount('dark');
+    m.view.dispose();
+    expect(() => m.view.setColorScheme('light')).not.toThrow();
   });
 });
 

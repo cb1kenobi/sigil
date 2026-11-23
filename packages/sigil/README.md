@@ -2755,7 +2755,9 @@ assigned afterwards -- `box({ onKey: (event) => ... })` -- and a template writes
 them the same way. `HANDLER_PROPS` is the list, `isHandlerProp(name)` asks it,
 `HandlerProp` is the name of one, `HandlerProps` is the object of them typed by
 the fields they set, and `HandlerValue` is what any one may be (a function, or
-`undefined` to clear it). `ElementPropsWithout<'onKey'>` is `ElementProps` with
+`undefined` to clear it). `isReservedProp(name)` asks whether a name is one an
+element takes that is not a style property: `class`, `id`, `key`, the focus props and
+the hooks. `ElementPropsWithout<'onKey'>` is `ElementProps` with
 some hooks pinned to `undefined`, which is the type of a built-in component's
 `props` where the component sets that hook itself: a component refuses a handler
 for a hook it owns, at run time as well as in the type, rather than replace it
@@ -2808,6 +2810,7 @@ paint read changes and lays out again when one its measure read does -- in the
 `tracked` is a flag read once, when the element is built: bare is `true`,
 `tracked={false}` is plain, and a string or a function is a template error. Build
 it in a component, so the listening is let go with the owner.
+A prop a `<raw>` does not take -- `<raw Tracked>`, `<raw trackd>` -- is a template error that names it, in the tag, in JSX and at `sigil build`, rather than a plain `raw` with the option quietly missing.
 
 ```jsx
 const level = new State(3);
@@ -4841,6 +4844,29 @@ execFileSync('git', ['apply', '--cached', '-'], { input: hunkPatch(file, file.hu
 A hunk that was not read from a patch, such as one from `diffHunks()`, is written
 from its lines and its file's names.
 
+`hunkLinesPatch(file, hunk, selected, { reverse })` writes some of a hunk's lines
+instead -- `git add -p`'s `e`, which is lazygit's line staging. `selected` names lines
+of `hunk.lines` by position. A selected added or removed line is written as it is;
+one that is not is left as the file the patch applies to has it, so an added line is
+dropped and a removed line is written as context, and the counts are written again
+from what is left. `reverse` is for unstaging with `git apply --cached --reverse`,
+where the file applied to is the hunk's new side and the two kinds trade places. It
+returns `undefined` where no added or removed line is selected, and throws where a
+patch cannot say what was asked: a line added after one that has no newline and was
+not selected, and part of a file the patch creates or deletes (`new file mode`
+with `reverse`, `deleted file mode` without). No context is added, so
+a hunk read with none (`-U0`) is written with none, as `hunkPatch()` writes it.
+
+```js
+import { hunkLinesPatch } from '@ttylabs/sigil/components/diff';
+
+// the first line of the hunk's changes, and nothing else
+const changed = file.hunks[0].lines.findIndex((line) => line.kind !== 'context');
+execFileSync('git', ['apply', '--cached', '-'], {
+  input: hunkLinesPatch(file, file.hunks[0], [changed]),
+});
+```
+
 `highlight` is the seam every component shares, so `highlight: highlightCode` is
 enough. It is called with a whole side of the diff -- the old text and the new
 text, or the two sides of a hunk when the input is a patch -- so a span can run
@@ -4890,11 +4916,34 @@ back to the start of the lines. The line numbers and the markers stay put, and s
 do the `---`, `+++` and `@@` rows, which say which file and where.
 `describeDiffView(router, view)` describes the keys for a `keyHelp()` footer.
 
+Give it `lines` -- a `{ cursor, selected }` pair of `State`s -- and the cursor can go
+inside the current hunk, which is how part of one is staged. Enter puts it on the hunk's
+first added or removed line, and a second column of marks shows it: `▶` on the line,
+`●` on a line picked, `◉` on both (`>`, `*` and `@` in ASCII). Up and down step it over
+the added and removed lines, scrolling to keep it in view; `x` picks the line and `a`
+picks every line of the hunk, or none where all are; Enter or Escape leaves the lines
+and drops the picks, as moving to another hunk or new content does; a click on a line
+of the current hunk moves the cursor to it. The view is drawn unified whatever
+`layout` says, since side by side a removed line and the added line beside it share a
+row. `selected` is positions in the current hunk's `lines`, which is what
+`hunkLinesPatch()` takes:
+
+```js
+const lines = { cursor: new State(undefined), selected: new State(new Set()) };
+const view = DiffView({ content, current, lines });
+
+// Space: stage the picked lines of the hunk under the cursor, or the one line
+const stop = diffStops(content.get())[current.get()];
+const picked = lines.selected.get().size ? lines.selected.get() : [lines.cursor.get()];
+stage(hunkLinesPatch(stop.file, stop.hunk, picked)); // git apply --cached -
+```
+
 | Prop        | Meaning                                                                            |
 | ----------- | ---------------------------------------------------------------------------------- |
 | `content`   | One diff (two texts, `{ patch }` or `{ files }`) or blocks; a `State` to change it |
 | `current`   | The current stop, as a position, or a `State` that `]` and `[` write               |
 | `layout`    | `unified` (default) or `side-by-side`, as `diffView()` takes it                    |
+| `lines`     | `{ cursor, selected }` `State`s: a line cursor and picks inside the current hunk   |
 | `wrap`      | Wrap long lines (default `true`), or a `State` that `w` writes                     |
 | `position`  | A `State` the view writes `{ x, y, maxX, width }` to: where it is scrolled to      |
 | `ascii`     | Draw the mark in ASCII. Defaults to what the terminal can show                     |
@@ -6315,8 +6364,10 @@ that element has gone, to the first focusable element that is left.
 focus are the router's. `actions` are the buttons (`OK` if there are none), each
 with a `label` and a `value`; Enter, Space or a click presses the focused one and
 `result` settles with its value. An empty list is allowed, and then the panel
-holds the focus itself. `initial` is which button starts focused, by position;
-`dismissible: false` makes Escape do nothing, for a dialog that must be answered;
+holds the focus itself. `initial` is what starts focused: a number is a button, by
+position, `'body'` is the first thing in the body that takes the focus, and an
+element is that element, which has to be in the body and to take the focus itself
+(a box around a field is not the field). `dismissible: false` makes Escape do nothing, for a dialog that must be answered;
 `closeOnClickOutside: true` makes a click off the panel dismiss it. `body` is a
 string, which wraps, an element, whose focusable parts join the trap, or **a
 function that builds one**. Use the function when the body has anything reactive
@@ -6327,6 +6378,33 @@ gone. A function is called once, as it opens, under an owner of its own that is
 disposed when the dialog closes, the way `Show` owns what it mounts.
 `handle.close(value)` and `handle.dispose()` close it from outside, and closing
 twice does nothing.
+
+**A dialog can be a form.** An action takes `disabled`, which is what a control's
+`disabled` takes -- a boolean, a `State`, a `Computed` or a function, read live --
+so Sign in can wait for the form to be valid. `onPress` replaces the `value`:
+pressing the button runs it and the dialog stays open until the handler calls
+`handle.close(answer)`, which is a submit that has to be checked first. And
+`default: true` marks the action Enter presses from a field that leaves Enter
+alone, only while it is enabled, the way a web page's default button works. A text
+field with an `onSubmit`, a text area, which keeps Enter as a newline, and a
+focused button take Enter for themselves. A field that is disabled keeps the focus
+and hands Enter on, so a form that disables its fields while it submits puts the
+same condition in the default action's `disabled`, or Enter submits twice. The buttons are built under the same
+owner as a `body` function, so a `disabled` that follows the app's state stops
+following it when the dialog closes.
+
+```js
+const dialog = openModal(view, {
+  actions: [
+    { default: true, disabled: () => !valid.get(), label: 'Sign in', onPress: signIn },
+    { label: 'Cancel' },
+  ],
+  body: () => TextField({ value: user }),
+  initial: 'body', // opens on the field, with the buttons still actions
+  input,
+  title: 'Sign in',
+});
+```
 
 Open a second one and the topmost owns the input; closing it hands the keys and
 the focus back to the one below.

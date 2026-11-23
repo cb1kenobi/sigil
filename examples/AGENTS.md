@@ -174,6 +174,44 @@ the `ui` tag run by plain `node`.
   the example built, and says which command makes it. An example that adds the
   flag adds the file.
 
+  SIG-594 made that sentence a check and finished the set. `should test the mouse
+  from the entry, when the entry turns it on` in `packages/cli/test/examples.test.ts`
+  reads `src/index.ts` and `src/ui.*`, comments stripped, and fails for an example
+  whose entry says `mouse` at all -- the `--mouse` flag, or a `mouse` option handed
+  to `runApp()` in any spelling -- and has no `test/entry.test.ts` naming
+  `ENABLE_MOUSE_BUTTONS` or `ENABLE_MOUSE_MOTION` and, where there is a `src/ui.*`,
+  that file too, since it spells the flag separately from the bin. The second half
+  of the trigger is there because the dashboard, the settings screen and the
+  visualizer have no flag and the same unrun line. Every example that turns the
+  mouse on has one now: the editor (the flag), and the three above (always on, so
+  the test asserts the mode as well as the fact: `true` is `?1002h` and not
+  `?1003h`, `{ motion: true }` is `?1003h`, and each is handed back). The same
+  files check that the positional reaches its provider, which was the other half of
+  the entry nothing ran: `dir` for the editor, the visualizer, the git client and
+  the file manager (whose file has that and nothing else, it having no mouse),
+  `[file]` for the log browser, each run from a directory that is not the one it is
+  given, so the screen can only show the argument. The positional is not guarded
+  the way the mouse is -- an example that takes one and has no entry test is not
+  found by the suite, only by somebody asking. Sabotaged per line: each `mouse`
+  option removed, made constant and changed in mode, and each positional dropped,
+  fails exactly the test written for it.
+
+  The harness around those tests -- spawn, first frame, `q`, read the bytes -- is
+  copied into each file rather than shared, which is a decision and not an
+  oversight, and the reason is that an example is a unit somebody copies, with its
+  tests beside it, as SIG-522 left it. It is not that nowhere else would work:
+  `packages/cli/test/examples.test.ts` already spawns every entry over a terminal,
+  and a table beside its `KEYED` asserting on `ran.out` would cover both entries of
+  every example with no copy -- at the cost of the tests leaving the example, and
+  of a new example owing a row there instead of a file. A loose file in `examples/`
+  is not an answer: `vitest.config.ts` reads every entry of `examples/*` as a
+  project, so it is parsed as a config. What would be one definition inside the
+  example is a published one -- the mouse modes a `runOnTerminal()` run turned on,
+  read by `Screen` the way `alternate` and `cursorHidden` are -- which is an
+  addition to `@ttylabs/sigil/testing` and its guide, not to an example. The copies
+  have drifted a little already (the size of the terminal, `it` against
+  `it.concurrent`); nothing depends on either.
+
 - **Vite does follow an example's `tsconfig.json`; vitest's module cache is what
   made it look as though it did not (SIG-312).** The first version of this entry
   said vite ignored the tsconfig: with `jsxImportSource` set to `react`, to a
@@ -453,14 +491,21 @@ was tested, and the sabotage pass, are in
   often as typed at, and `runApp()` leaves it off unless asked. The contract
   line above now says an entry may pass options.
 
-- **What is worked around, each with a ticket.** The login dialog's Sign in and
-  Cancel are in its body with `actions: []`, because an action cannot be disabled
-  and a dialog with actions opens on a button rather than on the first field
-  (SIG-337). The dialog used to borrow an owner as well -- it is opened from
-  `onPress`, which has none, so its body was built under a branch of the Account
-  section's owner and disposed when `result` settled, because the effect following
-  the focus otherwise ran for the rest of the app, which was measured. It is
-  `body: () => Element` now (SIG-335), and the form is built inside that function.
+- **The login dialog's buttons are `actions`.** Sign in carries `disabled` over the
+  form's validity and an `onPress` that runs the sign-in, since the answer may be
+  no and the dialog stays open for it; Cancel is an action with no value. It opens
+  with `initial: 'body'`, on the user name (SIG-337). They were in the body with
+  `actions: []` until then, because an action could not be disabled and a dialog
+  with actions opened on a button. The form's state is made before `openModal()` --
+  it is signals, and Sign in has to read it while the body is yet to be built --
+  and the fields and `touchOnLeave()`, which has an effect, are in the `body`
+  function (SIG-335), which the dialog's owner disposes with the buttons' own
+  effects. Sign in is not marked `default`: the password field's `onSubmit` takes
+  Enter first, and is what shows every error on an invalid one. The dialog used to
+  borrow an owner as well -- it is opened from `onPress`, which has none, so its
+  body was built under a branch of the Account section's owner and disposed when
+  `result` settled, because the effect following the focus otherwise ran for the
+  rest of the app, which was measured.
 
 - **A derived `disabled` is a function handed to the button.** Save, Cancel, Sign
   in and the Account section's two buttons each take one --
@@ -622,6 +667,17 @@ commit message in a text area. What it settled:
   the cut went through is dropped rather than offered to Space, since its header
   still counts lines it no longer has.
 
+- **Some of a hunk is staged through `DiffView`'s `lines`, and `hunkLinesPatch()`
+  writes it (SIG-473).** Enter in the diff pane takes the cursor inside the hunk
+  and Space then stages the lines picked, or the one under the cursor: the model
+  hands `m.diff.lines` -- the cursor and the picks, two `State`s -- to the view
+  and reads them back on Space. It is an `Error` the writer throws that a toast
+  says, rather than a patch of something else. An untracked file is staged whole,
+  since there is no index entry to apply a patch of lines to. The footer does not
+  list the line keys: the diff pane's row is already as wide as a 110-column
+  terminal leaves it, and one more entry pushed `space stage hunk` under the
+  toast.
+
 - **The diff pane is a `DiffView` over blocks the model builds, and the model asks
   `diffStops()` what is under the cursor.** `blocksOf()` turns what the pane shows
   into the view's blocks: each section's heading and prose, each patch file as a
@@ -666,8 +722,8 @@ commit message in a text area. What it settled:
   (SIG-335), which replaced the client's own `owned()` helper
   (`runWithOwner(owner, createBranch)`, disposed when `result` settled). The
   commit dialog's key listing is an `onCleanup()` inside that function for the same
-  reason. SIG-337 is the ticket for opening on the field rather than on a button,
-  which the client does by focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
+  reason. The dialogs open on their field with `initial: 'body'` (SIG-337), which
+  replaced focusing it straight after `openModal()`. Enter is a newline in the commit message, so the
   commit is Ctrl-S, an `onKey` on a box around the area, which the dialog's key
   walk reaches because the area leaves the chord alone. Escape keeps the draft.
 
@@ -961,7 +1017,7 @@ in half blocks from the start.
 
 - **The filter bar is shown with an inline `display` and a forced frame**, the
   log browser's workaround for SIG-384. The rename dialog's field is a `body`
-  function and is focused once the dialog is open (SIG-337), the git client's way.
+  function and the dialog opens on it with `initial: 'body'` (SIG-337).
 
 - **The lit column is the sheet's: `.sigil-panel:focus-within`.** The git
   client's rule since SIG-372, and with nothing in the model: the column a key
@@ -1060,13 +1116,19 @@ dark -- built from sigil's own components, with its own data, names and colours.
 - **System, Light and Dark, and the two named ones paint their own background.**
   `System` is no theme sheet: the framework's roles over the terminal's colours,
   light or dark as it reports. `Light` and `Dark` are the app saying which it is,
-  which `prefers-color-scheme` cannot say -- it asks what the _terminal_ is, and the
-  renderer fixes that at start -- so each sheet fills `.sigil-app`, sets every role
-  (one left out would fall back to a default chosen for the terminal's scheme, a
-  dim grey meant for black drawn on white), and fills the menu, the dialog, the
+  which the renderer's detection cannot say -- it knows what the _terminal_ is -- so
+  each sheet fills `.sigil-app`, sets the colour of every role (the framework's are
+  palette indices chosen for the terminal's background, which a page that paints its
+  own is the case they are wrong for), and fills the menu, the dialog, the
   toast and the tooltip, which are drawn on the root in the terminal's own colours
   otherwise and would punch a black hole in a white screen. Truecolor, since an
-  app's own theme may use it. Swapped with `app.setTheme()` from an effect over the
+  app's own theme may use it. Each also names a `scheme` and an effect hands it to
+  `view.setColorScheme()` (SIG-461), so a `@media (prefers-color-scheme)` rule
+  follows the theme rather than the terminal; it waits on a `mounted` State because
+  `app.view` is not there while the body runs, and an effect created inside
+  `onMount()` ran once and did not run again (unfiled; the effect lives in the body).
+  What it does not reach is a component that reads the scheme from its own options,
+  `qrcode()`'s polarity among them. Swapped with `app.setTheme()` from an effect over the
   theme's State, so `t`, the account menu and a test all reach the screen one way.
   The account menu's Theme submenu is radio items, each `radio: () => d.theme.get() === i`
   (SIG-523): the menu draws the `●` and opens on the theme in use because it is a

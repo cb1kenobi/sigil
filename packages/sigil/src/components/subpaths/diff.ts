@@ -22,6 +22,8 @@ export {
   type DiffTreeHunk,
   diffView,
   type DiffViewContent,
+  hunkLinesPatch,
+  type HunkLinesOptions,
   hunkPatch,
   parsePatch,
 } from '../diff.js';

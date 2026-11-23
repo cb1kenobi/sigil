@@ -388,7 +388,9 @@ line on one row instead, cut at the edge, and then Left and Right scroll every
 line sideways together. `diffStops()` and `hunkPatch()` from
 `@ttylabs/sigil/components/diff` find the hunk under the cursor and write it
 out as a patch of its own, which is how the
-[git client](../../../examples/git-client) stages a single hunk.
+[git client](../../../examples/git-client) stages a single hunk. With `lines`, Enter
+takes the cursor inside the hunk, `x` picks lines, and `hunkLinesPatch()` writes
+just those as a patch, which is how it stages part of one.
 
 **A treemap.** [`Treemap`](../src/components/treemap.ts) draws a tree of sizes
 as nested rectangles, each as big as its share, so the largest items stand out
@@ -429,7 +431,8 @@ component goes away.
 In a template, write `tracked` on the `<raw>`: `<raw tracked measure={...} paint={...} />`
 in JSX, and the same inside a `ui` tag. It builds the same element, so nothing else
 has to listen for the signals the paint reads. A `<raw>` without it stays a plain
-one.
+one. A prop a `<raw>` does not take, such as `Tracked` or `trackd`, is refused with
+its name rather than ignored.
 
 ## Names and files from outside the app
 

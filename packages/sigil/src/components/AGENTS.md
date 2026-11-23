@@ -1596,6 +1596,25 @@ decided once, for all of them. The runs and the sabotage passes are in
   Moving the names out of the overlay's facade was tried first and failed the
   website's check that a page's subpath exports what the page lists.
 
+  `token` and `prompt-error` are the next two, for the registry's reason
+  (SIG-597); the barrel already had every name but `tokenClasses()`. `tokensOf()` and
+  `PromptError` were written in `prompt.ts`, so a code view, a diff and a
+  markdown page imported the whole prompt stack -- about 116 KB of `components/
+  code-view`'s 264 KB graph -- to turn a highlighter's spans into tokens. They are
+  modules of their own now and `prompt.ts` re-exports every name it moved, so
+  `PromptError` is one class from either path. Both facades export the same
+  bindings, which is the `console-capture` rule. A **value** imported from `prompt`
+  by a component that only draws puts the stack back, and `should not load the
+  prompt stack to draw highlighted code` in `test/dist.test.ts` is the check --
+  sabotaged with a call to `refusePrompt()`, because a re-export of `tokensOf()`
+  through `prompt.ts` is transparent to the bundler and does not trip it.
+  `tokenClasses(token, role)` is the one spelling of `sigil-token
+  sigil-token-<token> <role>` that `prompt.ts`, `text-area.ts` and `code-view.ts`
+  each wrote. **The role is a parameter and not looked up**, because `TOKEN_ROLE`
+  is the theme's and importing it would put the theme behind a module that is 655 B
+  without it. `text-area.ts` still imports `layoutField()` and `offsetIn()` from
+  `prompt.ts`, so it still pulls the stack; that is a ticket of its own.
+
 - **Named after the file, not the export, with no exceptions.**
   `group-multiselect` rather than `groupMultiselect`. A module exports several
   things -- `prompt.ts` the six prompts and the plumbing under them, `chart.ts`
@@ -9833,6 +9852,41 @@ exported beside them as pure functions.
   files (`{ files }`) as its third kind of input, so a patch that is shown and
   then staged is read once. The git client example is the caller this waited for,
   and its own reader, `splitPatch()`, is gone.
+- **`hunkLinesPatch()` writes some of a hunk's lines, and the file the patch is
+  applied to decides what an unpicked line becomes (SIG-473).** A line not
+  selected is left as that file has it: staging applies to the index, which holds
+  the old side, so an unpicked **add** is not written and an unpicked **remove** is
+  context; `reverse` applies to the new side, so the two trade places. The old
+  side's count is therefore the hunk's own when staging and the new side's when
+  unstaging, and the other side's count and start are written from the rows,
+  anchored on the side applied to -- an empty side starts at the line before, as
+  `@@ -0,0` does. The start is only a hint: `git apply` searches for the lines, so
+  a hunk staged after an earlier one was left out lands wherever its context is,
+  which `should stage a line far down a file after one earlier lines left
+  unstaged` runs against a real git. `git apply` also insists a hunk with no
+  trailing context ends the file, and the writer only ever adds context -- a
+  removal made context -- so a hunk that was at the end of a file still is.
+  Every case in `test/components/diff-lines-patch.test.ts` that stages is run
+  through `git apply --cached` in a temp repository: only additions, only
+  removals, a replacement either half, CRLF, a new file, and
+  `\ No newline at end of file`. The rows are written from `source` where it
+  lines up with `lines` and from the lines where it does not or is absent, which
+  keeps a `\r`; a blank context line that lost its space is written with one.
+
+  Two selections are an `Error`, because a patch cannot say them and the
+  alternative is writing a different change than the one asked for. A line with no
+  newline ends its side, so an unpicked removal of one becomes a context line that
+  ends both -- and picking a line added after it (`-a` `\ No newline`, `+a`, `+b`
+  over a file that gained its newline, with only `+b` picked) would write a line
+  after the end of the file. `git add -p` has the same case as a hunk it cannot
+  split. And a deleted file staged part-way is not a deletion, nor is a new file
+  part-way unstaged a creation, so those are all or nothing: the header would need
+  rewriting, which is the kind of thing that is guessed wrong once. A hunk with no
+  context lines (`-U0`) is written with none, as `hunkPatch()` writes it: no
+  context is added, and what `git apply` makes of it is the same from both. Nothing selected is
+  `undefined` rather than an empty patch, so a caller cannot hand git something it
+  would call "no valid patches".
+
 - **A patch carries its own context, two texts get `context` (3).** Hunks that
   would meet are one hunk, as a patch writes them, and an empty side starts at the
   line before (`@@ -0,0 +1,2 @@`).
@@ -10131,14 +10185,50 @@ git client example wrote all of it by hand in `diff-pane.ts`, which this replace
   that, for a `w`, a new width or refreshed content, reveals the current stop as
   it always has, clicked or not: that is the drawing's rule, and a reader who
   scrolled with the arrows meets it the same way. A double click is two clicks, since
-  there is no `onActivate` to call. A line cursor (SIG-473) would take the same
-  row handler and read the line under it, which this leaves room for: the
-  handler is per row already.
+  there is no `onActivate` to call. A line cursor (SIG-473) takes the same
+  row handler and reads the line under it, as the entry below says.
+
+- **A line cursor inside the hunk, and the lines picked, are two `State`s the app
+  hands in (SIG-473).** `lines: { cursor, selected }`. The cursor is a position
+  in the current stop's hunk's `lines`, `undefined` while the cursor is on the
+  hunk, and the picks are a `Set` of positions -- which is what `hunkLinesPatch()`
+  takes, so the hand-off is `diffStops(content)[current]` and these. States rather
+  than a callback for the reason `current` is one: the app that stages on Space
+  reads them where Space is bound. Enter starts it on the first added or removed
+  line and Enter or Escape leave; up and down step over the added and removed
+  lines only, clamped and claimed at an end; `x` picks and `a` picks all or none.
+  A context line is never the cursor's, since it has nothing to pick, which is a
+  narrower cursor than lazygit's and one that cannot rest on a line that does
+  nothing. Not done: a range (`v`, or shift and the arrows), which `a` and `x`
+  stand in for.
+
+  **The line state belongs to one hunk and is emptied whenever the subject
+  changes**: the current stop changes (`]`, `[`, a click, the app writing it), the
+  content changes, or the cursor leaves the lines. A position means nothing in
+  another hunk, and staging renumbers every hunk after, so keeping a pick across
+  a refresh is picking a different line. The content test is by identity, so an
+  app whose `content` function builds a fresh array on every call resets the
+  lines on every wrap switch; the git client's `Computed` is stable. A redraw for
+  a width, `w`, or a sideways scroll does not reset anything.
+
+  **A view with `lines` is drawn unified, whatever `layout` says.** Side by side
+  a removed line and the added line it is paired with share a row, so a mark in
+  that row would mark two lines and a pick of one would read as both. `diffView()`
+  reports each line's rows as `hunks[].lines` (ranges over `element.children`,
+  overlapping side by side), which the view reads in place of any class. The
+  second column is a second cell on every row, so the room is one less; it exists
+  only with `lines`, and a view without it is drawn as it was.
+
+  **The footer is not told about the line keys.** `describeDiffView()` lists `]`,
+  `[`, `w` and the arrows, and one more entry pushed the git client's `space stage
+  hunk` under its own toast in a 110-column terminal -- measured, by the test that
+  asserts it. The marks say what the cursor is, and an app that wants a hint
+  writes one beside its own keys.
 
 What is not done: scrolling sideways with
 the wheel; an `onActivate`, since the
 one caller acts on Space from its panel and a callback nothing calls is a shape
-designed by guessing; staging part of a hunk; and folding a hunk away.
+designed by guessing; staging a range of lines with one gesture; and folding a hunk away.
 
 ### A modal: a dialog over the screen, and who has the input while it is open
 
@@ -10345,6 +10435,79 @@ tooltip were split off as SIG-213 and SIG-214 and are not here.
   app: `openModal(app.view, ...)` is unchanged. `Renderer.owner` is the one new
   published member, and it is for exactly this -- a component that has to build
   under an owner from a place with none, holding only the renderer.
+
+- **A dialog that is a form: an action can be disabled, `initial` can name the
+  body, and Enter can press a default.** SIG-337. The settings example's login
+  put Sign in and Cancel in its body with `actions: []`, because an action could
+  not be disabled and a dialog with actions opened on a button; that lost what
+  `actions` is for -- the `.sigil-modal-actions` row, the answer settling `result`
+  without a handler, and `initial`. All three of Chris's decisions on the ticket
+  are in.
+
+  `ModalAction.disabled` is a `ControlCondition`, SIG-334's, and is read twice:
+  by the `Button`, which draws it, and by the modal, because Enter pressing the
+  default asks "is it enabled" about a key that never reached the button. Both
+  read the same live condition, so they cannot disagree. `initial` is a position
+  as it was, `'body'` -- the first focusable thing inside the body box -- or an
+  element, which has to be in the body and is refused with the owner already
+  disposed when it is not (nothing is attached to the router before that check).
+  It is the form for an element body only: a `body` function builds its fields
+  after the caller has anything to name, so a form dialog built that way says
+  `'body'`. Whatever it names that cannot take the focus -- a disabled button, a
+  body of words -- falls back to the first focusable thing in the panel rather than
+  leaving the focus outside, the rule an `actions: []` dialog already followed.
+
+  **The default is what the key walk leaves.** After the focused element and its
+  ancestors up to the panel have had Enter, an unclaimed one presses the default
+  action, if there is one and it is enabled. So a text field with an `onSubmit`, a
+  text area (Enter is a newline) and a focused button keep Enter, and a field with
+  no `onSubmit`, a checkbox and the panel itself give it up. That is the web's
+  default button, and it needs no knowledge of what is inside the body. A
+  modifier makes it another key, as it does for a `Button`, and a paste is not a
+  keystroke, so a pasted newline presses nothing. A **disabled field that still has
+  the focus** hands Enter on like any control that is not using it, so a form that
+  disables its fields while a submit is on its way has to put the same condition in
+  the default's `disabled`, and `should press the default for a disabled field`
+  pins that this is what happens rather than something the dialog guesses at; the
+  settings login's Sign in reads `busy` for that reason. The `ctrl`, `meta`,
+  `shift` and paste guards in `pressDefault()` are reachable only by an event the
+  decoder cannot build -- the legacy encoding has no Ctrl-Enter or Shift-Enter, and
+  a paste ends at the panel before the binding -- so only the Alt case is pinned;
+  they are there because a `Button` ignores the same keys and a router with a
+  richer decoder would otherwise press the default on one. Two defaults are refused where
+  the dialog is built, for the reason two `default` commands are: picking one is
+  picking by registration order. The footer does not list Enter for it, since what
+  Enter does depends on what has the focus and the listing is asked once.
+
+  **An action with an `onPress` does not settle the dialog, and has no `value`.**
+  Not on the ticket and forced by the example: Sign in has to ask the account,
+  and a refusal keeps the dialog open with a message in it, which a button that
+  closes on press cannot do. The handler gets no handle -- the caller has the one
+  `openModal()` returned -- and settles by calling `close()` itself. A `value`
+  beside it is refused, the way a path beside a `run` is: a value settles the
+  dialog and so would the handler. `default` does not need it and `onPress` does
+  not need `default`; they were wanted together by the one caller.
+
+  **The buttons are built under the dialog's owner, with the body function.** A
+  button's `disabled` is read in an effect, and one that reads the app's state
+  was the SIG-335 leak again, in the one place that entry did not look: the
+  buttons were built by `openModal()` itself, unowned, so a Sign in over a form's
+  `valid` went on running after the dialog closed. `buildOwned()` takes any build
+  now and a modal always has an owner -- a branch of the renderer's, or a root of
+  its own for a bare element -- which costs one branch per dialog and is disposed
+  by the same `close()`. Measured by a `disabled` function that records its reads,
+  then `close()`, then a write: a read after the close is the failure, and
+  `should stop the effect that reads it when the dialog closes` fails without the
+  disposal and passes with it.
+
+  What the settings login does with it: the form's state (`createForm()`, `busy`)
+  is made before `openModal()`, since it is signals with no effect in it and the
+  action's `disabled` has to read it while the body is yet to be built; the body
+  function holds the fields and `touchOnLeave()`, which is the part with an effect.
+  Sign in is not the `default`: the password field's own `onSubmit` is what shows
+  every error on an invalid Enter, which a disabled default could not. The git
+  client's and the file manager's `ask()` dialogs and the commit dialog dropped
+  their `input.focus.focus(field)` after `openModal()` for `initial: 'body'`.
 
 - **Not done:** a dimmed scrim behind the dialog (no `opacity`, and a transparent
   box is what keeps the app visible); resizing the panel to its content (it has a
@@ -14395,10 +14558,10 @@ root file's rule is one definition per helper, across a package boundary too.
   trims it. Not changed here, because a caller that wants the empty line -- an
   editor -- needs it.
 - **It is not on by default anywhere, and costs what `markdown()` costs.** It
-  imports `tokensOf()`, which lives in `prompt.ts` with `PromptError`, so its
-  graph is the prompt stack's, 263,687 B as it landed, against `highlight`'s
-  14 kB. Moving the validator out of the prompt module would lighten four
-  components and is a change of its own.
+  imports `tokensOf()`, which lived in `prompt.ts` with `PromptError`, so its
+  graph was the prompt stack's: 263,687 B as it landed, against `highlight`'s
+  14 kB. SIG-597 moved the validator out of the prompt module into `token.ts`,
+  and the graph is 147,669 B without the prompts.
 
 ### Form controls: a button, a checkbox, a radio set and a switch (SIG-199)
 

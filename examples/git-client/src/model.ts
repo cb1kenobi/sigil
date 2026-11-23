@@ -31,7 +31,9 @@ import {
   type DiffFile,
   type DiffStop,
   diffStops,
+  type DiffViewLines,
   type DiffViewPosition,
+  hunkLinesPatch,
   hunkPatch,
   type NoteVariant,
   openModal,
@@ -112,6 +114,8 @@ export interface DiffState {
   readonly cursor: State<number>;
   /** Every stop of the blocks, in order, as the view counts them. */
   readonly hunks: Computed<readonly DiffStop<Place>[]>;
+  /** The line cursor and the lines picked in the current hunk: the view's `lines`. */
+  readonly lines: DiffViewLines;
   /** Where the view is scrolled to, which it writes: the view's `position`. */
   readonly position: State<DiffViewPosition>;
 }
@@ -293,6 +297,10 @@ export function createModel(): Model {
   const content = new State<DiffContent>({ ...NOTHING, note: 'Loading...' });
   const cursor = new State(0);
   const position = new State<DiffViewPosition>({ maxX: 0, width: 0, x: 0, y: 0 });
+  const lines: DiffViewLines = {
+    cursor: new State<number | undefined>(undefined),
+    selected: new State<ReadonlySet<number>>(new Set()),
+  };
   const blocks = new Computed<readonly DiffBlock<Place>[]>(() => blocksOf(content.get()));
   const hunks = new Computed<readonly DiffStop<Place>[]>(() => diffStops(blocks.get()));
 
@@ -668,6 +676,47 @@ export function createModel(): Model {
     });
   };
 
+  /**
+   * Space on the lines of a hunk: the lines picked, or the one under the cursor
+   * where none is, staged -- or unstaged, in the `Staged` section -- and the rest of
+   * the hunk left where it is.
+   */
+  const toggleLines = (): void => {
+    const at = hunks.get()[cursor.get()];
+    const section = at?.block.data?.section;
+    const action = section?.action;
+    const under = lines.cursor.get();
+    if (!at?.hunk || !at.file || !section || !action || under === undefined) {
+      return;
+    }
+    if (section.added !== undefined) {
+      toast('An untracked file is staged whole: leave the lines and press Space', 'warning');
+      return;
+    }
+    const picked = lines.selected.get();
+    const chosen = picked.size > 0 ? [...picked] : [under];
+    let patch: string | undefined;
+    try {
+      patch = hunkLinesPatch(at.file, at.hunk, chosen, { reverse: action === 'unstage' });
+    } catch (err) {
+      // a line git cannot be given on its own, such as one added after a last line
+      // that has no newline: the pick has to take the line that ends the file too
+      toast((err as Error).message, 'warning');
+      return;
+    }
+    if (patch === undefined) {
+      return;
+    }
+    const written = patch;
+    const path = pathOf(at.file) ?? section.path;
+    void act(async () => {
+      const args = ['apply', '--cached', '--whitespace=nowarn'];
+      await run(action === 'unstage' ? [...args, '--reverse', '-'] : [...args, '-'], written);
+      const count = `${chosen.length} line${chosen.length === 1 ? '' : 's'}`;
+      return `${action === 'stage' ? 'Staged' : 'Unstaged'} ${count} of ${path}`;
+    });
+  };
+
   const moveHunk = (by: number): void => {
     const count = hunks.get().length;
     if (count) {
@@ -693,22 +742,16 @@ export function createModel(): Model {
     action: string
   ): Promise<string | undefined> => {
     const value = new State('');
-    let field: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: action, value: true },
         { label: 'Cancel', value: false },
       ],
-      body: () => {
-        field = TextField({ onSubmit: () => dialog.close(true), placeholder, value });
-        return field;
-      },
+      body: () => TextField({ onSubmit: () => dialog.close(true), placeholder, value }),
+      initial: 'body',
       input,
       title,
     });
-    // `initial` names a button, so the field is focused once the dialog is open:
-    // SIG-337 is the ticket for a dialog that opens on a field in its body
-    input.focus.focus(field);
     const answer = await dialog.result;
     return answer ? value.get().trim() : undefined;
   };
@@ -760,21 +803,19 @@ export function createModel(): Model {
       toast('Nothing is staged: Space on a file stages it', 'warning');
       return;
     }
-    let area: Element | undefined;
     const dialog = openModal<boolean>(app.view, {
       actions: [
         { label: 'Commit', value: true },
         { label: 'Cancel', value: false },
       ],
       body: () => {
-        area = TextArea({
-          placeholder: 'What this commit does',
-          props: { height: 6 },
-          value: draft,
-        });
         const body = box(
           { 'flex-direction': 'column' },
-          area,
+          TextArea({
+            placeholder: 'What this commit does',
+            props: { height: 6 },
+            value: draft,
+          }),
           text('Ctrl-S commits · Esc keeps the draft for later', {
             class: 'sigil-muted',
             'margin-top': 1,
@@ -794,11 +835,11 @@ export function createModel(): Model {
         onCleanup(input.describe('ctrl+s', { description: 'commit', priority: 4, scope: body }));
         return body;
       },
+      initial: 'body',
       input,
       title: 'Commit',
       width: 64,
     });
-    input.focus.focus(area);
     const answer = await dialog.result;
     if (!answer) {
       return;
@@ -844,7 +885,12 @@ export function createModel(): Model {
     diff: (event) => {
       const name = event.key.name;
       if (name === 'space') {
-        toggleHunk();
+        // on the lines of a hunk Space is for those lines, and off them for the hunk
+        if (lines.cursor.get() === undefined) {
+          toggleHunk();
+        } else {
+          toggleLines();
+        }
       } else if (name === 'n') {
         // `]` and `[` are the view's own; these are the client's second spelling
         moveHunk(1);
@@ -956,7 +1002,7 @@ export function createModel(): Model {
     branches,
     commitCursor,
     commits,
-    diff: { blocks, content, cursor, hunks, position },
+    diff: { blocks, content, cursor, hunks, lines, position },
     diffFooter: () => {
       const at = position.get();
       return `x ${at.x} · widest ${at.width} · y ${at.y}`;
