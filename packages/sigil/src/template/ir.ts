@@ -39,7 +39,7 @@
  * children. The code the build emitter in `@ttylabs/cli` *generates* calls those
  * same six and nothing else from this module. The compiler itself also reads
  * `componentChildren()`, `rawParts()`, `trackedFlag()`, `splitRefs()`,
- * `textPart()`, `refuseHandlerName()` and `templateError()` while it prints -- the rules about
+ * `textPart()`, `refuseHandlerName()`, `refuseUnknownProps()` and `templateError()` while it prints -- the rules about
  * which children, props and names exist, which are not to be written twice and
  * which never reach an app's bundle. So the two emitters cannot
  * come to disagree about what a prop or a child *means*; they can only disagree
@@ -326,9 +326,10 @@ export function applyProp(
  * - **A spelling of one of the seven** -- kebab or lower case -- is refused
  *   whatever its value, pointing at the right name. There is one spelling.
  * - **Any other `on`-prefixed name given a function** is refused as an event this
- *   element does not have. Given anything else it reaches the cascade, which
- *   already refuses an unknown property; a function is the only value that would
- *   have been called instead.
+ *   element does not have. Given anything else it is `refuseUnknownProps()`'s,
+ *   which says the same sentence for it (SIG-614) -- a function is the only
+ *   value that would have been called instead, and the only one this function
+ *   can tell is one.
  *
  * Both emitters ask it: the interpreter at build time of the element, the
  * compiler with no value (an interpolation's type is not known until it runs),
@@ -353,12 +354,17 @@ export function refuseHandlerName(name: string, value: unknown, loc?: SourceLoca
     );
   }
   if (typeof value === 'function' && name.startsWith('on')) {
-    throw templateError(
-      `\`${name}\` is not an event this element has. The handlers are ` +
-        `${HANDLER_PROPS.join(', ')}`,
-      loc
-    );
+    throw refusedEvent(name, loc);
   }
+}
+
+/** The refusal of an `on*` name that is none of the seven handlers. */
+function refusedEvent(name: string, loc?: SourceLocation): Error {
+  return templateError(
+    `\`${escapeControls(name)}\` is not an event this element has. The handlers are ` +
+      `${HANDLER_PROPS.join(', ')}`,
+    loc
+  );
 }
 
 /**
@@ -627,6 +633,7 @@ export function textValue(value: unknown): string {
  * @returns The box.
  */
 function emitBox(node: IRElement): Element {
+  refuseUnknownProps(node);
   const element = box();
   const { props, refs } = splitRefs(node.props);
   applyProps(element, props, node.loc);
@@ -646,6 +653,7 @@ function emitBox(node: IRElement): Element {
  * @returns The text.
  */
 function emitText(node: IRElement): Element {
+  refuseUnknownProps(node);
   const element = text('');
   const { props, refs } = splitRefs(node.props);
   applyProps(element, props, node.loc);
@@ -715,14 +723,7 @@ export function rawParts(node: IRElement): {
     throw templateError('<raw> paints its own cells, so it cannot have children', node.loc);
   }
 
-  for (const prop of node.props) {
-    // `undefined` is a prop nobody set -- what the JSX transform passes for an
-    // omitted attribute, and what `applyProp()` already skips -- so a name that
-    // nothing reads is refused only when it was given something
-    if (prop.value !== undefined) {
-      refuseRawProp(prop.name, node.loc);
-    }
-  }
+  refuseUnknownProps(node);
 
   return {
     measure: node.props.find((prop) => prop.name === 'measure')?.value,
@@ -744,38 +745,67 @@ export function rawParts(node: IRElement): {
 const RAW_OPTIONS = ['measure', 'paint', 'tracked'] as const;
 
 /**
- * Refuses a `<raw>` prop that nothing reads.
+ * Refuses every prop of a host element that nothing reads.
  *
- * A prop that is none of the options, `ref`, a reserved name or a style property
- * went to the cascade, which refuses an unknown one -- but on the first frame and
- * as a style error, and a `<raw Tracked>` built a plain `raw()` meanwhile: the
- * option it was reaching for was silently not read, which is the failure
- * `tracked` exists to remove. Refused here, where the name and the position are
- * still known, and in the one function both emitters ask, so a build and a run
- * refuse the same set in the same words (SIG-599). Where the name is one of the
- * options spelled wrong in case or by a dash, the message says which.
+ * A prop that is none of the element's options, `ref`, a reserved name or a style
+ * property goes to the cascade, which refuses an unknown one -- but on the first
+ * frame and as a style error, when the app is already running. A `<raw Tracked>`
+ * was worse: it built a plain `raw()` meanwhile, the option it was reaching for
+ * silently not read, which is the failure `tracked` exists to remove (SIG-599).
+ * `<box padddding>` and `<text colour>` are the same mistake with the same remedy,
+ * so the same function asks about all three host types (SIG-614): the one place
+ * where the name and the position are still known, asked by both emitters, so a
+ * build and a run refuse the same set in the same words. The set is
+ * `isReservedProp()` and `isKnownProperty()`, which are the runtime's own
+ * definitions -- there is no list here to fall out of step with them.
  *
+ * A prop whose value is `undefined` is not refused: it is one nobody set, what
+ * the JSX transform passes for an omitted attribute and what `applyProp()`
+ * already skips.
+ *
+ * @param node - A `box`, `text` or `raw` node. Anything else is left alone.
+ * @throws If a prop given a value is one nothing reads.
+ */
+export function refuseUnknownProps(node: IRElement): void {
+  if (typeof node.type !== 'string' || !HOSTS.has(node.type)) {
+    return;
+  }
+  for (const prop of node.props) {
+    if (prop.value !== undefined) {
+      refuseHostProp(node.type, prop.name, node.loc);
+    }
+  }
+}
+
+/**
+ * Refuses one prop of a host element that nothing reads.
+ *
+ * @param type - `box`, `text` or `raw`.
  * @param name - The prop.
  * @param loc - Where the element was written.
  * @throws If nothing reads the prop.
  */
-function refuseRawProp(name: string, loc?: SourceLocation): void {
+function refuseHostProp(type: string, name: string, loc?: SourceLocation): void {
   // a near miss for a handler has a better sentence than this one can write
   refuseHandlerName(name, undefined, loc);
-  if (
-    (RAW_OPTIONS as readonly string[]).includes(name) ||
-    name === 'ref' ||
-    isReservedProp(name) ||
-    isKnownProperty(name)
-  ) {
+  const options: readonly string[] = type === 'raw' ? RAW_OPTIONS : [];
+  if (options.includes(name) || name === 'ref' || isReservedProp(name) || isKnownProperty(name)) {
     return;
   }
+  // no style property starts with `on` (`test/template/props.test.ts` pins it), so
+  // whatever does is an event spelled wrong, and says so whether or not it was
+  // given a function -- the build cannot know that, and the answer is the same
+  if (name.startsWith('on')) {
+    throw refusedEvent(name, loc);
+  }
   const folded = name.replaceAll('-', '').toLowerCase();
-  const option = RAW_OPTIONS.find((candidate) => candidate === folded);
+  const option = options.find((candidate) => candidate === folded);
+  const takes = [...options, '`ref`'];
   throw templateError(
-    `<raw> has no prop \`${escapeControls(name)}\`` +
+    `<${type}> has no prop \`${escapeControls(name)}\`` +
       (option === undefined
-        ? `. It takes ${RAW_OPTIONS.join(', ')}, \`ref\`, and what any element takes: ` +
+        ? `. It takes ${takes.slice(0, -1).join(', ')}${takes.length > 1 ? ', ' : ''}${takes.at(-1)}, ` +
+          'and what any element takes: ' +
           'a style property, `class`, `id`, `key`, the focus props and the handlers'
         : `: write \`${option}\`, which is spelled exactly that way`),
     loc

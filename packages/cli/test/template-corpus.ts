@@ -296,11 +296,6 @@ export const CORPUS: readonly CorpusEntry[] = [
     name: 'two refs and a reactive text, where the order and the content at the call are the answer',
     template: `<text ref=\${0} color="red" ref=\${1}>n=\${2}</text>`,
   },
-  {
-    exprs: [],
-    name: 'a prop named __proto__, which is not a key in an object literal',
-    template: `<box><text __proto__="x">x</text></box>`,
-  },
 ];
 
 /**
@@ -392,5 +387,33 @@ export const REFUSALS: readonly RefusalEntry[] = [
       '<raw> has no prop `trackd`. It takes measure, paint, tracked, `ref`, and what any element takes: a style property, `class`, `id`, `key`, the focus props and the handlers (at line 1)',
     name: 'a raw with a misspelled tracked',
     template: `<raw trackd measure=\${0} paint=\${1} />`,
+  },
+  {
+    exprs: [],
+    message:
+      '<box> has no prop `padddding`. It takes `ref`, and what any element takes: a style property, `class`, `id`, `key`, the focus props and the handlers (at line 1)',
+    name: 'a box whose padding is misspelled, which the cascade refused only on the first frame',
+    template: `<box padddding="1" />`,
+  },
+  {
+    exprs: ['() => scope.count.get()'],
+    message:
+      '<text> has no prop `colour`. It takes `ref`, and what any element takes: a style property, `class`, `id`, `key`, the focus props and the handlers (at line 1)',
+    name: 'a text whose misspelled prop is interpolated, which is not a thing the build can skip',
+    template: `<box><text colour=\${0}>x</text></box>`,
+  },
+  {
+    exprs: [],
+    message:
+      '`onclick` is not an event this element has. The handlers are onKey, onMouse, onPaste, onFocusChange, onScroll, onResize, onLayout (at line 1)',
+    name: 'an event written as a string, which no build could have called',
+    template: `<box onclick="go" />`,
+  },
+  {
+    exprs: [],
+    message:
+      '<text> has no prop `__proto__`. It takes `ref`, and what any element takes: a style property, `class`, `id`, `key`, the focus props and the handlers (at line 1)',
+    name: 'a prop named __proto__, which the prop store swallowed without a word',
+    template: `<box><text __proto__="x">x</text></box>`,
   },
 ];
