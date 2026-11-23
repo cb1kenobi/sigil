@@ -129,7 +129,7 @@ describe('the entry', () => {
       expect(ran.during, 'no tracking mode and no mouse encoding').toEqual(quiet);
     }, 45_000);
 
-    it.concurrent(`should read the repository it was given rather than the working directory: ${label}`, async () => {
+    it.concurrent(`should read the repository at the dir it was given rather than the working directory: ${label}`, async () => {
       // `cwd` is not a repository and `repo` is, so the file only shows if `dir`
       // reached `createGit()`
       await started(file, [], { dir: repo, shows: /untracked-marker\.txt/ });

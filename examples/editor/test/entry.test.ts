@@ -93,7 +93,7 @@ describe('the entry', () => {
     expect(ran.during, 'no tracking mode and no mouse encoding').toEqual(quiet);
   }, 45_000);
 
-  it.concurrent('should open the directory it was given rather than the working directory', async () => {
+  it.concurrent('should open the dir it was given rather than the working directory', async () => {
     // the file tree's root row is the directory, so a `dir` that did not reach
     // `createWorkspace()` would show `started-here` here, which is where the
     // process was started

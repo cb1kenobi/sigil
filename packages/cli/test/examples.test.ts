@@ -271,12 +271,129 @@ function refused({ code, stderr, stdout }: Ran): void {
   expect(stderr, 'the one line runApp() refuses with').toMatch(REFUSAL);
 }
 
+/**
+ * What an example's entries say, comments stripped: `src/index.ts`, which
+ * `sigil build` reads, and the unbuilt `src/ui.*` where there is one, which spells
+ * the schema separately. One reader for every guard that asks what the entry
+ * declares or passes on, so that two of them cannot come to read different files
+ * (SIG-522, SIG-594, SIG-617).
+ */
+function entrySources(example: Example): string[] {
+  return [join(example.dir, 'src', 'index.ts'), example.unbuilt]
+    .filter((file): file is string => file !== undefined && existsSync(file))
+    .map((file) =>
+      readFileSync(file, 'utf-8')
+        .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+        .replaceAll(/^\s*\/\/.*$/gm, '')
+    );
+}
+
+/**
+ * The positional arguments an entry's source declares, by the word a person
+ * types them as: `dir` for `{ name: 'dir' }`, `file` for `{ name: '[file]' }` and
+ * for `'[file]'`, `files` for `'<files...>'`.
+ *
+ * Read off the `args: [...]` literal rather than imported, because an entry
+ * imports its root and a root is JSX, which node cannot load -- the same reason
+ * the guard above reads the word `mouse` off the text. The array is walked rather
+ * than matched with a pattern, because an argument's description may hold a
+ * bracket or a comma and a pattern that stopped at the first `]` would read half
+ * of one: strings are skipped as strings, and only an element of the array itself
+ * (a format string) or a `name` of an object in it counts. An `args` that is not
+ * written out in the entry -- imported, spread -- reads as none, which is the
+ * limit of reading source, and why `an entry that declares a positional` below
+ * insists the reader still finds some in the examples that are known to have one.
+ */
+function positionals(source: string): string[] {
+  const names: string[] = [];
+  for (const start of source.matchAll(/\bargs\s*:\s*\[/g)) {
+    let depth = 1;
+    let key = '';
+    for (let i = start.index + start[0].length; i < source.length && depth > 0; i++) {
+      const c = source[i];
+      if (c === "'" || c === '"' || c === '`') {
+        let end = i + 1;
+        while (end < source.length && source[end] !== c) {
+          end += source[end] === '\\' ? 2 : 1;
+        }
+        const text = source.slice(i + 1, end);
+        if (/^\s*:/.test(source.slice(end + 1, end + 8))) {
+          // a quoted key
+          key = text;
+        } else {
+          // a string is an argument as an element of the array, or as the
+          // value of a `name` one level down; anywhere else it is a description
+          if (depth === 1 || (depth === 2 && key === 'name')) {
+            names.push(text);
+          }
+          key = '';
+        }
+        i = end;
+      } else if (c === '[' || c === '{') {
+        depth++;
+        key = '';
+      } else if (c === ']' || c === '}') {
+        depth--;
+        key = '';
+      } else if (/[\w$]/.test(c)) {
+        let end = i;
+        while (end < source.length && /[\w$]/.test(source[end])) {
+          end++;
+        }
+        key = source.slice(i, end);
+        i = end - 1;
+      } else if (c === ',') {
+        key = '';
+      }
+    }
+  }
+  return names.map((name) => name.replaceAll(/[<>[\].\s]/g, '')).filter((name) => name !== '');
+}
+
 const found = examples();
 
 describe('the examples', () => {
   it('should have been found', () => {
     // a directory that stopped matching passes every assertion below it
     expect(found.length).toBeGreaterThan(0);
+  });
+
+  describe('an entry that declares a positional', () => {
+    // the guard reads source, so a reader that stopped matching would let every
+    // example through; these are what it is asked, and the last is that it still
+    // finds the ones this repository has
+    it('should be read off an object, a format string and a quoted key', () => {
+      expect(positionals("args: [{ name: 'dir', desc: 'Where' }] as const")).toEqual(['dir']);
+      expect(positionals("args: [{ desc: 'A log', name: '[file]' }]")).toEqual(['file']);
+      expect(positionals("args: ['<files...>', '[out]']")).toEqual(['files', 'out']);
+      expect(positionals('args: [{ "name": "dir" }]')).toEqual(['dir']);
+    });
+
+    it('should not take a description for an argument, or a bracket in one for the end', () => {
+      expect(
+        positionals("args: [{ name: 'a', desc: 'one] [two, name: x' }, { name: 'b' }]")
+      ).toEqual(['a', 'b']);
+    });
+
+    it('should not take an option or a command for an argument', () => {
+      expect(positionals("options: { '--mouse': 'on' }, commands: { x: './x.js' }")).toEqual([]);
+      expect(positionals("args: [], options: { '--name': 'a name' }")).toEqual([]);
+    });
+
+    it('should be found in the examples that take one', () => {
+      const declared = new Map(
+        found.map((example) => [example.name, entrySources(example).flatMap(positionals)])
+      );
+      for (const [name, args] of [
+        ['disk-usage', 'dir'],
+        ['editor', 'dir'],
+        ['file-manager', 'dir'],
+        ['git-client', 'dir'],
+        ['log-browser', 'file'],
+      ] as const) {
+        expect(declared.get(name), `${name}'s entry declares ${args}`).toContain(args);
+      }
+    });
   });
 
   for (const example of found) {
@@ -339,13 +456,7 @@ describe('the examples', () => {
         // quoted key -- since a test owed wrongly is cheaper than one missed. The
         // file has to name what it reads, so an empty one is not an answer, and
         // the unbuilt entry too, since it spells the flag separately from the bin
-        const sources = [join(example.dir, 'src', 'index.ts'), example.unbuilt]
-          .filter((file): file is string => file !== undefined && existsSync(file))
-          .map((file) =>
-            readFileSync(file, 'utf-8')
-              .replaceAll(/\/\*[\s\S]*?\*\//g, '')
-              .replaceAll(/^\s*\/\/.*$/gm, '')
-          );
+        const sources = entrySources(example);
         if (!sources.some((text) => /\bmouse\b/.test(text))) {
           return;
         }
@@ -357,6 +468,46 @@ describe('the examples', () => {
         ).toBe(true);
         const text = readFileSync(test, 'utf-8');
         expect(text, 'the entry test reads the mouse modes').toMatch(/\bscreen\.mouse\b/);
+        if (example.unbuilt !== undefined) {
+          expect(text, 'the entry test spawns the unbuilt entry too').toContain(
+            basename(example.unbuilt)
+          );
+        }
+      });
+
+      it('should test each positional argument from the entry, when the entry declares one', () => {
+        // the mouse guard's other half (SIG-617). An entry hands `argv.dir` to
+        // a provider -- the directory, the repository, the file -- and every
+        // example's own tests mount `App` over a provider of their own, so the
+        // line that carries the argument across is run by nothing else: take it
+        // out and the example opens on the working directory with every test
+        // still green. So each positional the entry declares is owed a test in
+        // `test/entry.test.ts` that runs the entry with an argument and looks for
+        // it on screen, and the way the file says which argument a test is for
+        // is its title: `should open the dir it was given`, with the word as a
+        // person types it. Every `ui` twin is asked too, because it declares the
+        // arguments separately from the bin and a typo in one is a bug in one.
+        const declared = [...new Set(entrySources(example).flatMap(positionals))];
+        if (declared.length === 0) {
+          return;
+        }
+
+        const test = join(example.dir, 'test', 'entry.test.ts');
+        expect(
+          existsSync(test),
+          `${example.name}'s entry declares ${declared.join(', ')} and ${relative(root, test)} does not exist: it spawns the entry with the argument and looks for it on screen`
+        ).toBe(true);
+        const text = readFileSync(test, 'utf-8');
+        expect(text, 'the entry test passes an argument').toMatch(/\bargv\b/);
+        const titles = [
+          ...text.matchAll(/\bit(?:\.concurrent)?\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1/g),
+        ].map((match) => match[2]);
+        for (const name of declared) {
+          expect(
+            titles.some((title) => new RegExp(`\\b${name}\\b`).test(title)),
+            `${example.name}'s entry declares the positional ${name} and no test in ${relative(root, test)} is titled with it: add one that runs the entry with ${name} and waits for it on screen`
+          ).toBe(true);
+        }
         if (example.unbuilt !== undefined) {
           expect(text, 'the entry test spawns the unbuilt entry too').toContain(
             basename(example.unbuilt)

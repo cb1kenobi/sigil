@@ -190,11 +190,29 @@ the `ui` tag run by plain `node`.
   the entry nothing ran: `dir` for the editor, the visualizer, the git client and
   the file manager (whose file has that and nothing else, it having no mouse),
   `[file]` for the log browser, each run from a directory that is not the one it is
-  given, so the screen can only show the argument. The positional is not guarded
-  the way the mouse is -- an example that takes one and has no entry test is not
-  found by the suite, only by somebody asking. Sabotaged per line: each `mouse`
+  given, so the screen can only show the argument. Sabotaged per line: each `mouse`
   option removed, made constant and changed in mode, and each positional dropped,
   fails exactly the test written for it.
+
+  The positional is guarded the same way (SIG-617). `should test each positional
+  argument from the entry, when the entry declares one`, beside the mouse guard
+  and reading the same `entrySources()` -- `src/index.ts` and `src/ui.*`, comments
+  stripped -- walks each `args: [...]` literal for what it declares (an object's
+  `name`, or a format string, with `<>`, `[]` and `...` taken off, so `'[file]'` is
+  `file`) and fails for an example that declares one without a
+  `test/entry.test.ts` holding an `it` **titled with that word**, such as `should
+  open the dir it was given rather than the working directory`, and an `argv` it
+  passes, and the `ui` twin spawned too. The title is how a test says which
+  argument it is for, and it is the guard's limit as well: it finds a test that
+  claims the argument and cannot find one that claims it and does not pass it, so
+  a title and a body that disagree are a review's to catch, not the suite's. The
+  reader is source text and so cannot see an `args` that is imported or spread; the
+  guard's own tests pin it over each spelling it reads, and over the five examples
+  that really declare one, so a reader that stopped matching fails rather than
+  letting every example through. Every example that declares a positional had its
+  test already from SIG-594; the guard's first run found none missing, and removing
+  or retitling any of them fails it, as does adding an `args` to an example with no
+  entry test, which was measured on the log browser and on the settings screen.
 
   What is copied into each entry test is the spawn, first frame and `q`, and that
   is a decision and not an oversight: an example is a unit somebody copies, with

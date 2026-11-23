@@ -90,7 +90,7 @@ describe('the entry', () => {
     expect(ran.after, 'and turned off again').toEqual(quiet);
   }, 45_000);
 
-  it('should scan the directory it was given rather than the working directory', async () => {
+  it('should scan the dir it was given rather than the working directory', async () => {
     // the tree's root row is the directory scanned, so a `dir` that did not reach
     // `createDisk()` would show `started-here`, which is where the process was
     // started, and never the file in the directory it was handed
