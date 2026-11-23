@@ -1841,6 +1841,8 @@ the repository's own suite.
   and `frame()` paints an app's next frame now instead of waiting for it.
 - `Screen` and `screenStream()` replay what was written into a model of the
   screen, because a frame is a diff and its bytes do not say what is showing.
+  `screen.mouse` is which mouse reporting modes the program has on
+  (`{ buttons, motion, sgr }`), and all `false` once it has handed them back.
 
 ---
 

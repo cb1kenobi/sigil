@@ -283,8 +283,10 @@ There is no pseudo-terminal involved. Node has none built in, and
 anything about terminal modes: nothing is cooked or raw, nothing echoes, and
 Ctrl-C is a byte rather than a signal. A program that calls `setRawMode()` gets
 the call accepted and recorded on its own `process.stdin.isRaw`, where the test
-cannot read it. Bracketed paste and mouse reporting are the same. Test those by
-hand, in the terminals you care about.
+cannot read it. Bracketed paste is the same: test it by hand, in the terminals
+you care about. Mouse reporting is the one mode the screen does keep, as
+`screen.mouse`, because an app that asks for it is asking the terminal for a
+state and a test can say which.
 
 Its stdin is not a terminal unless you pass `stdin: true`, which
 [Driving a prompt](#driving-a-prompt) and [A full-screen app](#a-full-screen-app)
@@ -381,6 +383,12 @@ Read it back with:
   something starts in.
 - `row` and `column` for the cursor, `cursorHidden`, `alternate` for whether
   the alternate screen is showing, and `clipboard` for what OSC 52 copied.
+- `mouse` for which mouse reporting modes are on: `{ buttons, motion, sgr }`.
+  `buttons` is `mouse: true` (`ESC[?1002h`), `motion` is `{ motion: true }`
+  (`ESC[?1003h`), and `sgr` is the encoding the reports come back in
+  (`ESC[?1006h`). It is the state the terminal is in now, so an app that handed
+  the mouse back reads all `false`, the way `alternate` does once it has left the
+  alternate screen. Each read is a fresh object.
 
 It models the sequences sigil writes: cursor movement, erasing, the alternate
 screen, the cursor's visibility, and OSC 52. The questions a program asks the
@@ -757,11 +765,17 @@ Two things to know:
   the child's output handler, where it would be an uncaught exception in your
   test runner.
 
-A spawned run has no `resize()`, and it cannot show you terminal modes: raw
+A spawned run has no `resize()`, and it cannot show you most terminal modes: raw
 mode is recorded on the child's own `process.stdin.isRaw`, where the test cannot
 read it. A program that gives the screen back has run the teardown that restores
 the terminal, and `run.screen` shows that it left the alternate screen and
 showed the cursor again.
+
+The mouse is the mode it can show. Once `waitFor()` has seen the first frame,
+`run.screen.mouse` says which reporting modes the program turned on, so a test
+for a `--mouse` flag is `expect(run.screen.mouse.buttons).toBe(true)` over a
+run given the flag and `false` over one without it, and after `await run` it
+says the program handed the mouse back.
 
 Use the in-process test for the app's behaviour, since it is faster and
 `frame()` makes it exact, and a spawned one for what only the whole program

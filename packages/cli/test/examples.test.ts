@@ -353,12 +353,10 @@ describe('the examples', () => {
         const test = join(example.dir, 'test', 'entry.test.ts');
         expect(
           existsSync(test),
-          `${example.name}'s entry turns the mouse on and ${relative(root, test)} does not exist: it spawns the entry and reads ENABLE_MOUSE_* off the terminal`
+          `${example.name}'s entry turns the mouse on and ${relative(root, test)} does not exist: it spawns the entry and reads Screen.mouse`
         ).toBe(true);
         const text = readFileSync(test, 'utf-8');
-        expect(text, 'the entry test reads the mouse modes').toMatch(
-          /\bENABLE_MOUSE_(BUTTONS|MOTION)\b/
-        );
+        expect(text, 'the entry test reads the mouse modes').toMatch(/\bscreen\.mouse\b/);
         if (example.unbuilt !== undefined) {
           expect(text, 'the entry test spawns the unbuilt entry too').toContain(
             basename(example.unbuilt)
