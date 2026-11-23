@@ -90,4 +90,64 @@ describe('a format character in a completion script', () => {
     expect(descriptionLine(`a ${ZWSP} b`)).toBe('a b');
     expect(descriptionLine(`a${BIDI}b`)).toBe('ab');
   });
+
+  // SIG-632: a name, an alias and a choice are matched by what argv gives, so
+  // each is dropped rather than stripped -- a stripped one is a completion that
+  // does not reach what it names
+
+  it.each(SHELLS)('should not reach the %s script from a command name', async (shell) => {
+    const out = await script(
+      {
+        commands: {
+          // `go` is typeable, so the command is still walked and offered
+          [`go${BIDI}x, go`]: { desc: 'reachable', run(): void {} },
+          // nothing else answers to it, so it is not in the script at all
+          [`only${ZWSP}name`]: { run(): void {} },
+        },
+        name: 'mycli',
+      },
+      shell
+    );
+
+    expect(out).not.toMatch(FORMAT);
+    expect(out).toContain('go');
+    // not the stripped spelling either: that is a token no command answers to
+    expect(out).not.toContain('gox');
+    expect(out).not.toContain('onlyname');
+  });
+
+  it.each(SHELLS)('should not reach the %s script from an alias', async (shell) => {
+    const out = await script(
+      {
+        commands: { go: { alias: [`g${BIDI}o`, 'run'], run(): void {} } },
+        name: 'mycli',
+      },
+      shell
+    );
+
+    expect(out).not.toMatch(FORMAT);
+    expect(out).toContain('run');
+  });
+
+  it.each(SHELLS)('should not reach the %s script from a choice', async (shell) => {
+    const out = await script(
+      {
+        commands: {
+          go: {
+            options: {
+              '--mode [m]': { choices: [`qu${BIDI}ick`, `sl${ZWSP}ugg`, 'safe'], desc: 'm' },
+            },
+            run(): void {},
+          },
+        },
+        name: 'mycli',
+      },
+      shell
+    );
+
+    expect(out).not.toMatch(FORMAT);
+    expect(out).toContain('safe');
+    expect(out).not.toContain('quick');
+    expect(out).not.toContain('slugg');
+  });
 });
