@@ -510,16 +510,39 @@ describe('highlightCode()', () => {
     // 2.4 s on a laptop without coverage. Coverage and a slow runner scale both
     // sides of a ratio alike. Best of seven, the sides taking turns, for the
     // reasons `markdown-malformed.test.ts` gives.
+    //
+    // And in CPU time rather than wall time where the platform can say it
+    // (SIG-627). A wall-clock best of seven survives a stall that lands on some of
+    // the runs and not a machine that is oversubscribed for the whole test: a
+    // macOS runner read the linear diff at `39.3` against a bound of 24, and a
+    // laptop at a load average of 140 failed a different shape in five of eight
+    // runs of this file -- `js` `a / `, `markdown` `*a`, `sh` `"$` -- each of them
+    // linear. Being descheduled costs a measurement its wait however long it was,
+    // and the small side is a tenth of a millisecond, which fits between two
+    // preemptions where a large one does not, so load inflates the larger read
+    // alone. `process.threadCpuUsage()` is this thread's time on a CPU, which a
+    // wait is not part of. Windows reports it from the scheduler's tick, which is
+    // a few milliseconds, too coarse to tell sixty-four from eight on the
+    // smallest shapes, so it keeps the wall clock there.
     const SIZE = 32 * 1024;
+
+    /** Milliseconds this thread has spent running, or on the wall clock where that is too coarse to read. */
+    const now: () => number =
+      process.platform === 'win32' || typeof process.threadCpuUsage !== 'function'
+        ? () => performance.now()
+        : () => {
+            const { system, user } = process.threadCpuUsage();
+            return (system + user) / 1000;
+          };
 
     /** How much more a document `factor` times the size costs to highlight. */
     const growth = (lang: string, make: (size: number) => string, factor: number): number => {
       const small = make(SIZE);
       const large = make(SIZE * factor);
       const time = (code: string): number => {
-        const start = performance.now();
+        const start = now();
         highlightCode(code, lang);
-        return performance.now() - start;
+        return now() - start;
       };
       let bestSmall = Infinity;
       let bestLarge = Infinity;
