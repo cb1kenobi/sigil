@@ -7804,9 +7804,9 @@ measurements are in
   is not installed. One function now answers both halves, whether to demand a
   declaration and which notes to write, from the bundle's two flags and the schema,
   and `what sigil package decides about the update check` asks it with every
-  combination and no runtime. Swapping either warning back onto `usesUpdateCheck`
-  fails two of those cases; narrowing the wrapper warning back to `importsCheck`
-  fails three. What it does not pin is `package.ts` calling it at all, which the
+  combination and no runtime. Measured by sabotage as of SIG-676: swapping both warnings
+  onto `usesUpdateCheck` failed two cases, one each, and narrowing the wrapper
+  warning back to `importsCheck` failed three, two of them in that block. What it does not pin is `package.ts` calling it at all, which the
   bun-gated cases still cover: `should warn about the wrapper, and not about
   check(), for a wrapped schema that imports only a builder` packages one.
 
