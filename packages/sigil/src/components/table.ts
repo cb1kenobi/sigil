@@ -323,9 +323,11 @@ export function tableRowView(
   gap: number,
   classes: string
 ): Element {
-  return box(
-    { class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 },
-    ...values.map((value, i) =>
+  // one cell at a time rather than spread into `box()`: a row has a cell for each
+  // column, and a table may have as many columns as an object has keys (SIG-417)
+  const row = box({ class: 'sigil-table-row', 'column-gap': gap, 'flex-shrink': 0 });
+  values.forEach((value, i) => {
+    row.append(
       value.view
         ? viewCell(value.view, widths[i], columns[i].align ?? 'left', classes)
         : textNode(value.text, {
@@ -340,8 +342,9 @@ export function tableRowView(
             'white-space': 'nowrap',
             width: widths[i],
           })
-    )
-  );
+    );
+  });
+  return row;
 }
 
 /** Where a view sits in a column wider than it, by the column's alignment. */

@@ -178,7 +178,10 @@ export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
     }
     return { element, face, left, mnemonic: parseMnemonic(menu.label).mnemonic, right };
   });
-  host.append(...titles.map((title) => title.element));
+  // one at a time rather than spread: a title for each of the app's menus (SIG-417)
+  for (const title of titles) {
+    host.append(title.element);
+  }
 
   const offered = (index: number): boolean =>
     index >= 0 && index < menus.length && menus[index]?.disabled !== true;

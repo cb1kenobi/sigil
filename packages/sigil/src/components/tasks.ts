@@ -844,12 +844,20 @@ function createRun(opts: TasksOptions): Run {
     const lines = [settledLine(node)];
     if (node.view.outcome.get() === 'error') {
       if (node.window) {
-        lines.push(
-          ...failureLines(node.window.kept, node.window.dropped, node.depth * INDENT + INDENT)
-        );
+        // one at a time rather than spread into `push()`: a failed task's window
+        // and its subtree are as long as the output was (SIG-417)
+        for (const line of failureLines(
+          node.window.kept,
+          node.window.dropped,
+          node.depth * INDENT + INDENT
+        )) {
+          lines.push(line);
+        }
       }
       for (const child of node.children) {
-        lines.push(...block(child));
+        for (const line of block(child)) {
+          lines.push(line);
+        }
       }
     }
     return lines;

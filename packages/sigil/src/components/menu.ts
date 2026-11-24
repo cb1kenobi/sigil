@@ -729,16 +729,18 @@ export function openMenuSession<T>(opts: MenuSessionOptions<T>): MenuSession<T> 
     const marked = items.some((entry) => isMarked(entry));
     const width = Math.max(widthOf(items, marked), minWidth - 2);
     const rows = items.map((entry) => buildRow(entry, width, marked));
-    const list = box(
-      {
-        class: 'sigil-menu-list',
-        'flex-direction': 'column',
-        'flex-shrink': 1,
-        'min-height': 0,
-        overflow: 'hidden',
-      },
-      ...rows.map((row) => row.element)
-    );
+    // appended one at a time rather than spread into `box()`: a menu has a row
+    // for each of its entries, however many that is (SIG-417)
+    const list = box({
+      class: 'sigil-menu-list',
+      'flex-direction': 'column',
+      'flex-shrink': 1,
+      'min-height': 0,
+      overflow: 'hidden',
+    });
+    for (const row of rows) {
+      list.append(row.element);
+    }
     const popup = box(
       {
         'border-style': glyphs.border,

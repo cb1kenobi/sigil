@@ -338,47 +338,51 @@ function listNode(
 ): Element {
   const { column, drawn } = outlineMarkers(entries, depth, opts, ascii);
 
-  return box(
-    { class: 'sigil-outline-list', 'flex-direction': 'column' },
-    ...entries.map((entry, index) => {
-      const body: Element[] = [textNode(entry.text, { class: 'sigil-outline-text' })];
-      if (entry.items.length > 0) {
-        body.push(
-          box(
-            {
-              class: 'sigil-outline-nested',
-              'flex-direction': 'column',
-              'padding-left': column === 0 ? BARE_INDENT : 0,
-            },
-            listNode(entry.items, depth + 1, opts, ascii)
-          )
-        );
-      }
-
-      return box(
-        { class: 'sigil-outline-item', 'flex-direction': 'row' },
-        ...(column === 0
-          ? []
-          : [
-              textNode(drawn[index], {
-                class: 'sigil-outline-marker sigil-muted',
-                'flex-shrink': 0,
-                'padding-right': GAP,
-                'white-space': 'nowrap',
-              }),
-            ]),
+  // appended one at a time rather than spread into `box()`: a row for each entry
+  // of the list, however many that is (SIG-417)
+  const rows = entries.map((entry, index) => {
+    const body: Element[] = [textNode(entry.text, { class: 'sigil-outline-text' })];
+    if (entry.items.length > 0) {
+      body.push(
         box(
           {
-            class: 'sigil-outline-body',
+            class: 'sigil-outline-nested',
             'flex-direction': 'column',
-            'flex-shrink': 1,
-            'min-width': 0,
+            'padding-left': column === 0 ? BARE_INDENT : 0,
           },
-          ...body
+          listNode(entry.items, depth + 1, opts, ascii)
         )
       );
-    })
-  );
+    }
+
+    return box(
+      { class: 'sigil-outline-item', 'flex-direction': 'row' },
+      ...(column === 0
+        ? []
+        : [
+            textNode(drawn[index], {
+              class: 'sigil-outline-marker sigil-muted',
+              'flex-shrink': 0,
+              'padding-right': GAP,
+              'white-space': 'nowrap',
+            }),
+          ]),
+      box(
+        {
+          class: 'sigil-outline-body',
+          'flex-direction': 'column',
+          'flex-shrink': 1,
+          'min-width': 0,
+        },
+        ...body
+      )
+    );
+  });
+  const list = box({ class: 'sigil-outline-list', 'flex-direction': 'column' });
+  for (const row of rows) {
+    list.append(row);
+  }
+  return list;
 }
 
 /**

@@ -352,10 +352,12 @@ export function logView(
     }
   }
 
-  const body = box(
-    { class: 'sigil-log-body', 'flex-direction': 'column', 'flex-shrink': 1 },
-    ...children
-  );
+  // appended one at a time rather than spread into `box()`: a message has a line
+  // for each of its own, however many that is (SIG-417)
+  const body = box({ class: 'sigil-log-body', 'flex-direction': 'column', 'flex-shrink': 1 });
+  for (const child of children) {
+    body.append(child);
+  }
   const columns: Element[] = [];
 
   if (extras.time) {
@@ -378,7 +380,9 @@ export function logView(
     );
   }
 
-  return box({ class: 'sigil-log' }, ...columns, body);
+  const log = box({ class: 'sigil-log' }, ...columns);
+  log.append(body);
+  return log;
 }
 
 /**
