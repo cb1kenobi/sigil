@@ -500,17 +500,19 @@ describe('sigil build', () => {
     // all, so a safelisted variant is the only thing the shake keeps, and the
     // note about dropping everything would be false -- and a safelist takes a
     // qualified name like any other
-    const config = join(fixtures, 'opaque', 'sigil.json');
-    writeFileSync(config, JSON.stringify({ build: { safelist: ['focus:border-green'] } }));
+    // a copy rather than the shared fixture, which `package-command.test.ts`
+    // copies from another worker: a `sigil.json` written into it is one
+    // another test's app would carry for as long as this build runs (SIG-655)
+    const app = linkedFixture(join(fixtures, 'opaque'), 'sigil-build-variant-only-');
+    writeFileSync(
+      join(app, 'sigil.json'),
+      JSON.stringify({ build: { safelist: ['focus:border-green'] } })
+    );
 
-    try {
-      const { err } = await sigil('build', join(fixtures, 'opaque'), '--out', out);
+    const { err } = await sigil('build', app, '--out', out);
 
-      expect(err).toContain('0 of 383 utility rules, plus 1 variant rules');
-      expect(err).not.toContain('No utility class is named');
-    } finally {
-      rmSync(config, { force: true });
-    }
+    expect(err).toContain('0 of 383 utility rules, plus 1 variant rules');
+    expect(err).not.toContain('No utility class is named');
   }, 60_000);
 
   it('should say nothing of the sort when it kept something', async () => {

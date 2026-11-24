@@ -1469,10 +1469,10 @@ describe('sigil package', () => {
   });
 
   describe.skipIf(process.platform === 'win32')(
-    'a file too deeply nested to parse (SIG-645)',
+    'what the utility shake says about an app (SIG-645, SIG-655)',
     () => {
       // the same fixtures `sigil build` is tested with, through the same
-      // function: 513 unbalanced `(` inside strings is past the shake's ceiling
+      // functions: 513 unbalanced `(` inside strings is past the shake's ceiling
       // by the naive count and is nothing the parser is ever given, so nothing
       // here can segfault `oxc-parser` (SIG-639). A stub `node` answers
       // `--version` and fails `--build-sea`, which is after the note and means
@@ -1515,6 +1515,39 @@ describe('sigil package', () => {
           label(hostTarget()),
           ...rest
         );
+
+      it('should say so when the shake kept no rules, as sigil build does (SIG-655)', async () => {
+        // the `opaque` app names no utility class, so a packaged binary would
+        // carry an empty sheet and nothing said why
+        const app = linkedFixture(join(fixtures, 'opaque'), 'sigil-pkg-empty-shake-');
+
+        const { err } = await pack(app);
+
+        expect(err).toMatch(/No\s+utility\s+class\s+is\s+named\s+anywhere\s+in\s+this\s+app/);
+        expect(err).toMatch(/all\s+383\s+rules\s+were\s+dropped/);
+        expect(err).toContain('build.safelist');
+        expect(err).toContain('--no-shake');
+        // the run got as far as the compiler, so the note was not an early exit
+        expect(err).toContain('--build-sea');
+      }, 120_000);
+
+      it('should say nothing of an empty shake when it kept something (SIG-655)', async () => {
+        const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-kept-shake-');
+
+        const { err } = await pack(app);
+
+        expect(err).not.toContain('No utility class is named');
+        expect(err).toContain('--build-sea');
+      }, 120_000);
+
+      it('should say nothing of an empty shake under --quiet (SIG-655)', async () => {
+        const app = linkedFixture(join(fixtures, 'opaque'), 'sigil-pkg-empty-quiet-');
+
+        const { err } = await pack(app, '--quiet');
+
+        expect(err).toContain('--build-sea');
+        expect(err).not.toContain('No utility class is named');
+      }, 120_000);
 
       it('should name the file and what it keeps, as sigil build does', async () => {
         const app = linkedFixture(join(fixtures, 'styled'), 'sigil-pkg-deep-');
