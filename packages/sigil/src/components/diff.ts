@@ -7,7 +7,7 @@ import {
 } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { type StyledOptions, themedCascade, TOKEN_ROLE } from '../theme/index.js';
-import { graphemes, stringWidth } from '../width/index.js';
+import { graphemes, maxOf, stringWidth } from '../width/index.js';
 import { ELLIPSIS, isBreakSpace, terminalWidth } from '../wrap/index.js';
 import { codeRun } from './code-view.js';
 import { colorLevelOf } from './color-level.js';
@@ -693,7 +693,7 @@ function gitNames(rest: string, header: readonly string[]): [string, string] | u
   // the tail is the path and the rest the prefixes, so it is most of each half: a
   // tail of a letter or two is two different paths that happen to end alike, as
   // two binaries of `git diff --binary` do, which have no other line to go by
-  const longest = Math.max(0, ...splits.map(tail));
+  const longest = maxOf(splits.map(tail), 0);
   const found = splits.filter(
     (split) => tail(split) === longest && 2 * longest >= Math.max(split[0].length, split[1].length)
   );

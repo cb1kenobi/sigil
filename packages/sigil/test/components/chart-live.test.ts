@@ -417,6 +417,37 @@ describe('BarChart', () => {
     expect(picture(column(4, chart), 7, 4)).toEqual(['███', '███ ███', ' 4   2', ' a   b']);
   });
 
+  // SIG-664: the bars were a column and a gap each whatever the layout gave, so
+  // 200,000 of them drew 400,000 columns before the layout clipped them
+  it('should show the latest bars that fit the width the layout gave it', () => {
+    const data = Array.from({ length: 200_000 }, (_, i) => ({
+      label: String(i % 10),
+      value: (i % 10) + 1,
+    }));
+    const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+
+    // five columns and four gaps, and the end of the list
+    expect(picture(column(3, chart), 9, 3)).toEqual(['▂ ▃ ▅ ▆ █', '█ █ █ █ █', '5 6 7 8 9']);
+  });
+
+  it('should ask for no more width than the terminal has, before the layout has said', () => {
+    vi.stubEnv('COLUMNS', '30');
+    try {
+      const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
+      const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
+      const body = chart.children[1] as Element;
+
+      // fifteen bars and fourteen gaps, in the first drawing, which is made at the
+      // size asked for because no layout has been done
+      expect(body.children.length).toBe(9);
+      for (const row of body.children) {
+        expect(row.children.length).toBeLessThanOrEqual(29);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('should draw a bar in the role it names over the chart’s', () => {
     const chart = BarChart({
       ascii: false,

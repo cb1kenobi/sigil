@@ -309,7 +309,7 @@ function readGlyph(lines: readonly string[], at: number, height: number): string
   // a character is a rectangle. The format says the rows agree and real fonts
   // sometimes do not, and a glyph whose rows disagree would make every column
   // index after it mean a different thing per row
-  const width = Math.max(...rows.map((row) => columnsOf(row).length));
+  const width = maxOf(rows.map((row) => columnsOf(row).length));
   return rows.map((row) => padTo(row, width));
 }
 

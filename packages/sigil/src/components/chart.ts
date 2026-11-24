@@ -94,7 +94,8 @@ export type BarData = readonly BarDatum[] | Readonly<Record<string, number>>;
 export interface BarChartOptions extends ChartOptions, ScaleOptions {
   /**
    * The width of a vertical bar, and so of its column. Defaults to the widest
-   * label or value, so that neither is cut.
+   * label or value, so that neither is cut -- unless the bars would then be wider
+   * than `width`, when it is narrowed until they are not.
    */
   barWidth?: number;
   /** How a number is written. Defaults to at most two decimals. */
@@ -109,7 +110,12 @@ export interface BarChartOptions extends ChartOptions, ScaleOptions {
   showValues?: boolean;
   /** `horizontal` bars grow rightwards, `vertical` upwards. Defaults to `horizontal`. */
   direction?: 'horizontal' | 'vertical';
-  /** The widest a horizontal chart may be. Defaults to `terminalWidth()`. */
+  /**
+   * The widest the chart may be. Defaults to `terminalWidth()`. A vertical chart
+   * that has more bars than this has columns for shows the latest of them, as a
+   * sparkline shows its latest samples: bars are narrowed to fit first, down to a
+   * column each, and only then dropped from the left.
+   */
   width?: number;
 }
 
@@ -635,13 +641,40 @@ export function sparkline(values: readonly number[], opts: SparklineOptions = {}
 }
 
 /**
- * @param data - The bars, as given.
- * @returns A list of them.
+ * A chart's bars, with the ones it will not draw never built.
+ *
+ * A vertical chart shows the latest bars that fit, so what it needs from 200,000
+ * of them is how many there are and the last few -- not an object per bar, which
+ * an object's entries would be.
  */
-function datums(data: BarData): BarDatum[] {
-  return Array.isArray(data)
-    ? [...(data as readonly BarDatum[])]
-    : Object.entries(data as Record<string, number>).map(([label, value]) => ({ label, value }));
+interface Bars {
+  /** The latest `count` bars, oldest first: all of them where there are no more. */
+  last(count: number): readonly BarDatum[];
+  /** How many bars there are. */
+  readonly length: number;
+}
+
+/**
+ * @param data - The bars, as given.
+ * @returns A handle on them.
+ */
+function barsOf(data: BarData): Bars {
+  if (Array.isArray(data)) {
+    const list = data as readonly BarDatum[];
+    return {
+      last: (count) => (count >= list.length ? list : list.slice(list.length - count)),
+      length: list.length,
+    };
+  }
+  const record = data as Readonly<Record<string, number>>;
+  const keys = Object.keys(record);
+  return {
+    last: (count) =>
+      keys
+        .slice(Math.max(0, keys.length - count))
+        .map((label) => ({ label, value: record[label] as number })),
+    length: keys.length,
+  };
 }
 
 /**
@@ -784,21 +817,70 @@ function gapOf(opts: { gap?: number }): number {
 }
 
 /**
+ * Fits a vertical chart to its width: which of the bars it shows, and how wide
+ * each one is.
+ *
+ * Bars share the width out first, each keeping a column and a gap, and a label or
+ * a value that no longer fits its column is cut to it. Where even a column of one
+ * apiece does not fit, the chart shows the **latest** bars that do and draws no
+ * more -- which is what a sparkline longer than its width does, and for the same
+ * reason: a series is read from its end. A `barWidth` that was asked for is kept,
+ * and it is the count that gives way, since a width somebody wrote down is a
+ * width they meant. A chart is never wider than `room`, so a single bar is cut
+ * to it too.
+ *
+ * @param bars - The bars.
+ * @param gap - The columns between two of them.
+ * @param room - The widest the chart may be.
+ * @param barWidth - The column the caller asked for.
+ * @param natural - The widest label or value among the bars shown.
+ * @returns The bars shown, and the columns each one takes.
+ */
+function fitBars(
+  bars: Bars,
+  gap: number,
+  room: number,
+  barWidth: number | undefined,
+  natural: (shown: readonly BarDatum[]) => number
+): { column: number; shown: readonly BarDatum[] } {
+  const across = (column: number): number => Math.max(1, Math.floor((room + gap) / (column + gap)));
+  if (barWidth !== undefined) {
+    const column = Math.min(barWidth, room);
+    return { column, shown: bars.last(across(column)) };
+  }
+  if (bars.length > across(1)) {
+    return { column: 1, shown: bars.last(across(1)) };
+  }
+  const shown = bars.last(bars.length);
+  const shared = Math.max(1, Math.floor((room - gap * (shown.length - 1)) / shown.length));
+
+  return { column: Math.min(natural(shown), shared), shown };
+}
+
+/**
  * Builds the rows of a vertical bar chart.
  *
- * @param data - The bars.
- * @param opts - The height, the column width and the scale.
+ * @param bars - The bars.
+ * @param opts - The height, the width, the column width and the scale.
  * @returns The rows.
  */
-function verticalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[] {
+function verticalBars(bars: Bars, opts: BarChartOptions): Row[] {
   const format = opts.format ?? formatNumber;
+  const gaps = gapOf(opts);
+  const { column, shown: data } = fitBars(
+    bars,
+    gaps,
+    count(opts.width, terminalWidth({ env: opts.env })),
+    opts.barWidth === undefined ? undefined : count(opts.barWidth, 1),
+    (shown) => naturalColumn(shown, opts)
+  );
+  // the scale is over the bars shown, as a sparkline's is over its samples
   const [low, high] = barBounds(data, opts);
   const labels = data.map((d) => labelLine(d.label));
   const values = data.map((d) => (isPlottable(d.value) ? format(d.value) : '-'));
   const showValues = opts.showValues !== false;
   const height = count(opts.height, DEFAULT_HEIGHT);
-  const gap = ' '.repeat(gapOf(opts));
-  const column = count(opts.barWidth, naturalColumn(data, opts));
+  const gap = ' '.repeat(gaps);
   const plain = asciiOnly(opts);
   const role = roleOf(opts);
 
@@ -847,14 +929,13 @@ function verticalBars(data: readonly BarDatum[], opts: BarChartOptions): Row[] {
  * @param opts - How to draw them.
  * @returns The drawing.
  */
-function barDrawing(data: BarData, opts: BarChartOptions): Drawing {
-  const list = datums(data);
+function barDrawing(bars: Bars, opts: BarChartOptions): Drawing {
   const rows =
-    list.length === 0
+    bars.length === 0
       ? []
       : opts.direction === 'vertical'
-        ? verticalBars(list, opts)
-        : horizontalBars(list, opts);
+        ? verticalBars(bars, opts)
+        : horizontalBars(bars.last(bars.length), opts);
 
   return { kind: 'bar', rows };
 }
@@ -867,7 +948,7 @@ function barDrawing(data: BarData, opts: BarChartOptions): Drawing {
  * @returns The tree, and the room it takes.
  */
 export function barChartView(data: BarData, opts: BarChartOptions = {}): ChartView {
-  return viewOf(barDrawing(data, opts));
+  return viewOf(barDrawing(barsOf(data), opts));
 }
 
 /**
@@ -885,7 +966,7 @@ export function barChartView(data: BarData, opts: BarChartOptions = {}): ChartVi
  * @returns The chart, with no trailing newline. Nothing, for no data.
  */
 export function barChart(data: BarData, opts: BarChartOptions = {}): string {
-  const drawing = barDrawing(data, opts);
+  const drawing = barDrawing(barsOf(data), opts);
 
   return drawing.rows.length === 0 ? '' : print(drawing, opts);
 }
@@ -1147,7 +1228,12 @@ function lineDrawing(list: readonly PlotSeries[], layout: LineLayout): Drawing {
       row,
       text: format(height <= 1 ? high : high - (row / (height - 1)) * (high - low)),
     }));
-    const widest = axis ? Math.max(0, ...ticks.map((tick) => stringWidth(tick.text))) : 0;
+    const widest = axis
+      ? maxOf(
+          ticks.map((tick) => stringWidth(tick.text)),
+          0
+        )
+      : 0;
     return { high, low, plotWidth, ticks, widest };
   };
 
@@ -1923,7 +2009,9 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   showValues?: boolean;
   /**
    * The columns asked for where the layout does not decide. Defaults to 40
-   * across, and to the bars' own width upwards.
+   * across, and to the bars' own width upwards, which is never more than
+   * `terminalWidth()`. Bars that do not fit what the layout gave are narrowed to a
+   * column each and then dropped from the left, so a chart shows its latest bars.
    */
   width?: number;
 }
@@ -2307,7 +2395,10 @@ export function LineChart(props: LineChartProps): Element {
     // (40 is the tooltip's default cap, repeated because a chart is ejectable and
     // cannot import it: past it the text wraps, and a bubble wider than it is not)
     const widest = (text: string): number =>
-      Math.max(0, ...text.split('\n').map((line) => stringWidth(line)));
+      maxOf(
+        text.split('\n').map((line) => stringWidth(line)),
+        0
+      );
     const reach = Math.min(crosshair.maxWidth ?? 40, 4 + widest(words));
     const pin = drawing.pinned;
     const beside =
@@ -2630,21 +2721,27 @@ export function BarChart(props: BarChartProps): Element {
     'bar',
     props,
     () => {
-      const list = datums(read(props.data));
+      const bars = barsOf(read(props.data));
       if (!vertical) {
         return {
-          height: props.height ?? Math.max(1, list.length),
+          height: props.height ?? Math.max(1, bars.length),
           width: props.width ?? DEFAULT_WIDTH,
         };
       }
-      const column = props.barWidth ?? naturalColumn(list, props);
+      // what it asks for is what it draws, so it is fitted to the terminal where
+      // the bars would run past it: 200,000 of them ask for no more than there is
+      // room to show, rather than for a width that is drawn before the layout
+      // has said how much it has
+      const { column, shown } = fitBars(bars, gap, terminalWidth(), props.barWidth, (some) =>
+        naturalColumn(some, props)
+      );
       return {
         height: (props.height ?? DEFAULT_HEIGHT) + below,
-        width: props.width ?? Math.max(1, list.length * column + gap * (list.length - 1)),
+        width: props.width ?? Math.max(1, shown.length * column + gap * (shown.length - 1)),
       };
     },
     (size) => {
-      const list = datums(read(props.data));
+      const list = barsOf(read(props.data));
       const shared = Math.floor((size.width - gap * Math.max(0, list.length - 1)) / list.length);
       return barDrawing(list, {
         ascii,
