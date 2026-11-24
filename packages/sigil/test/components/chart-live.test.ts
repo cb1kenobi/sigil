@@ -1680,6 +1680,32 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           expect((m.screen()[0] ?? '').indexOf('╭')).toBe(30);
         });
 
+        it('should not ask the text function again for a layout, so a clock in it cannot spend every pass', async () => {
+          let asked = 0;
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: {
+              input,
+              text: () => {
+                asked++;
+                return `${wide}${asked}`;
+              },
+            },
+            props: { height: 6, width: 30 },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          const before = asked;
+          m.term.resize(34, 8);
+          await m.settle();
+          await m.settle();
+          // the drawings a resize and its effects ask for, and not one per layout pass
+          expect(asked - before).toBeLessThanOrEqual(2);
+          await m.settle();
+          const stable = asked;
+          await m.settle();
+          expect(asked).toBe(stable);
+        });
+
         it('should keep the bubble clear of the pin it was widened around after a resize', async () => {
           // the pin in column 19 and the rule in column 0: the bubble is past the pin
           const m = await mountWide();

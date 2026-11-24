@@ -2243,6 +2243,8 @@ export function LineChart(props: LineChartProps): Element {
   let samples: SamplesDrawn | undefined;
   /** What the chart last drew, which a layout that moved the screen or the chart says again. */
   let drawn: Drawing | undefined;
+  /** What `text()` said for it, kept so a layout does not ask a caller's function again. */
+  let spoken = '';
 
   /** Whether the keys go to the chart: a signal, so a drawing that read it is redone when it moves. */
   const focused = (): boolean => {
@@ -2266,20 +2268,29 @@ export function LineChart(props: LineChartProps): Element {
    * Says what is under the crosshair, and where it is, after a drawing: the words
    * first, so the bubble that moves is the one that says them.
    *
+   * @param drawing - What was drawn.
+   * @param again - A layout saying the last drawing again: the words are the ones
+   *   `text()` already said for it, since a function that reads a clock would
+   *   otherwise never agree with itself and ask a pass of every layout.
    * @returns Whether it wrote the words or the area, which a layout owes a pass.
    */
-  const follow = (drawing: Drawing): boolean => {
+  const follow = (drawing: Drawing, again = false): boolean => {
     if (crosshair === undefined || pointed === undefined) {
       return false;
     }
-    drawn = drawing;
     const at = drawing.crosshair;
     shown = at?.index;
     samples = drawing.samples;
-    let words = at === undefined ? '' : (crosshair.text ?? readout)(at.index, at.values);
+    let words = again
+      ? spoken
+      : at === undefined
+        ? ''
+        : (crosshair.text ?? readout)(at.index, at.values);
     if (typeof words !== 'string') {
       throw new TypeError('Expected line chart crosshair text to return a string');
     }
+    drawn = drawing;
+    spoken = words;
     const outer = host?.box;
     const inner = body?.box ?? outer;
     // the bubble is placed beside the rule, so a pin within its reach would be
@@ -2423,7 +2434,7 @@ export function LineChart(props: LineChartProps): Element {
           // `text()` is not ours to subscribe it to
           outer.onLayout = (): boolean => {
             const was = drawn;
-            return was !== undefined && untrack(() => follow(was));
+            return was !== undefined && untrack(() => follow(was, true));
           };
           // the bubble is the tooltip's, pointed at the rule: at once by default,
           // since a readout that lags the rule it reads is a readout of where the

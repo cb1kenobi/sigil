@@ -8017,8 +8017,10 @@ have.
   answer `onLayout` gives: a layout that moved nothing sets nothing and asks for no
   pass, and one that did owes the settle loop another. It is untracked, since a layout
   may run inside something that tracks and the caller's `text()` is not ours to
-  subscribe it to; and it costs the caller's `text()` once per layout pass of a chart
-  with a crosshair. The chart **owns** `onLayout` for that, as it owns `onKey`
+  subscribe it to. It says the words the drawing's `text()` already said rather than
+  asking again (`spoken`), so a `text()` that reads a clock cannot disagree with itself
+  and owe a pass of every layout; `drawn` is kept only after those words passed the
+  string check, so a `text()` that threw is not retried by every layout after it. The chart **owns** `onLayout` for that, as it owns `onKey`
   (SIG-305): refused in `props` and left out of the type, not composed, so a
   later `onLayout` assignment on the host is the caller replacing the placement.
   The tooltip's own resize handling is untouched: it still builds a fresh bubble,
