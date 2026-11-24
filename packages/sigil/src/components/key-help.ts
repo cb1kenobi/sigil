@@ -463,7 +463,10 @@ export function keyHelp(router: KeyHelpSource, opts: KeyHelpOptions = {}): Eleme
         width: natural,
       }),
     });
-    root.append(...(expanded ? longRows(entries) : shortRows(entries, columns)));
+    // one at a time rather than spread: a row for each binding of the app (SIG-417)
+    for (const row of expanded ? longRows(entries) : shortRows(entries, columns)) {
+      root.append(row);
+    }
     return true;
   };
 

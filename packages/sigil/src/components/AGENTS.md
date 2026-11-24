@@ -15441,16 +15441,20 @@ was never read. No error, and a derivation that did nothing at all.
   needed it -- `chart.ts`, `tableView()` and the layout engine -- and SIG-417 did
   the rest: `markdownView()` (a document's blocks, a list's items, a table's rows
   and rule cells, the footnotes, a paragraph's words and a word's pieces),
-  `diffView()` and `diff()`, `codeView()`, `logView()` over a message's lines,
-  `treeView()`, `outlineView()`, a menu's and a palette's rows, `radioSet()`, the
-  key-select prompt's rows, `groupMultiselect()`'s entries, `paragraph()` over its
-  lines and words, `definitions()` and the examples in help, and a failed task's
-  subtree in `tasks.ts`. Each is a `for` loop over `append()`, which is what
+  `diffView()` (and so `diff()`), `codeView()`, `logView()` over a message's
+  lines, `treeView()`, `outlineView()`, a menu's and a palette's rows, `RadioSet`,
+  the key-select prompt's rows, `groupMultiselect()`'s entries, a table row's
+  cells in `tableRowView()`, `paragraph()` over its lines and words,
+  `definitions()` and the examples in help, a key-help footer's rows, a menubar's
+  titles, a tab list's labels, and a failed task's subtree in `tasks.ts`. Each is a `for` loop over `append()`, which is what
   SIG-363 did and what was decided over the alternative: `box()` takes no array,
   and the element factories gained no API for it. `test/components/box-children.test.ts`
   is the regression test, at 200,000 entries in a spawned node for the reason the
   bullet below gives, and every case there failed with `RangeError` before the
-  change.
+  change. It covers the representative sites and not every one: a menu, a
+  palette, a radio set, the key-select prompt, a group, a task failure and help's
+  lists have no case of their own, so a revert of one of those is caught by review
+  and not by the suite.
 - **What is left is a spread over one line's worth, and is a limit rather than a
   fix.** One log line that wraps to more than about 125,000 rows is not data in
   the sense above, and Chris decided on 2026-11-24 that it is recorded and not

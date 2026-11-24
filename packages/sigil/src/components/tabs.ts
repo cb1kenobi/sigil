@@ -161,7 +161,10 @@ function setChildren(host: Element, next: readonly Element[]): void {
   for (const child of now.slice()) {
     host.removeChild(child);
   }
-  host.append(...next);
+  // one at a time rather than spread: a label for each of the app's tabs (SIG-417)
+  for (const child of next) {
+    host.append(child);
+  }
 }
 
 /**

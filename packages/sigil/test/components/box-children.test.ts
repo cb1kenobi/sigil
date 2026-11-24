@@ -40,9 +40,10 @@ const CASES: Record<string, { body: string; expected: Record<string, unknown> }>
       const { diffView } = await import(dist + 'components/diff.mjs');
       const lines = Array.from({ length: LONG }, (_, i) => 'line ' + i).join('\\n');
       const tree = diffView({ new: lines, old: '' }, { layout: 'unified', width: 40 });
-      return { rows: tree.element.children.length >= LONG };
+      return { rows: tree.element.children.length };
     `,
-    expected: { rows: true },
+    // the hunk's header, then a row for each line
+    expected: { rows: LONG + 1 },
   },
   logView: {
     body: `
@@ -82,9 +83,30 @@ const CASES: Record<string, { body: string; expected: Record<string, unknown> }>
     body: `
       const { markdownView } = await import(dist + 'components/markdown.mjs');
       const { element } = markdownView(Array.from({ length: LONG }, () => 'w').join(' '), { width: 20 });
-      return { done: element.children.length > 0 };
+      let row = element;
+      while (row.children.length === 1) row = row.children[0];
+      return { words: row.children.length };
     `,
-    expected: { done: true },
+    expected: { words: LONG },
+  },
+  markdownFootnotes: {
+    body: `
+      const { markdownView } = await import(dist + 'components/markdown.mjs');
+      const refs = Array.from({ length: LONG }, (_, i) => '[^' + i + ']').join(' ');
+      const notes = Array.from({ length: LONG }, (_, i) => '[^' + i + ']: n').join('\\n');
+      const { element } = markdownView(refs + '\\n\\n' + notes, { width: 20 });
+      const footnotes = element.children.at(-1);
+      return { notes: footnotes.children[1].children.length };
+    `,
+    expected: { notes: LONG },
+  },
+  tableColumns: {
+    body: `
+      const { tableView } = await import(dist + 'components/table.mjs');
+      const { element } = tableView([Array.from({ length: LONG }, () => 'c')]);
+      return { cells: element.children[0].children.length };
+    `,
+    expected: { cells: LONG },
   },
   outlineView: {
     body: `
@@ -135,10 +157,15 @@ describe("a view as long as somebody's data, on a main thread", () => {
             process.stdout.write(JSON.stringify({ error: String(err) }));
           }
         `;
-        const { stdout } = await run(process.execPath, ['--input-type=module', '-e', source], {
-          maxBuffer: 1 << 20,
-        });
-        outcomes[name] = JSON.parse(stdout) as Outcome;
+        // a child that dies (out of heap, say) is that case's failure and not every case's
+        try {
+          const { stdout } = await run(process.execPath, ['--input-type=module', '-e', source], {
+            maxBuffer: 1 << 20,
+          });
+          outcomes[name] = JSON.parse(stdout) as Outcome;
+        } catch (err) {
+          outcomes[name] = { error: String(err).slice(0, 300) };
+        }
       })
     );
   }, 120_000);
