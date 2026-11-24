@@ -2559,7 +2559,14 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   both run. And a live region's terminal swallows every error from the stream it
   draws on, which covered `ENOSPC` on a redirected stdout as a side effect; now
   it crashes, which is the right answer for a file that stopped taking bytes and
-  a change for a full-screen app run with stdout sent to one. There is no opt-out
+  a change for a full-screen app run with stdout sent to one. The same goes for
+  `EIO`, which a write to a terminal that hung up (an ssh drop, a closed window)
+  can fail with and which is **not** in `isStreamGone()`'s set: the terminal's
+  listener swallowed it and the app took its own exit path, and the guard now
+  rethrows it as an uncaught exception. Read from the two listeners rather than
+  reproduced on a pty, and left for Chris: adding `EIO` to the set changes what
+  the terminal and every program asking it treat as the reader leaving, and for a
+  file stdout it is a real disk fault. There is no opt-out
   setting: the ticket offered one and the decision was to guard by default, and
   `guardOutput()` being idempotent and rethrowing means there is nothing to opt
   out _of_ for the reader leaving. A setting is a small addition if somebody

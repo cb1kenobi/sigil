@@ -1182,7 +1182,7 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   layout: [28, 14_064],
   // SIG-538, SIG-542: `node:fs` and nothing else, which is what keeps `main()` able
   // to import it without the terminal or the parser coming with it
-  output: [4, 1_900],
+  output: [4, 1_123],
   paths: [4, 1_855],
   reference: [101, 51_401],
   renderer: [346, 176_845],

@@ -182,13 +182,18 @@ describe('main() and the streams it writes to', () => {
       return [process.stdout, process.stderr].map((s) => new Set(s.listeners('error')));
     }
 
-    afterEach(() => {
-      // restoring mocks leaves a guard behind by design, and the worker's streams
-      // outlive this file
+    /** Takes off what the runs above left, which is a guard by design. */
+    function clear(): void {
       for (const stream of [process.stdout, process.stderr]) {
         stream.removeAllListeners('error');
       }
-    });
+    }
+
+    // before as well as after: the describe above runs `main()` and leaves its
+    // guard on the worker's streams, so without this the first test here would
+    // read one that was already there and pass with the guard moved after the parse
+    beforeEach(clear);
+    afterEach(clear);
 
     it('should be on before the parse, so --help | head is covered', async () => {
       let during: number[] = [];
