@@ -2241,6 +2241,8 @@ export function LineChart(props: LineChartProps): Element {
   let shown: number | undefined;
   /** The samples the chart last drew, which a key steps between. */
   let samples: SamplesDrawn | undefined;
+  /** What the chart last drew, which a layout that moved the screen or the chart says again. */
+  let drawn: Drawing | undefined;
 
   /** Whether the keys go to the chart: a signal, so a drawing that read it is redone when it moves. */
   const focused = (): boolean => {
@@ -2268,6 +2270,7 @@ export function LineChart(props: LineChartProps): Element {
     if (crosshair === undefined || pointed === undefined) {
       return;
     }
+    drawn = drawing;
     const at = drawing.crosshair;
     shown = at?.index;
     samples = drawing.samples;
@@ -2406,6 +2409,18 @@ export function LineChart(props: LineChartProps): Element {
           host = outer;
           body = inner;
           const input = crosshair.input;
+          // the readout's room and the widened area are read from the boxes of the
+          // last layout, and a terminal resized with the chart's own size unchanged
+          // runs no drawing: so each layout asks again, and `follow()` writes only what
+          // moved. The caller's own `onLayout` is called first and its answer kept
+          const theirs = outer.onLayout;
+          outer.onLayout = (element): boolean => {
+            const theirsChanged = theirs?.(element) === true;
+            if (drawn !== undefined) {
+              follow(drawn);
+            }
+            return theirsChanged;
+          };
           // the bubble is the tooltip's, pointed at the rule: at once by default,
           // since a readout that lags the rule it reads is a readout of where the
           // pointer was, and on the right, where a reader's eye is already going

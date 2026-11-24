@@ -835,6 +835,7 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
         await settle();
       },
       screen: () => term.viewport.map((line) => line.trimEnd()),
+      settle,
       term,
     };
   }
@@ -1640,6 +1641,82 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           const m = await mountWide(40, 'x'.repeat(10));
           await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
           expect(m.screen()[1]).toContain(`│ ${'x'.repeat(10)} │`);
+        });
+      });
+
+      describe('a terminal resized with the chart held still (SIG-651)', () => {
+        const wide = 'x'.repeat(36);
+        const mountWide = () =>
+          mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => wide },
+            props: { height: 6, width: 30 },
+          }));
+
+        it('should cut the readout again to the narrower terminal without a key', async () => {
+          const m = await mountWide();
+          // the pin in column 0 and the rule in column 29 on a screen of 40: the room
+          // past the pair is 10 cells, so the words are cut to 6 and the bubble is at 30
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(30);
+          // 34 columns leave no room past the pair, so the bubble is beside the rule alone
+          m.term.resize(34, 8);
+          await m.settle();
+          await m.settle();
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('╭')).toBe(0);
+          expect(top.indexOf('╮')).toBe(28);
+          expect(m.screen()[1]).toContain('…');
+          expect((m.screen()[2] ?? '')[29]).not.toBe(' ');
+        });
+
+        it('should widen the readout again to a wider terminal without a key', async () => {
+          const m = await mountWide();
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          m.term.resize(34, 8);
+          await m.settle();
+          await m.settle();
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(0);
+          m.term.resize(40, 8);
+          await m.settle();
+          await m.settle();
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(30);
+        });
+
+        it('should still call an onLayout the caller put in the props', async () => {
+          let laid = 0;
+          const m = await mount((input) => ({
+            axis: false,
+            crosshair: { input, text: () => wide },
+            props: {
+              height: 6,
+              onLayout: () => {
+                laid++;
+                return false;
+              },
+              width: 30,
+            },
+          }));
+          await m.key(KEYS.tab, KEYS.home, KEYS.enter, KEYS.end);
+          const before = laid;
+          m.term.resize(34, 8);
+          await m.settle();
+          expect(laid).toBeGreaterThan(before);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(0);
+        });
+
+        it('should keep the bubble clear of the pin it was widened around after a resize', async () => {
+          // the pin in column 19 and the rule in column 0: the bubble is past the pin
+          const m = await mountWide();
+          await m.key(KEYS.tab, KEYS.home, KEYS.right, KEYS.right, KEYS.enter, KEYS.home);
+          expect((m.screen()[0] ?? '').indexOf('╭')).toBe(20);
+          m.term.resize(36, 8);
+          await m.settle();
+          await m.settle();
+          const top = m.screen()[0] ?? '';
+          expect(top.indexOf('▼')).toBe(19);
+          expect(top.indexOf('╭')).toBe(20);
+          expect(top.indexOf('╮')).toBe(35);
         });
       });
     });

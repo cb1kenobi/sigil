@@ -7998,10 +7998,24 @@ have.
   is the same clamp, and not to `side: 'top'` or `'bottom'`. A line that was already wider than the bubble's
   cap, and wrapped, is cut too once the room is under the reach. `MIN_READOUT` is a constant
   of the chart's own for the reason the 40 above is. The room is read from the last
-  layout's boxes, as the area is, so a terminal narrowed with the chart's own size
-  unchanged is cut at the next drawing and not before. The reach is still an estimate
+  layout's boxes, as the area is. The reach is still an estimate
   from the words, so a bubble the screen squeezes is narrower than it says, which only
-  keeps it a few cells further out. The SIG-636 tests in
+  keeps it a few cells further out.
+  **A layout says it again, so a resize needs no key (SIG-651).** That read was a
+  limit: `follow()` ran from a drawing, a drawing from a key, a pointer move, data or
+  the chart's own size, and a terminal narrowed with the chart's own size unchanged
+  (a fixed `width`) runs none of them, so the widened area and the cut words stayed
+  those of the old screen until the next key. The host's `onLayout` -- which every
+  layout owes -- now calls `follow()` again on the last drawing, which is kept as
+  `drawn`, reading the boxes the new layout has just given. `follow()` writes the
+  words and the area only where they moved, so a layout that moved nothing costs two
+  comparisons and sets nothing. A caller's own `onLayout` in `props` is kept: it is
+  called first and its answer is the one returned, since this one never asks for
+  another layout. The tooltip's own resize handling is untouched: it still builds a
+  fresh bubble, and what was stale was the chart's input to it. The SIG-651 tests in
+  `test/components/chart-live.test.ts` narrow and widen the terminal under a held pin and
+  assert the bubble's columns after one frame; each fails with the `onLayout` taken
+  out. The SIG-636 tests in
   `test/components/chart-live.test.ts` pin the reach exactly, the widest line,
   `maxWidth`, a line under the pin, and `side: 'top'`; the SIG-646 ones pin the cut past
   the pin, the fall back to the rule, a rule with no pin, and a readout that fits being
