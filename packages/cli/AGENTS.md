@@ -26,8 +26,9 @@ makes it testable with a fixture directory and no bundler at all.
   was. A slow Windows runner put it in the summary `output-forms.test.ts` compares
   exactly. `checks: { bundlerTimings: false }` turns the check off rather than
   filtering the log, so the build also stops measuring every hook. It is
-  delivered at `close()` rather than at `write()`, and needs a build of about two
-  seconds or more -- a first attempt at provoking it read the logs too early and
+  delivered at `close()` rather than at `write()`, and needs a build of at least
+  three seconds on rolldown's clock, as the SIG-648 paragraph below reads the gate
+  -- a first attempt at provoking it read the logs too early and
   concluded it could not be provoked, which was wrong.
   `test/build/bundle-timings.test.ts` holds a build, asserts the warning comes
   with rolldown's defaults as a control, and that it does not come with this
