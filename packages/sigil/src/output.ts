@@ -52,7 +52,7 @@ const GONE = new Set(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_
  * window closed -- fails the next write `EIO`, and that is the reader leaving as
  * much as `EPIPE` is. On a file `EIO` is the disk failing, and on a pipe it is not
  * a thing a reader leaving produces, so for those it stays a real fault and is
- * thrown. Asked of a stream that is a TTY, or not asked about a stream at all.
+ * thrown. With no stream to ask about it is thrown too.
  *
  * @param err - Whatever a write threw or a stream emitted.
  * @param stream - The stream it came from, when the caller has it.

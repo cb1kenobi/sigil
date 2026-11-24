@@ -16,12 +16,18 @@ await main({
       ticks: {
         desc: 'Write a line at a time, slowly, and say on stderr how it ended',
         run: async () => {
+          // counted beside `main()`'s own listener, which it does not replace: how many
+          // writes failed is what says the terminal really hung up under the loop
+          let failed = 0;
+          process.stdout.on('error', () => void failed++);
           process.stdout.write('ready\n');
-          for (let i = 0; i < 20; i++) {
+          for (let i = 0; i < 40; i++) {
             await new Promise((settle) => setTimeout(settle, 20));
             process.stdout.write(`tick ${i}\n`);
           }
-          process.stderr.write(`finished isTTY=${process.stdout.isTTY === true}\n`);
+          process.stderr.write(
+            `finished isTTY=${process.stdout.isTTY === true} failedWrites=${failed}\n`
+          );
         },
       },
       lines: {

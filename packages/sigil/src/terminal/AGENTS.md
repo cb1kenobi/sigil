@@ -441,7 +441,10 @@ is the vocabulary and the probe, the framing that makes a reply recognisable is
   that hung up fails the next write `EIO`, which is the reader leaving only when
   the stream is a TTY -- on a file it is the disk failing, so it is not in the
   general set. The terminal passes the stream it wrote to, in the listener and in
-  the synchronous catch, so it and `main()`'s guard agree. The decision is under
+  the synchronous catch, so it and `main()`'s guard agree. It is the **stream's**
+  `isTTY`, not the terminal's own `isTTY` option, which only decides how the
+  terminal draws: a wrapper stream with no `isTTY` of its own is not asked about
+  as a terminal, which is the same answer `main()`'s guard gives it. The decision is under
   "`main()` guards its output streams and writes its own output whole" in
   `src/parser/AGENTS.md`.
 

@@ -49,7 +49,11 @@ os.close(slave)
 os.close(err_w)
 seen = b''
 while b'ready' not in seen:
-    chunk = os.read(master, 4096)
+    try:
+        chunk = os.read(master, 4096)
+    except OSError:
+        # Linux says EIO, not end of file, once the slave side is closed
+        break
     if not chunk:
         break
     seen += chunk
@@ -61,7 +65,9 @@ while True:
         break
     err += chunk
 _, status = os.waitpid(pid, 0)
-sys.stdout.write(str(os.waitstatus_to_exitcode(status)) + '\\n' + err.decode())
+# os.waitstatus_to_exitcode() is 3.9 and later, and this is not worth a version floor
+code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
+sys.stdout.write(str(code) + '\\n' + err.decode())
 `;
 
 /** Whether this machine can open a pty from Python, which is the whole of what the harness needs. */
@@ -101,13 +107,30 @@ function hangUp(args: string[]): Promise<{ code: number; stderr: string }> {
   });
 }
 
-describe.skipIf(!canOpenPty())('an app whose terminal hung up under it', () => {
+/**
+ * Whether the test runs. Windows has no pty of this kind and is skipped. Anywhere
+ * else a machine with no usable `python3` is skipped too -- except on CI, where
+ * the only end-to-end proof of this going quiet is a test that fails rather than
+ * one that is not there.
+ */
+const available = canOpenPty();
+const mustRun = process.platform !== 'win32' && process.env.CI !== undefined;
+
+describe.skipIf(!available && !mustRun)('an app whose terminal hung up under it', () => {
+  it('should have a python3 that can open a pty', () => {
+    expect(available, 'no python3 here can open a pty, so the hang-up cannot be tested').toBe(true);
+  });
+
   it('should finish and exit 0 rather than die with write EIO', async () => {
+    if (!available) {
+      return;
+    }
     const ran = await hangUp(['ticks']);
 
-    // proof it was a terminal and that the app was still there to say so: a
-    // stdout that was not a TTY would not be the case under test
-    expect(ran.stderr).toContain('finished isTTY=true');
+    // proof it was a terminal, that the app was still there to say so, and that
+    // a write really did fail under it -- a harness that stalled past the last
+    // tick would otherwise pass having tested nothing
+    expect(ran.stderr).toMatch(/finished isTTY=true failedWrites=[1-9]/);
     expect(ran.stderr).not.toMatch(/EIO|Unhandled 'error' event/);
     expect(ran.stderr).not.toMatch(/\n\s+at /);
     expect(ran.code).toBe(0);
