@@ -26,7 +26,7 @@ import { strip } from '../ansi/index.js';
 import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
-import { MAX_TIMER_DELAY, onCleanup, timed } from '../renderer/index.js';
+import { getOwner, MAX_TIMER_DELAY, onCleanup, type Owner, timed } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
 import { mountLevel } from './mount.js';
 import { type NoteVariant, unicodeSupported } from './note.js';
@@ -56,7 +56,12 @@ export type ToastCloseReason = 'dismiss' | 'overflow' | 'quiet' | 'timeout';
  */
 export type ToastHost =
   | Element
-  | { onDispose?(handler: () => void): () => void; readonly root: Element };
+  | {
+      onDispose?(handler: () => void): () => void;
+      /** A renderer's root owner, which is where a test terminal's hook is found from. */
+      readonly owner?: Owner;
+      readonly root: Element;
+    };
 
 export interface ToastOptions {
   /**
@@ -378,8 +383,14 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
     // `onClose` is the app's, and this is the one place it runs from a timer: a
     // throw there is an uncaught exception, unless a test terminal is listening
     // for it (SIG-642). Done by the time it is called, so the toast is gone either way
+    //
+    // the terminal is the toast's own where it was given one, and otherwise the
+    // renderer's: `showToast(app.view, ...)` passes none, and a renderer's owner
+    // carries the terminal it was rendered to (SIG-653). A bare element host has
+    // no renderer to ask, so the owner the call was made under is the answer
+    const heardOn = opts.terminal?.stdin ?? (host instanceof Element ? undefined : host.owner);
     timer = setTimeout(
-      timed(opts.terminal?.stdin, () => close('timeout')),
+      timed(heardOn ?? getOwner(), () => close('timeout')),
       timeout
     );
     // a toast is not a reason to stay alive: a program that has finished exits

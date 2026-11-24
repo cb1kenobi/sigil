@@ -351,15 +351,30 @@ that knowledge was undiscoverable from outside this repository.
   and a test hears the throw by building the component over `ui.terminal`. That is
   a **condition rather than a given**: the clock and the decrypt need a terminal to
   be live and so have one, but a toast does not -- `showToast(app.view, { message,
-  onClose })`, which is how every example calls it, passes no `terminal` and its
-  throw is **not heard**, because a renderer exposes no terminal for the toast to
-  take a stream from. Measured, not read: `runApp()` over `ui.terminal`, a handler
-  registered, a throwing `onClose`, and the handler heard nothing. A test of such
-  an app passes `terminal: ui.terminal` to the toast, or the app threads one
-  through; resolving it from the host would mean `Renderer` growing a `terminal`,
-  which is a change to the renderer's surface for a test seam and is left for
-  whoever finds that cost worth paying. The same is true of `decryptReveal()`
-  called directly inside an app's tree. It is a leaf, a module of its
+  onClose })`, which is how every example calls it, passes no `terminal`, and its
+  throw was **not heard** until SIG-653. Measured, not read: `runApp()` over
+  `ui.terminal`, a handler registered, a throwing `onClose`, and the handler heard
+  nothing.
+
+  **SIG-653 closed it without a new property on `Renderer`.** `render()` records
+  the terminal's `stdin` on the root owner it builds (`hearTimersOn()` in
+  `src/util/timed.ts`, under a `Symbol.for` key for the reason `TIMER_ERROR` is
+  one), and `timed()` accepts an **owner** as well as a stream: it reads the hook
+  from the first of the owner and its ancestors that has one, where it is
+  _thrown_ rather than where it is armed, as it always did. `Renderer.owner` was
+  already public, so the toast takes `host.owner` and `decryptReveal()` takes
+  `getOwner()`, and neither is handed a terminal. `ToastHost` gained an optional
+  `owner` -- a type naming what a renderer already has, so nothing a caller
+  writes changes. A toast's own `terminal` still wins, then the renderer's, then
+  the owner the call was made under, which is what a bare element host has.
+  Refused: a `terminal` on `Renderer` (a public property for a test seam, and one
+  more thing for every `Renderer` implementer to supply), and a context read with
+  `useContext()` (a key handler, which is where a toast is raised from, has no
+  owner to read it under). **The clock is left as it was**: it draws and ticks only
+  where the terminal it was given is live, and the process's one is not under a
+  test, so a clock with no `terminal` arms no redraw and has nothing to hear.
+
+  `timed()` is a leaf, a module of its
   own rather than a line in `util/timer.ts`, so that the config entry, which reads
   that one for `MAX_TIMER_DELAY`, does not carry it. It is re-exported from
   `@ttylabs/sigil/renderer` beside `MAX_TIMER_DELAY` for the reason recorded under
@@ -373,7 +388,8 @@ that knowledge was undiscoverable from outside this repository.
   so a test that registered `onTimerError()` asserts on the error and does not
   `await` the promise.
 
-  **A component given no terminal is an uncaught exception, as it was.** The
+  **A component given no terminal, outside a renderer on a test terminal, is an
+  uncaught exception, as it was.** The
   default is the process's, whose stdin carries no hook, and that is the right
   answer for an app and for a test that never asked. The hook is read where the
   throw happens, so `onTimerError()` may be registered after the component is built.

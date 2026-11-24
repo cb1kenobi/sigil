@@ -32,7 +32,7 @@
 import { strip } from '../ansi/index.js';
 import { cellWidth, type Random, seeded } from '../canvas/index.js';
 import { box, cellStyle, type Element, type RawPaint, toDisplayText } from '../element/index.js';
-import { createEffect, onCleanup, timed, trackedRaw } from '../renderer/index.js';
+import { createEffect, getOwner, onCleanup, timed, trackedRaw } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { type Terminal, terminal as defaultTerminal } from '../terminal/index.js';
 import { graphemes } from '../width/index.js';
@@ -1040,6 +1040,8 @@ export interface DecryptRevealOptions extends DecryptPlanOptions {
    *
    * Under a test terminal, a throw from `now`, `random` or `onDone` in the timer
    * reaches that terminal's `onTimerError()` rather than being an uncaught exception.
+   * Called inside an app's tree, it is the renderer's terminal that is heard, so
+   * none needs passing.
    */
   terminal?: Terminal;
 }
@@ -1073,6 +1075,9 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
   const jumble = ms(opts.jumble, JUMBLE);
   const fast = ms(opts.interval, JUMBLE_TICK);
   const slow = ms(opts.revealInterval, REVEAL_TICK);
+  // where a timer finds a test terminal's hook when none was handed in: the
+  // renderer this is called inside carries its terminal on its root owner (SIG-653)
+  const owner = getOwner();
 
   createEffect(() => {
     const value = state.text.get();
@@ -1117,7 +1122,7 @@ export function decryptReveal(state: DecryptState, opts: DecryptRevealOptions): 
     // from a timer: a throw is an uncaught exception unless a test terminal is
     // listening for it (SIG-642). The first frame, below, is an effect body's and
     // is reported through the machinery that answers for a component that throws
-    const onTimer = timed(opts.terminal?.stdin, step);
+    const onTimer = timed(opts.terminal?.stdin ?? owner, step);
 
     // the first frame now rather than one tick from now: a decrypt that showed
     // the real text for one frame before hiding it has given the answer away
