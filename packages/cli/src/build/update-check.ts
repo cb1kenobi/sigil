@@ -483,23 +483,27 @@ export function assertUpdateCheckDeclared(
  * check does nothing. The build cannot tell the two apart, so it says so and
  * leaves the decision with the build's author (SIG-593).
  *
+ * Asked once the bundle reaches `check` itself and not merely the specifier
+ * (SIG-666): a wrapped schema that imports only a builder, the documented path,
+ * never calls `check()` by hand and has no hollow check to be told about.
+ *
  * @param config - The app's `sigil.json`.
- * @param imported - Whether the bundle reached `@ttylabs/sigil/updates`.
+ * @param importsCheck - Whether a module of the bundle reaches `check()`.
  * @param schema - What `readSchemaUpdateCheck()` made of the schema.
  * @returns The warning, or `undefined` when there is nothing to say.
  */
 export function wrappedCheckWarning(
   config: SigilConfig,
-  imported: boolean,
+  importsCheck: boolean,
   schema: SchemaUpdateCheck | undefined
 ): string | undefined {
-  if (!imported || schema !== 'wrapped' || config.updateCheck) {
+  if (!importsCheck || schema !== 'wrapped' || config.updateCheck) {
     return undefined;
   }
 
   return (
     "This app's updateCheck names its checker through a call, and the build cannot see what that call returns. " +
-    `It imports ${UPDATE_CHECK_SPECIFIER}, so if it also calls check() with no checker of its own, the binary's update check does nothing. ` +
+    `It imports check() from ${UPDATE_CHECK_SPECIFIER}, so if it calls it with no checker of its own, the binary's update check does nothing. ` +
     'Declare "updateCheck" in sigil.json -- "npm", "github" or "custom" for where to look, or "none" -- to settle it.'
   );
 }

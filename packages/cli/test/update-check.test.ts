@@ -1542,12 +1542,12 @@ describe('a checker named through a call the build cannot read', () => {
       true,
       'wrapped',
     ],
-    ['the bundle never reached the check', {}, false, 'wrapped'],
+    ['the app never imports check() itself', {}, false, 'wrapped'],
     ['the checker is confirmed', {}, true, 'names'],
     ['the schema asks and says nothing, which is refused instead', {}, true, 'asks'],
     ['the schema does not ask', {}, true, undefined],
-  ] as const)('should say nothing when %s', (_what, config, imported, schema) => {
-    expect(wrappedCheckWarning(config as SigilConfig, imported, schema)).toBeUndefined();
+  ] as const)('should say nothing when %s', (_what, config, importsCheck, schema) => {
+    expect(wrappedCheckWarning(config as SigilConfig, importsCheck, schema)).toBeUndefined();
   });
 });
 
@@ -1673,6 +1673,35 @@ describe('a packaged binary that asks in its schema', () => {
       });
       expect(code, err).toBeFalsy();
       expect(flat(err)).not.toContain('through a call');
+    }, 180000);
+
+    // SIG-666: the warning is about a hand-called check(), and a wrapped schema that
+    // imports only the builder -- the documented path -- never calls one. It was keyed
+    // on the specifier, which a builder import puts in the graph all the same
+    it('should say nothing for a wrapped schema that imports only a builder', async () => {
+      const root = variant(
+        'wrapped-builder-only',
+        undefined,
+        [
+          "import { githubChecker } from '@ttylabs/sigil/updates';",
+          'const wrap = process.env.WRAP ? (options) => options : undefined;',
+          'export default {',
+          "  name: 'fixture-wrapped-builder',",
+          "  version: '1.0.0',",
+          "  updateCheck: wrap?.({ checker: githubChecker({ repo: 'acme/mycli' }) }),",
+          "  run() { process.stdout.write('ran\\n'); },",
+          '};',
+          '',
+        ].join('\n')
+      );
+      const out = mkdtempSync(join(tmpdir(), 'sigil-upd-pkg-'));
+      try {
+        const { code, err } = await sigil('package', root, '--runtime', 'bun', '--out', out);
+        expect(code, err).toBeFalsy();
+        expect(flat(err)).not.toContain('through a call');
+      } finally {
+        rmSync(out, { force: true, recursive: true });
+      }
     }, 180000);
   });
 
