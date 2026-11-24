@@ -351,7 +351,7 @@ describe('a badge given an href in its props', () => {
     const el = Badge({ label: 'PASS', props: { href: url, 'flex-shrink': 1 } });
 
     expect(el.props['flex-shrink']).to.equal(1);
-    expect(el.props.href).to.equal(undefined);
+    expect(el.href).to.equal('');
   });
 
   it('should draw no link when it is given none', () => {

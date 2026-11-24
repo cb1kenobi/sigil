@@ -4211,23 +4211,27 @@ whole of it: the encoder, `qrLines()`, `qrcodeView()` and the facade.
   so a `width` or a shrink on the row clips the label as it did when the props were
   on the one text; a style prop that is about the _text_ -- `text-overflow`,
   `text-align`, `inverse`, `white-space` -- no longer reaches the label, and
-  nothing forwards it: it is a limit, and a theme class on the variant is the way.
-  **`href` is the exception, and `Badge` forwards it (SIG-656).** It is not a style
-  property but content, read by a `text` alone and not inherited, so on the row it
-  was accepted at build and painted nothing -- `Badge({ props: { href } })` drew a
-  link before SIG-644 and silently stopped after. `Badge` takes it out of the props
-  it puts on the row and gives it to both texts, so the link holds whichever form
-  the sheet shows, and an `href` holding a control character throws where the badge
-  is built, as it does on a text. Forwarded rather than refused because `<text href>`
-  is a real prop today and the label is exactly the text a link belongs on; if
-  SIG-633 removes it from `text`, this becomes a refusal naming `href`, and the
-  forwarding is the one `const { href, ...boxProps }` line in `Badge()` and the
-  second argument of `formText()`. The test is `a badge given an href in its props`
-  in `test/components/badge.test.ts`) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
+  nothing forwards it: it is a limit, and a theme class on the variant is the way.) and its variant classes are on the two texts inside -- a caller who read `el.classes` for `sigil-success` reads a child
   now. `colorLevel` on `Badge` is accepted and not read. `badge()` the string is
   unchanged: it renders the same tree at `colorLevelOf(opts)` under the sheet.
   The rejected alternative was one `text` that picked its content at paint, which
   would have needed a paint hook on `text` for one component.
+
+  **A badge's `href` goes to its label, not its row (SIG-656).** `href` is not a style
+  property but content, read by a `text` alone and not inherited, so on the row it
+  was accepted at build and painted nothing -- `Badge({ props: { href } })` drew a
+  link before SIG-644 and silently stopped after. `Badge` takes it out of the props
+  it puts on the row and gives it to both texts, so the link holds whichever form
+  the sheet shows. A control character in it throws where the badge is built, from the
+  text's own check. It is forwarded rather than refused because `<text href>` is a
+  real prop today and the label is exactly the text a link belongs on; if SIG-633
+  removes it from `text`, this becomes a refusal naming `href`, and the forwarding is
+  the one `const { href, ...boxProps }` line in `Badge()` and the second argument of
+  `formText()`. Two limits: it is read once when the badge is built, so setting
+  `href` on the returned row later does nothing (`label` and `variant` are the live
+  inputs), and a `null` or `undefined` is no link, where a bare `text` reads `null`
+  as the string. The test is `a badge given an href in its props` in
+  `test/components/badge.test.ts`.
 
   **A markdown link in a view holds both forms of the word it ends, when the terminal
   can draw a hyperlink.** `hyperlinks` -- the option, or `supportsHyperlinks()` -- no
