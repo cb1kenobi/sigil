@@ -1053,14 +1053,15 @@ what is left is the characters changing, which is the whole effect.
 
 ## Style
 
-|                                                            |                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------- |
-| [`style/01-cascade.js`](style/01-cascade.js)               | Which declaration wins a property, and why        |
-| [`style/02-themes.js`](style/02-themes.js)                 | Restyling the built-ins, which is what a theme is |
-| [`style/03-animation.js`](style/03-animation.js)           | Transitions and keyframes, over whole cells       |
-| [`style/04-theme-switcher.js`](style/04-theme-switcher.js) | The themes sigil ships, swapped live              |
-| [`style/05-quiet.js`](style/05-quiet.js)                   | `live`, `reduce` and `quiet`, which is one axis   |
-| [`style/06-gradient.js`](style/06-gradient.js)             | A colour ramp over a string and a border          |
+|                                                              |                                                   |
+| ------------------------------------------------------------ | ------------------------------------------------- |
+| [`style/01-cascade.js`](style/01-cascade.js)                 | Which declaration wins a property, and why        |
+| [`style/02-themes.js`](style/02-themes.js)                   | Restyling the built-ins, which is what a theme is |
+| [`style/03-animation.js`](style/03-animation.js)             | Transitions and keyframes, over whole cells       |
+| [`style/04-theme-switcher.js`](style/04-theme-switcher.js)   | The themes sigil ships, swapped live              |
+| [`style/05-quiet.js`](style/05-quiet.js)                     | `live`, `reduce` and `quiet`, which is one axis   |
+| [`style/06-gradient.js`](style/06-gradient.js)               | A colour ramp over a string and a border          |
+| [`style/07-gradient-motion.js`](style/07-gradient-motion.js) | The same ramp in motion, round a border too       |
 
 `01-cascade.js` prints its answers rather than drawing them, because the contest
 is the point. Each section is one contest between two declarations that both reach the
@@ -1147,6 +1148,16 @@ cell, 256 colours is the same ramp quantized through the cascade's degrader, 16
 colours is **one** colour -- the first stop's nearest of the sixteen, never
 bands of unrelated hues -- and level 0 is the text and nothing else. The first
 block asks for no level and gets the detected one, so `NO_COLOR=1` makes it plain.
+
+`07-gradient-motion.js` animates `06-gradient.js` without adding anything to the
+library. `gradient()` spaces its stops evenly, so one stop per column puts each
+column on a stop of its own, and sliding that list along a looped ramp is the
+animation. It shows three things: a banner flowing, `gradientBox()`'s top and
+bottom edges flowing, and a border that cycles round the box, painted from
+`gradientColors()`. The helpers leave that last one out because a still
+perimeter ramp has a seam, and a looped ramp in motion does not. A pipe and
+`SIGIL_REDUCED_MOTION=1` get one still frame. On a 16-colour terminal nothing
+visibly moves, because a gradient there is a single colour.
 
 ## The canvas
 
