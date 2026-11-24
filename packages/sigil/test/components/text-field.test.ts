@@ -381,6 +381,21 @@ describe('editing', () => {
     expect(value.get()).toBe('pa語');
     expect(picture(s.root)[0]).toBe('****');
   });
+
+  it('should edit a masked value a character at a time, because a word key shows its spaces', async () => {
+    const value = new State('foo bar baz');
+    const s = scene(TextField({ mask: '*', value }));
+
+    await s.term.press(ctrl('w'));
+    expect(value.get()).toBe('foo bar baz');
+    await s.term.press(KEYS.home, ctrl('k'), alt('d'));
+    expect(value.get()).toBe('foo bar baz');
+    // Home put the caret at the start, and Alt-F did not move it by a word
+    await s.term.press(alt('f'), 'x');
+    expect(value.get()).toBe('xfoo bar baz');
+    await s.term.press(`${ESC}\u007f`);
+    expect(value.get()).toBe('foo bar baz');
+  });
 });
 
 describe('the sideways scroll', () => {

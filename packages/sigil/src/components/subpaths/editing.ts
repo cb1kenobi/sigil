@@ -4,6 +4,8 @@ export {
   deleteBefore,
   deleteRange,
   type Edit,
+  editLine,
+  type EditLineOptions,
   insertAt,
   isControlChar,
   isSpaceCluster,

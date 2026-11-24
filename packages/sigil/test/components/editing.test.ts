@@ -14,6 +14,7 @@ import {
   deleteAfter,
   deleteBefore,
   deleteRange,
+  editLine,
   insertAt,
   isControlChar,
   isSpaceCluster,
@@ -439,5 +440,114 @@ describe('the cursor invariant', () => {
         }
       }
     }
+  });
+});
+
+describe('editLine()', () => {
+  const at = (cursor: number, value = 'foo bar baz') => ({ cursor, value });
+
+  it('should answer nothing for a key that is not an editing key', () => {
+    for (const k of [
+      key({ name: 'a' }),
+      key({ name: 'enter' }),
+      key({ name: 'tab' }),
+      key({ name: 'escape' }),
+      key({ name: 'up' }),
+      key({ ctrl: true, name: 'x' }),
+      key({ meta: true, name: 'x' }),
+    ]) {
+      expect(editLine(k, at(4))).toBeUndefined();
+    }
+  });
+
+  it('should take a word off the left with Ctrl-W, Alt-Backspace and Ctrl-Backspace', () => {
+    for (const k of [
+      key({ ctrl: true, name: 'w' }),
+      key({ meta: true, name: 'backspace' }),
+      key({ ctrl: true, name: 'backspace' }),
+    ]) {
+      expect(editLine(k, at(11))).toEqual({ cursor: 8, value: 'foo bar ' });
+    }
+  });
+
+  it('should take a word off the right with Alt-D, Alt-Delete and Ctrl-Delete', () => {
+    for (const k of [
+      key({ meta: true, name: 'd' }),
+      key({ meta: true, name: 'delete' }),
+      key({ ctrl: true, name: 'delete' }),
+    ]) {
+      expect(editLine(k, at(0))).toEqual({ cursor: 0, value: ' bar baz' });
+    }
+  });
+
+  it('should take the rest of the line off with Ctrl-K and the start of it with Ctrl-U', () => {
+    expect(editLine(key({ ctrl: true, name: 'k' }), at(3))).toEqual({ cursor: 3, value: 'foo' });
+    expect(editLine(key({ ctrl: true, name: 'u' }), at(3))).toEqual({
+      cursor: 0,
+      value: ' bar baz',
+    });
+  });
+
+  it('should move by a word with Alt-B, Alt-F and Ctrl or Alt with an arrow', () => {
+    expect(editLine(key({ meta: true, name: 'b' }), at(11))?.cursor).toBe(8);
+    expect(editLine(key({ meta: true, name: 'f' }), at(0))?.cursor).toBe(3);
+    expect(editLine(key({ ctrl: true, name: 'left' }), at(11))?.cursor).toBe(8);
+    expect(editLine(key({ meta: true, name: 'right' }), at(0))?.cursor).toBe(3);
+  });
+
+  it('should move by a character, and to the ends, with the plain keys', () => {
+    expect(editLine(key({ name: 'left' }), at(4))?.cursor).toBe(3);
+    expect(editLine(key({ name: 'right' }), at(4))?.cursor).toBe(5);
+    expect(editLine(key({ name: 'home' }), at(4))?.cursor).toBe(0);
+    expect(editLine(key({ ctrl: true, name: 'a' }), at(4))?.cursor).toBe(0);
+    expect(editLine(key({ name: 'end' }), at(4))?.cursor).toBe(11);
+    expect(editLine(key({ ctrl: true, name: 'e' }), at(4))?.cursor).toBe(11);
+  });
+
+  it('should take a character with Backspace and Delete', () => {
+    expect(editLine(key({ name: 'backspace' }), at(11))).toEqual({
+      cursor: 10,
+      value: 'foo bar ba',
+    });
+    expect(editLine(key({ name: 'delete' }), at(0))).toEqual({ cursor: 0, value: 'oo bar baz' });
+  });
+
+  it('should hand the same value back for a key that changed nothing', () => {
+    expect(editLine(key({ name: 'backspace' }), at(0))).toEqual(at(0));
+    expect(editLine(key({ ctrl: true, name: 'k' }), at(11))).toEqual(at(11));
+  });
+
+  describe('with words off, which is what a masked field asks for', () => {
+    const off = { words: false };
+
+    it('should not answer the keys that name a word', () => {
+      for (const k of [
+        key({ ctrl: true, name: 'w' }),
+        key({ ctrl: true, name: 'k' }),
+        key({ meta: true, name: 'd' }),
+        key({ meta: true, name: 'b' }),
+        key({ meta: true, name: 'f' }),
+      ]) {
+        expect(editLine(k, at(4), off)).toBeUndefined();
+      }
+    });
+
+    it('should read a modifier on Backspace, Delete and the arrows as the plain key', () => {
+      expect(editLine(key({ meta: true, name: 'backspace' }), at(11), off)).toEqual({
+        cursor: 10,
+        value: 'foo bar ba',
+      });
+      expect(editLine(key({ ctrl: true, name: 'delete' }), at(0), off)?.value).toBe('oo bar baz');
+      expect(editLine(key({ ctrl: true, name: 'left' }), at(11), off)?.cursor).toBe(10);
+      expect(editLine(key({ meta: true, name: 'right' }), at(0), off)?.cursor).toBe(1);
+    });
+
+    it('should keep the keys that name no word', () => {
+      expect(editLine(key({ ctrl: true, name: 'u' }), at(3), off)).toEqual({
+        cursor: 0,
+        value: ' bar baz',
+      });
+      expect(editLine(key({ name: 'home' }), at(3), off)?.cursor).toBe(0);
+    });
   });
 });

@@ -23,7 +23,7 @@ import { __, __n, confirmKeys } from '../i18n/index.js';
 import { baseDir } from '../paths.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
-import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { boundary, editLine, insertAt, pastedLine, typedText } from './editing.js';
 import {
   type AccessibleOptions,
   promptAsLines,
@@ -864,29 +864,21 @@ export function path(opts: PathOptions): Promise<string> {
           active = ((active + 1 + step + span) % span) - 1;
           draw();
           return;
-        } else if (k.name === 'backspace') {
-          ({ cursor, value } = deleteBefore(value, cursor));
-          active = -1;
-        } else if (k.name === 'delete') {
-          ({ cursor, value } = deleteAfter(value, cursor));
-          active = -1;
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.ctrl && k.name === 'u') {
-          value = value.slice(cursor);
-          cursor = 0;
-          active = -1;
         } else {
-          const typed = typedText(k);
-          if (typed !== undefined) {
-            ({ cursor, value } = insertAt(value, cursor, typed));
-            active = -1;
+          const edited = editLine(k, { cursor, value });
+          if (edited !== undefined) {
+            // only an edit that changed the value is a new query: a key that
+            // moved the caret leaves the highlight where it was
+            if (edited.value !== value) {
+              active = -1;
+            }
+            ({ cursor, value } = edited);
+          } else {
+            const typed = typedText(k);
+            if (typed !== undefined) {
+              ({ cursor, value } = insertAt(value, cursor, typed));
+              active = -1;
+            }
           }
         }
 

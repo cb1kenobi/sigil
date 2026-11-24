@@ -3145,8 +3145,15 @@ the fields) and `selected`, and on `confirm()` it is what Enter alone means. A
 field, text that does not fit a mask -- is dropped rather than refused, because it
 is usually an earlier answer to a question that has since changed.
 `commandPalette()` takes none: it is not asked for a value. Editing keys
-are the usual ones: arrows, Home/End, Ctrl-A/E/U, Backspace, Delete. A paste
-arrives as one chunk and is read as the keys it carries, not just the first.
+are the usual ones, and the same in every single-line field -- `text()`,
+`number()`, `path()`, `list()`, `autocomplete()`, the palette's query and
+`TextField` -- through `editLine()` in `@ttylabs/sigil/components/editing`:
+arrows, Home/End, Ctrl-A/E/U, Backspace and Delete, and by word Ctrl-W, Ctrl-K,
+Alt-B, Alt-F, Alt-D and Alt-Backspace (Ctrl or Alt with an arrow, Backspace or
+Delete is a word too). `password()` keeps to one character at a time, since
+jumping or deleting by word on a masked value would show where its spaces are.
+A paste arrives as one chunk and is read as the keys it carries, not just the
+first.
 
 A prompt whose keys a reader would not guess draws them in a **key footer** under
 the list — the [key-help footer](#a-key-help-footer), read off the prompt's own
@@ -6506,7 +6513,8 @@ wider than the field scrolls sideways to keep the caret in view.
 
 The keys are the prompt's: Left and Right by a character and with Ctrl or Alt by a
 word, Home and End (Ctrl-A, Ctrl-E), Backspace and Delete by a character or with
-Ctrl or Alt by a word, Ctrl-W and Alt-D, Ctrl-U and Ctrl-K, and Alt-B and Alt-F. A
+Ctrl or Alt by a word, Ctrl-W and Alt-D, Ctrl-U and Ctrl-K, and Alt-B and Alt-F --
+all but the word keys when it is masked, as in `password()`. A
 bracketed paste goes in at the caret with its line breaks flattened, and reaches
 the field before any `onPaste()` handler on the router -- inside a modal, before
 one under the dialog.

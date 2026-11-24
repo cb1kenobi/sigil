@@ -32,7 +32,7 @@ import { __ } from '../i18n/index.js';
 import { onCleanup } from '../renderer/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { errorMessage } from '../util/error-message.js';
-import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { boundary, editLine, insertAt, pastedLine, typedText } from './editing.js';
 import { highlightRuns, rankBy } from './fuzzy.js';
 import {
   type AccessibleOptions,
@@ -825,6 +825,9 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
       async key(k) {
         complaint = undefined;
 
+        // none of the keys the list answers to is an editing key, so asking first
+        // takes nothing from it
+        const edited = editLine(k, { cursor, value });
         const bound = keys.match(k);
         if (bound) {
           const done = await bound(k);
@@ -874,30 +877,11 @@ function search<T>(opts: SearchOptions<T>, multi?: Multi): Promise<T | T[]> {
           active = Math.max(0, active - Math.max(1, room() - 1));
         } else if (k.name === 'pagedown') {
           active = Math.min(Math.max(0, offers.length - 1), active + Math.max(1, room() - 1));
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.name === 'backspace') {
+        } else if (edited !== undefined) {
+          // only an edit that changed the value asks the source again
           const prior = value;
-          ({ cursor, value } = deleteBefore(value, cursor));
+          ({ cursor, value } = edited);
           if (value !== prior) {
-            changed();
-          }
-        } else if (k.name === 'delete') {
-          const prior = value;
-          ({ cursor, value } = deleteAfter(value, cursor));
-          if (value !== prior) {
-            changed();
-          }
-        } else if (k.ctrl && k.name === 'u') {
-          if (cursor > 0) {
-            value = value.slice(cursor);
-            cursor = 0;
             changed();
           }
         } else {
