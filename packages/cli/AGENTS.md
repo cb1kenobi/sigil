@@ -3135,6 +3135,14 @@ other is refused with numbers.
   "not counted as a warning" is not asserted for `package`: it holds because a
   note never touches the counts, and `build`'s test reaches its summary.
 
+  **`warnEmptyShake()` is shared the same way** (SIG-655). It had stayed in
+  `build.ts` when `warnUnparsed()` moved, so a packaged binary could ship with
+  an empty utility sheet and no word about why -- the same absence `sigil build`
+  prints a note for. It lives in `commands/_inspect.ts` now and `package` calls
+  it before `warnUnparsed()`, in `build`'s order, after the same refusals and
+  before anything is compiled. Its tests sit in the same stub-`node` block as
+  SIG-645's, and are skipped on Windows with it.
+
   **Windows was measured, and its default stack is not the 1 MB one**
   (SIG-638). A throwaway test spawned one `node` per depth on the Windows runner
   and recorded each child's exit status, so that a native crash was a number

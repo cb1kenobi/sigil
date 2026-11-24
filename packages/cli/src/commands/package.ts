@@ -84,6 +84,7 @@ import {
   reportDiagnostics,
   resolveOut,
   utilityRules,
+  warnEmptyShake,
   warnUnparsed,
 } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
@@ -348,6 +349,7 @@ const pkg: AnyCommand = command({
       }
       // after the refusals above, so an app that is not going to be packaged
       // is not also told what its sheet would have cost
+      warnEmptyShake(result.styles);
       warnUnparsed(result.styles, found.app.root);
 
       // emptied only now, once the graph says whether `out` holds a module
