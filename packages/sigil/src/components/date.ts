@@ -101,7 +101,7 @@ export function date(opts: DateOptions): Promise<Date> {
     ['max', opts.max],
   ] as const) {
     if (value !== undefined && !(value instanceof Date && !Number.isNaN(value.getTime()))) {
-      return Promise.reject(new TypeError(__`Expected ${name} to be a valid Date`));
+      return Promise.reject(new TypeError(`Expected ${name} to be a valid Date`));
     }
   }
 
@@ -109,7 +109,7 @@ export function date(opts: DateOptions): Promise<Date> {
   const max = opts.max && partsOf(opts.max);
 
   if (min && max && key(min) > key(max)) {
-    return Promise.reject(new RangeError(__`Expected min to be no later than max`));
+    return Promise.reject(new RangeError(`Expected min to be no later than max`));
   }
 
   /** Pulls fields into the range, to the bound they went past. */

@@ -201,7 +201,7 @@ const ENTITIES: Record<string, string> = {
  */
 export function parseMarkdown(source: string): MarkdownBlock[] {
   if (typeof source !== 'string') {
-    throw new TypeError(__`Expected markdown source to be a string`);
+    throw new TypeError(`Expected markdown source to be a string`);
   }
 
   const lines = source.replaceAll(/\r\n?/g, '\n').split('\n').map(detab);

@@ -182,17 +182,17 @@ export function tabRowView(props: TabRowProps): Element {
   refuseOwnedHooks('tabRowView', props.props, ['onKey', 'onFocusChange', 'onResize']);
   const live = isLive<readonly string[]>(props.labels);
   if (!live && (!Array.isArray(props.labels) || props.labels.length === 0)) {
-    throw new TypeError(__`Expected tab labels to be a non-empty array of strings`);
+    throw new TypeError(`Expected tab labels to be a non-empty array of strings`);
   }
   if (!live && (props.labels as readonly unknown[]).some((label) => typeof label !== 'string')) {
-    throw new TypeError(__`Expected tab labels to be a non-empty array of strings`);
+    throw new TypeError(`Expected tab labels to be a non-empty array of strings`);
   }
   if (
     props.active !== undefined &&
     typeof props.active !== 'number' &&
     !(props.active instanceof State)
   ) {
-    throw new TypeError(__`Expected tabs active to be a number or a State`);
+    throw new TypeError(`Expected tabs active to be a number or a State`);
   }
 
   const active = props.active instanceof State ? props.active : new State(props.active ?? 0);
@@ -286,7 +286,7 @@ export function tabRowView(props: TabRowProps): Element {
    */
   const relabel = (next: readonly unknown[]): void => {
     if (!Array.isArray(next) || next.some((label) => typeof label !== 'string')) {
-      throw new TypeError(__`Expected tab labels to be an array of strings`);
+      throw new TypeError(`Expected tab labels to be an array of strings`);
     }
     const lines = (next as readonly string[]).map(labelLine);
     if (lines.length === count && lines.every((line, i) => line === labels[i])) {
@@ -538,7 +538,7 @@ export function Tabs(props: TabsProps): Element {
   const live = isLive<readonly Tab[]>(props.tabs);
   if (!live && (!Array.isArray(props.tabs) || props.tabs.length === 0)) {
     throw new TypeError(
-      __`Expected tabs to be a non-empty array, or a State, a Computed or a function of one`
+      `Expected tabs to be a non-empty array, or a State, a Computed or a function of one`
     );
   }
 
@@ -546,17 +546,17 @@ export function Tabs(props: TabsProps): Element {
   const check = (tabs: unknown): readonly Tab[] => {
     if (!Array.isArray(tabs)) {
       throw new TypeError(
-        __`Expected tabs to be a non-empty array, or a State, a Computed or a function of one`
+        `Expected tabs to be a non-empty array, or a State, a Computed or a function of one`
       );
     }
     for (const tab of tabs as readonly Tab[]) {
       if (typeof tab?.label !== 'string' && !isLive(tab?.label)) {
         throw new TypeError(
-          __`Expected every tab to have a label that is a string, or a State, a Computed or a function of one`
+          `Expected every tab to have a label that is a string, or a State, a Computed or a function of one`
         );
       }
       if (tab.children !== undefined && typeof tab.children !== 'function') {
-        throw new TypeError(__`Expected tab children to be a function that builds the panel`);
+        throw new TypeError(`Expected tab children to be a function that builds the panel`);
       }
     }
     return tabs as readonly Tab[];
@@ -633,7 +633,7 @@ export function Tabs(props: TabsProps): Element {
 export function tabsActive(host: Element): State<number> {
   const found = ACTIVE.get(host);
   if (found === undefined) {
-    throw new TypeError(__`Expected an element that Tabs() or tabRowView() returned`);
+    throw new TypeError(`Expected an element that Tabs() or tabRowView() returned`);
   }
   return found;
 }
@@ -653,7 +653,7 @@ export function describeTabs(router: TabsDescriber, ...tabs: readonly Element[])
   const scopes = tabs.map((host) => {
     const found = ROWS.get(host);
     if (found === undefined) {
-      throw new TypeError(__`Expected an element that Tabs() or tabRowView() returned`);
+      throw new TypeError(`Expected an element that Tabs() or tabRowView() returned`);
     }
     return found;
   });

@@ -440,7 +440,7 @@ export function treeChoiceOf<T = string>(item: TreeChoiceItem<T>): TreeChoicePar
     };
   }
   if (item === null || typeof item !== 'object' || typeof item.text !== 'string') {
-    throw new TypeError(__`Expected each item to be a string or an object with a text string`);
+    throw new TypeError(`Expected each item to be a string or an object with a text string`);
   }
   return {
     branch: item.items !== undefined,
@@ -558,7 +558,7 @@ export function selectTree<T = string>(opts: SelectTreeOptions<T>): Promise<T> {
     depth: number
   ): TreeNode<T>[] {
     if (!Array.isArray(items)) {
-      throw new TypeError(__`Expected items to be an array`);
+      throw new TypeError(`Expected items to be an array`);
     }
     const choices = items.map((item) => treeChoiceOf<T>(item));
     const { column, drawn } = outlineMarkers(

@@ -530,7 +530,7 @@ export function describedHosts(args: readonly (Element | DescribeListViewOptions
   }
   const { activate } = last as DescribeListViewOptions;
   if (activate !== undefined && (typeof activate !== 'string' || activate === '')) {
-    throw new TypeError(__`Expected activate to be a non-empty string`);
+    throw new TypeError(`Expected activate to be a non-empty string`);
   }
   return { hosts: args.slice(0, -1) as readonly Element[], options: { activate } };
 }

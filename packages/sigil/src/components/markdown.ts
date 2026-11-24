@@ -204,7 +204,7 @@ function buildView(
   live: boolean
 ): MarkdownView {
   if (typeof source !== 'string' && !Array.isArray(source)) {
-    throw new TypeError(__`Expected markdown to be a string or parsed blocks`);
+    throw new TypeError(`Expected markdown to be a string or parsed blocks`);
   }
 
   const document = typeof source === 'string' ? parseMarkdown(source) : source;

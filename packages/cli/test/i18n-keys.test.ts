@@ -101,6 +101,17 @@ describe('the committed key set', () => {
     ]);
   });
 
+  // SIG-658: 176 of them were in the table, tagged with `__` one component at a
+  // time, and they were most of why the i18n-keys entry doubled. SIG-53 decided
+  // the developer-facing errors stay English -- a translated `Expected option
+  // choices to be an array` is a bug report in a language the maintainer cannot
+  // read -- and `the committed key set` above could not say so, since it only
+  // asks that the table equal the source. `Expected ...` is the spelling every
+  // one of them used, so it is the spelling this looks for
+  it('should hold no developer error', () => {
+    expect(SIGIL_KEYS.filter((key) => key.startsWith('Expected '))).toEqual([]);
+  });
+
   it('should number a slot per interpolation, never name one', () => {
     // the tag hands over values rather than names, so a key with a `{name}` in
     // it is a key nothing will ever look up

@@ -277,28 +277,28 @@ interface Anchor {
  */
 export function Pane(props: PaneProps, ...children: Element[]): Element {
   if (!cells(props?.size) && !(props?.size instanceof State)) {
-    throw new TypeError(__`Expected pane size to be a number of cells or a State`);
+    throw new TypeError(`Expected pane size to be a number of cells or a State`);
   }
   for (const name of ['max', 'min'] as const) {
     if (props[name] !== undefined && !cells(props[name])) {
-      throw new TypeError(__`Expected pane ${name} to be a number of cells`);
+      throw new TypeError(`Expected pane ${name} to be a number of cells`);
     }
   }
   if (props.edge !== undefined && props.edge !== 'end' && props.edge !== 'start') {
-    throw new TypeError(__`Expected pane edge to be end or start`);
+    throw new TypeError(`Expected pane edge to be end or start`);
   }
   if (
     props.collapsed !== undefined &&
     typeof props.collapsed !== 'boolean' &&
     !(props.collapsed instanceof State)
   ) {
-    throw new TypeError(__`Expected pane collapsed to be a boolean or a State`);
+    throw new TypeError(`Expected pane collapsed to be a boolean or a State`);
   }
 
   const min = Math.floor(props.min ?? 1);
   const max = props.max === undefined ? Number.POSITIVE_INFINITY : Math.floor(props.max);
   if (max < min) {
-    throw new RangeError(__`Expected pane max to be at least min`);
+    throw new RangeError(`Expected pane max to be at least min`);
   }
   const side: PaneEdge = props.edge ?? 'end';
   const collapsible = props.collapsible ?? false;
@@ -794,7 +794,7 @@ export function Pane(props: PaneProps, ...children: Element[]): Element {
     },
     resize(value: number): number {
       if (typeof value !== 'number' || Number.isNaN(value)) {
-        throw new TypeError(__`Expected a pane size to be a number of cells`);
+        throw new TypeError(`Expected a pane size to be a number of cells`);
       }
       return moveTo(begin(), value);
     },

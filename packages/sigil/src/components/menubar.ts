@@ -140,14 +140,14 @@ function holds(
 export function Menubar<T = unknown>(props: MenubarProps<T>): Element {
   const input = props?.input;
   if (typeof input?.bind !== 'function' || typeof input.fallback !== 'function') {
-    throw new TypeError(__`Expected a menubar input to be a router`);
+    throw new TypeError(`Expected a menubar input to be a router`);
   }
   if (!Array.isArray(props.menus)) {
-    throw new TypeError(__`Expected menubar menus to be an array`);
+    throw new TypeError(`Expected menubar menus to be an array`);
   }
   for (const menu of props.menus) {
     if (typeof menu?.label !== 'string' || menu.label === '') {
-      throw new TypeError(__`Expected a menubar menu to have a label`);
+      throw new TypeError(`Expected a menubar menu to have a label`);
     }
     checkMenuEntries(menu.items);
     checkMenuInitial(menu.initial, menu.items.length);

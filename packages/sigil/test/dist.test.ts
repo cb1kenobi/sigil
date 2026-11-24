@@ -1153,7 +1153,12 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'error-handler': [21, 10_554],
   help: [344, 175_816],
   i18n: [10, 5_094],
-  'i18n-keys': [37, 18_451],
+  // 9,446 B at 306 keys when SIG-328 set a ceiling of 18 KiB, 18,518 B at 480
+  // once the components' `Expected ...` errors had been tagged with `__`, and
+  // 8,582 B at 304 when SIG-658 took them back out -- see "src/i18n/keys.ts is
+  // generated" in `src/i18n/AGENTS.md`. `the i18n-keys entry` below is what
+  // says the figure is the key table and not something pulled in beside it
+  'i18n-keys': [18, 8_582],
   // SIG-324: a `commands.json` is read with the config module's JSONC reader,
   // which brings `__` and the debug logger with it -- 2,604 B over two before
   'internal/routes': [32, 16_234],
@@ -1178,6 +1183,37 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   which: [3, 1_446],
   wrap: [20, 10_152],
 };
+
+/**
+ * What the `i18n-keys` entry is made of, which is its keys and nothing else.
+ *
+ * The entry doubled between SIG-328 and SIG-635, and SIG-658 asked whether that
+ * was growth or a leak. It was neither of the two the ticket offered: the table
+ * was exactly what its source declared, and what it declared was 176 developer
+ * errors that SIG-53 had decided to leave English. A ceiling records a size and
+ * cannot say that, so these two say what a leak would have to break instead --
+ * the entry is one module, and that module costs what its strings cost.
+ */
+describe('the i18n-keys entry', () => {
+  it('should be one module and import nothing', () => {
+    expect([...staticGraph('i18n-keys.mjs')]).toEqual(['i18n-keys.mjs']);
+  });
+
+  it('should cost what its keys cost and little more', async () => {
+    const { SIGIL_KEYS, SIGIL_PLURAL_KEYS } = (await import(
+      pathToFileURL(join(dist, 'i18n-keys.mjs')).href
+    )) as { SIGIL_KEYS: string[]; SIGIL_PLURAL_KEYS: string[] };
+    const strings = [...SIGIL_KEYS, ...SIGIL_PLURAL_KEYS];
+    const text = strings.reduce((n, key) => n + Buffer.byteLength(key), 0);
+    // two backticks and a comma around each string, which is the minifier's
+    // spelling of an array of them, and a flat allowance for the two `export`s;
+    // measured as of SIG-658 at 61 B past that, so a figure this loose is room
+    // for escapes and not for a second module's worth of code
+    const expected = text + strings.length * 3;
+
+    expect(graphBytes(staticGraph('i18n-keys.mjs'))).toBeLessThan(expected + 512);
+  });
+});
 
 /** The entries whose ceiling is a test of its own, above. */
 const DEDICATED = ['index', 'coerce', 'components', 'config', 'input', 'png', 'suggest'];
