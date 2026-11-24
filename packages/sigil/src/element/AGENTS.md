@@ -218,6 +218,14 @@ the entry it belongs to.
   `toDisplayText()` is exported: anything sizing a column has to measure what
   will be _drawn_, and a table that measured the raw string was a column out per
   tab.
+  **It is the one definition code outside the tree uses to size what the tree
+  will draw, and `stringWidth()` stays as it is (SIG-665).** A tab is a space here
+  and nothing to `stringWidth()`, which is right where it is asked about a terminal:
+  a raw tab's width depends on its column. So the rule is on the caller's side -- run
+  the string through `toDisplayText()` before measuring it, rather than teaching the
+  measure about a tab -- and the chart's readout, which measures what the tooltip
+  will draw, does (see "The readout is worked out as the bubble draws it" in
+  `packages/sigil/src/components/AGENTS.md`).
 - **`printable()` marks the control characters a text would not draw as given,
   and reads the same set to find them (SIG-475).** Dropping one is right for the terminal and
   wrong for a file name: `bad<ESC>[31mname` is drawn as `bad[31mname`, which is
