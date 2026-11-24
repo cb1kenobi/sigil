@@ -35,18 +35,7 @@ import { createEffect } from '../renderer/index.js';
 import { State } from '../signals/index.js';
 import { stringWidth } from '../width/index.js';
 import { controlCondition, type ControlCondition } from './control.js';
-import {
-  boundary,
-  deleteAfter,
-  deleteBefore,
-  deleteRange,
-  type Edit,
-  insertAt,
-  pastedLine,
-  typedText,
-  wordAfter,
-  wordBefore,
-} from './editing.js';
+import { boundary, type Edit, editLine, insertAt, pastedLine, typedText } from './editing.js';
 import { refuseOwnedHooks } from './owned-hooks.js';
 import { promptWindow } from './prompt.js';
 
@@ -250,7 +239,14 @@ export function TextField(props: TextFieldProps = {}): Element {
     }
     const k = event.key;
     const now = value.get();
-    const word = k.ctrl || k.meta;
+    // Enter is the field's own key, and the rest of the table is `editLine()`'s --
+    // by character alone when masked, since a word jump or a word delete on a
+    // masked value shows where its spaces are. The word keys are still claimed
+    // there and change nothing, so what reaches an app does not depend on `mask`
+    const edited =
+      k.name === 'enter'
+        ? undefined
+        : editLine(k, { cursor, value: now }, { words: mask === undefined });
 
     if (k.name === 'enter') {
       // a pasted line break is content, never a submission; and without
@@ -263,28 +259,8 @@ export function TextField(props: TextFieldProps = {}): Element {
       } else {
         onSubmit(now);
       }
-    } else if (k.name === 'backspace') {
-      apply(word ? deleteRange(now, wordBefore(now, cursor), cursor) : deleteBefore(now, cursor));
-    } else if (k.name === 'delete') {
-      apply(word ? deleteRange(now, cursor, wordAfter(now, cursor)) : deleteAfter(now, cursor));
-    } else if (k.ctrl && k.name === 'w') {
-      apply(deleteRange(now, wordBefore(now, cursor), cursor));
-    } else if (k.meta && k.name === 'd') {
-      apply(deleteRange(now, cursor, wordAfter(now, cursor)));
-    } else if (k.name === 'left' || (k.meta && k.name === 'b')) {
-      const to = word ? wordBefore(now, cursor) : boundary(now, cursor, -1);
-      apply({ cursor: to, value: now });
-    } else if (k.name === 'right' || (k.meta && k.name === 'f')) {
-      const to = word ? wordAfter(now, cursor) : boundary(now, cursor, 1);
-      apply({ cursor: to, value: now });
-    } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-      apply({ cursor: 0, value: now });
-    } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-      apply({ cursor: now.length, value: now });
-    } else if (k.ctrl && k.name === 'u') {
-      apply(deleteRange(now, 0, cursor));
-    } else if (k.ctrl && k.name === 'k') {
-      apply(deleteRange(now, cursor, now.length));
+    } else if (edited !== undefined) {
+      apply(edited);
     } else {
       const typed = typedText(k);
       // not the field's, and this is the one place that says so for every one of

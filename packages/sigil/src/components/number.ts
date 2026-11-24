@@ -25,7 +25,7 @@ import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
 import { transformValue } from '../util/coerce.js';
 import { graphemes } from '../width/index.js';
-import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { editLine, insertAt, pastedLine, typedText } from './editing.js';
 import { layoutField } from './field-layout.js';
 import {
   type AccessibleOptions,
@@ -338,23 +338,13 @@ export function number(opts: NumberOptions): Promise<number> {
 
         if (k.name === 'up' || k.name === 'down') {
           nudge(k.name === 'up' ? 1 : -1);
-        } else if (k.name === 'backspace') {
-          ({ cursor, value } = deleteBefore(value, cursor));
-        } else if (k.name === 'delete') {
-          ({ cursor, value } = deleteAfter(value, cursor));
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.ctrl && k.name === 'u') {
-          value = value.slice(cursor);
-          cursor = 0;
         } else {
-          accept(typedText(k) ?? '');
+          const edited = editLine(k, { cursor, value });
+          if (edited !== undefined) {
+            ({ cursor, value } = edited);
+          } else {
+            accept(typedText(k) ?? '');
+          }
         }
 
         draw();

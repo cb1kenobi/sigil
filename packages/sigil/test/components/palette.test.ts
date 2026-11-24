@@ -293,6 +293,49 @@ describe('commandPalette()', () => {
     expect((await answer).value?.argv).toEqual(['alpha']);
   });
 
+  it('should leave the highlight alone for an edit that changed nothing', async () => {
+    const ui = screenSetup({ rows: 12 });
+    const answer = settle(
+      open(
+        ui,
+        await appState({
+          commands: {
+            alpha: { run(): void {} },
+            beta: { run(): void {} },
+            gamma: { run(): void {} },
+          },
+        })
+      )
+    );
+
+    // Backspace and Ctrl-U at the start of an empty query take nothing off, so the
+    // list is the one that was already ranked and the highlight stays on `gamma`:
+    // they used to put it back to the top whether or not anything had moved
+    await type(ui.stdin, DOWN, DOWN, BACKSPACE, CTRL_U, ENTER);
+
+    expect((await answer).value?.argv).toEqual(['gamma']);
+  });
+
+  it('should put the highlight back to the top for a word key that changed the query', async () => {
+    const ui = screenSetup({ rows: 12 });
+    const answer = settle(
+      open(
+        ui,
+        await appState({
+          commands: {
+            alpha: { run(): void {} },
+            beta: { run(): void {} },
+            gamma: { run(): void {} },
+          },
+        })
+      )
+    );
+
+    await type(ui.stdin, 'a', DOWN, DOWN, '\u0017', ENTER);
+
+    expect((await answer).value?.argv).toEqual(['alpha']);
+  });
+
   it('should leave the highlight alone for a key it has no use for', async () => {
     const ui = screenSetup({ rows: 12 });
     const answer = settle(

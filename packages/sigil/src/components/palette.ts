@@ -41,7 +41,7 @@ import {
   type PaletteSlot,
   slotTokens,
 } from './catalog.js';
-import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { editLine, insertAt, pastedLine, typedText } from './editing.js';
 import { highlightRuns, type Ranked, rankBy } from './fuzzy.js';
 import {
   type Choice,
@@ -640,6 +640,9 @@ function runList(
         if (k.name === 'escape') {
           return { value: undefined };
         }
+        // none of the keys the list answers to is an editing key, so asking first
+        // takes nothing from it
+        const edited = editLine(k, { cursor, value });
         if (k.name === 'enter') {
           // a list with nothing in it has nothing to answer with, so Enter
           // does nothing rather than resolving with a row that is not there
@@ -657,24 +660,13 @@ function runList(
           active = Math.max(0, active - Math.max(1, room() - 1));
         } else if (k.name === 'pagedown') {
           active = Math.min(Math.max(0, shown.length - 1), active + Math.max(1, room() - 1));
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.name === 'backspace') {
-          ({ cursor, value } = deleteBefore(value, cursor));
-          active = 0;
-        } else if (k.name === 'delete') {
-          ({ cursor, value } = deleteAfter(value, cursor));
-          active = 0;
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.ctrl && k.name === 'u') {
-          value = value.slice(cursor);
-          cursor = 0;
-          active = 0;
+        } else if (edited !== undefined) {
+          // only an edit that changed the value is a new query: a key that moved
+          // the caret leaves the highlight where it was
+          if (edited.value !== value) {
+            active = 0;
+          }
+          ({ cursor, value } = edited);
         } else {
           // a printable key, and `typedText()` is what decides whether this
           // was one: a character arrives with its name and its sequence the

@@ -31,6 +31,7 @@ import {
   deleteAfter,
   deleteBefore,
   deleteRange,
+  editLine,
   insertAt,
   pastedBlock,
   pastedLine,
@@ -1331,21 +1332,11 @@ export function text(opts: TextOptions): Promise<string> {
           return { value: answer };
         }
 
-        if (k.name === 'backspace') {
-          ({ cursor, value } = deleteBefore(value, cursor));
-        } else if (k.name === 'delete') {
-          ({ cursor, value } = deleteAfter(value, cursor));
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.ctrl && k.name === 'u') {
-          value = value.slice(cursor);
-          cursor = 0;
+        // by character alone when masked, since a word jump or a word delete on
+        // a masked value shows where its spaces are; the word keys do nothing there
+        const edited = editLine(k, { cursor, value }, { words: opts.mask === undefined });
+        if (edited !== undefined) {
+          ({ cursor, value } = edited);
         } else {
           // a printable key, and `typedText()` is what decides whether this was
           // one: a character arrives with its name and its sequence the same

@@ -359,6 +359,110 @@ export function typedText(k: Key): string | undefined {
   return isControlChar(ch) ? undefined : ch;
 }
 
+/** What `editLine()` may be asked to leave out. */
+export interface EditLineOptions {
+  /**
+   * Whether the keys that move or delete by word do it.
+   *
+   * On unless `false`. A masked field turns it off: jumping or deleting by word
+   * on a value drawn as bullets reveals where its spaces are. The keys are still
+   * the field's -- `editLine()` answers an edit that changes nothing for each of
+   * them, rather than `undefined` -- because which keys a focused field owns must
+   * not depend on whether it is masked: a habitual Ctrl-W while typing a secret
+   * is not a reason for the app's own Ctrl-W to fire.
+   */
+  words?: boolean;
+}
+
+/**
+ * Whether a key moves or deletes by word, which is what a masked field refuses.
+ *
+ * Ctrl-W, Ctrl-K, Alt-B, Alt-F and Alt-D, and Backspace, Delete, Left and Right
+ * held with Ctrl or Alt. Ctrl-K reveals no boundary itself, and is in the set
+ * because the decision names it with the word keys: a masked field's keys are the
+ * plain ones and Ctrl-U, and nothing else. Written once, beside the table it describes, so that
+ * the keys a masked field claims and does nothing with cannot come apart from
+ * the keys the table gives a word to.
+ */
+function isWordKey(k: Key): boolean {
+  if (k.name === 'backspace' || k.name === 'delete' || k.name === 'left' || k.name === 'right') {
+    return k.ctrl || k.meta;
+  }
+  return (
+    (k.ctrl && (k.name === 'w' || k.name === 'k')) ||
+    (k.meta && (k.name === 'd' || k.name === 'b' || k.name === 'f'))
+  );
+}
+
+/**
+ * The edit a key makes to a single line, or nothing when it is not an editing key.
+ *
+ * This is the key table every single-line field shares -- `TextField`, `text()`,
+ * `number()`, `path()`, the palette, `autocomplete()` and `list()` -- so that a
+ * key means the same thing in all of them. It had been written out once per
+ * field and the copies had drifted: `text()` ignored Ctrl-W while `TextField`
+ * took a word off, and Alt-B moved the caret in one and typed nothing in the
+ * other. Backspace, Delete, Left and Right take a word with Ctrl or Alt; Ctrl-W,
+ * Alt-D, Alt-B, Alt-F, Home, End, Ctrl-A, Ctrl-E, Ctrl-U and Ctrl-K are the
+ * readline set.
+ *
+ * What it does not do is type: a printable key answers `undefined` like any
+ * other it has no use for, and a caller that wants one asks `typedText()` next.
+ * Enter, Tab, Escape and the arrows a list answers to are the caller's own keys
+ * for the same reason, and are why each field keeps a line or two of its own.
+ *
+ * With `words: false` every key that names a word is still claimed and changes
+ * nothing, so a masked field neither edits by word nor lets the key through.
+ *
+ * @param k - The key.
+ * @param edit - The value and where the cursor is.
+ * @param options - What to leave out.
+ * @returns The value and the cursor after the key -- a new object even when the
+ *   key changed nothing, so compare `.value` -- or `undefined` when the key is not
+ *   an editing key.
+ */
+export function editLine(k: Key, edit: Edit, options: EditLineOptions = {}): Edit | undefined {
+  const { cursor, value } = edit;
+  const word = k.ctrl || k.meta;
+
+  if (options.words === false && isWordKey(k)) {
+    return { cursor, value };
+  }
+  if (k.name === 'backspace') {
+    return word
+      ? deleteRange(value, wordBefore(value, cursor), cursor)
+      : deleteBefore(value, cursor);
+  }
+  if (k.name === 'delete') {
+    return word ? deleteRange(value, cursor, wordAfter(value, cursor)) : deleteAfter(value, cursor);
+  }
+  if (k.ctrl && k.name === 'w') {
+    return deleteRange(value, wordBefore(value, cursor), cursor);
+  }
+  if (k.meta && k.name === 'd') {
+    return deleteRange(value, cursor, wordAfter(value, cursor));
+  }
+  if (k.name === 'left' || (k.meta && k.name === 'b')) {
+    return { cursor: word ? wordBefore(value, cursor) : boundary(value, cursor, -1), value };
+  }
+  if (k.name === 'right' || (k.meta && k.name === 'f')) {
+    return { cursor: word ? wordAfter(value, cursor) : boundary(value, cursor, 1), value };
+  }
+  if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
+    return { cursor: 0, value };
+  }
+  if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
+    return { cursor: value.length, value };
+  }
+  if (k.ctrl && k.name === 'u') {
+    return deleteRange(value, 0, cursor);
+  }
+  if (k.ctrl && k.name === 'k') {
+    return deleteRange(value, cursor, value.length);
+  }
+  return undefined;
+}
+
 /**
  * A pasted block as one line, which is what a single-line field inserts.
  *

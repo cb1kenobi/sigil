@@ -11221,10 +11221,56 @@ field joins like anything else focusable.
 - **The element first, and the `text()` prompt is not moved onto it here.** It is
   built from what the prompt is built from rather than beside it: `editing.ts` for
   every edit, and `promptWindow()` -- the prompt's own sideways window -- for what
-  is on screen. What is _not_ shared yet is the key table and the drawing, which
-  the prompt keeps inline; mounting the prompt over the element is a follow-up,
-  because a second set of answers about the prompt's settle and its placeholder is
-  a change to every `text()` and `password()` and belongs in a ticket of its own.
+  is on screen. The key table is shared since SIG-410 -- the entry below -- while
+  the drawing is not, which the prompt keeps inline; mounting the prompt over the
+  element is a follow-up, because a second set of answers about the prompt's
+  settle and its placeholder is a change to every `text()` and `password()` and
+  belongs in a ticket of its own.
+- **One key table for every single-line field, and `password()` is the exception
+  (SIG-410).** `editLine(key, { cursor, value }, options)` in `editing.ts` is
+  `TextField`'s table -- Backspace, Delete, Left and Right by a character and with
+  Ctrl or Alt by a word, Ctrl-W, Alt-D, Alt-B, Alt-F, Home, End, Ctrl-A, Ctrl-E,
+  Ctrl-U and Ctrl-K -- and answers the edit, or `undefined` for a key that is not
+  an editing key. `TextField`, `text()`, `number()`, `path()`, the palette,
+  `autocomplete()` and `list()` call it, and each keeps only the keys that are its
+  own: Enter, Tab, the arrows a list answers to, and what a printable key does,
+  which stays the caller's because `number()` filters what it accepts and the
+  palette, `path()` and `autocomplete()` start a new query when it changes. It was
+  written out seven times and the copies had drifted: `text()` ignored Ctrl-W,
+  Ctrl-K, Alt-B, Alt-F and Alt-Backspace, and Alt-B then `x` typed at the end in
+  one field and before the last word in another. Chris decided the table is
+  shared by all of them (2026-11-24), so those five keys are new to six fields.
+
+  **A masked field keeps character-only editing, and still claims the word keys**
+  (Chris, 2026-11-24). `password()` (that is `text()` with a `mask`) and a
+  `TextField` with a `mask` pass `{ words: false }`. Jumping or deleting by word on
+  a masked value reveals where its spaces are, which is the one thing a mask is
+  for hiding -- so Ctrl-W, Ctrl-K, Alt-B, Alt-F, Alt-D and Alt-Backspace, and the
+  same keys on Backspace, Delete, Left and Right held with Ctrl or Alt, edit
+  nothing there. They are claimed all the same: `editLine()` answers an edit that
+  changes nothing for each of them, from the one `isWordKey()` beside it, rather
+  than `undefined`. Why: which keys a focused field owns must not change with its
+  `mask` prop, and a habitual Ctrl-W while typing a secret must not fire an app's
+  own "close". The first version answered `undefined` and let them bubble, which
+  review caught as the one place the shared table reached an app. A prompt stops
+  every key it reads, so for `password()` the claim was already total and its test
+  says so rather than proving a guard; for `TextField` it is the one that matters.
+  Ctrl-U stays, since it names no word. Asked of `mask` rather than of which
+  function was called, so a field built another way is held to the same rule.
+
+  **A list's highlight goes back to the top only when an edit changed the value.**
+  The palette and `path()` reset it on Backspace, Delete and Ctrl-U whether or not
+  they changed anything, because each was its own branch; through one function the
+  question that is left is whether the query moved, which is what `autocomplete()`
+  already asked. So Backspace at the start of the line no longer drops a highlight
+  the reader had moved to. `pager.ts`'s `/` field is not in the table: it holds a
+  draft with no caret, so there is nothing for Alt-B to move, and its Backspace is
+  a pop. **A word is whitespace-delimited everywhere, `path()` included**, so
+  Ctrl-W on `src/components/foo` clears the whole of it rather than taking a
+  segment: it is the table's answer and not a path rule, and a segment-wise delete
+  would be a key `path()` owned. `test/components/single-line-keys.test.ts` drives the same keys through
+  every field, so a field that stops sharing the table fails by name.
+
 - **The value is a string to start from or a `State<string>` that is the value,
   the shape `Collapsible`'s `open` and `Tabs`' `active` have.** No handle: an app
   that wants the value passes the state, and `onChange` is called after an edit the
@@ -11330,7 +11376,7 @@ field joins like anything else focusable.
   and `min-width: 0` had no test until `should shrink to its share of a row rather
   than to its content`. The other twenty-four, three of them on the router's new
   order, are caught.
-- **Not done:** the prompts sharing this editor; multiline, `number` and
+- **Not done:** the prompts mounted over this element; multiline, `number` and
   `maskedText()` variants; clicking to place the caret; a selection; a
   `describe` helper for a key-help footer; and blocking an unclaimed paste at the
   modal's backdrop.

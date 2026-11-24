@@ -19,7 +19,7 @@
 import { box, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import { terminal as defaultTerminal } from '../terminal/index.js';
-import { boundary, deleteAfter, deleteBefore, insertAt, pastedLine, typedText } from './editing.js';
+import { boundary, editLine, insertAt, pastedLine, typedText } from './editing.js';
 import {
   type AccessibleOptions,
   promptAsLines,
@@ -244,24 +244,8 @@ export function list(opts: ListOptions): Promise<string[]> {
           return { value: answer };
         }
 
-        if (k.name === 'backspace') {
-          ({ cursor, value } = deleteBefore(value, cursor));
-        } else if (k.name === 'delete') {
-          ({ cursor, value } = deleteAfter(value, cursor));
-        } else if (k.name === 'left') {
-          cursor = boundary(value, cursor, -1);
-        } else if (k.name === 'right') {
-          cursor = boundary(value, cursor, 1);
-        } else if (k.name === 'home' || (k.ctrl && k.name === 'a')) {
-          cursor = 0;
-        } else if (k.name === 'end' || (k.ctrl && k.name === 'e')) {
-          cursor = value.length;
-        } else if (k.ctrl && k.name === 'u') {
-          value = value.slice(cursor);
-          cursor = 0;
-        } else {
-          ({ cursor, value } = insertAt(value, cursor, typedText(k) ?? ''));
-        }
+        ({ cursor, value } =
+          editLine(k, { cursor, value }) ?? insertAt(value, cursor, typedText(k) ?? ''));
 
         draw();
       },
