@@ -2673,7 +2673,7 @@ app that had somebody looking. Chris decided on 2026-11-24 that both are
   every app for a predicate: `output.mjs` imports `node:fs` and nothing else
   (`test/dist.test.ts` holds both halves, as of this entry about 1.1 kB), against
   `terminal.mjs` at about 18 kB over seven modules.
-- **A completion script and the error message go through `writeTo()` too**
+- **A completion script and the process's own error message go through `writeTo()` too**
   (SIG-663). `app completion bash > file` was `completion.ts`'s own
   `process.stdout.write()` of a document and is `writeOut()` now, so a cut-off is
   the same `The output was cut off` error and exit 1 as `--help`. `errorHandler()`

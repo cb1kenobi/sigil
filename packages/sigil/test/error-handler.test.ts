@@ -1,5 +1,8 @@
 import { errorExitCode, errorHandler, errorMessage, renderError } from '../src/error-handler.js';
 import type { ErrorContext, ParseState } from '../src/types.js';
+import { createWriteStream, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -160,8 +163,9 @@ describe('errorHandler', () => {
     expect(process.exitCode).toBe(0);
   });
 
-  // SIG-663: the message is written through `writeTo()`, so a write that fails
-  // is a thrown error here and the exit code is what is left to say so
+  // SIG-663: the process's own stderr is written through `writeTo()`, so a write
+  // that fails is a thrown error here and the exit code is what is left to say so.
+  // A stream the caller supplied is `write()`, and its failure is the caller's
   describe('a stderr that refuses the message', () => {
     let write: ReturnType<typeof vi.spyOn>;
     afterEach(() => write?.mockRestore());
@@ -186,6 +190,13 @@ describe('errorHandler', () => {
           stderr: refusing('EFBIG'),
         })
       ).not.toThrow();
+      expect(process.exitCode).toBe(2);
+    });
+
+    it('should keep the error’s own code when the process’s stderr refused the message', () => {
+      ownRefusing('EFBIG');
+      errorHandler(Object.assign(new Error('nope'), { exitCode: 2 }));
+
       expect(process.exitCode).toBe(2);
     });
 
@@ -216,6 +227,27 @@ describe('errorHandler', () => {
       // an error that cannot be read is not known to be the reader leaving, so it is
       // not given the benefit of the doubt
       expect(process.exitCode).toBe(1);
+    });
+
+    it('should write a supplied fs.WriteStream through its own queue, in order', async () => {
+      // a stream with a descriptor of its own: `writeTo()` would take the
+      // descriptor and put the message ahead of what the stream still holds
+      const dir = mkdtempSync(join(tmpdir(), 'sigil-error-handler-'));
+      const file = join(dir, 'log.txt');
+      const stream = createWriteStream(file);
+      try {
+        // the descriptor is assigned on `open`, which is when it can be taken
+        await new Promise((settle) => stream.once('open', settle));
+        stream.write('line 1\n');
+        stream.write('line 2\n');
+        errorHandler(new Error('boom'), { stderr: stream });
+        stream.write('line 3\n');
+        await new Promise((settle) => stream.end(settle));
+
+        expect(readFileSync(file, 'utf-8')).toBe('line 1\nline 2\nError: boom\nline 3\n');
+      } finally {
+        rmSync(dir, { force: true, recursive: true });
+      }
     });
 
     it('should leave a stream the caller supplied to write(), and its failure to the caller', () => {
