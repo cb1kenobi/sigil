@@ -603,7 +603,7 @@ the entry it belongs to.
   a throw to a function on the **stream** under
   `Symbol.for('@ttylabs/sigil/input/timer-error')` where `createTestTerminal()`
   put one, and rethrows otherwise -- so a **new timer** is armed through it too
-  (SIG-631; the reasoning is in `src/testing/AGENTS.md`). **What it does not cover, stated rather than left
+  (SIG-631; the reasoning is in `src/testing/AGENTS.md`, and the function is `src/util/timed.ts`'s, which the components whose timers call app code share, SIG-642). **What it does not cover, stated rather than left
   to be found:** a handler that returns a promise which rejects -- the router never
   looks at a handler's return value, so an `async` `onSelect` fails as an unhandled
   rejection, and the handler's own `catch` is where that is dealt with; and

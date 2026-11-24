@@ -26,7 +26,7 @@ import { strip } from '../ansi/index.js';
 import { box, Element, type ElementPropsWithout, text as textNode } from '../element/index.js';
 import { __ } from '../i18n/index.js';
 import type { MouseEvent } from '../input/index.js';
-import { MAX_TIMER_DELAY, onCleanup } from '../renderer/index.js';
+import { MAX_TIMER_DELAY, onCleanup, timed } from '../renderer/index.js';
 import type { Terminal } from '../terminal/index.js';
 import { mountLevel } from './mount.js';
 import { type NoteVariant, unicodeSupported } from './note.js';
@@ -375,7 +375,13 @@ export function showToast(host: ToastHost, opts: ToastOptions): ToastHandle {
   // -- the clock ------------------------------------------------------------
 
   if (timeout !== Infinity) {
-    timer = setTimeout(() => close('timeout'), timeout);
+    // `onClose` is the app's, and this is the one place it runs from a timer: a
+    // throw there is an uncaught exception, unless a test terminal is listening
+    // for it (SIG-642). Done by the time it is called, so the toast is gone either way
+    timer = setTimeout(
+      timed(opts.terminal?.stdin, () => close('timeout')),
+      timeout
+    );
     // a toast is not a reason to stay alive: a program that has finished exits
     // with one still showing, which is the spinner's rule and the clock's redraw
     timer.unref?.();

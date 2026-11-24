@@ -66,6 +66,7 @@ import {
   type Terminal,
   terminal as defaultTerminal,
 } from '../terminal/index.js';
+import { timed as timedOn } from '../util/timed.js';
 import { MAX_TIMER_DELAY } from '../util/timer.js';
 import {
   type CapabilityReply,
@@ -1031,16 +1032,6 @@ const guarded = new WeakSet<object>();
 const heard = new WeakSet<object>();
 
 /**
- * Where a stream takes a throw from one of the router's own timers, if it has one.
- *
- * A registry symbol rather than an import, because the one thing that sets it is
- * `createTestTerminal()` and the testing entry loads nothing of the router's. Read
- * where a throw happens rather than where the router is built, so a hook added
- * after `createInput()` is the one asked.
- */
-const TIMER_ERROR = Symbol.for('@ttylabs/sigil/input/timer-error');
-
-/**
  * Builds the input router.
  *
  * Throws where stdin is not a terminal rather than carrying a router that can
@@ -1098,25 +1089,14 @@ export function createInput(opts: InputOptions = {}): InputRouter {
    * Wraps a callback a timer will run, so a throw that nothing is awaiting has
    * somewhere to go where the stream has one (SIG-631).
    *
-   * Where the stream has no hook the throw goes on as it always did, which is an
-   * uncaught exception -- the deliberate answer for an app, and what SIG-524 has
-   * `runApp()` end on. Only the entries a timer starts are wrapped: a throw from
-   * a key or a paste still has the `write()` that delivered it to go back through.
+   * Only the entries a timer starts are wrapped: a throw from a key or a paste
+   * still has the `write()` that delivered it to go back through. The rule itself
+   * is `util/timed.ts`'s, which the components share (SIG-642).
    *
    * @param run - What the timer does.
    * @returns The callback to arm.
    */
-  const timed = (run: () => void) => (): void => {
-    try {
-      run();
-    } catch (error) {
-      const hook = (stdin as unknown as Record<symbol, unknown>)[TIMER_ERROR];
-      if (typeof hook !== 'function') {
-        throw error;
-      }
-      hook(error);
-    }
-  };
+  const timed = (run: () => void): (() => void) => timedOn(stdin, run);
 
   // -- described bindings ---------------------------------------------------
 

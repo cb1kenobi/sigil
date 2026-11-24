@@ -7289,6 +7289,11 @@ there for a component you write yourself too:
   be asked to wait, 2^31 - 1 milliseconds: past it the platform fires at once.
   The toast refuses a timeout past it and the clock waits in pieces no longer
   than it.
+- `timed(on, run)`, from `@ttylabs/sigil/renderer`, wraps what a timer runs so
+  that a throw goes where a test terminal is listening for one, and is uncaught
+  where nothing is, as it is in an app. `on` is the stream the hook would be on --
+  `terminal.stdin` -- and may be `undefined`. The toast, the clock and the decrypt
+  arm their timers through it, and so does the input router.
 
 ### `sigil/canvas`
 

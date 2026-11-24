@@ -1,5 +1,5 @@
 import { type Element, text as textNode } from '../element/index.js';
-import { createEffect, MAX_TIMER_DELAY } from '../renderer/index.js';
+import { createEffect, MAX_TIMER_DELAY, timed } from '../renderer/index.js';
 import { State, untrack } from '../signals/index.js';
 import { type MountOptions, mountLevel } from './mount.js';
 import { formatDuration } from './progress.js';
@@ -132,6 +132,13 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
   const tick = opts.tick && opts.tick > 0 ? opts.tick : 1000;
   const format = opts.format ?? 'words';
 
+  /**
+   * What both timers run through. They read `now`, which is the app's, and a throw
+   * from a timer is an uncaught exception unless a test terminal is listening for
+   * it (SIG-642).
+   */
+  const onTimer = (run: () => void): (() => void) => timed(opts.terminal?.stdin, run);
+
   const ticks = new State(0);
   const isRunning = new State(false);
   const isLive = new State(false);
@@ -196,11 +203,14 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
     }
     const at = limit === undefined ? spent() : left();
     const rest = limit === undefined ? tick - (at % tick) : at % tick || tick;
-    redraw = setTimeout(() => {
-      redraw = undefined;
-      bump();
-      arm();
-    }, rest);
+    redraw = setTimeout(
+      onTimer(() => {
+        redraw = undefined;
+        bump();
+        arm();
+      }),
+      rest
+    );
     redraw.unref?.();
   }
 
@@ -222,7 +232,7 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
       return;
     }
     deadline = setTimeout(
-      () => {
+      onTimer(() => {
         deadline = undefined;
         // a timer may fire a moment before the clock says it is time, and
         // finishing early would be saying zero while there is still some left
@@ -238,7 +248,7 @@ function createClock(limit: number | undefined, opts: ClockOptions): Timer {
         settle(true);
         // a delay past what a timer can hold is one it fires at once, so a
         // long countdown is waited for in pieces
-      },
+      }),
       Math.min(left(), MAX_TIMER_DELAY)
     );
   }
