@@ -1,12 +1,37 @@
 import debug from '../../debug/index.js';
 import { Command, Internal, InternalCommand } from '../../types.js';
 import { errorMessage } from '../../util/error-message.js';
+import { escapeControls } from '../../util/escape-controls.js';
 import { importModule } from './import-module.js';
 import { initCommand, loadCommandDir } from './init-command.js';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const { log } = debug('sigil:parser:load-command');
+
+/**
+ * What a failed import or loader said, with the module's path made inert
+ * (SIG-650).
+ *
+ * Node's own errors quote the path they failed on -- `ERR_MODULE_NOT_FOUND`,
+ * the `Require stack` of a `.cjs`, the `SyntaxError` of a JSON import, none of
+ * which has anything in common but the path -- and a path is the file system's,
+ * so one holding a control character would print it live beside the escaped
+ * copy the wrapping message carries. So it is the **path** that is escaped
+ * wherever the message repeats it, and nothing else: a module's own message
+ * keeps its SGR, which is the line SIG-412 drew, and a multi-line one keeps its
+ * lines. Keying on an error's `code` instead was the first answer and was wrong
+ * three ways -- it missed the JSON `SyntaxError`, which has none, and it
+ * flattened Node's multi-line messages and a module's own coded throw.
+ *
+ * @param e - What was caught.
+ * @param path - The module's file system path, when it has one.
+ * @returns The message.
+ */
+function loaderMessage(e: unknown, path?: string): string {
+  const message = errorMessage(e);
+  return path === undefined ? message : message.replaceAll(path, () => escapeControls(path));
+}
 
 /**
  * Fetches the module a command's declaration named, however it named it.
@@ -52,7 +77,7 @@ async function fetchModule(
       mod = await internal.load();
     } catch (e: unknown) {
       throw new Error(
-        `Failed to load command module (the "${cmd.name}" command's loader): ${errorMessage(e)}`,
+        `Failed to load command module (the "${escapeControls(cmd.name)}" command's loader): ${loaderMessage(e)}`,
         { cause: e }
       );
     }
@@ -75,7 +100,7 @@ async function fetchModule(
     log(`Loading command: ${internal.path}`);
 
     if (!existsSync(internal.path)) {
-      throw new Error(`Command module not found: ${internal.path}`);
+      throw new Error(`Command module not found: ${escapeControls(internal.path)}`);
     }
 
     try {
@@ -89,9 +114,12 @@ async function fetchModule(
         .default;
       return { def, entryFile: internal.path };
     } catch (e: unknown) {
-      throw new Error(`Failed to load command module (${internal.path}): ${errorMessage(e)}`, {
-        cause: e,
-      });
+      throw new Error(
+        `Failed to load command module (${escapeControls(internal.path)}): ${loaderMessage(e, internal.path)}`,
+        {
+          cause: e,
+        }
+      );
     }
   }
 
@@ -143,7 +171,7 @@ async function announceLoaded(
   // hook re-entered on its own answer
   if (replacement.path !== undefined || replacement.load !== undefined) {
     throw new Error(
-      `The "${parent.name}" command's subcommandLoaded hook returned a command declaring "${
+      `The "${escapeControls(parent.name)}" command's subcommandLoaded hook returned a command declaring "${
         replacement.path !== undefined ? 'path' : 'load'
       }": the module has already been loaded, so a replacement is a command rather than another module to fetch`
     );
@@ -208,7 +236,9 @@ export async function loadCommand(
     // recorded as done so it was never retried -- `main()` then did nothing at
     // all, which is a worse answer than the error a string export already gets
     if (!def || typeof def !== 'object' || Array.isArray(def)) {
-      throw new TypeError(`Command module default export is not a valid command object: ${source}`);
+      throw new TypeError(
+        `Command module default export is not a valid command object: ${escapeControls(source)}`
+      );
     }
 
     const decl = def as Command;

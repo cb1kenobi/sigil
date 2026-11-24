@@ -11,6 +11,8 @@
  * copy named the command by its raw key where the runtime parses it.
  */
 
+import { escapeControls } from '../../util/escape-controls.js';
+
 /** The pieces of a command's name string. */
 export interface ParsedName {
   /** Every other name argv may reach it by: the `@` and `!` labels, and the bare ones after the first. */
@@ -86,7 +88,7 @@ export function parseName(unparsedName: string): ParsedName {
   name ??= fallbackName;
 
   if (!name) {
-    throw new Error(`Unable to determine command name from "${unparsedName}"`);
+    throw new Error(`Unable to determine command name from "${escapeControls(unparsedName)}"`);
   }
 
   return {
@@ -105,7 +107,7 @@ export function parseName(unparsedName: string): ParsedName {
  * @returns The message.
  */
 export function hiddenTypeMessage(name: string): string {
-  return `Expected hidden to be a boolean in "${name}" command`;
+  return `Expected hidden to be a boolean in "${escapeControls(name)}" command`;
 }
 
 /**
@@ -115,5 +117,5 @@ export function hiddenTypeMessage(name: string): string {
  * @returns The message.
  */
 export function defaultTypeMessage(name: string): string {
-  return `Expected default in "${name}" command to be a boolean`;
+  return `Expected default in "${escapeControls(name)}" command to be a boolean`;
 }

@@ -13,6 +13,7 @@
  */
 
 import type { Schema, TopicSeparator } from '../types.js';
+import { escapeControls } from './escape-controls.js';
 
 /** The separator a schema that said nothing is read with. */
 const SPACE: TopicSeparator = ' ';
@@ -43,7 +44,9 @@ export function topicSeparator(schema: Schema | undefined): TopicSeparator {
   }
 
   if (sep !== SPACE && sep !== ':') {
-    throw new TypeError(`Expected topicSeparator to be " " or ":", not ${JSON.stringify(sep)}`);
+    throw new TypeError(
+      `Expected topicSeparator to be " " or ":", not ${escapeControls(JSON.stringify(sep))}`
+    );
   }
 
   return sep;

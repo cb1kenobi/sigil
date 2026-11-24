@@ -91,7 +91,7 @@ export async function initCommand(
   const options = new OptionRegistry();
 
   if (decl.run !== undefined && typeof decl.run !== 'function') {
-    throw new TypeError(`Invalid run function in "${decl.name}" command`);
+    throw new TypeError(`Invalid run function in "${escapeControls(decl.name)}" command`);
   }
 
   // the module at `path` *is* the command -- `loadCommand()` builds the merge
@@ -104,12 +104,12 @@ export async function initCommand(
   // a trapdoor
   if (decl.path !== undefined && decl.run !== undefined) {
     throw new Error(
-      `Cannot combine "path" with "run" in the "${decl.name}" command: the module at "path" is the command, so an inline run would never be reached`
+      `Cannot combine "path" with "run" in the "${escapeControls(decl.name)}" command: the module at "path" is the command, so an inline run would never be reached`
     );
   }
 
   if (decl.load !== undefined && typeof decl.load !== 'function') {
-    throw new TypeError(`Invalid load function in "${decl.name}" command`);
+    throw new TypeError(`Invalid load function in "${escapeControls(decl.name)}" command`);
   }
 
   // `load` is `path` said as a function rather than as a file, so it is the
@@ -120,13 +120,13 @@ export async function initCommand(
   // would fetch its module twice by two mechanisms and merge whichever won
   if (decl.load !== undefined && decl.run !== undefined) {
     throw new Error(
-      `Cannot combine "load" with "run" in the "${decl.name}" command: the module "load" imports is the command, so an inline run would never be reached`
+      `Cannot combine "load" with "run" in the "${escapeControls(decl.name)}" command: the module "load" imports is the command, so an inline run would never be reached`
     );
   }
 
   if (decl.load !== undefined && decl.path !== undefined) {
     throw new Error(
-      `Cannot combine "load" with "path" in the "${decl.name}" command: both name the module that is the command, so only one of them can be it`
+      `Cannot combine "load" with "path" in the "${escapeControls(decl.name)}" command: both name the module that is the command, so only one of them can be it`
     );
   }
 
@@ -161,9 +161,9 @@ export async function initCommand(
           const fix =
             alias[0] === '!'
               ? 'hide the command with "hidden: true" or a "!" in its name'
-              : `write "${alias.slice(1)}"`;
+              : `write "${escapeControls(alias.slice(1))}"`;
           throw new Error(
-            `Invalid alias "${alias}" in the "${decl.name}" command: "${alias[0]}" is name-string syntax and the alias property takes plain names, so ${fix}`
+            `Invalid alias "${escapeControls(alias)}" in the "${escapeControls(decl.name)}" command: "${alias[0]}" is name-string syntax and the alias property takes plain names, so ${fix}`
           );
         }
         aliases.add(alias);
@@ -177,7 +177,9 @@ export async function initCommand(
   let argDecls = decl.args;
   if (parsed.args.length) {
     if (decl.args?.length) {
-      throw new Error(`Cannot combine command arguments with inline arguments "${decl.name}"`);
+      throw new Error(
+        `Cannot combine command arguments with inline arguments "${escapeControls(decl.name)}"`
+      );
     }
     argDecls = parsed.args;
   }
@@ -187,7 +189,7 @@ export async function initCommand(
       throw new TypeError('Expected arguments to be an array');
     }
 
-    args.push(...initArgs(argDecls, `the "${parsed.name}" command`));
+    args.push(...initArgs(argDecls, `the "${escapeControls(parsed.name)}" command`));
   }
 
   if (parsed.name !== decl.name) {
@@ -301,7 +303,7 @@ export async function initCommand(
     cmd,
     ['args', 'commands', 'options'],
     (prop) =>
-      `Cannot set "${prop}" on the initialized "${parsed.name}" command: the parser reads cmd[Internal].${prop}, so change that instead`
+      `Cannot set "${prop}" on the initialized "${escapeControls(parsed.name)}" command: the parser reads cmd[Internal].${prop}, so change that instead`
   );
 
   // `afterRun`, `beforeError` and `help` are fired elsewhere -- by `main()`, by
@@ -372,7 +374,7 @@ function cloneDeclaration(decl: Command, parsed: ParsedName, argDecls: Command['
   // key the declaration never carried, which is what the line above is the one
   // declared exception to
   if (decl.desc !== undefined) {
-    cmd.desc = resolveDesc(decl.desc, `the "${parsed.name}" command`);
+    cmd.desc = resolveDesc(decl.desc, `the "${escapeControls(parsed.name)}" command`);
   }
 
   if (argDecls !== undefined) {
@@ -517,7 +519,7 @@ async function resolveCommandPath({
   const filename = moduleName(modulePath);
 
   if (!filename) {
-    throw new Error(`Unsupported command module "${modulePath}"`);
+    throw new Error(`Unsupported command module "${escapeControls(modulePath)}"`);
   }
 
   // named by the file, which is a name the file system gave
@@ -554,7 +556,7 @@ async function commandAtPath(modulePath: string, name: string): Promise<Internal
     // either: it would register a name that matches, runs nothing, and lists
     // nothing, which is a worse answer than saying the path is unusable
     if (!entries.some((entry) => routeName(entry, modulePath) !== undefined)) {
-      throw new Error(`Unsupported command module "${modulePath}"`);
+      throw new Error(`Unsupported command module "${escapeControls(modulePath)}"`);
     }
     // described by the declaration that named it, which is the schema rather
     // than a `commands.json`: the one a directory holds describes what is
@@ -563,7 +565,7 @@ async function commandAtPath(modulePath: string, name: string): Promise<Internal
   }
 
   if (!moduleName(modulePath)) {
-    throw new Error(`Unsupported command module "${modulePath}"`);
+    throw new Error(`Unsupported command module "${escapeControls(modulePath)}"`);
   }
 
   return initCommand({ name }, modulePath);
@@ -668,7 +670,7 @@ export async function loadCommandDir(cmd: InternalCommand): Promise<void> {
 
   const level = readRoutes(dir);
   if (!level) {
-    throw new Error(`Command directory not found: ${dir}`);
+    throw new Error(`Command directory not found: ${escapeControls(dir)}`);
   }
 
   for (const route of level.routes) {
@@ -710,7 +712,9 @@ async function registerCommandPackage(dir: string): Promise<InternalCommand | un
   };
 
   if (!cmd || typeof cmd !== 'object') {
-    throw new TypeError(`Expected command package to default export an object: ${entryFile}`);
+    throw new TypeError(
+      `Expected command package to default export an object: ${escapeControls(entryFile)}`
+    );
   }
 
   // the module object is cached by the ESM loader and shared with every other
