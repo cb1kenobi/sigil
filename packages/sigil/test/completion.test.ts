@@ -1257,12 +1257,21 @@ describe('the scripts as shell programs', () => {
    * process: a `bash` is a launcher and an MSYS2 runtime on Windows, and a
    * case per `execFileSync()` was 25 of them in one test. They ran in about
    * 1.5 s on CI until a loaded runner made each of them take half a second, and
-   * the test timed out at 12.7 s (SIG-678). The script is sourced once and
-   * each case runs in a subshell, which is a `fork` rather than a process
-   * start, and which is what keeps the cases as independent as separate
-   * shells were: `COMP_WORDS`, `COMPREPLY` and `COMP_WORDBREAKS` are set
-   * inside it and gone when it ends. `-u` is on, because a user's shell may
-   * have it and bash 3.2 errors on `"${empty[@]}"`.
+   * the test timed out at 12.7 s (SIG-678). The script is sourced once and the
+   * cases run one after another in that shell, which starts no process at all
+   * -- a subshell was the first answer and is refused, because on MSYS2 a
+   * `fork` is itself a new Windows process. What keeps the cases apart is that
+   * `COMP_WORDS`, `COMP_CWORD` and `COMPREPLY` are set afresh for each and
+   * `COMP_WORDBREAKS` is put back to the shell's own before each, which are the
+   * only three things the driver sets and so the only ones that could carry
+   * from one to the next; what the script itself leaves behind is what a real
+   * session's second Tab meets too. `-u` is on, because a user's shell may have
+   * it and bash 3.2 errors on `"${empty[@]}"`; a case that trips it, or whose
+   * breaks assertion fails, ends the shell non-zero and fails the call, naming
+   * the case.
+   *
+   * The program is a file rather than a `-c` argument, because a Windows
+   * command line ends at 32,767 characters and a table of cases only grows.
    *
    * @param script - The path of the generated script.
    * @param cases - The word lists to complete.
@@ -1276,8 +1285,9 @@ describe('the scripts as shell programs', () => {
 
     const program = [
       `source ${bashQuote(script)}`,
+      'shell_breaks=$COMP_WORDBREAKS',
       ...cases.flatMap(({ breaks, words }) => [
-        '(',
+        'COMP_WORDBREAKS=$shell_breaks',
         ...(breaks === 'default' ? assertBreaks : []),
         ...(breaks === 'none' ? ['COMP_WORDBREAKS="${COMP_WORDBREAKS//[=:]}"'] : []),
         `COMP_WORDS=(${words.map(bashQuote).join(' ')})`,
@@ -1285,13 +1295,29 @@ describe('the scripts as shell programs', () => {
         'COMPREPLY=()',
         '_mycli',
         'if [ ${#COMPREPLY[@]} -gt 0 ]; then printf \'%s\\n\' "${COMPREPLY[@]}"; fi',
-        ') || exit 1',
         `echo ${CASE_END}`,
       ]),
     ].join('\n');
 
-    bashSpawns++;
-    const out = execFileSync(bash!, ['-u', '-c', program], { encoding: 'utf8' });
+    const file = join(dir, `drive.${++bashSpawns}.bash`);
+    writeFileSync(file, program);
+
+    let out: string;
+    try {
+      out = execFileSync(bash!, ['-u', file], { encoding: 'utf8' });
+    } catch (error) {
+      // the markers already printed say how far it got, which is the case
+      // that failed -- one call for all of them would otherwise say only that
+      // something did
+      const done = String((error as { stdout?: unknown }).stdout ?? '').split(CASE_END).length - 1;
+      const failed = cases[done];
+      throw new Error(
+        `bash failed on case ${done}${failed ? ` (${failed.words.join(' ')})` : ''}: ${String(
+          (error as { stderr?: unknown }).stderr ?? error
+        )}`,
+        { cause: error }
+      );
+    }
 
     // a trailing newline leaves one empty piece after the last end marker
     return out
@@ -1318,8 +1344,27 @@ describe('the scripts as shell programs', () => {
     expect(got.every((reply) => reply.join() === 'build')).toBe(true);
   });
 
+  it.skipIf(!bash)('should name the case that failed, though all of them are one bash', () => {
+    // one call for every case would otherwise say only that something failed;
+    // `-u` is on, so an unset variable is the failure a user's shell gives
+    const broken = join(dir, 'broken.bash');
+    writeFileSync(
+      broken,
+      '_mycli() { if [ "${COMP_WORDS[1]}" = boom ]; then echo "${never_set}"; fi; }\n'
+    );
+
+    expect(() =>
+      driveBash(broken, [
+        { words: ['mycli', 'a'] },
+        { words: ['mycli', 'b'] },
+        { words: ['mycli', 'boom'] },
+        { words: ['mycli', 'c'] },
+      ])
+    ).toThrow(/case 2 \(mycli boom\).*never_set/su);
+  });
+
   it.skipIf(!bash)(
-    'should keep each case as separate from the next as a bash of its own',
+    'should put COMP_WORDBREAKS back between cases, as a bash of its own would have it',
     async () => {
       const script = await write('bash');
 
@@ -1482,8 +1527,8 @@ describe('the scripts as shell programs', () => {
     // is inserted.
     const script = await write('bash');
 
-    // every case is written down first and run in one bash after, so what a
-    // case costs is a fork rather than a process (SIG-678). `regime` is
+    // every case is written down first and run in one bash after, so the
+    // count of processes is one whatever the table holds (SIG-678). `regime` is
     // `'bash32'` for the whole word with the default breaks, `'bash5'` for the
     // same line split the way bash 4+ splits it, and `'noBreaks'` for a shell
     // whose `COMP_WORDBREAKS` has neither character
@@ -1538,7 +1583,6 @@ describe('the scripts as shell programs', () => {
     check('noBreaks', ['mycli', 'build', '-m='], ['-m=fast', '-m=slow']);
     check('noBreaks', ['mycli', 'build', '--tag', 'host:po'], ['host:port']);
 
-    // every case above is run in one bash, after the table is written down
     const got = driveBash(
       script,
       cases.map(({ regime, words }) => ({
