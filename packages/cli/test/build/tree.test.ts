@@ -887,6 +887,23 @@ describe('resolving a tree whose names are the file system’s', () => {
     }
   );
 
+  // a name with a control character in it cannot be made on Windows
+  it.skipIf(process.platform === 'win32')(
+    'should refuse a control or format character in a file name as the runtime does (SIG-662)',
+    async () => {
+      const dir = tree({
+        [`a${String.fromCharCode(0x1b)}${String.fromCodePoint(0x202e)}b.mjs`]: mod,
+      });
+      const message =
+        /Cannot route the file "a\\x1B\\u\{202E\}b\.mjs" in .*contains a control or format/;
+
+      expect(() => resolveCommandTree(dir)).toThrow(message);
+      await expect(
+        main({ argv: [], schema: { commands: dir }, settings: { errorHandler: false } })
+      ).rejects.toThrow(message);
+    }
+  );
+
   it('should refuse `my cmd.mjs` beside `my.mjs`, which used to be one command', () => {
     const dir = tree({ 'my cmd.mjs': mod, 'my.mjs': mod });
     expect(() => resolveCommandTree(dir)).toThrow(/Cannot route the file "my cmd\.mjs"/);

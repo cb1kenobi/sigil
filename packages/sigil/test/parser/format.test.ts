@@ -640,7 +640,16 @@ describe('the format registry', () => {
         argv: [],
         schema: { formats: { [`y${String.fromCharCode(0x1b)}[31ml`]: () => 'x' }, name: 'mycli' },
       })
-    ).rejects.toThrow('to have no control character in its name');
+    ).rejects.toThrow('to have no control or format character in its name');
+  });
+
+  it('should refuse a format name holding a format character (SIG-662)', async () => {
+    await expect(
+      parse({
+        argv: [],
+        schema: { formats: { [`y${String.fromCodePoint(0x202e)}ml`]: () => 'x' }, name: 'mycli' },
+      })
+    ).rejects.toThrow('to have no control or format character in its name');
   });
 
   /**

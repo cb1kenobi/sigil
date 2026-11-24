@@ -47,6 +47,38 @@ describe('a value echoed into an error message', () => {
     expect(err).toBe('Error: Unexpected argument "bu\\x1B]0;PWNED\\x07ild"\n');
   });
 
+  // SIG-662: a routed command's name is a file name, so what `Did you mean` offers
+  // is not always the app's own spelling. A declared key is the same shape, which is
+  // how these are reached without a directory
+  it('should not put an OSC offered as a suggested command onto stderr', async () => {
+    const err = await stderrOf(['buil'], {
+      commands: { [`build${ESC}]0;PWNED${BEL}`]: { run() {} } },
+      name: 'mycli',
+    });
+
+    expect(err).toBe(
+      'Error: Unexpected argument "buil". Did you mean "build\\x1B]0;PWNED\\x07"?\n'
+    );
+  });
+
+  it('should not put an RLO offered as a suggested command onto stderr', async () => {
+    const err = await stderrOf(['buil'], {
+      commands: { [`build${String.fromCodePoint(0x202e)}`]: { run() {} } },
+      name: 'mycli',
+    });
+
+    expect(err).toBe('Error: Unexpected argument "buil". Did you mean "build\\u{202E}"?\n');
+  });
+
+  it('should not put an OSC offered after `help` onto stderr', async () => {
+    const err = await stderrOf(['help', 'buil'], {
+      commands: { [`build${ESC}]0;PWNED${BEL}`]: { run() {} } },
+      name: 'mycli',
+    });
+
+    expect(err).toBe('Error: Unknown command "buil". Did you mean "build\\x1B]0;PWNED\\x07"?\n');
+  });
+
   it('should not put a clear screen or an OSC 52 from a rejected choice onto stderr', async () => {
     const err = await stderrOf(['--mode', `${ESC}[2J${ESC}]52;c;ZXZpbA==${BEL}x`], {
       name: 'mycli',

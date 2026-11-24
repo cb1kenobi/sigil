@@ -416,9 +416,12 @@ export function readPackage(dir: string): PackageRoute | undefined {
   try {
     pkgJson = JSON.parse(json);
   } catch (err) {
-    throw new Error(`Failed to JSON parse ${escapeControls(pkgFile)}: ${errorMessage(err)}`, {
-      cause: err,
-    });
+    throw new Error(
+      `Failed to JSON parse ${escapeControls(pkgFile)}: ${escapeControls(errorMessage(err))}`,
+      {
+        cause: err,
+      }
+    );
   }
 
   const { description, exports, main, name, type } = pkgJson;
@@ -668,6 +671,16 @@ function routeNameProblem(name: string): string | undefined {
       return 'starts with "!", which a command name string reads as hiding the command';
     case '@':
       return 'starts with "@", which a command name string reads as an alias';
+  }
+
+  // last, so a name that is refused for its syntax is still said to be, and a
+  // `!` file holding one is still told how to hide a route. A control character
+  // is a sequence waiting for something to print it, and a format one draws
+  // differently from what it is -- and a route's name is offered back by `Did
+  // you mean`, which is where a hostile file name used to reach a terminal
+  // (SIG-662). U+2028 and U+2029 are whitespace to `\s` and were refused above
+  if (/[\p{Cc}\p{Cf}]/u.test(name)) {
+    return 'contains a control or format character, which a terminal would act on or draw as something else';
   }
 
   return undefined;
