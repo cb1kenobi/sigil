@@ -597,7 +597,13 @@ the entry it belongs to.
 
   **Without `onError` a throw escapes as it always did**, which is a choice and not
   an omission: a bare router has nobody to report to, and a caller that wants a
-  different answer asks for one. **What it does not cover, stated rather than left
+  different answer asks for one. The one thing that
+  reads that escape is a test's: the timers' callbacks (the Escape hold, a
+  sequence's deadline, the paste timeout) are armed through `timed()`, which hands
+  a throw to a function on the **stream** under
+  `Symbol.for('@ttylabs/sigil/input/timer-error')` where `createTestTerminal()`
+  put one, and rethrows otherwise -- so a **new timer** is armed through it too
+  (SIG-631; the reasoning is in `src/testing/AGENTS.md`). **What it does not cover, stated rather than left
   to be found:** a handler that returns a promise which rejects -- the router never
   looks at a handler's return value, so an `async` `onSelect` fails as an unhandled
   rejection, and the handler's own `catch` is where that is dealt with; and
