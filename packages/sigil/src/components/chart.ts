@@ -255,6 +255,12 @@ const DEFAULT_HEIGHT = 8;
 /** The width a live line or bar chart asks for when nothing says otherwise. */
 const DEFAULT_WIDTH = 40;
 
+/**
+ * The fewest cells of words a readout bubble is cut down to beside a pin and the rule:
+ * under it the room is better spent beside the rule alone, where there is more.
+ */
+const MIN_READOUT = 3;
+
 /** How wide a gauge's bar is when nothing says otherwise. */
 const DEFAULT_GAUGE_BAR = 20;
 
@@ -2265,14 +2271,9 @@ export function LineChart(props: LineChartProps): Element {
     const at = drawing.crosshair;
     shown = at?.index;
     samples = drawing.samples;
-    const words = at === undefined ? '' : (crosshair.text ?? readout)(at.index, at.values);
+    let words = at === undefined ? '' : (crosshair.text ?? readout)(at.index, at.values);
     if (typeof words !== 'string') {
       throw new TypeError('Expected line chart crosshair text to return a string');
-    }
-    if (words !== said) {
-      // an empty string hides the bubble, which is the tooltip's own rule
-      said = words;
-      tip?.setText(words);
     }
     const outer = host?.box;
     const inner = body?.box ?? outer;
@@ -2282,23 +2283,62 @@ export function LineChart(props: LineChartProps): Element {
     // or below the rule the bubble is not over the plot's top row, so it stays put
     // (40 is the tooltip's default cap, repeated because a chart is ejectable and
     // cannot import it: past it the text wraps, and a bubble wider than it is not)
-    const reach = Math.min(
-      crosshair.maxWidth ?? 40,
-      4 + Math.max(0, ...words.split('\n').map((line) => stringWidth(line)))
-    );
+    const widest = (text: string): number =>
+      Math.max(0, ...text.split('\n').map((line) => stringWidth(line)));
+    const reach = Math.min(crosshair.maxWidth ?? 40, 4 + widest(words));
     const pin = drawing.pinned;
     const beside =
       crosshair.side === undefined || crosshair.side === 'right' || crosshair.side === 'left';
-    const span =
+    let span: { from: number; width: number } | undefined =
+      at === undefined ? undefined : { from: at.column, width: 1 };
+    if (
       at !== undefined &&
       pin !== undefined &&
       beside &&
       words !== '' &&
       Math.abs(pin - at.column) <= reach
-        ? { from: Math.min(pin, at.column), width: Math.abs(pin - at.column) + 1 }
-        : at === undefined
-          ? undefined
-          : { from: at.column, width: 1 };
+    ) {
+      span = { from: Math.min(pin, at.column), width: Math.abs(pin - at.column) + 1 };
+    }
+    // and the tooltip puts the bubble on whichever side of that has room, and
+    // clamps it inside the screen where neither does -- over the pin or the rule.
+    // So where neither side has room for it, the words are cut to the room there
+    // is: past the pin if the room beside the pin and the rule will take a bubble
+    // of any use, and otherwise beside the rule alone, which is the one that keeps
+    // its place and the pin is the one that gives way. A line is cut with an
+    // ellipsis rather than wrapped, so the readout stays one line to a series
+    if (at !== undefined && span !== undefined && outer !== undefined && inner !== undefined) {
+      let root = host;
+      while (root?.parent !== undefined) {
+        root = root.parent;
+      }
+      const screen = root?.box;
+      const room = (it: { from: number; width: number }): number =>
+        screen === undefined
+          ? Infinity
+          : Math.max(
+              inner.x + it.from - screen.x,
+              screen.x + screen.width - (inner.x + it.from + it.width)
+            );
+      if (beside && words !== '' && room(span) < reach) {
+        const rule = { from: at.column, width: 1 };
+        // the widened span, if the room beside it fits at least a few cells of
+        // words; else the rule alone, cut to whatever room it has
+        span = room(span) - 4 >= MIN_READOUT ? span : rule;
+        const cap = Math.max(1, room(span) - 4);
+        if (widest(words) > cap) {
+          words = words
+            .split('\n')
+            .map((line) => truncate(line, cap, 'ellipsis'))
+            .join('\n');
+        }
+      }
+    }
+    if (words !== said) {
+      // an empty string hides the bubble, which is the tooltip's own rule
+      said = words;
+      tip?.setText(words);
+    }
     const next =
       at === undefined || outer === undefined || inner === undefined || span === undefined
         ? undefined
