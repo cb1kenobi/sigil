@@ -400,10 +400,36 @@ that knowledge was undiscoverable from outside this repository.
   - Not components: the renderer's frame loop (a throw from a frame is SIG-524's and
     `runApp()`'s `onError`), the config watcher's debounce and probe, and the update
     check's worker timeout, each of which has an error path of its own.
-  - **An effect is not a timer and is the larger gap.** A component whose callback
-    runs from an effect the scheduler flushes in a microtask -- the clock's `format`,
-    for one -- throws there, and that is the signals layer's reporting and not this
-    one's. It is worth a ticket of its own if it turns out to be uncaught in a test.
+  - **An effect is not a timer, and a throw from one is not uncaught in a test, unless
+    the handler it goes to throws (SIG-654).** A component whose callback runs from an
+    effect -- the clock's `format`, read by `clock.text` -- throws there, and that is
+    the signals layer's reporting and not `onTimerError()`'s. Measured with a clock
+    whose `format` answers until a later tick and then throws, advanced with fake
+    timers over a test terminal. An effect's error is reported and never rethrown
+    (`src/signals/AGENTS.md`), so a test hears it where it already could:
+    - **`runApp()`**: its `onError`. With none, the app's own error report is drawn on
+      the screen and the app stops. A throwing `onError` is caught there too.
+    - **`render()`**: its `onError`. With none it is the default error handler, which
+      writes `Error: ...` to the real stderr, sets `process.exitCode` to `1` and
+      leaves the screen empty -- the other way round from `runApp()`. A throwing
+      `onError` is raised out of the frame that ran the effect, which is a timer's
+      uncaught exception on real timers and **not** `onTimerError()`'s; it is not
+      pinned.
+    - **A bare effect**, flushed in a microtask, which is the only shape here that is:
+      `setErrorHandler()`, or the `createEffects()` scope's own. With none it is
+      `Error in effect: ...` on the real stderr and `process.exitCode` set to `1`, a
+      line a test passes over -- so a test that provokes one registers a handler and
+      asserts on it, and one that does not leaves the exit code on the worker. A
+      handler that **throws** is the exception to "not uncaught": `drain()` does not
+      guard it, so it lands in the microtask as an uncaught exception, which is the
+      handler's own bug and not the effect's.
+
+    Nothing was added to the test terminal: a second hook beside `onError` would be
+    two answers to one question, and `onTimerError()` is for a throw with no call to
+    come back through, which an effect's has. Pinned in
+    `test/testing/effect-throws.test.ts`: each bullet's `onError` or handler and its
+    default, the throwing ones aside; rethrowing from the default handler fails it
+    through vitest's unhandled-error report.
 
 > Moved: _What the sabotage pass found over the helpers_, _What the first review round found, and what it got wrong_, _What the second half of the first round found: the screen model_, _What the second review round found, and it was almost all the tests_, _Reading the prose against the code, which is where the rest of it was_, _Two of the tests were weaker than their names, found by reading them_, _What re-reading the code found that neither the pass nor a reviewer did_ — see [docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md](../../../../docs/history/testing-helpers-and-the-faked-tty-our-own-suite-proves-you-n.md).
 
