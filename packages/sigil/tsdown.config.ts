@@ -161,6 +161,7 @@ const config: UserConfig = defineConfig({
     'jsx-runtime': './src/template/runtime.ts',
     layout: './src/layout/index.ts',
     index: './src/index.ts',
+    output: './src/output.ts',
     paths: './src/paths.ts',
     png: './src/png/index.ts',
     reference: './src/reference/index.ts',

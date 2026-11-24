@@ -1,7 +1,6 @@
-import { writeOut } from './output.ts';
 import { main, type ParseState, type Schema } from '@ttylabs/sigil';
 import { errorHandler } from '@ttylabs/sigil/error-handler';
-import { isStreamGone } from '@ttylabs/sigil/terminal';
+import { guardOutput, writeOut } from '@ttylabs/sigil/output';
 import { readFileSync } from 'node:fs';
 
 /**
@@ -20,42 +19,6 @@ import { readFileSync } from 'node:fs';
 export function version(): string {
   const manifest = new URL('../package.json', import.meta.url);
   return JSON.parse(readFileSync(manifest, 'utf-8')).version as string;
-}
-
-/** The streams already guarded, so that a second parse in one process adds no listener. */
-const guarded = new WeakSet<NodeJS.WriteStream>();
-
-/**
- * Lets a reader that has gone away end a command's output without a stack.
- *
- * `sigil add | head -1` closes the pipe once `head` has its line, the next write
- * fails `EPIPE`, and an `error` event on a stream with no listener is an
- * uncaught exception -- so it died with Node's dump (SIG-537). Every command
- * writes to `process.stdout` and `process.stderr` directly, so the listener goes
- * on the two streams once, here, rather than in each command: a command written
- * next year is covered without anybody remembering to.
- *
- * What counts as the reader leaving is the runtime's `isStreamGone()`, and like
- * the terminal it then stops *noticing* rather than stopping the command: later
- * writes land nowhere and the exit code is whatever the command's own result
- * was. Anything else is a real fault and is thrown from the listener, which is
- * the uncaught exception it was before the guard existed -- `sigil add > out`
- * under `ulimit -f 1` is `EFBIG`, and swallowing that exited 0 over a cut-off
- * file. It is never taken off again: the process is the lifetime of the guard,
- * and the `EPIPE` for the last write is the one that arrives after `main()` has
- * resolved.
- */
-export function guardOutput(): void {
-  for (const stream of [process.stdout, process.stderr]) {
-    if (!guarded.has(stream)) {
-      guarded.add(stream);
-      stream.on('error', (err) => {
-        if (!isStreamGone(err)) {
-          throw err;
-        }
-      });
-    }
-  }
 }
 
 /**
@@ -95,13 +58,6 @@ export function schema(): Schema {
     // No command here reads an option it did not declare, which was checked rather
     // than assumed: see "The toolchain refuses unknown options" in AGENTS.md
     settings: { allowUnknownOptions: false },
-
-    // a hook on the schema rather than a call in `run()`, for the reason
-    // `settings` is: the built executable never reaches `run()`. `beforeParse`
-    // is the first thing `main()` fires once the schema is built, so it is on
-    // before the help screen or any command writes a byte (a `DEBUG` trace of
-    // schema init is written earlier, and nothing here can reach it)
-    hooks: { beforeParse: guardOutput },
   };
 }
 
@@ -149,6 +105,8 @@ function isVersionOnly(argv: readonly string[]): boolean {
  */
 export async function run(argv?: string[]): Promise<ParseState | unknown> {
   if (isVersionOnly(argv ?? process.argv.slice(2))) {
+    // answered before `main()` exists, which is what puts the guard on the streams
+    // for every other run (SIG-538)
     guardOutput();
     try {
       writeOut(`${version()}\n`);

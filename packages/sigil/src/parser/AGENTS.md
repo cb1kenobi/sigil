@@ -2524,6 +2524,88 @@ packages as well as inside one.
   `nearMiss(typed, candidates, key)` and `distance(a, b)`: their floors, the tie
   rule and case folding.
 
+### `main()` guards its output streams and writes its own output whole (SIG-538)
+
+`mycli list | head -1` ended in Node's `EPIPE` dump for every app built with
+sigil, and `mycli --help > file` exited 0 over a cut-off file (SIG-542). SIG-537
+and SIG-539 fixed both for the toolchain, in `packages/cli`, which is the one
+app that had somebody looking. Chris decided on 2026-11-24 that both are
+`main()`'s, for every app, by default.
+
+- **One listener per stream, attached before anything else, and it rethrows.**
+  `runMain()` calls `guardOutput()` first -- before the schema is read, before
+  the catalog loads, before the parse -- so `--help | head -1` is covered, and
+  that is the whole reason it is not a `beforeParse` hook the way the toolchain
+  had it. The listener returns when `isStreamGone()` says the reader left and
+  **throws anything else**, which is the uncaught exception it was before the
+  guard: `ENOSPC` and `EFBIG` still fail. The terminal's listener swallows
+  everything and is the wrong one to copy; `terminal/AGENTS.md` records the bug
+  the first version of this had.
+- **The exit code is the command's own.** Later writes land nowhere, nothing is
+  printed, and the code is whatever the command returned -- `0` for a listing,
+  `3` for a command that set `3`, never a shell's `141`. A command that quit
+  early would have to decide what "early" means for one that is half way through
+  writing files, and the terminal made the same call for the same reason.
+- **Nested `main()` calls do not stack, and nor do two copies of the runtime.**
+  Dedupe is by asking the stream, not by a set in the module: the listener
+  carries a `Symbol.for` mark, so a built app's copy of `main()` and the
+  `@ttylabs/sigil/output` the app imported agree that a stream is guarded, and a
+  listener something took off is replaced on the next call rather than
+  remembered as present. A module-level `WeakSet` was the toolchain's version and
+  is right for one copy and wrong for two. It is never taken off, because the
+  `EPIPE` for the last write arrives after `main()` has resolved.
+- **What it costs, said plainly.** A program that attached its own `error`
+  listener to stdout to handle `ENOSPC` now sees ours rethrow as well, because
+  both run. And a live region's terminal swallows every error from the stream it
+  draws on, which covered `ENOSPC` on a redirected stdout as a side effect; now
+  it crashes, which is the right answer for a file that stopped taking bytes and
+  a change for a full-screen app run with stdout sent to one. There is no opt-out
+  setting: the ticket offered one and the decision was to guard by default, and
+  `guardOutput()` being idempotent and rethrowing means there is nothing to opt
+  out _of_ for the reader leaving. A setting is a small addition if somebody
+  asks for it.
+- **A document is written through `writeOut()`, which checks the count**
+  (SIG-542). `printHelp()`, `--version` and `writeFormatted()` were each one
+  `process.stdout.write()`. Node writes a regular file with one `fs.writeSync()`
+  and discards its return value, so a kernel that took part of it -- a full disk,
+  `ulimit -f` -- raised nothing, and a command that writes once has no second
+  write to fail on. The help screen and `--version` are `main()`'s alone, and
+  `mycli list --json > out.json` is the one that matters: data another program
+  reads, which then fails somewhere else, later. A cut-off is a plain `Error`,
+  `The output was cut off: N of M bytes were written (EFBIG).`, so it takes
+  `main()`'s ordinary path -- `beforeError` hooks, the error handler, exit 1, or
+  a rethrow under `errorHandler: false`. The message goes to **stderr**, which is
+  a different descriptor from the file that is full; `2> log` on the same full
+  file is the case nothing here covers, since `errorHandler()` writes through the
+  stream.
+- **Only a regular file takes the descriptor path, and only the real stream.** A
+  pipe or a terminal is the stream's, whose queue carries a partial write to
+  completion and whose `error` event is the guard's. A stream whose `write` was
+  replaced -- an own property, which `vi.spyOn` makes and the prototype's method
+  is not -- is a capture, and writing to the descriptor under it would bypass it,
+  so `Object.hasOwn()` decides. `runCommand()` used to leave an own `write`
+  behind after it assigned the prototype's method back, which turned the checked
+  path off for the rest of the process; it takes the property off again when the
+  stream held none before.
+- **One definition, in a subpath of its own, which is not `/terminal`.**
+  `writeFully()`, `writeTo()` and `writeOut()` were `packages/cli/src/output.ts`,
+  and the toolchain imports them from `@ttylabs/sigil/output` now rather than
+  keeping a copy. `isStreamGone()` moved with them from `terminal/index.ts`,
+  which re-exports it, so the name is unchanged for everybody who imports it
+  from there. The subpath exists because `main()` is on the root entry's static
+  graph and must not drag the terminal, the wrapper and the width tables onto
+  every app for a predicate: `output.mjs` imports `node:fs` and nothing else
+  (`test/dist.test.ts` holds both halves, as of this entry about 1.1 kB), against
+  `terminal.mjs` at about 18 kB over seven modules.
+- **What is not covered.** `app completion bash > file` is `completion.ts`'s own
+  `process.stdout.write()` of a document, and an update notice and a prompt have
+  theirs; none is one of the three the ticket named. The Windows `EOF` is
+  reasoned and not measured, and a write racing the close is untested -- both
+  carried over from SIG-537. The spawned size-limit tests are POSIX only, since
+  Windows has no `ulimit`; the in-process ones in `test/output.test.ts` and
+  `test/output-main.test.ts` run on every platform and replace `writeSync()` for
+  the short write itself.
+
 ### Type inference
 
 - **`src/infer.ts` is `initOption()` and `initArg()` written again in the type

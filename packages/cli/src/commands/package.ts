@@ -67,7 +67,6 @@ import {
   fetchNote,
 } from '../build/index.ts';
 import { CONFIG_FILE, readSigilConfig } from '../config.ts';
-import { writeOut } from '../output.ts';
 import { isQuiet, reportLevel, writeNote, writeSummary } from '../report.ts';
 import {
   appRuns,
@@ -91,6 +90,7 @@ import { PromptError, select, text } from '@ttylabs/sigil/components/prompt';
 import { table } from '@ttylabs/sigil/components/table';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
 import { canReadKeys } from '@ttylabs/sigil/input';
+import { writeOut } from '@ttylabs/sigil/output';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 

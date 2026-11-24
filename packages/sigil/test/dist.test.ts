@@ -440,6 +440,26 @@ describe('what importing the package costs', () => {
     expect(bytes, `${[...graph].join(', ')}`).toBeLessThan(48 * 1024);
   });
 
+  it('should keep the output subpath to node:fs, and let the root entry have it without the terminal', () => {
+    // SIG-538 and SIG-542: `main()` guards its streams and writes its own output
+    // whole, so the root entry imports `output.mjs` -- and it has to be a module
+    // that is only that. `isStreamGone()` was the terminal's, and importing it
+    // from there would have put the terminal, the wrapper and the width tables
+    // on every app's entry for a three-line predicate
+    const graph = staticGraph('output.mjs');
+
+    expect([...graph]).toEqual(['output.mjs']);
+    expect(staticBuiltins(graph)).toEqual(['node:fs']);
+    expect(graphBytes(graph)).toBeLessThan(4 * 1024);
+
+    const root = staticGraph('index.mjs');
+    expect(root.has('output.mjs')).toBe(true);
+    expect([...root].filter((name) => /^(?:terminal|wrap|width)\b/.test(name))).toEqual([]);
+    // the other direction, so a renamed chunk fails here rather than passing the
+    // absence above forever: the terminal reads the same predicate from it
+    expect(staticGraph('terminal.mjs').has('output.mjs')).toBe(true);
+  });
+
   it('should keep the root entry small enough to be worth it', () => {
     const graph = staticGraph('index.mjs');
     const bytes = graphBytes(graph);
@@ -1160,6 +1180,9 @@ const CEILINGS: Record<string, [kib: number, measured: number]> = {
   'jsx-dev-runtime': [358, 183_070],
   'jsx-runtime': [358, 182_836],
   layout: [28, 14_064],
+  // SIG-538, SIG-542: `node:fs` and nothing else, which is what keeps `main()` able
+  // to import it without the terminal or the parser coming with it
+  output: [4, 1_900],
   paths: [4, 1_855],
   reference: [101, 51_401],
   renderer: [346, 176_845],

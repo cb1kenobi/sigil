@@ -81,7 +81,6 @@ import {
   formatDiagnostic,
   type Severity,
 } from './build/index.ts';
-import { writeTo } from './output.ts';
 import { type ColorLevel, supportsColor } from '@ttylabs/sigil/ansi';
 import {
   box,
@@ -93,6 +92,7 @@ import {
   toDisplayText,
 } from '@ttylabs/sigil/element';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { writeTo } from '@ttylabs/sigil/output';
 import { getQuiet, schemeFromEnv } from '@ttylabs/sigil/style';
 import { themedCascade } from '@ttylabs/sigil/theme';
 import { stringWidth } from '@ttylabs/sigil/width';

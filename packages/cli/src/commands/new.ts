@@ -21,7 +21,6 @@
  */
 
 import { displayPath } from '../build/index.ts';
-import { writeOut, writeTo } from '../output.ts';
 import {
   commandNameProblem,
   type Language,
@@ -43,6 +42,7 @@ import {
 } from '../scaffold/index.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm, select, text } from '@ttylabs/sigil/components/prompt';
+import { writeOut, writeTo } from '@ttylabs/sigil/output';
 import { expand } from '@ttylabs/sigil/paths';
 import { which } from '@ttylabs/sigil/which';
 import { spawnSync } from 'node:child_process';

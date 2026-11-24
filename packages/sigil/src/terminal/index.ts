@@ -1,4 +1,5 @@
 import type { ColorLevel } from '../ansi/index.js';
+import { isStreamGone } from '../output.js';
 import { DEFAULT_WIDTH, terminalWidth } from '../wrap/index.js';
 import {
   DISABLE_MOUSE_BUTTONS,
@@ -25,6 +26,14 @@ export {
   type ClipboardTarget,
   copyToClipboard,
 } from './clipboard.js';
+/**
+ * Whether an error from writing to a stream is the reader having gone away.
+ *
+ * Defined in `../output.ts`, which `main()` reads too and which must not pull the
+ * terminal in; re-exported here because this is where the terminal's own listener
+ * and every program that guards its own output have always found it.
+ */
+export { isStreamGone };
 export { createLiveRegion, frameHeight, type LiveRegion, type LiveRegionOptions } from './live.js';
 export {
   CURSOR_HOME,
@@ -56,36 +65,6 @@ export const DEFAULT_HEIGHT: number = 24;
 
 /** The signals a terminal restores itself on. */
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
-
-/**
- * The errors that mean the other end is gone and nothing more will be read.
- *
- * `EPIPE` is the reader closing the pipe -- `mycli --help | head -1` the instant
- * `head` has its line. `ERR_STREAM_DESTROYED` is the same thing arriving through
- * a stream that has already torn down. `EOF` is Windows saying `EPIPE` another
- * way: libuv maps `ERROR_BROKEN_PIPE`, which is what a write to a pipe whose
- * reader has closed can come back as there, to `EOF`. None of them is the app's
- * fault and none is worth a stack trace.
- */
-const GONE = new Set(['EPIPE', 'EOF', 'ERR_STREAM_DESTROYED', 'ERR_STREAM_WRITE_AFTER_END']);
-
-/**
- * Whether an error from writing to a stream is the reader having gone away.
- *
- * The one answer to that question, so that a program which writes to
- * `process.stdout` itself and one that writes through a terminal agree on which
- * errors are the far end leaving and which are a real fault. The terminal's own
- * listener swallows every error, as best-effort output should; a program whose
- * output matters attaches one that returns when this says `true` and rethrows
- * when it says `false`, which is how `mycli > file` on a full disk (`ENOSPC`)
- * stays a failure while `mycli | head -1` does not.
- *
- * @param err - Whatever a write threw or a stream emitted.
- * @returns `true` for `EPIPE` and its relatives.
- */
-export function isStreamGone(err: unknown): boolean {
-  return GONE.has((err as NodeJS.ErrnoException | undefined)?.code as string);
-}
 
 /** Only what a terminal actually asks of an output stream. */
 export interface OutputStream {

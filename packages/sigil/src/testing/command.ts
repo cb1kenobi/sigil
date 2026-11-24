@@ -116,6 +116,9 @@ export async function runCommand(opts: AppOptions = {}): Promise<RanCommand> {
   const err: Chunk[] = [];
   let stdout: typeof process.stdout.write | undefined;
   let stderr: typeof process.stderr.write | undefined;
+  /** Whether each stream held `write` itself before, rather than through its prototype. */
+  let ownOut = false;
+  let ownErr = false;
   let exitCode: typeof process.exitCode;
   let state: ParseState | undefined;
   let error: unknown;
@@ -138,6 +141,8 @@ export async function runCommand(opts: AppOptions = {}): Promise<RanCommand> {
     // cannot tell a restore from a leak
     stdout = process.stdout.write;
     stderr = process.stderr.write;
+    ownOut = Object.hasOwn(process.stdout, 'write');
+    ownErr = Object.hasOwn(process.stderr, 'write');
     exitCode = process.exitCode;
 
     const schema = wrap(opts.schema, {
@@ -174,14 +179,37 @@ export async function runCommand(opts: AppOptions = {}): Promise<RanCommand> {
     // guarded on having read one: a throw from the read itself leaves nothing
     // to put back, and assigning `undefined` over a stream's `write` would be
     // the fixture breaking the process it was only ever meant to observe
+    //
+    // and put back as it was, which for a stream that held no `write` of its own
+    // is none: assigning the prototype's method back leaves an **own** property,
+    // and an own `write` is how `writeOut()` tells a capture from the real
+    // stream -- so a process that ran one of these kept the unchecked write for
+    // the rest of its life (SIG-542)
     if (stdout) {
-      process.stdout.write = stdout;
+      restoreWrite(process.stdout, stdout, ownOut);
     }
     if (stderr) {
-      process.stderr.write = stderr;
+      restoreWrite(process.stderr, stderr, ownErr);
     }
     process.exitCode = exitCode;
     running = false;
+  }
+}
+
+/**
+ * Puts a stream's `write` back the way it was found.
+ *
+ * @param stream - The stream that was captured.
+ * @param write - What `stream.write` read before the capture.
+ * @param own - Whether the stream held it itself, as a capture of somebody else's
+ * would have left it, or reached it through its prototype.
+ */
+function restoreWrite(stream: NodeJS.WriteStream, write: typeof stream.write, own: boolean): void {
+  if (own) {
+    stream.write = write;
+  } else {
+    // a `delete` the stream's prototype answers for, which is the original again
+    delete (stream as { write?: unknown }).write;
   }
 }
 

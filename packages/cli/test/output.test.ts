@@ -1,4 +1,3 @@
-import { writeFully, writeOut, writeTo } from '../src/output.ts';
 import { STACK } from './spawned.ts';
 import { spawn } from 'node:child_process';
 import {
@@ -13,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 /**
  * A document written to a file is all there or the command fails (SIG-539).
@@ -26,9 +25,15 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
  * second write failed and SIG-537's guard rethrew it; a command that writes once
  * has no second write to fail.
  *
- * Two halves. The spawned one is the honest reproduction and POSIX only, since
- * Windows has no `ulimit`; the in-process one is the short-write handling itself
- * and runs everywhere.
+ * The spawned half is the honest reproduction and POSIX only, since Windows has
+ * no `ulimit`. The short-write handling itself -- `writeFully()`, `writeTo()`,
+ * `writeOut()` -- is `@ttylabs/sigil/output`'s since SIG-542 and is tested in
+ * `packages/sigil/test/output.test.ts`, on every platform.
+ *
+ * SIG-542 moved it there because `main()` writes `--help`, `--version` and a
+ * command's serialized output the same way: one `process.stdout.write()`, and a
+ * redirect that exited 0 over a cut-off file for every app built with sigil. The
+ * last describe in this file is that, from the outside.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,136 +44,6 @@ const bins = {
   'dist/sigil.mjs': join(root, 'dist', 'sigil.mjs'),
   'src/sigil.ts': join(root, 'src', 'sigil.ts'),
 };
-
-describe('writeFully()', () => {
-  /** A sink that takes at most `room` bytes in all, the way a file at its limit does. */
-  function limited(room: number, seen: Buffer[] = []) {
-    let left = room;
-    return {
-      seen,
-      write(bytes: Uint8Array, offset: number): number {
-        if (left <= 0) {
-          throw Object.assign(new Error('EFBIG: file too large, write'), { code: 'EFBIG' });
-        }
-        const taken = Math.min(left, bytes.length - offset, 4);
-        seen.push(Buffer.from(bytes.subarray(offset, offset + taken)));
-        left -= taken;
-        return taken;
-      },
-    };
-  }
-
-  it('should write the whole of a document the sink takes in pieces', () => {
-    const sink = limited(100);
-
-    writeFully('a document of several pieces', sink.write);
-
-    expect(Buffer.concat(sink.seen).toString()).toBe('a document of several pieces');
-  });
-
-  it('should throw, saying how much landed, when the sink stops taking bytes', () => {
-    const sink = limited(10);
-
-    expect(() => writeFully('a document of several pieces', sink.write)).toThrow(
-      'The output was cut off: 10 of 28 bytes were written (EFBIG).'
-    );
-  });
-
-  it('should count bytes rather than characters', () => {
-    // 3 + 4 bytes, which a character count would call 2
-    const sink = limited(100);
-
-    writeFully('€\u{1f600}', sink.write);
-
-    expect(Buffer.concat(sink.seen).toString()).toBe('€\u{1f600}');
-  });
-
-  it('should refuse a sink that takes nothing rather than loop on it', () => {
-    expect(() => writeFully('abc', () => 0)).toThrow(
-      'The output was cut off: 0 of 3 bytes were written, and the destination took no more.'
-    );
-  });
-
-  it('should write nothing for an empty document', () => {
-    const write = vi.fn(() => 0);
-
-    writeFully('', write);
-
-    expect(write).not.toHaveBeenCalled();
-  });
-});
-
-describe('writeOut()', () => {
-  it('should go through process.stdout.write when something has replaced it', () => {
-    // a capture -- a test, or an app embedding a command -- is the stream's to
-    // see, and writing to the descriptor underneath it would bypass the capture
-    const spy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    try {
-      writeOut('captured\n');
-      expect(spy).toHaveBeenCalledWith('captured\n');
-    } finally {
-      spy.mockRestore();
-    }
-  });
-});
-
-describe('writeTo()', () => {
-  // a worker's own `process.stdout` has no descriptor, so these are the in-process
-  // cover for both branches of the stream-or-descriptor choice, on every platform
-  let file: string;
-  let fd: number;
-
-  beforeAll(() => {
-    file = join(mkdtempSync(join(tmpdir(), 'sigil-writeto-')), 'out.txt');
-  });
-  afterAll(() => {
-    rmSync(dirname(file), { force: true, recursive: true });
-  });
-
-  it('should write a regular file through its descriptor, whole', () => {
-    class FileStream {
-      constructor(readonly fd: number) {}
-      write(): boolean {
-        throw new Error('went through the stream');
-      }
-    }
-    fd = openSync(file, 'w');
-    try {
-      writeTo(new FileStream(fd), 'one\n');
-      writeTo(new FileStream(fd), 'two\n');
-    } finally {
-      closeSync(fd);
-    }
-
-    expect(readFileSync(file, 'utf-8')).toBe('one\ntwo\n');
-  });
-
-  it('should leave a stream whose write was replaced to its replacement', () => {
-    // an own `write` is a capture, and writing to the descriptor under it would
-    // bypass what it captures -- which is what keeps this suite's own capture of
-    // `process.stdout.write` seeing the output
-    fd = openSync(file, 'w');
-    try {
-      const write = vi.fn(() => true);
-      writeTo({ fd, write }, 'captured\n');
-
-      expect(write).toHaveBeenCalledWith('captured\n');
-      expect(readFileSync(file, 'utf-8')).toBe('');
-    } finally {
-      closeSync(fd);
-    }
-  });
-
-  it('should leave a stream that is not a file to the stream', () => {
-    const write = vi.fn(() => true);
-
-    // no descriptor at all, and a descriptor that is not open
-    writeTo({ write }, 'a');
-    writeTo({ fd: 1 << 20, write }, 'b');
-
-    expect(write.mock.calls).toEqual([['a'], ['b']]);
-  });
-});
 
 interface Ran {
   code: number | null;
@@ -282,21 +157,18 @@ describe.each(Object.entries(bins))('a document redirected to a file, %s', (binN
       expect(ran.stderr).not.toMatch(STACK);
     });
 
-    // the built executable never reaches `run()`: its `--version` is `main()`'s,
-    // which is the runtime's and writes it the way `--help` is written
-    it.skipIf(binName !== 'src/sigil.ts')(
-      'should report a cut-off --version as an error rather than a stack',
-      async () => {
-        // answered before `main()` exists, so nothing else would render it. A limit
-        // of zero is the only one that can cut one line
-        const dest = join(dir, `${slug}-cut-version.txt`);
-        const ran = await runToFile(bin, ['--version'], dest, 0);
+    // answered by `run()` in the source and by `main()` in the built executable,
+    // which is the runtime's and writes it the way `--help` is written -- so this
+    // is the same assertion about two different writers, and both must say it
+    it('should report a cut-off --version as an error rather than a stack', async () => {
+      // a limit of zero is the only one that can cut one line
+      const dest = join(dir, `${slug}-cut-version.txt`);
+      const ran = await runToFile(bin, ['--version'], dest, 0);
 
-        expect(ran.code).toBe(1);
-        expect(ran.stderr).toContain('cut off');
-        expect(ran.stderr).not.toMatch(STACK);
-      }
-    );
+      expect(ran.code).toBe(1);
+      expect(ran.stderr).toContain('cut off');
+      expect(ran.stderr).not.toMatch(STACK);
+    });
 
     it('should fail an --out that cannot be written in full as well', async () => {
       // not this ticket's defect -- `writeFileSync()` loops until every byte is
@@ -349,5 +221,69 @@ describe('the commands that write to a stream', () => {
       // handed a stream rather than naming one
       expect(source).not.toMatch(/\bstream\.write\(/);
     }
+  });
+});
+
+describe.each(Object.entries(bins))(
+  'what main() writes, redirected to a file, %s',
+  (binName, bin) => {
+    const slug = binName.replace(/\W/g, '-');
+
+    describe.skipIf(process.platform === 'win32')('under a size limit', () => {
+      it('should exit non-zero over a --help cut short, and say so', async () => {
+        // `reference --help` is 1,032 bytes, so one block of either size cuts it:
+        // the screen is `main()`'s and is written whole, once
+        const args = ['reference', '--help'];
+        const full = await whole(bin, args, `${slug}-help.txt`);
+        const dest = join(dir, `${slug}-cut-help.txt`);
+        const ran = await runToFile(bin, args, dest, 1);
+
+        expect(statSync(dest).size).toBeLessThan(full);
+        expect(ran.code).toBe(1);
+        expect(ran.stderr).toContain('cut off');
+        expect(ran.stderr).not.toMatch(STACK);
+      });
+    });
+  }
+);
+
+/**
+ * An app of its own, run from source with `node`: `main()` is the runtime's and
+ * what an app calls, so the toolchain's commands are not the only witness to what
+ * it does to every other one.
+ */
+describe('an app built on main(), redirected to a file', () => {
+  const fixture = join(here, 'fixtures', 'main-output', 'app.mjs');
+
+  /** Runs it with stdout a file, optionally under a size limit. */
+  const run = (args: string[], dest: string, limit?: number) =>
+    runToFile(fixture, args, dest, limit);
+
+  it('should write the whole of --help, --version and its JSON when nothing limits the file', async () => {
+    for (const args of [['--help'], ['--version'], ['list', '--json']]) {
+      const dest = join(dir, `app-whole-${args.join('')}.txt`);
+      const ran = await run(args, dest);
+
+      expect(ran.code, args.join(' ')).toBe(0);
+      expect(ran.stderr).toBe('');
+      expect(statSync(dest).size).toBeGreaterThan(0);
+    }
+    expect(
+      JSON.parse(readFileSync(join(dir, 'app-whole-list--json.txt'), 'utf-8')).items
+    ).toHaveLength(200);
+  });
+
+  describe.skipIf(process.platform === 'win32')('under a size limit', () => {
+    it.each([['--help'], ['--version'], ['list', '--json']])(
+      'should exit non-zero when %s was cut off',
+      async (...args) => {
+        const dest = join(dir, `app-cut-${args.join('')}.txt`);
+        const ran = await run(args, dest, args[0] === '--version' ? 0 : 1);
+
+        expect(ran.code, args.join(' ')).toBe(1);
+        expect(ran.stderr).toContain('The output was cut off');
+        expect(ran.stderr).not.toMatch(STACK);
+      }
+    );
   });
 });

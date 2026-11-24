@@ -54,7 +54,6 @@
 
 import { displayPath } from '../build/diagnostic.ts';
 import { readSigilConfig } from '../config.ts';
-import { writeOut } from '../output.ts';
 import { loadAppSchema } from '../reference/load.ts';
 import { referenceDocument, referencePages } from '../reference/markdown.ts';
 import { snapshotJson } from '../reference/snapshot.ts';
@@ -64,6 +63,7 @@ import { word } from '../shell.ts';
 import { appRuns } from './_inspect.ts';
 import { command, type AnyCommand } from '@ttylabs/sigil';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { writeOut } from '@ttylabs/sigil/output';
 import { commandSurface } from '@ttylabs/sigil/reference';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 

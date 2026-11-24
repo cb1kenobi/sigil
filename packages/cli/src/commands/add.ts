@@ -29,7 +29,6 @@
  * agree for now.
  */
 
-import { writeOut } from '../output.ts';
 import {
   CONFIG_FILE,
   DEFAULT_REGISTRY,
@@ -47,6 +46,7 @@ import { command, type AnyCommand } from '@ttylabs/sigil';
 import { confirm } from '@ttylabs/sigil/components/prompt';
 import { table } from '@ttylabs/sigil/components/table';
 import { escapeControls } from '@ttylabs/sigil/error-handler';
+import { writeOut } from '@ttylabs/sigil/output';
 import { byCodeUnit } from '@ttylabs/sigil/reference';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
