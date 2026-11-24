@@ -11920,6 +11920,20 @@ because a dropdown or anything else that sits beside a box wants the same answer
   chart's crosshair needed the hiding to hold while the pointer is on the bubble,
   where an `area` of nothing keeps it. `should hide a bubble with nothing to say,
   and bring it back with words` is the pin.
+- **Escape sequences are dropped from a tooltip's text, which is plain (SIG-652).**
+  A `text` node strips the `ESC` of a control sequence and draws the rest, so a
+  readout of `ESC[31mred` was drawn `[31mred` -- and the line chart's reach is
+  worked out with `stringWidth()`, which does not count a sequence, so the bubble was
+  as wide as the literal characters made it and the chart thought it narrower.
+  Decided as `note()` and `outline()` decided it, and `table()`'s string cell: the
+  tree is not handed a string with a sequence in it, `strip()` is applied to `text`
+  and to `setText()` on the way in, and colour is the bubble's, from its class.
+  Styled words in a bubble would be rich content, which is not done below, and
+  would be a different API rather than a string that sometimes means style. Both
+  widths now agree for a styled readout because the bubble draws what
+  `stringWidth()` counts. A text of nothing but a sequence is empty after the strip
+  and hides the bubble as `''` does. `should reach as far as a styled readout draws`
+  in `chart-live.test.ts` and the two SIG-652 cases in `tooltip.test.ts` are the pins.
 - **Not done:** a warm-up that shows
   the next tooltip at once after one has just closed; an arrow pointing at the
   anchor; rich content in the bubble; and announcing it in accessible mode, which

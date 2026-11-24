@@ -1480,6 +1480,20 @@ describe('LineChart, with a crosshair from the keyboard (SIG-516)', () => {
           expect((narrow[0] ?? '').indexOf('╭')).toBe(1);
         });
 
+        it('should reach as far as a styled readout draws, which is as far as the plain one (SIG-652)', async () => {
+          // the escapes count for nothing in the width the chart estimates, so the
+          // bubble has to draw them as nothing too: 15 words make a bubble of 19
+          const esc = String.fromCharCode(0x1b);
+          const styled = `${esc}[31ma readout${esc}[39m wide!`;
+          const wide = await farPin(await mountBare(styled));
+          expect((wide[0] ?? '').indexOf('▼')).toBe(19);
+          expect((wide[0] ?? '').indexOf('╭')).toBe(20);
+          expect((wide[0] ?? '').indexOf('╮')).toBe(38);
+          expect(wide.join('\n')).not.toContain('[31m');
+          const narrow = await farPin(await mountBare(`${esc}[31ma readout${esc}[39m wide`));
+          expect((narrow[0] ?? '').indexOf('╭')).toBe(1);
+        });
+
         it('should reach as far as the widest line of a readout of several', async () => {
           // the whole string is 17 wide and the widest line 14, which does not reach column 19
           const screen = await farPin(await mountBare('a readout wide\nab'));
