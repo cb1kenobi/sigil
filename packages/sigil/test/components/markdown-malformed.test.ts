@@ -9,6 +9,7 @@ import {
 } from '../../src/components/index.js';
 import { type Element, renderToString } from '../../src/element/index.js';
 import { themedCascade } from '../../src/theme/index.js';
+import { growthOf } from '../growth.js';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -22,11 +23,11 @@ import { describe, expect, it } from 'vitest';
  * because the suite runs beside everything else on the machine. The larger size is
  * picked so that the old cost was hundreds of milliseconds at the least.
  *
- * Each side is the best of seven, and the two sides take turns, so that a garbage
- * collection or a busy core costs one sample of one side rather than every sample
- * of it. Taken one side after the other, best of three, `_*` read eight times
- * larger came out 27 times slower in the full suite, where on its own it is 3.5.
- * A side under two milliseconds counts as two, which is what the timer can say.
+ * The measurement is `growthOf()` in `test/growth.ts`, which the highlighter's
+ * linear-time check shares (SIG-649): CPU time where the platform reports it, a
+ * span of clock rather than a floor for the small side, and the best of seven with
+ * the two sides taking turns. This file used to read the wall clock and count a
+ * side under two milliseconds as two.
  *
  * The two tests that draw (SIG-423) count calls to an element's `measure` instead
  * (SIG-437): they are about how often the layout measures, which is a number and
@@ -34,32 +35,29 @@ import { describe, expect, it } from 'vitest';
  */
 
 /**
- * How much more a document eight times the size costs to read, or to do `work`
- * with: drawing, for the renderer's half (SIG-423).
+ * How much of the clock the small side is read to fill, in milliseconds. The
+ * highlighter reads documents of a few short lines and needs three; the smallest
+ * document here is a few kilobytes and costs a good part of one on its own, and
+ * the work is seven reads of each side, so the shared default would have made this
+ * file do about two and a half times what it did before.
  */
-function growth(
-  make: (size: number) => string,
-  size: number,
-  work: (source: string) => unknown = parseMarkdown
-): number {
-  return costRatio(make(size), make(size * 8), work);
+const SPAN = 1;
+
+/** How much more a document eight times the size costs to read. */
+function growth(make: (size: number) => string, size: number): number {
+  return growthOf(parseMarkdown, make(size), make(size * 8), 8, make(12).slice(0, 12), SPAN);
 }
 
-/** How much more `large` costs than `small`, each the best of seven taken in turns. */
-function costRatio(small: string, large: string, work: (source: string) => unknown): number {
-  const time = (source: string): number => {
-    const start = performance.now();
-    work(source);
-    return performance.now() - start;
-  };
-  let bestSmall = Infinity;
-  let bestLarge = Infinity;
-  for (let run = 0; run < 7; run++) {
-    bestSmall = Math.min(bestSmall, time(small));
-    bestLarge = Math.min(bestLarge, time(large));
-  }
-  return Math.max(bestLarge, 2) / Math.max(bestSmall, 2);
-}
+/**
+ * A budget for every test in this file. What the linear-time ones assert is a
+ * ratio, which no clock speed moves, so this is not a limit on how long linear
+ * takes: it is the default's ten seconds made twelve times wider, so that a runner
+ * that is slow for want of a core -- one of these tests timed out at ten on a
+ * macOS runner (SIG-649), where the same run passed on Linux and Windows -- fails
+ * on a quadratic and on nothing else. A synchronous parse cannot be timed out
+ * anyway, so a quadratic bad enough to hang is not made worse by it.
+ */
+const BUDGET = 120_000;
 
 /**
  * How much more measuring drawing `large` takes than drawing `small`: how many
@@ -149,7 +147,7 @@ function wordsOf(drawn: string): string {
 const LINE_SEPARATOR = String.fromCharCode(0x2028);
 const K = 1024;
 
-describe('parseMarkdown() on malformed input', () => {
+describe('parseMarkdown() on malformed input', { timeout: BUDGET }, () => {
   describe('a long run of spaces', () => {
     it('should read spaces before a line end in linear time, which was a backtracking pattern', () => {
       expect(growth((n) => `a${' '.repeat(n)}b\nc`, 16 * K)).toBeLessThan(24);

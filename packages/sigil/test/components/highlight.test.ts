@@ -5,6 +5,7 @@ import { type HighlightSpan, multiline, tokensOf } from '../../src/components/pr
 import { TextArea } from '../../src/components/text-area.js';
 import { renderToString } from '../../src/element/index.js';
 import { FRAMEWORK_CSS, TOKEN_ROLE, themedCascade } from '../../src/theme/index.js';
+import { growthOf } from '../growth.js';
 import { screenSetup, tick } from './helpers.js';
 import { describe, expect, it } from 'vitest';
 
@@ -508,50 +509,23 @@ describe('highlightCode()', () => {
     // read took 1.7 s and 2.3 s on macOS runners, while a quadratic made of one
     // `indexOf()` per opener, which runs at memory speed, read the same million in
     // 2.4 s on a laptop without coverage. Coverage and a slow runner scale both
-    // sides of a ratio alike. Best of seven, the sides taking turns, for the
-    // reasons `markdown-malformed.test.ts` gives.
+    // sides of a ratio alike.
     //
-    // And in CPU time rather than wall time where the platform can say it
-    // (SIG-627). A wall-clock best of seven survives a stall that lands on some of
-    // the runs and not a machine that is oversubscribed for the whole test: a
-    // macOS runner read the linear diff at `39.3` against a bound of 24, and a
-    // laptop at a load average of 140 failed a different shape in five of eight
-    // runs of this file -- `js` `a / `, `markdown` `*a`, `sh` `"$` -- each of them
-    // linear. Being descheduled costs a measurement its wait however long it was,
-    // and the small side is a tenth of a millisecond, which fits between two
-    // preemptions where a large one does not, so load inflates the larger read
-    // alone. `process.threadCpuUsage()` is this thread's time on a CPU, which a
-    // wait is not part of. Windows reports it from the scheduler's tick, which is
-    // a few milliseconds, too coarse to tell sixty-four from eight on the
-    // smallest shapes, so it keeps the wall clock there.
+    // The measurement is `growthOf()` in `test/growth.ts`, shared with
+    // `markdown-malformed.test.ts` (SIG-649): CPU time rather than wall time
+    // (SIG-627), and a span rather than a floor (SIG-640). The reasons are written
+    // there, beside the code they are about.
     const SIZE = 32 * 1024;
 
-    /** Milliseconds this thread has spent running, or on the wall clock where that is too coarse to read. */
-    const now: () => number =
-      process.platform === 'win32' || typeof process.threadCpuUsage !== 'function'
-        ? () => performance.now()
-        : () => {
-            const { system, user } = process.threadCpuUsage();
-            return (system + user) / 1000;
-          };
-
     /** How much more a document `factor` times the size costs to highlight. */
-    const growth = (lang: string, make: (size: number) => string, factor: number): number => {
-      const small = make(SIZE);
-      const large = make(SIZE * factor);
-      const time = (code: string): number => {
-        const start = now();
-        highlightCode(code, lang);
-        return now() - start;
-      };
-      let bestSmall = Infinity;
-      let bestLarge = Infinity;
-      for (let run = 0; run < 7; run++) {
-        bestSmall = Math.min(bestSmall, time(small));
-        bestLarge = Math.min(bestLarge, time(large));
-      }
-      return Math.max(bestLarge, 2) / Math.max(bestSmall, 2);
-    };
+    const growth = (lang: string, make: (size: number) => string, factor: number): number =>
+      growthOf(
+        (code) => highlightCode(code, lang),
+        make(SIZE),
+        make(SIZE * factor),
+        factor,
+        `${lang}: ${make(12).slice(0, 12)}...`
+      );
 
     const repeat =
       (unit: string) =>
@@ -575,10 +549,36 @@ describe('highlightCode()', () => {
       ['sh', repeat('a[ ')],
       ['sh', repeat('<<')],
       ['sh', repeat('$(')],
+      // a line is where a lexer's state turns over, so each one that keeps state
+      // across lines is given a document of short lines (SIG-640): one line is
+      // all the shapes above give it, and a cost per line is a cost per input
+      // character on a line that long
+      ['sh', repeat('<<a\n')],
+      ['sh', repeat('a \\\n')],
+      ['sh', repeat('if a\n')],
+      ['sh', repeat('<<a\na\n')],
+      ['sh', repeat('(\n')],
+      // every here-document queued on one line, and then closed by a line each
+      [
+        'sh',
+        (size) => `${'<<a '.repeat(Math.ceil(size / 6))}\n${'a\n'.repeat(Math.ceil(size / 6))}`,
+      ],
+      ['js', repeat('// a\n')],
+      ['js', repeat('a\n/ b\n')],
+      ['js', repeat('`${\n')],
+      ['ts', repeat('type a\n')],
+      ['json', repeat('"a"\n')],
+      ['json', repeat('// a\n')],
       ['yaml', repeat('a:a')],
       ['yaml', repeat('  ')],
       ['yaml', repeat('{"')],
       ['yaml', repeat('- ')],
+      ['yaml', repeat('a: b\n')],
+      ['yaml', repeat('- - a\n')],
+      ['yaml', repeat('a: |\n  b\n')],
+      ['yaml', repeat('"a\n')],
+      ['yaml', repeat('a: [\n')],
+      ['yaml', repeat('# a\n---\n')],
       ['markdown', repeat('[')],
       ['markdown', repeat('*')],
       ['markdown', repeat('_a')],
@@ -588,6 +588,14 @@ describe('highlightCode()', () => {
       ['markdown', repeat('[a\n')],
       ['markdown', repeat('*a\n')],
       ['markdown', repeat('x\n')],
+      ['markdown', repeat('```\n')],
+      ['markdown', (size) => `\`\`\`\n${'a\n'.repeat(Math.ceil(size / 2))}`],
+      ['markdown', repeat('<!--\n-->\n')],
+      ['markdown', repeat('- a\n')],
+      ['markdown', repeat('> a\n')],
+      ['markdown', repeat('a\n===\n')],
+      ['markdown', repeat('`a\n')],
+      ['markdown', repeat('# a\n')],
       // a run of each length, so every opener is unclosed and a search per opener
       // is a scan of the rest of the line. There are only a square root of the
       // size of them, so that search is n^1.5, which grows 23-fold at eight times
@@ -604,6 +612,12 @@ describe('highlightCode()', () => {
         64,
       ],
       ['diff', repeat('--- a\n')],
+      ['diff', repeat('-a\n')],
+      ['diff', repeat('+a\n')],
+      ['diff', repeat('--- a\n+++ b\n')],
+      ['diff', repeat('\\ No newline at end of file\n')],
+      ['diff', repeat('diff --git a b\n')],
+      ['diff', repeat('@@ -1 +1 @@\n')],
     ];
 
     it.each(PATHOLOGICAL)('should read %s %#  in linear time', (lang, make, factor = 8) => {

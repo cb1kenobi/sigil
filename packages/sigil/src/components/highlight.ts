@@ -27,8 +27,8 @@
  * it read or remembers that it failed: a regular expression that does not close on
  * its line is not looked for again on that line, a search for a closing delimiter
  * that found none is not repeated, and no pattern here can backtrack over more than
- * the token it is matching. `test/components/highlight.test.ts` reads thirty
- * pathological inputs at two sizes rather than trusting this sentence.
+ * the token it is matching. `test/components/highlight.test.ts` reads a
+ * list of pathological inputs at two sizes rather than trusting this sentence.
  *
  * **Spans come out in order and never overlap**, which is what lets a text area file
  * them by line with a step or two rather than a search.
@@ -820,12 +820,15 @@ function lexShell(code: string): HighlightSpan[] {
   /** The bodies of the here-documents opened on the line just ended. */
   const bodies = (start: number): number => {
     let at = start;
-    while (heredocs.length > 0) {
-      const doc = heredocs.shift()!;
+    // walked by index and emptied at the end: `shift()` moves every entry after
+    // it, so a line that queued tens of thousands of them cost their square
+    for (let next = 0; next < heredocs.length; next++) {
+      const doc = heredocs[next]!;
       const from = at;
       for (;;) {
         if (at >= n) {
           out.add(from, n, 'string');
+          heredocs.length = 0;
           return n;
         }
         const end = lineEnd(code, at);
@@ -841,6 +844,7 @@ function lexShell(code: string): HighlightSpan[] {
         at = end + 1;
       }
     }
+    heredocs.length = 0;
     return at;
   };
 

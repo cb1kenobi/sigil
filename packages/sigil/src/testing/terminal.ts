@@ -103,6 +103,25 @@ export interface TestTerminal {
    * @returns Settled, so the next assertion sees the frames they caused.
    */
   press(...chunks: string[]): Promise<void>;
+  /**
+   * Hears a throw from one of the router's own timers, which `press()` cannot.
+   *
+   * A throw from a key handler comes back through the `write()` that delivered
+   * the key, so `press()` rejects with it. The router also acts from timers --
+   * the hold on a lone Escape, a key sequence's deadline, a paste that never
+   * ended -- and a throw from one of those has no call to come back through, and
+   * is an uncaught exception unless something is listening here. Where a router
+   * has no `onError`, that is what this is for; where it has one, the throw is
+   * the router's and goes there.
+   *
+   * With no handler registered nothing changes: the throw is uncaught, as it is
+   * in an app. Register one before advancing the clock, or waiting out the
+   * timeout, and assert on what it was handed.
+   *
+   * @param handler - Called with what the timer's callback threw.
+   * @returns A function that takes the handler off again.
+   */
+  onTimerError(handler: (error: unknown) => void): () => void;
   /** Resizes the screen and tells the terminal, as a window change does. */
   resize(width: number, height: number): void;
   /** The screen model, for the viewport, the cursor and the clipboard. */
@@ -336,7 +355,8 @@ export async function tick(times = 2): Promise<void> {
  * emits one `data` per chunk, and a handler that wrote again from inside
  * its own is the outermost write's to report. A `data` emitted outside a `write()`
  * -- a stream resumed with chunks queued -- is left to throw as it did, since
- * there is no call to hand it back through.
+ * there is no call to hand it back through. A throw from one of the router's own
+ * timers is `onTimerError()`'s (SIG-631).
  *
  * @param stdin - The stream to patch, in place.
  */
@@ -376,6 +396,53 @@ function survivesAThrow(stdin: PassThrough): void {
 }
 
 /**
+ * Where the router looks for a throw from one of its timers: see `timed()` in
+ * `input/index.ts`. A registry symbol, so that this entry imports nothing of the
+ * router's.
+ */
+const TIMER_ERROR = Symbol.for('@ttylabs/sigil/input/timer-error');
+
+/**
+ * Lets a test hear a throw from a router's timer, for as long as it is listening.
+ *
+ * The hook is on the stream only while a handler is registered, because the
+ * router reads its absence as "nobody is listening, so let it be uncaught" --
+ * which is the answer that keeps a test that never asked from passing over an
+ * error nothing reported (SIG-631).
+ *
+ * @param stdin - The stream the router reads.
+ * @returns `onTimerError()` for the fixture.
+ */
+function hearsTimerErrors(stdin: PassThrough): TestTerminal['onTimerError'] {
+  const handlers = new Set<(error: unknown) => void>();
+  const hook = stdin as unknown as Record<symbol, unknown>;
+
+  return (handler) => {
+    if (typeof handler !== 'function') {
+      throw new TypeError(
+        `onTimerError() takes a function to call, not ${JSON.stringify(handler) ?? String(handler)}`
+      );
+    }
+    // a wrapper per registration, so the same function registered twice is two
+    // listeners and the first one's `off` takes away only its own
+    const entry = (error: unknown): void => handler(error);
+    handlers.add(entry);
+    hook[TIMER_ERROR] = (error: unknown): void => {
+      // eslint-disable-next-line unicorn/no-useless-spread
+      for (const each of [...handlers]) {
+        each(error);
+      }
+    };
+    return () => {
+      handlers.delete(entry);
+      if (handlers.size === 0) {
+        delete hook[TIMER_ERROR];
+      }
+    };
+  };
+}
+
+/**
  * Builds a terminal over a screen model, with a keyboard.
  *
  * @param opts - The size, the colour level, and whether either end is a terminal.
@@ -405,6 +472,7 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
     return stdin;
   };
   survivesAThrow(stdin);
+  const onTimerError = hearsTimerErrors(stdin);
 
   // a stub rather than `process`: see the note at the top of this file
   const proc = {
@@ -463,6 +531,8 @@ export function createTestTerminal(opts: TestTerminalOptions = {}): TestTerminal
         await tick();
       }
     },
+
+    onTimerError,
 
     resize(width: number, height: number): void {
       stream.resize(width, height);

@@ -43,7 +43,7 @@ import { loadCommand } from '../parser/command/load-command.js';
 import { Internal, type InternalCommand, type InternalOption, type Schema } from '../types.js';
 import { byCodeUnit } from '../util/by-code-unit.js';
 import { descriptionLine } from '../util/description-line.js';
-import { escapeControls } from '../util/escape-controls.js';
+import { escapeControls, withoutUnsafe } from '../util/escape-controls.js';
 import { registerable } from './install.js';
 
 /** Where the tree is, which is what a parse already produced. */
@@ -158,7 +158,7 @@ export interface CompletionSubcommand {
    * the loaded command is read for its description and its options and never
    * for its name.
    *
-   * Not the name where that holds a control character, which no shell can
+   * Not the name where that holds a control or format character, which no shell can
    * type: then it is a spelling that reaches the command. See `segmentFor()`.
    */
   readonly name: string;
@@ -188,16 +188,6 @@ export interface CompletionSpec {
   /** The executable the script registers itself for. */
   readonly program: string;
 }
-
-/**
- * Every control character, named rather than enumerated -- and without the `g`
- * flag that `descriptionLine()`'s copy of the set carries, because `test()` on a
- * global regex is stateful: it leaves `lastIndex` past the match, so the next call on a
- * different string starts part way in and answers `false` for a string that
- * holds one. One pattern used two ways is how that bug happens, so there are
- * two patterns.
- */
-const HAS_CONTROL = /\p{Cc}/u;
 
 /**
  * A description as one line, with nothing a terminal would act on in it.
@@ -310,7 +300,7 @@ function valuesFor(type: string, choices: unknown): readonly string[] | undefine
  * The first branch of `valuesFor()`, lifted out because the command surface
  * asks the same question and must not answer it a second way: a `yesno` whose
  * choices are the booleans is reachable only by the words, and a choice holding
- * a control character is reachable by nothing. Two readers that each stringified
+ * a control or format character is reachable by nothing. Two readers that each stringified
  * a choice themselves would be two answers to "what can be typed here", which is
  * the one thing a reference and a completion script have to agree about.
  *
@@ -344,11 +334,21 @@ export function declaredValues(type: string, choices: readonly unknown[]): strin
  * the script hands readline to insert, since zsh's `_describe` quotes on insert
  * and bash's `COMPREPLY` is inserted as it stands.
  *
+ * The class is `escapeControls()`'s -- a control character, but also a format
+ * character such as U+202E, U+2028, and U+2029, and the rest of what a terminal
+ * draws as nothing or draws reversed (SIG-632) -- asked through `withoutUnsafe()`
+ * so it is one pattern rather than a second. A name, an alias, an option's
+ * spelling and a choice are each *matched* by what argv gives, so the same
+ * answer holds for all of them: a menu that offered the stripped spelling would
+ * offer a token that does not reach the command, and a script that printed the
+ * raw one would reverse the line it is drawn on. Neither is a completion, so the
+ * token is not offered.
+ *
  * @param value - The token.
  * @returns Whether to offer it.
  */
 function typeable(value: string): boolean {
-  return value !== '' && !HAS_CONTROL.test(value);
+  return value !== '' && withoutUnsafe(value) === value;
 }
 
 /**
@@ -528,7 +528,7 @@ export function listedTokens(
  * The segment a command's argv path is written with: its name where a shell
  * can type it, and otherwise a spelling that reaches it.
  *
- * `tokensFor()` keeps a name holding a control character out of every list of
+ * `tokensFor()` keeps a name holding a control or format character out of every list of
  * what can be typed, and a command with nothing left is skipped -- but one that
  * also has a typeable alias, `` `two${ESC}lines, go` ``, keeps `go` and is
  * walked, and its *path* was still built from the name. So the raw `ESC` went
