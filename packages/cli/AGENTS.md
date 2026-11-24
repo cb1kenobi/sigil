@@ -7703,11 +7703,13 @@ measurements are in
   argument, so it costs that app one note and a `sigil.json` entry (`"none"` says it
   has handled it). What keeps the note off the documented path is that it needs
   `check` itself: `updateCheck: githubChecker(...)` imports a builder and nothing
-  else, and `should not see an app that imports only a builder` is the negative that
-  matters, since a detector that always answers yes warns every app that names its
-  checker. What it misses is silent and safe: a dynamic `import()`, a `require()`
-  and a `check` the module binds again have no name to read, and a module that does
-  not parse is not one this can say anything about. A namespace import counts
+  else, and `should not see an app that imports only a builder, which is the documented path`
+  is the negative that matters, since a detector that always answers yes warns every app that names its
+  checker. What it misses is silent and safe: a dynamic `import()` and a `require()`
+  have no name to read, and a module that does not parse is not one this can say
+  anything about. It reads the import and **not** through `importBindings()`: that
+  drops a name the module binds again anywhere, and `check` is generic enough that
+  `.filter((check) => ...)` beside the import would have turned the warning off. A namespace import counts
   without asking which member is used. `'wrapped'` is left on the specifier signal
   as SIG-593 wrote it, since narrowing it to `importsCheck` is a change to a warning
   that has its own tests; `--quiet` silences both, which is `writeNote()`'s rule.

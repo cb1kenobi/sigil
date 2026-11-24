@@ -18,7 +18,7 @@
 
 import type { SigilConfig, UpdateCheckConfig } from '../config.ts';
 import { quote } from '../template/emit.ts';
-import { importBindings, importCall, reachable, type ImportBindings } from './bindings.ts';
+import { importBindings, importCall, type ImportBindings } from './bindings.ts';
 import type { Diagnostic } from './diagnostic.ts';
 import {
   flatten,
@@ -238,14 +238,17 @@ export type SchemaUpdateCheck =
  * module's own imports and exports: a named import of `check`, a namespace import,
  * and a re-export of `check`, of everything (`export *`) or of the namespace.
  *
- * It errs towards **not** saying so. A `check` the module binds again is given up
- * whole (`importBindings()`'s rule), a dynamic `import()` and a `require()` have no
- * name to read, and a module that does not read or parse is not one this can say
- * anything about -- each is a notice that never appears, which is what there was
- * before. A namespace import counts without asking which member is used, so an app
- * that only calls `ns.githubChecker()` is told about a call it does not make; it
- * costs one line and a `sigil.json` entry, the price `wrappedCheckWarning()` already
- * charges.
+ * It is asked of the **import**, not of a use site, which is why it does not go
+ * through `importBindings()`: that gives up a name the module binds again anywhere,
+ * and `check` is as generic a name as there is -- a module with
+ * `items.filter((check) => ...)` beside the import would have the warning turned
+ * off for it, which is the ticket's own symptom. Here a wrong yes costs one note and
+ * a wrong no costs the hole, so the answer is "was it imported". What stays silent:
+ * a dynamic `import()` and a `require()` have no name to read, and a module that
+ * does not read or parse is not one this can say anything about. A namespace import
+ * counts without asking which member is used, so an app that only calls
+ * `ns.githubChecker()` is told about a call it does not make; it costs one line and a
+ * `sigil.json` entry, the price `wrappedCheckWarning()` already charges.
  *
  * @param file - The module that imports `@ttylabs/sigil/updates`.
  * @returns Whether it reaches `check()`.
@@ -258,7 +261,17 @@ export function importsCheckFunction(file: string): boolean {
     return false;
   }
 
-  if (reachable(importBindings(parsed, UPDATE_CHECK_SPECIFIER, 'check'))) {
+  const imported = parsed.module.staticImports.some(
+    (declaration) =>
+      declaration.moduleRequest.value === UPDATE_CHECK_SPECIFIER &&
+      declaration.entries.some(
+        (entry) =>
+          !entry.isType &&
+          (entry.importName.kind === 'NamespaceObject' ||
+            (entry.importName.kind === 'Name' && entry.importName.name === 'check'))
+      )
+  );
+  if (imported) {
     return true;
   }
 

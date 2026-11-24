@@ -728,6 +728,33 @@ describe('whether the bundle reached check() itself', () => {
     expect(result.check).toBe(expected);
   });
 
+  // the realistic layout: the schema's module imports a builder and a command imports check
+  it('should see check imported by a second module when the first imports only a builder', async () => {
+    const result = await reached(
+      [
+        `import { githubChecker } from '${SPEC}';`,
+        "import './update.js';",
+        "export default { name: 'reach', updateCheck: githubChecker({ repo: 'a/b' }) };",
+        '',
+      ].join('\n'),
+      { 'update.js': `import { check } from '${SPEC}';\nexport const update = () => check;\n` }
+    );
+    expect(result).toEqual({ check: true, specifier: true });
+  });
+
+  // `check` is as generic a name as there is, and a module binding it again somewhere
+  // must not turn the answer off: the detector asks what was imported, not which use
+  it('should still see check when the module binds the name again elsewhere', async () => {
+    const result = await reached(
+      [
+        `import { check } from '${SPEC}';`,
+        "export default { name: 'reach', run: () => [1].filter((check) => check) && check };",
+        '',
+      ].join('\n')
+    );
+    expect(result.check).toBe(true);
+  });
+
   it('should answer false for a module it cannot read', () => {
     expect(importsCheckFunction(join(variants, 'no-such-module.js'))).toBe(false);
   });
@@ -1578,7 +1605,7 @@ describe('a packaged binary that asks in its schema', () => {
         expect(code, err).toBeFalsy();
         // the documented path, which imports the builder and nothing else, gets no
         // warning (SIG-609)
-        expect(err).not.toContain('serves the automatic check only');
+        expect(err.replace(/\s+/g, ' ')).not.toContain('serves the automatic check only');
 
         const result = spawnSync(join(out, binaryName('fixture-updates', hostTarget())), [], {
           encoding: 'utf-8',
