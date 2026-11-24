@@ -7725,7 +7725,7 @@ and not the stack overflow that one fixed: no spread was involved.
   terminal used to come out as wide as its bars, and is now fitted to it. Left
   unbounded the large-n case would still have been unbounded for a caller who
   passed no width, which is most of them. It is `terminalWidth()` with its
-  `max` lifted, which is `terminalRoom()`, and not the function's default: that
+  `max` raised to `MOST_COLUMNS`, which is `terminalRoom()`, and not the function's default: that
   caps at 100 because it is the width to wrap prose at, and review found 36 month
   bars over a 200-column terminal narrowed to a column each, every label an
   ellipsis, for room that was there. A horizontal chart and `lineChart()` keep the
@@ -7762,17 +7762,21 @@ and not the stack overflow that one fixed: no spread was involved.
   growth read took 50 s, and the 200,000-bar cases ended the worker with an out of
   memory exit.
 - **The live chart's first drawing is made at the size it asks for, so what it
-  asks for is fitted too.** Before the layout has reported a size `liveChart()`
+  asks for is bounded too.** Before the layout reports a size `liveChart()`
   draws at the ask, and a vertical chart's natural ask was a column and a gap per
   bar -- 400,000 columns for 200,000 bars, drawn once and thrown away. The ask is
-  the bars' natural width where that fits `terminalRoom()`, and the whole of
-  `terminalRoom()` where it does not or where bars would be dropped, for the
-  layout to share out. An explicit `width` is the caller's and is not capped. The
-  ask reads the process's terminal and not the render target, so a chart rendered
-  at a width above it, with no terminal, asks for no more than the terminal has:
-  the layout's own `flex-grow` or a stretch is what widens it, as for any chart
-  that asks for less than it is given. It also reads `COLUMNS`, so a test of a
-  live ask stubs it.
+  now `fitBars()` at `MOST_COLUMNS`, 1,000: the bars' natural width where that
+  fits, and 1,000 where it does not or where bars would be dropped, for the layout
+  to share out. An explicit `width` is the caller's and is not capped. It is a
+  constant and not the terminal, which is what the first version of this fix read
+  and what review took apart: the ask is read only when the data or the host's
+  size changes, so a chart asked at `COLUMNS=80` stayed at 71 columns of ellipses
+  when the terminal widened to 200, and one rendered wider than the process's own
+  terminal with no TTY (a snapshot, a screenshot, CI) was squeezed the same way;
+  `COLUMNS=9999` made the thrown-away first drawing 1.1 s and 499 MB. The printed
+  default is the terminal's width, clamped to `MOST_COLUMNS` for the same
+  hostile `COLUMNS` -- nothing prints a vertical chart wider than that by default
+  and a caller who wants one passes `width`.
 - **The four spreads SIG-417's review listed are `maxOf()`.** `chart.ts`'s axis
   label width and its readout bubble's, `large-text.ts`'s glyph width and `diff.ts`'s
   longest common tail were each `Math.max(...x.map())` over a line's worth, so

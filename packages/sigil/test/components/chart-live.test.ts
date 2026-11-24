@@ -430,18 +430,18 @@ describe('BarChart', () => {
     expect(picture(column(3, chart), 9, 3)).toEqual(['▂ ▃ ▅ ▆ █', '█ █ █ █ █', '5 6 7 8 9']);
   });
 
-  it('should ask for no more width than the terminal has, before the layout has said', () => {
-    vi.stubEnv('COLUMNS', '30');
+  it('should ask for a bounded width before the layout has said, whatever the terminal', () => {
+    vi.stubEnv('COLUMNS', '999999');
     try {
       const data = Array.from({ length: 200_000 }, (_, i) => ({ label: 'x', value: i % 7 }));
       const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });
       const body = chart.children[1] as Element;
 
-      // fifteen bars and fourteen gaps, in the first drawing, which is made at the
-      // size asked for because no layout has been done
+      // 500 bars and 499 gaps, in the first drawing, which is made at the size
+      // asked for because no layout has been done
       expect(body.children.length).toBe(9);
       for (const row of body.children) {
-        expect(row.children.length).toBeLessThanOrEqual(29);
+        expect(row.children.length).toBeLessThanOrEqual(999);
       }
     } finally {
       vi.unstubAllEnvs();
@@ -449,7 +449,9 @@ describe('BarChart', () => {
   });
 
   it('should ask for its natural width when that fits the terminal, so a row of them is not squeezed', () => {
-    vi.stubEnv('COLUMNS', '200');
+    // not the terminal's: a chart rendered wider than the process's own terminal
+    // is not squeezed, and one that stays put when it widens is not left behind
+    vi.stubEnv('COLUMNS', '80');
     try {
       const data = Array.from({ length: 36 }, (_, i) => ({ label: `m${i % 10}x`, value: i + 1 }));
       const chart = BarChart({ ascii: false, data, direction: 'vertical', showValues: false });

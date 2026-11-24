@@ -818,16 +818,23 @@ function gapOf(opts: { gap?: number }): number {
 }
 
 /**
- * The most a vertical chart can be shown in when nothing says: the terminal's own
- * width, and not `terminalWidth()`'s default cap of 100, which is a width to wrap
- * prose at. A chart over a wide terminal that was held to 100 would narrow its
- * columns for room that is there.
+ * The widest a vertical chart is ever drawn when nothing says how wide: far wider
+ * than any terminal, and what keeps a hostile `COLUMNS` and a layout that has not
+ * spoken yet from being a reason to draw a million columns.
+ */
+const MOST_COLUMNS = 1000;
+
+/**
+ * The most a printed vertical chart can be shown in when nothing says: the
+ * terminal's own width, and not `terminalWidth()`'s default cap of 100, which is a
+ * width to wrap prose at. A chart over a wide terminal that was held to 100 would
+ * narrow its columns for room that is there.
  *
  * @param env - The environment to read `COLUMNS` from.
  * @returns The columns.
  */
 function terminalRoom(env?: Record<string, string | undefined>): number {
-  return terminalWidth({ env, max: Infinity });
+  return terminalWidth({ env, max: MOST_COLUMNS });
 }
 
 /**
@@ -2024,7 +2031,7 @@ export interface BarChartProps extends ChartElementProps, ScaleOptions {
   /**
    * The columns asked for where the layout does not decide. Defaults to 40
    * across, and to the bars' own width upwards, which is never more than
-   * the terminal's width. Bars that do not fit what the layout gave are narrowed to a
+   * 1,000. Bars that do not fit what the layout gave are narrowed to a
    * column each and then dropped from the left, so a chart shows its latest bars.
    */
   width?: number;
@@ -2742,24 +2749,24 @@ export function BarChart(props: BarChartProps): Element {
           width: props.width ?? DEFAULT_WIDTH,
         };
       }
-      // what it asks for is what it draws until the layout has spoken, so it is
-      // fitted to the terminal where the bars would run past it: 200,000 of them
-      // ask for the room there is to show, rather than for a width that is drawn
-      // once and thrown away. Bars that do not all fit ask for the whole of it, and
-      // the layout shares out what it gives
-      const room = terminalRoom();
+      // what it asks for is what it draws until the layout has spoken, so the ask
+      // is bounded: 200,000 bars ask for `MOST_COLUMNS`, which the layout shares
+      // out, rather than for a width that is drawn once and thrown away. It is a
+      // constant and not the terminal on purpose -- an ask that read the process
+      // would go stale when the terminal changed, and would squeeze a chart
+      // rendered wider than the process's own terminal
       let width = props.width;
       if (width === undefined) {
-        const { shown } = fitBars(bars, gap, room, props.barWidth, (some) =>
+        const { shown } = fitBars(bars, gap, MOST_COLUMNS, props.barWidth, (some) =>
           naturalColumn(some, props)
         );
         width =
           shown.length < bars.length
-            ? room
+            ? MOST_COLUMNS
             : Math.max(
                 1,
                 Math.min(
-                  room,
+                  MOST_COLUMNS,
                   shown.length * (props.barWidth ?? naturalColumn(shown, props)) +
                     gap * (shown.length - 1)
                 )
