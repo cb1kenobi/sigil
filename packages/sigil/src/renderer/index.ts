@@ -325,7 +325,9 @@ export interface RenderOptions {
    * this throws does not stop the teardown or the other reports. It is raised
    * from the call that was doing the reporting once every report has been tried:
    * `frame()`, `dispose()`, or `render()` itself. Several throws are raised as an
-   * `AggregateError`.
+   * `AggregateError`. The exception is a failure that arrives through an effect's
+   * flush: what this throws there is reported to stderr by the effect scope, with
+   * the exit code set, and not raised.
    */
   onError?: (error: unknown) => void;
   /**
@@ -1436,10 +1438,11 @@ export function render(component: () => Element, opts: RenderOptions = {}): Rend
       untrack(settle);
     } catch (error) {
       if (failed) {
-        // what `onError` threw while `fail()` reported, on its way out of an
-        // effect's flush: the renderer has already failed, and handing this to
-        // `fail()` again would return early and drop it in silence. Raised from
-        // the frame instead, over a screen that is already back
+        // what `onError` threw while `fail()` reported, on its way out of the
+        // frame: the renderer has already failed, and handing this to `fail()`
+        // again would return early and drop it in silence. Raised from the frame
+        // instead, over a screen that is already back. An effect's flush is not
+        // a way here since SIG-660: the scope reports what its handler threw
         throw error;
       }
       fail(error);
